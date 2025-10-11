@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&family=Poppins:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <script>
+      console.log('🔧 Pre-load script running...');
+      // Prevent flash of wrong theme
+      (function () {
+        try {
+          const stored = localStorage.getItem('theme-storage');
+          console.log('💾 Found in localStorage:', stored);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            console.log('📦 Parsed localStorage:', parsed);
+            if (parsed.state && parsed.state.theme === 'dark') {
+              console.log('🌙 Applying dark theme on page load');
+              document.documentElement.classList.add('dark');
+            } else {
+              console.log('☀️ Applying light theme on page load');
+              document.documentElement.classList.add('light');
+            }
+          } else {
+            console.log('🆕 No theme found, using light as default');
+            document.documentElement.classList.add('light');
+          }
+        } catch (e) {
+          console.error('❌ Error loading theme from localStorage:', e);
+          document.documentElement.classList.add('light');
+        }
+      })();
+    </script>
+
+    <title>Vite + React + TS + Theme Switcher</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
