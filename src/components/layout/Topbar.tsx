@@ -1,26 +1,32 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../constants/routes';
-import ConnectWalletModal from '../../modules/wallet/ConnectWalletModal';
-import { useWalletStore } from '../../modules/wallet/store.ts/walletStore';
+import { ConnectWalletButton } from '../../modules/walletconnect/components/ConnectWalletButton';
+import NetworkSwitch from '../../modules/walletconnect/components/NetworkSwitch';
+import { WalletType } from '../../modules/walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../modules/walletconnect/hooks/useWalletConnect';
 import ThemeToggle from '../../utils/ThemeToggle';
 
-// Interface for component props (empty as Topbar accepts no props)
 interface TopbarProps {}
 
-/**
- * Topbar component for navigation and wallet connection management.
- * Provides a toggle between Demo Wallet and WalletConnect options.
- */
 const Topbar: React.FC<TopbarProps> = () => {
-  const { isConnected, walletAddresses, disconnectWallet } = useWalletStore();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [isDemoWallet, setIsDemoWallet] = useState(true); // Toggle state for wallet type
+  const { connectedWallets, openModal, disconnectType } = useWalletConnect();
+  const [showInfoMessage, setShowInfoMessage] = useState(false);
   const navigate = useNavigate();
-  const hasRedirected = useRef(false); // Track if redirect has occurred
+  const hasRedirected = useRef(false);
 
-  // Redirect to dashboard on successful connection
+  const isConnected = Object.keys(connectedWallets).length > 0;
+  // const walletAddresses = Object.values(connectedWallets).map(wallet => wallet.address);
+  const firstWalletType = Object.keys(connectedWallets)[0] as WalletType | undefined;
+
+  const disconnectAll = useCallback(async () => {
+    const types = Object.keys(connectedWallets) as WalletType[];
+    for (const type of types) {
+      await disconnectType(type);
+    }
+  }, [connectedWallets, disconnectType]);
+
   useEffect(() => {
     if (isConnected && !hasRedirected.current) {
       hasRedirected.current = true;
@@ -28,17 +34,42 @@ const Topbar: React.FC<TopbarProps> = () => {
     }
   }, [isConnected, navigate]);
 
-  // Handle wallet disconnection
-  const handleDisconnect = () => {
-    disconnectWallet();
+  useEffect(() => {
+    if (isConnected && Object.keys(connectedWallets).length === 1) {
+      setShowInfoMessage(true);
+    }
+  }, [isConnected, connectedWallets]);
+
+  const handleDisconnectAll = async () => {
+    await disconnectAll();
     hasRedirected.current = false;
-    navigate(ROUTES.HOME);
+    setShowInfoMessage(false);
+    if (isConnected) {
+      navigate(ROUTES.HOME);
+    }
   };
 
-  // Toggle between Demo Wallet and WalletConnect
-  const toggleWalletType = () => {
-    setIsDemoWallet(prev => !prev);
+  const handleAddMoreWallets = () => {
+    openModal();
+    setShowInfoMessage(false);
   };
+
+  const getWelcomeMessage = () => {
+    if (!firstWalletType) return '';
+
+    switch (firstWalletType) {
+      case WalletType.EVM:
+        return 'EVM wallet connected successfully! You can now use EVM and DYDX chain features. Connect to the DYDX chain for full access to DeFi tools and trading.';
+      case WalletType.COSMOS:
+        return 'Cosmos wallet connected! Explore Cosmos ecosystem features and IBC transfers. Add more wallets for cross-chain functionality.';
+      case WalletType.STELLAR:
+        return 'Stellar wallet connected! Use Stellar for fast, low-cost payments and asset transfers. Enhance your setup by adding EVM or Cosmos wallets.';
+      default:
+        return 'Wallet connected successfully! Manage your connections and add more wallets to unlock additional features.';
+    }
+  };
+
+  const welcomeMessage = getWelcomeMessage();
 
   return (
     <>
@@ -47,42 +78,51 @@ const Topbar: React.FC<TopbarProps> = () => {
 
         <div className="flex items-center gap-4">
           <ThemeToggle />
+          <NetworkSwitch />
           {isConnected ? (
             <div className="flex items-center gap-2">
-              <span className="text-sm font-mono text-[var(--color-text-primary)] hidden sm:block">
+              {/* <span className="text-sm font-mono text-[var(--color-text-primary)] hidden sm:block">
                 {walletAddresses[0]?.slice(0, 6)}...
                 {walletAddresses[0]?.slice(-4)}
-              </span>
+              </span> */}
+              <ConnectWalletButton />
               <button
-                onClick={handleDisconnect}
+                onClick={handleDisconnectAll}
                 className="px-3 py-1 rounded-sm bg-[var(--color-danger)] text-white text-sm hover:opacity-90 transition"
               >
-                Disconnect
+                Disconnect All
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleWalletType}
-                className="px-3 py-1 rounded-sm bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-sm hover:opacity-90 transition"
-              >
-                {isDemoWallet ? 'Use WalletConnect' : 'Use Demo Wallet'}
-              </button>
-              {isDemoWallet ? (
-                <button
-                  onClick={() => setModalOpen(true)}
-                  className="px-3 py-1 rounded-sm bg-[var(--color-brand-primary)] text-white text-sm hover:opacity-90 transition"
-                >
-                  Demo Wallet
-                </button>
-              ) : (
-                <></>
-              )}
-            </div>
+            <ConnectWalletButton />
           )}
         </div>
       </header>
-      <ConnectWalletModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+
+      {showInfoMessage && welcomeMessage && (
+        <div className="bg-blue-50 border-b border-blue-200 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-2 flex-1">
+            <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+              <span className="text-white text-xs font-bold">i</span>
+            </div>
+            <span className="text-sm text-blue-800">{welcomeMessage}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleAddMoreWallets}
+              className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition"
+            >
+              Add More Wallets
+            </button>
+            <button
+              onClick={() => setShowInfoMessage(false)}
+              className="text-blue-600 text-sm hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 };

@@ -1,24 +1,26 @@
-// import CryptoHero from '../components/home/CryptoHero';
 import HeroComponent from '../components/home/HeroComponent';
-import { ConnectWalletButton } from '../modules/walletconnect/components/ConnectWalletButton';
-// import Topbar from '../components/layout/Topbar';
-// import MultiWalletConnector from '../modules/walletconnect/components/MultiWalletConnector';
-import { WalletListModal } from '../modules/walletconnect/components/WalletListModal';
+import Topbar from '../components/layout/Topbar';
+
+// import NetworkSwitch from '../modules/walletconnect/components/NetworkSwitch';
+// import { useWalletConnect } from '../modules/walletconnect/hooks/useWalletConnect';
 
 const Home = () => {
+  // const { connectedWallets, getNetwork } = useWalletConnect();
   return (
     <div className="flex flex-col min-h-screen bg-primary">
-      <header className="py-6 px-8 flex justify-between items-center">
-        <ConnectWalletButton />
-      </header>
-
-      <WalletListModal />
-
-      {/* <WalletConTopbar /> */}
-      {/* <Topbar /> */}
-      {/* <MultiWalletConnector /> */}
+      <div>
+        {/* <div>Current Network: {getNetwork()}</div>
+        <div>
+          Connected Wallets:
+          {Object.entries(connectedWallets).map(([type, wallet]) => (
+            <div key={type}>
+              {type}: {wallet.address} (Chain ID: {wallet.chainId})
+            </div>
+          ))}
+        </div> */}
+      </div>
+      <Topbar />
       <HeroComponent />
-      {/* <CryptoHero /> */}
     </div>
   );
 };

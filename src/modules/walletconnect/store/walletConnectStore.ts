@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { type NetworkType } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
 import { walletService } from '../services/walletService';
 
@@ -12,6 +13,7 @@ export interface ConnectedWallet {
 export interface WalletState {
   connectedWallets: Partial<Record<WalletType, ConnectedWallet>>;
   isModalOpen: boolean;
+  network: NetworkType;
 }
 
 interface WalletActions {
@@ -24,11 +26,13 @@ interface WalletActions {
   disconnectType: (type: WalletType) => Promise<void>;
   openModal: () => void;
   closeModal: () => void;
+  setNetwork: (network: NetworkType) => Promise<void>;
 }
 
 export const useWalletStore = create<WalletState & WalletActions>(set => ({
   connectedWallets: {},
   isModalOpen: false,
+  network: walletService.getNetwork(),
 
   setConnected: (type, walletId, address, chainId) =>
     set(state => ({
@@ -49,7 +53,6 @@ export const useWalletStore = create<WalletState & WalletActions>(set => ({
       });
     } catch (error) {
       console.error('Error disconnecting wallet:', error);
-      // Still remove from state even if disconnect fails
       set(state => {
         const newConnectedWallets = { ...state.connectedWallets };
         delete newConnectedWallets[type];
@@ -60,4 +63,14 @@ export const useWalletStore = create<WalletState & WalletActions>(set => ({
 
   openModal: () => set({ isModalOpen: true }),
   closeModal: () => set({ isModalOpen: false }),
+
+  setNetwork: async network => {
+    try {
+      await walletService.setNetwork(network);
+      set({ network });
+    } catch (error) {
+      console.error('Error setting network:', error);
+      throw error;
+    }
+  },
 }));

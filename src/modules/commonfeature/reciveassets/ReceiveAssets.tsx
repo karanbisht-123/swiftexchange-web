@@ -1,26 +1,25 @@
 import { Copy, Share2 } from 'lucide-react';
-import React from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useReceiveAssets } from '../hook/useReceiveassets';
 
-interface ReceiveCryptoProps {
-  onClose?: () => void;
-}
-
-const ReceiveAssets: React.FC<ReceiveCryptoProps> = ({ onClose }) => {
+const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
   const {
+    assets,
     selectedAssetValue,
     setSelectedAssetValue,
     currentAsset,
     walletAddress,
     isAddressValid,
     isConnected,
-    assets,
+    isWalletTypeConnected,
     handleCopy,
     handleShare,
     qrCanvasRef,
   } = useReceiveAssets();
+
+  const { openModal } = useWalletConnect();
 
   return (
     <PageLayout
@@ -33,15 +32,21 @@ const ReceiveAssets: React.FC<ReceiveCryptoProps> = ({ onClose }) => {
     >
       <div className="space-y-6">
         {!isConnected && (
-          <div className="bg-warning-light border-warning p-4 text-sm text-warning-dark animate-fade-in">
+          <div className="bg-warning-light border-warning p-4 text-sm text-warning-dark animate-fade-in rounded-lg border">
             <p className="font-semibold">Wallet Not Connected</p>
-            <p>Please connect your wallet to view your receiving addresses.</p>
+            <p className="mb-3">Please connect your wallet to view your receiving addresses.</p>
+            <button
+              onClick={openModal}
+              className="btn btn-primary px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              Connect Wallet
+            </button>
           </div>
         )}
 
         {isConnected && (
           <>
-            <div className="card  p-4">
+            <div className="card p-4">
               <label htmlFor="asset" className="block text-sm font-semibold text-text-primary mb-2">
                 Select Cryptocurrency
               </label>
@@ -82,7 +87,22 @@ const ReceiveAssets: React.FC<ReceiveCryptoProps> = ({ onClose }) => {
               </div>
             </div>
 
-            {walletAddress && !isAddressValid && (
+            {!isWalletTypeConnected && (
+              <div className="card card-bordered bg-warning-light border-warning p-4 text-sm text-warning-dark animate-fade-in">
+                <p className="font-semibold">Wallet Type Not Connected</p>
+                <p className="mb-3">
+                  Please connect a {currentAsset?.network} wallet to receive {currentAsset?.value}.
+                </p>
+                <button
+                  onClick={openModal}
+                  className="btn btn-primary px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Connect {currentAsset?.network} Wallet
+                </button>
+              </div>
+            )}
+
+            {isWalletTypeConnected && walletAddress && !isAddressValid && (
               <div className="card card-bordered bg-danger-light border-danger p-4 text-sm text-danger-dark animate-fade-in">
                 <p className="font-semibold">Invalid Address</p>
                 <p>
@@ -108,7 +128,7 @@ const ReceiveAssets: React.FC<ReceiveCryptoProps> = ({ onClose }) => {
                 <div className="w-56 h-56 bg-bg-card p-4 rounded-lg border border-dashed border-border mb-6 flex items-center justify-center animate-fade-in">
                   <p className="text-text-muted text-center text-sm">
                     {!walletAddress
-                      ? 'No address available'
+                      ? `Connect ${currentAsset?.network} wallet to view address`
                       : 'Invalid address for selected network'}
                   </p>
                 </div>
@@ -128,7 +148,7 @@ const ReceiveAssets: React.FC<ReceiveCryptoProps> = ({ onClose }) => {
                   {walletAddress || `No ${currentAsset?.network} address available`}
                   <button
                     id="copy-btn-address"
-                    onClick={() => handleCopy(walletAddress)}
+                    onClick={() => handleCopy()}
                     className="btn btn-ghost absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-bg-overlay transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label="Copy wallet address"
                     disabled={!walletAddress || !isAddressValid}
@@ -140,7 +160,7 @@ const ReceiveAssets: React.FC<ReceiveCryptoProps> = ({ onClose }) => {
 
               <div className="flex justify-center space-x-6">
                 <button
-                  onClick={() => handleCopy(walletAddress)}
+                  onClick={() => handleCopy()}
                   className="btn btn-ghost flex flex-col items-center space-y-1 text-text-primary hover:text-text-accent transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                   disabled={!walletAddress || !isAddressValid}
                 >

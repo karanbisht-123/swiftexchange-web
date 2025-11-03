@@ -3,140 +3,121 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 import { validateAddress } from '../../../validator/AddressValidator';
-import { useWalletStore } from '../../wallet/store.ts/walletStore';
-
-const assets = [
-  {
-    value: 'XLM',
-    label: 'Stellar (XLM)',
-    logo: 'https://coin-images.coingecko.com/coins/images/100/large/fmpFRHHQ_400x400.jpg?1735231350',
-    network: 'Stellar',
-    chainId: 'stellar:testnet',
-    addressType: 'stellar',
-  },
-  {
-    value: 'ETH',
-    label: 'Ethereum (ETH)',
-    logo: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628',
-    network: 'Ethereum Sepolia',
-    chainId: '11155111',
-    addressType: 'evm',
-  },
-  {
-    value: 'BNB',
-    label: 'BNB Smart Chain (BNB)',
-    logo: 'https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png?1696501970',
-    network: 'BSC Testnet',
-    chainId: '97',
-    addressType: 'evm',
-  },
-];
+import {
+  getCosmosChains,
+  getEVMChains,
+  getNetwork,
+  getStellarConfig,
+} from '../../walletconnect/config/chains';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import {
+  type ReceiveAsset,
+  assetFromCosmos,
+  assetFromEVM,
+  assetFromStellar,
+} from '../../walletconnect/utils/assetFromChain';
 
 export const useReceiveAssets = () => {
-  const { walletAddresses, isConnected } = useWalletStore();
-  const [selectedAssetValue, setSelectedAssetValue] = useState('XLM');
-  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const { connectedWallets } = useWalletConnect();
+  const currentNetwork = getNetwork();
+  const [selectedAssetValue, setSelectedAssetValue] = useState<string>('');
+
+  const assets: ReceiveAsset[] = useMemo(() => {
+    const evm = getEVMChains().map(assetFromEVM);
+    const cosmos = getCosmosChains().map(assetFromCosmos);
+    const stellar = [assetFromStellar(getStellarConfig())];
+    return [...evm, ...cosmos, ...stellar];
+  }, [currentNetwork]);
+
+  useEffect(() => {
+    if (assets.length && !selectedAssetValue) {
+      setSelectedAssetValue(assets[0].value);
+    }
+  }, [assets, selectedAssetValue]);
 
   const currentAsset = useMemo(
     () => assets.find(a => a.value === selectedAssetValue),
-    [selectedAssetValue]
+    [assets, selectedAssetValue]
   );
 
+  console.log('Current Asset:', currentAsset);
   const walletAddress = useMemo(() => {
-    if (!isConnected || !currentAsset) return '';
-    if (!walletAddresses.length) return '';
+    if (!currentAsset) return '';
+    const wallet = connectedWallets[currentAsset.walletType];
+    if (!wallet) return '';
 
-    if (currentAsset.addressType === 'stellar') {
-      return walletAddresses.find(addr => validateAddress(addr, 'Stellar')) || '';
+    if (currentAsset.walletType === 'evm') {
+      return wallet.chainId.toString() === currentAsset.chainId.toString() ? wallet.address : '';
     }
-    return walletAddresses.find(addr => validateAddress(addr, currentAsset.network)) || '';
-  }, [walletAddresses, isConnected, currentAsset]);
+
+    return wallet.address;
+  }, [connectedWallets, currentAsset]);
 
   const isAddressValid = useMemo(() => {
-    if (!walletAddress || !currentAsset) return false;
-    return validateAddress(walletAddress, currentAsset.network);
+    console.log('Debug: walletAddress:', walletAddress);
+    console.log('Debug: currentAsset:', currentAsset);
+
+    const hasWalletAddress = !!walletAddress;
+    const hasCurrentAsset = !!currentAsset;
+    const addressValidationResult =
+      hasWalletAddress && hasCurrentAsset
+        ? validateAddress(walletAddress, currentAsset.network)
+        : false;
+
+    console.log('Debug: hasWalletAddress:', hasWalletAddress);
+    console.log('Debug: hasCurrentAsset:', hasCurrentAsset);
+    console.log('Debug: validateAddress result:', addressValidationResult);
+
+    const valid = hasWalletAddress && hasCurrentAsset && addressValidationResult;
+    console.log('Debug: final isAddressValid:', valid);
+
+    return valid;
   }, [walletAddress, currentAsset]);
 
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     if (walletAddress && qrCanvasRef.current && isAddressValid) {
       QRCode.toCanvas(
         qrCanvasRef.current,
         walletAddress,
-        {
-          width: 192,
-          margin: 2,
-          color: { dark: '#000000', light: '#ffffff' },
-        },
-        error => {
-          if (error) {
-            console.error('QR Code generation failed:', error);
-            alert('Failed to generate QR code.');
-          }
-        }
+        { width: 192, margin: 2, color: { dark: '#000', light: '#fff' } },
+        err => err && console.error(err)
       );
     }
   }, [walletAddress, isAddressValid]);
 
-  const handleCopy = useCallback(
-    async (textToCopy: string) => {
-      if (!textToCopy || !isAddressValid) return;
-
-      try {
-        await navigator.clipboard.writeText(textToCopy);
-        alert(`${currentAsset?.value} address copied to clipboard.`);
-      } catch (err) {
-        console.error('Failed to copy address:', err);
-        alert('Failed to copy wallet address.');
-      }
-    },
-    [currentAsset, isAddressValid]
-  );
+  const handleCopy = useCallback(async () => {
+    if (!walletAddress || !isAddressValid) return;
+    await navigator.clipboard.writeText(walletAddress);
+    alert(`${currentAsset?.value} address copied!`);
+  }, [walletAddress, isAddressValid, currentAsset]);
 
   const handleShare = useCallback(() => {
     if (!walletAddress || !isAddressValid) return;
+    const text = `Send ${currentAsset?.value} to my wallet:
 
-    const shareText = `Send ${currentAsset?.value} to my wallet:
-    
 Address: ${walletAddress}
-
 Network: ${currentAsset?.network}
 
-⚠️ IMPORTANT: Only send ${currentAsset?.value} tokens on ${currentAsset?.network} network to this address. Sending other tokens or using wrong network may result in permanent loss.`;
+Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
 
     if (navigator.share) {
-      navigator
-        .share({
-          title: `My ${currentAsset?.value} Wallet Address`,
-          text: shareText,
-        })
-        .then(() => {
-          alert('Wallet address shared successfully.');
-        })
-        .catch(error => {
-          console.error('Share failed', error);
-          alert('Failed to share wallet address.');
-        });
+      navigator.share({ title: `My ${currentAsset?.value} address`, text });
     } else {
-      navigator.clipboard
-        .writeText(shareText)
-        .then(() => {
-          alert('Wallet details copied to clipboard.');
-        })
-        .catch(err => {
-          console.error('Fallback copy failed:', err);
-          alert('Please manually copy the address.');
-        });
+      navigator.clipboard.writeText(text);
+      alert('Address + network copied to clipboard.');
     }
-  }, [currentAsset, walletAddress, isAddressValid]);
+  }, [walletAddress, isAddressValid, currentAsset]);
 
   return {
+    assets,
     selectedAssetValue,
     setSelectedAssetValue,
     currentAsset,
     walletAddress,
     isAddressValid,
-    isConnected,
-    assets,
+    isConnected: Object.keys(connectedWallets).length > 0,
+    isWalletTypeConnected: !!currentAsset && !!connectedWallets[currentAsset.walletType],
     handleCopy,
     handleShare,
     qrCanvasRef,

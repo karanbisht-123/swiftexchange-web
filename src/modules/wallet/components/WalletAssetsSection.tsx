@@ -71,61 +71,6 @@ const WalletAssetsSection: FC<AssetsSectionProps> = ({
       balance: 10.5,
       volume: 8983246094,
     },
-
-    {
-      id: 'solana',
-      symbol: 'sol',
-      name: 'Solana',
-      image: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756',
-      current_price: 193.83,
-      price_change_percentage_24h: 3.2384,
-      balance: 10.5,
-      volume: 8983246094,
-    },
-
-    {
-      id: 'solana',
-      symbol: 'sol',
-      name: 'Solana',
-      image: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756',
-      current_price: 193.83,
-      price_change_percentage_24h: 3.2384,
-      balance: 10.5,
-      volume: 8983246094,
-    },
-
-    {
-      id: 'solana',
-      symbol: 'sol',
-      name: 'Solana',
-      image: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756',
-      current_price: 193.83,
-      price_change_percentage_24h: 3.2384,
-      balance: 10.5,
-      volume: 8983246094,
-    },
-
-    {
-      id: 'solana',
-      symbol: 'sol',
-      name: 'Solana',
-      image: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756',
-      current_price: 193.83,
-      price_change_percentage_24h: 3.2384,
-      balance: 10.5,
-      volume: 8983246094,
-    },
-
-    {
-      id: 'solana',
-      symbol: 'sol',
-      name: 'Solana',
-      image: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756',
-      current_price: 193.83,
-      price_change_percentage_24h: 3.2384,
-      balance: 10.5,
-      volume: 8983246094,
-    },
   ];
 
   const assets = Array.isArray(propAssets) && propAssets.length > 0 ? propAssets : defaultAssets;
@@ -308,7 +253,6 @@ const WalletAssetsSection: FC<AssetsSectionProps> = ({
                   </div>
                 </div>
 
-                {/* Actions (desktop only) */}
                 <div className="hidden sm:flex justify-end gap-2">
                   <button onClick={() => handleTradeClick(asset)} className="btn-primary btn-sm">
                     Trade
@@ -323,7 +267,6 @@ const WalletAssetsSection: FC<AssetsSectionProps> = ({
         })}
       </div>
 
-      {/* Trade Modal */}
       {selectedAsset && (
         <TradeAssetModal
           isOpen={tradeModalOpen}

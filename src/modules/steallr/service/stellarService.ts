@@ -19,6 +19,7 @@ export async function getStellarBalance(networkKey: string, from: string): Promi
   try {
     const account = await server.loadAccount(from);
     const xlmBalance = account.balances.find(b => b.asset_type === 'native')?.balance ?? '0';
+    console.log(xlmBalance, 'hii i am blance');
     return xlmBalance;
   } catch (error) {
     console.error('Failed to fetch Stellar balance:', error);

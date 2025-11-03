@@ -1,23 +1,13 @@
-import { AlertCircle, CheckCircle2, Copy, ExternalLink, Info, Loader2 } from 'lucide-react';
-import React from 'react';
+import { AlertCircle, Copy, Info, Loader2 } from 'lucide-react';
+import React, { useCallback, useMemo } from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
-// import type { EVMSendTransaction } from "../../../types/evm/evmTransaction.types";
-// import { type StellarSendTransaction } from "../../steallr/types/stellarTransaction.types";
-import { NETWORK_CONFIGS } from '../../../config';
+import TransactionSuccess from '../../transction/component/TransactionSuccess';
 import { useSendAsset } from '../hook/useSendassets';
 
 interface SendCryptoProps {
   onBack?: () => void;
 }
-
-// interface TransactionState {
-//   transaction: EVMSendTransaction | StellarSendTransaction | null;
-//   signedTransaction: string | null;
-//   txHash: string | null;
-//   step: "form" | "review" | "signing" | "broadcasting" | "success" | "error";
-//   error: string | null;
-// }
 
 const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   const {
@@ -34,9 +24,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     transactionState,
     isEstimatingFees,
     estimatedFees,
-    // notifications,
-    // addNotification,
-    // removeNotification,
     currentAsset,
     senderAddress,
     handleMaxClick,
@@ -49,9 +36,87 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     assets,
   } = useSendAsset(onBack);
 
-  const renderTransactionReview = () => {
-    const { transaction } = transactionState;
-    if (!transaction || !currentAsset) return null;
+  // Memoized handlers to prevent re-renders
+  const handleRecipientChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setRecipientAddress(e.target.value);
+    },
+    [setRecipientAddress]
+  );
+
+  const handleAmountChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setAmount(e.target.value);
+    },
+    [setAmount]
+  );
+
+  const handleMemoChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setMemo(e.target.value);
+    },
+    [setMemo]
+  );
+
+  const handleAssetChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setSelectedAssetValue(e.target.value);
+    },
+    [setSelectedAssetValue]
+  );
+
+  const handleCopySender = useCallback(() => {
+    copyToClipboard(senderAddress || '', 'Sender address');
+  }, [senderAddress, copyToClipboard]);
+
+  const handleCopyRecipient = useCallback(() => {
+    copyToClipboard(recipientAddress, 'Recipient address');
+  }, [recipientAddress, copyToClipboard]);
+
+  const handleCopyTxHash = useCallback(
+    (hash: string) => {
+      copyToClipboard(hash, 'Transaction hash');
+    },
+    [copyToClipboard]
+  );
+
+  // Memoized computed values
+  const totalAmount = useMemo(() => {
+    if (!amount || !currentAsset) return 0;
+    return (
+      parseFloat(amount) +
+      (estimatedFees ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee)
+    );
+  }, [amount, estimatedFees, currentAsset]);
+
+  const isFormValid = useMemo(() => {
+    return (
+      !formError &&
+      senderAddress &&
+      !isEstimatingFees &&
+      amount &&
+      parseFloat(amount) > 0 &&
+      !isFetchingBalance
+    );
+  }, [formError, senderAddress, isEstimatingFees, amount, isFetchingBalance]);
+
+  const explorerUrl = useMemo(() => {
+    if (!currentAsset?.chainId || !transactionState.txHash) return '';
+
+    const baseUrls: Record<string, string> = {
+      Ethereum: 'https://etherscan.io',
+      Sepolia: 'https://sepolia.etherscan.io',
+      Polygon: 'https://polygonscan.com',
+      'Polygon Amoy': 'https://amoy.polygonscan.com',
+    };
+
+    const baseUrl = baseUrls[currentAsset.network] || '';
+    return baseUrl ? `${baseUrl}/tx/${transactionState.txHash}` : '';
+  }, [currentAsset, transactionState.txHash]);
+
+  // Memoized components
+  const TransactionReview = useMemo(() => {
+    if (!currentAsset || !recipientAddress || !amount) return null;
 
     return (
       <div className="space-y-4 max-w-2xl mx-auto">
@@ -71,12 +136,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <label className="block text-sm font-medium text-secondary mb-2">From</label>
               <div className="flex items-center gap-2 bg-tertiary p-3 rounded-lg border border-color">
                 <code className="text-xs font-mono text-primary break-all flex-1">
-                  {transaction.from}
+                  {senderAddress}
                 </code>
-                <button
-                  onClick={() => copyToClipboard(transaction.from, 'Sender address')}
-                  className="btn-ghost p-2 flex-shrink-0"
-                >
+                <button onClick={handleCopySender} className="btn-ghost p-2 flex-shrink-0">
                   <Copy className="w-4 h-4" />
                 </button>
               </div>
@@ -86,12 +148,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <label className="block text-sm font-medium text-secondary mb-2">To</label>
               <div className="flex items-center gap-2 bg-tertiary p-3 rounded-lg border border-color">
                 <code className="text-xs font-mono text-primary break-all flex-1">
-                  {transaction.to}
+                  {recipientAddress}
                 </code>
-                <button
-                  onClick={() => copyToClipboard(transaction.to, 'Recipient address')}
-                  className="btn-ghost p-2 flex-shrink-0"
-                >
+                <button onClick={handleCopyRecipient} className="btn-ghost p-2 flex-shrink-0">
                   <Copy className="w-4 h-4" />
                 </button>
               </div>
@@ -102,21 +161,21 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             <div>
               <label className="block text-sm font-medium text-secondary mb-2">Amount</label>
               <div className="text-lg font-bold text-primary">
-                {transaction.amount} {transaction.asset}
+                {amount} {currentAsset.value}
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-secondary mb-2">Network</label>
-              <div className="text-sm text-primary font-medium">{transaction.network}</div>
+              <div className="text-sm text-primary font-medium">{currentAsset.network}</div>
             </div>
           </div>
 
-          {transaction.memo && (
+          {memo && currentAsset.type === 'stellar' && (
             <div>
               <label className="block text-sm font-medium text-secondary mb-2">Memo</label>
               <div className="text-sm text-primary bg-tertiary p-3 rounded-lg border border-color">
-                {transaction.memo}
+                {memo}
               </div>
             </div>
           )}
@@ -170,10 +229,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             <div className="flex justify-between items-center">
               <span className="text-base font-semibold text-secondary">Total Cost</span>
               <span className="text-xl font-bold text-primary">
-                {(
-                  parseFloat(transaction.amount) +
-                  (estimatedFees ? parseFloat(estimatedFees.totalCost) : 0)
-                ).toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals)}{' '}
+                {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals)}{' '}
                 {currentAsset.value}
               </span>
             </div>
@@ -190,9 +246,21 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         </div>
       </div>
     );
-  };
+  }, [
+    currentAsset,
+    recipientAddress,
+    amount,
+    senderAddress,
+    memo,
+    estimatedFees,
+    totalAmount,
+    handleCopySender,
+    handleCopyRecipient,
+    handleBackToForm,
+    handleConfirmTransaction,
+  ]);
 
-  const renderTransactionStatus = () => {
+  const TransactionStatusComponent = useMemo(() => {
     const { step, error, txHash } = transactionState;
 
     if (step === 'signing') {
@@ -200,66 +268,21 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         <div className="card text-center py-12 max-w-md mx-auto">
           <Loader2 className="w-16 h-16 animate-spin text-brand mb-6 mx-auto" />
           <h3 className="heading-3 mb-2">Signing Transaction</h3>
-          <p className="text-secondary">Securely signing transaction with your private key...</p>
+          <p className="text-secondary">Please approve the transaction in your wallet...</p>
         </div>
       );
     }
 
-    if (step === 'broadcasting') {
+    if (step === 'success') {
       return (
-        <div className="card text-center py-12 max-w-md mx-auto">
-          <Loader2 className="w-16 h-16 animate-spin text-brand mb-6 mx-auto" />
-          <h3 className="heading-3 mb-2">Broadcasting Transaction</h3>
-          <p className="text-secondary">Submitting transaction to the blockchain network...</p>
-        </div>
-      );
-    }
-
-    if (step === 'success' && txHash) {
-      const explorerUrl = currentAsset
-        ? NETWORK_CONFIGS[currentAsset.networkKey as keyof typeof NETWORK_CONFIGS]?.explorerUrl
-        : '';
-
-      return (
-        <div className="card text-center py-12 max-w-md mx-auto">
-          <div className="w-16 h-16 bg-success-bg rounded-full flex items-center justify-center mb-6 mx-auto">
-            <CheckCircle2 className="w-10 h-10 text-success" />
-          </div>
-          <h3 className="heading-3 mb-2 text-success">Transaction Successful!</h3>
-          <p className="text-secondary mb-6">
-            Your transaction has been broadcasted to the network.
-          </p>
-
-          <div className="card bg-success-bg border border-color mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-secondary">Transaction Hash</span>
-              <button
-                onClick={() => copyToClipboard(txHash, 'Transaction hash')}
-                className="btn-ghost p-1"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-            </div>
-            <code className="text-xs font-mono text-primary break-all block">{txHash}</code>
-          </div>
-
-          <div className="space-y-3">
-            {explorerUrl && (
-              <a
-                href={`${explorerUrl}/tx/${txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-primary w-full flex items-center justify-center gap-2"
-              >
-                View on Explorer
-                <ExternalLink className="w-4 h-4" />
-              </a>
-            )}
-            <button onClick={handleBackToForm} className="btn-secondary w-full">
-              Send Another Transaction
-            </button>
-          </div>
-        </div>
+        <TransactionSuccess
+          txHash={txHash}
+          explorerUrl={explorerUrl}
+          assetType={currentAsset?.type}
+          onCopyHash={handleCopyTxHash}
+          onClose={onBack || handleBackToForm}
+          onSendAnother={handleBackToForm}
+        />
       );
     }
 
@@ -286,12 +309,19 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     }
 
     return null;
-  };
+  }, [
+    transactionState,
+    explorerUrl,
+    currentAsset,
+    handleCopyTxHash,
+    onBack,
+    handleBackToForm,
+    handleRetryTransaction,
+  ]);
 
   const renderForm = () => {
     return (
       <div className="space-y-4 max-w-2xl mx-auto">
-        {/* Sender Address Display */}
         {senderAddress && (
           <div className="card bg-tertiary border border-color py-3">
             <div className="flex items-center justify-between gap-3">
@@ -315,7 +345,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               </div>
               <button
                 type="button"
-                onClick={() => copyToClipboard(senderAddress, 'Sender address')}
+                onClick={handleCopySender}
                 className="btn-ghost p-2 flex-shrink-0"
               >
                 <Copy className="w-4 h-4" />
@@ -324,7 +354,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* Recipient Address */}
         <div className="card">
           <label
             htmlFor="recipientAddress"
@@ -343,12 +372,11 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             }`}
             placeholder={currentAsset?.type === 'stellar' ? 'G...' : '0x...'}
             value={recipientAddress}
-            onChange={e => setRecipientAddress(e.target.value)}
+            onChange={handleRecipientChange}
             required
           />
         </div>
 
-        {/* Amount and Asset */}
         <div className="card">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -368,7 +396,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   }`}
                   placeholder="0.0"
                   value={amount}
-                  onChange={e => setAmount(e.target.value)}
+                  onChange={handleAmountChange}
                   required
                 />
                 <button
@@ -390,7 +418,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   id="asset"
                   className="input appearance-none pr-12"
                   value={selectedAssetValue}
-                  onChange={e => setSelectedAssetValue(e.target.value)}
+                  onChange={handleAssetChange}
                 >
                   {assets.map(assetOption => (
                     <option key={assetOption.value} value={assetOption.value}>
@@ -415,7 +443,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         </div>
 
-        {/* Memo field (Optional, only for Stellar) */}
         {currentAsset?.type === 'stellar' && (
           <div className="card">
             <label htmlFor="memo" className="block text-sm font-semibold text-primary mb-3">
@@ -430,7 +457,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               className="input"
               placeholder="Enter memo/tag (optional)"
               value={memo}
-              onChange={e => setMemo(e.target.value)}
+              onChange={handleMemoChange}
             />
             <p className="text-xs text-muted mt-2">
               Some exchanges require a memo for deposits. Check with the recipient.
@@ -438,11 +465,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* Fee Estimation */}
         {parseFloat(amount) > 0 && currentAsset && (
           <div className="card rounded-xl p-4">
             <div className="divide-y divide-dashed divide-gray-300 text-sm">
-              {/* Amount */}
               <div className="flex justify-between items-center py-2">
                 <span className="text-secondary">Amount</span>
                 <span className="font-semibold text-primary">
@@ -453,32 +478,40 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                 </span>
               </div>
 
-              {/* Network Fee */}
               <div className="flex justify-between items-center py-2">
                 <span className="text-secondary">Network Fee</span>
                 <div className="flex items-center gap-2">
                   {isEstimatingFees ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <span className="font-semibold text-primary">
-                      {estimatedFees?.totalCost ||
-                        currentAsset.baseFee.toFixed(
-                          currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-                        )}{' '}
-                      {currentAsset.value}
-                    </span>
+                    <div className="text-right">
+                      <span className="font-semibold text-primary">
+                        {estimatedFees?.totalCost ||
+                          currentAsset.baseFee.toFixed(
+                            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+                          )}{' '}
+                        {currentAsset.value}
+                      </span>
+                      {estimatedFees?.isEstimated && (
+                        <span className="block text-xs text-yellow-600">~Estimated</span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Total */}
+              {estimatedFees?.error && (
+                <div className="col-span-2 mt-2">
+                  <div className="text-xs text-yellow-600 bg-yellow-50 p-2 rounded border border-yellow-200">
+                    {estimatedFees.error}
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-between items-center py-2">
                 <span className="text-base font-bold text-primary">Total</span>
                 <span className="text-lg font-bold text-primary">
-                  {(
-                    parseFloat(amount) +
-                    (estimatedFees ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee)
-                  ).toLocaleString(undefined, {
+                  {totalAmount.toLocaleString(undefined, {
                     maximumFractionDigits: currentAsset.decimals > 10 ? 8 : currentAsset.decimals,
                   })}{' '}
                   {currentAsset.value}
@@ -488,7 +521,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* Error Display */}
         {formError && (
           <div className="card bg-danger-bg border-2 border-red-300">
             <div className="flex items-start gap-3">
@@ -498,41 +530,23 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* Info Message */}
         {!formError && senderAddress && (
           <div className="card bg-info-bg border border-color">
             <div className="flex items-start gap-3">
               <Info className="w-5 h-5 text-info flex-shrink-0 mt-0.5" />
               <p className="text-sm text-primary">
-                Transaction will be signed locally and broadcast to the{' '}
+                Transaction will be sent directly to your wallet for signing and broadcasting on the{' '}
                 <span className="font-semibold">{currentAsset?.network}</span> network.
               </p>
             </div>
           </div>
         )}
 
-        {/* Submit Button */}
         <button
           type="button"
           onClick={handleReviewTransaction}
-          disabled={
-            !!formError ||
-            !senderAddress ||
-            isEstimatingFees ||
-            !amount ||
-            parseFloat(amount) <= 0 ||
-            isFetchingBalance
-          }
-          className={`w-full btn-lg ${
-            !!formError ||
-            !senderAddress ||
-            isEstimatingFees ||
-            !amount ||
-            parseFloat(amount) <= 0 ||
-            isFetchingBalance
-              ? 'btn-secondary'
-              : 'btn-primary'
-          }`}
+          disabled={!isFormValid}
+          className={`w-full btn-lg ${isFormValid ? 'btn-primary' : 'btn-secondary'}`}
         >
           {isEstimatingFees ? (
             <span className="flex items-center justify-center gap-2">
@@ -559,12 +573,11 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           case 'form':
             return renderForm();
           case 'review':
-            return renderTransactionReview();
+            return TransactionReview;
           case 'signing':
-          case 'broadcasting':
           case 'success':
           case 'error':
-            return renderTransactionStatus();
+            return TransactionStatusComponent;
           default:
             return renderForm();
         }

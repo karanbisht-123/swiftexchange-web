@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 
+import { type NetworkType } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
 import { walletService } from '../services/walletService';
 import { useWalletStore } from '../store/walletConnectStore';
@@ -32,7 +33,7 @@ export const useWalletConnect = () => {
         closeModal();
       } catch (error) {
         console.error('Connection error:', error);
-        throw error; // Re-throw to let the component handle it
+        throw error;
       }
     },
     [setConnected, closeModal]
@@ -48,6 +49,19 @@ export const useWalletConnect = () => {
     [connectedWallets]
   );
 
+  const setNetwork = useCallback(async (network: NetworkType) => {
+    try {
+      await walletService.setNetwork(network);
+    } catch (error) {
+      console.error('Network switch error:', error);
+      throw error;
+    }
+  }, []);
+
+  const getNetwork = useCallback(() => {
+    return walletService.getNetwork();
+  }, []);
+
   return {
     connectedWallets,
     isModalOpen,
@@ -56,5 +70,7 @@ export const useWalletConnect = () => {
     openModal,
     closeModal,
     getProvider,
+    setNetwork,
+    getNetwork,
   };
 };

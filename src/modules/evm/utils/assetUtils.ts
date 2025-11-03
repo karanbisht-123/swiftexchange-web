@@ -36,7 +36,7 @@ export class AssetUtils {
         address: config.address,
         balance: parseFloat(balance),
         logoUri: config.logoUri,
-        isNative: false, // All tokens are wrapped (WETH, WBNB, WMATIC, USDC)
+        isNative: false,
       });
     }
 

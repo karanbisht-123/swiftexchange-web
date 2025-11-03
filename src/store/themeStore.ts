@@ -20,7 +20,7 @@ export const useThemeStore = create<ThemeState>()(
         document.documentElement.classList.remove(currentTheme);
         document.documentElement.classList.add(newTheme);
 
-        console.log(`🎨 Theme changed to ${newTheme}`);
+        console.log(`Theme changed to ${newTheme}`);
       },
 
       setTheme: theme => {
@@ -34,10 +34,9 @@ export const useThemeStore = create<ThemeState>()(
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => state => {
         if (state?.theme) {
-          // ✅ re-apply theme when store loads
           document.documentElement.classList.remove('light', 'dark');
           document.documentElement.classList.add(state.theme);
-          console.log('🔄 Theme rehydrated:', state.theme);
+          console.log('Theme rehydrated:', state.theme);
         }
       },
     }

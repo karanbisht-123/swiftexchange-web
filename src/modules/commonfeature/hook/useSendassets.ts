@@ -1,144 +1,181 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { type NetworkKey } from '../../../config/swapConfigs';
-import type {
-  EVMSendTransaction,
-  EVMTransactionOptions,
-} from '../../../types/evm/evmTransaction.types';
 import { validateAddress } from '../../../validator/AddressValidator';
-import {
-  estimateEVMFees,
-  getNativeBalance,
-  sendCryptoEVMBroadcast,
-  sendCryptoEVMBuild,
-  signEVMTransaction,
-} from '../../evm/service/evmService';
+import { estimateEVMFees, getNativeBalance } from '../../evm/service/evmService';
 import {
   estimateStellarFees,
   getStellarBalance,
-  sendCryptoStellarBroadcast,
   sendCryptoStellarBuild,
-  signStellarTransaction,
 } from '../../steallr/service/stellarService';
 import type {
   StellarSendTransaction,
   StellarTransactionOptions,
 } from '../../steallr/types/stellarTransaction.types';
-import { useWalletStore } from '../../wallet/store.ts/walletStore';
-
-interface Notification {
-  id: string;
-  type: 'info' | 'warning' | 'error' | 'success';
-  title: string;
-  message: string;
-  duration?: number;
-}
-
-type Transaction = EVMSendTransaction | StellarSendTransaction;
+import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
+import type { TransactionRequest } from '../../transction/router/transactionRouter';
+import {
+  getCosmosChains,
+  getEVMChains,
+  getNetwork,
+  getStellarConfig,
+} from '../../walletconnect/config/chains';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import {
+  type ReceiveAsset,
+  assetFromCosmos,
+  assetFromEVM,
+  assetFromStellar,
+} from '../../walletconnect/utils/assetFromChain';
 
 interface TransactionState {
-  transaction: Transaction | null;
-  signedTransaction: string | null;
   txHash: string | null;
-  step: 'form' | 'review' | 'signing' | 'broadcasting' | 'success' | 'error';
+  step: 'form' | 'review' | 'signing' | 'success' | 'error';
   error: string | null;
+  stellarTransaction?: StellarSendTransaction | null;
+}
+interface EnhancedReceiveAsset extends ReceiveAsset {
+  type: 'evm' | 'stellar' | 'cosmos';
+  networkKey: number | string;
+  decimals: number;
+  baseFee: number;
 }
 
-const assets = [
-  {
-    value: 'XLM',
-    label: 'Stellar (XLM)',
-    logo: 'https://coin-images.coingecko.com/coins/images/100/large/fmpFRHHQ_400x400.jpg?1735231350',
-    memoRequired: false,
-    memoType: 'Text',
-    network: 'Stellar',
-    networkKey: 'stellar',
-    type: 'stellar' as const,
-    feePerUnit: 0.00001,
-    baseFee: 0.00001,
-    chainId: 'stellar:testnet',
-    assetType: 'native',
-    assetIssuer: null,
-    decimals: 7,
-  },
-  {
-    value: 'ETH',
-    label: 'Ethereum (ETH)',
-    logo: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628',
-    memoRequired: false,
-    network: 'Ethereum Sepolia',
-    networkKey: 'sepolia',
-    type: 'evm' as const,
-    feePerUnit: 0.00000002,
-    baseFee: 0.002,
-    chainId: '11155111',
-    decimals: 18,
-  },
-  {
-    value: 'BNB',
-    label: 'BNB Chain Testnet (BNB)',
-    logo: 'https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png?1696501970',
-    memoRequired: false,
-    network: 'BSC Testnet',
-    networkKey: 'bscTestnet',
-    type: 'evm' as const,
-    feePerUnit: 0.000000005,
-    baseFee: 0.0005,
-    chainId: '97',
-    decimals: 18,
-  },
-];
+const isUserRejection = (error: any): boolean => {
+  if (!error) return false;
+  const code = error.code;
+  const message = error.message?.toLowerCase() || '';
+  return (
+    code === 4001 ||
+    code === 0 ||
+    message.includes('user rejected') ||
+    message.includes('user denied') ||
+    message.includes('user cancelled') ||
+    message.includes('cancelled by user') ||
+    message.includes('transaction rejected') ||
+    message.includes('user canceled') ||
+    message.includes('cancelled') ||
+    error.message?.includes('ACTION_REJECTED')
+  );
+};
+
+const formatErrorMessage = (error: any, context: string): string => {
+  if (isUserRejection(error)) {
+    return 'Transaction cancelled. Please try again when ready.';
+  }
+
+  const code = error.code;
+  const msg = error.message?.toLowerCase() || '';
+
+  if (code === -32003 || msg.includes('insufficient funds')) {
+    if (msg.includes('gas')) {
+      return 'Insufficient funds for gas fees. Please add more ETH to your wallet.';
+    }
+    return 'Insufficient balance to complete this transaction. Please check your wallet balance.';
+  }
+
+  if (code === 4902 || msg.includes('unrecognized chain')) {
+    return 'This network is not added to your wallet. Please add it and try again.';
+  }
+  if (msg.includes('chain mismatch') || msg.includes('wrong network')) {
+    return 'Wrong network selected in wallet. Please switch to the correct network.';
+  }
+
+  if (code === -32000) return 'Insufficient funds for gas or transaction amount.';
+  if (code === -32002) return 'Request already pending. Please check your wallet.';
+  if (code === -32603) return 'Internal wallet error. Please try again.';
+
+  if (msg.includes('gas')) return 'Transaction gas estimation failed. Please check your balance.';
+  if (msg.includes('nonce'))
+    return 'Transaction nonce error. Please reset your wallet or try again.';
+  if (msg.includes('timeout'))
+    return 'Request timed out. Please check your connection and try again.';
+  if (msg.includes('network'))
+    return 'Network error. Please check your connection or switch networks.';
+
+  return error.message || `${context} failed. Please try again.`;
+};
+
+const enhanceAsset = (asset: ReceiveAsset): EnhancedReceiveAsset => {
+  let type: 'evm' | 'stellar' | 'cosmos' = 'evm';
+  if (asset.addressType === 'stellar' || asset.walletType === 'stellar') {
+    type = 'stellar';
+  } else if (asset.addressType === 'cosmos' || asset.walletType === 'cosmos') {
+    type = 'cosmos';
+  }
+  const networkKey = asset.chainId || 0;
+
+  const decimals = type === 'stellar' ? 7 : type === 'cosmos' ? 6 : 18;
+
+  const baseFee = type === 'stellar' ? 0.00001 : type === 'cosmos' ? 0.0025 : 0.001;
+
+  return {
+    ...asset,
+    type,
+    networkKey,
+    decimals,
+    baseFee,
+  };
+};
 
 export const useSendAsset = (onBack?: () => void) => {
-  const { walletAddresses, getPrivateKey, isSessionValid } = useWalletStore();
+  const { connectedWallets } = useWalletConnect();
+  const { sendTransaction, canHandleTransaction, getSessionInfo } = useTransactionRouter();
+  const currentNetwork = getNetwork();
+  // Dynamic asset list
+  const rawAssets: ReceiveAsset[] = useMemo(() => {
+    const evm = getEVMChains().map(assetFromEVM);
+    const cosmos = getCosmosChains().map(assetFromCosmos);
+    const stellar = [assetFromStellar(getStellarConfig())];
+    return [...evm, ...cosmos, ...stellar];
+  }, [currentNetwork]);
+
+  const assets: EnhancedReceiveAsset[] = useMemo(() => {
+    return rawAssets.map(enhanceAsset);
+  }, [rawAssets]);
+
+  // UI state
   const [recipientAddress, setRecipientAddress] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [memo, setMemo] = useState<string>('');
-  const [selectedAssetValue, setSelectedAssetValue] = useState<string>('XLM');
+  const [selectedAssetValue, setSelectedAssetValue] = useState<string>('');
   const [balance, setBalance] = useState<number>(0);
   const [isFetchingBalance, setIsFetchingBalance] = useState<boolean>(false);
   const [transactionState, setTransactionState] = useState<TransactionState>({
-    transaction: null,
-    signedTransaction: null,
     txHash: null,
     step: 'form',
     error: null,
+    stellarTransaction: null,
   });
   const [isEstimatingFees, setIsEstimatingFees] = useState<boolean>(false);
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const addNotification = useCallback((notification: Omit<Notification, 'id'>) => {
-    const newNotification: Notification = {
-      ...notification,
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-    };
-    setNotifications(prev => [...prev, newNotification]);
-  }, []);
-
-  const removeNotification = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(notification => notification.id !== id));
-  }, []);
-
-  const clearNotifications = useCallback(() => {
-    setNotifications([]);
-  }, []);
+  // Select first asset
+  useEffect(() => {
+    if (assets.length && !selectedAssetValue) {
+      setSelectedAssetValue(assets[0].value);
+    }
+  }, [assets, selectedAssetValue]);
 
   const currentAsset = useMemo(
     () => assets.find(a => a.value === selectedAssetValue),
-    [selectedAssetValue]
+    [assets, selectedAssetValue]
   );
-
+  // Wallet address
   const senderAddress = useMemo(() => {
-    if (!walletAddresses.length || !currentAsset) return null;
+    if (!currentAsset) return null;
+    const walletInfo = connectedWallets[currentAsset.walletType];
+    return walletInfo?.address || null;
+  }, [connectedWallets, currentAsset]);
 
-    if (currentAsset.type === 'stellar') {
-      return walletAddresses.find(addr => addr.startsWith('G')) || null;
-    } else {
-      return walletAddresses.find(addr => addr.startsWith('0x')) || null;
-    }
-  }, [walletAddresses, currentAsset]);
+  const isWalletConnected = useMemo(() => {
+    if (!currentAsset) return false;
+    return !!connectedWallets[currentAsset.walletType];
+  }, [connectedWallets, currentAsset]);
 
+  const clearNotifications = useCallback(() => setNotifications([]), []);
+
+  //  Balance fetching
   useEffect(() => {
     const fetchBalance = async () => {
       if (!currentAsset || !senderAddress) {
@@ -146,337 +183,276 @@ export const useSendAsset = (onBack?: () => void) => {
         return;
       }
 
-      console.log(senderAddress, 'hii i am sender Ders ');
       setIsFetchingBalance(true);
       try {
-        const balStr =
-          currentAsset.type === 'evm'
-            ? await getNativeBalance(currentAsset.networkKey as NetworkKey, senderAddress)
-            : await getStellarBalance(currentAsset.networkKey, senderAddress);
+        let balStr: string;
+
+        console.log(currentAsset, '------');
+        if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
+          balStr = await getNativeBalance(currentAsset.networkKey, senderAddress);
+        } else if (currentAsset.type === 'stellar') {
+          balStr = await getStellarBalance(currentAsset.addressType, senderAddress);
+        } else {
+          balStr = '0';
+        }
+
         setBalance(parseFloat(balStr));
-      } catch (error) {
-        console.error('Failed to fetch balance:', error);
+      } catch (e) {
+        console.error('Balance fetch error:', e);
         setBalance(0);
-        addNotification({
-          type: 'warning',
-          title: 'Balance Fetch Failed',
-          message: 'Could not fetch balance. Showing 0.',
-          duration: 5000,
-        });
       } finally {
         setIsFetchingBalance(false);
       }
     };
-
     fetchBalance();
-  }, [currentAsset, senderAddress, addNotification]);
+  }, [currentAsset, senderAddress]);
 
+  //  Fee estimation
   useEffect(() => {
-    const estimateFeesFunc = async () => {
+    const estimate = async () => {
       if (
         !currentAsset ||
         !senderAddress ||
         !recipientAddress ||
         !amount ||
-        parseFloat(amount) <= 0
+        parseFloat(amount) <= 0 ||
+        !validateAddress(recipientAddress, currentAsset.network)
       ) {
         setEstimatedFees(null);
         return;
       }
 
-      if (!validateAddress(recipientAddress, currentAsset.network)) {
-        return;
-      }
-
       setIsEstimatingFees(true);
       try {
-        const fees =
-          currentAsset.type === 'evm'
-            ? await estimateEVMFees(
-                currentAsset.networkKey as NetworkKey,
-                senderAddress,
-                recipientAddress,
-                amount
-              )
-            : await estimateStellarFees(currentAsset.networkKey);
+        let fees;
+
+        if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
+          fees = await estimateEVMFees(
+            currentAsset.networkKey,
+            senderAddress,
+            recipientAddress,
+            amount
+          );
+        } else if (currentAsset.type === 'stellar' && typeof currentAsset.networkKey === 'string') {
+          fees = await estimateStellarFees(currentAsset.networkKey);
+        } else {
+          fees = {
+            totalCost: currentAsset.baseFee.toFixed(
+              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+            ),
+            totalFee: currentAsset.baseFee.toFixed(
+              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+            ),
+          };
+        }
+
         setEstimatedFees(fees);
-      } catch (error) {
-        console.error('Fee estimation failed:', error);
-        setEstimatedFees({
-          totalCost: currentAsset.baseFee.toFixed(
-            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-          ),
-          totalFee: currentAsset.baseFee.toFixed(
-            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-          ),
-        });
+      } catch (e: any) {
+        console.error('Fee estimation error:', e);
+
+        // If it's an insufficient funds
+        if (e.code === -32003 || e.message?.toLowerCase().includes('insufficient funds')) {
+          setEstimatedFees({
+            totalCost: currentAsset.baseFee.toFixed(
+              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+            ),
+            totalFee: currentAsset.baseFee.toFixed(
+              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+            ),
+            isEstimated: true,
+            error: 'Could not estimate exact fee due to insufficient funds. Showing estimated fee.',
+          });
+        } else {
+          setEstimatedFees({
+            totalCost: currentAsset.baseFee.toFixed(
+              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+            ),
+            totalFee: currentAsset.baseFee.toFixed(
+              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+            ),
+            isEstimated: true,
+          });
+        }
       } finally {
         setIsEstimatingFees(false);
       }
     };
 
-    const debounceTimer = setTimeout(estimateFeesFunc, 500);
-    return () => clearTimeout(debounceTimer);
-  }, [currentAsset, senderAddress, recipientAddress, amount, memo, addNotification]);
+    const timer = setTimeout(estimate, 500);
+    return () => clearTimeout(timer);
+  }, [currentAsset, senderAddress, recipientAddress, amount, memo]);
 
+  //  Input validation
   const validateInputs = useCallback(() => {
-    if (!currentAsset) {
-      return 'Please select an asset.';
-    }
-    if (!senderAddress) {
-      return `No ${currentAsset.type.toUpperCase()} address available. Please ensure your wallet supports ${
-        currentAsset.network
-      }.`;
-    }
-    if (!recipientAddress.trim()) {
-      return 'Recipient address cannot be empty.';
-    }
-    if (!validateAddress(recipientAddress, currentAsset.network)) {
+    if (!currentAsset) return 'Please select an asset.';
+    if (!isWalletConnected) return `Please connect your ${currentAsset.walletType} wallet first.`;
+    if (!senderAddress)
+      return `No ${currentAsset.type.toUpperCase()} address available. Please ensure your wallet supports ${currentAsset.network}.`;
+    if (!recipientAddress.trim()) return 'Recipient address cannot be empty.';
+    if (!validateAddress(recipientAddress, currentAsset.network))
       return `Invalid recipient address for ${currentAsset.network}.`;
-    }
+
     const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount <= 0) {
-      return 'Amount must be greater than 0.';
-    }
-    if (numAmount > balance) {
+    if (isNaN(numAmount) || numAmount <= 0) return 'Amount must be greater than 0.';
+    if (numAmount > balance)
       return `Insufficient balance. Available: ${balance.toLocaleString(undefined, {
         maximumFractionDigits: currentAsset.decimals,
       })} ${currentAsset.value}.`;
-    }
 
     if (estimatedFees) {
-      const totalCost = numAmount + parseFloat(estimatedFees.totalCost);
-      if (totalCost > balance) {
-        return `Insufficient balance to cover amount + fee. Total needed: ${totalCost.toLocaleString(
+      const total = numAmount + parseFloat(estimatedFees.totalCost);
+      if (total > balance)
+        return `Insufficient balance to cover amount + fee. Total needed: ${total.toLocaleString(
           undefined,
           { maximumFractionDigits: currentAsset.decimals }
         )} ${currentAsset.value}.`;
-      }
     }
 
+    if (!canHandleTransaction(currentAsset.type))
+      return `No active session for ${currentAsset.type}. Please reconnect your wallet.`;
+
     return null;
-  }, [recipientAddress, amount, currentAsset, estimatedFees, senderAddress, balance]);
+  }, [
+    currentAsset,
+    isWalletConnected,
+    senderAddress,
+    recipientAddress,
+    amount,
+    balance,
+    estimatedFees,
+    canHandleTransaction,
+  ]);
 
   const formError = validateInputs();
 
   const handleMaxClick = useCallback(() => {
     if (!currentAsset) return;
 
-    const feeAmount = estimatedFees ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee;
-    const maxAmount = balance - feeAmount;
-
-    if (maxAmount <= 0) {
-      setAmount('0');
-      addNotification({
-        type: 'warning',
-        title: 'Insufficient Balance',
-        message: 'Not enough balance to cover transaction fees.',
-      });
-      return;
-    }
+    const fee = estimatedFees ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee;
+    const max = balance - fee;
 
     const precision = currentAsset.decimals > 10 ? 8 : currentAsset.decimals;
-    setAmount(maxAmount.toFixed(precision));
-    addNotification({
-      type: 'info',
-      title: 'Max Amount Set',
-      message: `Set to maximum available: ${maxAmount.toFixed(precision)} ${currentAsset.value}`,
-    });
-  }, [currentAsset, estimatedFees, balance, addNotification]);
-
-  const buildTransactionFunc = useCallback(async () => {
-    if (!currentAsset || !senderAddress || formError) {
-      throw new Error(formError || 'Invalid form data');
-    }
-
-    if (!isSessionValid()) {
-      throw new Error('Session expired. Please reconnect your wallet.');
-    }
-
-    const options: EVMTransactionOptions | StellarTransactionOptions = {};
-    if (memo.trim()) {
-      options.memo = memo.trim();
-    }
-
-    const transaction =
-      currentAsset.type === 'evm'
-        ? await sendCryptoEVMBuild(
-            currentAsset.networkKey as NetworkKey,
-            senderAddress,
-            recipientAddress,
-            amount,
-            options as EVMTransactionOptions
-          )
-        : await sendCryptoStellarBuild(
-            currentAsset.networkKey,
-            senderAddress,
-            recipientAddress,
-            amount,
-            options as StellarTransactionOptions
-          );
-
-    return transaction;
-  }, [currentAsset, senderAddress, recipientAddress, amount, memo, formError, isSessionValid]);
-
-  const signTransactionFunc = useCallback(
-    async (transaction: Transaction) => {
-      if (!currentAsset) throw new Error('No asset selected');
-
-      const privateKey = await getPrivateKey(currentAsset.type);
-      if (!privateKey) {
-        throw new Error('Private key not available. Please reconnect your wallet.');
-      }
-
-      const isMainnet = currentAsset.networkKey === 'stellarMainnet';
-      return currentAsset.type === 'evm'
-        ? await signEVMTransaction(transaction as EVMSendTransaction, privateKey)
-        : await signStellarTransaction(
-            transaction as StellarSendTransaction,
-            privateKey,
-            isMainnet
-          );
-    },
-    [currentAsset, getPrivateKey]
-  );
-
-  const broadcastTransactionFunc = useCallback(
-    async (signedTransaction: string) => {
-      if (!currentAsset) throw new Error('No asset selected');
-
-      return currentAsset.type === 'evm'
-        ? await sendCryptoEVMBroadcast(signedTransaction, currentAsset.networkKey as NetworkKey)
-        : await sendCryptoStellarBroadcast(signedTransaction, currentAsset.networkKey);
-    },
-    [currentAsset]
-  );
+    setAmount(max > 0 ? max.toFixed(precision) : '0');
+  }, [currentAsset, estimatedFees, balance]);
 
   const handleReviewTransaction = useCallback(async () => {
-    try {
-      setTransactionState(prev => ({ ...prev, step: 'review', error: null }));
-
-      addNotification({
-        type: 'info',
-        title: 'Building Transaction',
-        message: 'Preparing transaction for review...',
-        duration: 3000,
-      });
-
-      const transaction = await buildTransactionFunc();
-
-      setTransactionState(prev => ({
-        ...prev,
-        transaction,
-        step: 'review',
-      }));
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to build transaction';
-      console.error('Transaction build error:', error);
-
-      setTransactionState(prev => ({
-        ...prev,
-        step: 'error',
-        error: errorMessage,
-      }));
-
-      addNotification({
-        type: 'error',
-        title: 'Transaction Build Failed',
-        message: errorMessage,
-        duration: 8000,
-      });
-    }
-  }, [buildTransactionFunc, addNotification]);
+    setTransactionState(p => ({ ...p, step: 'review', error: null }));
+  }, []);
 
   const handleConfirmTransaction = useCallback(async () => {
-    if (!transactionState.transaction) return;
+    if (!currentAsset || !isWalletConnected || !senderAddress) return;
 
     try {
-      setTransactionState(prev => ({
-        ...prev,
-        step: 'signing',
-        error: null,
-      }));
+      setTransactionState(p => ({ ...p, step: 'signing', error: null }));
+      let transactionRequest: TransactionRequest;
 
-      addNotification({
-        type: 'info',
-        title: 'Signing Transaction',
-        message: 'Signing transaction with your private key...',
-        duration: 3000,
-      });
+      if (currentAsset.type === 'evm') {
+        transactionRequest = {
+          type: 'evm',
+          network: currentAsset.network,
+          networkKey: currentAsset.networkKey as number,
+          from: senderAddress,
+          to: recipientAddress,
+          amount,
+          data: memo || undefined,
+        };
+      } else if (currentAsset.type === 'stellar') {
+        const options: StellarTransactionOptions = {};
+        if (memo.trim()) options.memo = memo.trim();
 
-      const signedTransaction = await signTransactionFunc(transactionState.transaction);
+        const stellarTx = await sendCryptoStellarBuild(
+          currentAsset.addressType as string,
+          senderAddress,
+          recipientAddress,
+          amount,
+          options
+        );
+        transactionRequest = {
+          type: 'stellar',
+          network: currentAsset.network,
+          networkKey: currentAsset.networkKey as string,
+          from: senderAddress,
+          to: recipientAddress,
+          amount,
+          data: {
+            xdr: stellarTx.xdr,
+            networkPassphrase: 'Test SDF Network ; September 2015',
+            network: 'TESTNET',
+          },
+        };
+      } else {
+        transactionRequest = {
+          type: 'cosmos',
+          network: currentAsset.network,
+          networkKey: currentAsset.networkKey as string,
+          from: senderAddress,
+          to: recipientAddress,
+          amount,
+          memo: memo || undefined,
+        };
+      }
 
-      setTransactionState(prev => ({
-        ...prev,
-        signedTransaction,
-        step: 'broadcasting',
-      }));
+      console.log('[useSendAsset] Sending via router:', transactionRequest);
+      const response = await sendTransaction(transactionRequest);
 
-      addNotification({
-        type: 'info',
-        title: 'Broadcasting Transaction',
-        message: 'Submitting transaction to the network...',
-        duration: 5000,
-      });
-
-      const txHash = await broadcastTransactionFunc(signedTransaction);
-
-      setTransactionState(prev => ({
-        ...prev,
-        txHash,
-        step: 'success',
-      }));
-
-      addNotification({
-        type: 'success',
-        title: 'Transaction Successful!',
-        message: `Transaction broadcasted with hash: ${txHash.slice(0, 10)}...`,
-        duration: 10000,
-      });
-
-      setTimeout(() => {
-        setRecipientAddress('');
-        setAmount('');
-        setMemo('');
-        setTransactionState({
-          transaction: null,
-          signedTransaction: null,
-          txHash: null,
-          step: 'form',
-          error: null,
-        });
-      }, 3000);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Transaction failed';
+      if (response.status === 'success') {
+        setTransactionState(p => ({
+          ...p,
+          txHash: response.hash || null,
+          step: 'success',
+        }));
+        setTimeout(() => {
+          setRecipientAddress('');
+          setAmount('');
+          setMemo('');
+          setTransactionState({
+            txHash: null,
+            step: 'form',
+            error: null,
+            stellarTransaction: null,
+          });
+        }, 3000);
+      } else {
+        throw new Error(response.error || 'Transaction failed');
+      }
+    } catch (error: any) {
       console.error('Transaction error:', error);
 
-      setTransactionState(prev => ({
-        ...prev,
-        step: 'error',
-        error: errorMessage,
-      }));
+      if (isUserRejection(error)) {
+        setTransactionState(p => ({ ...p, step: 'review', error: null }));
+        return;
+      }
 
-      addNotification({
-        type: 'error',
-        title: 'Transaction Failed',
-        message: errorMessage,
-        duration: 10000,
-      });
+      const sessionError =
+        error.message?.includes('session topic does not exist') ||
+        error.message?.includes('Missing or invalid') ||
+        error.message?.includes('Wallet session expired');
+
+      if (sessionError) {
+        const msg = 'Your wallet session has expired. Please reconnect and try again.';
+        setTransactionState(p => ({ ...p, step: 'error', error: msg }));
+        return;
+      }
+
+      const msg = formatErrorMessage(error, 'Transaction');
+      setTransactionState(p => ({ ...p, step: 'error', error: msg }));
     }
   }, [
-    transactionState.transaction,
-    signTransactionFunc,
-    broadcastTransactionFunc,
-    addNotification,
+    currentAsset,
+    isWalletConnected,
+    senderAddress,
+    recipientAddress,
+    amount,
+    memo,
+    sendTransaction,
   ]);
 
   const handleBackToForm = useCallback(() => {
     setTransactionState({
-      transaction: null,
-      signedTransaction: null,
       txHash: null,
       step: 'form',
       error: null,
+      stellarTransaction: null,
     });
   }, []);
 
@@ -485,27 +461,18 @@ export const useSendAsset = (onBack?: () => void) => {
     clearNotifications();
   }, [handleBackToForm, clearNotifications]);
 
-  const copyToClipboard = useCallback(
-    async (text: string, label: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-        addNotification({
-          type: 'success',
-          title: 'Copied!',
-          message: `${label} copied to clipboard`,
-          duration: 3000,
-        });
-      } catch (error) {
-        addNotification({
-          type: 'error',
-          title: 'Copy Failed',
-          message: 'Failed to copy to clipboard',
-          duration: 3000,
-        });
-      }
-    },
-    [addNotification]
-  );
+  const copyToClipboard = useCallback(async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (currentAsset) {
+      const info = getSessionInfo(currentAsset.walletType);
+      console.log(`[useSendAsset] Session for ${currentAsset.walletType}:`, info);
+    }
+  }, [currentAsset, getSessionInfo]);
 
   return {
     recipientAddress,
@@ -523,15 +490,11 @@ export const useSendAsset = (onBack?: () => void) => {
     isEstimatingFees,
     estimatedFees,
     notifications,
-    addNotification,
-    removeNotification,
     clearNotifications,
     currentAsset,
     senderAddress,
+    isWalletConnected,
     handleMaxClick,
-    buildTransactionFunc,
-    signTransactionFunc,
-    broadcastTransactionFunc,
     handleReviewTransaction,
     handleConfirmTransaction,
     handleBackToForm,

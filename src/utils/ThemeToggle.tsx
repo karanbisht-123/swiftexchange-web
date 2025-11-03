@@ -6,12 +6,12 @@ const ThemeToggle = () => {
   const { theme, toggleTheme } = useThemeStore();
 
   const handleToggle = () => {
-    console.log('🔘 Button clicked - Current theme:', theme);
+    console.log('Button clicked - Current theme:', theme);
     toggleTheme();
-    console.log('✅ Toggle function called');
+    console.log('Toggle function called');
   };
 
-  console.log('🔄 ThemeToggle rendered with theme:', theme);
+  console.log('ThemeToggle rendered with theme:', theme);
 
   return (
     <div className="flex items-center gap-2">

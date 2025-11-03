@@ -14,7 +14,7 @@ export function isStellarNetwork(
   return 'horizonUrl' in config;
 }
 
-export function getNetworkPrefix(networkKey: string): string {
+export function getNetworkPrefix(networkKey: any): string {
   const config = NETWORK_CONFIGS[networkKey];
   if (!config) {
     throw new Error(`Unsupported network: ${networkKey}`);
