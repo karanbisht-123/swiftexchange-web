@@ -212,7 +212,7 @@ class TransactionRouter {
       });
 
       const amountInWei = BigInt(Math.floor(parseFloat(request.amount) * 1e18));
-      console.log('💰 Amount conversion:', {
+      console.log('Amount conversion:', {
         original: request.amount,
         wei: amountInWei.toString(),
         hex: '0x' + amountInWei.toString(16),

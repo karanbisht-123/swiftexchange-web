@@ -1,12 +1,5 @@
 import { Asset, Horizon } from '@stellar/stellar-sdk';
 
-import {
-  DEFAULT_RESOLUTION,
-  HORIZON_MAINNET,
-  HORIZON_TESTNET,
-  MAX_DATA_POINTS,
-  NATIVE_ASSET,
-} from '../constants/steallrChartConstant';
 import type {
   ChartAssetPair,
   ChartDataPoint,
@@ -24,12 +17,24 @@ const SUPPORTED_RESOLUTIONS = [
   604800000, // 1w
 ];
 
+// Horizon API max limit is 200
+const MAX_DATA_POINTS = 200;
+const DEFAULT_RESOLUTION = 900000; // 15m
+
 export class StellarChartService {
   private server: Horizon.Server;
+  private networkPassphrase: string;
+  private networkKey: string;
 
-  constructor(networkKey: string = 'mainnet') {
-    const horizonUrl = networkKey === 'mainnet' ? HORIZON_MAINNET : HORIZON_TESTNET;
-    this.server = new Horizon.Server(horizonUrl);
+  constructor(horizonUrl: string, networkPassphrase: string, networkKey: string) {
+    const serverOptions: any = {};
+    if (horizonUrl.startsWith('http://')) {
+      serverOptions.allowHttp = true;
+    }
+
+    this.server = new Horizon.Server(horizonUrl, serverOptions);
+    this.networkPassphrase = networkPassphrase;
+    this.networkKey = networkKey;
   }
 
   private getAssetObjects(pair: ChartAssetPair): {
@@ -41,7 +46,7 @@ export class StellarChartService {
     }
 
     let base: Asset;
-    if (pair.base === 'XLM' || pair.base === NATIVE_ASSET) {
+    if (pair.base === 'XLM' || pair.base === 'native') {
       base = Asset.native();
     } else {
       if (!pair.baseIssuer) {
@@ -51,7 +56,7 @@ export class StellarChartService {
     }
 
     let counter: Asset;
-    if (pair.counter === 'XLM' || pair.counter === NATIVE_ASSET) {
+    if (pair.counter === 'XLM' || pair.counter === 'native') {
       counter = Asset.native();
     } else {
       if (!pair.counterIssuer) {
@@ -79,7 +84,6 @@ export class StellarChartService {
       isNaN(baseVolume) ||
       isNaN(counterVolume)
     ) {
-      console.warn('Invalid trade aggregation data:', agg);
       return {
         timestamp: parseInt(agg.timestamp) || 0,
         open: '0',
@@ -114,13 +118,27 @@ export class StellarChartService {
     try {
       if (!SUPPORTED_RESOLUTIONS.includes(options.resolution)) {
         throw new Error(
-          `Unsupported resolution: ${
-            options.resolution
-          }. Supported: ${SUPPORTED_RESOLUTIONS.join(', ')}`
+          `Unsupported resolution: ${options.resolution}. Supported: ${SUPPORTED_RESOLUTIONS.join(', ')}`
         );
       }
 
       const { base, counter } = this.getAssetObjects(assetPair);
+
+      // Validate time range
+      const timeSpan = timeRange.endTime - timeRange.startTime;
+      if (timeSpan <= 0) {
+        throw new Error('Invalid time range: end time must be after start time');
+      }
+
+      // Calculate expected data points
+      const expectedPoints = Math.floor(timeSpan / options.resolution);
+      const requestLimit = Math.min(options.limit || MAX_DATA_POINTS, MAX_DATA_POINTS);
+
+      // If we need more than 200 points, use pagination (up to 1000 max)
+      if (expectedPoints > MAX_DATA_POINTS && !options.limit) {
+        const maxPoints = Math.min(expectedPoints, 1000);
+        return await this.fetchPaginatedAggregations(assetPair, timeRange, options, maxPoints);
+      }
 
       const aggregationBuilder = this.server
         .tradeAggregation(
@@ -131,7 +149,7 @@ export class StellarChartService {
           options.resolution,
           options.offset || 0
         )
-        .limit(options.limit || MAX_DATA_POINTS)
+        .limit(requestLimit)
         .order(options.order || 'asc');
 
       const response = await aggregationBuilder.call();
@@ -139,15 +157,73 @@ export class StellarChartService {
 
       return records.map((agg: any) => this.transformAggregation(agg));
     } catch (error) {
-      console.error('Failed to fetch trade aggregations:', error, {
-        assetPair,
-        timeRange,
-        options,
-      });
+      console.error('Failed to fetch trade aggregations:', error);
+
+      // Better error messages
+      if (error instanceof Error) {
+        if (error.message.includes('limit')) {
+          throw new Error(
+            'Too much data requested. Try a shorter time range or larger resolution.'
+          );
+        }
+        if (error.message.includes('invalid')) {
+          throw new Error(`Invalid request: ${error.message}`);
+        }
+      }
+
       throw new Error(
         `Failed to fetch chart data: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+  }
+
+  private async fetchPaginatedAggregations(
+    assetPair: ChartAssetPair,
+    timeRange: ChartTimeRange,
+    options: ChartOptions,
+    maxPoints: number = 1000
+  ): Promise<ChartDataPoint[]> {
+    const { base, counter } = this.getAssetObjects(assetPair);
+    const allData: ChartDataPoint[] = [];
+    let currentStartTime = timeRange.startTime;
+    const maxIterations = Math.ceil(maxPoints / MAX_DATA_POINTS);
+    const timeStep = Math.floor((timeRange.endTime - timeRange.startTime) / maxIterations);
+
+    for (let i = 0; i < maxIterations && allData.length < maxPoints; i++) {
+      const currentEndTime = Math.min(currentStartTime + timeStep, timeRange.endTime);
+
+      try {
+        const aggregationBuilder = this.server
+          .tradeAggregation(
+            base,
+            counter,
+            currentStartTime,
+            currentEndTime,
+            options.resolution,
+            options.offset || 0
+          )
+          .limit(MAX_DATA_POINTS)
+          .order('asc');
+
+        const response = await aggregationBuilder.call();
+        const records = response.records;
+
+        if (records.length === 0) break;
+
+        const transformed = records.map((agg: any) => this.transformAggregation(agg));
+        allData.push(...transformed);
+
+        currentStartTime = currentEndTime;
+
+        // If we got less than max, we've reached the end
+        if (records.length < MAX_DATA_POINTS) break;
+      } catch (error) {
+        console.error('Error in pagination:', error);
+        break;
+      }
+    }
+
+    return allData;
   }
 
   async streamTradeAggregations(
@@ -159,9 +235,7 @@ export class StellarChartService {
     try {
       if (!SUPPORTED_RESOLUTIONS.includes(options.resolution)) {
         throw new Error(
-          `Unsupported resolution: ${
-            options.resolution
-          }. Supported: ${SUPPORTED_RESOLUTIONS.join(', ')}`
+          `Unsupported resolution: ${options.resolution}. Supported: ${SUPPORTED_RESOLUTIONS.join(', ')}`
         );
       }
 
@@ -189,7 +263,7 @@ export class StellarChartService {
             const dataPoint = this.transformAggregation(record);
             onData(dataPoint);
           } catch (err) {
-            console.error('Error processing stream message:', err, { record });
+            console.error('Error processing stream message:', err);
             if (onError && !errorReported) {
               errorReported = true;
               onError(err instanceof Error ? err : new Error('Error processing stream message'));
@@ -197,31 +271,19 @@ export class StellarChartService {
           }
         },
         onerror: (error: any) => {
-          if (errorReported) {
-            console.warn('Stream error already reported, ignoring duplicate');
-            return;
-          }
+          if (errorReported) return;
 
           errorReported = true;
-
-          console.error('Stream error:', {
-            error,
-            url: error?.target?.url,
-            readyState: error?.target?.readyState,
-            status: error?.target?.status,
-            assetPair,
-            resolution: options.resolution,
-          });
+          console.error('Stream error:', error);
 
           if (onError) {
-            // Check if it's a 406 error
             const is406 =
               error?.target?.readyState === 2 ||
               error?.message?.includes('406') ||
               error?.message?.includes('Not Acceptable');
 
             const errMessage = is406
-              ? 'Stream connection error (HTTP 406 Not Acceptable)'
+              ? 'No recent trades for this pair. Using polling instead.'
               : error instanceof Error
                 ? error.message
                 : 'Stream connection error';
@@ -231,22 +293,13 @@ export class StellarChartService {
         },
       });
 
-      console.log('Stream started for:', {
-        assetPair: `${assetPair.base}/${assetPair.counter}`,
-        resolution: options.resolution,
-      });
-
       return () => {
         if (closer && typeof closer === 'function') {
           closer();
-          console.log('Stream closed for:', `${assetPair.base}/${assetPair.counter}`);
         }
       };
     } catch (error) {
-      console.error('Failed to start streaming:', error, {
-        assetPair,
-        options,
-      });
+      console.error('Failed to start streaming:', error);
       if (onError) {
         onError(error instanceof Error ? error : new Error('Failed to start streaming'));
       }
@@ -275,11 +328,18 @@ export class StellarChartService {
   async getOrderBook(base: Asset, counter: Asset, limit: number = 20): Promise<any> {
     try {
       const orderbook = await this.server.orderbook(base, counter).limit(limit).call();
-
       return orderbook;
     } catch (error) {
       console.error('Failed to fetch order book:', error);
       throw error;
     }
+  }
+
+  getNetworkKey(): string {
+    return this.networkKey;
+  }
+
+  getNetworkPassphrase(): string {
+    return this.networkPassphrase;
   }
 }

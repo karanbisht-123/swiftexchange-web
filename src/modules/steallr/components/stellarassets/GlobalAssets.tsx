@@ -1,17 +1,20 @@
 import { Search } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
   Asset,
   BASE_FEE,
   Horizon,
-  Keypair,
+  // Keypair,
   Networks,
   Operation,
   TransactionBuilder,
 } from 'stellar-sdk';
 
-import { NETWORK_CONFIGS } from '../../../../config';
+import { getStellarConfig } from '../../../walletconnect/config/chains';
+// import { isStellarNetwork } from '../../../utils/transactionUtils';
+import { WalletType } from '../../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 
 interface AssetItem {
   asset_code: string;
@@ -34,28 +37,42 @@ interface UserAsset {
 }
 
 interface AllAssetsProps {
-  userSecret?: string;
-  issuerId?: string;
-  distributorPubKey?: string;
-  onClose?: () => void;
+  userAddress?: string;
   onAddAsset: (assetId: string) => void;
 }
 
-export const useStellarBalances = (publicKey?: string) => {
+export const useStellarBalances = (publicKey?: string, networkKey: string = 'testnet') => {
   const [balances, setBalances] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-
-  const stellarConfig = NETWORK_CONFIGS['stellar'];
-  const server = useMemo(() => {
-    if (stellarConfig && typeof stellarConfig === 'object' && 'horizonUrl' in stellarConfig) {
-      return new Horizon.Server((stellarConfig as { horizonUrl: string }).horizonUrl);
-    }
-    throw new Error('Invalid Stellar network config: missing horizonUrl');
-  }, [stellarConfig]);
+  const [server, setServer] = useState<Horizon.Server | null>(null);
 
   useEffect(() => {
-    if (!publicKey) {
+    const initServer = () => {
+      try {
+        const config = getStellarConfig();
+        if (!config) {
+          throw new Error(`Unsupported Stellar network: ${networkKey}`);
+        }
+
+        const serverOptions: any = {};
+        if (config.horizonUrl.startsWith('http://')) {
+          serverOptions.allowHttp = true;
+        }
+
+        const stellarServer = new Horizon.Server(config.horizonUrl, serverOptions);
+        setServer(stellarServer);
+      } catch (err) {
+        setError(err as Error);
+        console.error('Error initializing Stellar server:', err);
+      }
+    };
+
+    initServer();
+  }, [networkKey]);
+
+  useEffect(() => {
+    if (!publicKey || !server) {
       setLoading(false);
       return;
     }
@@ -79,15 +96,17 @@ export const useStellarBalances = (publicKey?: string) => {
   return { balances, loading, error, server };
 };
 
-const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose, onAddAsset }) => {
-  const stellarIssuer = import.meta.env.VITE_DEMO_WALLET_STELLAR_ISSUER || issuerId;
-  const distributorSecret = import.meta.env.VITE_DEMO_WALLET_STELLAR_PRIVATE_KEY || userSecret;
+const GlobalAssets: React.FC<AllAssetsProps> = ({ userAddress, onAddAsset }) => {
+  const { connectedWallets, getProvider } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const stellarAddress = stellarWallet?.address || userAddress || '';
+  const provider = getProvider(WalletType.STELLAR);
 
   const {
     balances: issuerBalances,
     loading: issuerLoading,
     server,
-  } = useStellarBalances(stellarIssuer);
+  } = useStellarBalances(stellarAddress);
 
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [userAssets, setUserAssets] = useState<UserAsset[]>([]);
@@ -98,10 +117,9 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose,
 
   useEffect(() => {
     const fetchUserAssets = async () => {
-      if (!distributorSecret?.startsWith('S')) return;
+      if (!stellarAddress || !server) return;
       try {
-        const distributorKeypair = Keypair.fromSecret(distributorSecret);
-        const account = await server.loadAccount(distributorKeypair.publicKey());
+        const account = await server.loadAccount(stellarAddress);
         const balances = account.balances;
         const processed = balances.map((b: any) => ({
           asset_code: b.asset_type === 'native' ? 'XLM' : b.asset_code,
@@ -114,11 +132,11 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose,
       }
     };
     fetchUserAssets();
-  }, [distributorSecret, server]);
+  }, [stellarAddress, server]);
 
   useEffect(() => {
     const processAssets = async () => {
-      if (!issuerBalances.length) return;
+      if (!issuerBalances.length || !server) return;
       const processed = await Promise.all(
         issuerBalances.map(async (balance: any) => {
           const assetCode = balance.asset_type === 'native' ? 'XLM' : balance.asset_code;
@@ -169,6 +187,76 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose,
     );
   };
 
+  const buildTrustlineTransaction = async (assetItem: AssetItem) => {
+    if (!server || !stellarAddress) {
+      throw new Error('Server or address not available');
+    }
+
+    const sourceAccount = await server.loadAccount(stellarAddress);
+    const txBuilder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: getStellarConfig()?.networkPassphrase || Networks.TESTNET,
+    });
+
+    txBuilder.addOperation(
+      Operation.changeTrust({
+        asset: new Asset(assetItem.asset_code, assetItem.asset_issuer),
+        limit: '1000000',
+      })
+    );
+
+    txBuilder.setTimeout(30);
+
+    const builtTx = txBuilder.build();
+    const xdr = builtTx.toXDR();
+
+    return {
+      id: `trustline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: 'trustline',
+      from: stellarAddress,
+      asset: `${assetItem.asset_code}:${assetItem.asset_issuer}`,
+      sequence: sourceAccount.sequence,
+      fee: BASE_FEE,
+      timestamp: Date.now(),
+      status: 'pending',
+      xdr,
+      networkPassphrase: getStellarConfig()?.networkPassphrase || Networks.TESTNET,
+    };
+  };
+
+  const executeTrustlineWithWalletConnect = async (transaction: any) => {
+    if (!provider) {
+      throw new Error('Wallet provider not available');
+    }
+
+    try {
+      const isMainnet = transaction.networkPassphrase.includes('Public Global Stellar Network');
+      const network = isMainnet ? 'MAINNET' : 'TESTNET';
+
+      const signParams = {
+        xdr: transaction.xdr,
+        networkPassphrase: transaction.networkPassphrase,
+        network,
+      };
+
+      const result = await provider.request({
+        method: 'stellar_signAndSubmitXDR',
+        params: signParams,
+      });
+
+      if (result.status === 'success') {
+        return result.hash || result.transactionHash || 'stellar_submitted';
+      }
+
+      throw new Error('Stellar transaction failed');
+    } catch (error: any) {
+      console.error('Failed to execute trustline via WalletConnect:', error);
+      throw new Error(
+        `Trustline execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  };
+
   const handleAddAsset = async (assetItem: AssetItem) => {
     if (assetItem.asset_type === 'native') {
       alert('Native XLM does not require a trustline.');
@@ -180,33 +268,17 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose,
       return;
     }
 
-    if (!distributorSecret?.startsWith('S')) {
-      alert('Missing distributor key.');
+    if (!stellarWallet || !provider) {
+      alert('Please connect your Stellar wallet.');
       return;
     }
 
     setTrustlineProcessing(assetItem.asset_code);
 
     try {
-      const keypair = Keypair.fromSecret(distributorSecret);
-      const account = await server.loadAccount(keypair.publicKey());
-
-      const tx = new TransactionBuilder(account, {
-        fee: BASE_FEE,
-        networkPassphrase: Networks.TESTNET,
-      })
-        .addOperation(
-          Operation.changeTrust({
-            asset: new Asset(assetItem.asset_code, assetItem.asset_issuer),
-            limit: '1000000',
-          })
-        )
-        .setTimeout(30)
-        .build();
-
-      tx.sign(keypair);
-      const res = await server.submitTransaction(tx);
-      alert(`Trustline created for ${assetItem.asset_code}. TX: ${res.hash}`);
+      const tx = await buildTrustlineTransaction(assetItem);
+      const txHash = await executeTrustlineWithWalletConnect(tx);
+      alert(`Trustline created for ${assetItem.asset_code}. TX: ${txHash}`);
       onAddAsset(`${assetItem.asset_code}:${assetItem.asset_issuer}`);
     } catch (err: any) {
       console.error(err);
@@ -263,7 +335,7 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose,
           <select
             value={assetFilter}
             onChange={e => setAssetFilter(e.target.value)}
-            className="input input-md flex-1"
+            className="input input-md flex-1 appearance-none"
           >
             <option>All assets</option>
             <option>Cryptocurrencies</option>
@@ -272,7 +344,7 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose,
           <select
             value={typeFilter}
             onChange={e => setTypeFilter(e.target.value)}
-            className="input input-md flex-1"
+            className="input input-md flex-1 appearance-none"
           >
             <option>Any type</option>
             <option>Native</option>
@@ -364,15 +436,6 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ issuerId, userSecret, onClose,
           )}
         </div>
       </div>
-
-      {/* Footer */}
-      {onClose && (
-        <div className="p-4 border-t border-color bg-tertiary">
-          <button onClick={onClose} className="btn btn-secondary w-full">
-            Close
-          </button>
-        </div>
-      )}
     </div>
   );
 };

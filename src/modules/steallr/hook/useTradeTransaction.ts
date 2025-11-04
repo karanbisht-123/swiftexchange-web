@@ -81,16 +81,21 @@ export function useTradeTransaction({ networkKey, userAddress }: UseTradeTransac
   );
 
   const cancelOffer = useCallback(
-    async (offer: ActiveOffer, privateKey: string) => {
+    async (offer: ActiveOffer, walletProvider: any) => {
       if (!userAddress) {
         throw new Error(ERROR_MESSAGES.NO_WALLET_CONNECTED);
+      }
+
+      if (!walletProvider) {
+        throw new Error('Wallet provider not available');
       }
 
       setIsLoading(true);
       setError(null);
 
       try {
-        const txHash = await service.cancelOffer(userAddress, offer, privateKey);
+        const tx = await service.buildCancelOfferTransaction(userAddress, offer);
+        const txHash = await service.executeCancelOfferWithWalletConnect(tx, walletProvider);
         // Refresh active offers after cancel
         await fetchActiveOffers();
         return txHash;
@@ -106,16 +111,25 @@ export function useTradeTransaction({ networkKey, userAddress }: UseTradeTransac
   );
 
   const editOffer = useCallback(
-    async (offer: ActiveOffer, privateKey: string, newAmount: string, newPrice: string) => {
+    async (offer: ActiveOffer, walletProvider: any, newAmount: string, newPrice: string) => {
       if (!userAddress) {
         throw new Error(ERROR_MESSAGES.NO_WALLET_CONNECTED);
+      }
+
+      if (!walletProvider) {
+        throw new Error('Wallet provider not available');
+      }
+
+      if (parseFloat(newAmount) <= 0 || parseFloat(newPrice) <= 0) {
+        throw new Error('Amount and price must be positive');
       }
 
       setIsLoading(true);
       setError(null);
 
       try {
-        const txHash = await service.editOffer(userAddress, offer, newAmount, newPrice, privateKey);
+        const tx = await service.buildEditOfferTransaction(userAddress, offer, newAmount, newPrice);
+        const txHash = await service.executeEditOfferWithWalletConnect(tx, walletProvider);
         // Refresh active offers after edit
         await fetchActiveOffers();
         return txHash;

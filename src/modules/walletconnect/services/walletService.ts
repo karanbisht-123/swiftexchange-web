@@ -565,19 +565,22 @@ class WalletService {
         standaloneChains = getCosmosChains().map(chain => `cosmos:${chain.chainId}`);
         console.debug('[WalletService] Configured Cosmos namespaces:', optionalNamespaces);
       } else {
+        const stellarConfig = getStellarConfig();
+        const stellarChainId = `stellar:${stellarConfig.chainId}`;
+
         const stellarRpcMap: Record<string, string> = {
-          pubnet: getStellarConfig().horizonUrl,
+          [stellarConfig.chainId]: stellarConfig.horizonUrl,
         };
 
         optionalNamespaces = {
           stellar: {
             methods: CHAIN_METHODS.stellar,
-            chains: ['stellar:pubnet'],
+            chains: [stellarChainId],
             events: CHAIN_EVENTS.stellar,
             rpcMap: stellarRpcMap,
           },
         };
-        standaloneChains = ['stellar:pubnet'];
+        standaloneChains = [stellarChainId];
         console.debug('[WalletService] Configured Stellar namespaces:', optionalNamespaces);
       }
 

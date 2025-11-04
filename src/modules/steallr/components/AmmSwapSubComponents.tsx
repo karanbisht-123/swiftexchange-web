@@ -1,15 +1,13 @@
 import { AlertCircle, ChevronDown, Info } from 'lucide-react';
 import { useState } from 'react';
 
-import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
-
-// import { ERROR_MESSAGES } from "../constants/ammSwapConstants";
+import type { SwapQuote, TokenInfo, TokenPlaceholder } from '../types/ammSwap.types';
 
 interface TokenSelectorProps {
-  selectedToken: TokenInfo;
+  selectedToken: TokenInfo | TokenPlaceholder;
   onSelect: (token: TokenInfo) => void;
   tokens: TokenInfo[];
-  label: string;
+  label?: string;
 }
 
 export const TokenSelector = ({
@@ -21,25 +19,26 @@ TokenSelectorProps) => {
   return (
     <div className="relative">
       <div className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-full bg-gradient-brand-secondary flex items-center justify-center text-xs font-bold text-text-inverse">
+        {/* <div className="w-6 h-6 rounded-full bg-gradient-brand-secondary flex items-center justify-center text-xs font-bold text-text-inverse">
           {selectedToken.code[0]}
-        </div>
+        </div> */}
         <select
           value={selectedToken.code}
           onChange={e => {
             const selected = tokens.find(token => token.code === e.target.value);
             if (selected) onSelect(selected);
           }}
-          className="input input-primary text-sm font-semibold bg-gradient-glass border-border-accent focus:ring-brand-primary"
+          className="input max-w-32 appearance-none input-primary text-sm font-semibold bg-gradient-glass border-border-accent focus:ring-brand-primary"
         >
           {tokens.map(token => (
             <option
               key={token.code}
               value={token.code}
-              className="bg-bg-secondary text-text-primary"
+              className="bg-bg-secondary text-text-primary "
             >
-              {token.code} {token.balance ? `(${parseFloat(token.balance).toFixed(2)})` : ''}
-              {token.isPopular ? ' (Popular)' : ''}
+              {token.code}
+              {/* {token.code} {token.balance ? `(${parseFloat(token.balance).toFixed(2)})` : ''} */}
+              {/* {token.isPopular ? ' (Popular)' : ''} */}
             </option>
           ))}
         </select>
@@ -69,7 +68,7 @@ export const SettingsPanel = ({
   return (
     <>
       <div className="fixed inset-0 bg-bg-overlay z-20" onClick={onClose} />
-      <div className="absolute right-0 top-14 z-30 w-80 bg-gradient-glass rounded-xl shadow-premium border border-border-accent p-4 animate-slide-up">
+      <div className="absolute card right-0 top-14 z-30 w-80 bg-gradient-glass rounded-xl shadow-premium border border-border-accent p-4 animate-slide-up">
         <h3 className="heading-3 mb-4">Transaction Settings</h3>
 
         <div className="mb-4">

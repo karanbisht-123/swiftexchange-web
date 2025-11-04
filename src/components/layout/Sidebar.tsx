@@ -151,7 +151,7 @@ const Sidebar: FC = () => {
       <button
         id="hamburger-btn"
         onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 btn-secondary p-2.5 rounded-lg"
+        className="lg:hidden fixed top-3 left-4 z-50 btn-secondary p-2.5 rounded-lg"
       >
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>

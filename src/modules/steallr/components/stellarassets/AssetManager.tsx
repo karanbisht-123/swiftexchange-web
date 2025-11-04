@@ -1,24 +1,28 @@
 import React, { useState } from 'react';
 
 import PageLayout from '../../../../components/layout/PageLayout';
+import { WalletType } from '../../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import GlobalAssets from './GlobalAssets';
 import UserAssets from './UserAssets';
 
 const AssetManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
+  const { connectedWallets } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const stellarAddress = stellarWallet?.address || '';
 
   const handleTabChange = (index: number) => {
     setActiveTab(index);
   };
 
+  const handleAddAsset = (assetId: string) => {
+    // Implementation for adding asset (e.g., update store or trigger trustline)
+    console.log('Asset added:', assetId);
+  };
+
   return (
-    <PageLayout
-      title="Assets"
-      subtitle="Mange Asstes"
-      //   onBack={onClose}
-      //   showBackButton={!!onClose}
-      maxWidth="xl"
-    >
+    <PageLayout title="Assets" subtitle="Manage Assets" maxWidth="xl">
       <div className="">
         {/* Tabs Navigation */}
         <div className="flex border-b ">
@@ -47,13 +51,9 @@ const AssetManager: React.FC = () => {
         {/* Tab Content */}
         <div className="mt-4">
           {activeTab === 0 && (
-            <GlobalAssets
-              onAddAsset={function (): void {
-                throw new Error('Function not implemented.');
-              }}
-            />
+            <GlobalAssets userAddress={stellarAddress} onAddAsset={handleAddAsset} />
           )}
-          {activeTab === 1 && <UserAssets />}
+          {activeTab === 1 && <UserAssets userAddress={stellarAddress} />}
         </div>
       </div>
     </PageLayout>

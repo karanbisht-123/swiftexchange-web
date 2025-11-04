@@ -1,10 +1,7 @@
-import * as StellarSDK from 'stellar-sdk';
+import * as StellarSDK from '@stellar/stellar-sdk';
 
-import { NETWORK_CONFIGS } from '../../../config';
-import { isStellarNetwork } from '../../../utils/transactionUtils';
 import type {
   LiquidityPool,
-  // AmmSwapTransaction,
   SwapOptions,
   SwapPath,
   SwapQuote,
@@ -16,20 +13,23 @@ export class AmmSwapService {
   private networkPassphrase: string;
   private networkKey: string;
 
-  constructor(networkKey: string) {
-    const config = NETWORK_CONFIGS.stellar;
-    console.log(config, 'hii iam config ');
-    if (!config || !isStellarNetwork(config)) {
-      throw new Error(`Unsupported Stellar network: ${networkKey}`);
+  constructor(horizonUrl: string, networkPassphrase: string, networkKey: string) {
+    console.log('AMM Swap Service Init:', { horizonUrl, networkPassphrase, networkKey });
+    const serverOptions: any = {};
+    if (horizonUrl.startsWith('http://')) {
+      serverOptions.allowHttp = true;
     }
 
-    this.server = new StellarSDK.Horizon.Server(config.horizonUrl);
-    this.networkPassphrase =
-      networkKey === 'stellarMainnet' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+    this.server = new StellarSDK.Horizon.Server(horizonUrl, serverOptions);
+    this.networkPassphrase = networkPassphrase;
     this.networkKey = networkKey;
   }
 
   async getTokenBalances(address: string): Promise<TokenInfo[]> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(address)) {
+      throw new Error('Invalid Stellar address');
+    }
+
     try {
       const account = await this.server.loadAccount(address);
       const tokens: TokenInfo[] = [];
@@ -60,7 +60,7 @@ export class AmmSwapService {
       return tokens;
     } catch (error) {
       console.error('Failed to fetch token balances:', error);
-      return [];
+      throw new Error('Failed to load account balances');
     }
   }
 
@@ -76,7 +76,7 @@ export class AmmSwapService {
         poolsCall = poolsCall.forAssets(assetA, assetB);
       }
 
-      const response = await poolsCall.call();
+      const response = await poolsCall.limit(200).call();
 
       for (const record of response.records) {
         const reserves = record.reserves.map((r: any) => ({
@@ -91,7 +91,7 @@ export class AmmSwapService {
           id: record.id,
           totalShares: record.total_shares,
           reserves,
-          fee: record.fee_bp / 100,
+          fee: record.fee_bp / 10000, // Convert basis points to decimal (e.g., 30 -> 0.0003)
         });
       }
 
@@ -106,14 +106,17 @@ export class AmmSwapService {
     inputAmount: string,
     inputReserve: string,
     outputReserve: string,
-    feeBps: number = 30
+    feeRate: number = 0.0003 // Default 30 basis points as decimal
   ): { outputAmount: string; priceImpact: number } {
     const input = parseFloat(inputAmount);
     const reserveIn = parseFloat(inputReserve);
     const reserveOut = parseFloat(outputReserve);
 
-    const feeMultiplier = 1 - feeBps / 10000;
-    const inputWithFee = input * feeMultiplier;
+    if (isNaN(input) || isNaN(reserveIn) || isNaN(reserveOut) || input <= 0) {
+      throw new Error('Invalid input parameters for swap calculation');
+    }
+
+    const inputWithFee = input * (1 - feeRate);
 
     const outputAmount = (inputWithFee * reserveOut) / (reserveIn + inputWithFee);
 
@@ -135,6 +138,7 @@ export class AmmSwapService {
   ): Promise<SwapPath[]> {
     const paths: SwapPath[] = [];
 
+    // Try direct pools first
     const directPools = await this.findLiquidityPools(fromAsset, toAsset);
     for (const pool of directPools) {
       const fromReserve = pool.reserves.find(r => this.assetsEqual(r.asset, fromAsset));
@@ -158,6 +162,7 @@ export class AmmSwapService {
       }
     }
 
+    // Try multi-hop through XLM
     if (maxHops >= 2) {
       const xlm = StellarSDK.Asset.native();
       if (!this.assetsEqual(fromAsset, xlm) && !this.assetsEqual(toAsset, xlm)) {
@@ -199,6 +204,7 @@ export class AmmSwapService {
       }
     }
 
+    // Sort by best output amount (descending)
     return paths.sort((a, b) => parseFloat(b.estimatedOutput) - parseFloat(a.estimatedOutput));
   }
 
@@ -208,16 +214,31 @@ export class AmmSwapService {
     amount: string,
     options: SwapOptions = {}
   ): Promise<SwapQuote> {
+    if (parseFloat(amount) <= 0) {
+      throw new Error('Amount must be positive');
+    }
+
+    // Check if same asset
+    if (this.assetsEqual(fromAsset, toAsset)) {
+      throw new Error('Cannot swap the same asset');
+    }
+
     const paths = await this.findBestPath(fromAsset, toAsset, amount, options.maxHops || 3);
 
     if (paths.length === 0) {
-      throw new Error('No swap path found');
+      const fromCode = fromAsset.isNative() ? 'XLM' : fromAsset.code;
+      const toCode = toAsset.isNative() ? 'XLM' : toAsset.code;
+      throw new Error(
+        `No liquidity pool found for ${fromCode}/${toCode}. Try a different token pair or check back later.`
+      );
     }
 
     const bestPath = paths[0];
-    const minOutput = options.slippageTolerance
-      ? (parseFloat(bestPath.estimatedOutput) * (1 - options.slippageTolerance / 100)).toFixed(7)
-      : bestPath.estimatedOutput;
+    const slippageTolerance = options.slippageTolerance || 1;
+    const minOutput = (
+      parseFloat(bestPath.estimatedOutput) *
+      (1 - slippageTolerance / 100)
+    ).toFixed(7);
 
     return {
       fromAsset,
@@ -228,7 +249,7 @@ export class AmmSwapService {
       path: bestPath,
       alternativePaths: paths.slice(1, 4),
       priceImpact: bestPath.priceImpact,
-      slippageTolerance: options.slippageTolerance || 1,
+      slippageTolerance,
       timestamp: Date.now(),
     };
   }
@@ -242,13 +263,17 @@ export class AmmSwapService {
       throw new Error('Invalid sender Stellar address');
     }
 
-    const sourceAccount = await this.server.loadAccount(fromAddress);
-    const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
-      fee: options.fee || StellarSDK.BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    });
-    if (quote.path.hops > 1) {
-      const path = quote.path.path.slice(1, -1);
+    try {
+      const sourceAccount = await this.server.loadAccount(fromAddress);
+      const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
+        fee: options.fee || StellarSDK.BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      });
+
+      let path: StellarSDK.Asset[] = [];
+      if (quote.path.hops > 1) {
+        path = quote.path.path.slice(1, -1);
+      }
 
       txBuilder.addOperation(
         StellarSDK.Operation.pathPaymentStrictSend({
@@ -260,58 +285,79 @@ export class AmmSwapService {
           path,
         })
       );
-    } else {
-      txBuilder.addOperation(
-        StellarSDK.Operation.pathPaymentStrictSend({
-          sendAsset: quote.fromAsset,
-          sendAmount: quote.inputAmount,
-          destination: fromAddress,
-          destAsset: quote.toAsset,
-          destMin: quote.minimumOutput,
-          path: [],
-        })
-      );
+
+      if (options.memo) {
+        txBuilder.addMemo(StellarSDK.Memo.text(options.memo));
+      }
+
+      txBuilder.setTimeout(options.timeout || 300);
+
+      const builtTransaction = txBuilder.build();
+      const xdr = builtTransaction.toXDR();
+
+      return {
+        id: `swap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'swap',
+        from: fromAddress,
+        quote,
+        sequence: sourceAccount.sequence, // Fixed: use .sequence (string) in v11+
+        fee: options.fee || StellarSDK.BASE_FEE,
+        memo: options.memo,
+        timestamp: Date.now(),
+        status: 'pending',
+        xdr,
+        networkKey: this.networkKey,
+      };
+    } catch (error) {
+      console.error('Failed to build swap transaction:', error);
+      throw new Error('Failed to build swap transaction');
     }
-
-    if (options.memo) {
-      txBuilder.addMemo(StellarSDK.Memo.text(options.memo));
-    }
-
-    txBuilder.setTimeout(options.timeout || 300);
-
-    const builtTransaction = txBuilder.build();
-    const xdr = builtTransaction.toXDR();
-
-    return {
-      id: `swap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      type: 'swap',
-      from: fromAddress,
-      quote,
-      sequence: sourceAccount.sequenceNumber(),
-      fee: options.fee || StellarSDK.BASE_FEE,
-      memo: options.memo,
-      timestamp: Date.now(),
-      status: 'pending',
-      xdr,
-      networkKey: this.networkKey,
-    };
   }
 
-  async executeSwap(transaction: any, privateKey: string): Promise<string> {
-    if (!privateKey.startsWith('S') || privateKey.length !== 56) {
-      throw new Error('Invalid Stellar private key format');
-    }
-
+  async executeSwapWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
     try {
-      const sourceKeypair = StellarSDK.Keypair.fromSecret(privateKey);
-      const tx = new StellarSDK.Transaction(transaction.xdr, this.networkPassphrase);
+      console.log('Preparing Stellar transaction via WalletConnect...');
 
-      tx.sign(sourceKeypair);
-      const response = await this.server.submitTransaction(tx);
+      if (!transaction.xdr) {
+        console.error('Missing XDR data');
+        throw new Error('Stellar transaction requires XDR data');
+      }
 
-      return response.hash;
-    } catch (error) {
-      console.error('Failed to execute swap:', error);
+      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+      const network = isMainnet ? 'MAINNET' : 'TESTNET';
+
+      const signParams = {
+        xdr: transaction.xdr,
+        networkPassphrase: this.networkPassphrase,
+        network,
+      };
+
+      console.log('Calling walletProvider.request with stellar_signAndSubmitXDR...', signParams);
+
+      const result = await walletProvider.request({
+        method: 'stellar_signAndSubmitXDR',
+        params: signParams,
+      });
+
+      console.log('WalletConnect provider response:', result);
+
+      if (result.status === 'success') {
+        console.log('Stellar transaction successful!');
+        return result.hash || result.transactionHash || 'stellar_submitted';
+      }
+
+      console.error('Stellar transaction failed - status not success');
+      throw new Error('Stellar transaction failed');
+    } catch (error: any) {
+      console.error('Failed to execute swap via WalletConnect:', {
+        message: error.message,
+        code: error.code,
+        fullError: error,
+      });
+      if (error?.response?.data?.extras?.result_codes) {
+        const codes = error.response.data.extras.result_codes;
+        throw new Error(`Swap failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
+      }
       throw new Error(
         `Swap execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -324,13 +370,49 @@ export class AmmSwapService {
     return a.code === b.code && a.issuer === b.issuer;
   }
 
+  async checkLiquidityAvailable(
+    fromAsset: StellarSDK.Asset,
+    toAsset: StellarSDK.Asset
+  ): Promise<boolean> {
+    if (this.assetsEqual(fromAsset, toAsset)) return false;
+
+    try {
+      // Check direct pools
+      const directPools = await this.findLiquidityPools(fromAsset, toAsset);
+      if (directPools.length > 0) return true;
+
+      // Check through XLM
+      const xlm = StellarSDK.Asset.native();
+      if (!this.assetsEqual(fromAsset, xlm) && !this.assetsEqual(toAsset, xlm)) {
+        const fromToXlm = await this.findLiquidityPools(fromAsset, xlm);
+        const xlmToTo = await this.findLiquidityPools(xlm, toAsset);
+        if (fromToXlm.length > 0 && xlmToTo.length > 0) return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Failed to check liquidity availability:', error);
+      return false;
+    }
+  }
+
   getPopularAssets(): StellarSDK.Asset[] {
     const popular = [StellarSDK.Asset.native()];
-    if (this.networkKey === 'stellarMainnet') {
+    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+
+    if (isMainnet) {
       popular.push(
         new StellarSDK.Asset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'),
         new StellarSDK.Asset('AQUA', 'GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA'),
         new StellarSDK.Asset('yXLM', 'GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55')
+      );
+    } else {
+      popular.push(
+        new StellarSDK.Asset('USDC', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
+        new StellarSDK.Asset('USDT', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
+        new StellarSDK.Asset('BTC', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
+        new StellarSDK.Asset('ETH', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
+        new StellarSDK.Asset('AQUA', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER')
       );
     }
 

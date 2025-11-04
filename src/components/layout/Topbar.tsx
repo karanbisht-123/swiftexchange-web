@@ -77,7 +77,6 @@ const Topbar: React.FC<TopbarProps> = () => {
         <h1 className="text-lg font-semibold text-[var(--color-text-primary)]"></h1>
 
         <div className="flex items-center gap-4">
-          <ThemeToggle />
           <NetworkSwitch />
           {isConnected ? (
             <div className="flex items-center gap-2">
@@ -88,7 +87,7 @@ const Topbar: React.FC<TopbarProps> = () => {
               <ConnectWalletButton />
               <button
                 onClick={handleDisconnectAll}
-                className="px-3 py-1 rounded-sm bg-[var(--color-danger)] text-white text-sm hover:opacity-90 transition"
+                className="hidden lg:block px-3 py-1 rounded-sm bg-[var(--color-danger)] text-white text-sm hover:opacity-90 transition"
               >
                 Disconnect All
               </button>
@@ -96,6 +95,7 @@ const Topbar: React.FC<TopbarProps> = () => {
           ) : (
             <ConnectWalletButton />
           )}
+          <ThemeToggle />
         </div>
       </header>
 

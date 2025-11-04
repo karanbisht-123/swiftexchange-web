@@ -67,6 +67,10 @@ export interface TokenInfo {
   isPopular?: boolean;
 }
 
+export type TokenPlaceholder = {
+  code: string;
+  balance?: string;
+};
 export interface SwapState {
   fromToken: any | null;
   toToken: TokenInfo | null;

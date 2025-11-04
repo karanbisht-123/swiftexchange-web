@@ -1,7 +1,5 @@
-import * as StellarSDK from 'stellar-sdk';
+import * as StellarSDK from '@stellar/stellar-sdk';
 
-import { NETWORK_CONFIGS } from '../../../config';
-import { isStellarNetwork } from '../../../utils/transactionUtils';
 import type {
   LargeOrderOptions,
   LargeOrderQuote,
@@ -14,18 +12,15 @@ export class OrderBookSwapService {
   private networkPassphrase: string;
   private networkKey: string;
 
-  constructor(networkKey: string) {
-    const config = NETWORK_CONFIGS.stellar;
-    console.log(config, 'hii i amdbfkjdsbf');
-    if (!config || !isStellarNetwork(config)) {
-      throw new Error(`Unsupported Stellar network: ${networkKey}`);
+  constructor(horizonUrl: string, networkPassphrase: string, networkKey: string) {
+    console.log('OrderBook Service Init:', { horizonUrl, networkPassphrase, networkKey });
+    const serverOptions: any = {};
+    if (horizonUrl.startsWith('http://')) {
+      serverOptions.allowHttp = true;
     }
 
-    this.server = new StellarSDK.Horizon.Server(config.horizonUrl, {
-      allowHttp: networkKey === 'stellarTestnet',
-    });
-    this.networkPassphrase =
-      networkKey === 'stellarMainnet' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+    this.server = new StellarSDK.Horizon.Server(horizonUrl, serverOptions);
+    this.networkPassphrase = networkPassphrase;
     this.networkKey = networkKey;
   }
 
@@ -166,24 +161,56 @@ export class OrderBookSwapService {
     }
   }
 
-  async executeOrder(transaction: LargeOrderTransaction, privateKey: string): Promise<string> {
-    if (!privateKey.startsWith('S') || privateKey.length !== 56) {
-      throw new Error('Invalid Stellar private key format');
-    }
-
+  async executeOrderWithWalletConnect(
+    transaction: LargeOrderTransaction,
+    walletProvider: any
+  ): Promise<string> {
     try {
-      const sourceKeypair = StellarSDK.Keypair.fromSecret(privateKey);
-      const tx = new StellarSDK.Transaction(transaction.xdr, this.networkPassphrase);
-      tx.sign(sourceKeypair);
-      const response = await this.server.submitTransaction(tx);
-      return response.hash;
+      console.log('Preparing Stellar transaction via WalletConnect...');
+
+      if (!transaction.xdr) {
+        console.error('Missing XDR data');
+        throw new Error('Stellar transaction requires XDR data');
+      }
+
+      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+      const network = isMainnet ? 'MAINNET' : 'TESTNET';
+
+      const signParams = {
+        xdr: transaction.xdr,
+        networkPassphrase: this.networkPassphrase,
+        network,
+      };
+
+      console.log('Calling walletProvider.request with stellar_signAndSubmitXDR...', signParams);
+
+      const result = await walletProvider.request({
+        method: 'stellar_signAndSubmitXDR',
+        params: signParams,
+      });
+
+      console.log('WalletConnect provider response:', result);
+
+      if (result.status === 'success') {
+        console.log('Stellar transaction successful!');
+        return result.hash || result.transactionHash || 'stellar_submitted';
+      }
+
+      console.error('Stellar transaction failed - status not success');
+      throw new Error('Stellar transaction failed');
     } catch (error: any) {
-      console.error('Failed to execute order:', error);
+      console.error('Failed to execute order via WalletConnect:', {
+        message: error.message,
+        code: error.code,
+        fullError: error,
+      });
       if (error?.response?.data?.extras?.result_codes) {
         const codes = error.response.data.extras.result_codes;
         throw new Error(`Order failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
       }
-      throw new Error('Order execution failed');
+      throw new Error(
+        `Order execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
@@ -218,11 +245,16 @@ export class OrderBookSwapService {
 
   getPopularAssets(): StellarSDK.Asset[] {
     const popular = [StellarSDK.Asset.native()];
-    if (this.networkKey === 'stellarMainnet') {
+
+    // Check if mainnet based on network passphrase
+    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+
+    if (isMainnet) {
       popular.push(
         new StellarSDK.Asset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN')
       );
     }
+
     return popular;
   }
 }

@@ -29,6 +29,7 @@ export interface StellarChainConfig {
   network: 'PUBLIC' | 'TESTNET';
   networkPassphrase: string;
   horizonUrl: string;
+  chainId: string;
 }
 
 export type NetworkType = 'mainnet' | 'testnet';
@@ -128,7 +129,8 @@ export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
 export const STELLAR_CONFIG_MAINNET: StellarChainConfig = {
   network: 'PUBLIC',
   networkPassphrase: 'Public Global Stellar Network ; September 2015',
-  horizonUrl: 'https://horizon-testnet.stellar.org',
+  horizonUrl: 'https://horizon.stellar.org',
+  chainId: 'pubnet',
 };
 
 // ==================== TESTNET CONFIGURATIONS ====================
@@ -227,6 +229,7 @@ export const STELLAR_CONFIG_TESTNET: StellarChainConfig = {
   network: 'TESTNET',
   networkPassphrase: 'Test SDF Network ; September 2015',
   horizonUrl: 'https://horizon-testnet.stellar.org',
+  chainId: 'testnet',
 };
 
 // ==================== DYNAMIC GETTERS ====================
@@ -253,6 +256,7 @@ export const getStellarConfig = (): StellarChainConfig => {
   return currentNetwork === 'mainnet' ? STELLAR_CONFIG_MAINNET : STELLAR_CONFIG_TESTNET;
 };
 
+console.log(currentNetwork, 'hii i am curent network ');
 export const EVM_CHAINS = getEVMChains();
 export const COSMOS_CHAINS = getCosmosChains();
 export const STELLAR_CONFIG = getStellarConfig();
@@ -262,6 +266,6 @@ export const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJE
 export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',
   description: 'Trade Swiftly,Trade Securely',
-  url: 'https://yourapp.com',
-  icons: ['https://yourapp.com/icon.png'],
+  url: 'https://SwiftExchange.com',
+  icons: ['https://SwiftExchange.com/icon.png'],
 };

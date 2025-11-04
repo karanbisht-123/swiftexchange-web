@@ -25,7 +25,7 @@ export function getEVMNetworkConfig(networkKey: NetworkKey): EVMNetworkConfig {
   return cfg;
 }
 
-export async function getNativeBalance(networkKey: NetworkKey, address: string): Promise<string> {
+export async function getNativeBalance(networkKey: any, address: any): Promise<string> {
   const { rpcUrl } = getEVMNetworkConfig(networkKey);
   const provider = new ethers.JsonRpcProvider(rpcUrl);
 

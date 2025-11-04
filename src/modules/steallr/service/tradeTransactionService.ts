@@ -1,24 +1,29 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
 import type { Horizon } from '@stellar/stellar-sdk';
 
-import { NETWORK_CONFIGS } from '../../../config';
-import { isStellarNetwork } from '../../../utils/transactionUtils';
+// import { isStellarNetwork } from '../../../utils/transactionUtils';
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import type { ActiveOffer, CompletedTrade } from '../types/tradeTransaction.types';
 
 export class TradeTransactionService {
   private server: StellarSDK.Horizon.Server;
   private networkPassphrase: string;
+  // private networkKey: string;
+
   constructor(networkKey: string) {
-    const config = NETWORK_CONFIGS.stellar;
-    if (!config || !isStellarNetwork(config)) {
+    const config = getStellarConfig();
+    if (!config) {
       throw new Error(`Unsupported Stellar network: ${networkKey}`);
     }
 
-    this.server = new StellarSDK.Horizon.Server(config.horizonUrl, {
-      allowHttp: networkKey === 'testnet',
-    });
-    this.networkPassphrase =
-      networkKey === 'stellarMainnet' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+    const serverOptions: any = {};
+    if (config.horizonUrl.startsWith('http://')) {
+      serverOptions.allowHttp = true;
+    }
+
+    this.server = new StellarSDK.Horizon.Server(config.horizonUrl, serverOptions);
+    this.networkPassphrase = config.networkPassphrase;
+    // this.networkKey = networkKey;
   }
 
   private mapOfferRecordToActiveOffer(offer: Horizon.ServerApi.OfferRecord): ActiveOffer {
@@ -132,9 +137,13 @@ export class TradeTransactionService {
     }
   }
 
-  async cancelOffer(accountId: string, offer: ActiveOffer, privateKey: string): Promise<string> {
-    if (!privateKey.startsWith('S') || privateKey.length !== 56) {
-      throw new Error('Invalid Stellar private key format');
+  async buildCancelOfferTransaction(
+    accountId: string,
+    offer: ActiveOffer,
+    options: any = {}
+  ): Promise<any> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
+      throw new Error('Invalid Stellar account ID');
     }
 
     try {
@@ -150,7 +159,7 @@ export class TradeTransactionService {
           : new StellarSDK.Asset(offer.buying.code, offer.buying.issuer!);
 
       const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
-        fee: StellarSDK.BASE_FEE,
+        fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
 
@@ -163,33 +172,96 @@ export class TradeTransactionService {
       });
 
       txBuilder.addOperation(operation);
-      txBuilder.setTimeout(300);
+
+      if (options.memo) {
+        txBuilder.addMemo(StellarSDK.Memo.text(options.memo));
+      }
+      txBuilder.setTimeout(options.timeout || 300);
 
       const builtTx = txBuilder.build();
-      const keypair = StellarSDK.Keypair.fromSecret(privateKey);
-      builtTx.sign(keypair);
+      const xdr = builtTx.toXDR();
 
-      const response = await this.server.submitTransaction(builtTx);
-      return response.hash;
+      return {
+        id: `cancel-offer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'cancel-offer',
+        from: accountId,
+        offer,
+        sequence: sourceAccount.sequence,
+        fee: options.fee || StellarSDK.BASE_FEE,
+        memo: options.memo,
+        timestamp: Date.now(),
+        status: 'pending',
+        xdr,
+        networkPassphrase: this.networkPassphrase,
+      };
     } catch (error: any) {
-      console.error('Failed to cancel offer:', error);
+      console.error('Failed to build cancel offer transaction:', error);
+      throw new Error('Failed to build cancel offer transaction');
+    }
+  }
+
+  async executeCancelOfferWithWalletConnect(
+    transaction: any,
+    walletProvider: any
+  ): Promise<string> {
+    try {
+      console.log('Preparing Stellar transaction via WalletConnect...');
+
+      if (!transaction.xdr) {
+        console.error('Missing XDR data');
+        throw new Error('Stellar transaction requires XDR data');
+      }
+
+      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+      const network = isMainnet ? 'MAINNET' : 'TESTNET';
+
+      const signParams = {
+        xdr: transaction.xdr,
+        networkPassphrase: this.networkPassphrase,
+        network,
+      };
+
+      console.log('Calling walletProvider.request with stellar_signAndSubmitXDR...', signParams);
+
+      const result = await walletProvider.request({
+        method: 'stellar_signAndSubmitXDR',
+        params: signParams,
+      });
+
+      console.log('WalletConnect provider response:', result);
+
+      if (result.status === 'success') {
+        console.log('Stellar transaction successful!');
+        return result.hash || result.transactionHash || 'stellar_submitted';
+      }
+
+      console.error('Stellar transaction failed - status not success');
+      throw new Error('Stellar transaction failed');
+    } catch (error: any) {
+      console.error('Failed to execute cancel offer via WalletConnect:', {
+        message: error.message,
+        code: error.code,
+        fullError: error,
+      });
       if (error?.response?.data?.extras?.result_codes) {
         const codes = error.response.data.extras.result_codes;
         throw new Error(`Cancel failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
       }
-      throw new Error('Offer cancel failed');
+      throw new Error(
+        `Cancel execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
-  async editOffer(
+  async buildEditOfferTransaction(
     accountId: string,
     offer: ActiveOffer,
     newAmount: string,
     newPrice: string,
-    privateKey: string
-  ): Promise<string> {
-    if (!privateKey.startsWith('S') || privateKey.length !== 56) {
-      throw new Error('Invalid Stellar private key format');
+    options: any = {}
+  ): Promise<any> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
+      throw new Error('Invalid Stellar account ID');
     }
 
     if (parseFloat(newAmount) <= 0 || parseFloat(newPrice) <= 0) {
@@ -209,7 +281,7 @@ export class TradeTransactionService {
           : new StellarSDK.Asset(offer.buying.code, offer.buying.issuer!);
 
       const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
-        fee: StellarSDK.BASE_FEE,
+        fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
 
@@ -222,21 +294,83 @@ export class TradeTransactionService {
       });
 
       txBuilder.addOperation(operation);
-      txBuilder.setTimeout(300);
+
+      if (options.memo) {
+        txBuilder.addMemo(StellarSDK.Memo.text(options.memo));
+      }
+      txBuilder.setTimeout(options.timeout || 300);
 
       const builtTx = txBuilder.build();
-      const keypair = StellarSDK.Keypair.fromSecret(privateKey);
-      builtTx.sign(keypair);
+      const xdr = builtTx.toXDR();
 
-      const response = await this.server.submitTransaction(builtTx);
-      return response.hash;
+      return {
+        id: `edit-offer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'edit-offer',
+        from: accountId,
+        offer,
+        newAmount,
+        newPrice,
+        sequence: sourceAccount.sequence,
+        fee: options.fee || StellarSDK.BASE_FEE,
+        memo: options.memo,
+        timestamp: Date.now(),
+        status: 'pending',
+        xdr,
+        networkPassphrase: this.networkPassphrase,
+      };
     } catch (error: any) {
-      console.error('Failed to edit offer:', error);
+      console.error('Failed to build edit offer transaction:', error);
+      throw new Error('Failed to build edit offer transaction');
+    }
+  }
+
+  async executeEditOfferWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
+    try {
+      console.log('Preparing Stellar transaction via WalletConnect...');
+
+      if (!transaction.xdr) {
+        console.error('Missing XDR data');
+        throw new Error('Stellar transaction requires XDR data');
+      }
+
+      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+      const network = isMainnet ? 'MAINNET' : 'TESTNET';
+
+      const signParams = {
+        xdr: transaction.xdr,
+        networkPassphrase: this.networkPassphrase,
+        network,
+      };
+
+      console.log('Calling walletProvider.request with stellar_signAndSubmitXDR...', signParams);
+
+      const result = await walletProvider.request({
+        method: 'stellar_signAndSubmitXDR',
+        params: signParams,
+      });
+
+      console.log('WalletConnect provider response:', result);
+
+      if (result.status === 'success') {
+        console.log('Stellar transaction successful!');
+        return result.hash || result.transactionHash || 'stellar_submitted';
+      }
+
+      console.error('Stellar transaction failed - status not success');
+      throw new Error('Stellar transaction failed');
+    } catch (error: any) {
+      console.error('Failed to execute edit offer via WalletConnect:', {
+        message: error.message,
+        code: error.code,
+        fullError: error,
+      });
       if (error?.response?.data?.extras?.result_codes) {
         const codes = error.response.data.extras.result_codes;
         throw new Error(`Edit failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
       }
-      throw new Error('Offer edit failed');
+      throw new Error(
+        `Edit execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 }

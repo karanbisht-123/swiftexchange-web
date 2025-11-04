@@ -128,22 +128,22 @@ export const SessionDebugger: React.FC<{ show?: boolean }> = ({ show = true }) =
                   Array.from(sessions.entries()).map(([type, session]) => (
                     <div
                       key={type}
-                      className={`border rounded p-2 text-xs ${
-                        session.isActive
-                          ? 'bg-green-50 border-green-200'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
+                      // className={`border rounded p-2 text-xs ${
+                      //   session.isActive
+                      //     ? 'bg-green-50 border-green-200'
+                      //     : 'bg-gray-50 border-gray-200'
+                      // }`}
                     >
                       <div className="font-semibold text-green-900 flex items-center justify-between">
                         <span>{type}</span>
                         <span
-                          className={`text-[10px] px-2 py-0.5 rounded ${
-                            session.isActive
-                              ? 'bg-green-200 text-green-800'
-                              : 'bg-gray-200 text-gray-800'
-                          }`}
+                        // className={`text-[10px] px-2 py-0.5 rounded ${
+                        //   session.isActive
+                        //     ? 'bg-green-200 text-green-800'
+                        //     : 'bg-gray-200 text-gray-800'
+                        // }`}
                         >
-                          {session.isActive ? 'Active' : 'Inactive'}
+                          {/* {session.isActive ? 'Active' : 'Inactive'} */}
                         </span>
                       </div>
                       <div className="text-gray-600 font-mono text-[10px] break-all">
@@ -158,7 +158,7 @@ export const SessionDebugger: React.FC<{ show?: boolean }> = ({ show = true }) =
                         Provider: {session.provider ? '✓ Available' : '✗ Missing'}
                       </div>
                       <div className="text-gray-400 text-[10px] mt-1">
-                        Last used: {new Date(session.lastUsed).toLocaleTimeString()}
+                        {/* Last used: {new Date(session.lastUsed).toLocaleTimeString()} */}
                       </div>
                     </div>
                   ))

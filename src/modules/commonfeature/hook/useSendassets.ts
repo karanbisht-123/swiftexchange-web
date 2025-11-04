@@ -234,7 +234,7 @@ export const useSendAsset = (onBack?: () => void) => {
             amount
           );
         } else if (currentAsset.type === 'stellar' && typeof currentAsset.networkKey === 'string') {
-          fees = await estimateStellarFees(currentAsset.networkKey);
+          fees = await estimateStellarFees();
         } else {
           fees = {
             totalCost: currentAsset.baseFee.toFixed(
@@ -361,7 +361,7 @@ export const useSendAsset = (onBack?: () => void) => {
         if (memo.trim()) options.memo = memo.trim();
 
         const stellarTx = await sendCryptoStellarBuild(
-          currentAsset.addressType as string,
+          // currentAsset.addressType as string,
           senderAddress,
           recipientAddress,
           amount,
@@ -462,6 +462,7 @@ export const useSendAsset = (onBack?: () => void) => {
   }, [handleBackToForm, clearNotifications]);
 
   const copyToClipboard = useCallback(async (text: string, label: string) => {
+    console.log(label);
     try {
       await navigator.clipboard.writeText(text);
     } catch {}

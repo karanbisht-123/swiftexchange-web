@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import { OrderBookSwapService } from '../service/orderBookSwapService';
 import type {
   LargeOrderOptions,
@@ -9,12 +10,11 @@ import type {
 } from '../types/orderBookSwap.types';
 
 interface UseLargeOrderProps {
-  networkKey: string;
   userAddress?: string;
 }
 
-export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
-  const [service] = useState(() => new OrderBookSwapService(networkKey));
+export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
+  const [service, setService] = useState<OrderBookSwapService | null>(null);
   const [isBuy, setIsBuyState] = useState(true);
   const [fromToken, setFromToken] = useState<TokenInfo | null>(null);
   const [toToken, setToToken] = useState<TokenInfo | null>(null);
@@ -29,10 +29,29 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
   const [popularTokens, setPopularTokens] = useState<TokenInfo[]>([]);
   const [orderBook, setOrderBook] = useState<any>(null);
 
-  // Load tokens from wallet balances
+  console.log(transaction);
   useEffect(() => {
-    if (!userAddress) {
-      setError('No wallet address provided');
+    try {
+      const config = getStellarConfig();
+      console.log('OrderBook Stellar Config:', config);
+
+      const orderBookService = new OrderBookSwapService(
+        config.horizonUrl,
+        config.networkPassphrase,
+        config.chainId
+      );
+      setService(orderBookService);
+    } catch (err) {
+      console.error('Failed to initialize OrderBook service:', err);
+      setError('Failed to connect to Stellar network');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!service || !userAddress) {
+      if (!userAddress) {
+        setError('No wallet address provided');
+      }
       return;
     }
 
@@ -60,6 +79,8 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
           setFromToken(defaultToken);
           setToToken(otherToken);
         }
+
+        setError(null);
       } catch (err) {
         console.error('Failed to fetch balances:', err);
         setError('Failed to load wallet balances');
@@ -71,9 +92,8 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
     fetchBalances();
   }, [userAddress, service, isBuy]);
 
-  // Fetch order book when tokens change
   useEffect(() => {
-    if (!fromToken?.asset || !toToken?.asset) return;
+    if (!service || !fromToken?.asset || !toToken?.asset) return;
 
     const fetchOrderBook = async () => {
       setIsLoading(true);
@@ -81,7 +101,6 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
         const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
         setOrderBook(book);
 
-        // Auto-fill price from order book if empty
         if (!price) {
           const bestPrice = await service.getBestPrice(fromToken.asset, toToken.asset, isBuy);
           if (bestPrice) {
@@ -97,11 +116,10 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
     };
 
     fetchOrderBook();
-  }, [fromToken, toToken, isBuy, service, price]);
+  }, [fromToken, toToken, isBuy, service]);
 
-  // Calculate total and quote on amount or price change
   useEffect(() => {
-    if (!amount || !price || !fromToken?.asset || !toToken?.asset) {
+    if (!service || !amount || !price || !fromToken?.asset || !toToken?.asset) {
       setTotal('0');
       setQuote(null);
       return;
@@ -121,6 +139,7 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
         slippageTolerance,
         timestamp: Date.now(),
       });
+      setError(null);
     } catch (err) {
       console.error('Failed to calculate quote:', err);
       setError('Failed to calculate order quote');
@@ -158,7 +177,6 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
     setAmount(maxAmount.toFixed(7));
   }, [fromToken]);
 
-  // Toggle buy/sell
   const toggleOrderType = useCallback(() => {
     setIsBuyState(prev => !prev);
     const temp = fromToken;
@@ -171,9 +189,12 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
     setError(null);
   }, [fromToken, toToken]);
 
-  // Build transaction
   const buildTransaction = useCallback(
     async (options: LargeOrderOptions = {}): Promise<LargeOrderTransaction> => {
+      if (!service) {
+        throw new Error('OrderBook service not initialized');
+      }
+
       if (!userAddress) {
         throw new Error('User address is required');
       }
@@ -216,25 +237,20 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
         setIsLoading(false);
       }
     },
-    [userAddress, quote, isBuy, slippageTolerance, service, fromToken, toToken]
+    [service, userAddress, quote, isBuy, slippageTolerance, fromToken, toToken]
   );
 
-  // Execute order
-  const executeOrder = useCallback(
-    async (privateKey: string): Promise<string> => {
-      if (!transaction) {
-        throw new Error('No transaction to execute');
-      }
-
-      if (!privateKey) {
-        throw new Error('Private key is required');
+  const executeOrderWithWalletConnect = useCallback(
+    async (transaction: LargeOrderTransaction, walletProvider: any): Promise<string> => {
+      if (!service) {
+        throw new Error('OrderBook service not initialized');
       }
 
       setIsLoading(true);
       setError(null);
 
       try {
-        const txHash = await service.executeOrder(transaction, privateKey);
+        const txHash = await service.executeOrderWithWalletConnect(transaction, walletProvider);
 
         setTransaction({
           ...transaction,
@@ -255,12 +271,11 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
         setIsLoading(false);
       }
     },
-    [transaction, service]
+    [service]
   );
 
-  // Refresh order book
   const refreshOrderBook = useCallback(async () => {
-    if (!fromToken?.asset || !toToken?.asset) return;
+    if (!service || !fromToken?.asset || !toToken?.asset) return;
 
     setIsLoading(true);
     try {
@@ -272,9 +287,8 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [fromToken, toToken, service]);
+  }, [service, fromToken, toToken]);
 
-  // Reset state
   const reset = useCallback(() => {
     setAmount('');
     setPrice('');
@@ -306,7 +320,7 @@ export function useLargeOrder({ networkKey, userAddress }: UseLargeOrderProps) {
     setAmountPercentage,
     setMaxAmount,
     buildTransaction,
-    executeOrder,
+    executeOrderWithWalletConnect,
     refreshOrderBook,
     reset,
   };

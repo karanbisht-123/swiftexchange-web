@@ -1,7 +1,8 @@
 import { AlertCircle, ArrowDownUp, CheckCircle, Clock, RefreshCw, Settings } from 'lucide-react';
 import { useState } from 'react';
 
-import { useWalletStore } from '../../wallet/store.ts/walletStore';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES, UI_STRINGS } from '../constants/ammSwapConstants';
 import { useAmmSwap } from '../hook/useAmmSwap';
 import { useAmmSwapStore } from '../store/ammSwapStore';
@@ -11,8 +12,11 @@ const AmmSwapUI = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [swapStatus, setSwapStatus] = useState<'pending' | 'success' | null>(null);
 
-  const { walletAddresses, getPrivateKey } = useWalletStore();
-  const stellarAddress = walletAddresses[1] || '';
+  const { connectedWallets, getProvider, getNetwork } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const stellarAddress = stellarWallet?.address || '';
+  const currentNetwork = getNetwork();
+  console.log(currentNetwork, 'hii i am cureent network ---');
 
   const {
     fromToken,
@@ -31,16 +35,18 @@ const AmmSwapUI = () => {
     swapTokens,
     refreshQuote,
     buildTransaction,
-    executeSwap,
+    executeSwapWithWalletConnect,
     reset,
   } = useAmmSwap({
-    networkKey: 'testnet',
     userAddress: stellarAddress,
   });
 
+  const isLoadingTokens = popularTokens.length === 0 && stellarAddress && !error;
+  console.log(isLoadingTokens, 'hii ia m isLOadingd');
   const { addTransaction, defaultSlippage, setDefaultSlippage } = useAmmSwapStore();
 
-  console.log(defaultSlippage);
+  console.log(defaultSlippage, 'dfhkjhfjkh');
+
   const handleSlippageChange = (slippage: number) => {
     setSlippageTolerance(slippage);
     setDefaultSlippage(slippage);
@@ -52,20 +58,29 @@ const AmmSwapUI = () => {
       return;
     }
 
+    if (!stellarWallet) {
+      alert('Please connect your Stellar wallet first');
+      return;
+    }
+
     setSwapStatus('pending');
     try {
       const tx = await buildTransaction();
-      const privateKey = (await getPrivateKey('stellar')) || '';
-      if (!privateKey) {
-        throw new Error('No private key available');
+      const provider = getProvider(WalletType.STELLAR);
+
+      if (!provider) {
+        throw new Error('Stellar wallet provider not available');
       }
-      const txHash = await executeSwap(privateKey);
+
+      const txHash = await executeSwapWithWalletConnect(tx, provider);
+
       addTransaction({
         ...tx,
         status: 'success',
         txHash,
         timestamp: Date.now(),
       });
+
       setSwapStatus('success');
       setTimeout(() => {
         setSwapStatus(null);
@@ -73,8 +88,6 @@ const AmmSwapUI = () => {
       }, 3000);
     } catch (err) {
       setSwapStatus(null);
-      // const message =
-      //   err instanceof Error ? err.message : ERROR_MESSAGES.SWAP_FAILED;
       addTransaction({
         id: Date.now().toString(),
         fromToken,
@@ -84,14 +97,27 @@ const AmmSwapUI = () => {
         status: 'failed',
         timestamp: Date.now(),
       });
+      console.error('Swap failed:', err);
     }
   };
 
-  const canSwap = fromAmount && parseFloat(fromAmount) > 0 && !isLoading && quote;
+  const canSwap = fromAmount && parseFloat(fromAmount) > 0 && !isLoading && quote && stellarWallet;
+
+  if (!stellarWallet) {
+    return (
+      <div className="bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
+        <div className="w-full max-w-lg text-center space-y-4">
+          <AlertCircle className="w-16 h-16 text-warning mx-auto" />
+          <h4 className="heading-4">Stellar Wallet Not Connected</h4>
+          <p className="text-muted">Please connect your Stellar wallet to start swapping tokens</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className=" bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
-      <div className=" w-full max-w-lg">
+    <div className="bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
+      <div className="w-full max-w-lg">
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h4 className="heading-4">Swap</h4>
@@ -124,7 +150,7 @@ const AmmSwapUI = () => {
             <div className="flex items-center justify-between text-small text-muted">
               <span>From</span>
               <span>
-                Balance: {fromToken?.balance ? parseFloat(fromToken.balance).toFixed(2) : '0.00'}
+                Balance: {fromToken?.balance ? parseFloat(fromToken.balance) : '00.0000000'}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -144,7 +170,7 @@ const AmmSwapUI = () => {
             </div>
             {fromToken?.balance && (
               <button
-                onClick={() => setFromAmount(fromToken.balance)}
+                onClick={() => setFromAmount(fromToken.balance || '0')}
                 className="text-xs text-brand-accent hover:text-brand-primary transition-colors"
               >
                 MAX
@@ -152,7 +178,7 @@ const AmmSwapUI = () => {
             )}
           </div>
 
-          <div className="flex justify-center  relative z-10">
+          <div className="flex justify-center relative z-10">
             <button
               onClick={swapTokens}
               className="btn btn-glass p-3 rounded-xl hover:scale-110 transition-all duration-300 border-2 border-border-accent"
@@ -177,7 +203,7 @@ const AmmSwapUI = () => {
                 className="input input-primary flex-1 text-2xl font-semibold"
               />
               <TokenSelector
-                selectedToken={toToken || { code: 'Select', balance: '0' }}
+                selectedToken={fromToken || { code: 'Select', balance: '0' }}
                 onSelect={setToToken}
                 tokens={popularTokens}
                 label="To"
@@ -203,7 +229,7 @@ const AmmSwapUI = () => {
           <button
             onClick={handleSwap}
             disabled={!canSwap || swapStatus === 'pending'}
-            className={`btn btn-gradient btn-lg w-full font-semibold ${
+            className={`btn btn-gradient border btn-lg w-full font-semibold ${
               canSwap && swapStatus !== 'pending'
                 ? 'animate-scale-in'
                 : 'opacity-50 cursor-not-allowed'

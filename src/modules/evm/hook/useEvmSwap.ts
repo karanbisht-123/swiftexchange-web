@@ -5,7 +5,6 @@ import type { Asset, SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap
 import { AssetUtils } from '../utils/assetUtils';
 import { fetchEvmQuote, handleEvmSwap } from '../utils/evmSwapUtils';
 
-// determineSwapType,
 interface UseEvmSwapProps {
   networkKey: NetworkKey;
   senderAddress: string;

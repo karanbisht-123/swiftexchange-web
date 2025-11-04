@@ -9,7 +9,6 @@ const NetworkSwitch: React.FC = () => {
   const [network, setNetwork] = useState<NetworkType>(walletService.getNetwork());
   const connectedWallets = useWalletStore(state => state.connectedWallets);
 
-  // Sync local state with walletService network
   useEffect(() => {
     const currentNetwork = walletService.getNetwork();
     setNetwork(currentNetwork);
@@ -17,13 +16,11 @@ const NetworkSwitch: React.FC = () => {
 
   const handleNetworkChange = async (newNetwork: NetworkType) => {
     try {
-      // Disconnect all connected wallets before switching network
       const disconnectPromises = Object.keys(connectedWallets).map(type =>
         walletService.disconnect(type as WalletType)
       );
       await Promise.all(disconnectPromises);
 
-      // Update network
       await walletService.setNetwork(newNetwork);
       setNetwork(newNetwork);
     } catch (error) {
@@ -33,15 +30,12 @@ const NetworkSwitch: React.FC = () => {
   };
 
   return (
-    <div className="card card-bordered p-4">
-      {/* <label htmlFor="network-select" className="text-muted mb-2 block">
-        Select Network
-      </label> */}
+    <div className="card ">
       <select
         id="network-select"
         value={network}
         onChange={e => handleNetworkChange(e.target.value as NetworkType)}
-        className="input input-lg w-full"
+        className="input input-lg w-full appearance-none py-2"
       >
         <option value="mainnet">Mainnet</option>
         <option value="testnet">Testnet</option>

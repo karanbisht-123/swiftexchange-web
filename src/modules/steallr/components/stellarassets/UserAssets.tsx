@@ -1,14 +1,12 @@
 import React, { useEffect, useState } from 'react';
 
-import { NETWORK_CONFIGS } from '../../../../config';
-import type { StellarNetworkConfig } from '../../../../config/stellarNetworks';
-import { useWalletStore } from '../../../wallet/store.ts/walletStore';
+import { getStellarConfig } from '../../../walletconnect/config/chains';
+import { WalletType } from '../../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useStellarBalances } from './GlobalAssets';
 
 interface MyTestnetAssetsProps {
-  onViewAllAssets?: () => void;
-  onSendCrypto?: () => void;
-  onReceiveCrypto?: () => void;
+  userAddress?: string;
 }
 
 interface DisplayAsset {
@@ -39,10 +37,11 @@ const KNOWN_ASSETS: Record<string, { name: string; ticker: string; iconUrl: stri
   },
 };
 
-const useMyAssets = () => {
-  const { isConnected, walletAddresses } = useWalletStore();
-  const stellarAddress = walletAddresses.find(addr => addr.startsWith('G'));
-  const { balances, loading: balancesLoading } = useStellarBalances(stellarAddress);
+const useMyAssets = (userAddress?: string, networkKey: string = 'testnet') => {
+  const { connectedWallets } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const address = stellarWallet?.address || userAddress || '';
+  const { balances, loading: balancesLoading } = useStellarBalances(address, networkKey);
 
   const [assets, setAssets] = useState<DisplayAsset[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,10 +52,11 @@ const useMyAssets = () => {
     AQUA: 0.001,
   };
 
+  const config = getStellarConfig();
+
   useEffect(() => {
     const processAssets = () => {
       if (!balances.length || balancesLoading) return;
-      const stellarConfig = NETWORK_CONFIGS['stellar'] as StellarNetworkConfig;
 
       const processedAssets = balances
         .filter(
@@ -78,7 +78,7 @@ const useMyAssets = () => {
             ticker: assetConfig.ticker,
             price: mockPrices[assetCode] || 0,
             quantity: Number(balance.balance),
-            network: stellarConfig.network,
+            network: config?.network || 'Stellar',
             iconUrl: assetConfig.iconUrl,
           };
         });
@@ -88,20 +88,22 @@ const useMyAssets = () => {
 
     processAssets();
     setIsLoading(balancesLoading);
-  }, [balances, balancesLoading]);
+  }, [balances, balancesLoading, config]);
 
   useEffect(() => {
-    if (!isConnected || !walletAddresses.length) {
+    if (!address) {
       setIsLoading(false);
     }
-  }, [isConnected, walletAddresses]);
+  }, [address]);
 
   return { assets, isLoading };
 };
 
-const UserAssets: React.FC<MyTestnetAssetsProps> = () => {
-  const { assets, isLoading } = useMyAssets();
-  const { isConnected } = useWalletStore();
+const UserAssets: React.FC<MyTestnetAssetsProps> = ({ userAddress }) => {
+  const { assets, isLoading } = useMyAssets(userAddress);
+  const { connectedWallets } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const isConnected = !!stellarWallet;
 
   return (
     <div className="bg-secondary  max-w-[90vw] rounded-xl shadow-sm ">
