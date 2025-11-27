@@ -1,81 +1,170 @@
-import {
-  Activity,
-  ArrowUpDown,
-  BarChart3,
-  Clock,
-  Database,
-  DollarSign,
-  Percent,
-  Search,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search, TrendingDown, TrendingUp } from 'lucide-react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 
 import { useMarkets } from '../hooks/useMarkets';
+
+interface MarketRowProps {
+  market: any;
+  formatPrice: (price: string) => string;
+  formatVolume: (volume: string) => string;
+  formatPercent: (percent: string) => string;
+  formatFundingRate: (rate: string) => string;
+  getTimeUntilFunding: (fundingAt: string) => string;
+}
 
 type SortField = 'ticker' | 'price' | 'change' | 'volume' | 'trades';
 type SortDirection = 'asc' | 'desc';
 
+const ROWS_PER_PAGE = 50;
+
+const MarketRow = memo(function MarketRow({
+  market,
+  formatPrice,
+  formatVolume,
+  formatPercent,
+  formatFundingRate,
+  getTimeUntilFunding,
+}: MarketRowProps) {
+  const priceChange = parseFloat(market.priceChange24H);
+  const isPositive = priceChange >= 0;
+  const fundingRate = parseFloat(market.nextFundingRate);
+
+  return (
+    <tr className="border-b border-[#1e293b]/30 hover:bg-[#1e293b]/20 transition-colors">
+      <td className="py-3 px-4 sticky left-0 bg-secondary z-10">
+        <div className="flex items-center gap-2.5">
+          <div className="relative w-7 h-7 flex-shrink-0">
+            {market.coinIcon ? (
+              <img
+                src={market.coinIcon}
+                alt={market.ticker}
+                className="w-7 h-7 rounded-full"
+                onError={e => {
+                  const img = e.currentTarget;
+                  img.style.display = 'none';
+
+                  const fallback = img.nextElementSibling as HTMLElement | null;
+                  if (fallback) fallback.style.display = 'flex';
+                }}
+              />
+            ) : null}
+
+            <div
+              className="w-7 h-7 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
+              style={{ display: market.coinIcon ? 'none' : 'flex' }}
+            >
+              {market.ticker.split('-')[0].slice(0, 2)}
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="font-medium text-white text-sm leading-tight">{market.ticker}</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              {market.coinName || 'Perpetual'}
+            </div>
+          </div>
+        </div>
+      </td>
+
+      <td className="py-3 px-4 text-right">
+        <span className="text-white font-mono text-sm">${formatPrice(market.oraclePrice)}</span>
+      </td>
+
+      <td className="py-3 px-4 text-right">
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${
+            isPositive ? 'text-emerald-400' : 'text-red-400'
+          }`}
+        >
+          {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+          {isPositive ? '+' : ''}
+          {formatPercent(market.priceChange24H)}%
+        </span>
+      </td>
+
+      <td className="py-3 px-4 text-right">
+        <span className="text-slate-300 text-sm">{formatVolume(market.volume24H)}</span>
+      </td>
+
+      <td className="py-3 px-4 text-right">
+        <span className="text-slate-400 text-sm">{market.trades24H.toLocaleString()}</span>
+      </td>
+
+      <td className="py-3 px-4 text-right">
+        <span
+          className={`font-mono text-xs ${fundingRate >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+        >
+          {fundingRate >= 0 ? '+' : ''}
+          {formatFundingRate(market.nextFundingRate)}%
+        </span>
+      </td>
+
+      <td className="py-3 px-4 text-right">
+        <span className="text-slate-500 text-xs">{getTimeUntilFunding(market.nextFundingAt)}</span>
+      </td>
+    </tr>
+  );
+});
+
+MarketRow.displayName = 'MarketRow';
+
 export default function MarketsDisplay() {
-  const { marketsList, error, isLoading, isConnected, totalMarkets, cacheStats } = useMarkets();
+  const { marketsList, error, isLoading } = useMarkets();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<SortField>('volume');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  // const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const formatPrice = (price: string) => {
+  const formatPrice = useCallback((price: string): string => {
     const num = parseFloat(price);
-    if (num >= 1000) {
-      return num.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      });
-    }
-    return num.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 6,
-    });
-  };
+    if (isNaN(num)) return '0.00';
+    return num >= 1000
+      ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  }, []);
 
-  const formatVolume = (volume: string) => {
+  const formatVolume = useCallback((volume: string): string => {
     const num = parseFloat(volume);
+    if (isNaN(num)) return '$0';
     if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
     if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
     if (num >= 1e3) return `$${(num / 1e3).toFixed(2)}K`;
     return `$${num.toFixed(2)}`;
-  };
+  }, []);
 
-  const formatPercent = (percent: string) => {
+  const formatPercent = useCallback((percent: string): string => {
     const num = parseFloat(percent) * 100;
-    return num.toFixed(2);
-  };
+    return isNaN(num) ? '0.00' : num.toFixed(2);
+  }, []);
 
-  const formatFundingRate = (rate: string) => {
+  const formatFundingRate = useCallback((rate: string): string => {
     const num = parseFloat(rate) * 100;
-    return num.toFixed(4);
-  };
+    return isNaN(num) ? '0.0000' : num.toFixed(4);
+  }, []);
 
-  const getTimeUntilFunding = (fundingAt: string) => {
+  const getTimeUntilFunding = useCallback((fundingAt: string): string => {
     if (!fundingAt) return 'N/A';
-    const now = new Date().getTime();
+    const now = Date.now();
     const funding = new Date(fundingAt).getTime();
     const diff = funding - now;
-    if (diff < 0) return 'Funding passed';
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (diff < 0) return 'Passed';
+    const hours = Math.floor(diff / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
     return `${hours}h ${minutes}m`;
-  };
+  }, []);
 
   const filteredAndSortedMarkets = useMemo(() => {
     let filtered = marketsList.filter(
-      market =>
-        market.ticker.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        market.coinName?.toLowerCase().includes(searchTerm.toLowerCase())
+      m =>
+        m.ticker.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        m.coinName?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     filtered.sort((a, b) => {
-      let aVal: number = 0;
-      let bVal: number = 0;
+      let aVal = 0;
+      let bVal = 0;
 
       switch (sortField) {
         case 'ticker':
@@ -106,317 +195,333 @@ export default function MarketsDisplay() {
     return filtered;
   }, [marketsList, searchTerm, sortField, sortDirection]);
 
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+  const totalPages = Math.ceil(filteredAndSortedMarkets.length / ROWS_PER_PAGE);
+  const paginatedMarkets = useMemo(() => {
+    const start = (currentPage - 1) * ROWS_PER_PAGE;
+    return filteredAndSortedMarkets.slice(start, start + ROWS_PER_PAGE);
+  }, [filteredAndSortedMarkets, currentPage]);
+
+  const handleSort = useCallback(
+    (field: SortField) => {
+      if (sortField === field) {
+        setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortField(field);
+        setSortDirection('desc');
+      }
+      setCurrentPage(1);
+    },
+    [sortField]
+  );
+
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // const handleRefresh = useCallback(async () => {
+  //   setIsRefreshing(true);
+  //   try {
+  //     await refreshMarkets();
+  //   } finally {
+  //     setTimeout(() => setIsRefreshing(false), 1000);
+  //   }
+  // }, [refreshMarkets]);
+
+  const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+    setCurrentPage(1);
+  }, []);
+
+  const statistics = useMemo(() => {
+    const totalVolume = marketsList.reduce((sum, m) => sum + parseFloat(m.volume24H || '0'), 0);
+    const avgChange =
+      marketsList.length > 0
+        ? (marketsList.reduce((acc, m) => acc + parseFloat(m.priceChange24H || '0'), 0) /
+            marketsList.length) *
+          100
+        : 0;
+    const positiveMarkets = marketsList.filter(m => parseFloat(m.priceChange24H || '0') > 0).length;
+    return { totalVolume, avgChange, positiveMarkets };
+  }, [marketsList]);
+
+  const pageNumbers = useMemo(() => {
+    const pages = [];
+    const maxVisible = 7;
+
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
-      setSortField(field);
-      setSortDirection('desc');
+      if (currentPage <= 4) {
+        for (let i = 1; i <= 5; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      } else if (currentPage >= totalPages - 3) {
+        pages.push(1);
+        pages.push('...');
+        for (let i = totalPages - 4; i <= totalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      }
     }
-  };
+    return pages;
+  }, [currentPage, totalPages]);
 
-  const totalVolume = useMemo(() => {
-    return marketsList.reduce((sum, m) => sum + parseFloat(m.volume24H || '0'), 0);
-  }, [marketsList]);
+  const SortIcon = useCallback(
+    ({ field }: { field: SortField }) => {
+      if (sortField !== field) {
+        return <span className="text-slate-600 text-xs ml-1">⇅</span>;
+      }
+      return sortDirection === 'asc' ? (
+        <TrendingUp className="w-3.5 h-3.5 text-blue-400 ml-1" />
+      ) : (
+        <TrendingDown className="w-3.5 h-3.5 text-blue-400 ml-1" />
+      );
+    },
+    [sortField, sortDirection]
+  );
 
-  const avgChange = useMemo(() => {
-    if (marketsList.length === 0) return 0;
-    const sum = marketsList.reduce((acc, m) => acc + parseFloat(m.priceChange24H || '0'), 0);
-    return (sum / marketsList.length) * 100;
-  }, [marketsList]);
-
-  const positiveMarkets = useMemo(() => {
-    return marketsList.filter(m => parseFloat(m.priceChange24H || '0') > 0).length;
-  }, [marketsList]);
-
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <ArrowUpDown className="w-4 h-4 opacity-30" />;
-    return sortDirection === 'asc' ? (
-      <TrendingUp className="w-4 h-4 text-blue-400" />
-    ) : (
-      <TrendingDown className="w-4 h-4 text-blue-400" />
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-2 border-slate-700 border-t-blue-500 mx-auto mb-4" />
+          <p className="text-slate-400">Loading markets...</p>
+        </div>
+      </div>
     );
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="min-h-screen  bg-primary text-white">
+      {/* Header */}
+      {/* <div className="bg-[#1e293b]/30 border-b border-[#1e293b]">
+        <div className="max-w-[1920px] mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                Markets Overview
-              </h1>
-              <p className="text-slate-400 mt-1">Real-time perpetual markets from dYdX</p>
+              <h1 className="text-xl font-bold text-white">Markets</h1>
+              <p className="text-xs text-slate-500 mt-0.5">Perpetual Trading</p>
             </div>
 
-            {/* Connection & Cache Status */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="flex items-center gap-2 px-3 py-1.5 bg-[#1e293b] hover:bg-[#334155] border border-[#334155] rounded text-xs transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1e293b] border border-[#334155] rounded">
                 <div
-                  className={`w-2 h-2 rounded-full ${
-                    isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-                  }`}
+                  className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'} ${isConnected ? 'animate-pulse' : ''}`}
                 />
-                <span className="text-slate-400">{isConnected ? 'Live Data' : 'Disconnected'}</span>
+                <span className="text-xs text-slate-400">{isConnected ? 'Live' : 'Offline'}</span>
               </div>
 
-              <div className="flex items-center gap-2 text-sm text-slate-400">
-                <Database className="w-4 h-4" />
-                <span>
-                  Cache: {cacheStats.valid}/{cacheStats.total}
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1e293b] border border-[#334155] rounded">
+                <Database className="w-3.5 h-3.5 text-slate-500" />
+                <span className="text-xs text-slate-400">
+                  {cacheStats.valid}/{cacheStats.total}
                 </span>
               </div>
             </div>
           </div>
+        </div>
+      </div> */}
 
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search markets by ticker or name..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-800/50 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+      {/* Stats Bar */}
+      <div className="bg-[#1e293b]/20 border-b border-[#1e293b]">
+        <div className="max-w-[1920px] mx-auto px-6 py-3">
+          <div className="grid grid-cols-4 gap-6">
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-slate-500">Markets</div>
+              <div className="font-semibold text-white">{marketsList.length}</div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-slate-500">24h Volume</div>
+              <div className="font-semibold text-white">
+                {formatVolume(statistics.totalVolume.toString())}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-slate-500">Avg Change</div>
+              <div
+                className={`font-semibold ${statistics.avgChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+              >
+                {statistics.avgChange >= 0 ? '+' : ''}
+                {statistics.avgChange.toFixed(2)}%
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-slate-500">Positive</div>
+              <div className="font-semibold text-emerald-400">
+                {statistics.positiveMarkets}/{marketsList.length}
+              </div>
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-5">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-blue-500/20 rounded-lg">
-                <BarChart3 className="w-5 h-5 text-blue-400" />
-              </div>
-              <span className="text-slate-400 text-sm">Total Markets</span>
-            </div>
-            <p className="text-2xl font-bold">{totalMarkets}</p>
-          </div>
-
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-5">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-purple-500/20 rounded-lg">
-                <DollarSign className="w-5 h-5 text-purple-400" />
-              </div>
-              <span className="text-slate-400 text-sm">24h Volume</span>
-            </div>
-            <p className="text-2xl font-bold">{formatVolume(totalVolume.toString())}</p>
-          </div>
-
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-5">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-cyan-500/20 rounded-lg">
-                <Percent className="w-5 h-5 text-cyan-400" />
-              </div>
-              <span className="text-slate-400 text-sm">Avg Change</span>
-            </div>
-            <p
-              className={`text-2xl font-bold ${avgChange >= 0 ? 'text-green-400' : 'text-red-400'}`}
-            >
-              {avgChange >= 0 ? '+' : ''}
-              {avgChange.toFixed(2)}%
-            </p>
-          </div>
-
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-5">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-green-500/20 rounded-lg">
-                <TrendingUp className="w-5 h-5 text-green-400" />
-              </div>
-              <span className="text-slate-400 text-sm">Positive</span>
-            </div>
-            <p className="text-2xl font-bold text-green-400">
-              {positiveMarkets}/{totalMarkets}
-            </p>
-          </div>
+      <div className="max-w-[1920px] mx-auto px-6 py-4">
+        {/* Search */}
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Search markets..."
+            value={searchTerm}
+            onChange={handleSearch}
+            className="w-full bg-[#1e293b]/50 border border-[#334155] rounded pl-10 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
+          />
         </div>
 
-        {/* Error State */}
         {error && (
-          <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-4 text-red-400">
-            <p className="font-medium">Error: {error}</p>
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
+            {error}
           </div>
         )}
 
-        {/* Loading State */}
-        {isLoading && (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-slate-700 border-t-blue-500" />
-          </div>
-        )}
-
-        {/* Markets Table */}
-        {!isLoading && !error && (
-          <div className="bg-slate-800/30 backdrop-blur-sm border border-slate-700 rounded-xl overflow-hidden">
+        {/* Table */}
+        {filteredAndSortedMarkets.length > 0 ? (
+          <div className="bg-[#1e293b]/30 border border-[#334155]/50 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-slate-700 bg-slate-800/50">
+                  <tr className="bg-[#1e293b]/50 border-b border-[#334155]/50">
                     <th
-                      className="text-left p-4 text-slate-400 font-medium text-sm cursor-pointer hover:text-slate-200 transition-colors"
                       onClick={() => handleSort('ticker')}
+                      className="py-3 px-4 text-left text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200 sticky left-0 bg-[#1e293b]/50 z-20"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center">
                         Market
                         <SortIcon field="ticker" />
                       </div>
                     </th>
                     <th
-                      className="text-right p-4 text-slate-400 font-medium text-sm cursor-pointer hover:text-slate-200 transition-colors"
                       onClick={() => handleSort('price')}
+                      className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                     >
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end">
                         Price
                         <SortIcon field="price" />
                       </div>
                     </th>
                     <th
-                      className="text-right p-4 text-slate-400 font-medium text-sm cursor-pointer hover:text-slate-200 transition-colors"
                       onClick={() => handleSort('change')}
+                      className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                     >
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end">
                         24h Change
                         <SortIcon field="change" />
                       </div>
                     </th>
                     <th
-                      className="text-right p-4 text-slate-400 font-medium text-sm cursor-pointer hover:text-slate-200 transition-colors"
                       onClick={() => handleSort('volume')}
+                      className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                     >
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end">
                         24h Volume
                         <SortIcon field="volume" />
                       </div>
                     </th>
                     <th
-                      className="text-right p-4 text-slate-400 font-medium text-sm cursor-pointer hover:text-slate-200 transition-colors"
                       onClick={() => handleSort('trades')}
+                      className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                     >
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end">
                         Trades
                         <SortIcon field="trades" />
                       </div>
                     </th>
-                    <th className="text-right p-4 text-slate-400 font-medium text-sm">
-                      Funding Rate
+                    <th className="py-3 px-4 text-right text-xs font-medium text-slate-400">
+                      Funding
                     </th>
-                    <th className="text-right p-4 text-slate-400 font-medium text-sm">
-                      Next Funding
+                    <th className="py-3 px-4 text-right text-xs font-medium text-slate-400">
+                      Next
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAndSortedMarkets.map(market => {
-                    const priceChange = parseFloat(market.priceChange24H);
-                    const isPositive = priceChange >= 0;
-                    const fundingRate = parseFloat(market.nextFundingRate);
-
-                    return (
-                      <tr
-                        key={market.ticker}
-                        className="border-b border-slate-800/50 hover:bg-slate-800/50 transition-colors"
-                      >
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
-                            {/* Coin Icon with fallback */}
-                            <div className="relative w-10 h-10 flex-shrink-0">
-                              {market.coinIcon ? (
-                                <img
-                                  src={market.coinIcon}
-                                  alt={market.ticker}
-                                  className="w-10 h-10 rounded-full object-cover"
-                                  onError={e => {
-                                    // Fallback to gradient if image fails to load
-                                    e.currentTarget.style.display = 'none';
-                                    const fallback = e.currentTarget
-                                      .nextElementSibling as HTMLElement;
-                                    if (fallback) fallback.style.display = 'flex';
-                                  }}
-                                />
-                              ) : null}
-                              <div
-                                className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center font-bold text-sm absolute top-0 left-0"
-                                style={{
-                                  display: market.coinIcon ? 'none' : 'flex',
-                                }}
-                              >
-                                {market.ticker.split('-')[0].slice(0, 2)}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="font-semibold text-white">{market.ticker}</div>
-                              <div className="text-xs text-slate-400">
-                                {market.coinName || 'Perpetual'}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-4 text-right text-slate-200 font-mono">
-                          ${formatPrice(market.oraclePrice)}
-                        </td>
-                        <td className="p-4 text-right">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-medium ${
-                              isPositive
-                                ? 'bg-green-500/20 text-green-400'
-                                : 'bg-red-500/20 text-red-400'
-                            }`}
-                          >
-                            {isPositive ? (
-                              <TrendingUp className="w-3 h-3" />
-                            ) : (
-                              <TrendingDown className="w-3 h-3" />
-                            )}
-                            {isPositive ? '+' : ''}
-                            {formatPercent(market.priceChange24H)}%
-                          </span>
-                        </td>
-                        <td className="p-4 text-right text-slate-200 font-medium">
-                          {formatVolume(market.volume24H)}
-                        </td>
-                        <td className="p-4 text-right text-slate-300">
-                          {market.trades24H.toLocaleString()}
-                        </td>
-                        <td className="p-4 text-right">
-                          <span
-                            className={`font-mono text-sm ${
-                              fundingRate >= 0 ? 'text-green-400' : 'text-red-400'
-                            }`}
-                          >
-                            {fundingRate >= 0 ? '+' : ''}
-                            {formatFundingRate(market.nextFundingRate)}%
-                          </span>
-                        </td>
-                        <td className="p-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5 text-slate-400 text-sm">
-                            <Clock className="w-3.5 h-3.5" />
-                            {getTimeUntilFunding(market.nextFundingAt)}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {paginatedMarkets.map(market => (
+                    <MarketRow
+                      key={market.ticker}
+                      market={market}
+                      formatPrice={formatPrice}
+                      formatVolume={formatVolume}
+                      formatPercent={formatPercent}
+                      formatFundingRate={formatFundingRate}
+                      getTimeUntilFunding={getTimeUntilFunding}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
 
-        {/* Empty State */}
-        {!isLoading && !error && filteredAndSortedMarkets.length === 0 && (
-          <div className="text-center py-12 text-slate-400">
-            <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No markets found matching "{searchTerm}"</p>
-          </div>
-        )}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-[#334155]/50 bg-[#1e293b]/30">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded hover:bg-[#334155]/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                </div>
 
-        {/* Results Count */}
-        {!isLoading && !error && searchTerm && (
-          <div className="text-center text-slate-400 text-sm">
-            Showing {filteredAndSortedMarkets.length} of {totalMarkets} markets
+                <div className="flex items-center gap-1">
+                  {pageNumbers.map((page, idx) =>
+                    page === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-slate-600">
+                        ...
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        onClick={() => handlePageChange(page as number)}
+                        className={`px-3 py-1 rounded text-xs transition-colors ${
+                          currentPage === page
+                            ? 'bg-blue-500 text-white font-medium'
+                            : 'hover:bg-[#334155]/50 text-slate-400'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded hover:bg-[#334155]/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="px-4 py-2 border-t border-[#334155]/30 text-center">
+              <span className="text-xs text-slate-500">
+                Showing {(currentPage - 1) * ROWS_PER_PAGE + 1}-
+                {Math.min(currentPage * ROWS_PER_PAGE, filteredAndSortedMarkets.length)} of{' '}
+                {filteredAndSortedMarkets.length} markets
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-16">
+            <Search className="w-12 h-12 mx-auto mb-3 text-slate-700" />
+            <p className="text-slate-500">No markets found</p>
+            {searchTerm && <p className="text-xs text-slate-600 mt-1">Try a different search</p>}
           </div>
         )}
       </div>

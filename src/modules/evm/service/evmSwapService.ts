@@ -1,17 +1,13 @@
-import type { NetworkKey } from '../../../config/swapConfigs';
+//
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
-import type {
-  ExecuteRequest,
-  // SwapQuoteRequest,
-  // SwapQuote,
-  PrepareRequest,
-} from '../../../types/evm/swap.types';
-import { getNetworkPrefix } from '../../../utils/transactionUtils';
+import type { SwapQuoteRequest } from '../../../types/evm/swap.types';
 
-export async function getSwapQuote(chain: NetworkKey, request: any): Promise<any> {
-  const prefix = getNetworkPrefix(chain);
-  const endpoint = `${prefix}/swap-quote`;
+export async function getSwapQuote(chainId: any, request: SwapQuoteRequest): Promise<any> {
+  console.log(chainId, 'chainId in evmSwapService');
+  const endpoint = `/eth/swap-quote`;
+
   const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', request);
+
   return {
     inputAmount: request.amount,
     inputToken: res.data.inputToken,
@@ -29,26 +25,6 @@ export async function getBridgeQuote(amount: string, chainType: string): Promise
     amount,
     chainType,
   };
-  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', request);
-  return res.data;
-}
-
-export async function prepareSwapTransaction(
-  chain: NetworkKey,
-  request: PrepareRequest
-): Promise<any[]> {
-  const prefix = getNetworkPrefix(chain);
-  const endpoint = `${prefix}/swap-transaction/prepare`;
-  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', request);
-  return res.data;
-}
-
-export async function executeSwapTransaction(
-  chain: NetworkKey,
-  request: ExecuteRequest
-): Promise<any[]> {
-  const prefix = getNetworkPrefix(chain);
-  const endpoint = `${prefix}/swap-transaction/execute`;
   const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', request);
   return res.data;
 }

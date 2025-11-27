@@ -3,76 +3,90 @@ import React from 'react';
 import * as StellarSdk from 'stellar-sdk';
 
 import { fetchApiResponseFromServer } from '../../../../service/apiService';
-
-const STELLAR_PUBLIC_KEY = import.meta.env.VITE_DEMO_WALLET_STELLAR_PUBLIC_KEY as string;
-const STELLAR_PRIVATE_KEY = import.meta.env.VITE_DEMO_WALLET_STELLAR_PRIVATE_KEY as string;
-const STELLAR_BASE_URL = 'https://horizon-testnet.stellar.org';
+import { getStellarConfig } from '../../../walletconnect/config/chains';
+import { WalletType } from '../../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 
 interface ActivateTrustStepProps {
   onComplete: (data: { claimedXLM: boolean }) => void;
   onSkip: (data: { claimedXLM: boolean }) => void;
   isWalletActive: boolean;
+  stellarAddress?: string;
 }
 
 const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
   onComplete,
   onSkip,
   isWalletActive,
+  stellarAddress,
 }) => {
+  const { getProvider } = useWalletConnect();
+  const stellarConfig = getStellarConfig();
+
   const handleClaimXLM = async () => {
+    if (!stellarAddress) {
+      alert('Please connect your Stellar wallet first');
+      return;
+    }
+
     try {
       console.log('Claiming 5 XLM now...');
-      const endpoint = `/wallet/${STELLAR_PUBLIC_KEY}/activate-wallet`;
+      const endpoint = `/wallet/${stellarAddress}/activate-wallet`;
       const res = await fetchApiResponseFromServer(endpoint, 'PATCH');
       const rawXdr = res.data as any;
+
       if (!rawXdr || !rawXdr.wallet || !rawXdr.wallet.xdr) {
         throw new Error('Invalid response: Missing XDR data from server');
       }
+
       if (typeof rawXdr.wallet.xdr !== 'string' || rawXdr.wallet.xdr.trim() === '') {
         throw new Error('Invalid XDR: Expected non-empty string');
       }
-      const keypair = StellarSdk.Keypair.fromSecret(STELLAR_PRIVATE_KEY);
+
+      // Get the wallet provider to sign the transaction
+      const provider = getProvider(WalletType.STELLAR);
+      if (!provider) {
+        throw new Error('Stellar wallet provider not found');
+      }
+
+      // Parse the transaction
       let tx;
       try {
         const envelope = StellarSdk.xdr.TransactionEnvelope.fromXDR(
           rawXdr.wallet.xdr.trim(),
           'base64'
         );
-        tx = new StellarSdk.Transaction(envelope, StellarSdk.Networks.TESTNET);
+        tx = new StellarSdk.Transaction(
+          envelope,
+          stellarConfig.network === 'TESTNET'
+            ? StellarSdk.Networks.TESTNET
+            : StellarSdk.Networks.PUBLIC
+        );
       } catch (xdrError) {
         console.error('XDR Error:', xdrError);
-        try {
-          tx = StellarSdk.TransactionBuilder.fromXDR(
-            rawXdr.wallet.xdr.trim(),
-            StellarSdk.Networks.TESTNET
-          );
-          console.log('Successfully created Transaction directly from XDR');
-        } catch (directError) {
-          console.error('Original XDR:', rawXdr.wallet.xdr);
-          try {
-            const testEnvelope = StellarSdk.xdr.TransactionEnvelope.fromXDR(
-              rawXdr.wallet.xdr.trim(),
-              'base64'
-            );
-            tx = new StellarSdk.Transaction(testEnvelope, StellarSdk.Networks.PUBLIC);
-          } catch (mainnetError) {
-            throw new Error(`TransactionEnvelope: ${xdrError}, Direct: ${directError}`);
-          }
-        }
+        tx = StellarSdk.TransactionBuilder.fromXDR(
+          rawXdr.wallet.xdr.trim(),
+          stellarConfig.network === 'TESTNET'
+            ? StellarSdk.Networks.TESTNET
+            : StellarSdk.Networks.PUBLIC
+        );
       }
-      tx.sign(keypair);
-      if (
-        !STELLAR_BASE_URL ||
-        typeof STELLAR_BASE_URL !== 'string' ||
-        STELLAR_BASE_URL.trim() === ''
-      ) {
-        throw new Error('STELLAR_BASE_URL is not properly configured');
-      }
-      const server = new StellarSdk.Horizon.Server(STELLAR_BASE_URL);
-      console.log('Submitting transaction to stellar');
-      const result = await server.submitTransaction(tx);
 
-      console.log('====>result', result.successful);
+      // Sign the transaction using the connected wallet
+      const signedXdr = await provider.signTransaction(tx.toXDR());
+      const signedTx = StellarSdk.TransactionBuilder.fromXDR(
+        signedXdr,
+        stellarConfig.network === 'TESTNET'
+          ? StellarSdk.Networks.TESTNET
+          : StellarSdk.Networks.PUBLIC
+      );
+
+      // Submit to Stellar network
+      const server = new StellarSdk.Horizon.Server(stellarConfig.horizonUrl);
+      console.log('Submitting transaction to Stellar network:', stellarConfig.network);
+      const result = await server.submitTransaction(signedTx);
+
+      console.log('Transaction result:', result.successful);
       if (result.successful) {
         onComplete({ claimedXLM: true });
       } else {
@@ -80,7 +94,7 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
       }
     } catch (error: unknown) {
       console.error('Error claiming XLM:', error);
-      throw new Error(`Failed to claim XLM: ${error}`);
+      alert(`Failed to claim XLM: ${error}`);
     }
   };
 
@@ -103,14 +117,18 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
       <p className="text-secondary max-w-xs mx-auto">
         {isWalletActive
           ? 'Your wallet is already activated. Add USDC to your wallet to start trading.'
-          : 'Your Stellar wallet is not activated yet. Activate it now to automatically trust USDC and start using all features seamlessly.'}
+          : `Your Stellar wallet is not activated yet. Activate it now to automatically trust USDC and start using all features seamlessly. (Network: ${stellarConfig.network})`}
       </p>
+
+      {!stellarAddress && (
+        <p className="text-red-400 text-sm">Please connect your Stellar wallet first</p>
+      )}
 
       <div className="space-y-3">
         <button
           onClick={handleClaimXLM}
           className="btn btn-primary w-full btn-lg animate-pulse-once"
-          disabled={isWalletActive}
+          disabled={isWalletActive || !stellarAddress}
         >
           {isWalletActive ? 'Wallet Already Activated' : 'Claim 5 XLM Now'}
         </button>

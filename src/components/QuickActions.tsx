@@ -1,4 +1,5 @@
-import { ArrowDown, ArrowUp, CreditCard, Repeat, TrendingDown, TrendingUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, CreditCard, Repeat } from 'lucide-react';
+// TrendingDown, TrendingUp
 import type { FC, JSX } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -20,9 +21,9 @@ const QuickActions: FC = () => {
     { name: 'Buy', icon: <CreditCard className="w-5 h-5" />, to: '/trading/evm/fiat' },
   ];
 
-  const totalBalance = '124,567.89';
-  const percentageChange = 12.5;
-  const isPositive = percentageChange > 0;
+  // const totalBalance = '124,567.89';
+  // const percentageChange = 12.5;
+  // const isPositive = percentageChange > 0;
 
   return (
     <div
@@ -43,7 +44,7 @@ const QuickActions: FC = () => {
       }}
     >
       {/* Portfolio Balance Section */}
-      <div className="flex items-start justify-between mb-6">
+      {/* <div className="flex items-start justify-between mb-6">
         <div>
           <p className="text-white/70 text-sm mb-1">Total Balance</p>
           <h2 className="text-white text-3xl sm:text-4xl font-bold mb-2">${totalBalance}</h2>
@@ -67,7 +68,7 @@ const QuickActions: FC = () => {
             {percentageChange}%
           </span>
         </div>
-      </div>
+      </div> */}
 
       {/* Quick Actions Grid */}
       <div className="grid grid-cols-4 gap-2 lg:gap-3">

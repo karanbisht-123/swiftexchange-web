@@ -1,12 +1,51 @@
-// import { IndexerConfig, Network } from "@dydxprotocol/v4-client-js";
+import { COSMOS_CHAINS_MAINNET, COSMOS_CHAINS_TESTNET } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
-export const DYDX_CONFIG: any = {
-  apiUrl: import.meta.env.VITE_DYDX_INDEXER_REST || 'https://indexer.v4testnet.dydx.exchange',
-  indexerWs: import.meta.env.VITE_DYDX_INDEXER_WS || 'wss://indexer.v4testnet.dydx.exchange/v4/ws',
-  chainId: import.meta.env.VITE_DYDX_CHAIN_ID || 'dydx-testnet-4',
-  network: import.meta.env.VITE_DYDX_NETWORK || 'testnet',
+export interface DydxConfig {
+  apiUrl: string;
+  indexerWs: string;
+  chainId: string;
+  network: 'mainnet' | 'testnet';
+  validatorUrl: string;
+  rpc: string;
+  rest: string;
+}
+
+export const getDydxConfig = (network: 'mainnet' | 'testnet'): DydxConfig => {
+  const chains = network === 'mainnet' ? COSMOS_CHAINS_MAINNET : COSMOS_CHAINS_TESTNET;
+  const dydxChain = chains.find(chain => chain.chainId.includes('dydx'));
+
+  if (!dydxChain) {
+    throw new Error(`dYdX chain configuration not found for ${network}`);
+  }
+
+  const indexerConfig = {
+    mainnet: {
+      apiUrl: 'https://indexer.dydx.trade',
+      indexerWs: 'wss://indexer.dydx.trade/v4/ws',
+      // apiUrl: 'https://indexer.v4testnet.dydx.exchange',
+      // indexerWs: 'wss://indexer.v4testnet.dydx.exchange/v4/ws',
+    },
+    testnet: {
+      apiUrl: 'https://indexer.v4testnet.dydx.exchange',
+      indexerWs: 'wss://indexer.v4testnet.dydx.exchange/v4/ws',
+    },
+  };
+
+  const config = indexerConfig[network];
+
+  return {
+    apiUrl: config.apiUrl,
+    indexerWs: config.indexerWs,
+    chainId: dydxChain.chainId,
+    network,
+    validatorUrl: dydxChain.rpc,
+    rpc: dydxChain.rpc,
+    rest: dydxChain.rest,
+  };
 };
 
-// For validator (on-chain queries if needed later)
-export const VALIDATOR_URL =
-  import.meta.env.VITE_DYDX_VALIDATOR_REST || 'https://test-dydx-rpc.kingnodes.com';
+export const useDydxConfig = (): DydxConfig => {
+  const network = useWalletStore(state => state.network);
+  return getDydxConfig(network);
+};

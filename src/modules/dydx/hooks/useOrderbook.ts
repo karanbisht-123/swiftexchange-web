@@ -1,247 +1,337 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { WebSocketMessage } from '../utils/WebSocketManager';
-
-interface OrderbookEntry {
+interface OrderbookLevel {
   price: string;
   size: string;
 }
 
 interface OrderbookData {
-  bids: OrderbookEntry[];
-  asks: OrderbookEntry[];
+  bids: OrderbookLevel[];
+  asks: OrderbookLevel[];
+  ts: number;
+  messageId?: number;
 }
 
-interface UseOrderbookReturn {
-  orderbook: OrderbookData | null;
-  error: string | null;
-  isLoading: boolean;
-  isConnected: boolean;
-  debugInfo: any;
+interface OrderbookState {
+  bidsMap: Map<string, number>;
+  asksMap: Map<string, number>;
+  bidsSorted: string[];
+  asksSorted: string[];
 }
 
-export function useOrderbook(market: string = 'BTC-USD'): UseOrderbookReturn {
+export function useOrderbook(market: string = 'BTC-USD') {
   const [orderbook, setOrderbook] = useState<OrderbookData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  console.log(setIsLoading);
   const [isConnected, setIsConnected] = useState(false);
+  const [dataSource, setDataSource] = useState<'api' | 'websocket' | null>(null);
 
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const isMountedRef = useRef(true);
-  const hasInitialDataRef = useRef(false);
+  const stateRef = useRef<OrderbookState>({
+    bidsMap: new Map(),
+    asksMap: new Map(),
+    bidsSorted: [],
+    asksSorted: [],
+  });
+
+  const lastMessageId = useRef(0);
+  const rafId = useRef<number | null>(null);
+  const pendingUpdate = useRef(false);
+  const mountedRef = useRef(true);
+  const currentMarketRef = useRef(market);
+  const socketRef = useRef<any>(null);
+  const unsubRef = useRef<(() => void) | null>(null);
+
+  const cleanupState = useCallback(() => {
+    stateRef.current.bidsMap.clear();
+    stateRef.current.asksMap.clear();
+    stateRef.current.bidsSorted = [];
+    stateRef.current.asksSorted = [];
+    lastMessageId.current = 0;
+    pendingUpdate.current = false;
+  }, []);
+
+  const insertSorted = useCallback((arr: string[], priceStr: string, isBid: boolean): string[] => {
+    const price = parseFloat(priceStr);
+    let low = 0;
+    let high = arr.length;
+
+    if (isBid) {
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (parseFloat(arr[mid]) > price) low = mid + 1;
+        else high = mid;
+      }
+    } else {
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (parseFloat(arr[mid]) < price) low = mid + 1;
+        else high = mid;
+      }
+    }
+
+    const newArr = [...arr];
+    newArr.splice(low, 0, priceStr);
+    return newArr;
+  }, []);
+
+  const forceUpdate = useCallback(() => {
+    if (!mountedRef.current) return;
+
+    const ts = Date.now();
+    const state = stateRef.current;
+
+    const newBids: OrderbookLevel[] = state.bidsSorted.slice(0, 100).map(price => ({
+      price,
+      size: String(state.bidsMap.get(price) || 0),
+    }));
+
+    const newAsks: OrderbookLevel[] = state.asksSorted.slice(0, 100).map(price => ({
+      price,
+      size: String(state.asksMap.get(price) || 0),
+    }));
+
+    setOrderbook(prevOrderbook => {
+      if (!mountedRef.current) return prevOrderbook;
+
+      const areLevelsEqual = (a: OrderbookLevel[], b: OrderbookLevel[]): boolean => {
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+          if (a[i].price !== b[i].price || a[i].size !== b[i].size) {
+            return false;
+          }
+        }
+        return true;
+      };
+
+      if (
+        prevOrderbook &&
+        areLevelsEqual(prevOrderbook.bids, newBids) &&
+        areLevelsEqual(prevOrderbook.asks, newAsks)
+      ) {
+        return prevOrderbook;
+      }
+
+      return {
+        bids: newBids,
+        asks: newAsks,
+        ts,
+        messageId: lastMessageId.current,
+      };
+    });
+  }, []); // Empty deps - function is stable
+
+  // Remove market from dependencies - use ref instead
+  const scheduleUpdate = useCallback(() => {
+    if (pendingUpdate.current || !mountedRef.current) return;
+
+    pendingUpdate.current = true;
+
+    if (rafId.current !== null) {
+      cancelAnimationFrame(rafId.current);
+    }
+
+    rafId.current = requestAnimationFrame(() => {
+      if (!mountedRef.current) {
+        pendingUpdate.current = false;
+        return;
+      }
+      pendingUpdate.current = false;
+      forceUpdate();
+    });
+  }, [forceUpdate]); // Only depends on forceUpdate which is now stable
+
+  const processUpdate = useCallback(
+    (levels: [string, string][], isBid: boolean) => {
+      if (!mountedRef.current) return false;
+
+      const state = stateRef.current;
+      const map = isBid ? state.bidsMap : state.asksMap;
+      const sorted = isBid ? state.bidsSorted : state.asksSorted;
+      let changed = false;
+
+      levels.forEach(([priceStr, sizeStr]) => {
+        const size = parseFloat(sizeStr);
+        const prevSize = map.get(priceStr);
+
+        if (size <= 0) {
+          if (prevSize !== undefined) {
+            map.delete(priceStr);
+            const newSorted = sorted.filter(p => p !== priceStr);
+            if (isBid) state.bidsSorted = newSorted;
+            else state.asksSorted = newSorted;
+            changed = true;
+          }
+        } else if (prevSize !== size) {
+          map.set(priceStr, size);
+
+          if (prevSize === undefined) {
+            const newSorted = insertSorted(sorted, priceStr, isBid);
+            if (isBid) state.bidsSorted = newSorted;
+            else state.asksSorted = newSorted;
+          }
+          changed = true;
+        }
+      });
+
+      return changed;
+    },
+    [insertSorted]
+  );
 
   useEffect(() => {
-    isMountedRef.current = true;
-    hasInitialDataRef.current = false;
-    let socketClient: any = null;
-    // let indexerClient: any = null;
+    let isActive = true;
+    let initComplete = false;
 
-    // const fetchInitialOrderbook = async () => {
-    //   try {
-    //     const { getIndexerClient } = await import("../client/clients");
-    //     indexerClient = getIndexerClient();
+    mountedRef.current = true;
+    currentMarketRef.current = market;
 
-    //     console.log(`[useOrderbook] Fetching initial orderbook for ${market}`);
+    cleanupState();
+    setOrderbook(null);
+    setIsConnected(false);
+    setDataSource(null);
 
-    //     setIsLoading(true);
-    //     setError(null);
+    if (rafId.current !== null) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = null;
+    }
 
-    //     const data = await indexerClient.markets.getPerpetualMarketOrderbook(
-    //       market
-    //     );
+    const cleanup = () => {
+      isActive = false;
 
-    //     if (!isMountedRef.current) return null;
+      if (rafId.current !== null) {
+        cancelAnimationFrame(rafId.current);
+        rafId.current = null;
+      }
 
-    //     const orderbookData = {
-    //       bids: data.bids || [],
-    //       asks: data.asks || [],
-    //     };
+      if (unsubRef.current) {
+        try {
+          unsubRef.current();
+        } catch (err) {
+          console.error('Unsubscribe error:', err);
+        }
+        unsubRef.current = null;
+      }
 
-    //     setOrderbook(orderbookData);
-    //     setIsLoading(false);
-    //     hasInitialDataRef.current = true;
-    //     console.log(`[useOrderbook] Initial orderbook loaded for ${market}:`, {
-    //       bids: orderbookData.bids.length,
-    //       asks: orderbookData.asks.length,
-    //     });
+      if (socketRef.current) {
+        try {
+          socketRef.current.disconnect();
+        } catch (err) {
+          console.error('Socket disconnect error:', err);
+        }
+        socketRef.current = null;
+      }
 
-    //     return orderbookData;
-    //   } catch (err: any) {
-    //     console.error("[useOrderbook] Error fetching initial data:", err);
-    //     if (isMountedRef.current) {
-    //       setError(err.message || "Failed to load orderbook");
-    //       setIsLoading(false);
-    //     }
-    //     return null;
-    //   }
-    // };
+      cleanupState();
+    };
 
-    const initializeWebSocket = async () => {
+    const initSnapshot = async () => {
+      if (!isActive || currentMarketRef.current !== market) return;
+
+      try {
+        const { getIndexerClient } = await import('../client/clients');
+        const client = getIndexerClient();
+        const snap = await client.markets.getPerpetualMarketOrderbook(market);
+
+        if (!isActive || currentMarketRef.current !== market) return;
+
+        const state = stateRef.current;
+
+        if (snap?.bids) {
+          snap.bids.forEach((b: any) => {
+            const priceStr = String(b.price);
+            const size = parseFloat(b.size);
+
+            if (size > 0) {
+              state.bidsMap.set(priceStr, size);
+              state.bidsSorted.push(priceStr);
+            }
+          });
+
+          state.bidsSorted.sort((a, b) => parseFloat(b) - parseFloat(a));
+        }
+
+        if (snap?.asks) {
+          snap.asks.forEach((a: any) => {
+            const priceStr = String(a.price);
+            const size = parseFloat(a.size);
+
+            if (size > 0) {
+              state.asksMap.set(priceStr, size);
+              state.asksSorted.push(priceStr);
+            }
+          });
+
+          state.asksSorted.sort((a, b) => parseFloat(a) - parseFloat(b));
+        }
+
+        if (isActive && mountedRef.current && currentMarketRef.current === market) {
+          forceUpdate();
+          setDataSource('api');
+          initComplete = true;
+        }
+      } catch (err) {
+        console.error('Orderbook snapshot error:', err);
+      }
+    };
+
+    const connectWebSocket = async () => {
+      if (!isActive || !initComplete || currentMarketRef.current !== market) return;
+
       try {
         const { getSocketClient } = await import('../client/clients');
-        socketClient = getSocketClient();
+        socketRef.current = getSocketClient();
+        await socketRef.current.connect();
 
-        console.log(`[useOrderbook] Connecting to WebSocket for ${market}`);
-
-        await socketClient.connect();
-
-        if (!isMountedRef.current) return;
+        if (!isActive || currentMarketRef.current !== market) {
+          cleanup();
+          return;
+        }
 
         setIsConnected(true);
-        setError(null); // Clear any previous errors
-        console.log('[useOrderbook] WebSocket connected successfully');
+        setDataSource('websocket');
 
-        // Subscribe to orderbook updates
-        const handleMessage = (msg: WebSocketMessage) => {
-          if (!isMountedRef.current) return;
+        unsubRef.current = socketRef.current.subscribeToOrderbook(market, (msg: any) => {
+          if (!isActive || !mountedRef.current || currentMarketRef.current !== market) return;
+          if (msg.type !== 'channel_data' || !msg.contents) return;
 
-          console.log('[useOrderbook] WS message:', {
-            type: msg.type,
-            channel: msg.channel,
-            id: msg.id,
-          });
-
-          if (msg.type !== 'channel_data' || !msg.contents) {
-            return;
+          if (msg.message_id !== undefined) {
+            lastMessageId.current = msg.message_id;
           }
 
-          setOrderbook(prev => {
-            if (!prev) {
-              return {
-                bids: msg.contents?.bids || [],
-                asks: msg.contents?.asks || [],
-              };
-            }
+          let changed = false;
 
-            const updatedBids = [...prev.bids];
-            const updatedAsks = [...prev.asks];
+          if (Array.isArray(msg.contents.bids)) {
+            changed = processUpdate(msg.contents.bids, true) || changed;
+          }
 
-            // Apply bid deltas
-            if (Array.isArray(msg.contents?.bids)) {
-              msg.contents.bids.forEach((bid: [string, string]) => {
-                const [price, size] = bid;
-                const index = updatedBids.findIndex(b => b.price === price);
+          if (Array.isArray(msg.contents.asks)) {
+            changed = processUpdate(msg.contents.asks, false) || changed;
+          }
 
-                if (parseFloat(size) === 0) {
-                  if (index !== -1) {
-                    updatedBids.splice(index, 1);
-                  }
-                } else {
-                  if (index !== -1) {
-                    updatedBids[index] = { price, size };
-                  } else {
-                    updatedBids.push({ price, size });
-                  }
-                }
-              });
-
-              updatedBids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
-            }
-
-            // Apply ask deltas
-            if (Array.isArray(msg.contents?.asks)) {
-              msg.contents.asks.forEach((ask: [string, string]) => {
-                const [price, size] = ask;
-                const index = updatedAsks.findIndex(a => a.price === price);
-
-                if (parseFloat(size) === 0) {
-                  if (index !== -1) {
-                    updatedAsks.splice(index, 1);
-                  }
-                } else {
-                  if (index !== -1) {
-                    updatedAsks[index] = { price, size };
-                  } else {
-                    updatedAsks.push({ price, size });
-                  }
-                }
-              });
-
-              updatedAsks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-            }
-
-            return { bids: updatedBids, asks: updatedAsks };
-          });
-        };
-
-        unsubscribeRef.current = socketClient.subscribeToOrderbook(market, handleMessage);
-        console.log(`[useOrderbook] Subscribed to orderbook for ${market}`);
-
-        // Monitor connection status
-        const onConnectCleanup = socketClient.onConnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useOrderbook] WebSocket reconnected');
-            setIsConnected(true);
-            setError(null);
+          if (changed) {
+            scheduleUpdate();
           }
         });
-
-        const onDisconnectCleanup = socketClient.onDisconnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useOrderbook] WebSocket disconnected');
-            setIsConnected(false);
-            // Don't set error on disconnect - we still have data
-          }
-        });
-
-        // Store cleanup functions
-        return () => {
-          onConnectCleanup();
-          onDisconnectCleanup();
-        };
-      } catch (err: any) {
-        console.error('[useOrderbook] WebSocket error:', err);
-        if (isMountedRef.current) {
+      } catch (err) {
+        console.error('Websocket connection error:', err);
+        if (isActive && mountedRef.current && currentMarketRef.current === market) {
           setIsConnected(false);
-          // Only set error if we don't have initial data
-          if (!hasInitialDataRef.current) {
-            setError(err.message || 'Failed to connect to WebSocket');
-          } else {
-            console.log('[useOrderbook] WebSocket failed but initial data is available');
-          }
         }
       }
     };
 
-    const initialize = async () => {
-      // Step 1: Fetch initial orderbook data from API
-      // const initialOrderbook = await fetchInitialOrderbook();
-
-      // Step 2: Try to connect WebSocket (non-blocking)
-      // Even if WebSocket fails, we have the initial data
-      if (isMountedRef.current) {
-        const wsCleanup = await initializeWebSocket();
-        return wsCleanup;
+    initSnapshot().then(() => {
+      if (isActive && initComplete) {
+        connectWebSocket();
       }
-    };
+    });
 
-    // Start initialization
-    const cleanupPromise = initialize();
+    return cleanup;
+  }, [market, forceUpdate, processUpdate, scheduleUpdate, cleanupState]);
 
-    // Cleanup function
+  useEffect(() => {
     return () => {
-      isMountedRef.current = false;
-      console.log(`[useOrderbook] Cleaning up for ${market}`);
-
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-
-      // Execute any additional cleanup
-      cleanupPromise.then(cleanup => {
-        if (cleanup) cleanup();
-      });
+      mountedRef.current = false;
     };
-  }, [market]); // Only depend on market
+  }, []);
 
-  // Return all state
-  return {
-    orderbook,
-    error,
-    isLoading,
-    isConnected,
-    debugInfo: {}, // Simplified to avoid accessing socket before init
-  };
+  return { orderbook, isConnected, dataSource };
 }

@@ -72,6 +72,8 @@ export class AmmSwapService {
       const pools: LiquidityPool[] = [];
       let poolsCall = this.server.liquidityPools();
 
+      console.log(poolsCall, 'hii i am polscall');
+
       if (assetB) {
         poolsCall = poolsCall.forAssets(assetA, assetB);
       }
@@ -91,7 +93,7 @@ export class AmmSwapService {
           id: record.id,
           totalShares: record.total_shares,
           reserves,
-          fee: record.fee_bp / 10000, // Convert basis points to decimal (e.g., 30 -> 0.0003)
+          fee: record.fee_bp / 10000,
         });
       }
 
@@ -106,7 +108,7 @@ export class AmmSwapService {
     inputAmount: string,
     inputReserve: string,
     outputReserve: string,
-    feeRate: number = 0.0003 // Default 30 basis points as decimal
+    feeRate: number = 0.0003
   ): { outputAmount: string; priceImpact: number } {
     const input = parseFloat(inputAmount);
     const reserveIn = parseFloat(inputReserve);
@@ -138,7 +140,6 @@ export class AmmSwapService {
   ): Promise<SwapPath[]> {
     const paths: SwapPath[] = [];
 
-    // Try direct pools first
     const directPools = await this.findLiquidityPools(fromAsset, toAsset);
     for (const pool of directPools) {
       const fromReserve = pool.reserves.find(r => this.assetsEqual(r.asset, fromAsset));
@@ -162,7 +163,6 @@ export class AmmSwapService {
       }
     }
 
-    // Try multi-hop through XLM
     if (maxHops >= 2) {
       const xlm = StellarSDK.Asset.native();
       if (!this.assetsEqual(fromAsset, xlm) && !this.assetsEqual(toAsset, xlm)) {
@@ -204,7 +204,6 @@ export class AmmSwapService {
       }
     }
 
-    // Sort by best output amount (descending)
     return paths.sort((a, b) => parseFloat(b.estimatedOutput) - parseFloat(a.estimatedOutput));
   }
 
@@ -218,7 +217,6 @@ export class AmmSwapService {
       throw new Error('Amount must be positive');
     }
 
-    // Check if same asset
     if (this.assetsEqual(fromAsset, toAsset)) {
       throw new Error('Cannot swap the same asset');
     }
@@ -300,7 +298,7 @@ export class AmmSwapService {
         type: 'swap',
         from: fromAddress,
         quote,
-        sequence: sourceAccount.sequence, // Fixed: use .sequence (string) in v11+
+        sequence: sourceAccount.sequence,
         fee: options.fee || StellarSDK.BASE_FEE,
         memo: options.memo,
         timestamp: Date.now(),

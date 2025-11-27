@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-
-import type { WebSocketMessage } from '../utils/WebSocketManager';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type CandleResolution = '1MIN' | '5MINS' | '15MINS' | '30MINS' | '1HOUR' | '4HOURS' | '1DAY';
 
@@ -19,184 +17,306 @@ export interface Candle {
   id: string;
 }
 
-interface UseCandlesReturn {
+interface Trade {
+  id: string;
+  side: 'BUY' | 'SELL';
+  size: string;
+  price: string;
+  createdAt: string;
+}
+
+interface UseRealtimeChartReturn {
   candles: Candle[];
   latestCandle: Candle | null;
+  livePrice: number | null;
   error: string | null;
   isLoading: boolean;
   isConnected: boolean;
 }
 
-export function useCandles(
+const RESOLUTION_TO_MS: Record<CandleResolution, number> = {
+  '1MIN': 60 * 1000,
+  '5MINS': 5 * 60 * 1000,
+  '15MINS': 15 * 60 * 1000,
+  '30MINS': 30 * 60 * 1000,
+  '1HOUR': 60 * 60 * 1000,
+  '4HOURS': 4 * 60 * 60 * 1000,
+  '1DAY': 24 * 60 * 60 * 1000,
+};
+
+export function useRealtimeChart(
   market: string = 'BTC-USD',
   resolution: CandleResolution = '1MIN',
-  limit: number = 100,
-  pollInterval: number = 30000
-): UseCandlesReturn {
+  limit: number = 100
+): UseRealtimeChartReturn {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [latestCandle, setLatestCandle] = useState<Candle | null>(null);
+  const [livePrice, setLivePrice] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
 
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const isMountedRef = useRef(true);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastResolutionRef = useRef(resolution); // Track last resolution to detect changes
+  const mountedRef = useRef(true);
+  const currentMarketRef = useRef(market);
+  const currentResolutionRef = useRef(resolution);
+  const candleUnsubRef = useRef<(() => void) | null>(null);
+  const tradeUnsubRef = useRef<(() => void) | null>(null);
+  const socketRef = useRef<any>(null);
+  const liveCandleRef = useRef<Candle | null>(null);
+  const rafRef = useRef<number | null>(null);
 
-  // Function to fetch candles from REST API
-  const fetchCandles = async () => {
-    try {
-      const { getIndexerClient } = await import('../client/clients');
-      const indexerClient = getIndexerClient();
+  const getCandleStartTime = useCallback((timestamp: number, res: CandleResolution): number => {
+    const intervalMs = RESOLUTION_TO_MS[res];
+    return Math.floor(timestamp / intervalMs) * intervalMs;
+  }, []);
 
-      const data = await indexerClient.markets.getPerpetualMarketCandles(
-        market,
-        resolution,
-        undefined,
-        undefined,
-        limit
-      );
+  const updateLiveCandle = useCallback(
+    (trade: Trade) => {
+      if (!mountedRef.current || currentMarketRef.current !== market) return;
 
-      if (!isMountedRef.current) return;
+      const price = parseFloat(trade.price);
+      const size = parseFloat(trade.size);
+      const tradeTime = new Date(trade.createdAt).getTime();
+      const candleStartTime = getCandleStartTime(tradeTime, currentResolutionRef.current);
 
-      const fetchedCandles = data.candles || [];
-      // Only update state if resolution hasn't changed during fetch
-      if (resolution === lastResolutionRef.current) {
-        setCandles(fetchedCandles);
-        setLatestCandle(fetchedCandles.length > 0 ? fetchedCandles[0] : null);
-        setError(null);
-        console.log(`[useCandles] Fetched ${fetchedCandles.length} candles via REST API`);
-      }
-    } catch (err: any) {
-      console.error('[useCandles] REST API fetch error:', err);
-      if (isMountedRef.current && resolution === lastResolutionRef.current) {
-        setError(err.message || 'Failed to fetch candles from API');
-      }
-    }
-  };
+      setLivePrice(price);
+
+      setCandles(prev => {
+        if (!prev.length) return prev;
+
+        const lastCandle = prev[0];
+        const lastCandleTime = new Date(lastCandle.startedAt).getTime();
+
+        if (candleStartTime > lastCandleTime) {
+          const newCandle: Candle = {
+            startedAt: new Date(candleStartTime).toISOString(),
+            ticker: market,
+            resolution: currentResolutionRef.current,
+            open: trade.price,
+            high: trade.price,
+            low: trade.price,
+            close: trade.price,
+            baseTokenVolume: trade.size,
+            usdVolume: String(price * size),
+            trades: 1,
+            startingOpenInterest: lastCandle.startingOpenInterest,
+            id: `${market}-${candleStartTime}`,
+          };
+
+          liveCandleRef.current = newCandle;
+          setLatestCandle(newCandle);
+          return [newCandle, ...prev].slice(0, limit);
+        }
+
+        if (candleStartTime === lastCandleTime) {
+          const updatedCandle: Candle = {
+            ...lastCandle,
+            high: String(Math.max(parseFloat(lastCandle.high), price)),
+            low: String(Math.min(parseFloat(lastCandle.low), price)),
+            close: trade.price,
+            baseTokenVolume: String(parseFloat(lastCandle.baseTokenVolume) + size),
+            usdVolume: String(parseFloat(lastCandle.usdVolume) + price * size),
+            trades: lastCandle.trades + 1,
+          };
+
+          liveCandleRef.current = updatedCandle;
+          setLatestCandle(updatedCandle);
+
+          const updated = [...prev];
+          updated[0] = updatedCandle;
+          return updated;
+        }
+
+        return prev;
+      });
+    },
+    [market, getCandleStartTime, limit]
+  );
 
   useEffect(() => {
-    isMountedRef.current = true;
-    lastResolutionRef.current = resolution; // Update resolution tracking
-    let socketClient: any = null;
+    let isActive = true;
+    let candleInitComplete = false;
 
-    const initializeConnection = async () => {
+    mountedRef.current = true;
+    currentMarketRef.current = market;
+    currentResolutionRef.current = resolution;
+
+    setCandles([]);
+    setLatestCandle(null);
+    setLivePrice(null);
+    setIsLoading(true);
+    setIsConnected(false);
+    setError(null);
+    liveCandleRef.current = null;
+
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+
+    const cleanup = () => {
+      isActive = false;
+
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+
+      if (candleUnsubRef.current) {
+        try {
+          candleUnsubRef.current();
+        } catch (err) {
+          console.error('Candle unsubscribe error:', err);
+        }
+        candleUnsubRef.current = null;
+      }
+
+      if (tradeUnsubRef.current) {
+        try {
+          tradeUnsubRef.current();
+        } catch (err) {
+          console.error('Trade unsubscribe error:', err);
+        }
+        tradeUnsubRef.current = null;
+      }
+
+      if (socketRef.current) {
+        try {
+          socketRef.current.disconnect();
+        } catch (err) {
+          console.error('Socket disconnect error:', err);
+        }
+        socketRef.current = null;
+      }
+    };
+
+    const initCandles = async () => {
+      if (!isActive || currentMarketRef.current !== market) return;
+
       try {
-        const { getSocketClient } = await import('../client/clients');
-        socketClient = getSocketClient();
+        const { getIndexerClient } = await import('../client/clients');
+        const client = getIndexerClient();
+        const data = await client.markets.getPerpetualMarketCandles(
+          market,
+          resolution,
+          undefined,
+          undefined,
+          limit
+        );
 
-        console.log(`[useCandles] Initializing for ${market} - ${resolution}`);
+        if (!isActive || currentMarketRef.current !== market) return;
 
-        // Fetch initial candles
-        setIsLoading(true);
-        await fetchCandles();
+        const fetchedCandles = data.candles || [];
+
+        if (fetchedCandles.length > 0) {
+          setCandles(fetchedCandles);
+          setLatestCandle(fetchedCandles[0]);
+          liveCandleRef.current = fetchedCandles[0];
+          setLivePrice(parseFloat(fetchedCandles[0].close));
+        }
+
         setIsLoading(false);
-
-        // Attempt WebSocket connection
-        await socketClient.connect();
-        if (!isMountedRef.current) return;
-        setIsConnected(true);
-
-        // Subscribe to real-time candle updates
-        const handleMessage = (msg: WebSocketMessage) => {
-          if (!isMountedRef.current || resolution !== lastResolutionRef.current) return;
-
-          console.log('[useCandles] WS message:', {
-            type: msg.type,
-            channel: msg.channel,
-            id: msg.id,
-          });
-
-          if (msg.type !== 'channel_data' || !msg.contents) return;
-
-          const newCandle = msg.contents as Candle;
-
-          setCandles(prev => {
-            const existingIndex = prev.findIndex(c => c.startedAt === newCandle.startedAt);
-
-            if (existingIndex !== -1) {
-              const updated = [...prev];
-              updated[existingIndex] = newCandle;
-              return updated;
-            } else {
-              return [newCandle, ...prev].slice(0, limit);
-            }
-          });
-
-          setLatestCandle(newCandle);
-        };
-
-        const candleId = `${market}/${resolution}`;
-        unsubscribeRef.current = socketClient.subscribeToCandles(market, resolution, handleMessage);
-        console.log(`[useCandles] Subscribed to ${candleId}`);
-
-        const onConnectCleanup = socketClient.onConnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useCandles] WebSocket connected');
-            setIsConnected(true);
-            setError(null);
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-          }
-        });
-
-        const onDisconnectCleanup = socketClient.onDisconnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useCandles] WebSocket disconnected');
-            setIsConnected(false);
-            if (!pollIntervalRef.current) {
-              pollIntervalRef.current = setInterval(fetchCandles, pollInterval);
-              console.log('[useCandles] Started polling due to WebSocket disconnect');
-            }
-          }
-        });
-
-        return () => {
-          onConnectCleanup();
-          onDisconnectCleanup();
-        };
+        setError(null);
+        candleInitComplete = true;
       } catch (err: any) {
-        console.error('[useCandles] Initialization error:', err);
-        if (isMountedRef.current) {
-          setError(err.message || 'Failed to initialize WebSocket');
-          setIsConnected(false);
+        console.error('Candles snapshot error:', err);
+        if (isActive && mountedRef.current && currentMarketRef.current === market) {
+          setError(err.message || 'Failed to load candles');
           setIsLoading(false);
-          if (!pollIntervalRef.current) {
-            pollIntervalRef.current = setInterval(fetchCandles, pollInterval);
-            console.log('[useCandles] Started polling due to initialization error');
-          }
         }
       }
     };
 
-    const cleanupPromise = initializeConnection();
+    const connectWebSocket = async () => {
+      if (!isActive || !candleInitComplete || currentMarketRef.current !== market) return;
 
-    return () => {
-      isMountedRef.current = false;
-      console.log(`[useCandles] Cleaning up ${market} - ${resolution}`);
+      try {
+        const { getSocketClient } = await import('../client/clients');
+        socketRef.current = getSocketClient();
+        await socketRef.current.connect();
 
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
+        if (!isActive || currentMarketRef.current !== market) {
+          cleanup();
+          return;
+        }
+
+        setIsConnected(true);
+
+        candleUnsubRef.current = socketRef.current.subscribeToCandles(
+          market,
+          resolution,
+          (msg: any) => {
+            if (!isActive || !mountedRef.current || currentMarketRef.current !== market) return;
+            if (msg.type !== 'channel_data' || !msg.contents) return;
+
+            const newCandle = msg.contents as Candle;
+
+            setCandles(prev => {
+              const existingIndex = prev.findIndex(c => c.startedAt === newCandle.startedAt);
+
+              if (existingIndex !== -1) {
+                const updated = [...prev];
+                updated[existingIndex] = newCandle;
+                liveCandleRef.current = newCandle;
+                setLatestCandle(newCandle);
+                setLivePrice(parseFloat(newCandle.close));
+                return updated;
+              } else {
+                liveCandleRef.current = newCandle;
+                setLatestCandle(newCandle);
+                setLivePrice(parseFloat(newCandle.close));
+                return [newCandle, ...prev].slice(0, limit);
+              }
+            });
+          }
+        );
+
+        tradeUnsubRef.current = socketRef.current.subscribeToTrades(market, (msg: any) => {
+          if (!isActive || !mountedRef.current || currentMarketRef.current !== market) return;
+          if (msg.type !== 'channel_data' || !msg.contents) return;
+
+          const tradesArray = msg.contents?.trades;
+
+          if (Array.isArray(tradesArray) && tradesArray.length > 0) {
+            tradesArray.forEach((trade: any) => {
+              if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current);
+              }
+
+              rafRef.current = requestAnimationFrame(() => {
+                updateLiveCandle(trade);
+                rafRef.current = null;
+              });
+            });
+          }
+        });
+      } catch (err: any) {
+        console.error('WebSocket connection error:', err);
+        if (isActive && mountedRef.current && currentMarketRef.current === market) {
+          setIsConnected(false);
+        }
       }
-
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-
-      cleanupPromise.then(cleanup => {
-        if (cleanup) cleanup();
-      });
     };
-  }, [market, resolution, limit, pollInterval]);
+
+    initCandles().then(() => {
+      if (isActive && candleInitComplete) {
+        connectWebSocket();
+      }
+    });
+
+    return cleanup;
+  }, [market, resolution, limit, updateLiveCandle, getCandleStartTime]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   return {
     candles,
     latestCandle,
+    livePrice,
     error,
     isLoading,
     isConnected,

@@ -1,16 +1,48 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
+import TradeAssetModal from '../../../evm/feature/one-tap-pay/TradeAssetModal';
 import AmmSwapUI from '../AmmSwapUI';
 import OrderBookSwapUI from '../OrderBookSwapUI';
 import TradeTransactionUI from '../TradeTransactionUI';
 import StellarTradingChart from '../chart/StellarTradingChart';
 
-const StellarTradescreen = () => {
+interface Asset {
+  id: string;
+  symbol: string;
+  name: string;
+  image: string;
+  balance: number;
+  volume: number;
+  current_price: number;
+  price_change_percentage_24h: number;
+  contractAddress?: string;
+}
+
+const StellarTradeScreen = () => {
   const [activeTab, setActiveTab] = useState('amm');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Check if user came from asset selection via Trade button
+  useEffect(() => {
+    if (location.state?.selectedAsset && location.state?.fromTradeButton) {
+      setSelectedAsset(location.state.selectedAsset as Asset);
+      setIsModalOpen(true);
+      // Clear the state after opening modal to prevent re-opening on refresh
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedAsset(null);
+  };
 
   return (
-    <div className="min-h-screen bg-primary  max-w-[100vw] p-2">
-      {/* Tab Switcher - Right Corner */}
+    <div className="min-h-screen bg-primary max-w-[100vw] p-2">
       <div className="flex justify-end mb-4">
         <div className="inline-flex rounded-lg border border-color bg-secondary p-1 shadow-sm">
           <button
@@ -52,7 +84,7 @@ const StellarTradescreen = () => {
             </div>
 
             {/* Swap (30%) */}
-            <div className="lg:col-span-4  p-0 m-0">
+            <div className="lg:col-span-4 p-0 m-0">
               <AmmSwapUI />
             </div>
           </div>
@@ -66,7 +98,7 @@ const StellarTradescreen = () => {
 
       {/* Desktop: OrderBook Layout (Chart Full Width, OrderBook Below) */}
       {activeTab === 'orderbook' && (
-        <div className="space-y-4  max-w-[100vw]">
+        <div className="space-y-4 max-w-[100vw]">
           {/* Chart - Full Width */}
           <div className="rounded-xl lg:border-none border">
             <StellarTradingChart />
@@ -78,13 +110,23 @@ const StellarTradescreen = () => {
           </div>
 
           {/* Transaction History */}
-          <div className=" ">
+          <div className="">
             <TradeTransactionUI />
           </div>
         </div>
+      )}
+
+      {/* Trade Asset Modal - Only shows when coming from Trade button */}
+      {selectedAsset && isModalOpen && (
+        <TradeAssetModal
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          assetName={selectedAsset.name}
+          selectedAsset={selectedAsset}
+        />
       )}
     </div>
   );
 };
 
-export default StellarTradescreen;
+export default StellarTradeScreen;

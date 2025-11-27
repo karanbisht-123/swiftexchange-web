@@ -121,7 +121,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const { connectedWallets } = useWalletConnect();
   const { sendTransaction, canHandleTransaction, getSessionInfo } = useTransactionRouter();
   const currentNetwork = getNetwork();
-  // Dynamic asset list
+
   const rawAssets: ReceiveAsset[] = useMemo(() => {
     const evm = getEVMChains().map(assetFromEVM);
     const cosmos = getCosmosChains().map(assetFromCosmos);
@@ -133,7 +133,6 @@ export const useSendAsset = (onBack?: () => void) => {
     return rawAssets.map(enhanceAsset);
   }, [rawAssets]);
 
-  // UI state
   const [recipientAddress, setRecipientAddress] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [memo, setMemo] = useState<string>('');
@@ -191,7 +190,8 @@ export const useSendAsset = (onBack?: () => void) => {
         if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
           balStr = await getNativeBalance(currentAsset.networkKey, senderAddress);
         } else if (currentAsset.type === 'stellar') {
-          balStr = await getStellarBalance(currentAsset.addressType, senderAddress);
+          console.log('Fetching stellar balance', currentAsset.addressType);
+          balStr = await getStellarBalance('native', senderAddress);
         } else {
           balStr = '0';
         }

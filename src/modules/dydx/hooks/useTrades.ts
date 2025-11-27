@@ -1,170 +1,167 @@
-import { useEffect, useRef, useState } from 'react';
+import {useEffect, useRef, useState } from 'react';
 
-import type { WebSocketMessage } from '../utils/WebSocketManager';
-
-export interface Trade {
+interface Trade {
   id: string;
   side: 'BUY' | 'SELL';
   size: string;
   price: string;
-  type: string;
   createdAt: string;
-  createdAtHeight: string;
 }
 
-interface UseTradesReturn {
-  trades: Trade[];
-  latestTrade: Trade | null;
-  error: string | null;
-  isLoading: boolean;
-  isConnected: boolean;
-  stats: {
-    totalVolume: number;
-    buyVolume: number;
-    sellVolume: number;
-    tradeCount: number;
-  };
-}
-
-export function useTrades(market: string = 'BTC-USD', maxTrades: number = 50): UseTradesReturn {
+export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [latestTrade, setLatestTrade] = useState<Trade | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const isMountedRef = useRef(true);
-
-  const stats = {
-    totalVolume: trades.reduce((sum, t) => sum + parseFloat(t.price) * parseFloat(t.size), 0),
-    buyVolume: trades
-      .filter(t => t.side === 'BUY')
-      .reduce((sum, t) => sum + parseFloat(t.price) * parseFloat(t.size), 0),
-    sellVolume: trades
-      .filter(t => t.side === 'SELL')
-      .reduce((sum, t) => sum + parseFloat(t.price) * parseFloat(t.size), 0),
-    tradeCount: trades.length,
-  };
+  const mountedRef = useRef(true);
+  const currentMarketRef = useRef(market);
+  const socketRef = useRef<any>(null);
+  const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    isMountedRef.current = true;
-    let socketClient: any = null;
-    let indexerClient: any = null;
+    let isActive = true;
+    let initComplete = false;
 
-    const initializeConnection = async () => {
-      try {
-        const { getSocketClient, getIndexerClient } = await import('../client/clients');
+    mountedRef.current = true;
+    currentMarketRef.current = market;
 
-        socketClient = getSocketClient();
-        indexerClient = getIndexerClient();
+    setTrades([]);
+    setIsLoading(true);
+    setIsConnected(false);
+    setError(null);
 
-        console.log(`[useTrades] Initializing for ${market}`);
+    const cleanup = () => {
+      isActive = false;
 
-        await socketClient.connect();
-        if (!isMountedRef.current) return;
-        setIsConnected(true);
-
-        // Fetch initial trades from REST API
-        setIsLoading(true);
-        setError(null);
-
-        const data = await indexerClient.markets.getPerpetualMarketTrades(market, maxTrades);
-
-        if (!isMountedRef.current) return;
-
-        const initialTrades = data.trades || [];
-        setTrades(initialTrades);
-        if (initialTrades.length > 0) {
-          setLatestTrade(initialTrades[0]);
+      if (unsubRef.current) {
+        try {
+          unsubRef.current();
+        } catch (err) {
+          console.error('Trades unsubscribe error:', err);
         }
-        setIsLoading(false);
-        console.log(`[useTrades] Loaded ${initialTrades.length} initial trades`);
+        unsubRef.current = null;
+      }
 
-        // Subscribe to real-time trade updates
-        const handleMessage = (msg: WebSocketMessage) => {
-          if (!isMountedRef.current) return;
+      if (socketRef.current) {
+        try {
+          socketRef.current.disconnect();
+        } catch (err) {
+          console.error('Trades socket disconnect error:', err);
+        }
+        socketRef.current = null;
+      }
+    };
 
-          console.log('[useTrades] WS message:', {
-            type: msg.type,
-            channel: msg.channel,
-            id: msg.id,
-            hasContents: !!msg.contents,
-          });
+    const initSnapshot = async () => {
+      if (!isActive || currentMarketRef.current !== market) return;
 
-          if (msg.type !== 'channel_data' || !msg.contents) {
-            return;
+      try {
+        const { getIndexerClient } = await import('../client/clients');
+        const client = getIndexerClient();
+        const response = await client.markets.getPerpetualMarketTrades(market, limit);
+
+        if (!isActive || currentMarketRef.current !== market) return;
+
+        if (response?.trades && Array.isArray(response.trades)) {
+          const mappedTrades: Trade[] = response.trades.map((trade: any) => ({
+            id: trade.id,
+            side: trade.side,
+            size: trade.size,
+            price: trade.price,
+            createdAt: trade.createdAt,
+          }));
+
+          if (isActive && mountedRef.current && currentMarketRef.current === market) {
+            setTrades(mappedTrades);
+            setIsLoading(false);
+            initComplete = true;
           }
-
-          // dYdX sends trades in a 'trades' array in contents
-          const newTrades = msg.contents.trades || [];
-
-          if (newTrades.length > 0) {
-            setTrades(prev => {
-              // Add new trades and keep only maxTrades
-              const updated = [...newTrades, ...prev];
-              return updated.slice(0, maxTrades);
-            });
-
-            setLatestTrade(newTrades[0]);
+        } else {
+          if (isActive && mountedRef.current && currentMarketRef.current === market) {
+            setTrades([]);
+            setIsLoading(false);
+            initComplete = true;
           }
-        };
-
-        unsubscribeRef.current = socketClient.subscribeToTrades(market, handleMessage);
-        console.log(`[useTrades] Subscribed to trades for ${market}`);
-
-        const onConnectCleanup = socketClient.onConnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useTrades] Connection established');
-            setIsConnected(true);
-            setError(null);
-          }
-        });
-
-        const onDisconnectCleanup = socketClient.onDisconnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useTrades] Connection lost');
-            setIsConnected(false);
-          }
-        });
-
-        return () => {
-          onConnectCleanup();
-          onDisconnectCleanup();
-        };
+        }
       } catch (err: any) {
-        console.error('[useTrades] Error:', err);
-        if (isMountedRef.current) {
+        console.error('Trades snapshot error:', err);
+        if (isActive && mountedRef.current && currentMarketRef.current === market) {
           setError(err.message || 'Failed to load trades');
-          setIsConnected(false);
           setIsLoading(false);
         }
       }
     };
 
-    const cleanupPromise = initializeConnection();
+    const connectWebSocket = async () => {
+      console.log(`[useTrades] Connecting to trades websocket for ${market}`);
+      if (!isActive || !initComplete || currentMarketRef.current !== market) return;
 
-    return () => {
-      isMountedRef.current = false;
-      console.log(`[useTrades] Cleaning up ${market}`);
+      try {
+        // console.log('[useTrades] Getting socket client');
+        const { getSocketClient } = await import('../client/clients');
+        socketRef.current = getSocketClient();
+        await socketRef.current.connect();
 
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
+        if (!isActive || currentMarketRef.current !== market) {
+          cleanup();
+          return;
+        }
+
+        setIsConnected(true);
+
+        unsubRef.current = socketRef.current.subscribeToTrades(market, (msg: any) => {
+          // console.log('[useTrades] Received websocket message:', msg);
+          if (!isActive || !mountedRef.current || currentMarketRef.current !== market) return;
+          if (msg.type !== 'channel_data' || !msg.contents) return;
+
+          const tradesArray = msg.contents?.trades;
+
+          // console.log('Received trades via websocket:', tradesArray);
+
+          if (Array.isArray(tradesArray) && tradesArray.length > 0) {
+            const newTrades: Trade[] = tradesArray.map((trade: any) => ({
+              id: trade.id,
+              side: trade.side,
+              size: trade.size,
+              price: trade.price,
+              createdAt: trade.createdAt,
+            }));
+
+            setTrades(prevTrades => {
+              if (!mountedRef.current || currentMarketRef.current !== market) return prevTrades;
+              const existingIds = new Set(prevTrades.map(t => t.id));
+              const uniqueNewTrades = newTrades.filter(t => !existingIds.has(t.id));
+
+              if (uniqueNewTrades.length === 0) return prevTrades;
+
+              const updated = [...uniqueNewTrades, ...prevTrades];
+              return updated.slice(0, limit);
+            });
+          }
+        });
+      } catch (err: any) {
+        console.error('Trades websocket error:', err);
+        if (isActive && mountedRef.current && currentMarketRef.current === market) {
+          setIsConnected(false);
+        }
       }
-
-      cleanupPromise.then(cleanup => {
-        if (cleanup) cleanup();
-      });
     };
-  }, [market, maxTrades]);
 
-  return {
-    trades,
-    latestTrade,
-    error,
-    isLoading,
-    isConnected,
-    stats,
-  };
+    initSnapshot().then(() => {
+      if (isActive && initComplete) {
+        connectWebSocket();
+      }
+    });
+
+    return cleanup;
+  }, [market, limit]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  return { trades, isLoading, isConnected, error };
 }

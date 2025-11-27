@@ -1,14 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
-import { type NetworkKey } from '../../../config/swapConfigs';
 import type { Asset, SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
+import { WalletType } from '../../walletconnect/constants/Wallet';
 import { AssetUtils } from '../utils/assetUtils';
-import { fetchEvmQuote, handleEvmSwap } from '../utils/evmSwapUtils';
+import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
 
 interface UseEvmSwapProps {
-  networkKey: NetworkKey;
+  chainId: number;
   senderAddress: string;
-  getPrivateKey: (chain: 'evm' | 'stellar') => Promise<string | null>;
+  getProvider: (type: WalletType) => any;
 }
 
 interface UseEvmSwapState {
@@ -36,9 +36,9 @@ interface UseEvmSwapActions {
 }
 
 export const useEvmSwap = ({
-  networkKey,
+  chainId,
   senderAddress,
-  getPrivateKey,
+  getProvider,
 }: UseEvmSwapProps): UseEvmSwapState & UseEvmSwapActions => {
   const [state, setState] = useState<UseEvmSwapState>({
     quote: null,
@@ -50,11 +50,14 @@ export const useEvmSwap = ({
     quoteLoading: false,
   });
 
-  const updateState = (updates: Partial<UseEvmSwapState>) => {
-    setState(prev => ({ ...prev, ...updates }));
-  };
+  const quoteAbortController = useRef<AbortController | null>(null);
+  const assetsAbortController = useRef<AbortController | null>(null);
 
-  const validateSenderAddress = (): boolean => {
+  const updateState = useCallback((updates: Partial<UseEvmSwapState>) => {
+    setState(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const validateSenderAddress = useCallback((): boolean => {
     if (!senderAddress) {
       updateState({ error: 'No wallet address provided' });
       return false;
@@ -64,20 +67,32 @@ export const useEvmSwap = ({
       return false;
     }
     return true;
-  };
+  }, [senderAddress, updateState]);
 
   const fetchAssets = useCallback(async () => {
-    if (!validateSenderAddress()) {
-      updateState({ assets: [] });
+    if (!senderAddress || !chainId) {
       return;
     }
+
+    if (assetsAbortController.current) {
+      assetsAbortController.current.abort();
+    }
+
+    assetsAbortController.current = new AbortController();
 
     updateState({ isFetchingAssets: true, error: null });
 
     try {
-      const fetchedAssets = await AssetUtils.fetchAssets(networkKey, senderAddress);
-      updateState({ assets: fetchedAssets, isFetchingAssets: false });
-    } catch (err) {
+      const fetchedAssets = await AssetUtils.fetchAssets(chainId, senderAddress);
+
+      if (!assetsAbortController.current.signal.aborted) {
+        updateState({ assets: fetchedAssets, isFetchingAssets: false });
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError' || assetsAbortController.current?.signal.aborted) {
+        return;
+      }
+
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch assets';
       console.error('Asset fetch error:', err);
       updateState({
@@ -86,10 +101,16 @@ export const useEvmSwap = ({
         isFetchingAssets: false,
       });
     }
-  }, [networkKey, senderAddress]);
+  }, [chainId, senderAddress, updateState]);
 
   const fetchQuote = useCallback(
     async (request: SwapQuoteRequest, sellAsset: Asset, buyAsset: Asset): Promise<SwapQuote> => {
+      if (quoteAbortController.current) {
+        quoteAbortController.current.abort();
+      }
+
+      quoteAbortController.current = new AbortController();
+
       updateState({ quoteLoading: true, error: null, quote: null });
 
       try {
@@ -106,18 +127,24 @@ export const useEvmSwap = ({
           throw new Error(`Insufficient ${sellAsset.code} balance`);
         }
 
-        const quoteResponse = await fetchEvmQuote(networkKey, request, sellAsset, buyAsset);
+        const quoteResponse = await fetchEvmQuote(chainId, request, sellAsset, buyAsset);
 
-        updateState({ quote: quoteResponse, quoteLoading: false });
+        if (!quoteAbortController.current.signal.aborted) {
+          updateState({ quote: quoteResponse, quoteLoading: false });
+        }
         return quoteResponse;
-      } catch (err) {
+      } catch (err: any) {
+        if (err.name === 'AbortError' || quoteAbortController.current?.signal.aborted) {
+          return Promise.reject(new Error('Quote request cancelled'));
+        }
+
         const errorMsg = err instanceof Error ? err.message : 'Failed to fetch quote';
         console.error('Quote fetch error:', err);
         updateState({ error: errorMsg, quoteLoading: false, quote: null });
         throw new Error(errorMsg);
       }
     },
-    [networkKey]
+    [chainId, updateState]
   );
 
   const performSwap = useCallback(
@@ -151,35 +178,38 @@ export const useEvmSwap = ({
           throw new Error(`Insufficient ${sellAsset.code} balance`);
         }
 
-        const hash = await handleEvmSwap(
-          networkKey,
+        const hash = await executeSwap(
+          chainId,
           quote,
           sellAsset,
           buyAsset,
           senderAddress,
           sellAmount,
           slippageTolerance,
-          getPrivateKey
+          getProvider
         );
 
         updateState({ txHash: hash, loading: false });
-
         setTimeout(() => {
           fetchAssets();
         }, 3000);
 
         return hash;
-      } catch (err) {
+      } catch (err: any) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to perform swap';
         console.error('Swap execution error:', err);
         updateState({ error: errorMsg, loading: false, txHash: null });
         throw new Error(errorMsg);
       }
     },
-    [networkKey, senderAddress, getPrivateKey, fetchAssets]
+    [chainId, senderAddress, getProvider, fetchAssets, validateSenderAddress, updateState]
   );
 
   const reset = useCallback(() => {
+    if (quoteAbortController.current) {
+      quoteAbortController.current.abort();
+    }
+
     updateState({
       quote: null,
       txHash: null,
@@ -187,7 +217,7 @@ export const useEvmSwap = ({
       loading: false,
       quoteLoading: false,
     });
-  }, []);
+  }, [updateState]);
 
   const clearCache = useCallback(() => {
     AssetUtils.clearMetadataCache();

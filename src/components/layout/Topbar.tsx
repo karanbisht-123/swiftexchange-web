@@ -11,15 +11,17 @@ import ThemeToggle from '../../utils/ThemeToggle';
 interface TopbarProps {}
 
 const Topbar: React.FC<TopbarProps> = () => {
-  const { connectedWallets, openModal, disconnectType } = useWalletConnect();
+  const { connectedWallets, disconnectType } = useWalletConnect();
+
   const [showInfoMessage, setShowInfoMessage] = useState(false);
   const navigate = useNavigate();
   const hasRedirected = useRef(false);
 
   const isConnected = Object.keys(connectedWallets).length > 0;
   // const walletAddresses = Object.values(connectedWallets).map(wallet => wallet.address);
-  const firstWalletType = Object.keys(connectedWallets)[0] as WalletType | undefined;
+  // const firstWalletType = Object.keys(connectedWallets)[0] as WalletType | undefined;
 
+  console.log('show message :', showInfoMessage);
   const disconnectAll = useCallback(async () => {
     const types = Object.keys(connectedWallets) as WalletType[];
     for (const type of types) {
@@ -49,27 +51,27 @@ const Topbar: React.FC<TopbarProps> = () => {
     }
   };
 
-  const handleAddMoreWallets = () => {
-    openModal();
-    setShowInfoMessage(false);
-  };
+  // const handleAddMoreWallets = () => {
+  //   openModal();
+  //   setShowInfoMessage(false);
+  // };
 
-  const getWelcomeMessage = () => {
-    if (!firstWalletType) return '';
+  // const getWelcomeMessage = () => {
+  //   if (!firstWalletType) return '';
 
-    switch (firstWalletType) {
-      case WalletType.EVM:
-        return 'EVM wallet connected successfully! You can now use EVM and DYDX chain features. Connect to the DYDX chain for full access to DeFi tools and trading.';
-      case WalletType.COSMOS:
-        return 'Cosmos wallet connected! Explore Cosmos ecosystem features and IBC transfers. Add more wallets for cross-chain functionality.';
-      case WalletType.STELLAR:
-        return 'Stellar wallet connected! Use Stellar for fast, low-cost payments and asset transfers. Enhance your setup by adding EVM or Cosmos wallets.';
-      default:
-        return 'Wallet connected successfully! Manage your connections and add more wallets to unlock additional features.';
-    }
-  };
+  //   switch (firstWalletType) {
+  //     case WalletType.EVM:
+  //       return 'EVM wallet connected successfully! You can now use EVM and DYDX chain features. Connect to the DYDX chain for full access to DeFi tools and trading.';
+  //     case WalletType.COSMOS:
+  //       return 'Cosmos wallet connected! Explore Cosmos ecosystem features and IBC transfers. Add more wallets for cross-chain functionality.';
+  //     case WalletType.STELLAR:
+  //       return 'Stellar wallet connected! Use Stellar for fast, low-cost payments and asset transfers. Enhance your setup by adding EVM or Cosmos wallets.';
+  //     default:
+  //       return 'Wallet connected successfully! Manage your connections and add more wallets to unlock additional features.';
+  //   }
+  // };
 
-  const welcomeMessage = getWelcomeMessage();
+  // const welcomeMessage = getWelcomeMessage();
 
   return (
     <>
@@ -99,7 +101,7 @@ const Topbar: React.FC<TopbarProps> = () => {
         </div>
       </header>
 
-      {showInfoMessage && welcomeMessage && (
+      {/* {showInfoMessage && welcomeMessage && (
         <div className="bg-blue-50 border-b border-blue-200 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start gap-2 flex-1">
             <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -122,7 +124,7 @@ const Topbar: React.FC<TopbarProps> = () => {
             </button>
           </div>
         </div>
-      )}
+      )} */}
     </>
   );
 };

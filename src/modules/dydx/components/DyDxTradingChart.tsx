@@ -12,11 +12,10 @@ import {
   createChart,
 } from 'lightweight-charts';
 
-import { useCandles } from '../hooks/useCandles';
+import { type CandleResolution, useRealtimeChart } from '../hooks/useCandles';
 import useMarketStore from '../store/marketStore';
 
 type ChartType = 'candlestick' | 'line' | 'area';
-type TimeframeType = '1MIN' | '5MINS' | '15MINS' | '30MINS' | '1HOUR' | '4HOURS' | '1DAY';
 
 const useTheme = () => {
   const [isDark, setIsDark] = useState(
@@ -39,7 +38,7 @@ const useTheme = () => {
 
 export default function DyDxTradingChart() {
   const isDark = useTheme();
-  const [timeframe, setTimeframe] = useState<TimeframeType>('1DAY');
+  const [timeframe, setTimeframe] = useState<CandleResolution>('1DAY');
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
@@ -53,9 +52,10 @@ export default function DyDxTradingChart() {
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<any>(null);
+  const lastUpdateRef = useRef<number>(0);
 
   const { selectedMarket } = useMarketStore();
-  const { candles, latestCandle, isLoading, error, isConnected } = useCandles(
+  const { candles, latestCandle, livePrice, isLoading, error, isConnected } = useRealtimeChart(
     selectedMarket,
     timeframe,
     500
@@ -64,58 +64,25 @@ export default function DyDxTradingChart() {
   const getThemeColors = () => {
     if (isDark) {
       return {
-        background:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-bg-primary')
-            .trim() || '#0a0e1a',
-        textColor:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-text-primary')
-            .trim() || '#f8f9fa',
-        gridColor:
-          getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() ||
-          '#2d3241',
-        borderColor:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-border-dark')
-            .trim() || '#3a3f4f',
-        upColor:
-          getComputedStyle(document.documentElement).getPropertyValue('--color-success').trim() ||
-          '#10b981',
-        downColor:
-          getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim() ||
-          '#ef4444',
+        background: '#0a0e1a',
+        textColor: '#f8f9fa',
+        gridColor: '#2d3241',
+        borderColor: '#3a3f4f',
+        upColor: '#10b981',
+        downColor: '#ef4444',
         volumeColor: 'rgba(128, 128, 128, 0.3)',
-        crosshairColor:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-text-muted')
-            .trim() || '#8b95a5',
+        crosshairColor: '#8b95a5',
       };
     }
     return {
-      background:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-bg-primary').trim() ||
-        '#f5f7fb',
-      textColor:
-        getComputedStyle(document.documentElement)
-          .getPropertyValue('--color-text-primary')
-          .trim() || '#1a1d29',
-      gridColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() ||
-        '#e2e8f0',
-      borderColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-border-dark').trim() ||
-        '#cbd5e0',
-      upColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-success').trim() ||
-        '#10b981',
-      downColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim() ||
-        '#ef4444',
+      background: '#f5f7fb',
+      textColor: '#1a1d29',
+      gridColor: '#e2e8f0',
+      borderColor: '#cbd5e0',
+      upColor: '#10b981',
+      downColor: '#ef4444',
       volumeColor: 'rgba(107, 114, 128, 0.3)',
-      crosshairColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() ||
-        '#718096',
+      crosshairColor: '#718096',
     };
   };
 
@@ -248,10 +215,7 @@ export default function DyDxTradingChart() {
       candlestickSeries.setData(candleData);
       seriesRef.current = candlestickSeries;
     } else if (chartType === 'line') {
-      const brandColor =
-        getComputedStyle(document.documentElement)
-          .getPropertyValue('--color-brand-primary')
-          .trim() || '#3b82f6';
+      const brandColor = '#3b82f6';
       const lineSeries = chartRef.current.addSeries(LineSeries, {
         color: brandColor,
         lineWidth: 2,
@@ -265,10 +229,7 @@ export default function DyDxTradingChart() {
       lineSeries.setData(lineData);
       seriesRef.current = lineSeries;
     } else if (chartType === 'area') {
-      const brandColor =
-        getComputedStyle(document.documentElement)
-          .getPropertyValue('--color-brand-primary')
-          .trim() || '#3b82f6';
+      const brandColor = '#3b82f6';
       const areaSeries = chartRef.current.addSeries(AreaSeries, {
         topColor: isDark ? `${brandColor}66` : `${brandColor}4D`,
         bottomColor: `${brandColor}00`,
@@ -321,6 +282,10 @@ export default function DyDxTradingChart() {
   useEffect(() => {
     if (!latestCandle || !seriesRef.current) return;
 
+    const now = Date.now();
+    if (now - lastUpdateRef.current < 16) return;
+    lastUpdateRef.current = now;
+
     const candlePoint = {
       time: Math.floor(new Date(latestCandle.startedAt).getTime() / 1000) as any,
       open: parseFloat(latestCandle.open),
@@ -329,7 +294,14 @@ export default function DyDxTradingChart() {
       close: parseFloat(latestCandle.close),
     };
 
-    seriesRef.current.update(candlePoint);
+    if (chartType === 'candlestick') {
+      seriesRef.current.update(candlePoint);
+    } else {
+      seriesRef.current.update({
+        time: candlePoint.time,
+        value: candlePoint.close,
+      });
+    }
 
     if (showVolume && volumeSeriesRef.current) {
       const colors = getThemeColors();
@@ -337,10 +309,10 @@ export default function DyDxTradingChart() {
         time: candlePoint.time,
         value: parseFloat(latestCandle.usdVolume),
         color:
-          candlePoint.close >= candlePoint.open ? colors.upColor + '40' : colors.downColor + '40',
+          candlePoint.close >= candlePoint.open ? colors.upColor + '50' : colors.downColor + '50',
       });
     }
-  }, [latestCandle, showVolume]);
+  }, [latestCandle, chartType, showVolume]);
 
   useEffect(() => {
     return () => {
@@ -367,7 +339,7 @@ export default function DyDxTradingChart() {
     setIsFullscreen(!isFullscreen);
   };
 
-  const timeframes: { value: TimeframeType; label: string }[] = [
+  const timeframes: { value: CandleResolution; label: string }[] = [
     { value: '1MIN', label: '1m' },
     { value: '5MINS', label: '5m' },
     { value: '15MINS', label: '15m' },
@@ -385,7 +357,7 @@ export default function DyDxTradingChart() {
 
   const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: any) => (
     <div className="relative">
-      <button onClick={onToggle} className="btn-secondary btn-sm flex items-center gap-2">
+      <button onClick={onToggle} className="btn-sm border-e border-color flex items-center gap-2">
         {label}: <span className="font-medium">{value}</span>
         <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -419,7 +391,7 @@ export default function DyDxTradingChart() {
     <div className="relative">
       <button
         onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-        className="btn-secondary btn-sm flex items-center gap-2"
+        className="border-e border-color btn-sm flex items-center gap-2"
       >
         Settings
         <ChevronDown
@@ -431,27 +403,21 @@ export default function DyDxTradingChart() {
           <div className="fixed inset-0 z-10" onClick={() => setShowSettingsMenu(false)} />
           <div className="absolute top-full right-0 mt-1 bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[140px] z-20">
             <button
-              onClick={() => {
-                setShowVolume(!showVolume);
-              }}
+              onClick={() => setShowVolume(!showVolume)}
               className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
             >
               Volume
               <input type="checkbox" checked={showVolume} onChange={() => {}} className="w-3 h-3" />
             </button>
             <button
-              onClick={() => {
-                setShowGrid(!showGrid);
-              }}
+              onClick={() => setShowGrid(!showGrid)}
               className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
             >
               Grid
               <input type="checkbox" checked={showGrid} onChange={() => {}} className="w-3 h-3" />
             </button>
             <button
-              onClick={() => {
-                setShowCrosshair(!showCrosshair);
-              }}
+              onClick={() => setShowCrosshair(!showCrosshair)}
               className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
             >
               Crosshair
@@ -471,10 +437,9 @@ export default function DyDxTradingChart() {
   return (
     <div className={`${isFullscreen ? 'fixed inset-0 z-50' : ''} bg-primary"`}>
       <div className={`h-full flex flex-col ${!isFullscreen ? '' : ''}`}>
-        {/* Header Controls */}
-        <div className="bg-secondary border-b border-color px-2 py-2 rounded-t-lg">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+        <div className="bg-secondary border-b border-color rounded-t-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
               <Dropdown
                 label="Time"
                 value={timeframes.find(t => t.value === timeframe)?.label}
@@ -497,6 +462,19 @@ export default function DyDxTradingChart() {
             </div>
 
             <div className="flex items-center gap-2">
+              {livePrice && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-tertiary rounded text-sm">
+                  <span className="text-secondary">Live:</span>
+                  <span className="text-brand font-semibold tabular-nums">
+                    $
+                    {livePrice.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  {isConnected && <div className="w-2 h-2 bg-success rounded-full animate-pulse" />}
+                </div>
+              )}
               <button onClick={downloadChart} className="btn-ghost p-2" title="Download Chart">
                 <Download className="w-4 h-4" />
               </button>
@@ -515,8 +493,7 @@ export default function DyDxTradingChart() {
           </div>
         </div>
 
-        {/* Chart */}
-        <div className="flex-1 bg-secondary p-1 ">
+        <div className="flex-1 bg-secondary">
           {error && (
             <div className="mx-4 mt-4 card bg-danger-bg border-2 border-red-300">
               <p className="text-sm text-red-700">Error: {error}</p>
@@ -524,9 +501,7 @@ export default function DyDxTradingChart() {
           )}
           {isLoading ? (
             <div
-              className={`flex items-center justify-center ${
-                isFullscreen ? 'h-full' : 'h-[500px]'
-              }`}
+              className={`flex items-center justify-center ${isFullscreen ? 'h-full' : 'h-[500px]'}`}
             >
               <div className="text-center">
                 <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -536,18 +511,10 @@ export default function DyDxTradingChart() {
           ) : (
             <div
               ref={chartContainerRef}
-              className={`w-full ${isFullscreen ? 'h-full' : 'h-[500px]'}`}
+              className={`w-full ${isFullscreen ? 'h-full' : 'lg:h-[420px] h-full'}`}
             />
           )}
         </div>
-
-        {/* Connection Status */}
-        {isConnected && (
-          <div className="absolute top-16 right-4 flex items-center gap-2 bg-secondary/90 backdrop-blur border border-color px-3 py-1.5 rounded-lg text-xs">
-            <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-            <span className="text-primary">Live</span>
-          </div>
-        )}
       </div>
     </div>
   );

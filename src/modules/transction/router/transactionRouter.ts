@@ -204,7 +204,7 @@ class TransactionRouter {
     const { provider } = session;
 
     try {
-      console.log('🔧 Preparing EVM transaction...');
+      console.log('Preparing EVM transaction...');
       console.log('Provider info:', {
         hasProvider: !!provider,
         hasRequest: typeof provider.request === 'function',

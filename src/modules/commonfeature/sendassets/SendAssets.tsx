@@ -36,7 +36,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     assets,
   } = useSendAsset(onBack);
 
-  // Memoized handlers to prevent re-renders
+  console.log(balance, 'blance -----------------------');
   const handleRecipientChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setRecipientAddress(e.target.value);
@@ -80,7 +80,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     [copyToClipboard]
   );
 
-  // Memoized computed values
   const totalAmount = useMemo(() => {
     if (!amount || !currentAsset) return 0;
     return (
@@ -114,7 +113,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     return baseUrl ? `${baseUrl}/tx/${transactionState.txHash}` : '';
   }, [currentAsset, transactionState.txHash]);
 
-  // Memoized components
   const TransactionReview = useMemo(() => {
     if (!currentAsset || !recipientAddress || !amount) return null;
 

@@ -11,34 +11,50 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import PageLayout from '../../../../components/layout/PageLayout';
-import EVM_NETWORKS from '../../../../config/evmNetworks';
-import { type NetworkKey, SWAP_CONFIGS } from '../../../../config/swapConfigs';
 import type { Asset, SwapQuoteRequest } from '../../../../types/evm/swap.types';
-// SwapQuote,
-import { useWalletStore } from '../../../wallet/store.ts/walletStore';
+import { getEVMChains, getNetwork } from '../../../walletconnect/config/chains';
+import { WalletType } from '../../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useEvmSwap } from '../../hook/useEvmSwap';
-import { determineSwapType } from '../../utils/evmSwapUtils';
+import {
+  determineSwapType,
+  getNetworkConfigByChainId,
+  getSwapConfigByChainId,
+} from '../../utils/evmSwapUtils';
 
 interface SwapAssetsProps {
   onClose?: () => void;
 }
 
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
-  const { isConnected, walletAddresses, connectMultiChainWallet, disconnectWallet } =
-    useWalletStore();
+  const { connectedWallets, disconnectType, getProvider, openModal } = useWalletConnect();
+  const evmWallet = connectedWallets[WalletType.EVM];
+  const isConnected = !!evmWallet;
+  const senderAddress = evmWallet?.address || '';
+  const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
 
-  const [networkKey, setNetworkKey] = useState<NetworkKey>('sepolia');
+  const currentNetwork = getNetwork();
+  const evmChains = getEVMChains();
+
+  const [chainId, setChainId] = useState<number>(() => {
+    if (currentChainId) {
+      const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
+      if (isValidChain) return currentChainId;
+    }
+    return evmChains[0]?.chainId || (currentNetwork === 'testnet' ? 11155111 : 1);
+  });
+
   const [sellAssetCode, setSellAssetCode] = useState<string>('');
   const [buyAssetCode, setBuyAssetCode] = useState<string>('');
   const [sellAmount, setSellAmount] = useState<string>('');
   const [slippageTolerance, setSlippageTolerance] = useState<number>(0.5);
   const [showDetails, setShowDetails] = useState<boolean>(true);
-
-  const senderAddress = walletAddresses.find(addr => addr.startsWith('0x')) || '';
-  const getPrivateKey = useWalletStore(state => state.getPrivateKey);
+  const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
+  const [showNetworkDropdown, setShowNetworkDropdown] = useState<boolean>(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const {
     quote,
@@ -53,48 +69,83 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     performSwap,
     reset,
   } = useEvmSwap({
-    networkKey,
+    chainId,
     senderAddress,
-    getPrivateKey,
+    getProvider,
   });
 
   const selectedSellAsset = assets.find(a => a.code === sellAssetCode);
   const selectedBuyAsset = assets.find(a => a.code === buyAssetCode);
-
-  const config =
-    EVM_NETWORKS.testnet[networkKey as keyof typeof EVM_NETWORKS.testnet] ||
-    EVM_NETWORKS.mainnet[networkKey as keyof typeof EVM_NETWORKS.mainnet];
+  const networkConfig = chainId ? getNetworkConfigByChainId(chainId) : null;
+  const isTestnet = chainId
+    ? [11155111, 80002, 97, 421614, 11155420, 43113].includes(chainId)
+    : false;
 
   useEffect(() => {
-    if (isConnected && senderAddress) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowNetworkDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (currentChainId && currentChainId !== chainId) {
+      const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
+
+      if (isValidChain) {
+        setIsChainSwitching(true);
+        setChainId(currentChainId);
+        setSellAmount('');
+        setSellAssetCode('');
+        setBuyAssetCode('');
+        reset();
+        setTimeout(() => setIsChainSwitching(false), 500);
+      }
+    }
+  }, [currentChainId, chainId, reset, evmChains]);
+
+  useEffect(() => {
+    if (isConnected && senderAddress && chainId && !isChainSwitching) {
       fetchAssets();
     }
-  }, [networkKey, senderAddress, isConnected, fetchAssets]);
+  }, [chainId, senderAddress, isConnected, fetchAssets, isChainSwitching]);
 
   useEffect(() => {
-    if (assets.length > 0 && !sellAssetCode && !buyAssetCode) {
+    if (assets.length > 0 && !sellAssetCode && !buyAssetCode && !isChainSwitching) {
       let defaultSellAsset: Asset | undefined;
       let defaultBuyAsset: Asset | undefined;
 
-      const wNativeAsset = assets.find(
-        a => a.address.toLowerCase() === SWAP_CONFIGS[networkKey].wNative.toLowerCase()
-      );
-      const usdcAsset = assets.find(a => a.code === 'USDC');
+      try {
+        const swapConfig = getSwapConfigByChainId(chainId);
+        const wNativeAsset = assets.find(
+          a => a.address.toLowerCase() === swapConfig.wNative.toLowerCase()
+        );
+        const usdcAsset = assets.find(a => a.code === 'USDC');
 
-      if (wNativeAsset && usdcAsset && wNativeAsset.code !== usdcAsset.code) {
-        defaultSellAsset = wNativeAsset;
-        defaultBuyAsset = usdcAsset;
-      } else if (assets.length >= 2) {
-        defaultSellAsset = assets[0];
-        defaultBuyAsset = assets[1];
-      }
+        if (wNativeAsset && usdcAsset && wNativeAsset.code !== usdcAsset.code) {
+          defaultSellAsset = wNativeAsset;
+          defaultBuyAsset = usdcAsset;
+        } else if (assets.length >= 2) {
+          defaultSellAsset = assets[0];
+          defaultBuyAsset = assets[1];
+        }
 
-      if (defaultSellAsset && defaultBuyAsset) {
-        setSellAssetCode(defaultSellAsset.code);
-        setBuyAssetCode(defaultBuyAsset.code);
+        if (defaultSellAsset && defaultBuyAsset) {
+          setSellAssetCode(defaultSellAsset.code);
+          setBuyAssetCode(defaultBuyAsset.code);
+        }
+      } catch (error) {
+        if (assets.length >= 2) {
+          setSellAssetCode(assets[0].code);
+          setBuyAssetCode(assets[1].code);
+        }
       }
     }
-  }, [assets, sellAssetCode, buyAssetCode, networkKey]);
+  }, [assets, sellAssetCode, buyAssetCode, chainId, isChainSwitching]);
 
   const fetchSwapQuote = useCallback(async () => {
     if (
@@ -103,14 +154,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       !sellAmount ||
       parseFloat(sellAmount) <= 0 ||
       sellAssetCode === buyAssetCode ||
-      !isConnected
+      !isConnected ||
+      isChainSwitching
     ) {
       return;
     }
 
     try {
-      const config = SWAP_CONFIGS[networkKey];
-      const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset, config.wNative);
+      const swapConfig = getSwapConfigByChainId(chainId);
+      const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset, swapConfig.wNative);
 
       const quoteRequest: SwapQuoteRequest = {
         tokenIn: {
@@ -144,8 +196,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     sellAssetCode,
     buyAssetCode,
     isConnected,
-    networkKey,
+    chainId,
     fetchQuote,
+    isChainSwitching,
   ]);
 
   useEffect(() => {
@@ -158,14 +211,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset) {
-      const maxAmount = Math.max(
-        0,
-        selectedSellAsset.balance -
-          (selectedSellAsset.address === SWAP_CONFIGS[networkKey].wNative ? 0.01 : 0)
-      );
-      setSellAmount(maxAmount.toString());
+      try {
+        const swapConfig = getSwapConfigByChainId(chainId);
+        const maxAmount = Math.max(
+          0,
+          selectedSellAsset.balance -
+            (selectedSellAsset.address.toLowerCase() === swapConfig.wNative.toLowerCase()
+              ? 0.01
+              : 0)
+        );
+        setSellAmount(maxAmount.toString());
+      } catch (error) {
+        setSellAmount(selectedSellAsset.balance.toString());
+      }
     }
-  }, [selectedSellAsset, networkKey]);
+  }, [selectedSellAsset, chainId]);
 
   const handleAssetSwap = useCallback(() => {
     const newSellCode = buyAssetCode;
@@ -178,19 +238,59 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [buyAssetCode, sellAssetCode, reset]);
 
   const handleNetworkChange = useCallback(
-    (newNetworkKey: NetworkKey) => {
-      setNetworkKey(newNetworkKey);
+    async (newChainId: number) => {
+      if (newChainId === chainId) {
+        setShowNetworkDropdown(false);
+        return;
+      }
+
+      setIsChainSwitching(true);
+      setShowNetworkDropdown(false);
+      setChainId(newChainId);
       setSellAmount('');
       setSellAssetCode('');
       setBuyAssetCode('');
       reset();
+
+      if (isConnected && getProvider(WalletType.EVM)) {
+        try {
+          const provider = getProvider(WalletType.EVM);
+          await provider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: `0x${newChainId.toString(16)}` }],
+          });
+        } catch (error: any) {
+          if (error.code === 4902) {
+            const networkConfig = getNetworkConfigByChainId(newChainId);
+            try {
+              const provider = getProvider(WalletType.EVM);
+              await provider.request({
+                method: 'wallet_addEthereumChain',
+                params: [
+                  {
+                    chainId: `0x${newChainId.toString(16)}`,
+                    chainName: networkConfig.name,
+                    nativeCurrency: networkConfig.nativeCurrency,
+                    rpcUrls: [networkConfig.rpcUrl],
+                    blockExplorerUrls: [networkConfig.blockExplorerUrl],
+                  },
+                ],
+              });
+            } catch (addError) {
+              console.error('Error adding network:', addError);
+            }
+          }
+        }
+      }
+
+      setTimeout(() => setIsChainSwitching(false), 500);
     },
-    [reset]
+    [isConnected, getProvider, reset, chainId]
   );
 
   const handleSwap = useCallback(async () => {
     if (!isConnected) {
-      await connectMultiChainWallet();
+      openModal();
       return;
     }
 
@@ -211,7 +311,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     slippageTolerance,
     performSwap,
     isConnected,
-    connectMultiChainWallet,
+    openModal,
   ]);
 
   const isSwapDisabled =
@@ -223,7 +323,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     parseFloat(sellAmount) > (selectedSellAsset?.balance ?? 0) ||
     loading ||
     !quote ||
-    isFetchingAssets;
+    isFetchingAssets ||
+    isChainSwitching;
 
   const buyAmount = quote?.outputAmount
     ? parseFloat(quote.outputAmount).toFixed(Math.min(selectedBuyAsset?.decimals ?? 6, 6))
@@ -231,6 +332,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const formatBalance = (balance: number, decimals: number) => {
     return balance.toFixed(Math.min(decimals, 6));
+  };
+
+  const getChainIcon = (chainId: number) => {
+    const icons: Record<number, string> = {
+      1: '⟠',
+      137: '⬣',
+      56: '◆',
+      42161: '◎',
+      10: '◉',
+      43114: '△',
+      11155111: '⟠',
+      80002: '⬣',
+      97: '◆',
+      421614: '◎',
+      11155420: '◉',
+      43113: '△',
+    };
+    return icons[chainId] || '●';
   };
 
   return (
@@ -242,13 +361,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       maxWidth="lg"
     >
       <div className="max-w-xl mx-auto space-y-4">
-        {/* Success Modal */}
-
-        {/* Success Modal */}
-        {txHash && (
+        {txHash && networkConfig && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
             <div className="card max-w-md w-full animate-slide-up rounded-t-3xl sm:rounded-2xl border-t-4 border-green-500 shadow-2xl m-0 sm:m-4">
-              {/* Success Icon */}
               <div className="flex items-center justify-center pt-8 pb-4">
                 <div className="relative">
                   <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-lg">
@@ -258,7 +373,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 </div>
               </div>
 
-              {/* Content */}
               <div className="px-6 pb-6">
                 <h3 className="text-2xl font-bold text-center mb-2 text-primary">
                   Swap Successful!
@@ -267,10 +381,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   Your transaction has been confirmed
                 </p>
                 <p className="text-center text-xs font-medium text-green-600 mb-6">
-                  on {config.name}
+                  on {networkConfig.name}
                 </p>
 
-                {/* Transaction Hash */}
                 <div className="bg-tertiary rounded-lg p-3 mb-6 border border-color">
                   <p className="text-xs text-muted mb-1 text-center">Transaction Hash</p>
                   <p className="font-mono text-xs text-center text-primary break-all">
@@ -278,10 +391,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   </p>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="space-y-3">
                   <a
-                    href={`${config.explorerUrl}/tx/${txHash}`}
+                    href={`${networkConfig.blockExplorerUrl}/tx/${txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-primary w-full flex items-center justify-center gap-2 text-base py-3"
@@ -301,7 +413,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
 
-        {/* Error Alert */}
         {error && (
           <div className="card bg-danger-bg border-2 border-red-300 animate-slide-up">
             <div className="flex items-start gap-3">
@@ -314,7 +425,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
 
-        {/* Wallet Connection */}
         {!isConnected && (
           <div className="card text-center py-12">
             <div className="flex justify-center mb-6">
@@ -324,60 +434,92 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             </div>
             <h3 className="heading-3 mb-3">Connect Your Wallet</h3>
             <p className="text-secondary mb-6 max-w-md mx-auto">
-              To start swapping tokens, please connect your wallet first.
+              To start swapping tokens, please connect your EVM wallet first.
             </p>
-            <button onClick={connectMultiChainWallet} className="btn-primary btn-lg">
+            <button onClick={openModal} className="btn-primary btn-lg">
               Connect Wallet
             </button>
           </div>
         )}
 
-        {/* Network Selection - Compact */}
-        {isConnected && (
+        {isConnected && networkConfig && (
           <div className="card py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 flex-1">
                 <label className="text-xs font-semibold text-secondary whitespace-nowrap">
                   Network:
                 </label>
-                <select
-                  className="input-sm flex-1 min-w-0"
-                  value={networkKey}
-                  onChange={e => handleNetworkChange(e.target.value as NetworkKey)}
-                >
-                  {Object.keys({
-                    ...EVM_NETWORKS.mainnet,
-                    ...EVM_NETWORKS.testnet,
-                  }).map(key => (
-                    <option key={key} value={key}>
-                      {
-                        (
-                          EVM_NETWORKS.mainnet[key as keyof typeof EVM_NETWORKS.mainnet] ||
-                          EVM_NETWORKS.testnet[key as keyof typeof EVM_NETWORKS.testnet]
-                        ).name
-                      }
-                    </option>
-                  ))}
-                </select>
+                <div className="relative flex-1" ref={dropdownRef}>
+                  <button
+                    onClick={() => setShowNetworkDropdown(!showNetworkDropdown)}
+                    className="input-sm w-full flex items-center justify-between gap-2"
+                    disabled={isChainSwitching}
+                  >
+                    <span className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-lg">{getChainIcon(chainId)}</span>
+                      <span className="truncate">{networkConfig.name}</span>
+                    </span>
+                    {isChainSwitching ? (
+                      <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    ) : (
+                      <ChevronDown
+                        className={`w-4 h-4 flex-shrink-0 transition-transform ${
+                          showNetworkDropdown ? 'rotate-180' : ''
+                        }`}
+                      />
+                    )}
+                  </button>
+
+                  {showNetworkDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-secondary border border-color rounded-lg shadow-lg max-h-64 overflow-y-auto z-50">
+                      {evmChains.map(chain => (
+                        <button
+                          key={chain.chainId}
+                          onClick={() => handleNetworkChange(chain.chainId)}
+                          className={`w-full px-3 py-2.5 flex items-center gap-3 hover:bg-hover transition-colors text-left ${
+                            chain.chainId === chainId ? 'bg-hover' : ''
+                          }`}
+                        >
+                          <span className="text-lg">{getChainIcon(chain.chainId)}</span>
+                          <span className="flex-1 text-sm font-medium">{chain.name}</span>
+                          {chain.chainId === chainId && (
+                            <CheckCircle2 className="w-4 h-4 text-brand flex-shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              {(networkKey.includes('testnet') || ['sepolia', 'amoy'].includes(networkKey)) && (
-                <span className="badge-warning text-xs px-2 py-0.5 whitespace-nowrap">TEST</span>
-              )}
+              <div className="flex items-center gap-2">
+                {isTestnet && (
+                  <span className="badge-warning text-xs px-2 py-0.5 whitespace-nowrap">TEST</span>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Main Swap Card */}
         {isConnected && (
           <div className="card">
-            {/* From Token */}
+            {(isChainSwitching || isFetchingAssets) && (
+              <div className="absolute inset-0 bg-secondary/80 backdrop-blur-sm rounded-lg flex items-center justify-center z-10">
+                <div className="text-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-brand mx-auto mb-2" />
+                  <p className="text-sm font-medium text-primary">
+                    {isChainSwitching ? 'Switching network...' : 'Loading assets...'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="mb-2">
               <div className="flex items-center justify-between mb-3">
                 <label className="block text-sm font-semibold text-primary">You Pay</label>
                 <button
                   onClick={handleMaxAmount}
                   className="text-xs font-medium text-brand hover:text-brand-hover transition-colors"
-                  disabled={!selectedSellAsset || isFetchingAssets}
+                  disabled={!selectedSellAsset || isFetchingAssets || isChainSwitching}
                 >
                   MAX
                 </button>
@@ -404,7 +546,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         setSellAmount('');
                         reset();
                       }}
-                      disabled={isFetchingAssets}
+                      disabled={isFetchingAssets || isChainSwitching}
                     >
                       <option value="" disabled>
                         Select
@@ -427,14 +569,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     placeholder="0.00"
                     value={sellAmount}
                     onChange={e => setSellAmount(e.target.value)}
-                    disabled={isFetchingAssets}
+                    disabled={isFetchingAssets || isChainSwitching}
                   />
                 </div>
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-muted">
                     Balance:{' '}
-                    {isFetchingAssets ? (
+                    {isFetchingAssets || isChainSwitching ? (
                       <Loader2 className="w-3 h-3 animate-spin inline" />
                     ) : (
                       <>
@@ -451,18 +593,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Swap Button */}
             <div className="flex justify-center -my-3 relative z-10">
               <button
                 onClick={handleAssetSwap}
                 className="w-10 h-10 rounded-lg bg-secondary border-2 border-color hover:border-brand hover:bg-hover transition-all flex items-center justify-center shadow-md"
-                disabled={isFetchingAssets || !selectedSellAsset || !selectedBuyAsset}
+                disabled={
+                  isFetchingAssets || !selectedSellAsset || !selectedBuyAsset || isChainSwitching
+                }
               >
                 <ArrowUpDown className="w-4 h-4 text-brand" />
               </button>
             </div>
 
-            {/* To Token */}
             <div className="mt-2">
               <label className="block text-sm font-semibold text-primary mb-3">You Receive</label>
 
@@ -487,7 +629,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         setSellAmount('');
                         reset();
                       }}
-                      disabled={isFetchingAssets}
+                      disabled={isFetchingAssets || isChainSwitching}
                     >
                       <option value="" disabled>
                         Select
@@ -512,7 +654,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-muted">
                     Balance:{' '}
-                    {isFetchingAssets ? (
+                    {isFetchingAssets || isChainSwitching ? (
                       <Loader2 className="w-3 h-3 animate-spin inline" />
                     ) : (
                       <>
@@ -526,8 +668,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Exchange Rate */}
-            {quote && !quoteLoading && (
+            {quote && !quoteLoading && !isChainSwitching && (
               <div className="mt-4 bg-info-bg rounded-lg p-3 border border-color">
                 <div className="flex items-center justify-center gap-2">
                   <TrendingUp className="w-4 h-4 text-info" />
@@ -539,7 +680,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             )}
 
-            {/* Loading Quote */}
             {quoteLoading && sellAmount && selectedSellAsset && selectedBuyAsset && (
               <div className="mt-4 bg-info-bg rounded-lg p-3 border border-color">
                 <div className="flex items-center justify-center gap-2 text-sm">
@@ -549,10 +689,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             )}
 
-            {/* Swap Details - Collapsible */}
-            {quote && !quoteLoading && (
+            {quote && !quoteLoading && networkConfig && !isChainSwitching && (
               <div className="mt-4">
-                {/* Toggle Button */}
                 <button
                   onClick={() => setShowDetails(!showDetails)}
                   className="w-full flex items-center justify-between text-sm font-semibold text-secondary hover:text-primary transition-colors mb-3"
@@ -563,7 +701,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   />
                 </button>
 
-                {/* Details */}
                 {showDetails && (
                   <div className="space-y-3 animate-slide-up rounded-lg bg-secondary/40 p-3">
                     <div className="flex items-center justify-between text-sm border-b border-dotted border-gray-500/40 pb-2">
@@ -610,7 +747,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     <div className="flex items-start justify-between text-sm">
                       <span className="text-secondary">Pool Address</span>
                       <a
-                        href={`${config.explorerUrl}/address/${quote.poolAddress}`}
+                        href={`${networkConfig.blockExplorerUrl}/address/${quote.poolAddress}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="font-mono text-brand hover:text-brand-hover flex items-center gap-1 text-xs break-all text-right"
@@ -626,8 +763,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             )}
           </div>
         )}
-
-        {/* Swap Button */}
         {isConnected && (
           <button
             onClick={handleSwap}
@@ -641,6 +776,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </span>
             ) : !isConnected ? (
               'Connect Wallet'
+            ) : isChainSwitching ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Switching Network...
+              </span>
             ) : !senderAddress ? (
               'No Wallet Address'
             ) : sellAssetCode === buyAssetCode ? (
@@ -663,14 +803,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             )}
           </button>
         )}
-
-        {/* Action Buttons */}
         {isConnected && (
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => fetchAssets()}
               className="btn-secondary flex items-center justify-center gap-2"
-              disabled={isFetchingAssets}
+              disabled={isFetchingAssets || isChainSwitching}
             >
               {isFetchingAssets ? (
                 <>
@@ -685,7 +823,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               )}
             </button>
             <button
-              onClick={disconnectWallet}
+              onClick={() => disconnectType(WalletType.EVM)}
               className="btn-secondary flex items-center justify-center gap-2 text-red-600 hover:text-red-700"
             >
               <LogOut className="w-4 h-4" />

@@ -1,5 +1,3 @@
-import { DYDX_CONFIG } from '../config/config';
-
 export interface WebSocketSubscription {
   type: 'subscribe' | 'unsubscribe';
   channel: string;
@@ -39,6 +37,11 @@ class WebSocketManager {
   private readonly HEARTBEAT_INTERVAL = 30000;
   private connectionHandlers = new Set<ConnectionHandler>();
   private disconnectionHandlers = new Set<ConnectionHandler>();
+  private currentWsUrl: string | null = null;
+
+  private rafId: number | null = null;
+  private pendingHandlerCalls: Array<{ handler: MessageHandler; data: WebSocketMessage }> = [];
+  private readonly MAX_BATCH_SIZE = 100;
 
   private constructor() {
     this.startHeartbeat();
@@ -51,13 +54,21 @@ class WebSocketManager {
     return WebSocketManager.instance;
   }
 
-  async connect(): Promise<void> {
-    if (this.isConnecting || this.ws?.readyState === WebSocket.OPEN) return;
+  async connect(wsUrl: string): Promise<void> {
+    if (this.currentWsUrl !== wsUrl && this.ws?.readyState === WebSocket.OPEN) {
+      console.log('[WebSocketManager] Network changed, reconnecting...');
+      this.disconnect();
+    }
+
+    if (this.isConnecting || this.ws?.readyState === WebSocket.OPEN) {
+      console.log('[WebSocketManager] Already connected or connecting');
+      return;
+    }
 
     return new Promise((resolve, reject) => {
       this.isConnecting = true;
       try {
-        const wsUrl = DYDX_CONFIG.indexerWs;
+        this.currentWsUrl = wsUrl;
         console.log('[WebSocketManager] Connecting to:', wsUrl);
         this.ws = new WebSocket(wsUrl);
 
@@ -96,11 +107,10 @@ class WebSocketManager {
           this.connectionId = null;
           this.isConnecting = false;
           this.disconnectionHandlers.forEach(handler => handler());
-
           if (
             !this.isReconnecting &&
             this.reconnectAttempts < this.maxReconnectAttempts &&
-            event.code !== 1000 // 1000 = normal closure
+            event.code !== 1000
           ) {
             this.attemptReconnect();
           }
@@ -130,10 +140,11 @@ class WebSocketManager {
       };
       this.pendingSubscriptions.set(subscriptionKey, subscription);
       this.queueMessage(subscription);
-      console.log('[WebSocketManager] Queued subscription:', subscriptionKey);
+      console.log('[WebSocketManager] Queued subscription:', subscriptionKey, { batched });
+    } else {
+      console.log('[WebSocketManager] Already subscribed to:', subscriptionKey);
     }
 
-    // Return unsubscribe function
     return () => {
       const handlers = this.subscriptions.get(subscriptionKey);
       if (handlers) {
@@ -142,6 +153,7 @@ class WebSocketManager {
           console.log('[WebSocketManager] Unsubscribing from:', subscriptionKey);
           this.subscriptions.delete(subscriptionKey);
           this.pendingSubscriptions.delete(subscriptionKey);
+
           const unsubMsg: WebSocketSubscription = {
             type: 'unsubscribe',
             channel,
@@ -155,6 +167,7 @@ class WebSocketManager {
 
   private queueMessage(message: WebSocketSubscription): void {
     this.messageQueue.push(message);
+
     if (!this.flushTimer) {
       this.flushTimer = setTimeout(() => this.flushMessageQueue(), this.FLUSH_INTERVAL);
     }
@@ -184,37 +197,61 @@ class WebSocketManager {
     try {
       const data: WebSocketMessage = JSON.parse(event.data);
 
-      // Handle connection confirmation
       if (data.type === 'connected' && data.connection_id) {
         this.connectionId = data.connection_id;
         console.log('[WebSocketManager] Connection ID:', this.connectionId);
         return;
       }
-
-      // Handle subscription confirmation
       if (data.type === 'subscribed') {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
-        console.log('[WebSocketManager] Subscription confirmed:', key);
+        console.log('[WebSocketManager] Subscription confirmed:', key, {
+          messageId: data.message_id,
+        });
         return;
       }
 
-      // Handle channel updates
+      if (data.type === 'unsubscribed') {
+        const key = data.id ? `${data.channel}_${data.id}` : data.channel;
+        console.log('[WebSocketManager] Unsubscribe confirmed:', key);
+        return;
+      }
       if (data.type === 'channel_data') {
         const subscriptionKey = data.id ? `${data.channel}_${data.id}` : data.channel;
         const handlers = this.subscriptions.get(subscriptionKey);
 
         if (handlers && handlers.size > 0) {
-          // Use requestIdleCallback for better performance
-          if ('requestIdleCallback' in window) {
-            requestIdleCallback(() => handlers.forEach(handler => handler(data)));
-          } else {
-            setTimeout(() => handlers.forEach(handler => handler(data)), 0);
-          }
+          handlers.forEach(handler => {
+            this.pendingHandlerCalls.push({ handler, data });
+          });
+
+          this.scheduleHandlerExecution();
+        } else {
+          console.warn('[WebSocketManager] No handlers for:', subscriptionKey);
         }
       }
     } catch (error) {
       console.error('[WebSocketManager] Message parsing error:', error, event.data);
     }
+  }
+
+  private scheduleHandlerExecution(): void {
+    if (this.rafId !== null) return;
+
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = null;
+      const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
+
+      calls.forEach(({ handler, data }) => {
+        try {
+          handler(data);
+        } catch (error) {
+          console.error('[WebSocketManager] Handler error:', error);
+        }
+      });
+      if (this.pendingHandlerCalls.length > 0) {
+        this.scheduleHandlerExecution();
+      }
+    });
   }
 
   isConnected(): boolean {
@@ -238,7 +275,10 @@ class WebSocketManager {
 
   onConnect(handler: ConnectionHandler): () => void {
     this.connectionHandlers.add(handler);
-    if (this.isConnected()) handler();
+    // Immediately call if already connected
+    if (this.isConnected()) {
+      handler();
+    }
     return () => this.connectionHandlers.delete(handler);
   }
 
@@ -248,13 +288,18 @@ class WebSocketManager {
   }
 
   private async attemptReconnect(): Promise<void> {
-    if (this.isReconnecting || this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('[WebSocketManager] Max reconnect attempts reached');
+    if (
+      this.isReconnecting ||
+      this.reconnectAttempts >= this.maxReconnectAttempts ||
+      !this.currentWsUrl
+    ) {
+      console.log('[WebSocketManager] Max reconnect attempts reached or no URL');
       return;
     }
 
     this.isReconnecting = true;
     this.reconnectAttempts++;
+
     const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
 
     console.log(
@@ -264,12 +309,13 @@ class WebSocketManager {
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
-      await this.connect();
+      await this.connect(this.currentWsUrl);
       this.isReconnecting = false;
       console.log('[WebSocketManager] Reconnected successfully');
     } catch (error) {
       console.error('[WebSocketManager] Reconnection failed:', error);
       this.isReconnecting = false;
+
       if (this.reconnectAttempts < this.maxReconnectAttempts) {
         this.attemptReconnect();
       }
@@ -278,6 +324,7 @@ class WebSocketManager {
 
   private resubscribeAll(): void {
     console.log('[WebSocketManager] Resubscribing to all channels');
+
     this.pendingSubscriptions.forEach((subscription, key) => {
       console.log('[WebSocketManager] Resubscribing to:', key);
       this.queueMessage(subscription);
@@ -286,6 +333,7 @@ class WebSocketManager {
 
   private startHeartbeat(): void {
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+
     this.heartbeatInterval = setInterval(() => {
       if (this.isConnected() && Date.now() - this.lastHeartbeat > this.HEARTBEAT_INTERVAL * 2) {
         console.warn('[WebSocketManager] Connection stale, reconnecting');
@@ -303,6 +351,11 @@ class WebSocketManager {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.pendingHandlerCalls = [];
     this.isConnecting = false;
     this.isReconnecting = false;
     this.connectionId = null;
@@ -312,15 +365,19 @@ class WebSocketManager {
     console.log('[WebSocketManager] Disconnecting');
     this.isReconnecting = false;
     this.reconnectAttempts = this.maxReconnectAttempts;
+
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
+
     this.subscriptions.clear();
     this.pendingSubscriptions.clear();
     this.messageQueue = [];
     this.connectionHandlers.clear();
     this.disconnectionHandlers.clear();
+    this.currentWsUrl = null;
+
     this.cleanup();
   }
 
@@ -328,13 +385,19 @@ class WebSocketManager {
     return {
       connectionStatus: this.getConnectionStatus(),
       connectionId: this.connectionId,
+      currentWsUrl: this.currentWsUrl,
       subscriptions: Array.from(this.subscriptions.keys()),
       pendingSubscriptions: Array.from(this.pendingSubscriptions.keys()),
       reconnectAttempts: this.reconnectAttempts,
       isReconnecting: this.isReconnecting,
       messageQueueLength: this.messageQueue.length,
+      pendingHandlerCalls: this.pendingHandlerCalls.length,
       lastHeartbeat: new Date(this.lastHeartbeat).toISOString(),
       timeSinceLastHeartbeat: Date.now() - this.lastHeartbeat,
+      activeHandlerCount: Array.from(this.subscriptions.values()).reduce(
+        (sum, set) => sum + set.size,
+        0
+      ),
     };
   }
 }

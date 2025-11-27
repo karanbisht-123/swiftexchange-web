@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOrderbook } from '../../hooks/useOrderbook';
 import useMarketStore from '../../store/marketStore';
@@ -9,202 +9,395 @@ interface OrderbookRow {
   total: number;
 }
 
-interface OrderbookProps {
-  maxRows?: number;
+interface FlashState {
+  type: 'up' | 'down' | 'new';
+  timestamp: number;
 }
 
-const Orderbook: React.FC<OrderbookProps> = ({ maxRows = 10 }) => {
+const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
   const { selectedMarket } = useMarketStore();
-  const { orderbook, error, isLoading, isConnected } = useOrderbook(selectedMarket);
+  const { orderbook, isConnected, dataSource } = useOrderbook(selectedMarket);
 
-  const { bids, asks, spread, midPrice } = useMemo(() => {
-    if (!orderbook || !orderbook.bids?.length || !orderbook.asks?.length) {
-      return { bids: [], asks: [], spread: null, midPrice: null };
+  const prevBidsRef = useRef<Map<string, number>>(new Map());
+  const prevAsksRef = useRef<Map<string, number>>(new Map());
+  const prevMarketRef = useRef<string>(selectedMarket);
+  const flashTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  const animationFrameRef = useRef<number | null>(null);
+
+  const [flashBids, setFlashBids] = useState<Map<string, FlashState>>(new Map());
+  const [flashAsks, setFlashAsks] = useState<Map<string, FlashState>>(new Map());
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (flashTimerRef.current) {
+        clearTimeout(flashTimerRef.current);
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (prevMarketRef.current !== selectedMarket) {
+      setIsTransitioning(true);
+
+      prevBidsRef.current.clear();
+      prevAsksRef.current.clear();
+      setFlashBids(new Map());
+      setFlashAsks(new Map());
+      prevMarketRef.current = selectedMarket;
+
+      if (flashTimerRef.current) {
+        clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = null;
+      }
+
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+
+      const transitionTimer = setTimeout(() => {
+        if (mountedRef.current) {
+          setIsTransitioning(false);
+        }
+      }, 50);
+
+      return () => clearTimeout(transitionTimer);
+    }
+  }, [selectedMarket]);
+
+  const clearFlashAnimations = useCallback(() => {
+    if (!mountedRef.current) return;
+
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
     }
 
-    let bidTotal = 0;
-    const formattedBids: OrderbookRow[] = orderbook.bids.slice(0, maxRows).map(order => {
-      const price = parseFloat(order.price);
-      const size = parseFloat(order.size);
-      bidTotal += size;
-      return { price, size, total: bidTotal };
+    animationFrameRef.current = requestAnimationFrame(() => {
+      if (!mountedRef.current) return;
+      setFlashBids(new Map());
+      setFlashAsks(new Map());
+      animationFrameRef.current = null;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (
+      !orderbook?.bids?.length ||
+      !orderbook?.asks?.length ||
+      !mountedRef.current ||
+      isTransitioning
+    ) {
+      return;
+    }
+
+    const currentBidPrices = new Set(orderbook.bids.map(b => b.price));
+    const currentAskPrices = new Set(orderbook.asks.map(a => a.price));
+
+    for (const key of prevBidsRef.current.keys()) {
+      if (!currentBidPrices.has(key)) {
+        prevBidsRef.current.delete(key);
+      }
+    }
+
+    for (const key of prevAsksRef.current.keys()) {
+      if (!currentAskPrices.has(key)) {
+        prevAsksRef.current.delete(key);
+      }
+    }
+
+    const newFlashBids = new Map<string, FlashState>();
+    const newFlashAsks = new Map<string, FlashState>();
+    const timestamp = Date.now();
+
+    orderbook.bids.slice(0, maxRows).forEach(bid => {
+      const priceKey = bid.price;
+      const size = parseFloat(bid.size) || 0;
+      const prev = prevBidsRef.current.get(priceKey);
+
+      if (prev === undefined) {
+        newFlashBids.set(priceKey, { type: 'new', timestamp });
+      } else if (size > prev) {
+        newFlashBids.set(priceKey, { type: 'up', timestamp });
+      } else if (size < prev) {
+        newFlashBids.set(priceKey, { type: 'down', timestamp });
+      }
+
+      prevBidsRef.current.set(priceKey, size);
     });
 
-    let askTotal = 0;
-    const formattedAsks: OrderbookRow[] = orderbook.asks
-      .slice(0, maxRows)
-      .map(order => {
-        const price = parseFloat(order.price);
-        const size = parseFloat(order.size);
-        askTotal += size;
-        return { price, size, total: askTotal };
-      })
-      .reverse();
+    orderbook.asks.slice(0, maxRows).forEach(ask => {
+      const priceKey = ask.price;
+      const size = parseFloat(ask.size) || 0;
+      const prev = prevAsksRef.current.get(priceKey);
+
+      if (prev === undefined) {
+        newFlashAsks.set(priceKey, { type: 'new', timestamp });
+      } else if (size > prev) {
+        newFlashAsks.set(priceKey, { type: 'up', timestamp });
+      } else if (size < prev) {
+        newFlashAsks.set(priceKey, { type: 'down', timestamp });
+      }
+
+      prevAsksRef.current.set(priceKey, size);
+    });
+
+    if ((newFlashBids.size > 0 || newFlashAsks.size > 0) && mountedRef.current) {
+      setFlashBids(newFlashBids);
+      setFlashAsks(newFlashAsks);
+
+      if (flashTimerRef.current) {
+        clearTimeout(flashTimerRef.current);
+      }
+
+      flashTimerRef.current = window.setTimeout(() => {
+        clearFlashAnimations();
+        flashTimerRef.current = null;
+      }, 600);
+    }
+  }, [orderbook, maxRows, isTransitioning, clearFlashAnimations]);
+
+  const { bids, asks, spread, spreadPct, maxTotal } = useMemo(() => {
+    if (!orderbook?.bids?.length || !orderbook?.asks?.length) {
+      return {
+        bids: [],
+        asks: [],
+        spread: null,
+        spreadPct: null,
+        maxTotal: 1,
+      };
+    }
+
+    const formattedBids: OrderbookRow[] = [];
+    const formattedAsks: OrderbookRow[] = [];
+
+    let bidCum = 0;
+    let askCum = 0;
+
+    orderbook.bids.slice(0, maxRows).forEach(o => {
+      const price = parseFloat(o.price);
+      const size = parseFloat(o.size) || 0;
+
+      if (size > 0 && !isNaN(price)) {
+        bidCum += size;
+        formattedBids.push({ price, size, total: bidCum });
+      }
+    });
+
+    orderbook.asks.slice(0, maxRows).forEach(o => {
+      const price = parseFloat(o.price);
+      const size = parseFloat(o.size) || 0;
+
+      if (size > 0 && !isNaN(price)) {
+        askCum += size;
+        formattedAsks.push({ price, size, total: askCum });
+      }
+    });
+
+    formattedAsks.reverse();
 
     const bestBid = formattedBids[0]?.price || 0;
     const bestAsk = formattedAsks[formattedAsks.length - 1]?.price || 0;
-    const calculatedSpread = bestAsk - bestBid;
-    const calculatedMidPrice = (bestBid + bestAsk) / 2;
+    const mid = (bestBid + bestAsk) / 2;
+    const spr = bestAsk - bestBid;
+    const sprPct = mid > 0 ? (spr / mid) * 100 : 0;
+    const maxTotal = Math.max(bidCum, askCum) || 1;
 
     return {
       bids: formattedBids,
       asks: formattedAsks,
-      spread: calculatedSpread,
-      midPrice: calculatedMidPrice,
+      spread: spr,
+      spreadPct: sprPct,
+      maxTotal,
     };
   }, [orderbook, maxRows]);
 
-  if (isLoading) {
-    return (
-      <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-        <div className="flex items-center justify-center p-8">
-          <div className="text-muted">Loading orderbook...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && !orderbook) {
-    // Only show error if we have no data at all
-    return (
-      <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-        <div className="p-4 bg-danger-bg border border-danger rounded">
-          <div className="text-danger font-semibold">Error</div>
-          <div className="text-danger text-sm">{error}</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!orderbook) {
-    return (
-      <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-        <div className="flex items-center justify-center p-8">
-          <div className="text-muted">No orderbook data available</div>
-        </div>
-      </div>
-    );
-  }
-
-  const baseCurrency = selectedMarket.split('-')[0] || 'BTC';
-  const quoteCurrency = selectedMarket.split('-')[1] || 'USD';
+  const base = selectedMarket.split('-')[0] || 'BTC';
+  const quote = selectedMarket.split('-')[1] || 'USD';
 
   return (
-    <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-      {/* Controls */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-color">
-        <div className="flex items-center gap-2">
-          <button className="btn btn-sm btn-secondary">−</button>
-          <button className="btn btn-sm btn-secondary">+</button>
-          <span className="text-muted text-sm ml-1">$1</span>
-        </div>
+    <div className="w-full max-w-md bg-[#0e0c15] text-white font-medium text-sm select-none">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#232027]">
         <div className="flex items-center gap-3">
-          <span className="text-primary text-sm font-medium">{baseCurrency}</span>
-          <span className="text-secondary text-sm">{quoteCurrency}</span>
-          {/* Connection Status Indicator */}
+          <span className="text-[#aaaaaa] text-xs font-semibold">Orderbook</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-white font-semibold">{base}</span>
+          <span className="text-[#aaaaaa]">/</span>
+          <span className="text-[#aaaaaa]">{quote}</span>
           <div
-            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}
-            title={isConnected ? 'Live updates active' : 'Using cached data'}
+            className={`w-2 h-2 rounded-full ${
+              isConnected && dataSource === 'websocket' ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
+            } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
 
-      {/* Table Header */}
-      <div className="grid grid-cols-3 px-4 py-2 border-b border-color text-xs text-secondary">
-        <div className="text-left">
-          Price <span className="text-muted">{quoteCurrency}</span>
-        </div>
-        <div className="text-right">
-          Size <span className="text-muted">{baseCurrency}</span>
-        </div>
-        <div className="text-right">
-          Total <span className="text-muted">{baseCurrency}</span>
-        </div>
+      <div className="grid grid-cols-3 px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
+        <div>Price ({quote})</div>
+        <div className="text-right">Size ({base})</div>
+        <div className="text-right">Total ({base})</div>
       </div>
 
-      {/* Asks (Sell Orders) */}
-      <div className="px-4 h-[200px] overflow-scroll">
-        {asks.length > 0 ? (
-          asks.map((ask, index) => (
+      <div className="relative max-h-[200px] overflow-auto hide-scrollbar">
+        {asks.map(ask => {
+          const priceKey = ask.price.toString();
+          const flash = flashAsks.get(priceKey);
+          const depthPct = (ask.total / maxTotal) * 100;
+
+          return (
             <div
-              key={`ask-${index}`}
-              className="grid grid-cols-3 py-1.5 text-sm hover:bg-hover transition-colors relative"
+              key={`ask-${priceKey}`}
+              className={`grid grid-cols-3 px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
+                flash?.type === 'up'
+                  ? 'bg-[#ff3b6955] animate-flash-up'
+                  : flash?.type === 'down'
+                    ? 'bg-[#ff3b6944] animate-flash-down'
+                    : flash?.type === 'new'
+                      ? 'bg-[#ff3b6933] animate-flash-new'
+                      : ''
+              }`}
             >
               <div
-                className="absolute right-0 top-0 bottom-0 bg-danger-bg"
-                style={{ width: `${(ask.total / asks[0]?.total) * 100}%` }}
+                className="absolute inset-y-0 right-0 bg-[#ff3b6915] transition-all duration-500 ease-out"
+                style={{ width: `${depthPct}%` }}
               />
-              <div className="relative z-10 price-down">
+
+              <div className="relative text-[#ff3b69] font-semibold tabular-nums">
                 {ask.price.toLocaleString(undefined, {
-                  minimumFractionDigits: 3,
-                  maximumFractionDigits: 3,
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative z-10 text-right text-primary">{ask.size.toFixed(4)}</div>
-              <div className="relative z-10 text-right text-secondary text-xs">
+              <div className="relative text-right text-[#e8e8e8] tabular-nums">
+                {ask.size.toFixed(4)}
+              </div>
+              <div className="relative text-right text-[#6b6b76] tabular-nums">
                 {ask.total.toFixed(4)}
               </div>
             </div>
-          ))
-        ) : (
-          <div className="py-4 text-center text-muted text-sm">No asks available</div>
-        )}
+          );
+        })}
       </div>
 
-      {/* Spread Info */}
-      <div className="px-4 py-3 border-y border-color bg-tertiary">
-        <div className="grid grid-cols-3 text-sm">
-          <div className="text-primary">Spread</div>
-          <div className="text-right text-primary">
-            {spread !== null ? spread.toFixed(0) : 'N/A'}
-          </div>
-          <div className="text-right text-secondary">
-            {spread !== null && midPrice !== null
-              ? `${((spread / midPrice) * 100).toFixed(2)}%`
-              : 'N/A'}
-          </div>
+      <div className="grid grid-cols-3 px-4 py-2.5 bg-[#1a1620] border-y border-[#232027] text-xs">
+        <div className="text-[#6b6b76] font-medium">Spread</div>
+        <div className="text-right font-semibold text-white tabular-nums">
+          {spread !== null ? spread.toFixed(2) : '-'}
+        </div>
+        <div className="text-right text-[#6b6b76] font-medium tabular-nums">
+          {spreadPct !== null && spreadPct > 0 ? `${spreadPct.toFixed(3)}%` : '-'}
         </div>
       </div>
 
-      {/* Bids (Buy Orders) */}
-      <div className="px-4 h-[200px] overflow-scroll">
-        {bids.length > 0 ? (
-          bids.map((bid, index) => (
+      <div className="relative max-h-[200px] overflow-auto hide-scrollbar">
+        {bids.map(bid => {
+          const priceKey = bid.price.toString();
+          const flash = flashBids.get(priceKey);
+          const depthPct = (bid.total / maxTotal) * 100;
+
+          return (
             <div
-              key={`bid-${index}`}
-              className="grid grid-cols-3 py-1.5 text-sm hover:bg-hover transition-colors relative"
+              key={`bid-${priceKey}`}
+              className={`grid grid-cols-3 px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
+                flash?.type === 'up'
+                  ? 'bg-[#00ff9d55] animate-flash-up'
+                  : flash?.type === 'down'
+                    ? 'bg-[#00ff9d44] animate-flash-down'
+                    : flash?.type === 'new'
+                      ? 'bg-[#00ff9d33] animate-flash-new'
+                      : ''
+              }`}
             >
               <div
-                className="absolute right-0 top-0 bottom-0 bg-success-bg"
-                style={{
-                  width: `${(bid.total / bids[bids.length - 1]?.total) * 100}%`,
-                }}
+                className="absolute inset-y-0 right-0 bg-[#00ff9d15] transition-all duration-500 ease-out"
+                style={{ width: `${depthPct}%` }}
               />
-              <div className="relative z-10 price-up">
+
+              <div className="relative text-[#00ff9d] font-semibold tabular-nums">
                 {bid.price.toLocaleString(undefined, {
-                  minimumFractionDigits: 3,
-                  maximumFractionDigits: 3,
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative z-10 text-right text-primary">{bid.size.toFixed(4)}</div>
-              <div className="relative z-10 text-right text-secondary text-xs">
+              <div className="relative text-right text-[#e8e8e8] tabular-nums">
+                {bid.size.toFixed(4)}
+              </div>
+              <div className="relative text-right text-[#6b6b76] tabular-nums">
                 {bid.total.toFixed(4)}
               </div>
             </div>
-          ))
-        ) : (
-          <div className="py-4 text-center text-muted text-sm">No bids available</div>
-        )}
+          );
+        })}
       </div>
 
-      {/* Optional: Show warning banner if not connected but have data */}
-      {!isConnected && orderbook && (
-        <div className="px-4 py-2 bg-yellow-500 bg-opacity-10 border-t border-yellow-500 border-opacity-30">
-          <div className="text-xs text-yellow-600 dark:text-yellow-400 text-center">
-            Showing cached data - Reconnecting...
-          </div>
-        </div>
-      )}
+      <style>{`
+        @keyframes flash-up {
+          0% {
+            background-color: transparent;
+          }
+          20% {
+            background-color: currentColor;
+          }
+          100% {
+            background-color: transparent;
+          }
+        }
+
+        @keyframes flash-down {
+          0% {
+            background-color: transparent;
+          }
+          20% {
+            background-color: currentColor;
+          }
+          100% {
+            background-color: transparent;
+          }
+        }
+
+        @keyframes flash-new {
+          0% {
+            opacity: 0;
+            transform: scale(0.98);
+          }
+          50% {
+            opacity: 1;
+            transform: scale(1);
+          }
+          100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+
+        .animate-flash-up {
+          animation: flash-up 600ms ease-out;
+        }
+
+        .animate-flash-down {
+          animation: flash-down 600ms ease-out;
+        }
+
+        .animate-flash-new {
+          animation: flash-new 300ms ease-out;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+
+        .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </div>
   );
 };

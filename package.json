@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.9.5",
-    "@dydxprotocol/v4-client-js": "^3.0.4",
+    "@dydxprotocol/v4-client-js": "^3.1.1",
     "@noble/hashes": "^2.0.1",
     "@stellar/stellar-sdk": "^14.1.1",
     "@walletconnect/ethereum-provider": "^2.21.6",
@@ -39,6 +39,9 @@
     "@eslint/js": "^9.33.0",
     "@tailwindcss/vite": "^4.1.13",
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+    "@types/babel__generator": "^7.27.0",
+    "@types/babel__template": "^7.4.4",
+    "@types/babel__traverse": "^7.28.0",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",

@@ -44,13 +44,7 @@ export const useReceiveAssets = () => {
   const walletAddress = useMemo(() => {
     if (!currentAsset) return '';
     const wallet = connectedWallets[currentAsset.walletType];
-    if (!wallet) return '';
-
-    if (currentAsset.walletType === 'evm') {
-      return wallet.chainId.toString() === currentAsset.chainId.toString() ? wallet.address : '';
-    }
-
-    return wallet.address;
+    return wallet?.address || '';
   }, [connectedWallets, currentAsset]);
 
   const isAddressValid = useMemo(() => {

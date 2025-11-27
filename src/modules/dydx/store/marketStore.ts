@@ -3,27 +3,21 @@ import { create } from 'zustand';
 import type { MarketData } from '../hooks/useMarkets';
 
 interface MarketState {
-  selectedMarket: string; // Ticker of the selected market
-  selectedMarketData: MarketData | null; // Full market data for the selected market
+  selectedMarket: string;
+  selectedMarketData: MarketData | null;
   setSelectedMarket: (ticker: string, marketData?: MarketData) => void;
-  updateMarketData: (marketData: MarketData) => void; // Update only market data
+  updateMarketData: (marketData: MarketData) => void;
 }
 
-// Get saved market from memory (you can also use a custom storage solution)
 const getSavedMarket = (): string => {
-  // For now, using in-memory storage
-  // You can implement your own storage solution here
-  return 'BTC-USD'; // Default fallback
+  return 'BTC-USD';
 };
 
 const useMarketStore = create<MarketState>(set => ({
-  selectedMarket: getSavedMarket(), // Load saved or default market
-  selectedMarketData: null, // Will be populated when market data loads
+  selectedMarket: getSavedMarket(),
+  selectedMarketData: null,
 
   setSelectedMarket: (ticker: string, marketData?: MarketData) => {
-    // Optional: Save to your custom storage here
-    // saveMarketToStorage(ticker);
-
     set({
       selectedMarket: ticker,
       selectedMarketData: marketData || null,
@@ -32,7 +26,6 @@ const useMarketStore = create<MarketState>(set => ({
 
   updateMarketData: (marketData: MarketData) => {
     set(state => {
-      // Only update if this is the currently selected market
       if (state.selectedMarket === marketData.ticker) {
         return { selectedMarketData: marketData };
       }

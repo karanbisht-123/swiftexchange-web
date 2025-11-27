@@ -21,6 +21,7 @@ export interface QuoteDetails {
   slippage2: string;
   minReceived2: string;
   rawQuote: SwapQuote;
+  fee?: any;
 }
 
 export interface BridgeQuoteDetails {
@@ -51,14 +52,15 @@ export interface SwapQuote {
   inputToken: string;
   outputAmount: string;
   inputAmount: string;
-  buyAmount: string;
-  rate: string;
+  buyAmount?: string;
+  rate?: string;
   priceImpact?: string;
   provider?: string;
-  fee?: number;
+  fee?: any;
+  pricePerToken?: any;
 }
 
-export type Chain = string; // Adjust based on your chainConfigs
+export type Chain = string;
 export interface PrepareRequest {
   address: string;
   swapType: string;

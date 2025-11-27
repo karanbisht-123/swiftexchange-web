@@ -49,7 +49,7 @@ export interface TokenInfo {
   issuer?: string;
   name?: string;
   icon?: string;
-  balance?: string;
+  balance: string;
   price?: number;
   isPopular?: boolean;
 }

@@ -37,7 +37,6 @@ export const ConnectWalletButton: React.FC = () => {
     <div className="relative">
       {hasConnections ? (
         <div className="flex items-center gap-2">
-          {/* Desktop view - show wallet cards */}
           <div className="hidden lg:flex items-center gap-2">
             {Object.entries(connectedWallets)
               .slice(0, 2)
@@ -61,14 +60,10 @@ export const ConnectWalletButton: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* Mobile compact view */}
           <div className="flex lg:hidden items-center gap-1.5 px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded-md">
             <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
             <span className="text-sm text-gray-200 font-medium">{connectionCount}</span>
           </div>
-
-          {/* Manage button */}
           <button
             onClick={() => setShowDropdown(!showDropdown)}
             className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-4 py-1.5 md:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md md:rounded-lg font-medium transition-colors shadow-lg text-xs md:text-sm"
@@ -79,8 +74,6 @@ export const ConnectWalletButton: React.FC = () => {
               className={`w-3.5 h-3.5 md:w-4 md:h-4 transition-transform ${showDropdown ? 'rotate-180' : ''}`}
             />
           </button>
-
-          {/* Dropdown menu */}
           {showDropdown && (
             <>
               <div
