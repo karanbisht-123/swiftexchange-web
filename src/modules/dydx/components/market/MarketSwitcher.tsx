@@ -58,7 +58,9 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) 
   }, [value]);
 
   return (
-    <span className={`${className} ${flashClass} transition-all duration-200`}>{displayValue}</span>
+    <span className={`${className} ${flashClass} transition-all duration-200 text-xs`}>
+      {displayValue}
+    </span>
   );
 };
 
@@ -161,7 +163,7 @@ const MarketSwitcher: React.FC = () => {
           <select
             value={selectedMarket}
             onChange={handleMarketChange}
-            className="w-full bg-primary bg-theme-input text-theme-text border-none px-2 py-3.5 focus:ring-theme-accent focus:outline-none disabled:opacity-50 transition-all cursor-pointer"
+            className="w-full bg-primary text-xs lg:text-md bg-theme-input text-theme-text border-none px-0 lg:px-2 py-2  lg:py-3.5 focus:ring-theme-accent focus:outline-none disabled:opacity-50 transition-all cursor-pointer"
             disabled={isSelectDisabled}
           >
             {Object.keys(markets).map(market => (
@@ -173,16 +175,16 @@ const MarketSwitcher: React.FC = () => {
         </div>
 
         {/* Current Price */}
-        <div className="px-4 flex items-center">
+        <div className="px-2 flex items-center">
           <AnimatedPrice
             price={marketData.oraclePrice}
-            className={`text-xl font-semibold ${trendColor}`}
+            className={`lg:text-xl font-semibold text-md ${trendColor}`}
           />
         </div>
 
         {/* Market Stats */}
         <div className="hide-scrollbar flex items-center overflow-x-auto scrollbar-thin scrollbar-thumb-theme-scroll scrollbar-track-theme-bg px-2">
-          <div className="flex space-x-6 whitespace-nowrap">
+          <div className="flex lg:space-x-4 space-x-2 whitespace-nowrap">
             {/* 24H Change */}
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">24H Change</span>

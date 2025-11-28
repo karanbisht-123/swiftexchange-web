@@ -3,7 +3,6 @@ import { type FC, type ReactNode } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 
-// import WalletConTopbar from "./WalletConTopbar";
 interface LayoutProps {
   children: ReactNode;
   withSidebar?: boolean;

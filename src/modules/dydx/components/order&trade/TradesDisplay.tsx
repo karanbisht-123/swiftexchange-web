@@ -12,8 +12,6 @@ export default function TradesDisplay() {
   const { selectedMarket } = useMarketStore();
   const { trades, error, isLoading, isConnected } = useTrades(selectedMarket, 50);
 
-  // console.log('TradesDisplay render', { selectedMarket, trades });
-
   const prevTradesRef = useRef<Set<string>>(new Set());
   const prevMarketRef = useRef<string>(selectedMarket);
   const flashTimerRef = useRef<number | null>(null);
@@ -148,8 +146,8 @@ export default function TradesDisplay() {
 
   return (
     <div className="w-full max-w-md bg-[#0e0c15] text-white font-medium text-sm select-none">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#232027]">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
+        <div className=" items-center gap-3 hidden lg:flex">
           <span className="text-[#aaaaaa] text-xs font-semibold">Recent Trades</span>
         </div>
         <div className="flex items-center gap-2">
@@ -164,7 +162,7 @@ export default function TradesDisplay() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
+      <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
         <div className="text-left">Price ({quoteCurrency})</div>
         <div className="text-center">Size ({baseCurrency})</div>
         <div className="text-right">Time</div>
@@ -186,7 +184,7 @@ export default function TradesDisplay() {
       )}
 
       {trades.length > 0 && (
-        <div className="relative max-h-[400px] overflow-auto hide-scrollbar">
+        <div className="relative overflow-auto hide-scrollbar">
           {trades.map((trade, index) => {
             const uniqueKey = `${trade.id}-${index}`;
             const flash = flashingTrades.get(trade.id);
@@ -197,7 +195,7 @@ export default function TradesDisplay() {
             return (
               <div
                 key={uniqueKey}
-                className={`grid grid-cols-3 px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
+                className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
                   flash?.type === 'buy'
                     ? 'animate-flash-buy'
                     : flash?.type === 'sell'
@@ -213,16 +211,16 @@ export default function TradesDisplay() {
                 />
 
                 <div
-                  className={`relative text-sm font-semibold tabular-nums ${
+                  className={`relative  font-semibold text-xs lg:text-sm tabular-nums ${
                     isBuy ? 'text-[#00ff9d]' : 'text-[#ff3b69]'
                   }`}
                 >
                   {formatPrice(trade.price)}
                 </div>
-                <div className="relative text-sm text-[#e8e8e8] tabular-nums text-center">
+                <div className="relative text-xs lg:text-sm text-[#e8e8e8] tabular-nums text-center">
                   {formatSize(trade.size)}
                 </div>
-                <div className="relative text-xs text-[#6b6b76] tabular-nums text-right">
+                <div className="relative text-xs lg:text-sm text-[#6b6b76] tabular-nums text-right">
                   {formatTime(trade.createdAt)}
                 </div>
               </div>

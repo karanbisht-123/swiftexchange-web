@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 
 import cryptoSupportData from '../../../data/alchemy/AlchemyCryptoSupprort.json';
 import fiatSupportData from '../../../data/alchemy/AlchemyFiatSellSupprort.json';
-import { useWalletStore } from '../../wallet/store.ts/walletStore';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { ERROR_MESSAGES, MIN_AMOUNT_BUY, SUCCESS_MESSAGES } from '../constants/alchemyConstants';
 import { createAlchemyBuyOrder, validateBuyOrderRequest } from '../service/alchemyBuyService';
 import { fetchAlchemyQuote, validateQuoteRequest } from '../service/alchemyQuoteService';
@@ -70,8 +71,10 @@ export const useAlchemyBuy = () => {
   const [quote, setQuote] = useState<any | null>(null);
   const [paymentTab, setPaymentTab] = useState<Window | null>(null);
 
-  const walletAddresses = useWalletStore(state => state.walletAddresses);
-  const evmAddress = walletAddresses[0] || '0x1f2fee51c15f6be9ff65833516358e6a55736092';
+  // Fixed: Properly retrieve EVM wallet address from connectedWallets
+  const connectedWallets = useWalletStore(state => state.connectedWallets);
+  const evmWallet = connectedWallets[WalletType.EVM];
+  const evmAddress = evmWallet?.address || '0x1f2fee51c15f6be9ff65833516358e6a55736092';
 
   useEffect(() => {
     const fetchQuote = async () => {

@@ -12,6 +12,7 @@ interface DepthPoint {
 const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
   const { selectedMarket } = useMarketStore();
   const { orderbook, isConnected, dataSource } = useOrderbook(selectedMarket);
+  console.log(isConnected, dataSource, '-----');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -302,10 +303,11 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
 
   const base = selectedMarket.split('-')[0] || 'BTC';
   const quote = selectedMarket.split('-')[1] || 'USD';
+  console.log(quote, '---quote---');
 
   return (
     <div className="w-full bg-primary text-white">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#232027]">
+      {/* <div className="flex items-center justify-between px-4 py-3 border-b border-[#232027]">
         <div className="flex items-center gap-3">
           <span className="text-[#aaaaaa] text-xs font-semibold">Depth Chart</span>
         </div>
@@ -319,7 +321,7 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
             } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
-      </div>
+      </div> */}
 
       <div ref={containerRef} className="relative">
         {!depthData ? (

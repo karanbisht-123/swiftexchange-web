@@ -223,9 +223,9 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
 
   return (
     <div className="w-full max-w-md bg-[#0e0c15] text-white font-medium text-sm select-none">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#232027]">
-        <div className="flex items-center gap-3">
-          <span className="text-[#aaaaaa] text-xs font-semibold">Orderbook</span>
+      <div className="flex items-center justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
+        <div className=" items-center gap-3 hidden lg:flex">
+          <span className="text-[#aaaaaa] text-xs font-semibold ">Orderbook</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-white font-semibold">{base}</span>
@@ -239,7 +239,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
+      <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
         <div>Price ({quote})</div>
         <div className="text-right">Size ({base})</div>
         <div className="text-right">Total ({base})</div>
@@ -254,7 +254,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
           return (
             <div
               key={`ask-${priceKey}`}
-              className={`grid grid-cols-3 px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
+              className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
                 flash?.type === 'up'
                   ? 'bg-[#ff3b6955] animate-flash-up'
                   : flash?.type === 'down'
@@ -269,16 +269,16 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
                 style={{ width: `${depthPct}%` }}
               />
 
-              <div className="relative text-[#ff3b69] font-semibold tabular-nums">
+              <div className="relative text-[#ff3b69] font-semibold tabular-nums text-xs lg:text-[14px]">
                 {ask.price.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative text-right text-[#e8e8e8] tabular-nums">
+              <div className="relative text-right text-[#e8e8e8] tabular-nums text-xs lg:text-[14px] ">
                 {ask.size.toFixed(4)}
               </div>
-              <div className="relative text-right text-[#6b6b76] tabular-nums">
+              <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[14px] ">
                 {ask.total.toFixed(4)}
               </div>
             </div>
@@ -286,7 +286,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
         })}
       </div>
 
-      <div className="grid grid-cols-3 px-4 py-2.5 bg-[#1a1620] border-y border-[#232027] text-xs">
+      <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2.5 bg-[#1a1620] border-y border-[#232027] text-xs lg:text-[14px]">
         <div className="text-[#6b6b76] font-medium">Spread</div>
         <div className="text-right font-semibold text-white tabular-nums">
           {spread !== null ? spread.toFixed(2) : '-'}
@@ -305,7 +305,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
           return (
             <div
               key={`bid-${priceKey}`}
-              className={`grid grid-cols-3 px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
+              className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
                 flash?.type === 'up'
                   ? 'bg-[#00ff9d55] animate-flash-up'
                   : flash?.type === 'down'
@@ -320,16 +320,16 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
                 style={{ width: `${depthPct}%` }}
               />
 
-              <div className="relative text-[#00ff9d] font-semibold tabular-nums">
+              <div className="relative text-[#00ff9d] font-semibold tabular-nums text-xs lg:text-[14px]">
                 {bid.price.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative text-right text-[#e8e8e8] tabular-nums">
+              <div className="relative text-right text-[#e8e8e8] tabular-nums text-xs lg:text-[14px]">
                 {bid.size.toFixed(4)}
               </div>
-              <div className="relative text-right text-[#6b6b76] tabular-nums">
+              <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[14px]">
                 {bid.total.toFixed(4)}
               </div>
             </div>

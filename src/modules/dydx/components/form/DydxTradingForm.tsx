@@ -152,7 +152,7 @@ export const DydxTradingForm: React.FC = () => {
   };
 
   return (
-    <div className="max-w-[290px] h-full overflow-y-auto border-l border-gray-600">
+    <div className="max-w-lvw lg:max-w-[300px] h-full overflow-y-auto border-l border-gray-600">
       {notifications.map(notif => (
         <Notification
           key={notif.id}
@@ -164,8 +164,9 @@ export const DydxTradingForm: React.FC = () => {
           autoCloseDuration={5000}
         />
       ))}
-
-      <DydxWalletConnect />
+      <div className="hidden lg:block">
+        <DydxWalletConnect />
+      </div>
 
       <div className="space-y-4">
         <BuySellSelector selected={side} onChange={setSide} />

@@ -1,5 +1,5 @@
 import QuickActions from '../components/QuickActions';
-import WalletAssetsSection from '../modules/wallet/components/WalletAssetsSection';
+import WalletAssetsSection from '../modules/walletconnect/components/WalletAssetsSection';
 
 // import SessionDebugger from '../modules/walletconnect/components/SessionDebugger';
 

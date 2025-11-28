@@ -24,10 +24,9 @@ const HeroComponent: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Section - Mobile Image */}
         <div className="mt-8 md:mt-0 md:w-1/2 flex justify-center">
           <img
-            src="https://coinswitch.co/_next/static/media/phone-app.29210987.webp" // Replace with your image path
+            src="https://coinswitch.co/_next/static/media/phone-app.29210987.webp"
             alt="Mobile App"
             className="w-full max-w-xs md:max-w-sm animate-slide-up"
           />
