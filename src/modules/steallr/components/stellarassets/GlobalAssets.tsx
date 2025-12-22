@@ -1,20 +1,12 @@
 import { Search } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
-import {
-  Asset,
-  BASE_FEE,
-  Horizon,
-  // Keypair,
-  Networks,
-  Operation,
-  TransactionBuilder,
-} from 'stellar-sdk';
+import { Asset, BASE_FEE, Horizon, Networks, Operation, TransactionBuilder } from 'stellar-sdk';
 
 import { getStellarConfig } from '../../../walletconnect/config/chains';
-// import { isStellarNetwork } from '../../../utils/transactionUtils';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 
 interface AssetItem {
   asset_code: string;
@@ -46,11 +38,12 @@ export const useStellarBalances = (publicKey?: string, networkKey: string = 'tes
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [server, setServer] = useState<Horizon.Server | null>(null);
+  const currentNetwork = useWalletStore(state => state.network);
 
   useEffect(() => {
     const initServer = () => {
       try {
-        const config = getStellarConfig();
+        const config = getStellarConfig(currentNetwork);
         if (!config) {
           throw new Error(`Unsupported Stellar network: ${networkKey}`);
         }
@@ -69,7 +62,7 @@ export const useStellarBalances = (publicKey?: string, networkKey: string = 'tes
     };
 
     initServer();
-  }, [networkKey]);
+  }, [networkKey, currentNetwork]);
 
   useEffect(() => {
     if (!publicKey || !server) {
@@ -101,12 +94,13 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ userAddress, onAddAsset }) => 
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || userAddress || '';
   const provider = getProvider(WalletType.STELLAR);
+  const currentNetwork = useWalletStore(state => state.network);
 
   const {
     balances: issuerBalances,
     loading: issuerLoading,
     server,
-  } = useStellarBalances(stellarAddress);
+  } = useStellarBalances(stellarAddress, currentNetwork);
 
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [userAssets, setUserAssets] = useState<UserAsset[]>([]);
@@ -195,7 +189,7 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ userAddress, onAddAsset }) => 
     const sourceAccount = await server.loadAccount(stellarAddress);
     const txBuilder = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
-      networkPassphrase: getStellarConfig()?.networkPassphrase || Networks.TESTNET,
+      networkPassphrase: getStellarConfig(currentNetwork)?.networkPassphrase || Networks.TESTNET,
     });
 
     txBuilder.addOperation(
@@ -220,7 +214,7 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ userAddress, onAddAsset }) => 
       timestamp: Date.now(),
       status: 'pending',
       xdr,
-      networkPassphrase: getStellarConfig()?.networkPassphrase || Networks.TESTNET,
+      networkPassphrase: getStellarConfig(currentNetwork)?.networkPassphrase || Networks.TESTNET,
     };
   };
 

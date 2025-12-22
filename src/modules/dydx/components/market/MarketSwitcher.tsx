@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { useRealtimeChart } from '../../hooks/useCandles';
 import { useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
 
 interface AnimatedPriceProps {
   price: string | number;
+  tradeSide: 'BUY' | 'SELL' | null;
   className?: string;
 }
 
@@ -13,30 +15,50 @@ interface AnimatedValueProps {
   className?: string;
 }
 
-const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, className = '' }) => {
+const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, className = '' }) => {
   const [displayPrice, setDisplayPrice] = useState(price);
   const [flashClass, setFlashClass] = useState('');
+  const [priceColor, setPriceColor] = useState('text-theme-text');
   const prevPriceRef = useRef(price);
 
   useEffect(() => {
     const prevPrice = parseFloat(prevPriceRef.current as any);
     const currentPrice = parseFloat(price as any);
 
-    if (prevPrice !== currentPrice) {
-      const flash = currentPrice > prevPrice ? 'flash-up' : 'flash-down';
-      setFlashClass(flash);
+    if (prevPrice !== currentPrice && !isNaN(prevPrice) && !isNaN(currentPrice)) {
+      let flash: string;
+      let color: string;
 
-      const timeout = setTimeout(() => setFlashClass(''), 600);
+      if (tradeSide === 'BUY') {
+        flash = 'flash-up';
+        color = 'text-theme-up';
+      } else if (tradeSide === 'SELL') {
+        flash = 'flash-down';
+        color = 'text-theme-down';
+      } else {
+        flash = currentPrice > prevPrice ? 'flash-up' : 'flash-down';
+        color = currentPrice > prevPrice ? 'text-theme-up' : 'text-theme-down';
+      }
+
+      setFlashClass(flash);
+      setPriceColor(color);
+
+      const timeout = setTimeout(() => {
+        setFlashClass('');
+        setPriceColor('text-theme-text');
+      }, 600);
 
       setDisplayPrice(price);
       prevPriceRef.current = price;
 
       return () => clearTimeout(timeout);
     }
-  }, [price]);
+  }, [price, tradeSide]);
 
   return (
-    <span className={`${className} ${flashClass} transition-all duration-200`}>{displayPrice}</span>
+    <span className={`${className} ${flashClass} ${priceColor} transition-all duration-200`}>
+      {displayPrice}
+    </span>
   );
 };
 
@@ -66,7 +88,14 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) 
 
 const MarketSwitcher: React.FC = () => {
   const { selectedMarket, setSelectedMarket } = useMarketStore();
+
   const { markets, getMarket, isLoading, totalMarkets } = useMarkets();
+
+  // console.log(markets, 'pppppp');
+
+  // console;
+
+  const { livePrice, livePriceSide } = useRealtimeChart(selectedMarket, '1MIN' as any);
 
   const handleMarketChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newMarket = event.target.value;
@@ -85,6 +114,8 @@ const MarketSwitcher: React.FC = () => {
     openInterest: '0',
   };
 
+  const currentPrice = livePrice && parseFloat(livePrice) > 0 ? livePrice : marketData.oraclePrice;
+
   const priceChange = parseFloat(marketData.priceChange24H);
   const formattedPriceChange =
     priceChange >= 0 ? `+${marketData.priceChange24H}` : marketData.priceChange24H;
@@ -96,8 +127,6 @@ const MarketSwitcher: React.FC = () => {
   const changePercentage = parseFloat(priceChangePercentage);
   const formattedPercentage =
     changePercentage >= 0 ? `+${priceChangePercentage}` : priceChangePercentage;
-
-  const trendColor = priceChange >= 0 ? 'text-theme-up' : 'text-theme-down';
 
   const isSelectDisabled = isLoading || totalMarkets === 0;
 
@@ -163,7 +192,7 @@ const MarketSwitcher: React.FC = () => {
           <select
             value={selectedMarket}
             onChange={handleMarketChange}
-            className="w-full bg-primary text-xs lg:text-md bg-theme-input text-theme-text border-none px-0 lg:px-2 py-2  lg:py-3.5 focus:ring-theme-accent focus:outline-none disabled:opacity-50 transition-all cursor-pointer"
+            className="w-full bg-primary text-xs lg:text-md bg-theme-input text-theme-text border-none px-0 lg:px-2 py-2 lg:py-3.5 focus:ring-theme-accent focus:outline-none disabled:opacity-50 transition-all cursor-pointer"
             disabled={isSelectDisabled}
           >
             {Object.keys(markets).map(market => (
@@ -173,34 +202,37 @@ const MarketSwitcher: React.FC = () => {
             ))}
           </select>
         </div>
-
-        {/* Current Price */}
-        <div className="px-2 flex items-center">
+        <div className="px-2 flex flex-col items-start">
           <AnimatedPrice
-            price={marketData.oraclePrice}
-            className={`lg:text-xl font-semibold text-md ${trendColor}`}
+            price={currentPrice}
+            tradeSide={livePriceSide}
+            className="lg:text-xl font-semibold text-md"
           />
         </div>
 
-        {/* Market Stats */}
         <div className="hide-scrollbar flex items-center overflow-x-auto scrollbar-thin scrollbar-thumb-theme-scroll scrollbar-track-theme-bg px-2">
           <div className="flex lg:space-x-4 space-x-2 whitespace-nowrap">
-            {/* 24H Change */}
+            <div className="flex flex-col">
+              <span className="text-theme-muted text-xs">Oracle</span>
+              <AnimatedValue
+                value={marketData.oraclePrice}
+                className="font-medium text-theme-text "
+              />
+            </div>
+
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">24H Change</span>
               <AnimatedValue
                 value={`${formattedPriceChange} (${formattedPercentage}%)`}
-                className={`${trendColor} font-medium`}
+                className={`${priceChange >= 0 ? 'text-theme-up' : 'text-theme-down'} font-medium`}
               />
             </div>
 
-            {/* 24H Volume */}
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">24H Volume</span>
               <AnimatedValue value={marketData.volume24H} className="font-medium text-theme-text" />
             </div>
 
-            {/* 24H Trades */}
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">24H Trades</span>
               <AnimatedValue
@@ -209,7 +241,6 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            {/* Open Interest */}
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">Open Interest</span>
               <AnimatedValue
@@ -218,9 +249,8 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            {/* Next Funding */}
             <div className="flex flex-col">
-              <span className="text-theme-muted text-xs">Next Funding</span>
+              <span className="text-theme-muted text-xs">Funding Rate</span>
               <AnimatedValue
                 value={`${marketData.nextFundingRate}%`}
                 className={`font-medium ${
@@ -229,10 +259,12 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            {/* Funding At */}
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">Funding At</span>
-              <span className="font-medium text-theme-text">{marketData.nextFundingAt}</span>
+              <AnimatedValue
+                value={marketData.nextFundingAt}
+                className="font-medium text-theme-text"
+              />
             </div>
           </div>
         </div>

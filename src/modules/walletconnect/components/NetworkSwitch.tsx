@@ -1,28 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
 import { type NetworkType } from '../config/chains';
-import { WalletType } from '../constants/Wallet';
-import { walletService } from '../services/walletService';
 import { useWalletStore } from '../store/walletConnectStore';
 
 const NetworkSwitch: React.FC = () => {
-  const [network, setNetwork] = useState<NetworkType>(walletService.getNetwork());
-  const connectedWallets = useWalletStore(state => state.connectedWallets);
+  const network = useWalletStore(state => state.network);
+  const setNetwork = useWalletStore(state => state.setNetwork);
 
-  useEffect(() => {
-    const currentNetwork = walletService.getNetwork();
-    setNetwork(currentNetwork);
-  }, []);
+  console.log('[NetworkSwitch] Current network:', network);
 
   const handleNetworkChange = async (newNetwork: NetworkType) => {
-    try {
-      const disconnectPromises = Object.keys(connectedWallets).map(type =>
-        walletService.disconnect(type as WalletType)
-      );
-      await Promise.all(disconnectPromises);
+    if (newNetwork === network) return;
 
-      await walletService.setNetwork(newNetwork);
-      setNetwork(newNetwork);
+    try {
+      await setNetwork(newNetwork);
     } catch (error) {
       console.error('[NetworkSwitch] Error switching network:', error);
       alert('Failed to switch network. Please try again.');
@@ -30,9 +21,8 @@ const NetworkSwitch: React.FC = () => {
   };
 
   return (
-    <div className="card ">
+    <div>
       <select
-        id="network-select"
         value={network}
         onChange={e => handleNetworkChange(e.target.value as NetworkType)}
         className="input input-lg w-full appearance-none py-2"

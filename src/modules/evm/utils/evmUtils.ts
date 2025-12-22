@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 
 import { getEVMChains } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
 export type EVMNetworkConfig = {
   chainId: number;
@@ -13,11 +14,16 @@ export type EVMNetworkConfig = {
 export type NetworkKey = number;
 
 export function isValidEVMNetwork(networkKey: unknown): networkKey is NetworkKey {
-  return typeof networkKey === 'number' && getEVMChains().some(c => c.chainId === networkKey);
+  const currentNetwork = useWalletStore.getState().network;
+  return (
+    typeof networkKey === 'number' &&
+    getEVMChains(currentNetwork).some(c => c.chainId === networkKey)
+  );
 }
 
 export function getEVMNetworkConfig(networkKey: NetworkKey): EVMNetworkConfig {
-  const cfg = getEVMChains().find(c => c.chainId === networkKey);
+  const currentNetwork = useWalletStore.getState().network;
+  const cfg = getEVMChains(currentNetwork).find(c => c.chainId === networkKey);
 
   if (!cfg) {
     throw new Error(`Unsupported EVM network: ${networkKey}`);

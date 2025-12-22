@@ -1,13 +1,12 @@
 import {
   AlertCircle,
-  ArrowRight,
   ArrowUpDown,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
   Loader2,
-  LogOut,
-  RefreshCcw,
+  // LogOut,
+  // RefreshCcw,
   TrendingUp,
   Wallet,
 } from 'lucide-react';
@@ -15,9 +14,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { Asset, SwapQuoteRequest } from '../../../../types/evm/swap.types';
-import { getEVMChains, getNetwork } from '../../../walletconnect/config/chains';
+import { getEVMChains } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { useEvmSwap } from '../../hook/useEvmSwap';
 import {
   determineSwapType,
@@ -30,20 +30,27 @@ interface SwapAssetsProps {
 }
 
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
-  const { connectedWallets, disconnectType, getProvider, openModal } = useWalletConnect();
+  //  disconnectType,
+  const { connectedWallets, getProvider, openModal } = useWalletConnect();
+
+  // FIX 1: Get network from the centralized store
+  const currentNetwork = useWalletStore(state => state.network);
+
   const evmWallet = connectedWallets[WalletType.EVM];
   const isConnected = !!evmWallet;
   const senderAddress = evmWallet?.address || '';
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
 
-  const currentNetwork = getNetwork();
-  const evmChains = getEVMChains();
+  // FIX 2: Get EVM chains based on the current network from the store
+  const evmChains = getEVMChains(currentNetwork);
 
   const [chainId, setChainId] = useState<number>(() => {
     if (currentChainId) {
       const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
       if (isValidChain) return currentChainId;
     }
+    // Default to a chain ID based on the network from the store
+    // This logic relies on `evmChains` being filtered by `currentNetwork`
     return evmChains[0]?.chainId || (currentNetwork === 'testnet' ? 11155111 : 1);
   });
 
@@ -76,7 +83,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const selectedSellAsset = assets.find(a => a.code === sellAssetCode);
   const selectedBuyAsset = assets.find(a => a.code === buyAssetCode);
-  const networkConfig = chainId ? getNetworkConfigByChainId(chainId) : null;
+
+  // FIX 3: Pass currentNetwork to the utility function
+  const networkConfig = chainId ? getNetworkConfigByChainId(chainId, currentNetwork) : null;
+
   const isTestnet = chainId
     ? [11155111, 80002, 97, 421614, 11155420, 43113].includes(chainId)
     : false;
@@ -92,7 +102,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // FIX 4: Add currentNetwork to dependencies and reset chainId if EVM chains change
   useEffect(() => {
+    // 1. If the wallet connects/switches chain, update our local state
     if (currentChainId && currentChainId !== chainId) {
       const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
 
@@ -105,8 +117,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         reset();
         setTimeout(() => setIsChainSwitching(false), 500);
       }
+    } else if (
+      // 2. Case where the global network changes (e.g., store update from mainnet to testnet)
+      // and the current chain is no longer valid for the new network set.
+      !evmChains.some(chain => chain.chainId === chainId)
+    ) {
+      // Force change to the new default chain for the current network type
+      const newDefaultChain = evmChains[0]?.chainId;
+      if (newDefaultChain) {
+        setIsChainSwitching(true);
+        setChainId(newDefaultChain);
+        setSellAmount('');
+        setSellAssetCode('');
+        setBuyAssetCode('');
+        reset();
+        setTimeout(() => setIsChainSwitching(false), 500);
+      }
     }
-  }, [currentChainId, chainId, reset, evmChains]);
+  }, [currentChainId, chainId, reset, evmChains, currentNetwork]);
 
   useEffect(() => {
     if (isConnected && senderAddress && chainId && !isChainSwitching) {
@@ -217,9 +245,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           0,
           selectedSellAsset.balance -
             (selectedSellAsset.address.toLowerCase() === swapConfig.wNative.toLowerCase()
-              ? 0.01
+              ? 0.01 // Reserve a small amount for gas if it's native/wNative being sold
               : 0)
         );
+        // Using toString() of the calculated number can lose precision, but matching the original logic here.
         setSellAmount(maxAmount.toString());
       } catch (error) {
         setSellAmount(selectedSellAsset.balance.toString());
@@ -261,7 +290,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           });
         } catch (error: any) {
           if (error.code === 4902) {
-            const networkConfig = getNetworkConfigByChainId(newChainId);
+            // FIX 5: Pass currentNetwork to getNetworkConfigByChainId inside handleNetworkChange
+            const networkConfig = getNetworkConfigByChainId(newChainId, currentNetwork);
             try {
               const provider = getProvider(WalletType.EVM);
               await provider.request({
@@ -285,7 +315,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       setTimeout(() => setIsChainSwitching(false), 500);
     },
-    [isConnected, getProvider, reset, chainId]
+    [isConnected, getProvider, reset, chainId, currentNetwork]
   );
 
   const handleSwap = useCallback(async () => {
@@ -794,42 +824,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             ) : isFetchingAssets ? (
               'Fetching Assets...'
             ) : !quote ? (
-              'Getting Quote...'
+              'Get Quote'
             ) : (
-              <span className="flex items-center justify-center gap-2">
-                Swap Tokens
-                <ArrowRight className="w-5 h-5" />
-              </span>
+              'Swap'
             )}
           </button>
-        )}
-        {isConnected && (
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => fetchAssets()}
-              className="btn-secondary flex items-center justify-center gap-2"
-              disabled={isFetchingAssets || isChainSwitching}
-            >
-              {isFetchingAssets ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="hidden sm:inline">Refreshing...</span>
-                </>
-              ) : (
-                <>
-                  <RefreshCcw className="w-4 h-4" />
-                  <span className="hidden sm:inline">Refresh</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => disconnectType(WalletType.EVM)}
-              className="btn-secondary flex items-center justify-center gap-2 text-red-600 hover:text-red-700"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Disconnect</span>
-            </button>
-          </div>
         )}
       </div>
     </PageLayout>

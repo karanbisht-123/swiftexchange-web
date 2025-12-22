@@ -13,13 +13,9 @@ import type {
 } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
-import {
-  getCosmosChains,
-  getEVMChains,
-  getNetwork,
-  getStellarConfig,
-} from '../../walletconnect/config/chains';
+import { getCosmosChains, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type ReceiveAsset,
   assetFromCosmos,
@@ -104,8 +100,8 @@ const enhanceAsset = (asset: ReceiveAsset): EnhancedReceiveAsset => {
   }
   const networkKey = asset.chainId || 0;
 
+  // Standardized decimals and base fees (approximation for generic display)
   const decimals = type === 'stellar' ? 7 : type === 'cosmos' ? 6 : 18;
-
   const baseFee = type === 'stellar' ? 0.00001 : type === 'cosmos' ? 0.0025 : 0.001;
 
   return {
@@ -120,13 +116,17 @@ const enhanceAsset = (asset: ReceiveAsset): EnhancedReceiveAsset => {
 export const useSendAsset = (onBack?: () => void) => {
   const { connectedWallets } = useWalletConnect();
   const { sendTransaction, canHandleTransaction, getSessionInfo } = useTransactionRouter();
-  const currentNetwork = getNetwork();
+
+  // Get network from the centralized store
+  const currentNetwork = useWalletStore(state => state.network);
 
   const rawAssets: ReceiveAsset[] = useMemo(() => {
-    const evm = getEVMChains().map(assetFromEVM);
-    const cosmos = getCosmosChains().map(assetFromCosmos);
-    const stellar = [assetFromStellar(getStellarConfig())];
+    // Pass currentNetwork to chain configuration getters
+    const evm = getEVMChains(currentNetwork).map(assetFromEVM);
+    const cosmos = getCosmosChains(currentNetwork).map(assetFromCosmos);
+    const stellar = [assetFromStellar(getStellarConfig(currentNetwork))];
     return [...evm, ...cosmos, ...stellar];
+    // Add currentNetwork as a dependency
   }, [currentNetwork]);
 
   const assets: EnhancedReceiveAsset[] = useMemo(() => {
@@ -151,7 +151,8 @@ export const useSendAsset = (onBack?: () => void) => {
 
   // Select first asset
   useEffect(() => {
-    if (assets.length && !selectedAssetValue) {
+    // If the selected asset doesn't exist in the new list (e.g., due to network change), select the first one.
+    if (assets.length && !assets.some(a => a.value === selectedAssetValue)) {
       setSelectedAssetValue(assets[0].value);
     }
   }, [assets, selectedAssetValue]);
@@ -182,7 +183,10 @@ export const useSendAsset = (onBack?: () => void) => {
         return;
       }
 
+      // Reset balance on asset/network change
+      setBalance(0);
       setIsFetchingBalance(true);
+
       try {
         let balStr: string;
 
@@ -191,8 +195,10 @@ export const useSendAsset = (onBack?: () => void) => {
           balStr = await getNativeBalance(currentAsset.networkKey, senderAddress);
         } else if (currentAsset.type === 'stellar') {
           console.log('Fetching stellar balance', currentAsset.addressType);
+          // Note: getStellarBalance uses 'native' for XLM balance implicitly
           balStr = await getStellarBalance('native', senderAddress);
         } else {
+          // Placeholder for Cosmos, pending implementation
           balStr = '0';
         }
 
@@ -205,6 +211,7 @@ export const useSendAsset = (onBack?: () => void) => {
       }
     };
     fetchBalance();
+    // Re-fetch when currentAsset or senderAddress changes (which happens on network change)
   }, [currentAsset, senderAddress]);
 
   //  Fee estimation
@@ -236,6 +243,7 @@ export const useSendAsset = (onBack?: () => void) => {
         } else if (currentAsset.type === 'stellar' && typeof currentAsset.networkKey === 'string') {
           fees = await estimateStellarFees();
         } else {
+          // Placeholder for Cosmos/Generic fee
           fees = {
             totalCost: currentAsset.baseFee.toFixed(
               currentAsset.decimals > 10 ? 8 : currentAsset.decimals
@@ -250,29 +258,21 @@ export const useSendAsset = (onBack?: () => void) => {
       } catch (e: any) {
         console.error('Fee estimation error:', e);
 
-        // If it's an insufficient funds
-        if (e.code === -32003 || e.message?.toLowerCase().includes('insufficient funds')) {
-          setEstimatedFees({
-            totalCost: currentAsset.baseFee.toFixed(
-              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-            ),
-            totalFee: currentAsset.baseFee.toFixed(
-              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-            ),
-            isEstimated: true,
-            error: 'Could not estimate exact fee due to insufficient funds. Showing estimated fee.',
-          });
-        } else {
-          setEstimatedFees({
-            totalCost: currentAsset.baseFee.toFixed(
-              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-            ),
-            totalFee: currentAsset.baseFee.toFixed(
-              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-            ),
-            isEstimated: true,
-          });
-        }
+        // Fallback to base fee if estimation fails
+        const baseFeeData = {
+          totalCost: currentAsset.baseFee.toFixed(
+            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+          ),
+          totalFee: currentAsset.baseFee.toFixed(
+            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
+          ),
+          isEstimated: true,
+          error: e.message?.toLowerCase().includes('insufficient funds')
+            ? 'Could not estimate exact fee due to insufficient funds. Showing base fee.'
+            : formatErrorMessage(e, 'Fee estimation'),
+        };
+
+        setEstimatedFees(baseFeeData);
       } finally {
         setIsEstimatingFees(false);
       }
@@ -280,6 +280,7 @@ export const useSendAsset = (onBack?: () => void) => {
 
     const timer = setTimeout(estimate, 500);
     return () => clearTimeout(timer);
+    // Re-run fee estimation on asset, address, amount, or memo change (which includes network change)
   }, [currentAsset, senderAddress, recipientAddress, amount, memo]);
 
   //  Input validation
@@ -299,8 +300,10 @@ export const useSendAsset = (onBack?: () => void) => {
         maximumFractionDigits: currentAsset.decimals,
       })} ${currentAsset.value}.`;
 
-    if (estimatedFees) {
-      const total = numAmount + parseFloat(estimatedFees.totalCost);
+    if (estimatedFees && estimatedFees.totalCost) {
+      const totalCost = parseFloat(estimatedFees.totalCost);
+      const total = numAmount + totalCost;
+
       if (total > balance)
         return `Insufficient balance to cover amount + fee. Total needed: ${total.toLocaleString(
           undefined,
@@ -326,14 +329,19 @@ export const useSendAsset = (onBack?: () => void) => {
   const formError = validateInputs();
 
   const handleMaxClick = useCallback(() => {
-    if (!currentAsset) return;
+    if (!currentAsset || isFetchingBalance) return;
 
-    const fee = estimatedFees ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee;
+    // Use estimated fee if available, otherwise use base fee.
+    const fee =
+      estimatedFees && estimatedFees.totalCost
+        ? parseFloat(estimatedFees.totalCost)
+        : currentAsset.baseFee;
+
     const max = balance - fee;
 
     const precision = currentAsset.decimals > 10 ? 8 : currentAsset.decimals;
     setAmount(max > 0 ? max.toFixed(precision) : '0');
-  }, [currentAsset, estimatedFees, balance]);
+  }, [currentAsset, estimatedFees, balance, isFetchingBalance]);
 
   const handleReviewTransaction = useCallback(async () => {
     setTransactionState(p => ({ ...p, step: 'review', error: null }));
@@ -360,13 +368,23 @@ export const useSendAsset = (onBack?: () => void) => {
         const options: StellarTransactionOptions = {};
         if (memo.trim()) options.memo = memo.trim();
 
+        // Stellar build is async and requires Horizon network context
         const stellarTx = await sendCryptoStellarBuild(
-          // currentAsset.addressType as string,
           senderAddress,
           recipientAddress,
           amount,
           options
         );
+
+        // Determine network passphrase based on current network state (LOWERCASE)
+        const networkPassphrase =
+          currentNetwork === 'testnet'
+            ? 'Test SDF Network ; September 2015'
+            : 'Public Global Stellar Network ; September 2015';
+
+        // FIX: The comparison here must be consistent with the NetworkType (lowercase)
+        const networkString = currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC';
+
         transactionRequest = {
           type: 'stellar',
           network: currentAsset.network,
@@ -376,11 +394,12 @@ export const useSendAsset = (onBack?: () => void) => {
           amount,
           data: {
             xdr: stellarTx.xdr,
-            networkPassphrase: 'Test SDF Network ; September 2015',
-            network: 'TESTNET',
+            networkPassphrase: networkPassphrase,
+            network: networkString,
           },
         };
       } else {
+        // Cosmos transaction placeholder
         transactionRequest = {
           type: 'cosmos',
           network: currentAsset.network,
@@ -401,6 +420,7 @@ export const useSendAsset = (onBack?: () => void) => {
           txHash: response.hash || null,
           step: 'success',
         }));
+        // Reset form after a successful transaction
         setTimeout(() => {
           setRecipientAddress('');
           setAmount('');
@@ -419,6 +439,7 @@ export const useSendAsset = (onBack?: () => void) => {
       console.error('Transaction error:', error);
 
       if (isUserRejection(error)) {
+        // Go back to review step if user cancels signing
         setTransactionState(p => ({ ...p, step: 'review', error: null }));
         return;
       }
@@ -445,6 +466,7 @@ export const useSendAsset = (onBack?: () => void) => {
     amount,
     memo,
     sendTransaction,
+    currentNetwork,
   ]);
 
   const handleBackToForm = useCallback(() => {

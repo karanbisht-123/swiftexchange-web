@@ -1,52 +1,71 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
 import type { Horizon } from '@stellar/stellar-sdk';
 
-// import { isStellarNetwork } from '../../../utils/transactionUtils';
 import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import type { ActiveOffer, CompletedTrade } from '../types/tradeTransaction.types';
 
 export class TradeTransactionService {
   private server: StellarSDK.Horizon.Server;
   private networkPassphrase: string;
-  // private networkKey: string;
+  private currentNetwork: any;
+
+  private accountCache: Map<string, { account: any; timestamp: number }> = new Map();
+  private readonly ACCOUNT_CACHE_TTL = 30_000;
+
+  private static serverCache: Map<
+    string,
+    { server: StellarSDK.Horizon.Server; timestamp: number }
+  > = new Map();
+  private static readonly SERVER_CACHE_TTL = 300_000;
 
   constructor(networkKey: string) {
-    const config = getStellarConfig();
+    this.currentNetwork = useWalletStore.getState().network;
+    const config = getStellarConfig(this.currentNetwork);
+
     if (!config) {
       throw new Error(`Unsupported Stellar network: ${networkKey}`);
     }
 
-    const serverOptions: any = {};
-    if (config.horizonUrl.startsWith('http://')) {
-      serverOptions.allowHttp = true;
+    const cacheKey = `${config.horizonUrl}_${config.networkPassphrase}`;
+    const cached = TradeTransactionService.serverCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && now - cached.timestamp < TradeTransactionService.SERVER_CACHE_TTL) {
+      this.server = cached.server;
+    } else {
+      const serverOptions: any = {};
+      if (config.horizonUrl.startsWith('http://')) {
+        serverOptions.allowHttp = true;
+      }
+
+      this.server = new StellarSDK.Horizon.Server(config.horizonUrl, serverOptions);
+      TradeTransactionService.serverCache.set(cacheKey, { server: this.server, timestamp: now });
     }
 
-    this.server = new StellarSDK.Horizon.Server(config.horizonUrl, serverOptions);
     this.networkPassphrase = config.networkPassphrase;
-    // this.networkKey = networkKey;
   }
 
-  private mapOfferRecordToActiveOffer(offer: Horizon.ServerApi.OfferRecord): ActiveOffer {
-    return {
-      id: offer.id,
-      selling: {
-        code: offer.selling.asset_code || 'XLM',
-        issuer: offer.selling.asset_issuer,
-      },
-      buying: {
-        code: offer.buying.asset_code || 'XLM',
-        issuer: offer.buying.asset_issuer,
-      },
-      amount: offer.amount,
-      price: offer.price,
-      lastModifiedTime: offer.last_modified_time,
-    };
-  }
+  // OPTIMIZATION 3: Optimize mapping functions with arrow functions
+  private mapOfferRecordToActiveOffer = (offer: Horizon.ServerApi.OfferRecord): ActiveOffer => ({
+    id: offer.id,
+    selling: {
+      code: offer.selling.asset_code || 'XLM',
+      issuer: offer.selling.asset_issuer,
+    },
+    buying: {
+      code: offer.buying.asset_code || 'XLM',
+      issuer: offer.buying.asset_issuer,
+    },
+    amount: offer.amount,
+    price: offer.price,
+    lastModifiedTime: offer.last_modified_time,
+  });
 
-  private mapTradeRecordToCompletedTrade(
+  private mapTradeRecordToCompletedTrade = (
     trade: Horizon.ServerApi.TradeRecord,
     accountId: string
-  ): CompletedTrade {
+  ): CompletedTrade => {
     const isBuy = trade.counter_account === accountId;
     return {
       id: trade.id,
@@ -65,7 +84,7 @@ export class TradeTransactionService {
       isBuy,
       trade_type: trade.trade_type,
     };
-  }
+  };
 
   async getActiveOffers(
     accountId: string,
@@ -85,12 +104,12 @@ export class TradeTransactionService {
         .order('desc')
         .call();
 
+      // Use pre-bound mapping function
       const offers = response.records.map(this.mapOfferRecordToActiveOffer);
-      const nextCursor =
-        response.records.length === limit
-          ? response.records[response.records.length - 1].paging_token
-          : undefined;
       const hasMore = response.records.length === limit;
+      const nextCursor = hasMore
+        ? response.records[response.records.length - 1].paging_token
+        : undefined;
 
       return { offers, nextCursor, hasMore };
     } catch (error) {
@@ -121,20 +140,63 @@ export class TradeTransactionService {
         .order('desc')
         .call();
 
+      // Optimize mapping with pre-bound function
       const trades = response.records.map(trade =>
         this.mapTradeRecordToCompletedTrade(trade, accountId)
       );
-      const nextCursor =
-        response.records.length === limit
-          ? response.records[response.records.length - 1].paging_token
-          : undefined;
       const hasMore = response.records.length === limit;
+      const nextCursor = hasMore
+        ? response.records[response.records.length - 1].paging_token
+        : undefined;
 
       return { trades, nextCursor, hasMore };
     } catch (error) {
       console.error('Failed to fetch completed trades:', error);
       throw new Error('Failed to fetch completed trades');
     }
+  }
+
+  // OPTIMIZATION 4: Cached account loading
+  private async loadAccountWithCache(accountId: string): Promise<any> {
+    const now = Date.now();
+    const cached = this.accountCache.get(accountId);
+
+    if (cached && now - cached.timestamp < this.ACCOUNT_CACHE_TTL) {
+      return cached.account;
+    }
+
+    const account = await this.server.loadAccount(accountId);
+    this.accountCache.set(accountId, { account, timestamp: now });
+    return account;
+  }
+
+  // OPTIMIZATION 5: Reusable asset creation
+  private createAsset(code: string, issuer?: string): StellarSDK.Asset {
+    return code === 'XLM' ? StellarSDK.Asset.native() : new StellarSDK.Asset(code, issuer!);
+  }
+
+  // OPTIMIZATION 6: Shared transaction builder logic
+  private async buildTransactionBase(
+    accountId: string,
+    operation: StellarSDK.xdr.Operation,
+    options: any = {}
+  ): Promise<{ builtTx: StellarSDK.Transaction; sourceAccount: any }> {
+    const sourceAccount = await this.loadAccountWithCache(accountId);
+
+    const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
+      fee: options.fee || StellarSDK.BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    });
+
+    txBuilder.addOperation(operation);
+
+    if (options.memo) {
+      txBuilder.addMemo(StellarSDK.Memo.text(options.memo));
+    }
+
+    txBuilder.setTimeout(options.timeout || 300);
+
+    return { builtTx: txBuilder.build(), sourceAccount };
   }
 
   async buildCancelOfferTransaction(
@@ -147,21 +209,8 @@ export class TradeTransactionService {
     }
 
     try {
-      const sourceAccount = await this.server.loadAccount(accountId);
-      const sellingAsset =
-        offer.selling.code === 'XLM'
-          ? StellarSDK.Asset.native()
-          : new StellarSDK.Asset(offer.selling.code, offer.selling.issuer!);
-
-      const buyingAsset =
-        offer.buying.code === 'XLM'
-          ? StellarSDK.Asset.native()
-          : new StellarSDK.Asset(offer.buying.code, offer.buying.issuer!);
-
-      const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
-        fee: options.fee || StellarSDK.BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      });
+      const sellingAsset = this.createAsset(offer.selling.code, offer.selling.issuer);
+      const buyingAsset = this.createAsset(offer.buying.code, offer.buying.issuer);
 
       const operation = StellarSDK.Operation.manageSellOffer({
         selling: sellingAsset,
@@ -171,15 +220,11 @@ export class TradeTransactionService {
         offerId: offer.id,
       });
 
-      txBuilder.addOperation(operation);
-
-      if (options.memo) {
-        txBuilder.addMemo(StellarSDK.Memo.text(options.memo));
-      }
-      txBuilder.setTimeout(options.timeout || 300);
-
-      const builtTx = txBuilder.build();
-      const xdr = builtTx.toXDR();
+      const { builtTx, sourceAccount } = await this.buildTransactionBase(
+        accountId,
+        operation,
+        options
+      );
 
       return {
         id: `cancel-offer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -191,65 +236,12 @@ export class TradeTransactionService {
         memo: options.memo,
         timestamp: Date.now(),
         status: 'pending',
-        xdr,
+        xdr: builtTx.toXDR(),
         networkPassphrase: this.networkPassphrase,
       };
     } catch (error: any) {
       console.error('Failed to build cancel offer transaction:', error);
       throw new Error('Failed to build cancel offer transaction');
-    }
-  }
-
-  async executeCancelOfferWithWalletConnect(
-    transaction: any,
-    walletProvider: any
-  ): Promise<string> {
-    try {
-      console.log('Preparing Stellar transaction via WalletConnect...');
-
-      if (!transaction.xdr) {
-        console.error('Missing XDR data');
-        throw new Error('Stellar transaction requires XDR data');
-      }
-
-      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-      const network = isMainnet ? 'MAINNET' : 'TESTNET';
-
-      const signParams = {
-        xdr: transaction.xdr,
-        networkPassphrase: this.networkPassphrase,
-        network,
-      };
-
-      console.log('Calling walletProvider.request with stellar_signAndSubmitXDR...', signParams);
-
-      const result = await walletProvider.request({
-        method: 'stellar_signAndSubmitXDR',
-        params: signParams,
-      });
-
-      console.log('WalletConnect provider response:', result);
-
-      if (result.status === 'success') {
-        console.log('Stellar transaction successful!');
-        return result.hash || result.transactionHash || 'stellar_submitted';
-      }
-
-      console.error('Stellar transaction failed - status not success');
-      throw new Error('Stellar transaction failed');
-    } catch (error: any) {
-      console.error('Failed to execute cancel offer via WalletConnect:', {
-        message: error.message,
-        code: error.code,
-        fullError: error,
-      });
-      if (error?.response?.data?.extras?.result_codes) {
-        const codes = error.response.data.extras.result_codes;
-        throw new Error(`Cancel failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
-      }
-      throw new Error(
-        `Cancel execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
     }
   }
 
@@ -269,21 +261,8 @@ export class TradeTransactionService {
     }
 
     try {
-      const sourceAccount = await this.server.loadAccount(accountId);
-      const sellingAsset =
-        offer.selling.code === 'XLM'
-          ? StellarSDK.Asset.native()
-          : new StellarSDK.Asset(offer.selling.code, offer.selling.issuer!);
-
-      const buyingAsset =
-        offer.buying.code === 'XLM'
-          ? StellarSDK.Asset.native()
-          : new StellarSDK.Asset(offer.buying.code, offer.buying.issuer!);
-
-      const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
-        fee: options.fee || StellarSDK.BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      });
+      const sellingAsset = this.createAsset(offer.selling.code, offer.selling.issuer);
+      const buyingAsset = this.createAsset(offer.buying.code, offer.buying.issuer);
 
       const operation = StellarSDK.Operation.manageSellOffer({
         selling: sellingAsset,
@@ -293,15 +272,11 @@ export class TradeTransactionService {
         offerId: offer.id,
       });
 
-      txBuilder.addOperation(operation);
-
-      if (options.memo) {
-        txBuilder.addMemo(StellarSDK.Memo.text(options.memo));
-      }
-      txBuilder.setTimeout(options.timeout || 300);
-
-      const builtTx = txBuilder.build();
-      const xdr = builtTx.toXDR();
+      const { builtTx, sourceAccount } = await this.buildTransactionBase(
+        accountId,
+        operation,
+        options
+      );
 
       return {
         id: `edit-offer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -315,7 +290,7 @@ export class TradeTransactionService {
         memo: options.memo,
         timestamp: Date.now(),
         status: 'pending',
-        xdr,
+        xdr: builtTx.toXDR(),
         networkPassphrase: this.networkPassphrase,
       };
     } catch (error: any) {
@@ -324,12 +299,14 @@ export class TradeTransactionService {
     }
   }
 
-  async executeEditOfferWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
+  // OPTIMIZATION 7: Unified wallet execution with better error handling
+  private async executeTransactionWithWalletConnect(
+    transaction: any,
+    walletProvider: any,
+    operationType: string
+  ): Promise<string> {
     try {
-      console.log('Preparing Stellar transaction via WalletConnect...');
-
       if (!transaction.xdr) {
-        console.error('Missing XDR data');
         throw new Error('Stellar transaction requires XDR data');
       }
 
@@ -342,35 +319,99 @@ export class TradeTransactionService {
         network,
       };
 
-      console.log('Calling walletProvider.request with stellar_signAndSubmitXDR...', signParams);
+      console.log(`[${operationType}] Executing Stellar transaction via WalletConnect...`);
 
       const result = await walletProvider.request({
         method: 'stellar_signAndSubmitXDR',
         params: signParams,
       });
 
-      console.log('WalletConnect provider response:', result);
-
       if (result.status === 'success') {
-        console.log('Stellar transaction successful!');
+        console.log(`[${operationType}] Transaction successful!`);
         return result.hash || result.transactionHash || 'stellar_submitted';
       }
 
-      console.error('Stellar transaction failed - status not success');
-      throw new Error('Stellar transaction failed');
+      throw new Error(`${operationType} failed - invalid status`);
     } catch (error: any) {
-      console.error('Failed to execute edit offer via WalletConnect:', {
+      console.error(`[${operationType}] Execution failed:`, {
         message: error.message,
         code: error.code,
-        fullError: error,
       });
+
+      // Extract detailed error information
       if (error?.response?.data?.extras?.result_codes) {
         const codes = error.response.data.extras.result_codes;
-        throw new Error(`Edit failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
+        throw new Error(
+          `${operationType} failed: ${codes.transaction} - ${codes.operations?.join(', ')}`
+        );
       }
+
       throw new Error(
-        `Edit execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `${operationType} execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
+    }
+  }
+
+  async executeCancelOfferWithWalletConnect(
+    transaction: any,
+    walletProvider: any
+  ): Promise<string> {
+    return this.executeTransactionWithWalletConnect(transaction, walletProvider, 'Cancel offer');
+  }
+
+  async executeEditOfferWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
+    return this.executeTransactionWithWalletConnect(transaction, walletProvider, 'Edit offer');
+  }
+
+  // OPTIMIZATION 8: Batch operations for multiple offers
+  async getActiveOffersAndTrades(
+    accountId: string,
+    offersLimit: number = 10,
+    tradesLimit: number = 10
+  ): Promise<{
+    offers: ActiveOffer[];
+    trades: CompletedTrade[];
+    offersNextCursor?: string;
+    tradesNextCursor?: string;
+  }> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
+      throw new Error('Invalid Stellar account ID');
+    }
+
+    // Fetch offers and trades in parallel
+    const [offersResult, tradesResult] = await Promise.allSettled([
+      this.getActiveOffers(accountId, offersLimit),
+      this.getCompletedTrades(accountId, tradesLimit),
+    ]);
+
+    return {
+      offers: offersResult.status === 'fulfilled' ? offersResult.value.offers : [],
+      trades: tradesResult.status === 'fulfilled' ? tradesResult.value.trades : [],
+      offersNextCursor:
+        offersResult.status === 'fulfilled' ? offersResult.value.nextCursor : undefined,
+      tradesNextCursor:
+        tradesResult.status === 'fulfilled' ? tradesResult.value.nextCursor : undefined,
+    };
+  }
+
+  // OPTIMIZATION 9: Clear cache when needed (e.g., after transaction)
+  clearAccountCache(accountId?: string): void {
+    if (accountId) {
+      this.accountCache.delete(accountId);
+    } else {
+      this.accountCache.clear();
+    }
+  }
+
+  async prefetchAccountData(accountId: string): Promise<void> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
+      return;
+    }
+
+    try {
+      await this.loadAccountWithCache(accountId);
+    } catch (error) {
+      console.warn('Failed to prefetch account data:', error);
     }
   }
 }

@@ -13,6 +13,7 @@ import FillsPanel from '../orderHistory/FillsPanel';
 import OpenOrdersPanel from '../orderHistory/OpenOrdersPanel';
 import OrderHistoryPanel from '../orderHistory/OrderHistoryPanel';
 import PositionsPanel from '../orderHistory/PositionsPanel';
+import ResizablePanel from './ResizablePanel';
 
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
@@ -28,7 +29,7 @@ const TradingintrFace = () => {
 
         <div className="hidden md:grid md:grid-cols-[1fr_auto] flex-1 overflow-hidden">
           <div className="flex flex-col overflow-hidden min-w-0">
-            <div className="flex overflow-hidden h-[60vh]">
+            <div className="flex overflow-hidden flex-1">
               <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
                 <MarketSwitcher />
                 <div className="flex border-b border-gray-800 bg-secondary">
@@ -72,10 +73,12 @@ const TradingintrFace = () => {
               </div>
             </div>
 
-            <BottomTabsSection
-              activeBottomTab={activeBottomTab}
-              setActiveBottomTab={setActiveBottomTab}
-            />
+            <ResizablePanel defaultHeight={40} minHeight={20} maxHeight={70}>
+              <BottomTabsSection
+                activeBottomTab={activeBottomTab}
+                setActiveBottomTab={setActiveBottomTab}
+              />
+            </ResizablePanel>
           </div>
 
           <div className="bg-secondary flex-shrink-0">
@@ -174,10 +177,10 @@ const MobileLayout = () => {
       </div>
 
       {activeTab === 'chart' && (
-        <div className="flex   bg-secondary border-b border-gray-800 shrink-0">
+        <div className="flex bg-secondary border-b border-gray-800 shrink-0">
           <button
             onClick={() => setChartType('price')}
-            className={`flex-1  text-xs font-medium transition-all active:scale-95 ${
+            className={`flex-1 text-xs font-medium transition-all active:scale-95 ${
               chartType === 'price'
                 ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
                 : 'bg-gray-800/50 text-gray-400 active:bg-gray-800'
@@ -218,7 +221,7 @@ const MobileLayout = () => {
       </div>
 
       {/* Bottom Navigation */}
-      <div className="flex   bg-secondary backdrop-blur-sm shrink-0 safe-area-inset-bottom">
+      <div className="flex bg-secondary backdrop-blur-sm shrink-0 safe-area-inset-bottom">
         {tabs.map(tab => {
           const Icon = tab.icon;
           return (
@@ -231,9 +234,6 @@ const MobileLayout = () => {
             >
               <Icon className={`w-5 h-5 ${activeTab === tab.id ? 'text-blue-500' : ''}`} />
               <span className="text-[10px] font-medium">{tab.label}</span>
-              {/* {activeTab === tab.id && (
-                <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />
-              )} */}
             </button>
           );
         })}
@@ -259,14 +259,14 @@ const BottomTabsSection = ({
   };
 
   return (
-    <div className="h-[40vh] bg-secondary border-t border-gray-800 flex flex-col overflow-hidden">
+    <>
       <div className="flex items-center border-b border-gray-800 px-2 sm:px-4 h-12 shrink-0 overflow-x-auto scrollbar-hide">
         {tabs.map(tab => (
           <button
             key={tab}
             onClick={() => setActiveBottomTab(tab)}
             className={`px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
-              activeBottomTab === tab ? 'text-white ' : 'text-gray-400 hover:text-gray-300'
+              activeBottomTab === tab ? 'text-white' : 'text-gray-400 hover:text-gray-300'
             }`}
           >
             {labels[tab]}
@@ -281,7 +281,7 @@ const BottomTabsSection = ({
         {activeBottomTab === 'history' && <OrderHistoryPanel />}
         {activeBottomTab === 'funding' && <FundingPlaceholder />}
       </div>
-    </div>
+    </>
   );
 };
 

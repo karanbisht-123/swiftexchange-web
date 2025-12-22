@@ -5,22 +5,23 @@ import { WalletType } from '../constants/Wallet';
 import { useWalletConnect } from '../hooks/useWalletConnect';
 
 export const ConnectWalletButton: React.FC = () => {
-  const { connectedWallets, openModal, disconnectType } = useWalletConnect();
+  const { connectedWallets, openModal, disconnect } = useWalletConnect();
   const [showDropdown, setShowDropdown] = useState(false);
 
   const formatAddress = (addr: string) => {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
-  const disconnectAll = () => {
-    Object.keys(connectedWallets).forEach(type => {
-      disconnectType(type as WalletType);
-    });
+  const disconnectAll = async () => {
+    const types = Object.keys(connectedWallets) as WalletType[];
+    for (const type of types) {
+      await disconnect(type);
+    }
     setShowDropdown(false);
   };
 
-  const handleDisconnect = (type: WalletType) => {
-    disconnectType(type);
+  const handleDisconnect = async (type: WalletType) => {
+    await disconnect(type);
     if (Object.keys(connectedWallets).length === 1) {
       setShowDropdown(false);
     }

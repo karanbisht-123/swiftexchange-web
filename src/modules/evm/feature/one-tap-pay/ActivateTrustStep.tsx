@@ -6,6 +6,7 @@ import { fetchApiResponseFromServer } from '../../../../service/apiService';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 
 interface ActivateTrustStepProps {
   onComplete: (data: { claimedXLM: boolean }) => void;
@@ -21,7 +22,8 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
   stellarAddress,
 }) => {
   const { getProvider } = useWalletConnect();
-  const stellarConfig = getStellarConfig();
+  const currentNetwork = useWalletStore(state => state.network);
+  const stellarConfig = getStellarConfig(currentNetwork);
 
   const handleClaimXLM = async () => {
     if (!stellarAddress) {
@@ -43,13 +45,12 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
         throw new Error('Invalid XDR: Expected non-empty string');
       }
 
-      // Get the wallet provider to sign the transaction
+    
       const provider = getProvider(WalletType.STELLAR);
       if (!provider) {
         throw new Error('Stellar wallet provider not found');
       }
 
-      // Parse the transaction
       let tx;
       try {
         const envelope = StellarSdk.xdr.TransactionEnvelope.fromXDR(
@@ -72,7 +73,7 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
         );
       }
 
-      // Sign the transaction using the connected wallet
+  
       const signedXdr = await provider.signTransaction(tx.toXDR());
       const signedTx = StellarSdk.TransactionBuilder.fromXDR(
         signedXdr,
@@ -81,7 +82,7 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
           : StellarSdk.Networks.PUBLIC
       );
 
-      // Submit to Stellar network
+
       const server = new StellarSdk.Horizon.Server(stellarConfig.horizonUrl);
       console.log('Submitting transaction to Stellar network:', stellarConfig.network);
       const result = await server.submitTransaction(signedTx);

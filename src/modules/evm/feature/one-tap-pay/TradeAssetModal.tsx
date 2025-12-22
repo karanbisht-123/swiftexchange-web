@@ -8,6 +8,7 @@ import { ROUTES } from '../../../../constants/routes';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import ActivateTrustStep from './ActivateTrustStep';
 import AmountQuoteStep from './AmountQuoteStep';
 
@@ -31,6 +32,7 @@ interface TradeAssetModalProps {
 const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAsset }) => {
   const navigate = useNavigate();
   const { connectedWallets } = useWalletConnect();
+  const currentNetwork = useWalletStore(state => state.network);
 
   const [step, setStep] = useState<'activate' | 'trade' | 'no-assets'>('activate');
   const [isActivated, setIsActivated] = useState(false);
@@ -40,19 +42,14 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
 
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Get connected wallets
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address;
   const evmWallet = connectedWallets[WalletType.EVM];
   const evmAddress = evmWallet?.address;
-
-  // Get network configuration
-  // const network = getNetwork();
-  const stellarConfig = getStellarConfig();
+  const stellarConfig = getStellarConfig(currentNetwork);
 
   useEffect(() => {
     const checkWalletActivation = async () => {
-      // If no wallets connected, show no assets
       if (!stellarAddress && !evmAddress) {
         setIsLoading(false);
         setStep('no-assets');
@@ -61,7 +58,6 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
       }
 
       try {
-        // Check Stellar wallet activation if connected
         if (stellarAddress) {
           try {
             const server = new StellarSdk.Horizon.Server(stellarConfig.horizonUrl);
@@ -71,36 +67,26 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
           } catch (error) {
             console.error('Stellar wallet check failed:', error);
             setIsWalletActive(false);
-            // If EVM wallet is connected, we can still trade
             if (evmAddress) {
               setIsActivated(true);
             }
           }
         } else if (evmAddress) {
-          // Only EVM wallet connected, skip Stellar activation
           setIsActivated(true);
           setIsWalletActive(true);
         }
-
-        // Check if user has ANY tradeable assets (not just the selected one)
-        // For EVM: Check if they have native tokens (ETH/BNB) or USDT
-        // For Stellar: Check if they have XLM or other assets
         let userHasTradableBalance = false;
 
-        // If EVM wallet connected, assume they might have balance
-        // The actual balance check will happen in AmountQuoteStep
         if (evmAddress) {
           userHasTradableBalance = true;
         }
 
-        // If Stellar wallet connected and has the selected asset
         if (stellarAddress && selectedAsset && selectedAsset.balance > 0) {
           userHasTradableBalance = true;
         }
 
         setHasAssets(userHasTradableBalance);
 
-        // Decide which step to show
         if (userHasTradableBalance) {
           setStep('trade');
         } else if (!isActivated && stellarAddress) {
@@ -110,7 +96,6 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
         }
       } catch (error) {
         console.error('Wallet check failed:', error);
-        // If we have EVM wallet, still allow trade
         if (evmAddress) {
           setStep('trade');
           setHasAssets(true);
@@ -125,7 +110,15 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
     if (isOpen) {
       checkWalletActivation();
     }
-  }, [isOpen, selectedAsset, stellarAddress, evmAddress, stellarConfig.horizonUrl, isActivated]);
+  }, [
+    isOpen,
+    selectedAsset,
+    stellarAddress,
+    evmAddress,
+    stellarConfig.horizonUrl,
+    isActivated,
+    currentNetwork,
+  ]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -181,7 +174,6 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
   };
 
   const handleQuoteBack = () => {
-    // Only go back to activate if Stellar wallet needs activation
     if (stellarAddress && !isWalletActive) {
       setStep('activate');
     } else {

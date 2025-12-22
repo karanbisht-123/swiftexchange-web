@@ -12,7 +12,7 @@ import type {
 } from '../../../types/evm/onTapPay.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { TRANSACTION_STEP, TRANSACTION_STEP_MESSAGES } from '../constant/OnTapPay.constants';
+import { TRANSACTION_STEP } from '../constant/OnTapPay.constants';
 import { getBridgeQuote, getSwapQuote } from '../service/evmSwapService';
 
 const QUOTE_DEBOUNCE_DELAY = 800;
@@ -59,13 +59,13 @@ interface UseOneTapPayProps {
   }) => void;
 }
 
-const logger = {
-  step: (step: TransactionStep, data?: unknown) =>
-    console.log(`[STEP:${step}]`, TRANSACTION_STEP_MESSAGES[step], data || ''),
-  info: (message: string, data?: unknown) => console.log(`[INFO] ${message}`, data || ''),
-  error: (message: string, error?: unknown) => console.error(`[ERROR] ${message}`, error || ''),
-  success: (message: string, data?: unknown) => console.log(`[SUCCESS] ${message}`, data || ''),
-};
+// const logger = {
+//   step: (step: TransactionStep, data?: unknown) =>
+//     console.log(`[STEP:${step}]`, TRANSACTION_STEP_MESSAGES[step], data || ''),
+//   info: (message: string, data?: unknown) => console.log(`[INFO] ${message}`, data || ''),
+//   error: (message: string, error?: unknown) => console.error(`[ERROR] ${message}`, error || ''),
+//   success: (message: string, data?: unknown) => console.log(`[SUCCESS] ${message}`, data || ''),
+// };
 
 export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneTapPayProps) => {
   const { connectedWallets, getProvider } = useWalletConnect();
@@ -135,7 +135,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         usdtBal = ethers.formatUnits(balance, usdtDecimals);
         setUsdtBalance(usdtBal);
       } catch (err) {
-        logger.error('Failed to fetch USDT balance', err);
+        console.error('Failed to fetch USDT balance', err);
       }
 
       // Fetch USDC balance
@@ -152,7 +152,8 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         usdcBal = ethers.formatUnits(balance, usdcDecimals);
         setUsdcBalance(usdcBal);
       } catch (err) {
-        logger.error('Failed to fetch USDC balance', err);
+        console.log(err);
+        // logger.error('Failed to fetch USDC balance', err);
       }
 
       const nativeAsset: Asset = {
@@ -186,15 +187,15 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
 
       setAssets({ native: nativeAsset, usdt: usdtAsset, usdc: usdcAsset });
 
-      logger.success('Balances loaded', {
-        native: nativeBalanceFormatted,
-        usdt: usdtBal,
-        usdc: usdcBal,
-        chainId: currentChainId,
-        isTestnet: config.isTestnet,
-      });
+      // logger.success('Balances loaded', {
+      //   native: nativeBalanceFormatted,
+      //   usdt: usdtBal,
+      //   usdc: usdcBal,
+      //   chainId: currentChainId,
+      //   isTestnet: config.isTestnet,
+      // });
     } catch (error) {
-      logger.error('Balance fetch failed', error);
+      // logger.error('Balance fetch failed', error);
       setError(`Failed to fetch balances: ${(error as Error).message}`);
     } finally {
       setIsBalanceLoading(false);
@@ -260,7 +261,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         const chainType = chainId === 1 || chainId === 11155111 ? 'ETH' : 'BNB';
 
         if (path === 'NATIVE_TO_USDT_TO_USDC') {
-          logger.info('Fetching Native -> USDT swap quote', { amount: currentAmount });
+          // logger.info('Fetching Native -> USDT swap quote', { amount: currentAmount });
 
           const swapPayload = {
             tokenIn: {
@@ -286,7 +287,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
           const swapResponse: SwapQuoteResponse = await getSwapQuote(networkKey, swapPayload);
 
           if (requestId !== lastRequestIdRef.current) return;
-          logger.success('Swap quote received', swapResponse);
+          // logger.success('Swap quote received', swapResponse);
 
           const bridgeResponse: BridgeQuoteResponse = await getBridgeQuote(
             swapResponse.outputAmount,
@@ -294,7 +295,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
           );
 
           if (requestId !== lastRequestIdRef.current) return;
-          logger.success('Bridge quote received', bridgeResponse);
+          // logger.success('Bridge quote received', bridgeResponse);
 
           const newQuoteDetails: QuoteDetails = {
             price: 'DEX + Bridge',
@@ -319,7 +320,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
           setQuoteDetails(newQuoteDetails);
           setBridgeQuoteDetails(newBridgeDetails);
         } else if (path === 'USDT_TO_USDC') {
-          logger.info('Fetching USDT -> USDC bridge quote', { amount: currentAmount });
+          // logger.info('Fetching USDT -> USDC bridge quote', { amount: currentAmount });
 
           const bridgeResponse: BridgeQuoteResponse = await getBridgeQuote(
             currentAmount,
@@ -327,7 +328,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
           );
 
           if (requestId !== lastRequestIdRef.current) return;
-          logger.success('Bridge quote received', bridgeResponse);
+          // logger.success('Bridge quote received', bridgeResponse);
 
           const newQuoteDetails: QuoteDetails = {
             price: 'Direct Bridge',
@@ -366,7 +367,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         if (err instanceof Error && err.name === 'AbortError') return;
         if (requestId !== lastRequestIdRef.current) return;
 
-        logger.error('Quote fetch failed', err);
+        // logger.error('Quote fetch failed', err);
         setError(`Failed to fetch quotes: ${(err as Error).message}`);
         setQuoteDetails(null);
         setBridgeQuoteDetails(null);
@@ -423,7 +424,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
     const currentAllowance = await usdtContract.allowance(senderAddress, spender);
 
     if (currentAllowance < amount) {
-      logger.step(TRANSACTION_STEP.SIGNING_APPROVAL, { spender, amount: amount.toString() });
+      // logger.step(TRANSACTION_STEP.SIGNING_APPROVAL, { spender, amount: amount.toString() });
       setCurrentStep(TRANSACTION_STEP.SIGNING_APPROVAL);
 
       const usdtInterface = new ethers.Interface(ERC20_ABI);
@@ -447,11 +448,11 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         params: [{ ...approveTxParams, gas: approveGasEstimate }],
       });
 
-      logger.success('Approval transaction sent', { txHash: approveTxHash });
+      // logger.success('Approval transaction sent', { txHash: approveTxHash });
       await waitForTransaction(approveTxHash);
-      logger.success('USDT approval confirmed');
+      // logger.success('USDT approval confirmed');
     } else {
-      logger.info('USDT allowance sufficient, skipping approval');
+      console.info('USDT allowance sufficient, skipping approval');
     }
   };
 
@@ -460,7 +461,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       throw new Error('Missing swap data');
     }
 
-    logger.step(TRANSACTION_STEP.PREPARING_SWAP);
+    // logger.step(TRANSACTION_STEP.PREPARING_SWAP);
     setCurrentStep(TRANSACTION_STEP.PREPARING_SWAP);
 
     const config = getConfigByChainId(chainId);
@@ -510,10 +511,10 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         params: [txParams],
       });
 
-      logger.success('Swap executed successfully', { txHash });
+      // logger.success('Swap executed successfully', { txHash });
       return txHash;
     } catch (error) {
-      logger.error('Swap execution failed', error);
+      // logger.error('Swap execution failed', error);
       throw new Error(`Swap failed: ${(error as Error).message}`);
     }
   };
@@ -523,7 +524,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       throw new Error('Missing bridge data');
     }
 
-    logger.step(TRANSACTION_STEP.PREPARING_BRIDGE);
+    // logger.step(TRANSACTION_STEP.PREPARING_BRIDGE);
     setCurrentStep(TRANSACTION_STEP.PREPARING_BRIDGE);
 
     const config = getConfigByChainId(chainId);
@@ -556,10 +557,10 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         params: [{ ...txParams, gas: gasEstimate }],
       });
 
-      logger.success('Bridge executed successfully', { txHash });
+      // logger.success('Bridge executed successfully', { txHash });
       return txHash;
     } catch (error) {
-      logger.error('Bridge execution failed', error);
+      // logger.error('Bridge execution failed', error);
       throw new Error(`Bridge failed: ${(error as Error).message}`);
     }
   };
@@ -578,14 +579,14 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
         });
 
         if (receipt) {
-          logger.success('Transaction confirmed', { txHash, receipt });
+          // logger.success('Transaction confirmed', { txHash, receipt });
           return;
         }
 
         await new Promise(resolve => setTimeout(resolve, 2000));
         attempts++;
       } catch (error) {
-        logger.error('Error checking transaction', error);
+        // logger.error('Error checking transaction', error);
         throw error;
       }
     }
@@ -610,7 +611,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       return;
     }
 
-    logger.step(TRANSACTION_STEP.PREPARING_APPROVAL);
+    // logger.step(TRANSACTION_STEP.PREPARING_APPROVAL);
     setCurrentStep(TRANSACTION_STEP.PREPARING_APPROVAL);
     setError(null);
     setSuccessMessage(null);
@@ -620,14 +621,14 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       let bridgeTxHash: string | undefined;
 
       if (swapPath === 'NATIVE_TO_USDT_TO_USDC') {
-        logger.info('Executing: Native Token → USDT (Swap) → USDC (Bridge)');
+        // logger.info('Executing: Native Token → USDT (Swap) → USDC (Bridge)');
         swapTxHash = await executeSwap();
         await waitForTransaction(swapTxHash);
         const swapData = quoteDetails.rawQuote as SwapQuoteResponse;
         bridgeTxHash = await executeBridge(swapData.outputAmount);
         await waitForTransaction(bridgeTxHash);
       } else if (swapPath === 'USDT_TO_USDC') {
-        logger.info('Executing: USDT → USDC (Direct Bridge)');
+        // logger.info('Executing: USDT → USDC (Direct Bridge)');
 
         swapTxHash = await executeBridge(amount);
         await waitForTransaction(swapTxHash);
@@ -656,7 +657,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       setCurrentStep(TRANSACTION_STEP.ERROR);
       const errorMsg = (err as Error).message;
       setError(errorMsg);
-      logger.error('Transaction failed', err);
+      // logger.error('Transaction failed', err);
     }
   };
 

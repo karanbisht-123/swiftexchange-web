@@ -2,23 +2,22 @@ import { ethers } from 'ethers';
 
 import { TOKEN_CONFIGS } from '../../../config/tokens';
 import { type Asset } from '../../../types/evm/swap.types';
-import { getEVMChains, getNetwork } from '../../walletconnect/config/chains';
+import { getEVMChains } from '../../walletconnect/config/chains';
 
 export class AssetUtils {
-  static async fetchAssets(chainId: any, address: string): Promise<Asset[]> {
+  static async fetchAssets(chainId: any, address: string, network: any): Promise<Asset[]> {
     if (!this.isValidAddress(address)) {
       throw new Error('Invalid wallet address');
     }
-    const networkType = getNetwork();
-    console.log('Current network type:', networkType);
-    const availableChains = getEVMChains();
+
+    const availableChains = getEVMChains(network);
     const chainConfig = availableChains.find(chain => chain.chainId === chainId);
 
     if (!chainConfig) {
-      throw new Error(`Chain ID ${chainId} not found in ${networkType} configuration`);
+      throw new Error(`Chain ID ${chainId} not found in ${network} configuration`);
     }
 
-    console.log('Using chain:', chainConfig.name, 'on', networkType);
+    console.log('Using chain:', chainConfig.name, 'on', network);
 
     const chainIdToNetworkKey: Record<number, string> = {
       1: 'ethereum',
@@ -66,8 +65,10 @@ export class AssetUtils {
         const isWrappedNative = this.isWrappedNativeToken(chainId, config.address);
 
         if (isWrappedNative) {
+          // Check for native balance (e.g., ETH, MATIC)
           const nativeBalance = await provider.getBalance(address);
 
+          // Check for actual wrapped token balance (e.g., WETH, WMATIC)
           const wrappedContract = new ethers.Contract(
             config.address,
             ['function balanceOf(address) view returns (uint256)'],
@@ -75,7 +76,6 @@ export class AssetUtils {
           );
 
           const wrappedBalance = await wrappedContract.balanceOf(address);
-
           const totalBalance = nativeBalance > 0n ? nativeBalance : wrappedBalance;
 
           balance = ethers.formatUnits(totalBalance, config.decimals);

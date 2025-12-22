@@ -41,7 +41,7 @@ const MarketRow = memo(function MarketRow({
 
   if (isMobile) {
     return (
-      <div className="border-b border-[#1e293b]/30 p-4 active:bg-[#1e293b]/30 transition-colors">
+      <div className=" p-4 active:bg-[#1e293b]/30 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="relative w-10 h-10 flex-shrink-0">
@@ -119,12 +119,12 @@ const MarketRow = memo(function MarketRow({
     <tr className="border-b border-[#1e293b]/30 hover:bg-[#1e293b]/20 transition-colors">
       <td className="py-3 px-4 sticky left-0 bg-secondary z-10">
         <div className="flex items-center gap-2.5">
-          <div className="relative w-7 h-7 flex-shrink-0">
+          <div className="relative w-12 h-12 flex-shrink-0">
             {market.coinIcon ? (
               <img
                 src={market.coinIcon}
                 alt={market.ticker}
-                className="w-7 h-7 rounded-full"
+                className="w-12 h-12 rounded-full"
                 onError={e => {
                   const img = e.currentTarget;
                   img.style.display = 'none';
@@ -134,7 +134,7 @@ const MarketRow = memo(function MarketRow({
               />
             ) : null}
             <div
-              className="w-7 h-7 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
+              className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
               style={{ display: market.coinIcon ? 'none' : 'flex' }}
             >
               {market.ticker.split('-')[0].slice(0, 2)}
@@ -195,7 +195,6 @@ export default function MarketsDisplay() {
   const [isMobile, setIsMobile] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
 
-  // Detect mobile view
   React.useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
@@ -365,20 +364,9 @@ export default function MarketsDisplay() {
     [sortField, sortDirection]
   );
 
-  // const getSortLabel = () => {
-  //   const labels = {
-  //     ticker: 'Market',
-  //     price: 'Price',
-  //     change: '24h Change',
-  //     volume: '24h Volume',
-  //     trades: 'Trades',
-  //   };
-  //   return labels[sortField];
-  // };
-
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
+      <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-2 border-slate-700 border-t-blue-500 mx-auto mb-4" />
           <p className="text-slate-400">Loading markets...</p>
@@ -390,8 +378,8 @@ export default function MarketsDisplay() {
   return (
     <div className="min-h-screen bg-primary text-white">
       {/* Stats Bar */}
-      <div className="bg-[#1e293b]/20 border-b border-[#1e293b] sticky top-0 z-30 backdrop-blur-sm">
-        <div className="max-w-[1920px] mx-auto px-4 md:px-6 py-3">
+      <div className="bg-secondary sticky top-0 z-30 backdrop-blur-sm px-4">
+        <div className="max-w-[1920px] mx-aut *:py-3">
           <div className={`grid ${isMobile ? 'grid-cols-2' : 'grid-cols-4'} gap-3 md:gap-6`}>
             <div className="flex items-center gap-2 md:gap-3">
               <div className="text-[10px] md:text-xs text-slate-500">Markets</div>
@@ -428,18 +416,18 @@ export default function MarketsDisplay() {
         </div>
       </div>
 
-      <div className="max-w-[1920px] mx-auto px-2 md:px-6 py-2">
+      <div className="max-w-svw mx-auto  ">
         {/* Search & Sort */}
-        <div className="mb-2">
+        <div className="my-1">
           <div className={`flex gap-2 ${isMobile ? 'flex-row' : 'flex-col'}`}>
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <div className="relative flex-1 ">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-500" />
               <input
                 type="text"
                 placeholder="Search markets..."
                 value={searchTerm}
                 onChange={handleSearch}
-                className="w-full bg-[#1e293b]/50 border border-[#334155] rounded-lg pl-10 pr-10 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
+                className="w-full bg-secondary  pl-10 pr-10 py-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
               />
               {searchTerm && (
                 <button
@@ -458,7 +446,7 @@ export default function MarketsDisplay() {
               <div className="relative">
                 <button
                   onClick={() => setShowSortMenu(!showSortMenu)}
-                  className={`h-full px-4 bg-[#1e293b]/50 border border-[#334155] rounded-lg text-white transition-all active:scale-95 ${
+                  className={`h-full bg-primary border border-[#334155] rounded-lg text-white transition-all active:scale-95 ${
                     showSortMenu ? 'bg-blue-500/20 border-blue-500/50' : ''
                   }`}
                 >
@@ -531,9 +519,8 @@ export default function MarketsDisplay() {
           </div>
         )}
 
-        {/* Markets List */}
         {filteredAndSortedMarkets.length > 0 ? (
-          <div className="bg-[#1e293b]/30 border border-[#334155]/50 rounded-lg overflow-hidden">
+          <div className="bg-[#1e293b]/30 border border-[#334155]/50  overflow-hidden">
             {isMobile ? (
               <div className="divide-y divide-[#1e293b]/30">
                 {paginatedMarkets.map(market => (

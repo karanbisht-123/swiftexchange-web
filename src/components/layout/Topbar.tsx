@@ -11,23 +11,22 @@ import ThemeToggle from '../../utils/ThemeToggle';
 interface TopbarProps {}
 
 const Topbar: React.FC<TopbarProps> = () => {
-  const { connectedWallets, disconnectType } = useWalletConnect();
+  const { connectedWallets, disconnect, isAnyWalletConnected } = useWalletConnect();
 
   const [showInfoMessage, setShowInfoMessage] = useState(false);
   const navigate = useNavigate();
   const hasRedirected = useRef(false);
 
-  const isConnected = Object.keys(connectedWallets).length > 0;
-  // const walletAddresses = Object.values(connectedWallets).map(wallet => wallet.address);
-  // const firstWalletType = Object.keys(connectedWallets)[0] as WalletType | undefined;
+  const isConnected = isAnyWalletConnected();
 
-  console.log('show message :', showInfoMessage);
+  console.log('show message:', showInfoMessage);
+
   const disconnectAll = useCallback(async () => {
     const types = Object.keys(connectedWallets) as WalletType[];
     for (const type of types) {
-      await disconnectType(type);
+      await disconnect(type);
     }
-  }, [connectedWallets, disconnectType]);
+  }, [connectedWallets, disconnect]);
 
   useEffect(() => {
     if (isConnected && !hasRedirected.current) {
@@ -46,32 +45,8 @@ const Topbar: React.FC<TopbarProps> = () => {
     await disconnectAll();
     hasRedirected.current = false;
     setShowInfoMessage(false);
-    if (isConnected) {
-      navigate(ROUTES.HOME);
-    }
+    navigate(ROUTES.HOME);
   };
-
-  // const handleAddMoreWallets = () => {
-  //   openModal();
-  //   setShowInfoMessage(false);
-  // };
-
-  // const getWelcomeMessage = () => {
-  //   if (!firstWalletType) return '';
-
-  //   switch (firstWalletType) {
-  //     case WalletType.EVM:
-  //       return 'EVM wallet connected successfully! You can now use EVM and DYDX chain features. Connect to the DYDX chain for full access to DeFi tools and trading.';
-  //     case WalletType.COSMOS:
-  //       return 'Cosmos wallet connected! Explore Cosmos ecosystem features and IBC transfers. Add more wallets for cross-chain functionality.';
-  //     case WalletType.STELLAR:
-  //       return 'Stellar wallet connected! Use Stellar for fast, low-cost payments and asset transfers. Enhance your setup by adding EVM or Cosmos wallets.';
-  //     default:
-  //       return 'Wallet connected successfully! Manage your connections and add more wallets to unlock additional features.';
-  //   }
-  // };
-
-  // const welcomeMessage = getWelcomeMessage();
 
   return (
     <>
@@ -82,10 +57,6 @@ const Topbar: React.FC<TopbarProps> = () => {
           <NetworkSwitch />
           {isConnected ? (
             <div className="flex items-center gap-2">
-              {/* <span className="text-sm font-mono text-[var(--color-text-primary)] hidden sm:block">
-                {walletAddresses[0]?.slice(0, 6)}...
-                {walletAddresses[0]?.slice(-4)}
-              </span> */}
               <ConnectWalletButton />
               <button
                 onClick={handleDisconnectAll}
@@ -100,31 +71,6 @@ const Topbar: React.FC<TopbarProps> = () => {
           <ThemeToggle />
         </div>
       </header>
-
-      {/* {showInfoMessage && welcomeMessage && (
-        <div className="bg-blue-50 border-b border-blue-200 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-2 flex-1">
-            <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-              <span className="text-white text-xs font-bold">i</span>
-            </div>
-            <span className="text-sm text-blue-800">{welcomeMessage}</span>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={handleAddMoreWallets}
-              className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition"
-            >
-              Add More Wallets
-            </button>
-            <button
-              onClick={() => setShowInfoMessage(false)}
-              className="text-blue-600 text-sm hover:underline"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )} */}
     </>
   );
 };

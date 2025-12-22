@@ -8,6 +8,7 @@ export interface EVMChainConfig {
     decimals: number;
   };
   blockExplorerUrl: string;
+  logoUrl: string;
 }
 
 export interface CosmosChainConfig {
@@ -23,6 +24,7 @@ export interface CosmosChainConfig {
     coinMinimalDenom: string;
     coinDecimals: number;
   }>;
+  logoUrl: string;
 }
 
 export interface StellarChainConfig {
@@ -30,6 +32,7 @@ export interface StellarChainConfig {
   networkPassphrase: string;
   horizonUrl: string;
   chainId: string;
+  logoUrl: string;
 }
 
 export type NetworkType = 'mainnet' | 'testnet';
@@ -43,6 +46,8 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     rpcUrl: 'https://eth.llamarpc.com',
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
   },
   {
     chainId: 137,
@@ -50,6 +55,8 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     rpcUrl: 'https://polygon-rpc.com',
     blockExplorerUrl: 'https://polygonscan.com',
     nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
   },
   {
     chainId: 56,
@@ -57,6 +64,8 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     rpcUrl: 'https://bsc-dataseed.binance.org',
     blockExplorerUrl: 'https://bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
   },
   {
     chainId: 42161,
@@ -64,6 +73,8 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     rpcUrl: 'https://arb1.arbitrum.io/rpc',
     blockExplorerUrl: 'https://arbiscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png',
   },
   {
     chainId: 10,
@@ -71,6 +82,8 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     rpcUrl: 'https://mainnet.optimism.io',
     blockExplorerUrl: 'https://optimistic.etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png',
   },
   {
     chainId: 43114,
@@ -78,6 +91,8 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',
     blockExplorerUrl: 'https://snowtrace.io',
     nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png',
   },
 ];
 
@@ -88,13 +103,8 @@ export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
     rpc: 'https://dydx-rpc.publicnode.com:443',
     rest: 'https://dydx-api.publicnode.com',
     bech32Config: { bech32PrefixAccAddr: 'dydx' },
-    currencies: [
-      {
-        coinDenom: 'DYDX',
-        coinMinimalDenom: 'adydx',
-        coinDecimals: 18,
-      },
-    ],
+    currencies: [{ coinDenom: 'DYDX', coinMinimalDenom: 'adydx', coinDecimals: 18 }],
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png',
   },
   {
     chainId: 'cosmoshub-4',
@@ -102,13 +112,9 @@ export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
     rpc: 'https://rpc.cosmos.network',
     rest: 'https://api.cosmos.network',
     bech32Config: { bech32PrefixAccAddr: 'cosmos' },
-    currencies: [
-      {
-        coinDenom: 'ATOM',
-        coinMinimalDenom: 'uatom',
-        coinDecimals: 6,
-      },
-    ],
+    currencies: [{ coinDenom: 'ATOM', coinMinimalDenom: 'uatom', coinDecimals: 6 }],
+    logoUrl:
+      'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
   },
   {
     chainId: 'osmosis-1',
@@ -116,13 +122,9 @@ export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
     rpc: 'https://rpc.osmosis.zone',
     rest: 'https://api.osmosis.zone',
     bech32Config: { bech32PrefixAccAddr: 'osmo' },
-    currencies: [
-      {
-        coinDenom: 'OSMO',
-        coinMinimalDenom: 'uosmo',
-        coinDecimals: 6,
-      },
-    ],
+    currencies: [{ coinDenom: 'OSMO', coinMinimalDenom: 'uosmo', coinDecimals: 6 }],
+    logoUrl:
+      'https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png',
   },
 ];
 
@@ -131,6 +133,8 @@ export const STELLAR_CONFIG_MAINNET: StellarChainConfig = {
   networkPassphrase: 'Public Global Stellar Network ; September 2015',
   horizonUrl: 'https://horizon.stellar.org',
   chainId: 'pubnet',
+  logoUrl:
+    'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
 // ==================== TESTNET CONFIGURATIONS ====================
@@ -142,6 +146,8 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     rpcUrl: 'https://ethereum-sepolia.publicnode.com',
     blockExplorerUrl: 'https://sepolia.etherscan.io',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
   },
   {
     chainId: 80002,
@@ -149,6 +155,8 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     rpcUrl: 'https://rpc-amoy.polygon.technology',
     blockExplorerUrl: 'https://amoy.polygonscan.com',
     nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
   },
   {
     chainId: 97,
@@ -156,6 +164,8 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
     blockExplorerUrl: 'https://testnet.bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'tBNB', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
   },
   {
     chainId: 421614,
@@ -163,6 +173,8 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     rpcUrl: 'https://sepolia-rollup.arbitrum.io/rpc',
     blockExplorerUrl: 'https://sepolia.arbiscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png',
   },
   {
     chainId: 11155420,
@@ -170,6 +182,8 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     rpcUrl: 'https://sepolia.optimism.io',
     blockExplorerUrl: 'https://sepolia-optimism.etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png',
   },
   {
     chainId: 43113,
@@ -177,6 +191,8 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     rpcUrl: 'https://api.avax-test.network/ext/bc/C/rpc',
     blockExplorerUrl: 'https://testnet.snowtrace.io',
     nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
+    logoUrl:
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png',
   },
 ];
 
@@ -187,13 +203,8 @@ export const COSMOS_CHAINS_TESTNET: CosmosChainConfig[] = [
     rpc: 'https://dydx-testnet-rpc.polkachu.com',
     rest: 'https://dydx-testnet-api.polkachu.com',
     bech32Config: { bech32PrefixAccAddr: 'dydx' },
-    currencies: [
-      {
-        coinDenom: 'DYDX',
-        coinMinimalDenom: 'adydx',
-        coinDecimals: 18,
-      },
-    ],
+    currencies: [{ coinDenom: 'DYDX', coinMinimalDenom: 'adydx', coinDecimals: 18 }],
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png',
   },
   {
     chainId: 'theta-testnet-001',
@@ -201,13 +212,9 @@ export const COSMOS_CHAINS_TESTNET: CosmosChainConfig[] = [
     rpc: 'https://rpc.sentry-01.theta-testnet.polypore.xyz',
     rest: 'https://rest.sentry-01.theta-testnet.polypore.xyz',
     bech32Config: { bech32PrefixAccAddr: 'cosmos' },
-    currencies: [
-      {
-        coinDenom: 'ATOM',
-        coinMinimalDenom: 'uatom',
-        coinDecimals: 6,
-      },
-    ],
+    currencies: [{ coinDenom: 'ATOM', coinMinimalDenom: 'uatom', coinDecimals: 6 }],
+    logoUrl:
+      'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
   },
   {
     chainId: 'osmo-test-5',
@@ -215,13 +222,9 @@ export const COSMOS_CHAINS_TESTNET: CosmosChainConfig[] = [
     rpc: 'https://rpc.testnet.osmosis.zone',
     rest: 'https://lcd.testnet.osmosis.zone',
     bech32Config: { bech32PrefixAccAddr: 'osmo' },
-    currencies: [
-      {
-        coinDenom: 'OSMO',
-        coinMinimalDenom: 'uosmo',
-        coinDecimals: 6,
-      },
-    ],
+    currencies: [{ coinDenom: 'OSMO', coinMinimalDenom: 'uosmo', coinDecimals: 6 }],
+    logoUrl:
+      'https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png',
   },
 ];
 
@@ -230,42 +233,30 @@ export const STELLAR_CONFIG_TESTNET: StellarChainConfig = {
   networkPassphrase: 'Test SDF Network ; September 2015',
   horizonUrl: 'https://horizon-testnet.stellar.org',
   chainId: 'testnet',
+  logoUrl:
+    'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
 // ==================== DYNAMIC GETTERS ====================
 
-let currentNetwork: NetworkType = 'mainnet';
-
-export const setNetwork = (network: NetworkType) => {
-  currentNetwork = network;
+export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
+  return network === 'mainnet' ? EVM_CHAINS_MAINNET : EVM_CHAINS_TESTNET;
 };
 
-export const getNetwork = (): NetworkType => {
-  return currentNetwork;
+export const getCosmosChains = (network: NetworkType): CosmosChainConfig[] => {
+  return network === 'mainnet' ? COSMOS_CHAINS_MAINNET : COSMOS_CHAINS_TESTNET;
 };
 
-export const getEVMChains = (): EVMChainConfig[] => {
-  return currentNetwork === 'mainnet' ? EVM_CHAINS_MAINNET : EVM_CHAINS_TESTNET;
+export const getStellarConfig = (network: NetworkType): StellarChainConfig => {
+  return network === 'mainnet' ? STELLAR_CONFIG_MAINNET : STELLAR_CONFIG_TESTNET;
 };
 
-export const getCosmosChains = (): CosmosChainConfig[] => {
-  return currentNetwork === 'mainnet' ? COSMOS_CHAINS_MAINNET : COSMOS_CHAINS_TESTNET;
-};
-
-export const getStellarConfig = (): StellarChainConfig => {
-  return currentNetwork === 'mainnet' ? STELLAR_CONFIG_MAINNET : STELLAR_CONFIG_TESTNET;
-};
-
-console.log(currentNetwork, 'hii i am curent network ');
-export const EVM_CHAINS = getEVMChains();
-export const COSMOS_CHAINS = getCosmosChains();
-export const STELLAR_CONFIG = getStellarConfig();
-
-export const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
+export const WALLETCONNECT_PROJECT_ID =
+  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'fe064714063c421e5cec1791c670bf57';
 
 export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',
-  description: 'Trade Swiftly,Trade Securely',
+  description: 'Trade Swiftly, Trade Securely',
   url: 'https://SwiftExchange.com',
   icons: ['https://SwiftExchange.com/icon.png'],
 };

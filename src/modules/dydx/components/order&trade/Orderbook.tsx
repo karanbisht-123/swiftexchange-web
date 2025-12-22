@@ -254,13 +254,13 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
           return (
             <div
               key={`ask-${priceKey}`}
-              className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
+              className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
                 flash?.type === 'up'
                   ? 'bg-[#ff3b6955] animate-flash-up'
                   : flash?.type === 'down'
                     ? 'bg-[#ff3b6944] animate-flash-down'
                     : flash?.type === 'new'
-                      ? 'bg-[#ff3b6933] animate-flash-new'
+                      ? 'bg-[#e31545ab] animate-flash-new'
                       : ''
               }`}
             >
@@ -305,7 +305,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
           return (
             <div
               key={`bid-${priceKey}`}
-              className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
+              className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
                 flash?.type === 'up'
                   ? 'bg-[#00ff9d55] animate-flash-up'
                   : flash?.type === 'down'

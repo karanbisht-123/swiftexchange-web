@@ -1,5 +1,3 @@
-import { getNetwork } from '../../walletconnect/config/chains';
-
 export interface TokenAddresses {
   USDT: string;
   USDC: string;
@@ -22,6 +20,9 @@ export interface Asset {
   balance: number;
   logoUri: string;
 }
+
+// Define NetworkType for explicit type checking
+export type NetworkType = 'mainnet' | 'testnet';
 
 // ==================== MAINNET TOKEN ADDRESSES ====================
 export const MAINNET_TOKEN_ADDRESSES: Record<number, TokenAddresses> = {
@@ -100,7 +101,7 @@ export const MAINNET_TO_TESTNET_CHAIN_MAP: Record<number, number> = {
   42161: 421614, // Arbitrum -> Arbitrum Sepolia
   10: 11155420, // Optimism -> Optimism Sepolia
   43114: 43113, // Avalanche -> Avalanche Fuji
-  286609681: 11155111, // WalletConnect Ethereum Testnet -> Sepolia
+  286609681: 11155111, // WalletConnect Ethereum Testnet -> Sepolia (This seems like a non-standard chain ID)
 };
 
 // ==================== NATIVE ASSETS ====================
@@ -210,12 +211,13 @@ export const NETWORK_KEYS: Record<number, string> = {
 // ==================== HELPER FUNCTIONS ====================
 
 /**
- * Maps a chainId to the correct network based on the global network setting
- * If network is testnet and chainId is mainnet, returns the testnet equivalent
+ * Maps a chainId to the correct network based on the provided networkType.
+ * If networkType is 'testnet' and chainId is a mainnet chain, returns the testnet equivalent.
+ * @param chainId The EVM chain ID to map.
+ * @param networkType The current application network ('mainnet' or 'testnet').
+ * @returns The mapped chain ID.
  */
-export function getMappedChainId(chainId: number): number {
-  const networkType = getNetwork();
-
+export function getMappedChainId(chainId: number, networkType: NetworkType): number {
   // If on testnet and chainId is a mainnet chain, map it to testnet
   if (networkType === 'testnet' && MAINNET_TO_TESTNET_CHAIN_MAP[chainId]) {
     const mappedChainId = MAINNET_TO_TESTNET_CHAIN_MAP[chainId];
@@ -228,69 +230,83 @@ export function getMappedChainId(chainId: number): number {
   return chainId;
 }
 
-function getTokenAddresses(): Record<number, TokenAddresses> {
-  const networkType = getNetwork();
+/**
+ * Returns the correct set of token addresses based on the provided networkType.
+ * @param networkType The current application network ('mainnet' or 'testnet').
+ * @returns The token address map.
+ */
+function getTokenAddresses(networkType: NetworkType): Record<number, TokenAddresses> {
   return networkType === 'mainnet' ? MAINNET_TOKEN_ADDRESSES : TESTNET_TOKEN_ADDRESSES;
 }
 
-export function isMainnet(chainId: number): boolean {
-  console.log('Checking if mainnet for chainId:', chainId);
-  const networkType = getNetwork();
+/**
+ * Checks if the current network environment is mainnet.
+ * @param networkType The current application network ('mainnet' or 'testnet').
+ * @returns True if the network is 'mainnet'.
+ */
+export function isMainnet(networkType: NetworkType): boolean {
   return networkType === 'mainnet';
 }
 
-export function getUSDTAddress(chainId: number): string | null {
-  const mappedChainId = getMappedChainId(chainId);
-  console.log(chainId, 'jhsdkjdh');
-  const addresses = getTokenAddresses();
+// FIX: All following functions now accept networkType as the second argument
+export function getUSDTAddress(chainId: number, networkType: NetworkType): string | null {
+  const mappedChainId = getMappedChainId(chainId, networkType);
+  const addresses = getTokenAddresses(networkType);
   return addresses[mappedChainId]?.USDT || null;
 }
 
-export function getUSDCAddress(chainId: number): string | null {
-  const mappedChainId = getMappedChainId(chainId);
-  const addresses = getTokenAddresses();
+export function getUSDCAddress(chainId: number, networkType: NetworkType): string | null {
+  const mappedChainId = getMappedChainId(chainId, networkType);
+  const addresses = getTokenAddresses(networkType);
   return addresses[mappedChainId]?.USDC || null;
 }
 
-export function getWETHAddress(chainId: number): string | null {
-  const mappedChainId = getMappedChainId(chainId);
-  const addresses = getTokenAddresses();
+export function getWETHAddress(chainId: number, networkType: NetworkType): string | null {
+  const mappedChainId = getMappedChainId(chainId, networkType);
+  const addresses = getTokenAddresses(networkType);
   return addresses[mappedChainId]?.WETH || null;
 }
 
-export function getNativeSymbol(chainId: number): string {
-  const mappedChainId = getMappedChainId(chainId);
+export function getNativeSymbol(chainId: number, networkType: NetworkType): string {
+  const mappedChainId = getMappedChainId(chainId, networkType);
   return NATIVE_ASSETS[mappedChainId]?.symbol || 'ETH';
 }
 
-export function getNativeName(chainId: number): string {
-  const mappedChainId = getMappedChainId(chainId);
+export function getNativeName(chainId: number, networkType: NetworkType): string {
+  const mappedChainId = getMappedChainId(chainId, networkType);
   return NATIVE_ASSETS[mappedChainId]?.name || 'Ethereum';
 }
 
-export function getNativeLogoUri(chainId: number): string {
-  const mappedChainId = getMappedChainId(chainId);
+export function getNativeLogoUri(chainId: number, networkType: NetworkType): string {
+  const mappedChainId = getMappedChainId(chainId, networkType);
   return NATIVE_ASSETS[mappedChainId]?.logoUri || '';
 }
 
-export function getNetworkKey(chainId: any): any {
-  const mappedChainId = getMappedChainId(chainId);
+export function getNetworkKey(chainId: any, networkType: NetworkType): any {
+  const mappedChainId = getMappedChainId(chainId, networkType);
   return NETWORK_KEYS[mappedChainId] || 'sepolia';
 }
 
-export function getNativeAssetInfo(chainId: number): NativeAssetInfo | null {
-  const mappedChainId = getMappedChainId(chainId);
+export function getNativeAssetInfo(
+  chainId: number,
+  networkType: NetworkType
+): NativeAssetInfo | null {
+  const mappedChainId = getMappedChainId(chainId, networkType);
   return NATIVE_ASSETS[mappedChainId] || null;
 }
 
-export function isChainSupported(chainId: number): boolean {
-  const mappedChainId = getMappedChainId(chainId);
+export function isChainSupported(chainId: number, networkType: NetworkType): boolean {
+  const mappedChainId = getMappedChainId(chainId, networkType);
   return mappedChainId in NATIVE_ASSETS;
 }
 
-export function createNativeAsset(chainId: number, balance: number = 0): Asset | null {
-  const mappedChainId = getMappedChainId(chainId);
-  const info = getNativeAssetInfo(mappedChainId);
+export function createNativeAsset(
+  chainId: number,
+  networkType: NetworkType,
+  balance: number = 0
+): Asset | null {
+  const mappedChainId = getMappedChainId(chainId, networkType);
+  const info = getNativeAssetInfo(mappedChainId, networkType);
   if (!info) return null;
 
   return {
@@ -304,8 +320,12 @@ export function createNativeAsset(chainId: number, balance: number = 0): Asset |
   };
 }
 
-export function createUSDTAsset(chainId: number, balance: number = 0): Asset | null {
-  const address = getUSDTAddress(chainId);
+export function createUSDTAsset(
+  chainId: number,
+  networkType: NetworkType,
+  balance: number = 0
+): Asset | null {
+  const address = getUSDTAddress(chainId, networkType);
   if (!address) return null;
 
   return {
@@ -320,8 +340,12 @@ export function createUSDTAsset(chainId: number, balance: number = 0): Asset | n
   };
 }
 
-export function createUSDCAsset(chainId: number, balance: number = 0): Asset | null {
-  const address = getUSDCAddress(chainId);
+export function createUSDCAsset(
+  chainId: number,
+  networkType: NetworkType,
+  balance: number = 0
+): Asset | null {
+  const address = getUSDCAddress(chainId, networkType);
   if (!address) return null;
 
   return {

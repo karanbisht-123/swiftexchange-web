@@ -10,6 +10,21 @@ import {
   getMarginUsageColors,
 } from '../utils/marginCalculator';
 
+const formatTimeAgo = (timestamp: number | null): string => {
+  if (!timestamp) return 'Never';
+
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+
+  if (seconds < 10) return 'Just now';
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+};
+
 export const DydxWalletConnect: React.FC = () => {
   const { connectedWallets, openModal } = useWalletConnect();
   const {
@@ -23,6 +38,8 @@ export const DydxWalletConnect: React.FC = () => {
     isLoading,
     connect,
     refresh,
+    lastUpdateTime,
+    isReceivingUpdates,
   } = useDydxWallet(true);
 
   const cosmosWallet = connectedWallets[WalletType.COSMOS];
@@ -33,8 +50,6 @@ export const DydxWalletConnect: React.FC = () => {
     }
   }, [isConnected, hasSubaccount, balance, loadingBalance, refresh]);
 
-  console.log(balance, 'balamce ------------');
-
   const marginMetrics = useMemo(() => {
     return calculateCurrentMargin(balance);
   }, [balance]);
@@ -42,6 +57,10 @@ export const DydxWalletConnect: React.FC = () => {
   const usageColors = useMemo(() => {
     return getMarginUsageColors(marginMetrics.marginUsagePercent);
   }, [marginMetrics.marginUsagePercent]);
+
+  const timeAgo = useMemo(() => {
+    return formatTimeAgo(lastUpdateTime);
+  }, [lastUpdateTime]);
 
   if (!cosmosWallet) {
     return (
@@ -127,12 +146,33 @@ export const DydxWalletConnect: React.FC = () => {
   if (isConnected && hasSubaccount && balance) {
     return (
       <div className="bg-[#1a1a2e] rounded-lg p-4">
+        {/* Real-time status indicator */}
+        <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-700/50">
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-2 h-2 rounded-full ${isReceivingUpdates ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}
+            />
+            <span className="text-xs text-gray-400">
+              {isReceivingUpdates ? 'Live Updates' : 'Connecting...'}
+            </span>
+          </div>
+          <button
+            onClick={refresh}
+            disabled={loadingBalance}
+            className="text-xs text-gray-400 hover:text-blue-400 transition disabled:opacity-50"
+            title="Refresh balance"
+          >
+            {loadingBalance ? '...' : `Updated ${timeAgo}`}
+          </button>
+        </div>
+
         {loadingBalance ? (
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-600 border-t-blue-500" />
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-3">
+            {/* Portfolio Value */}
             <div className="flex justify-between items-center">
               <span className="text-gray-400 text-xs">Portfolio Value</span>
               <span className="text-white text-sm font-medium">
@@ -140,13 +180,15 @@ export const DydxWalletConnect: React.FC = () => {
               </span>
             </div>
 
+            {/* Available Balance */}
             <div className="flex justify-between items-center">
               <span className="text-gray-400 text-xs">Available Balance</span>
-              <span className="text-white text-sm font-medium">
+              <span className="text-emerald-400 text-sm font-medium">
                 ${formatCurrency(marginMetrics.availableBalance)}
               </span>
             </div>
 
+            {/* Margin Usage with circular progress */}
             <div className="flex justify-between items-center">
               <span className="text-gray-400 text-xs">Margin Used</span>
               <div className="flex items-center gap-2">
@@ -180,6 +222,37 @@ export const DydxWalletConnect: React.FC = () => {
               </div>
             </div>
 
+            {/* Warning if margin is high */}
+            {marginMetrics.marginUsagePercent > 70 && (
+              <div
+                className={`rounded p-2 text-xs ${
+                  marginMetrics.marginUsagePercent > 85
+                    ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                    : 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
+                }`}
+              >
+                ⚠️ {marginMetrics.marginUsagePercent > 85 ? 'Critical' : 'High'} margin usage -
+                consider closing positions or adding collateral
+              </div>
+            )}
+
+            {/* Detailed metrics */}
+            <div className="pt-2 border-t border-gray-700/50 space-y-2">
+              {/* <div className="flex justify-between items-center">
+                <span className="text-gray-500 text-xs">Used Margin</span>
+                <span className="text-gray-300 text-xs">
+                  ${formatCurrency(Number(balance.marginUsage || 0))}
+                </span>
+              </div> */}
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 text-xs">Trading Rewards</span>
+                <span className="text-gray-300 text-xs">
+                  ${formatCurrency(Number(balance.totalTradingRewards || 0))}
+                </span>
+              </div>
+            </div>
+
+            {/* Deposit button */}
             <a
               href="https://trade.dydx.exchange/portfolio/deposit"
               target="_blank"

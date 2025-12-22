@@ -2,6 +2,7 @@ import * as StellarSDK from '@stellar/stellar-sdk';
 
 import { generateTransactionId } from '../../../utils/transactionUtils';
 import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type StellarSendTransaction,
   type StellarTransactionOptions,
@@ -10,7 +11,8 @@ import {
 const getByteLength = (str: string): number => new TextEncoder().encode(str).length;
 
 export async function getStellarBalance(assetType: string, from: string): Promise<string> {
-  const config = getStellarConfig();
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
 
   console.log(config, 'stellar config');
   console.log(from, 'hii i am from ');
@@ -34,7 +36,8 @@ export async function sendCryptoStellarBuild(
   amount: string,
   options: StellarTransactionOptions = {}
 ): Promise<StellarSendTransaction> {
-  const config = getStellarConfig();
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   const networkPassphrase =
@@ -114,7 +117,8 @@ export async function estimateStellarFees(): Promise<{
   totalFee: string;
   totalCost: string;
 }> {
-  const config = getStellarConfig();
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   try {
@@ -134,7 +138,9 @@ export async function signStellarTransaction(
   transaction: StellarSendTransaction,
   privateKey: string
 ): Promise<string> {
-  const config = getStellarConfig();
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+
   const networkPassphrase =
     config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
 
@@ -187,7 +193,8 @@ export async function signStellarTransaction(
 }
 
 export async function sendCryptoStellarBroadcast(signedXDR: string): Promise<string> {
-  const config = getStellarConfig();
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   const networkPassphrase =

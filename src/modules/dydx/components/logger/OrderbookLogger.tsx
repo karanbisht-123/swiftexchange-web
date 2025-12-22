@@ -47,7 +47,7 @@ const OrderbookLogger = () => {
         unsubscribe();
         console.log('🔌 Unsubscribed from orderbook');
       }
-      socketClient.disconnect();
+      // socketClient.disconnect();
       console.log('🔌 WebSocket disconnected');
     };
   }, []);

@@ -6,13 +6,13 @@ import { ethers } from 'ethers';
 import { ERC20_ABI } from '../../../abi/Erc20AbI';
 import {
   type EVMChainConfig,
-  EVM_CHAINS_MAINNET,
-  EVM_CHAINS_TESTNET,
-  getNetwork,
+  type NetworkType,
+  getEVMChains,
   getStellarConfig,
 } from '../../walletconnect/config/chains';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../store/walletConnectStore';
 
 export interface Asset {
   id: string;
@@ -51,7 +51,9 @@ const COINGECKO_IDS_MAP: Record<string, string> = {
   BTC: 'bitcoin',
 };
 
+
 const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
+  // Ethereum
   1: [
     {
       address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
@@ -75,6 +77,7 @@ const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
       coingeckoId: 'wrapped-bitcoin',
     },
   ],
+  // Polygon
   137: [
     {
       address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
@@ -91,6 +94,7 @@ const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
       coingeckoId: 'usd-coin',
     },
   ],
+  // BSC
   56: [
     {
       address: '0x55d398326f99059fF775485246999027B3197955',
@@ -107,6 +111,7 @@ const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
       coingeckoId: 'usd-coin',
     },
   ],
+  // Avalanche
   43114: [
     {
       address: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
@@ -123,6 +128,7 @@ const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
       coingeckoId: 'usd-coin',
     },
   ],
+  // Sepolia
   11155111: [
     {
       address: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06',
@@ -132,6 +138,7 @@ const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
       coingeckoId: 'tether',
     },
   ],
+  // BSC Testnet
   97: [
     {
       address: '0x337610d27c682E347C9cD60BD4b3b107C9d34dDd',
@@ -141,6 +148,7 @@ const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
       coingeckoId: 'tether',
     },
   ],
+  // Amoy
   80002: [
     {
       address: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
@@ -150,15 +158,6 @@ const POPULAR_TOKENS: Record<number, TokenInfo[]> = {
       coingeckoId: 'usd-coin',
     },
   ],
-};
-
-const identifyNetworkType = (chainId: number): 'mainnet' | 'testnet' | null => {
-  const isMainnet = EVM_CHAINS_MAINNET.some(chain => chain.chainId === chainId);
-  const isTestnet = EVM_CHAINS_TESTNET.some(chain => chain.chainId === chainId);
-
-  if (isMainnet) return 'mainnet';
-  if (isTestnet) return 'testnet';
-  return null;
 };
 
 const fetchPrices = async (
@@ -204,14 +203,16 @@ const fetchERC20Balance = async (
     const balance = await contract.balanceOf(userAddress);
     return parseFloat(ethers.formatUnits(balance, decimals));
   } catch (error) {
-    console.error(`Error fetching ERC20 balance for ${tokenAddress}:`, error);
+    
     return 0;
   }
 };
 
-const fetchStellarAssets = async (address: string): Promise<Asset[]> => {
-  const config = getStellarConfig();
+const fetchStellarAssets = async (address: string, network: NetworkType): Promise<Asset[]> => {
+
+  const config = getStellarConfig(network);
   const server = new StellarSdk.Horizon.Server(config.horizonUrl);
+
   try {
     const account = await server.loadAccount(address);
     const symbols = account.balances.map(b => {
@@ -228,11 +229,14 @@ const fetchStellarAssets = async (address: string): Promise<Asset[]> => {
         const priceData = prices[symbol] || { usd: 0, usd_24h_change: 0, volume: 0 };
         const balance = parseFloat(b.balance);
         const id = COINGECKO_IDS_MAP[symbol] || symbol.toLowerCase();
+
+        const image = `https://coin-images.coingecko.com/coins/images/${id === symbol.toLowerCase() ? '100' : id}/large/${id}.png`;
+
         return {
           id: `stellar-${symbol.toLowerCase()}`,
           symbol,
           name: symbol === 'XLM' ? 'Stellar Lumens' : `${symbol} on Stellar`,
-          image: `https://coin-images.coingecko.com/coins/images/${id === symbol.toLowerCase() ? '100' : id}/large/${id}.png`,
+          image: config.logoUrl && symbol === 'XLM' ? config.logoUrl : image, 
           balance,
           current_price: priceData.usd,
           price_change_percentage_24h: priceData.usd_24h_change,
@@ -281,7 +285,6 @@ const fetchAssetsForChain = async (
       tokenBalances = networkTokens.map(token => ({ ...token, balance: 0 }));
     }
 
-    // const allSymbols = [nativeSymbol, ...tokenBalances.map(t => t.symbol)];
     const symbolToCoingeckoId: Record<string, string> = {};
 
     tokenBalances.forEach(token => {
@@ -320,15 +323,20 @@ const fetchAssetsForChain = async (
       }
     }
 
-    // Add native token
+
     const nativePriceData = prices[nativeSymbol] || { usd: 0, usd_24hr_change: 0, usd_24hr_vol: 0 };
     const nativeId = COINGECKO_IDS_MAP[nativeSymbol] || nativeSymbol.toLowerCase();
+
+
+    const nativeImage = chainConfig.logoUrl
+      ? chainConfig.logoUrl
+      : `https://coin-images.coingecko.com/coins/images/${nativeId}/large/${nativeId}.png`;
 
     assets.push({
       id: `${chainConfig.chainId}-${nativeSymbol.toLowerCase()}`,
       symbol: nativeSymbol,
       name: chainConfig.name,
-      image: `https://coin-images.coingecko.com/coins/images/${nativeId}/large/${nativeId}.png`,
+      image: nativeImage,
       balance,
       current_price: nativePriceData.usd,
       price_change_percentage_24h: nativePriceData.usd_24hr_change || 0,
@@ -337,7 +345,7 @@ const fetchAssetsForChain = async (
       chainName: chainConfig.name,
     });
 
-    // Add all tokens
+
     tokenBalances.forEach(token => {
       const priceData = prices[token.symbol] || { usd: 0, usd_24hr_change: 0, usd_24hr_vol: 0 };
 
@@ -366,20 +374,14 @@ const fetchAssetsForChain = async (
 
 const fetchAllEVMAssets = async (
   connectedAddress: string | null,
-  connectedChainId: number | null
+  connectedChainId: number | null,
+  network: NetworkType 
 ): Promise<Asset[]> => {
-  console.log('Fetching all EVM assets...', { connectedAddress, connectedChainId });
-
-  const networkType = connectedChainId ? identifyNetworkType(connectedChainId) : getNetwork();
-
-  if (!networkType) {
-    console.warn('Could not identify network type, using config default');
-  }
-
-  const allChains = networkType === 'testnet' ? EVM_CHAINS_TESTNET : EVM_CHAINS_MAINNET;
+  console.log('Fetching all EVM assets...', { connectedAddress, connectedChainId, network });
+  const allChains = getEVMChains(network);
 
   console.log(
-    `Fetching assets for ${allChains.length} chains on ${networkType}`,
+    `Fetching assets for ${allChains.length} chains on ${network}`,
     allChains.map(c => c.name)
   );
 
@@ -390,7 +392,7 @@ const fetchAllEVMAssets = async (
   const assetsArrays = await Promise.all(assetsPromises);
   const allAssets = assetsArrays.flat();
 
-  console.log(`Total assets fetched: ${allAssets.length}`);
+  console.log(`Total EVM assets fetched: ${allAssets.length}`);
   return allAssets;
 };
 
@@ -423,6 +425,8 @@ export const useWalletAssets = () => {
   const [loading, setLoading] = useState(true);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
 
+  const { network } = useWalletStore();
+  console.log('[useWalletAssets] Current network from store:', network);
   const { connectedWallets } = useWalletConnect();
 
   const fetchAllAssets = useCallback(async () => {
@@ -437,15 +441,15 @@ export const useWalletAssets = () => {
       const evmAddress = evmWallet?.address ?? null;
       const evmChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
 
+ 
       if (evmAddress && evmChainId) {
-        const evmAssets = await fetchAllEVMAssets(evmAddress, evmChainId);
+        const evmAssets = await fetchAllEVMAssets(evmAddress, evmChainId, network);
         allAssets.push(...evmAssets);
       }
 
       const stellarWallet = connectedWallets[WalletType.STELLAR];
-
       if (stellarWallet?.address) {
-        const stellarAssets = await fetchStellarAssets(stellarWallet.address);
+        const stellarAssets = await fetchStellarAssets(stellarWallet.address, network);
         console.log('Stellar assets fetched:', stellarAssets.length);
         allAssets.push(...stellarAssets);
       }
@@ -465,7 +469,7 @@ export const useWalletAssets = () => {
     } finally {
       setLoading(false);
     }
-  }, [connectedWallets, hasInitialLoad]);
+  }, [connectedWallets, hasInitialLoad, network]);
 
   useEffect(() => {
     if (connectedWallets && Object.keys(connectedWallets).length > 0) {
@@ -475,7 +479,7 @@ export const useWalletAssets = () => {
       setLoading(false);
       setHasInitialLoad(false);
     }
-  }, [connectedWallets]);
+  }, [connectedWallets, network]);
 
   return { assets, loading, refetch: fetchAllAssets };
 };

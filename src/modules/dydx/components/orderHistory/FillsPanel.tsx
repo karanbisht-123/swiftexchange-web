@@ -1,188 +1,160 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
+import { useLocalState } from '../../hooks/useLocalState';
+import { type Fill, dydxDataService } from '../../service/dydxOrderService';
 import { dydxWalletService } from '../../service/dydxWalletService';
-
-interface Fill {
-  id: string;
-  market: string;
-  side: 'BUY' | 'SELL';
-  size: string;
-  price: string;
-  fee: string;
-  createdAt: string;
-  liquidity: 'TAKER' | 'MAKER';
-  type: string;
-}
+import { localStateManager } from '../../utils/localStateManager';
+import { getTimeAgo } from '../../utils/timeUtils';
+import { formatTime } from '../../utils/timeUtils';
+import { DataTable } from '../shared/DataTable';
+import { EmptyState } from '../shared/EmptyState';
+import { LoadMoreButton } from '../shared/LoadMoreButton';
+import { LoadingState } from '../shared/LoadingState';
+import { MarketBadge } from '../shared/MarketBadge';
+import { SideBadge } from '../shared/SideBadge';
+import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
 const FillsPanel: React.FC = () => {
-  const [fills, setFills] = useState<Fill[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { fills: liveFills } = useLocalState();
+  const [historicalFills, setHistoricalFills] = useState<Fill[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
   const address = dydxWalletService.getAddress();
-  const subNo = dydxWalletService.getSubaccountNumber();
-  const indexer = dydxWalletService.getIndexerClient();
   const isConnected = !!address;
+  const isLoading = localStateManager.getIsLoading();
 
-  useEffect(() => {
-    if (!address || !indexer) {
-      setLoading(false);
-      return;
-    }
+  const allFills = useMemo(() => {
+    const uniqueMap = new Map();
+    [...liveFills, ...historicalFills].forEach(item => uniqueMap.set(item.id, item));
+    return Array.from(uniqueMap.values()).sort(
+      (a: Fill, b: Fill) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [liveFills, historicalFills]);
 
-    const fetchFills = async () => {
-      setLoading(true);
-      try {
-        const response = await indexer.account.getSubaccountFills(
-          address!,
-          subNo,
-          undefined,
-          undefined,
-          100
-        );
+  // Load more fills
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMore || allFills.length === 0) return;
 
-        console.log('Fetched fills:', response.fills);
+    setLoadingMore(true);
+    try {
+      const lastFill = allFills[allFills.length - 1];
+      const moreFills = await dydxDataService.fetchFills(50, lastFill.createdAt);
 
-        const fillsData: Fill[] = (response.fills || [])
-          .map((f: any) => ({
-            id: f.id,
-            market: f.market,
-            side: f.side.toUpperCase() as 'BUY' | 'SELL',
-            size: f.size,
-            price: f.price,
-            fee: f.fee,
-            createdAt: f.createdAt,
-            liquidity: f.liquidity,
-            type: f.type || 'LIMIT',
-          }))
-          .sort(
-            (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
+      const newFills = moreFills.filter(f => !allFills.some(existing => existing.id === f.id));
 
-        setFills(fillsData);
-      } catch (error) {
-        console.error('Error fetching fills:', error);
-        setFills([]);
-      } finally {
-        setLoading(false);
+      if (newFills.length === 0) {
+        setHasMore(false);
+      } else {
+        setHistoricalFills(prev => [...prev, ...newFills]);
+        setHasMore(moreFills.length >= 50);
       }
-    };
-
-    fetchFills();
-    const interval = setInterval(fetchFills, 30_000);
-    return () => clearInterval(interval);
-  }, [address, indexer, subNo]);
-
-  const getTimeAgo = (timestamp: string) => {
-    const now = Date.now();
-    const diff = now - new Date(timestamp).getTime();
-    const minutes = Math.floor(diff / 60_000);
-    const hours = Math.floor(diff / 3_600_000);
-    const days = Math.floor(diff / 86_400_000);
-    const weeks = Math.floor(diff / 604_800_000);
-
-    if (minutes < 60) return `${minutes}m`;
-    if (hours < 24) return `${hours}h`;
-    if (days < 7) return `${days}d`;
-    return `${weeks}w`;
-  };
+    } catch (error) {
+      console.error('Error loading more fills:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, allFills]);
 
   if (!isConnected) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center">
-        <h3 className="text-lg font-semibold text-white mb-2">Connect Your Wallet</h3>
-        <p className="text-gray-400 text-sm">Connect to view your trade fills</p>
-      </div>
-    );
+    return <WalletConnectPrompt description="Connect to view your trade fills" />;
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-gray-400">Loading fills...</div>
-      </div>
-    );
+  if (isLoading && allFills.length === 0) {
+    return <LoadingState message="Loading fills..." />;
   }
 
-  if (fills.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center">
-        <h3 className="text-lg font-semibold text-white mb-2">No Fills Yet</h3>
-        <p className="text-gray-400 text-sm">Your trade fills will appear here</p>
-      </div>
-    );
+  if (allFills.length === 0) {
+    return <EmptyState title="No Fills Yet" description="Your trade fills will appear here" />;
   }
+
+  const columns = [
+    {
+      key: 'market',
+      header: 'Market',
+      align: 'left' as const,
+      render: (fill: Fill) => <MarketBadge market={fill.market} />,
+    },
+    {
+      key: 'time',
+      header: 'Time',
+      align: 'right' as const,
+      render: (fill: Fill) => (
+        <div>
+          <div className="text-white text-xs">{formatTime(fill.createdAt)}</div>
+          <div className="text-gray-500 text-xs">{getTimeAgo(fill.createdAt)}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      align: 'center' as const,
+      render: (fill: Fill) => <span className="text-gray-300 text-xs">{fill.type}</span>,
+    },
+    {
+      key: 'side',
+      header: 'Side',
+      align: 'center' as const,
+      render: (fill: Fill) => <SideBadge side={fill.side} />,
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right' as const,
+      render: (fill: Fill) => (
+        <span className="text-white font-mono">{parseFloat(fill.size).toFixed(4)}</span>
+      ),
+    },
+    {
+      key: 'price',
+      header: 'Price',
+      align: 'right' as const,
+      render: (fill: Fill) => (
+        <span className="text-white font-mono">${parseFloat(fill.price).toLocaleString()}</span>
+      ),
+    },
+    {
+      key: 'total',
+      header: 'Total',
+      align: 'right' as const,
+      render: (fill: Fill) => {
+        const total = (parseFloat(fill.size) * parseFloat(fill.price)).toFixed(2);
+        return <span className="text-white font-mono">${total}</span>;
+      },
+    },
+    {
+      key: 'fee',
+      header: 'Fee',
+      align: 'right' as const,
+      render: (fill: Fill) => {
+        const feeAbs = Math.abs(parseFloat(fill.fee)).toFixed(4);
+        return <span className="text-red-400 font-mono">${feeAbs}</span>;
+      },
+    },
+    {
+      key: 'liquidity',
+      header: 'Liquidity',
+      align: 'center' as const,
+      render: (fill: Fill) => (
+        <span
+          className={`px-2 py-0.5 rounded text-xs font-medium ${
+            fill.liquidity === 'MAKER'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'bg-purple-500/20 text-purple-400'
+          }`}
+        >
+          {fill.liquidity}
+        </span>
+      ),
+    },
+  ];
 
   return (
     <div className="h-full flex flex-col bg-primary">
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-secondary border-b border-[#2a2a2a] z-10">
-            <tr className="text-gray-400 text-xs">
-              <th className="text-left px-4 py-3 font-normal">Market</th>
-              <th className="text-center px-4 py-3 font-normal">Side</th>
-              <th className="text-right px-4 py-3 font-normal">Size</th>
-              <th className="text-right px-4 py-3 font-normal">Price</th>
-              <th className="text-right px-4 py-3 font-normal">Total</th>
-              <th className="text-right px-4 py-3 font-normal">Fee</th>
-              <th className="text-center px-4 py-3 font-normal">Liquidity</th>
-              <th className="text-right px-4 py-3 font-normal">Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fills.map(fill => {
-              const total = (parseFloat(fill.size) * parseFloat(fill.price)).toFixed(2);
-              const feeAbs = Math.abs(parseFloat(fill.fee)).toFixed(4);
-
-              return (
-                <tr
-                  key={fill.id}
-                  className="border-b border-[#2a2a2a] hover:bg-[#1a1a1a] transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-bold">
-                        {fill.market.split('-')[0]?.charAt(0) || 'C'}
-                      </div>
-                      <span className="text-white font-medium">{fill.market.split('-')[0]}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-3 text-center">
-                    <span
-                      className={`font-medium ${
-                        fill.side === 'BUY' ? 'text-green-400' : 'text-red-400'
-                      }`}
-                    >
-                      {fill.side}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-white font-mono">
-                    {parseFloat(fill.size).toFixed(4)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-white font-mono">
-                    ${parseFloat(fill.price).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right text-white font-mono">${total}</td>
-                  <td className="px-4 py-3 text-right text-red-400 font-mono">${feeAbs}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        fill.liquidity === 'MAKER'
-                          ? 'bg-blue-500/20 text-blue-400'
-                          : 'bg-purple-500/20 text-purple-400'
-                      }`}
-                    >
-                      {fill.liquidity}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-xs">
-                    {getTimeAgo(fill.createdAt)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <DataTable data={allFills} columns={columns} getRowKey={fill => fill.id} />
+        <LoadMoreButton onClick={loadMore} loading={loadingMore} show={hasMore} />
       </div>
     </div>
   );

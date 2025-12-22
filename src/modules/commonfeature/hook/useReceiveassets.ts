@@ -3,13 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 import { validateAddress } from '../../../validator/AddressValidator';
-import {
-  getCosmosChains,
-  getEVMChains,
-  getNetwork,
-  getStellarConfig,
-} from '../../walletconnect/config/chains';
+import { getCosmosChains, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type ReceiveAsset,
   assetFromCosmos,
@@ -19,18 +15,20 @@ import {
 
 export const useReceiveAssets = () => {
   const { connectedWallets } = useWalletConnect();
-  const currentNetwork = getNetwork();
+
+  const currentNetwork = useWalletStore(state => state.network);
+
   const [selectedAssetValue, setSelectedAssetValue] = useState<string>('');
 
   const assets: ReceiveAsset[] = useMemo(() => {
-    const evm = getEVMChains().map(assetFromEVM);
-    const cosmos = getCosmosChains().map(assetFromCosmos);
-    const stellar = [assetFromStellar(getStellarConfig())];
+    const evm = getEVMChains(currentNetwork).map(assetFromEVM);
+    const cosmos = getCosmosChains(currentNetwork).map(assetFromCosmos);
+    const stellar = [assetFromStellar(getStellarConfig(currentNetwork))];
     return [...evm, ...cosmos, ...stellar];
   }, [currentNetwork]);
 
   useEffect(() => {
-    if (assets.length && !selectedAssetValue) {
+    if (assets.length && !assets.some(a => a.value === selectedAssetValue)) {
       setSelectedAssetValue(assets[0].value);
     }
   }, [assets, selectedAssetValue]);
@@ -53,6 +51,8 @@ export const useReceiveAssets = () => {
 
     const hasWalletAddress = !!walletAddress;
     const hasCurrentAsset = !!currentAsset;
+
+    // Ensure currentAsset.network is passed to validation
     const addressValidationResult =
       hasWalletAddress && hasCurrentAsset
         ? validateAddress(walletAddress, currentAsset.network)
@@ -71,8 +71,16 @@ export const useReceiveAssets = () => {
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     if (walletAddress && qrCanvasRef.current && isAddressValid) {
+      // It's good practice to clear the canvas on update, though QRCode.toCanvas overwrites it.
+      // We explicitly clear the ref to ensure no stale data if the address changes.
+      const canvas = qrCanvasRef.current;
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
       QRCode.toCanvas(
-        qrCanvasRef.current,
+        canvas,
         walletAddress,
         { width: 192, margin: 2, color: { dark: '#000', light: '#fff' } },
         err => err && console.error(err)

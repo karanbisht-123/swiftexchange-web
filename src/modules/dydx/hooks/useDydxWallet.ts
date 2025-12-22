@@ -32,6 +32,9 @@ interface UseDydxWalletReturn {
 
   clearError: () => void;
   service: typeof dydxWalletService;
+
+  lastUpdateTime: number | null;
+  isReceivingUpdates: boolean;
 }
 
 export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
@@ -41,6 +44,8 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
   const [isLoading, setIsLoading] = useState(false);
   const [balance, setBalance] = useState<AccountBalance | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState<number | null>(null);
+  const [isReceivingUpdates, setIsReceivingUpdates] = useState(false);
 
   const cosmosWallet = useWalletStore(s => s.connectedWallets[WalletType.COSMOS]);
   const network = useWalletStore(s => s.network);
@@ -49,6 +54,8 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
   const isConnectingRef = useRef(false);
   const previousNetworkRef = useRef(network);
   const wsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const updateCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const connect = useCallback(
     async (subaccountNumber = 0): Promise<DydxConnection | null> => {
@@ -67,10 +74,11 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
       setError(null);
 
       try {
-        const conn = await dydxWalletService.connect(subaccountNumber);
+        const conn = await dydxWalletService.connect(network, subaccountNumber);
 
         setConnection(conn);
         setBalance(conn.balance ?? null);
+        setLastUpdateTime(Date.now());
 
         return conn;
       } catch (err: any) {
@@ -87,6 +95,16 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
   );
 
   const disconnect = useCallback(async () => {
+    // Clear all timers
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (updateCheckIntervalRef.current) {
+      clearInterval(updateCheckIntervalRef.current);
+      updateCheckIntervalRef.current = null;
+    }
+
     if (wsUnsubscribeRef.current) {
       wsUnsubscribeRef.current();
       wsUnsubscribeRef.current = null;
@@ -96,6 +114,8 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
     setConnection(null);
     setBalance(null);
     setError(null);
+    setLastUpdateTime(null);
+    setIsReceivingUpdates(false);
     autoConnectAttempted.current = false;
     isConnectingRef.current = false;
   }, []);
@@ -109,6 +129,7 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
       try {
         const bal = await dydxWalletService.getBalance(forceRefresh);
         setBalance(bal);
+        setLastUpdateTime(Date.now());
         return bal;
       } catch (err: any) {
         setError(err.message || 'Failed to fetch balance');
@@ -127,6 +148,7 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
 
   const clearError = useCallback(() => setError(null), []);
 
+  // Auto-connect on mount
   useEffect(() => {
     if (
       autoConnect &&
@@ -140,6 +162,7 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
     }
   }, [autoConnect, cosmosWallet, connect]);
 
+  // Handle network changes
   useEffect(() => {
     const networkChanged = previousNetworkRef.current !== network;
     previousNetworkRef.current = network;
@@ -163,12 +186,14 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
     }
   }, [network, connect, disconnect]);
 
+  // Disconnect if Cosmos wallet is disconnected
   useEffect(() => {
     if (!cosmosWallet && dydxWalletService.isConnected()) {
       disconnect();
     }
   }, [cosmosWallet, disconnect]);
 
+  // Listen to service status changes
   useEffect(() => {
     const unsubscribe = dydxWalletService.onStatusChange((newStatus, payload) => {
       setStatus(newStatus);
@@ -194,7 +219,10 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
         if (newStatus === 'connected') {
           dydxWalletService
             .getBalance(true)
-            .then(setBalance)
+            .then(bal => {
+              setBalance(bal);
+              setLastUpdateTime(Date.now());
+            })
             .catch(err => {
               console.error('[useDydxWallet] Failed to fetch balance:', err);
             });
@@ -217,6 +245,8 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
         setBalance(null);
         setError(null);
         setIsLoading(false);
+        setIsReceivingUpdates(false);
+        setLastUpdateTime(null);
         isConnectingRef.current = false;
       }
     });
@@ -226,23 +256,48 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
     return unsubscribe;
   }, []);
 
+  // WebSocket subscription for real-time updates
   useEffect(() => {
-    if (!dydxWalletService.isConnected()) return;
+    if (!dydxWalletService.isConnected() || status !== 'connected') {
+      setIsReceivingUpdates(false);
+      return;
+    }
 
     const addr = dydxWalletService.getAddress();
     const subNo = dydxWalletService.getSubaccountNumber();
 
-    if (!addr) return;
+    if (!addr) {
+      setIsReceivingUpdates(false);
+      return;
+    }
 
-    console.log('[useDydxWallet] Subscribing to subaccount updates:', addr, subNo);
+    console.log('[useDydxWallet] Setting up WebSocket subscription:', { addr, subNo });
 
     const socketClient = getSocketClient();
 
+    // Check WebSocket connection status
+    const checkConnection = () => {
+      const isConnected = socketClient.isConnected();
+      console.log('[useDydxWallet] WebSocket connection status:', isConnected);
+
+      if (!isConnected) {
+        console.log('[useDydxWallet] WebSocket not connected, attempting to connect...');
+        socketClient.connect();
+      }
+    };
+
+    checkConnection();
+
+    // Subscribe to subaccount updates
     const unsubscribe = socketClient.subscribeToSubaccounts(
       addr,
       subNo,
       data => {
-        console.log(data, 'Subaccount update data ----------------');
+        console.log('[useDydxWallet] Received subaccount update:', data);
+
+        setIsReceivingUpdates(true);
+        setLastUpdateTime(Date.now());
+
         if (data.contents?.subaccount) {
           const subaccount = data.contents.subaccount;
 
@@ -253,23 +308,41 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
             totalTradingRewards: subaccount.totalTradingRewards ?? '0',
           };
 
-          console.log(updatedBalance, 'update AccountBalance----------------');
-
-          console.log('[useDydxWallet] Balance updated via WebSocket:', updatedBalance);
+          console.log('[useDydxWallet] Updated balance from WebSocket:', updatedBalance);
           setBalance(updatedBalance);
         }
       },
-      false
+      false // Not batched for real-time updates
     );
 
     wsUnsubscribeRef.current = unsubscribe;
 
+    // Monitor WebSocket health
+    updateCheckIntervalRef.current = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastUpdate = lastUpdateTime ? now - lastUpdateTime : Infinity;
+
+      // If no updates for 30 seconds, mark as not receiving
+      if (timeSinceLastUpdate > 30000) {
+        console.warn('[useDydxWallet] No updates received for 30s, checking connection...');
+        setIsReceivingUpdates(false);
+        checkConnection();
+      }
+    }, 10000); // Check every 10 seconds
+
     return () => {
-      console.log('[useDydxWallet] Unsubscribing from subaccount updates');
-      unsubscribe();
+      console.log('[useDydxWallet] Cleaning up WebSocket subscription');
+      if (unsubscribe) {
+        unsubscribe();
+      }
       wsUnsubscribeRef.current = null;
+
+      if (updateCheckIntervalRef.current) {
+        clearInterval(updateCheckIntervalRef.current);
+        updateCheckIntervalRef.current = null;
+      }
     };
-  }, [status]);
+  }, [status, lastUpdateTime]);
 
   const isConnected = dydxWalletService.isConnected();
   const isConnecting = status === 'connecting';
@@ -298,5 +371,8 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
 
     clearError,
     service: dydxWalletService,
+
+    lastUpdateTime,
+    isReceivingUpdates,
   };
 };

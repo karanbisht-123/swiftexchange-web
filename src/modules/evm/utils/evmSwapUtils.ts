@@ -7,8 +7,10 @@ import { getEVMChains } from '../../walletconnect/config/chains';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { getSwapQuote } from '../service/evmSwapService';
 
+type NetworkType = 'mainnet' | 'testnet';
+
 const configCache = new Map<number, any>();
-const networkConfigCache = new Map<number, any>();
+const networkConfigCache = new Map<string, any>();
 
 export function getSwapConfigByChainId(chainId: number) {
   if (configCache.has(chainId)) {
@@ -35,7 +37,7 @@ export function getSwapConfigByChainId(chainId: number) {
     throw new Error(`No swap configuration found for chainId: ${chainId}`);
   }
 
-  const config = SWAP_CONFIGS[networkKey];
+  const config = (SWAP_CONFIGS as any)[networkKey];
   if (!config) {
     throw new Error(`Swap configuration not available for network: ${networkKey}`);
   }
@@ -44,32 +46,41 @@ export function getSwapConfigByChainId(chainId: number) {
   return config;
 }
 
-export function getNetworkConfigByChainId(chainId: number) {
-  if (networkConfigCache.has(chainId)) {
-    return networkConfigCache.get(chainId);
+export function getNetworkConfigByChainId(chainId: number, networkType: NetworkType) {
+  const cacheKey = `${chainId}-${networkType}`;
+
+  if (networkConfigCache.has(cacheKey)) {
+    return networkConfigCache.get(cacheKey);
   }
 
-  const chains = getEVMChains();
+  const chains = getEVMChains(networkType);
   const config = chains.find(chain => chain.chainId === chainId);
 
   if (!config) {
     throw new Error(`Network configuration not found for chainId: ${chainId}`);
   }
 
-  networkConfigCache.set(chainId, config);
+  networkConfigCache.set(cacheKey, config);
   return config;
 }
 
 export function determineSwapType(sellAsset: Asset, buyAsset: Asset, wNative: string): SwapType {
+  const isSellNative = sellAsset.isNative;
+  const isBuyNative = buyAsset.isNative;
   const isSellWNative = sellAsset.address.toLowerCase() === wNative.toLowerCase();
   const isBuyWNative = buyAsset.address.toLowerCase() === wNative.toLowerCase();
+
   const isSellUsdc = sellAsset.code.toUpperCase() === 'USDC';
   const isBuyUsdc = buyAsset.code.toUpperCase() === 'USDC';
 
-  if (isSellWNative && isBuyUsdc) return 'EthToUsdc';
-  if (isSellUsdc && isBuyWNative) return 'UsdcToWeth';
-  if (isSellWNative && !isBuyUsdc) return 'EthToToken';
-  if (!isSellWNative && isBuyWNative) return 'TokenToEth';
+  const isEthLikeSell = isSellNative || isSellWNative;
+  const isEthLikeBuy = isBuyNative || isBuyWNative;
+
+  if (isEthLikeSell && isBuyUsdc) return 'EthToUsdc';
+  if (isSellUsdc && isEthLikeBuy) return 'UsdcToWeth';
+  if (isEthLikeSell && !isBuyUsdc) return 'EthToToken';
+  if (!isEthLikeSell && isEthLikeBuy) return 'TokenToEth';
+
   return 'TokenToToken';
 }
 
@@ -81,12 +92,23 @@ export async function fetchEvmQuote(
 ): Promise<SwapQuote> {
   try {
     const swapConfig = getSwapConfigByChainId(chainId);
-    const tokenInAddress = ethers.getAddress(selectedSellAsset.address);
-    const tokenOutAddress = ethers.getAddress(selectedBuyAsset.address);
+    let tokenInAddress = selectedSellAsset.address;
+    let tokenOutAddress = selectedBuyAsset.address;
 
-    if (!ethers.isAddress(tokenInAddress) || !ethers.isAddress(tokenOutAddress)) {
+    // Use WNative address for the swap router if native token is selected
+    if (selectedSellAsset.isNative) {
+      tokenInAddress = swapConfig.wNative;
+    }
+    if (selectedBuyAsset.isNative) {
+      tokenOutAddress = swapConfig.wNative;
+    }
+
+    const tokenInChecksum = ethers.getAddress(tokenInAddress);
+    const tokenOutChecksum = ethers.getAddress(tokenOutAddress);
+
+    if (!ethers.isAddress(tokenInChecksum) || !ethers.isAddress(tokenOutChecksum)) {
       throw new Error(
-        `Invalid token addresses: tokenIn=${tokenInAddress}, tokenOut=${tokenOutAddress}`
+        `Invalid token addresses: tokenIn=${tokenInChecksum}, tokenOut=${tokenOutChecksum}`
       );
     }
 
@@ -96,12 +118,12 @@ export async function fetchEvmQuote(
       ...request,
       tokenIn: {
         ...request.tokenIn,
-        address: tokenInAddress,
+        address: tokenInChecksum,
         symbol: selectedSellAsset.code,
       },
       tokenOut: {
         ...request.tokenOut,
-        address: tokenOutAddress,
+        address: tokenOutChecksum,
         symbol: selectedBuyAsset.code,
       },
       swapType,
@@ -133,7 +155,7 @@ export async function fetchEvmQuote(
 
 export async function executeSwap(
   chainId: number,
-  quote: any,
+  quote: SwapQuote,
   selectedSellAsset: Asset,
   selectedBuyAsset: Asset,
   senderAddress: string,
@@ -153,26 +175,34 @@ export async function executeSwap(
 
     const swapRouter = ethers.getAddress(swapConfig.swapRouter);
     const wNative = ethers.getAddress(swapConfig.wNative);
-    const tokenInAddress = ethers.getAddress(selectedSellAsset.address);
-    const tokenOutAddress = ethers.getAddress(selectedBuyAsset.address);
+
+    // Determine the actual token addresses for the smart contract call (WNative for native)
+    const tokenInActual = selectedSellAsset.isNative
+      ? wNative
+      : ethers.getAddress(selectedSellAsset.address);
+    const tokenOutActual = selectedBuyAsset.isNative
+      ? wNative
+      : ethers.getAddress(selectedBuyAsset.address);
 
     const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
-    const amountOutMinimum = ethers.parseUnits(
-      (parseFloat(quote.outputAmount) * (1 - slippageTolerance / 100)).toFixed(
-        selectedBuyAsset.decimals
-      ),
-      selectedBuyAsset.decimals
-    );
 
-    const isNativeToken = tokenInAddress.toLowerCase() === wNative.toLowerCase();
+    // Calculate amountOutMinimum using BigInt to prevent floating point errors
+    const outputAmountRaw = ethers.parseUnits(quote.outputAmount, selectedBuyAsset.decimals);
+    const slippageDenominator = 100n;
+    const slippageNumerator = slippageDenominator - BigInt(slippageTolerance);
 
-    if (!isNativeToken) {
+    const amountOutMinimum = (outputAmountRaw * slippageNumerator) / slippageDenominator;
+
+    const isNativeTokenIn = selectedSellAsset.isNative;
+
+    // --- 1. APPROVAL STEP (Only needed for ERC-20 tokenIn) ---
+    if (!isNativeTokenIn) {
       const erc20Abi = [
         'function approve(address spender, uint256 amount) public returns (bool)',
         'function allowance(address owner, address spender) public view returns (uint256)',
       ];
 
-      const tokenContract = new ethers.Contract(tokenInAddress, erc20Abi, signer);
+      const tokenContract = new ethers.Contract(tokenInActual, erc20Abi, signer);
 
       try {
         const currentAllowance = await tokenContract.allowance(senderAddress, swapRouter);
@@ -186,11 +216,12 @@ export async function executeSwap(
       }
     }
 
+    // --- 2. SWAP EXECUTION ---
     const swapRouterInterface = new ethers.Interface(SWAP_ROUTER_ABI);
 
     const params = {
-      tokenIn: tokenInAddress,
-      tokenOut: tokenOutAddress,
+      tokenIn: tokenInActual,
+      tokenOut: tokenOutActual,
       fee: quote.fee,
       recipient: senderAddress,
       deadline: Math.floor(Date.now() / 1000) + 600,
@@ -204,7 +235,7 @@ export async function executeSwap(
     const swapTx = {
       to: swapRouter,
       data: swapData,
-      value: isNativeToken ? amountIn : 0n,
+      value: isNativeTokenIn ? amountIn : 0n, // Pass native amount as value
       from: senderAddress,
     };
 

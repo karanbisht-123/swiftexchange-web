@@ -1,31 +1,10 @@
-// ==================== REACT HOOK ====================
-import { useCallback, useEffect, useState } from 'react';
-
-// ==================== TYPES ====================
-export interface MarketData {
-  ticker: string;
-  oraclePrice: string;
-  priceChange24H: string;
-  volume24H: string;
-  trades24H: number;
-  nextFundingRate: string;
-  nextFundingAt: string;
-  openInterest: string;
-  marketCaps?: string;
-  baseAsset?: string;
-  quoteAsset?: string;
-  status?: string;
-  marketId?: number;
-  coinIcon?: string;
-  coinName?: string;
-}
+import { getIndexerClient } from '../client/clients';
 
 export interface CoinMetadata {
   id: string;
   symbol: string;
   name: string;
-  image: string;
-  description?: string;
+  image: any;
   market_cap_rank?: number;
 }
 
@@ -34,96 +13,196 @@ interface CacheEntry {
   timestamp: number;
 }
 
-// ==================== CONSTANTS ====================
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-const RATE_LIMIT_DELAY = 2100; // 2.1 seconds (safe for 30 calls/min)
-const BATCH_SIZE = 5; // Process 5 coins at a time
-const BATCH_DELAY = 10000; // 10 seconds between batches
+interface QueueItem {
+  symbol: string;
+  coingeckoId: string;
+  priority: number;
+  retries: number;
+}
 
-const TICKER_TO_COINGECKO: Record<string, string> = {
-  BTC: 'bitcoin',
-  ETH: 'ethereum',
-  SOL: 'solana',
-  AVAX: 'avalanche-2',
-  MATIC: 'matic-network',
-  DOGE: 'dogecoin',
-  DOT: 'polkadot',
-  ATOM: 'cosmos',
-  LINK: 'chainlink',
-  UNI: 'uniswap',
-  AAVE: 'aave',
-  COMP: 'compound-governance-token',
-  MKR: 'maker',
-  SNX: 'havven',
-  YFI: 'yearn-finance',
-  SUSHI: 'sushi',
-  CRV: 'curve-dao-token',
-  BAL: 'balancer',
-  RUNE: 'thorchain',
-  NEAR: 'near',
-  FTM: 'fantom',
-  XTZ: 'tezos',
-  EOS: 'eos',
-  TRX: 'tron',
-  ADA: 'cardano',
-  XRP: 'ripple',
-  LTC: 'litecoin',
-  BCH: 'bitcoin-cash',
-  XLM: 'stellar',
-  ALGO: 'algorand',
-  APT: 'aptos',
-  ARB: 'arbitrum',
-  OP: 'optimism',
-  RNDR: 'render-token',
-  IMX: 'immutable-x',
-  LDO: 'lido-dao',
-  INJ: 'injective-protocol',
-  SUI: 'sui',
-  SEI: 'sei-network',
-  BLUR: 'blur',
-  PEPE: 'pepe',
-  WLD: 'worldcoin-wld',
-  FET: 'fetch-ai',
-  AGIX: 'singularitynet',
-  OCEAN: 'ocean-protocol',
-};
-
-// ==================== METADATA SERVICE ====================
-/**
- * Centralized metadata service with intelligent caching and rate limiting
- * Implements:
- * - Persistent localStorage caching
- * - Exponential backoff for rate limits
- * - Batch processing with configurable delays
- * - Automatic retry with max attempts
- */
 class MetadataService {
-  private cache: Map<string, CacheEntry> = new Map();
-  private queue: Array<{ symbol: string; task: () => Promise<void> }> = [];
+  private cache = new Map<string, CacheEntry>();
+  private readonly CACHE_DURATION = 24 * 60 * 60 * 1000;
+  private readonly STORAGE_KEY = 'dydx_metadata_cache_v4';
+
+  private circuitBreakerOpen = false;
+  private circuitBreakerOpenedAt = 0;
+  private circuitBreakerLevel = 0;
+  private readonly CIRCUIT_BREAKER_TIMEOUTS = [
+    5 * 60 * 1000,
+    15 * 60 * 1000,
+    30 * 60 * 1000,
+    60 * 60 * 1000,
+  ];
+
+  private readonly BASE_DELAY = 3000;
+  private readonly MAX_RETRIES = 2;
+  private readonly MAX_QUEUE_SIZE = 50;
+
+  private queue: QueueItem[] = [];
   private processing = false;
-  private retryCount: Map<string, number> = new Map();
-  private pendingSymbols: Set<string> = new Set();
-  private listeners: Set<() => void> = new Set();
-  private readonly maxRetries = 3;
-  private readonly storageKey = 'dydx_coingecko_metadata_cache';
+  private pendingSymbols = new Set<string>();
+
+  private consecutiveErrors = 0;
+  private errorCooldown = false;
+
+  private listeners = new Set<() => void>();
+
+  // Dynamic mapping - no hardcoding
+  private assetMapping: Record<string, string> | null = null;
+  private mappingPromise: Promise<void> | null = null;
+  private mappingInitialized = false;
 
   constructor() {
     this.loadFromStorage();
     this.cleanExpiredCache();
+    this.initializeAssetMapping();
+    this.startCircuitBreakerMonitor();
   }
+
+  private startCircuitBreakerMonitor(): void {
+    setInterval(() => {
+      if (this.circuitBreakerOpen) {
+        const timeout = this.CIRCUIT_BREAKER_TIMEOUTS[this.circuitBreakerLevel];
+        const elapsed = Date.now() - this.circuitBreakerOpenedAt;
+
+        if (elapsed >= timeout) {
+          this.closeCircuitBreaker();
+        }
+      }
+    }, 60000);
+  }
+
+  private openCircuitBreaker(reason: string): void {
+    this.circuitBreakerOpen = true;
+    this.circuitBreakerOpenedAt = Date.now();
+
+    const timeout = this.CIRCUIT_BREAKER_TIMEOUTS[this.circuitBreakerLevel];
+    const minutes = Math.round(timeout / 60000);
+
+    console.warn(
+      `🛑 [MetadataService] Circuit breaker OPEN (Level ${this.circuitBreakerLevel})`,
+      `\n   Reason: ${reason}`,
+      `\n   Cooldown: ${minutes} minutes`
+    );
+
+    this.queue = [];
+    this.pendingSymbols.clear();
+    this.processing = false;
+
+    if (this.circuitBreakerLevel < this.CIRCUIT_BREAKER_TIMEOUTS.length - 1) {
+      this.circuitBreakerLevel++;
+    }
+  }
+
+  private closeCircuitBreaker(): void {
+    console.log(`✅ [MetadataService] Circuit breaker CLOSED`);
+
+    this.circuitBreakerOpen = false;
+    this.consecutiveErrors = 0;
+    this.errorCooldown = false;
+
+    setTimeout(
+      () => {
+        if (!this.circuitBreakerOpen && this.circuitBreakerLevel > 0) {
+          this.circuitBreakerLevel = Math.max(0, this.circuitBreakerLevel - 1);
+        }
+      },
+      10 * 60 * 1000
+    );
+  }
+
+  // ==================== DYNAMIC MAPPING - NO HARDCODING ====================
+
+  private async initializeAssetMapping(): Promise<void> {
+    if (this.mappingPromise) return this.mappingPromise;
+
+    this.mappingPromise = (async () => {
+      try {
+        console.log('🔍 [MetadataService] Fetching CoinGecko coin list...');
+
+        // Fetch the full CoinGecko coins list
+        const response = await fetch('https://api.coingecko.com/api/v3/coins/list');
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch CoinGecko list: ${response.status}`);
+        }
+
+        const coinsList = (await response.json()) as Array<{
+          id: string;
+          symbol: string;
+          name: string;
+        }>;
+
+        console.log(`✅ [MetadataService] Loaded ${coinsList.length} coins from CoinGecko`);
+
+        // Create symbol to ID mapping
+        const symbolToId = new Map<string, string>();
+        coinsList.forEach(coin => {
+          const symbol = coin.symbol.toUpperCase();
+          // Prefer certain well-known IDs if there are duplicates
+          if (!symbolToId.has(symbol)) {
+            symbolToId.set(symbol, coin.id);
+          }
+        });
+
+        // Get our markets
+        const indexerClient = getIndexerClient();
+        const markets = await indexerClient.markets.getPerpetualMarkets();
+
+        this.assetMapping = {};
+
+        if (markets?.markets) {
+          Object.keys(markets.markets).forEach(ticker => {
+            const baseAsset = ticker.split('-')[0].toUpperCase();
+            const coingeckoId = symbolToId.get(baseAsset);
+
+            if (coingeckoId) {
+              this.assetMapping![baseAsset] = coingeckoId;
+              console.log(`✓ Mapped ${baseAsset} → ${coingeckoId}`);
+            } else {
+              console.warn(`⚠️  No CoinGecko ID found for ${baseAsset}`);
+            }
+          });
+        }
+
+        this.mappingInitialized = true;
+        console.log(
+          `✅ [MetadataService] Initialized with ${Object.keys(this.assetMapping).length} mapped assets`
+        );
+      } catch (error) {
+        console.error('❌ [MetadataService] Failed to initialize mapping:', error);
+        this.assetMapping = {};
+        this.mappingInitialized = true;
+      }
+    })();
+
+    return this.mappingPromise;
+  }
+
+  // ==================== CACHE MANAGEMENT ====================
 
   private loadFromStorage(): void {
     try {
-      const stored = localStorage.getItem(this.storageKey);
+      const stored = localStorage.getItem(this.STORAGE_KEY);
       if (stored) {
         const data = JSON.parse(stored) as Record<string, CacheEntry>;
+        const now = Date.now();
+        let loaded = 0;
+
         Object.entries(data).forEach(([key, value]) => {
-          this.cache.set(key, value);
+          if (now - value.timestamp < this.CACHE_DURATION) {
+            this.cache.set(key, value);
+            loaded++;
+          }
         });
-        console.log(`[MetadataService] Loaded ${this.cache.size} cached entries`);
+
+        if (loaded > 0) {
+          console.log(`📦 [MetadataService] Loaded ${loaded} entries from cache`);
+        }
       }
     } catch (error) {
-      console.warn('[MetadataService] Failed to load cache:', error);
+      localStorage.removeItem(this.STORAGE_KEY);
     }
   }
 
@@ -133,9 +212,9 @@ class MetadataService {
       this.cache.forEach((value, key) => {
         data[key] = value;
       });
-      localStorage.setItem(this.storageKey, JSON.stringify(data));
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
-      console.warn('[MetadataService] Failed to save cache:', error);
+      // Silent fail
     }
   }
 
@@ -144,84 +223,70 @@ class MetadataService {
     let cleaned = 0;
 
     this.cache.forEach((entry, key) => {
-      if (now - entry.timestamp >= CACHE_DURATION) {
+      if (now - entry.timestamp >= this.CACHE_DURATION) {
         this.cache.delete(key);
         cleaned++;
       }
     });
 
     if (cleaned > 0) {
-      console.log(`[MetadataService] Cleaned ${cleaned} expired entries`);
       this.saveToStorage();
     }
   }
 
-  private notifyListeners(): void {
-    this.listeners.forEach(listener => {
-      try {
-        listener();
-      } catch (error) {
-        console.error('[MetadataService] Listener error:', error);
-      }
-    });
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
+  // ==================== QUEUE MANAGEMENT ====================
 
   private async processQueue(): Promise<void> {
-    if (this.processing || this.queue.length === 0) return;
+    if (
+      this.processing ||
+      this.queue.length === 0 ||
+      this.circuitBreakerOpen ||
+      this.errorCooldown
+    ) {
+      return;
+    }
 
     this.processing = true;
-    console.log(`[MetadataService] Processing queue with ${this.queue.length} items`);
 
-    while (this.queue.length > 0) {
-      const batch = this.queue.splice(0, BATCH_SIZE);
+    while (this.queue.length > 0 && !this.circuitBreakerOpen && !this.errorCooldown) {
+      this.queue.sort((a, b) => b.priority - a.priority);
 
-      await Promise.allSettled(batch.map(item => item.task()));
+      const item = this.queue.shift()!;
+      await this.fetchMetadata(item);
 
       if (this.queue.length > 0) {
-        console.log(`[MetadataService] Waiting ${BATCH_DELAY}ms before next batch...`);
-        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+        const delay = this.BASE_DELAY * (1 + this.circuitBreakerLevel);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
     this.processing = false;
-    console.log('[MetadataService] Queue processing completed');
   }
 
-  private async fetchMetadata(symbol: string, coingeckoId: string): Promise<void> {
-    const retries = this.retryCount.get(symbol) || 0;
-
-    if (retries >= this.maxRetries) {
-      console.warn(`[MetadataService] Max retries (${this.maxRetries}) reached for ${symbol}`);
-      this.pendingSymbols.delete(symbol);
+  private async fetchMetadata(item: QueueItem): Promise<void> {
+    if (this.circuitBreakerOpen || item.retries >= this.MAX_RETRIES) {
+      this.pendingSymbols.delete(item.symbol);
       return;
     }
 
     try {
-      console.log(`[MetadataService] Fetching ${symbol} (${coingeckoId}) - Attempt ${retries + 1}`);
-
       const response = await fetch(
-        `https://api.coingecko.com/api/v3/coins/${coingeckoId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false`
+        `https://api.coingecko.com/api/v3/coins/${item.coingeckoId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`,
+        {
+          headers: {
+            Accept: 'application/json',
+          },
+        }
       );
 
-      // Handle rate limiting
       if (response.status === 429) {
-        console.warn(`[MetadataService] Rate limited for ${symbol}, retrying...`);
-        this.retryCount.set(symbol, retries + 1);
-
-        const retryDelay = Math.min(5000 * Math.pow(2, retries), 30000);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-
-        this.queueFetch(symbol, true);
+        this.openCircuitBreaker('Rate limit (429)');
+        this.pendingSymbols.delete(item.symbol);
         return;
       }
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const data = await response.json();
@@ -231,159 +296,200 @@ class MetadataService {
         symbol: data.symbol.toUpperCase(),
         name: data.name,
         image: data.image?.large || data.image?.small || '',
-        description: data.description?.en,
         market_cap_rank: data.market_cap_rank,
       };
 
-      this.cache.set(symbol, {
+      this.cache.set(item.symbol, {
         data: metadata,
         timestamp: Date.now(),
       });
 
-      this.retryCount.delete(symbol);
-      this.pendingSymbols.delete(symbol);
+      this.pendingSymbols.delete(item.symbol);
+      this.consecutiveErrors = 0;
+
       this.saveToStorage();
       this.notifyListeners();
+    } catch (error: any) {
+      this.consecutiveErrors++;
 
-      console.log(`[MetadataService] Successfully cached ${symbol}`);
+      if (this.consecutiveErrors >= 2) {
+        this.openCircuitBreaker(`${this.consecutiveErrors} consecutive errors`);
+        this.pendingSymbols.delete(item.symbol);
+        return;
+      }
 
-      // Respect rate limits
-      await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
-    } catch (error) {
-      console.error(`[MetadataService] Error fetching ${symbol}:`, error);
-      this.retryCount.set(symbol, retries + 1);
-      this.pendingSymbols.delete(symbol);
+      if (!this.errorCooldown) {
+        this.errorCooldown = true;
+        setTimeout(() => {
+          this.errorCooldown = false;
+        }, 30000);
+      }
 
-      if (retries < this.maxRetries - 1) {
-        this.queueFetch(symbol, true);
+      if (item.retries < this.MAX_RETRIES) {
+        this.queue.push({
+          ...item,
+          retries: item.retries + 1,
+          priority: Math.max(1, item.priority - 2),
+        });
+      } else {
+        this.pendingSymbols.delete(item.symbol);
       }
     }
   }
 
-  private queueFetch(symbol: string, skipPendingCheck = false): void {
-    if (!skipPendingCheck && this.pendingSymbols.has(symbol)) {
-      return;
+  // ==================== PUBLIC API ====================
+
+  async getMetadata(ticker: string): Promise<CoinMetadata | null> {
+    if (!this.mappingInitialized) {
+      await this.initializeAssetMapping();
     }
 
-    const coingeckoId = TICKER_TO_COINGECKO[symbol];
-    if (!coingeckoId) {
-      return;
-    }
-
-    const retries = this.retryCount.get(symbol) || 0;
-    if (retries >= this.maxRetries) {
-      return;
-    }
-
-    this.pendingSymbols.add(symbol);
-
-    const task = async () => this.fetchMetadata(symbol, coingeckoId);
-    this.queue.push({ symbol, task });
-
-    this.processQueue();
-  }
-
-  getMetadata(ticker: string): CoinMetadata | null {
     const symbol = ticker.split('-')[0].toUpperCase();
     const cached = this.cache.get(symbol);
 
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
       return cached.data;
     }
 
-    // Queue fetch if not cached or expired
-    if (!this.pendingSymbols.has(symbol)) {
-      this.queueFetch(symbol);
+    if (
+      !this.circuitBreakerOpen &&
+      !this.pendingSymbols.has(symbol) &&
+      this.assetMapping &&
+      this.queue.length < this.MAX_QUEUE_SIZE
+    ) {
+      const coingeckoId = this.assetMapping[symbol];
+      if (coingeckoId) {
+        this.pendingSymbols.add(symbol);
+        this.queue.push({
+          symbol,
+          coingeckoId,
+          priority: 5,
+          retries: 0,
+        });
+        this.processQueue();
+      }
     }
 
     return cached?.data || null;
   }
 
   getCoinIcon(ticker: string): string {
-    const metadata = this.getMetadata(ticker);
-    if (metadata?.image) {
-      return metadata.image;
+    const symbol = ticker.split('-')[0].toUpperCase();
+    const cached = this.cache.get(symbol);
+
+    if (cached?.data?.image) {
+      return cached.data.image;
     }
 
-    // Fallback to generic icon
-    const symbol = ticker.split('-')[0].toLowerCase();
-    return `https://cryptoicons.org/api/icon/${symbol}/200`;
+    return `https://cryptoicons.org/api/icon/${symbol.toLowerCase()}/200`;
   }
 
-  preloadBatch(tickers: string[]): void {
-    const unique = [...new Set(tickers.map(t => t.split('-')[0].toUpperCase()))];
+  async preloadBatch(tickers: string[]): Promise<void> {
+    if (!this.mappingInitialized) {
+      await this.initializeAssetMapping();
+    }
 
-    const needsFetch = unique.filter(symbol => {
-      const cached = this.cache.get(symbol);
-      return !cached || Date.now() - cached.timestamp >= CACHE_DURATION;
+    if (this.circuitBreakerOpen) {
+      console.log('⏸️  [MetadataService] Preload skipped - circuit breaker open');
+      return;
+    }
+
+    const unique = [...new Set(tickers.map(t => t.split('-')[0].toUpperCase()))];
+    const now = Date.now();
+
+    const needsFetch = unique
+      .filter(symbol => {
+        const cached = this.cache.get(symbol);
+        return !cached || now - cached.timestamp >= this.CACHE_DURATION;
+      })
+      .slice(0, this.MAX_QUEUE_SIZE);
+
+    if (needsFetch.length === 0) {
+      return;
+    }
+
+    console.log(`🔄 [MetadataService] Preloading ${needsFetch.length} assets`);
+
+    needsFetch.forEach((symbol, index) => {
+      if (this.assetMapping && this.assetMapping[symbol] && !this.pendingSymbols.has(symbol)) {
+        this.pendingSymbols.add(symbol);
+        this.queue.push({
+          symbol,
+          coingeckoId: this.assetMapping[symbol],
+          priority: Math.max(10 - Math.floor(index / 5), 1),
+          retries: 0,
+        });
+      }
     });
 
-    console.log(`[MetadataService] Preloading ${needsFetch.length} of ${unique.length} coins`);
-
-    needsFetch.forEach(symbol => this.queueFetch(symbol));
+    this.processQueue();
   }
 
-  getCacheStats(): { valid: number; total: number; expired: number; pending: number } {
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notifyListeners(): void {
+    this.listeners.forEach(listener => {
+      try {
+        listener();
+      } catch (error) {
+        // Silent
+      }
+    });
+  }
+
+  getCacheStats() {
     const now = Date.now();
     let valid = 0;
     let expired = 0;
 
     this.cache.forEach(entry => {
-      if (now - entry.timestamp < CACHE_DURATION) {
+      if (now - entry.timestamp < this.CACHE_DURATION) {
         valid++;
       } else {
         expired++;
       }
     });
 
+    const cooldownRemaining = this.circuitBreakerOpen
+      ? Math.max(
+          0,
+          this.CIRCUIT_BREAKER_TIMEOUTS[this.circuitBreakerLevel] -
+            (now - this.circuitBreakerOpenedAt)
+        )
+      : 0;
+
     return {
       valid,
       total: this.cache.size,
       expired,
       pending: this.pendingSymbols.size,
+      queueLength: this.queue.length,
+      circuitBreakerOpen: this.circuitBreakerOpen,
+      circuitBreakerLevel: this.circuitBreakerLevel,
+      cooldownRemainingMs: cooldownRemaining,
+      cooldownRemainingMin: Math.ceil(cooldownRemaining / 60000),
     };
   }
 
   clearCache(): void {
     this.cache.clear();
-    this.retryCount.clear();
+    this.queue = [];
     this.pendingSymbols.clear();
-    localStorage.removeItem(this.storageKey);
-    console.log('[MetadataService] Cache cleared');
+    localStorage.removeItem(this.STORAGE_KEY);
+    console.log('🗑️  [MetadataService] Cache cleared');
+  }
+
+  forceCloseCircuitBreaker(): void {
+    this.closeCircuitBreaker();
+  }
+
+  resetCircuitBreakerLevel(): void {
+    this.circuitBreakerLevel = 0;
+    console.log('🔄 [MetadataService] Circuit breaker level reset to 0');
   }
 }
 
-// ==================== SINGLETON INSTANCE ====================
 export const metadataService = new MetadataService();
-
-export function useCoinGeckoMetadata() {
-  const [cacheStats, setCacheStats] = useState(metadataService.getCacheStats());
-
-  useEffect(() => {
-    const unsubscribe = metadataService.subscribe(() => {
-      setCacheStats(metadataService.getCacheStats());
-    });
-
-    return unsubscribe;
-  }, []);
-
-  const getCoinMetadata = useCallback((ticker: string) => {
-    return metadataService.getMetadata(ticker);
-  }, []);
-
-  const getCoinIcon = useCallback((ticker: string) => {
-    return metadataService.getCoinIcon(ticker);
-  }, []);
-
-  const preloadCoins = useCallback((tickers: string[]) => {
-    metadataService.preloadBatch(tickers);
-  }, []);
-
-  return {
-    getCoinMetadata,
-    getCoinIcon,
-    preloadCoins,
-    cacheStats,
-    clearCache: () => metadataService.clearCache(),
-  };
-}

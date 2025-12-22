@@ -40,8 +40,6 @@ const WalletAssetsSection: FC<AssetsSectionProps> = ({ title = 'My Assets' }) =>
   };
 
   const handleTradeClick = (asset: Asset) => {
-    // Navigate to trading page with asset info and flag that we came from trade button
-    // This will handle pairs like ETH/USDC, BNB/USDC, XLM/USDC via Stellar trade
     navigate(ROUTES.TRADING_STEALLR, {
       state: {
         selectedAsset: asset,

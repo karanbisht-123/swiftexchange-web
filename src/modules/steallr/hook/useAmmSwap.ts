@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { AmmSwapService } from '../service/ammSwapService';
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
+
+// Assuming NetworkType is defined elsewhere, but for completeness:
+// type NetworkType = 'mainnet' | 'testnet';
 
 interface UseAmmSwapProps {
   userAddress: string;
@@ -20,9 +23,15 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
   const [slippageTolerance, setSlippageTolerance] = useState(1);
   const [popularTokens, setPopularTokens] = useState<TokenInfo[]>([]);
 
+  // Use the wallet store to get the current Stellar configuration
+  const { currentStellarConfig } = useWalletStore();
+
   useEffect(() => {
     try {
-      const config = getStellarConfig();
+      // Use the Stellar configuration directly from the centralized store.
+      // The store handles calling getStellarConfig(network) and updating this value.
+      const config = currentStellarConfig;
+
       const ammService = new AmmSwapService(
         config.horizonUrl,
         config.networkPassphrase,
@@ -33,7 +42,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
       console.error('Failed to initialize AMM service:', err);
       setError('Failed to connect to Stellar network');
     }
-  }, []);
+  }, [currentStellarConfig]); // Re-initialize service if the network/config changes
 
   // Load user tokens
   useEffect(() => {
@@ -157,6 +166,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     const temp = fromToken;
     setFromToken(toToken);
     setToToken(temp);
+    // Since `toAmount` is the calculated output, setting `fromAmount` to it reverses the quote calculation.
     setFromAmount(toAmount);
   }, [fromToken, toToken, toAmount]);
 

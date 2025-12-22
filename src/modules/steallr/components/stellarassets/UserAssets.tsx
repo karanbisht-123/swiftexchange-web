@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { useStellarBalances } from './GlobalAssets';
 
 interface MyTestnetAssetsProps {
@@ -14,7 +15,7 @@ interface DisplayAsset {
   ticker: string;
   price: number;
   quantity: number;
-  network: string;
+  network: any;
   iconUrl: string;
 }
 
@@ -37,11 +38,13 @@ const KNOWN_ASSETS: Record<string, { name: string; ticker: string; iconUrl: stri
   },
 };
 
-const useMyAssets = (userAddress?: string, networkKey: string = 'testnet') => {
+const useMyAssets = (userAddress?: string) => {
   const { connectedWallets } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const address = stellarWallet?.address || userAddress || '';
-  const { balances, loading: balancesLoading } = useStellarBalances(address, networkKey);
+  // const { balances, loading: balancesLoading } = useStellarBalances(address, networkKey);
+  const currentNetwork = useWalletStore(state => state.network);
+  const { balances, loading: balancesLoading } = useStellarBalances(address, currentNetwork);
 
   const [assets, setAssets] = useState<DisplayAsset[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,7 +55,7 @@ const useMyAssets = (userAddress?: string, networkKey: string = 'testnet') => {
     AQUA: 0.001,
   };
 
-  const config = getStellarConfig();
+  const config = getStellarConfig(currentNetwork);
 
   useEffect(() => {
     const processAssets = () => {

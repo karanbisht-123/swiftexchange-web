@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 
 import type { Asset, SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { AssetUtils } from '../utils/assetUtils';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
 
@@ -50,6 +51,8 @@ export const useEvmSwap = ({
     quoteLoading: false,
   });
 
+  const network = useWalletStore(state => state.network);
+
   const quoteAbortController = useRef<AbortController | null>(null);
   const assetsAbortController = useRef<AbortController | null>(null);
 
@@ -83,7 +86,7 @@ export const useEvmSwap = ({
     updateState({ isFetchingAssets: true, error: null });
 
     try {
-      const fetchedAssets = await AssetUtils.fetchAssets(chainId, senderAddress);
+      const fetchedAssets = await AssetUtils.fetchAssets(chainId, senderAddress, network);
 
       if (!assetsAbortController.current.signal.aborted) {
         updateState({ assets: fetchedAssets, isFetchingAssets: false });
@@ -101,7 +104,7 @@ export const useEvmSwap = ({
         isFetchingAssets: false,
       });
     }
-  }, [chainId, senderAddress, updateState]);
+  }, [chainId, senderAddress, network, updateState]);
 
   const fetchQuote = useCallback(
     async (request: SwapQuoteRequest, sellAsset: Asset, buyAsset: Asset): Promise<SwapQuote> => {

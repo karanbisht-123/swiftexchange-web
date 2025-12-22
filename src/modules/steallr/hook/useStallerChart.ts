@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { getStellarConfig } from '../../walletconnect/config/chains';
+// REMOVED: import { getStellarConfig } from '../../walletconnect/config/chains';
+// IMPORTED centralized state store
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { StellarChartService } from '../service/stellarChartService';
 import type {
   ChartAssetPair,
@@ -10,6 +12,8 @@ import type {
   ChartTimeRange,
   UseChartReturn,
 } from '../types/stellarChart.types';
+
+type NetworkType = 'mainnet' | 'testnet';
 
 const DEFAULT_RESOLUTION = 900000;
 const STREAM_MAX_RETRIES = 3;
@@ -36,7 +40,13 @@ export function useStellarChart({
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const [isPolling, setIsPolling] = useState<boolean>(false);
-  const [currentNetwork, setCurrentNetwork] = useState<string>('testnet');
+
+  // Retrieve current Stellar configuration and network state from the central store
+  const currentStellarConfig = useWalletStore(state => state.currentStellarConfig);
+  const initialNetwork = useWalletStore.getState().network;
+
+  // Initialize currentNetwork with the store's initial network state
+  const [currentNetwork, setCurrentNetwork] = useState<NetworkType>(initialNetwork);
 
   const [currentResolution, setCurrentResolution] = useState<ChartResolution>(resolution);
   const [currentTimeRange, setCurrentTimeRange] = useState<ChartTimeRange>(
@@ -57,26 +67,25 @@ export function useStellarChart({
   const mountedRef = useRef<boolean>(true);
   const streamingRequestedRef = useRef<boolean>(false);
 
-  // Initialize service with WalletConnect config
   useEffect(() => {
+    // Use config from the store
+    const config = currentStellarConfig;
+
+    // Determine the actual network type (mainnet/testnet) based on the config object
+    const actualNetwork: NetworkType = config.network === 'PUBLIC' ? 'mainnet' : 'testnet';
+
     try {
-      const config = getStellarConfig();
       const chartService = new StellarChartService(
         config.horizonUrl,
         config.networkPassphrase,
         config.chainId
       );
       setService(chartService);
+      setCurrentNetwork(actualNetwork);
 
-      // Determine network type
-      const network = config.networkPassphrase.includes('Public Global Stellar Network')
-        ? 'mainnet'
-        : 'testnet';
-      setCurrentNetwork(network);
-
-      // Set default asset pair for the network
+      // Set default asset pair based on the actual network
       if (!assetPair) {
-        if (network === 'mainnet') {
+        if (actualNetwork === 'mainnet') {
           setCurrentAssetPair({
             base: 'XLM',
             counter: 'USDC',
@@ -94,7 +103,7 @@ export function useStellarChart({
       console.error('Failed to initialize chart service:', err);
       setError('Failed to connect to Stellar network');
     }
-  }, []);
+  }, [currentStellarConfig, assetPair]); // Re-initialize service and defaults when config or initial assetPair changes
 
   const fetchData = useCallback(async () => {
     if (!service || !currentAssetPair?.base || !currentAssetPair?.counter) {
@@ -206,9 +215,12 @@ export function useStellarChart({
         const exists = prevData.some(d => d.timestamp === newDataPoint.timestamp);
 
         if (exists) {
+          // Update existing data point
           return prevData.map(d => (d.timestamp === newDataPoint.timestamp ? newDataPoint : d));
         } else {
+          // Add new data point and maintain size/sort order
           const updated = [...prevData, newDataPoint].sort((a, b) => a.timestamp - b.timestamp);
+          // Keep a reasonable number of points (e.g., 500)
           return updated.length > 500 ? updated.slice(-500) : updated;
         }
       });
@@ -233,6 +245,7 @@ export function useStellarChart({
 
       if (retryCountRef.current < STREAM_MAX_RETRIES) {
         retryCountRef.current++;
+        // Exponential backoff delay
         const delay = STREAM_RECONNECT_DELAY * Math.pow(2, retryCountRef.current - 1);
         setError(`Connection lost. Retrying (${retryCountRef.current}/${STREAM_MAX_RETRIES})...`);
 
@@ -264,7 +277,7 @@ export function useStellarChart({
         .then(closer => {
           if (mountedRef.current && streamingRequestedRef.current) {
             streamCloseRef.current = closer;
-            retryCountRef.current = 0;
+            retryCountRef.current = 0; // Reset retry count upon successful connection
           } else {
             closer();
           }
@@ -300,11 +313,16 @@ export function useStellarChart({
       setError('Invalid asset pair: base and counter are required');
       return;
     }
-    if (pair.base !== 'XLM' && pair.base !== 'native' && !pair.baseIssuer) {
+    // Stellar specific validation logic: only 'XLM' or 'native' are allowed without an issuer
+    const isBaseNative = pair.base.toLowerCase() === 'xlm' || pair.base.toLowerCase() === 'native';
+    const isCounterNative =
+      pair.counter.toLowerCase() === 'xlm' || pair.counter.toLowerCase() === 'native';
+
+    if (!isBaseNative && !pair.baseIssuer) {
       setError(`Issuer required for non-native base asset: ${pair.base}`);
       return;
     }
-    if (pair.counter !== 'XLM' && pair.counter !== 'native' && !pair.counterIssuer) {
+    if (!isCounterNative && !pair.counterIssuer) {
       setError(`Issuer required for non-native counter asset: ${pair.counter}`);
       return;
     }
@@ -312,12 +330,16 @@ export function useStellarChart({
   }, []);
 
   useEffect(() => {
+    // 1. Fetch historical data on parameter change
     if (currentAssetPair) {
       fetchData();
     }
-  }, [currentAssetPair, currentTimeRange, currentResolution]);
+    // 2. Stop streaming if parameters change
+    stopStreaming();
+  }, [currentAssetPair, currentTimeRange, currentResolution, fetchData, stopStreaming]);
 
   useEffect(() => {
+    // Restart streaming if streaming was previously requested and parameters change
     if (streamingRequestedRef.current && !isReconnectingRef.current) {
       stopStreaming();
       const timeout = setTimeout(() => {
@@ -330,6 +352,7 @@ export function useStellarChart({
   }, [currentAssetPair, currentResolution, stopStreaming, startStreaming]);
 
   useEffect(() => {
+    // Auto-stream start logic
     if (
       autoStream &&
       !isStreaming &&

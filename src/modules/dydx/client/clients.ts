@@ -7,92 +7,77 @@ import {
   ValidatorClient,
 } from '@dydxprotocol/v4-client-js';
 
-import { getNetwork } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { getDydxConfig } from '../config/config';
 import { type MessageHandler, webSocketManager } from '../utils/WebSocketManager';
 
-// Singleton clients with network tracking
 let indexerClient: IndexerClient | null = null;
 let validatorClient: ValidatorClient | null = null;
 let compositeClient: CompositeClient | null = null;
-let socketClientInstance: ReturnType<typeof createSocketClient> | null = null;
 let currentNetwork: 'mainnet' | 'testnet' | null = null;
 
-/**
- * Get current network from wallet store
- */
-const getCurrentNetwork = (): 'mainnet' | 'testnet' => {
-  const network = getNetwork();
-  console.log('[getCurrentNetwork] Retrieved network from store:', network);
-  return network;
+const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
+  return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
 
 /**
- * Reset all clients when network changes
+ * Resets all clients when switching networks.
+ * IMPORTANT: Do NOT call webSocketManager.shutdown() here unless it's a full logout.
+ * On network change, we want to reconnect to the new endpoint, not kill everything.
  */
-export const resetAllClients = (): void => {
+export const resetAllClients = (isLogout = false): void => {
   indexerClient = null;
   validatorClient = null;
   compositeClient = null;
-  socketClientInstance = null;
   currentNetwork = null;
-  webSocketManager.disconnect();
-  console.log('[dYdX Clients] All clients reset due to network change');
+
+  if (isLogout) {
+    webSocketManager.shutdown(); // Only on full logout
+    console.log('[dYdX Clients] All clients fully shut down (logout)');
+  } else {
+    // On network change: let WebSocketManager handle reconnect to new URL naturally
+    console.log(
+      '[dYdX Clients] Clients reset due to network change (WebSocket will reconnect automatically)'
+    );
+  }
 };
 
-/**
- * Get or create IndexerClient for current network
- */
-export const getIndexerClient = (): IndexerClient => {
-  const network = getCurrentNetwork();
+const checkNetworkChange = (network: 'mainnet' | 'testnet'): boolean => {
+  if (currentNetwork && currentNetwork !== network) {
+    console.log(
+      `[dYdX Client] Network changed from ${currentNetwork} to ${network}, resetting clients...`
+    );
+    resetAllClients(); // No shutdown() here
+    return true;
+  }
+  return false;
+};
 
-  // Return existing client if network hasn't changed
+export const getIndexerClient = (): IndexerClient => {
+  const network = useWalletStore.getState().network;
+
   if (indexerClient && currentNetwork === network) {
     return indexerClient;
   }
 
-  // Network changed, reset and create new client
-  if (currentNetwork && currentNetwork !== network) {
-    console.log(
-      `[IndexerClient] Network changed from ${currentNetwork} to ${network}, resetting...`
-    );
-    resetAllClients();
-  }
+  checkNetworkChange(network);
+  const networkConfig = getNetworkConfig(network);
 
-  const config = getDydxConfig(network);
-
-  indexerClient = new IndexerClient({
-    restEndpoint: config.apiUrl,
-    websocketEndpoint: config.indexerWs,
-  });
-
+  indexerClient = new IndexerClient(networkConfig.indexerConfig);
   currentNetwork = network;
-  console.log(`[IndexerClient] Initialized for ${network}: ${config.apiUrl}`);
+  console.log(`[IndexerClient] Initialized for ${network}`);
 
   return indexerClient;
 };
 
-/**
- * Get or create ValidatorClient for current network
- */
 export const getValidatorClient = async (): Promise<ValidatorClient> => {
-  const network = getCurrentNetwork();
+  const network = useWalletStore.getState().network;
 
-  // Return existing client if network hasn't changed
   if (validatorClient && currentNetwork === network) {
     return validatorClient;
   }
 
-  // Network changed, reset and create new client
-  if (currentNetwork && currentNetwork !== network) {
-    console.log(
-      `[ValidatorClient] Network changed from ${currentNetwork} to ${network}, resetting...`
-    );
-    resetAllClients();
-  }
-
-  const networkConfig = network === 'mainnet' ? Network.mainnet() : Network.testnet();
+  checkNetworkChange(network);
+  const networkConfig = getNetworkConfig(network);
 
   validatorClient = await ValidatorClient.connect(networkConfig.validatorConfig);
   currentNetwork = network;
@@ -101,26 +86,15 @@ export const getValidatorClient = async (): Promise<ValidatorClient> => {
   return validatorClient;
 };
 
-/**
- * Get or create CompositeClient for current network
- */
 export const getCompositeClient = async (): Promise<CompositeClient> => {
-  const network = getCurrentNetwork();
+  const network = useWalletStore.getState().network;
 
-  // Return existing client if network hasn't changed
   if (compositeClient && currentNetwork === network) {
     return compositeClient;
   }
 
-  // Network changed, reset and create new client
-  if (currentNetwork && currentNetwork !== network) {
-    console.log(
-      `[CompositeClient] Network changed from ${currentNetwork} to ${network}, resetting...`
-    );
-    resetAllClients();
-  }
-
-  const networkConfig = network === 'mainnet' ? Network.mainnet() : Network.testnet();
+  checkNetworkChange(network);
+  const networkConfig = getNetworkConfig(network);
 
   compositeClient = await CompositeClient.connect(networkConfig);
   currentNetwork = network;
@@ -129,35 +103,33 @@ export const getCompositeClient = async (): Promise<CompositeClient> => {
   return compositeClient;
 };
 
-/**
- * Create socket client with WebSocket manager
- */
 const createSocketClient = () => {
-  const network = getCurrentNetwork();
-  const config = getDydxConfig(network);
+  const network = useWalletStore.getState().network;
+  const networkConfig = getNetworkConfig(network);
+  const wsEndpoint = networkConfig.indexerConfig.websocketEndpoint;
 
-  // Disconnect existing connection and reconnect with new config
-  webSocketManager.disconnect();
-  setTimeout(() => webSocketManager.connect(config.indexerWs), 100);
+  webSocketManager.connect(wsEndpoint).catch(error => {
+    console.error('[SocketClient] Initial connection failed:', error);
+  });
 
   return {
-    connect: () => webSocketManager.connect(config.indexerWs),
-
-    subscribeToOrderbook: (market: string, handler: MessageHandler, batched = false) =>
-      webSocketManager.subscribe('v4_orderbook', handler, market, batched),
+    connect: () => webSocketManager.connect(wsEndpoint),
 
     subscribeToTrades: (market: string, handler: MessageHandler, batched = false) =>
       webSocketManager.subscribe('v4_trades', handler, market, batched),
 
     subscribeToMarkets: (handler: MessageHandler, batched = true) =>
-      webSocketManager.subscribe('v4_markets', handler, undefined, batched),
+      webSocketManager.subscribe('v4_marketss', handler, undefined, batched),
 
     subscribeToCandles: (
       market: string,
       resolution: string,
       handler: MessageHandler,
-      batched = true
-    ) => webSocketManager.subscribe('v4_candles', handler, `${market}/${resolution}`, batched),
+      batched = false
+    ) => webSocketManager.subscribe('v4_candless', handler, `${market}/${resolution}`, batched),
+
+    subscribeToOrderbook: (market: string, handler: MessageHandler, batched = false) =>
+      webSocketManager.subscribe('v4_orderbooxk', handler, market, batched),
 
     subscribeToSubaccounts: (
       address: string,
@@ -172,116 +144,124 @@ const createSocketClient = () => {
         batched
       ),
 
+    subscribeToParentSubaccounts: (
+      address: string,
+      subaccountNumber: number,
+      handler: MessageHandler,
+      batched = false
+    ) =>
+      webSocketManager.subscribe(
+        'v4_parent_subaccounts',
+        handler,
+        `${address}/${subaccountNumber}`,
+        batched
+      ),
+
+    subscribeToBlockHeight: (handler: MessageHandler, batched = true) =>
+      webSocketManager.subscribe('v4_block_height', handler, undefined, batched),
+
     getConnectionStatus: () => webSocketManager.getConnectionStatus(),
     getDebugInfo: () => webSocketManager.getDebugInfo(),
     isConnected: () => webSocketManager.isConnected(),
-    disconnect: () => webSocketManager.disconnect(),
+
+    // Removed .disconnect() from public API to prevent accidental global shutdown
+
     onConnect: (cb: () => void) => webSocketManager.onConnect(cb),
     onDisconnect: (cb: () => void) => webSocketManager.onDisconnect(cb),
   };
 };
 
-/**
- * Get or create SocketClient for current network
- */
 export const getSocketClient = () => {
-  const network = getCurrentNetwork();
+  const network = useWalletStore.getState().network;
 
-  // Return existing client if network hasn't changed
-  if (socketClientInstance && currentNetwork === network) {
-    return socketClientInstance;
+  // No need to recreate if network is same — WebSocketManager handles endpoint changes
+  if (currentNetwork === network) {
+    // Reuse existing methods, but ensure connection points to correct endpoint
+    const networkConfig = getNetworkConfig(network);
+    webSocketManager.connect(networkConfig.indexerConfig.websocketEndpoint);
+    return createSocketClient();
   }
 
-  // Network changed, reset and create new client
-  if (currentNetwork && currentNetwork !== network) {
-    console.log(
-      `[SocketClient] Network changed from ${currentNetwork} to ${network}, resetting...`
-    );
-    resetAllClients();
-  }
-
-  socketClientInstance = createSocketClient();
+  checkNetworkChange(network);
   currentNetwork = network;
   console.log(`[SocketClient] Created for ${network}`);
 
-  return socketClientInstance;
+  return createSocketClient();
 };
 
 export type SocketClient = ReturnType<typeof createSocketClient>;
 
-/**
- * React Hook: Get IndexerClient that responds to network changes
- */
 export const useIndexerClient = (): IndexerClient => {
   const network = useWalletStore(s => s.network);
-  const [client, setClient] = useState<IndexerClient>(() => getIndexerClient());
+  const [client, setClient] = useState<IndexerClient>(getIndexerClient());
 
   useEffect(() => {
-    console.log(`[useIndexerClient] Network changed to ${network}, resetting clients...`);
-    resetAllClients();
     setClient(getIndexerClient());
   }, [network]);
 
   return client;
 };
 
-/**
- * React Hook: Get ValidatorClient that responds to network changes
- */
 export const useValidatorClient = (): ValidatorClient | null => {
   const network = useWalletStore(s => s.network);
   const [client, setClient] = useState<ValidatorClient | null>(null);
 
   useEffect(() => {
-    console.log(`[useValidatorClient] Network changed to ${network}, resetting clients...`);
-    resetAllClients();
-
-    getValidatorClient().then(vc => {
-      setClient(vc);
-    });
+    resetAllClients(); // Safe — doesn't call shutdown()
+    getValidatorClient()
+      .then(setClient)
+      .catch(error => {
+        console.error('[useValidatorClient] Connection failed:', error);
+        setClient(null);
+      });
   }, [network]);
 
   return client;
 };
 
-/**
- * React Hook: Get CompositeClient that responds to network changes
- */
 export const useCompositeClient = (): CompositeClient | null => {
   const network = useWalletStore(s => s.network);
   const [client, setClient] = useState<CompositeClient | null>(null);
 
   useEffect(() => {
-    console.log(`[useCompositeClient] Network changed to ${network}, resetting clients...`);
     resetAllClients();
-
-    getCompositeClient().then(cc => {
-      setClient(cc);
-    });
+    getCompositeClient()
+      .then(setClient)
+      .catch(error => {
+        console.error('[useCompositeClient] Connection failed:', error);
+        setClient(null);
+      });
   }, [network]);
 
   return client;
 };
 
-/**
- * React Hook: Get SocketClient that responds to network changes
- */
 export const useSocketClient = (): SocketClient => {
   const network = useWalletStore(s => s.network);
-  const [client, setClient] = useState<SocketClient>(() => getSocketClient());
+  const [client, setClient] = useState<SocketClient>(getSocketClient());
 
   useEffect(() => {
-    console.log(`[useSocketClient] Network changed to ${network}, resetting clients...`);
+    console.log('[useSocketClient] Network changed to:', network);
     resetAllClients();
     setClient(getSocketClient());
-
-    // Cleanup on unmount
-    return () => {
-      if (useWalletStore.getState().network !== network) {
-        webSocketManager.disconnect();
-      }
-    };
   }, [network]);
 
   return client;
+};
+
+export const getConnectionHealth = () => {
+  return {
+    socketStatus: webSocketManager.getConnectionStatus(),
+    socketDebug: webSocketManager.getDebugInfo(),
+    currentNetwork,
+    clients: {
+      indexer: indexerClient !== null,
+      validator: validatorClient !== null,
+      composite: compositeClient !== null,
+    },
+  };
+};
+
+export const logoutAndShutdown = () => {
+  resetAllClients(true);
 };

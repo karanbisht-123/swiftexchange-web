@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { getIndexerClient, getSocketClient } from '../client/clients';
+import type { WebSocketMessage } from '../utils/WebSocketManager';
+
 export type CandleResolution = '1MIN' | '5MINS' | '15MINS' | '30MINS' | '1HOUR' | '4HOURS' | '1DAY';
 
 export interface Candle {
@@ -29,6 +32,7 @@ interface UseRealtimeChartReturn {
   candles: Candle[];
   latestCandle: Candle | null;
   livePrice: number | null;
+  livePriceSide: 'BUY' | 'SELL' | null;
   error: string | null;
   isLoading: boolean;
   isConnected: boolean;
@@ -52,6 +56,7 @@ export function useRealtimeChart(
   const [candles, setCandles] = useState<Candle[]>([]);
   const [latestCandle, setLatestCandle] = useState<Candle | null>(null);
   const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [livePriceSide, setLivePriceSide] = useState<'BUY' | 'SELL' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
@@ -61,7 +66,6 @@ export function useRealtimeChart(
   const currentResolutionRef = useRef(resolution);
   const candleUnsubRef = useRef<(() => void) | null>(null);
   const tradeUnsubRef = useRef<(() => void) | null>(null);
-  const socketRef = useRef<any>(null);
   const liveCandleRef = useRef<Candle | null>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -80,6 +84,7 @@ export function useRealtimeChart(
       const candleStartTime = getCandleStartTime(tradeTime, currentResolutionRef.current);
 
       setLivePrice(price);
+      setLivePriceSide(trade.side);
 
       setCandles(prev => {
         if (!prev.length) return prev;
@@ -87,6 +92,7 @@ export function useRealtimeChart(
         const lastCandle = prev[0];
         const lastCandleTime = new Date(lastCandle.startedAt).getTime();
 
+        // New candle started
         if (candleStartTime > lastCandleTime) {
           const newCandle: Candle = {
             startedAt: new Date(candleStartTime).toISOString(),
@@ -108,6 +114,7 @@ export function useRealtimeChart(
           return [newCandle, ...prev].slice(0, limit);
         }
 
+        // Update current candle
         if (candleStartTime === lastCandleTime) {
           const updatedCandle: Candle = {
             ...lastCandle,
@@ -134,9 +141,6 @@ export function useRealtimeChart(
   );
 
   useEffect(() => {
-    let isActive = true;
-    let candleInitComplete = false;
-
     mountedRef.current = true;
     currentMarketRef.current = market;
     currentResolutionRef.current = resolution;
@@ -144,6 +148,7 @@ export function useRealtimeChart(
     setCandles([]);
     setLatestCandle(null);
     setLivePrice(null);
+    setLivePriceSide(null);
     setIsLoading(true);
     setIsConnected(false);
     setError(null);
@@ -154,49 +159,25 @@ export function useRealtimeChart(
       rafRef.current = null;
     }
 
-    const cleanup = () => {
-      isActive = false;
+    // Cleanup previous subscriptions
+    if (candleUnsubRef.current) {
+      candleUnsubRef.current();
+      candleUnsubRef.current = null;
+    }
+    if (tradeUnsubRef.current) {
+      tradeUnsubRef.current();
+      tradeUnsubRef.current = null;
+    }
 
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+    const socketClient = getSocketClient();
 
-      if (candleUnsubRef.current) {
-        try {
-          candleUnsubRef.current();
-        } catch (err) {
-          console.error('Candle unsubscribe error:', err);
-        }
-        candleUnsubRef.current = null;
-      }
+    console.log('useRealtimeChart: Initializing for', market, resolution);
 
-      if (tradeUnsubRef.current) {
-        try {
-          tradeUnsubRef.current();
-        } catch (err) {
-          console.error('Trade unsubscribe error:', err);
-        }
-        tradeUnsubRef.current = null;
-      }
-
-      if (socketRef.current) {
-        try {
-          socketRef.current.disconnect();
-        } catch (err) {
-          console.error('Socket disconnect error:', err);
-        }
-        socketRef.current = null;
-      }
-    };
-
+    // Fetch initial candles from indexer
     const initCandles = async () => {
-      if (!isActive || currentMarketRef.current !== market) return;
-
       try {
-        const { getIndexerClient } = await import('../client/clients');
-        const client = getIndexerClient();
-        const data = await client.markets.getPerpetualMarketCandles(
+        const indexerClient = getIndexerClient();
+        const data = await indexerClient.markets.getPerpetualMarketCandles(
           market,
           resolution,
           undefined,
@@ -204,7 +185,7 @@ export function useRealtimeChart(
           limit
         );
 
-        if (!isActive || currentMarketRef.current !== market) return;
+        if (!mountedRef.current || currentMarketRef.current !== market) return;
 
         const fetchedCandles = data.candles || [];
 
@@ -216,107 +197,119 @@ export function useRealtimeChart(
         }
 
         setIsLoading(false);
-        setError(null);
-        candleInitComplete = true;
       } catch (err: any) {
-        console.error('Candles snapshot error:', err);
-        if (isActive && mountedRef.current && currentMarketRef.current === market) {
+        console.error('useRealtimeChart: Failed to fetch initial candles:', err);
+        if (mountedRef.current && currentMarketRef.current === market) {
           setError(err.message || 'Failed to load candles');
           setIsLoading(false);
         }
       }
     };
 
-    const connectWebSocket = async () => {
-      if (!isActive || !candleInitComplete || currentMarketRef.current !== market) return;
+    // Subscribe to candle updates (completed candles)
+    const handleCandleMessage = (msg: WebSocketMessage) => {
+      if (!mountedRef.current || currentMarketRef.current !== market) return;
+      if (msg.type !== 'channel_data' || !msg.contents) return;
 
-      try {
-        const { getSocketClient } = await import('../client/clients');
-        socketRef.current = getSocketClient();
-        await socketRef.current.connect();
+      const newCandle = msg.contents as Candle;
 
-        if (!isActive || currentMarketRef.current !== market) {
-          cleanup();
-          return;
+      setCandles(prev => {
+        const existingIndex = prev.findIndex(c => c.startedAt === newCandle.startedAt);
+
+        if (existingIndex !== -1) {
+          const updated = [...prev];
+          updated[existingIndex] = newCandle;
+          liveCandleRef.current = newCandle;
+          setLatestCandle(newCandle);
+          setLivePrice(parseFloat(newCandle.close));
+          return updated;
+        } else {
+          liveCandleRef.current = newCandle;
+          setLatestCandle(newCandle);
+          setLivePrice(parseFloat(newCandle.close));
+          return [newCandle, ...prev].slice(0, limit);
         }
+      });
+    };
 
-        setIsConnected(true);
+    // Subscribe to trades for live candle building
+    const handleTradeMessage = (msg: WebSocketMessage) => {
+      if (!mountedRef.current || currentMarketRef.current !== market) return;
+      if (msg.type !== 'channel_data' || !msg.contents) return;
 
-        candleUnsubRef.current = socketRef.current.subscribeToCandles(
-          market,
-          resolution,
-          (msg: any) => {
-            if (!isActive || !mountedRef.current || currentMarketRef.current !== market) return;
-            if (msg.type !== 'channel_data' || !msg.contents) return;
+      const tradesArray = msg.contents?.trades;
 
-            const newCandle = msg.contents as Candle;
+      if (Array.isArray(tradesArray) && tradesArray.length > 0) {
+        tradesArray.forEach((trade: Trade) => {
+          if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
-            setCandles(prev => {
-              const existingIndex = prev.findIndex(c => c.startedAt === newCandle.startedAt);
-
-              if (existingIndex !== -1) {
-                const updated = [...prev];
-                updated[existingIndex] = newCandle;
-                liveCandleRef.current = newCandle;
-                setLatestCandle(newCandle);
-                setLivePrice(parseFloat(newCandle.close));
-                return updated;
-              } else {
-                liveCandleRef.current = newCandle;
-                setLatestCandle(newCandle);
-                setLivePrice(parseFloat(newCandle.close));
-                return [newCandle, ...prev].slice(0, limit);
-              }
-            });
-          }
-        );
-
-        tradeUnsubRef.current = socketRef.current.subscribeToTrades(market, (msg: any) => {
-          if (!isActive || !mountedRef.current || currentMarketRef.current !== market) return;
-          if (msg.type !== 'channel_data' || !msg.contents) return;
-
-          const tradesArray = msg.contents?.trades;
-
-          if (Array.isArray(tradesArray) && tradesArray.length > 0) {
-            tradesArray.forEach((trade: any) => {
-              if (rafRef.current) {
-                cancelAnimationFrame(rafRef.current);
-              }
-
-              rafRef.current = requestAnimationFrame(() => {
-                updateLiveCandle(trade);
-                rafRef.current = null;
-              });
-            });
-          }
+          rafRef.current = requestAnimationFrame(() => {
+            updateLiveCandle(trade);
+            rafRef.current = null;
+          });
         });
-      } catch (err: any) {
-        console.error('WebSocket connection error:', err);
-        if (isActive && mountedRef.current && currentMarketRef.current === market) {
-          setIsConnected(false);
-        }
       }
     };
 
-    initCandles().then(() => {
-      if (isActive && candleInitComplete) {
-        connectWebSocket();
+    // Subscribe to channels
+    candleUnsubRef.current = socketClient.subscribeToCandles(
+      market,
+      resolution,
+      handleCandleMessage,
+      true
+    );
+    tradeUnsubRef.current = socketClient.subscribeToTrades(market, handleTradeMessage, true);
+
+    // Update connection status
+    setIsConnected(socketClient.isConnected());
+
+    const removeOnConnect = socketClient.onConnect(() => {
+      console.log('useRealtimeChart: WebSocket connected');
+      if (mountedRef.current) {
+        setIsConnected(true);
+        setError(null);
       }
     });
 
-    return cleanup;
-  }, [market, resolution, limit, updateLiveCandle, getCandleStartTime]);
+    const removeOnDisconnect = socketClient.onDisconnect(() => {
+      console.log('useRealtimeChart: WebSocket disconnected');
+      if (mountedRef.current) {
+        setIsConnected(false);
+      }
+    });
 
-  useEffect(() => {
+    // Initial load
+    initCandles();
+
     return () => {
+      console.log('useRealtimeChart: Cleaning up for', market);
       mountedRef.current = false;
+
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+
+      if (candleUnsubRef.current) {
+        candleUnsubRef.current();
+        candleUnsubRef.current = null;
+      }
+
+      if (tradeUnsubRef.current) {
+        tradeUnsubRef.current();
+        tradeUnsubRef.current = null;
+      }
+
+      removeOnConnect();
+      removeOnDisconnect();
     };
-  }, []);
+  }, [market, resolution, limit, updateLiveCandle, getCandleStartTime]);
 
   return {
     candles,
     latestCandle,
     livePrice,
+    livePriceSide,
     error,
     isLoading,
     isConnected,

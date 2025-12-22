@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { OrderBookSwapService } from '../service/orderBookSwapService';
 import type {
   LargeOrderOptions,
@@ -29,10 +29,16 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [popularTokens, setPopularTokens] = useState<TokenInfo[]>([]);
   const [orderBook, setOrderBook] = useState<any>(null);
 
+  // Use the wallet store to get the current Stellar configuration
+  const currentStellarConfig = useWalletStore(state => state.currentStellarConfig);
+
   console.log(transaction);
+
+  // Initialize the service whenever the Stellar config changes (i.e., network switch)
   useEffect(() => {
     try {
-      const config = getStellarConfig();
+      // Use the config directly from the centralized store
+      const config = currentStellarConfig;
       console.log('OrderBook Stellar Config:', config);
 
       const orderBookService = new OrderBookSwapService(
@@ -41,11 +47,12 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         config.chainId
       );
       setService(orderBookService);
+      setError(null); // Clear errors on successful service initialization/re-initialization
     } catch (err) {
       console.error('Failed to initialize OrderBook service:', err);
       setError('Failed to connect to Stellar network');
     }
-  }, []);
+  }, [currentStellarConfig]); // Dependency on the central configuration
 
   useEffect(() => {
     if (!service || !userAddress) {

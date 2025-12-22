@@ -11,14 +11,16 @@ import {
   mapOrderSide,
   mapOrderType,
 } from '../types/trading.types';
+import { localStateManager } from '../utils/localStateManager';
 import { dydxWalletService } from './dydxWalletService';
 
 class DydxTradingService {
   private clientIdCounter = Date.now() >>> 0;
   private readonly DEFAULT_SLIPPAGE = 0.05;
   private readonly SHORT_TERM_ORDER_BLOCKS = 20;
-  private readonly STATEFUL_ORDER_TIME_WINDOW = 8_208_000;
+  private readonly STATEFUL_ORDER_TIME_WINDOW = 8_208_000; // ~95 days in seconds
 
+  // Main order placement - handles all order types (market, limit, stop, take profit)
   async placeOrder(params: PlaceOrderParams, marketInfo: MarketInfo): Promise<OrderResult> {
     if (!dydxWalletService.isReadyForTrading()) {
       return this.createErrorResult(
@@ -41,6 +43,7 @@ class DydxTradingService {
       );
     }
 
+    // Validate order size against market minimum
     const minSize = parseFloat(marketInfo.minOrderSize);
     if (params.size <= 0 || params.size < minSize) {
       return this.createErrorResult(
@@ -75,8 +78,25 @@ class DydxTradingService {
         orderConfig.triggerPrice
       );
 
+      // Track order in local state for UI updates
+      localStateManager.handleOrderPlaced({
+        clientId: orderConfig.clientId,
+        market: marketInfo.ticker,
+        side: orderConfig.side === OrderSide.BUY ? 'BUY' : 'SELL',
+        type: params.type,
+        size: String(orderConfig.size),
+        price: String(orderConfig.price),
+        triggerPrice: orderConfig.triggerPrice ? String(orderConfig.triggerPrice) : undefined,
+      });
+
+      // Convert hash to hex string for block explorer
       const txHash =
-        typeof result.hash === 'string' ? result.hash : Buffer.from(result.hash).toString('hex');
+        typeof result.hash === 'string'
+          ? result.hash
+          : Array.from(new Uint8Array(result.hash))
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+
       const network = dydxWalletService.getChainId().includes('testnet') ? 'testnet' : 'mainnet';
       const explorerUrl =
         network === 'testnet'
@@ -107,6 +127,61 @@ class DydxTradingService {
     }
   }
 
+  // Set TP/SL for existing position
+  async setPositionTriggers(
+    position: Position,
+    marketInfo: MarketInfo,
+    config: {
+      takeProfit?: { price: number; type: 'MARKET' | 'LIMIT' };
+      stopLoss?: { price: number; type: 'MARKET' | 'LIMIT' };
+    }
+  ): Promise<{ takeProfitResult?: OrderResult; stopLossResult?: OrderResult }> {
+    const results: { takeProfitResult?: OrderResult; stopLossResult?: OrderResult } = {};
+
+    // Closing order side is opposite of position side
+    const closingSide: OrderSideEnum = position.side === 'LONG' ? 'SELL' : 'BUY';
+    const positionSize = Math.abs(parseFloat(position.size));
+
+    if (config.takeProfit) {
+      const tpOrderType =
+        config.takeProfit.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
+
+      results.takeProfitResult = await this.placeOrder(
+        {
+          market: position.market,
+          side: closingSide,
+          type: tpOrderType,
+          size: positionSize,
+          triggerPrice: config.takeProfit.price,
+          price: config.takeProfit.type === 'LIMIT' ? config.takeProfit.price : undefined,
+          reduceOnly: true,
+          timeInForce: 'GTT',
+        },
+        marketInfo
+      );
+    }
+
+    if (config.stopLoss) {
+      const slOrderType = config.stopLoss.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
+
+      results.stopLossResult = await this.placeOrder(
+        {
+          market: position.market,
+          side: closingSide,
+          type: slOrderType,
+          size: positionSize,
+          triggerPrice: config.stopLoss.price,
+          price: config.stopLoss.type === 'LIMIT' ? config.stopLoss.price : undefined,
+          reduceOnly: true,
+          timeInForce: 'GTT',
+        },
+        marketInfo
+      );
+    }
+
+    return results;
+  }
+
   async cancelOrder(order: OpenOrder): Promise<OrderResult> {
     const compositeClient = dydxWalletService.getCompositeClient();
     const subaccountInfo = dydxWalletService.getSubaccountInfo();
@@ -116,6 +191,7 @@ class DydxTradingService {
     }
 
     try {
+      // Calculate appropriate expiry based on order type
       let goodTilBlock: number | undefined;
       let goodTilBlockTime: number | undefined;
 
@@ -138,7 +214,14 @@ class DydxTradingService {
         goodTilBlockTime ?? 0
       );
 
-      const txHash = typeof tx.hash === 'string' ? tx.hash : Buffer.from(tx.hash).toString('hex');
+      localStateManager.handleOrderCancelling(order.id, order.clientId);
+
+      const txHash =
+        typeof tx.hash === 'string'
+          ? tx.hash
+          : Array.from(new Uint8Array(tx.hash))
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
 
       return {
         success: true,
@@ -159,14 +242,16 @@ class DydxTradingService {
     }
   }
 
-  async closePosition(market: string, position: Position, marketInfo: MarketInfo) {
+  // Close position at market price
+  async closePosition(market: string, position: any, marketInfo: MarketInfo) {
     const side = position.side === 'LONG' ? 'SELL' : 'BUY';
+
     return this.placeOrder(
       {
         market,
         side: side as OrderSideEnum,
         type: 'MARKET',
-        size: parseFloat(position.size),
+        size: Math.abs(parseFloat(position.size)),
         reduceOnly: true,
         slippageTolerance: 0.01,
       },
@@ -174,6 +259,7 @@ class DydxTradingService {
     );
   }
 
+  // Fetch market details from indexer
   async getMarketInfo(ticker: string): Promise<MarketInfo> {
     const indexer = dydxWalletService.getIndexerClient();
     if (!indexer) throw new Error('Indexer not ready');
@@ -195,6 +281,49 @@ class DydxTradingService {
     };
   }
 
+  // Validate TP/SL prices make sense for the position
+  validateTriggerPrice(
+    position: Position,
+    triggerPrice: number,
+    orderType: 'TAKE_PROFIT' | 'STOP_LOSS'
+  ): { valid: boolean; error?: string } {
+    const entryPrice = parseFloat(position.entryPrice);
+    const isLong = position.side === 'LONG';
+
+    if (orderType === 'TAKE_PROFIT') {
+      if (isLong && triggerPrice <= entryPrice) {
+        return {
+          valid: false,
+          error: 'Take Profit price must be above entry price for LONG positions',
+        };
+      }
+      if (!isLong && triggerPrice >= entryPrice) {
+        return {
+          valid: false,
+          error: 'Take Profit price must be below entry price for SHORT positions',
+        };
+      }
+    }
+
+    if (orderType === 'STOP_LOSS') {
+      if (isLong && triggerPrice >= entryPrice) {
+        return {
+          valid: false,
+          error: 'Stop Loss price must be below entry price for LONG positions',
+        };
+      }
+      if (!isLong && triggerPrice <= entryPrice) {
+        return {
+          valid: false,
+          error: 'Stop Loss price must be above entry price for SHORT positions',
+        };
+      }
+    }
+
+    return { valid: true };
+  }
+
+  // Build full order config from user params
   private async buildOrderConfig(
     params: PlaceOrderParams,
     marketInfo: MarketInfo
@@ -204,6 +333,7 @@ class DydxTradingService {
     const clientId = params.clientId ?? this.generateClientId();
     let price = params.price ?? 0;
 
+    // Fetch market price for market orders
     if (this.needsMarketPrice(type) && !price) {
       price = await this.getMarketPrice(marketInfo.ticker, side, params.slippageTolerance);
     }
@@ -219,22 +349,28 @@ class DydxTradingService {
     let goodTilTimeInSeconds: number;
     let execution: OrderExecution;
 
+    // Configure timing based on order type
     if (isMarket) {
-      timeInForce = OrderTimeInForce.IOC;
+      timeInForce = OrderTimeInForce.IOC; // Immediate or Cancel
       goodTilTimeInSeconds = 0;
       execution = OrderExecution.DEFAULT;
     } else if (isConditional) {
+      // Conditional orders use stateful time window (max ~95 days)
       const desiredDurationSeconds = 94 * 24 * 3600;
       goodTilTimeInSeconds = Math.min(desiredDurationSeconds, this.STATEFUL_ORDER_TIME_WINDOW);
       timeInForce = OrderTimeInForce.GTT;
-      execution = OrderExecution.IOC;
+
+      execution =
+        type === OrderType.STOP_MARKET || type === OrderType.TAKE_PROFIT_MARKET
+          ? OrderExecution.IOC
+          : OrderExecution.DEFAULT;
     } else if (isLimit) {
       if (params.timeInForce === 'IOC') {
         timeInForce = OrderTimeInForce.IOC;
         goodTilTimeInSeconds = 0;
         execution = OrderExecution.DEFAULT;
       } else if (params.timeInForce === 'FOK') {
-        timeInForce = OrderTimeInForce.FOK;
+        timeInForce = OrderTimeInForce.FOK; // Fill or Kill
         goodTilTimeInSeconds = 0;
         execution = OrderExecution.DEFAULT;
       } else {
@@ -247,6 +383,15 @@ class DydxTradingService {
       throw new Error('Unsupported order type');
     }
 
+    let triggerPrice = params.triggerPrice;
+    if (isConditional && !triggerPrice) {
+      throw new Error('Trigger price required for conditional orders');
+    }
+
+    if (triggerPrice) {
+      triggerPrice = this.roundToTick(triggerPrice, marketInfo.tickSize);
+    }
+
     return {
       type,
       side,
@@ -257,7 +402,7 @@ class DydxTradingService {
       clientId,
       postOnly: params.postOnly || false,
       reduceOnly: params.reduceOnly || false,
-      triggerPrice: params.triggerPrice,
+      triggerPrice,
       goodTilTimeInSeconds,
     };
   }
@@ -279,6 +424,7 @@ class DydxTradingService {
     return [OrderType.LIMIT, OrderType.STOP_LIMIT, OrderType.TAKE_PROFIT_LIMIT].includes(type);
   }
 
+  // Get best price from orderbook with slippage buffer
   private async getMarketPrice(
     ticker: string,
     side: OrderSide,
@@ -297,11 +443,13 @@ class DydxTradingService {
     return side === OrderSide.BUY ? basePrice * (1 + slippage) : basePrice * (1 - slippage);
   }
 
+  // Round price to market tick size
   private roundToTick(price: number, tickSize: string): number {
     const tick = parseFloat(tickSize);
     return Math.round(price / tick) * tick;
   }
 
+  // Generate unique client ID for order tracking
   private generateClientId(): number {
     this.clientIdCounter = (this.clientIdCounter + 1) % 0x7fffffff;
     return this.clientIdCounter;
@@ -322,8 +470,10 @@ class DydxTradingService {
     };
   }
 
+  // Parse error messages into user-friendly format
   private parseError(err: any) {
     const msg = err.message || String(err);
+
     if (msg.includes('3004') || msg.includes('StatefulOrderTimeWindow')) {
       return {
         errorType: 'TIMING_ERROR',
