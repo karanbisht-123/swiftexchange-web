@@ -95,7 +95,6 @@ export async function fetchEvmQuote(
     let tokenInAddress = selectedSellAsset.address;
     let tokenOutAddress = selectedBuyAsset.address;
 
-    // Use WNative address for the swap router if native token is selected
     if (selectedSellAsset.isNative) {
       tokenInAddress = swapConfig.wNative;
     }

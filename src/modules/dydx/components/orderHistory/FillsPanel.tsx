@@ -1,11 +1,8 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
-import { useLocalState } from '../../hooks/useLocalState';
 import { type Fill, dydxDataService } from '../../service/dydxOrderService';
 import { dydxWalletService } from '../../service/dydxWalletService';
-import { localStateManager } from '../../utils/localStateManager';
-import { getTimeAgo } from '../../utils/timeUtils';
-import { formatTime } from '../../utils/timeUtils';
+import { formatTime, getTimeAgo } from '../../utils/timeUtils';
 import { DataTable } from '../shared/DataTable';
 import { EmptyState } from '../shared/EmptyState';
 import { LoadMoreButton } from '../shared/LoadMoreButton';
@@ -15,136 +12,132 @@ import { SideBadge } from '../shared/SideBadge';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
 const FillsPanel: React.FC = () => {
-  const { fills: liveFills } = useLocalState();
-  const [historicalFills, setHistoricalFills] = useState<Fill[]>([]);
+  const [fills, setFills] = useState<Fill[]>([]);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
   const address = dydxWalletService.getAddress();
   const isConnected = !!address;
-  const isLoading = localStateManager.getIsLoading();
 
-  const allFills = useMemo(() => {
-    const uniqueMap = new Map();
-    [...liveFills, ...historicalFills].forEach(item => uniqueMap.set(item.id, item));
-    return Array.from(uniqueMap.values()).sort(
-      (a: Fill, b: Fill) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-  }, [liveFills, historicalFills]);
-
-  // Load more fills
-  const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMore || allFills.length === 0) return;
-
-    setLoadingMore(true);
+  const fetchFills = async (before?: string) => {
+    if (!isConnected) return;
     try {
-      const lastFill = allFills[allFills.length - 1];
-      const moreFills = await dydxDataService.fetchFills(50, lastFill.createdAt);
-
-      const newFills = moreFills.filter(f => !allFills.some(existing => existing.id === f.id));
-
-      if (newFills.length === 0) {
-        setHasMore(false);
+      const newFills = await dydxDataService.fetchFills(50, before);
+      if (before) {
+        setFills(prev => {
+          const existingIds = new Set(prev.map(f => f.id));
+          const uniqueNew = newFills.filter(f => !existingIds.has(f.id));
+          return [...prev, ...uniqueNew];
+        });
       } else {
-        setHistoricalFills(prev => [...prev, ...newFills]);
-        setHasMore(moreFills.length >= 50);
+        setFills(newFills);
       }
-    } catch (error) {
-      console.error('Error loading more fills:', error);
-    } finally {
-      setLoadingMore(false);
+      setHasMore(newFills.length === 50);
+    } catch (err) {
+      console.error('Failed to fetch fills:', err);
     }
-  }, [hasMore, loadingMore, allFills]);
+  };
 
-  if (!isConnected) {
-    return <WalletConnectPrompt description="Connect to view your trade fills" />;
-  }
+  useEffect(() => {
+    if (isConnected) {
+      setLoading(true);
+      fetchFills().finally(() => setLoading(false));
 
-  if (isLoading && allFills.length === 0) {
-    return <LoadingState message="Loading fills..." />;
-  }
+      // Poll for new fills every 8 seconds
+      const interval = setInterval(() => {
+        if (fills.length > 0) {
+          fetchFills(); // Refresh first page
+        }
+      }, 8000);
 
-  if (allFills.length === 0) {
+      return () => clearInterval(interval);
+    } else {
+      setLoading(false);
+      setFills([]);
+    }
+  }, [isConnected]);
+
+  const loadMore = async () => {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    const last = fills[fills.length - 1];
+    await fetchFills(last?.createdAt);
+    setLoadingMore(false);
+  };
+
+  if (!isConnected) return <WalletConnectPrompt description="Connect to view your trade fills" />;
+  if (loading && fills.length === 0) return <LoadingState message="Loading fills..." />;
+  if (fills.length === 0)
     return <EmptyState title="No Fills Yet" description="Your trade fills will appear here" />;
-  }
 
   const columns = [
-    {
-      key: 'market',
-      header: 'Market',
-      align: 'left' as const,
-      render: (fill: Fill) => <MarketBadge market={fill.market} />,
-    },
+    { key: 'market', header: 'Market', render: (f: Fill) => <MarketBadge market={f.market} /> },
     {
       key: 'time',
       header: 'Time',
-      align: 'right' as const,
-      render: (fill: Fill) => (
+      align: 'right',
+      render: (f: Fill) => (
         <div>
-          <div className="text-white text-xs">{formatTime(fill.createdAt)}</div>
-          <div className="text-gray-500 text-xs">{getTimeAgo(fill.createdAt)}</div>
+          <div className="text-white text-xs">{formatTime(f.createdAt)}</div>
+          <div className="text-gray-500 text-xs">{getTimeAgo(f.createdAt)}</div>
         </div>
       ),
     },
     {
       key: 'type',
       header: 'Type',
-      align: 'center' as const,
-      render: (fill: Fill) => <span className="text-gray-300 text-xs">{fill.type}</span>,
+      align: 'center',
+      render: (f: Fill) => <span className="text-gray-300 text-xs">{f.type}</span>,
     },
     {
       key: 'side',
       header: 'Side',
-      align: 'center' as const,
-      render: (fill: Fill) => <SideBadge side={fill.side} />,
+      align: 'center',
+      render: (f: Fill) => <SideBadge side={f.side} />,
     },
     {
       key: 'amount',
       header: 'Amount',
-      align: 'right' as const,
-      render: (fill: Fill) => (
-        <span className="text-white font-mono">{parseFloat(fill.size).toFixed(4)}</span>
+      align: 'right',
+      render: (f: Fill) => (
+        <span className="text-white font-mono">{parseFloat(f.size).toFixed(4)}</span>
       ),
     },
     {
       key: 'price',
       header: 'Price',
-      align: 'right' as const,
-      render: (fill: Fill) => (
-        <span className="text-white font-mono">${parseFloat(fill.price).toLocaleString()}</span>
+      align: 'right',
+      render: (f: Fill) => (
+        <span className="text-white font-mono">${parseFloat(f.price).toLocaleString()}</span>
       ),
     },
     {
       key: 'total',
       header: 'Total',
-      align: 'right' as const,
-      render: (fill: Fill) => {
-        const total = (parseFloat(fill.size) * parseFloat(fill.price)).toFixed(2);
+      align: 'right',
+      render: (f: Fill) => {
+        const total = (parseFloat(f.size) * parseFloat(f.price)).toFixed(2);
         return <span className="text-white font-mono">${total}</span>;
       },
     },
     {
       key: 'fee',
       header: 'Fee',
-      align: 'right' as const,
-      render: (fill: Fill) => {
-        const feeAbs = Math.abs(parseFloat(fill.fee)).toFixed(4);
-        return <span className="text-red-400 font-mono">${feeAbs}</span>;
-      },
+      align: 'right',
+      render: (f: Fill) => (
+        <span className="text-red-400 font-mono">${Math.abs(parseFloat(f.fee)).toFixed(4)}</span>
+      ),
     },
     {
       key: 'liquidity',
       header: 'Liquidity',
-      align: 'center' as const,
-      render: (fill: Fill) => (
+      align: 'center',
+      render: (f: Fill) => (
         <span
-          className={`px-2 py-0.5 rounded text-xs font-medium ${
-            fill.liquidity === 'MAKER'
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'bg-purple-500/20 text-purple-400'
-          }`}
+          className={`px-2 py-0.5 rounded text-xs font-medium ${f.liquidity === 'MAKER' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}
         >
-          {fill.liquidity}
+          {f.liquidity}
         </span>
       ),
     },
@@ -153,7 +146,7 @@ const FillsPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-primary">
       <div className="flex-1 overflow-auto">
-        <DataTable data={allFills} columns={columns} getRowKey={fill => fill.id} />
+        <DataTable data={fills} columns={columns} getRowKey={f => f.id} />
         <LoadMoreButton onClick={loadMore} loading={loadingMore} show={hasMore} />
       </div>
     </div>

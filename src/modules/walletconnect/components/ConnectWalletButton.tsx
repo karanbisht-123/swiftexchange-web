@@ -5,56 +5,81 @@ import { WalletType } from '../constants/Wallet';
 import { useWalletConnect } from '../hooks/useWalletConnect';
 
 export const ConnectWalletButton: React.FC = () => {
-  const { connectedWallets, openModal, disconnect } = useWalletConnect();
+  const { connectedWallets, openModal, disconnect, disconnectAll } = useWalletConnect();
   const [showDropdown, setShowDropdown] = useState(false);
 
   const formatAddress = (addr: string) => {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
-  const disconnectAll = async () => {
-    const types = Object.keys(connectedWallets) as WalletType[];
-    for (const type of types) {
-      await disconnect(type);
-    }
+  const handleDisconnectAll = async () => {
+    await disconnectAll();
     setShowDropdown(false);
   };
 
   const handleDisconnect = async (type: WalletType) => {
     await disconnect(type);
+    // Close dropdown if no more connections
     if (Object.keys(connectedWallets).length === 1) {
       setShowDropdown(false);
     }
   };
 
   const getTypeLabel = (type: string) => {
+    // Handle undefined or invalid types
+    if (!type || type === 'undefined') {
+      return 'Unknown';
+    }
     return type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
   };
 
-  const hasConnections = Object.keys(connectedWallets).length > 0;
-  const connectionCount = Object.keys(connectedWallets).length;
+  // Filter out any invalid wallet connections
+  const validConnectedWallets = Object.entries(connectedWallets).filter(([type, conn]) => {
+    // Filter out undefined keys or invalid connections
+    return (
+      type &&
+      type !== 'undefined' &&
+      conn &&
+      conn.address &&
+      Object.values(WalletType).includes(type as WalletType)
+    );
+  });
+
+  const hasConnections = validConnectedWallets.length > 0;
+  const connectionCount = validConnectedWallets.length;
+
+  // Debug: Log if we detect duplicate addresses
+  React.useEffect(() => {
+    const addresses = validConnectedWallets.map(([_, conn]) => conn.address);
+    const uniqueAddresses = new Set(addresses);
+
+    if (addresses.length !== uniqueAddresses.size) {
+      console.warn('⚠️ Duplicate wallet addresses detected:', {
+        all: connectedWallets,
+        valid: Object.fromEntries(validConnectedWallets),
+      });
+    }
+  }, [connectedWallets, validConnectedWallets]);
 
   return (
     <div className="relative">
       {hasConnections ? (
         <div className="flex items-center gap-2">
           <div className="hidden lg:flex items-center gap-2">
-            {Object.entries(connectedWallets)
-              .slice(0, 2)
-              .map(([type, conn]) => (
-                <div
-                  key={type}
-                  className="flex items-center gap-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg"
-                >
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-gray-400">{getTypeLabel(type)}</span>
-                    <span className="text-sm text-gray-200 font-medium">
-                      {formatAddress(conn.address)}
-                    </span>
-                  </div>
+            {validConnectedWallets.slice(0, 2).map(([type, conn]) => (
+              <div
+                key={type}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg"
+              >
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-400">{getTypeLabel(type)}</span>
+                  <span className="text-sm text-gray-200 font-medium">
+                    {formatAddress(conn.address)}
+                  </span>
                 </div>
-              ))}
+              </div>
+            ))}
             {connectionCount > 2 && (
               <div className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300">
                 +{connectionCount - 2} more
@@ -92,13 +117,13 @@ export const ConnectWalletButton: React.FC = () => {
                 {/* Header */}
                 <div className="p-4 md:p-3 border-b border-gray-800 bg-gray-900 md:bg-gray-800/50">
                   <h3 className="text-base md:text-sm font-semibold text-gray-200">
-                    Connected Wallets
+                    Connected Wallets ({connectionCount})
                   </h3>
                 </div>
 
                 {/* Wallet list */}
                 <div className="max-h-[50vh] md:max-h-64 overflow-y-auto bg-gray-900">
-                  {Object.entries(connectedWallets).map(([type, conn]) => (
+                  {validConnectedWallets.map(([type, conn]) => (
                     <div
                       key={type}
                       className="flex items-center justify-between p-4 md:p-3 hover:bg-gray-800/50 active:bg-gray-800 transition-colors border-b border-gray-800/50 last:border-b-0"
@@ -110,6 +135,8 @@ export const ConnectWalletButton: React.FC = () => {
                           <span className="text-sm text-gray-200 font-medium truncate">
                             {formatAddress(conn.address)}
                           </span>
+                          {/* Debug: Show wallet ID */}
+                          <span className="text-xs text-gray-500 mt-0.5">{conn.walletId}</span>
                         </div>
                       </div>
                       <button
@@ -137,7 +164,7 @@ export const ConnectWalletButton: React.FC = () => {
                     <span>Add Wallet</span>
                   </button>
                   <button
-                    onClick={disconnectAll}
+                    onClick={handleDisconnectAll}
                     className="flex-1 flex items-center justify-center gap-2 px-3 py-3 md:py-2 bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-400 rounded-lg md:rounded-md text-sm font-medium transition-colors"
                   >
                     <LogOut className="w-4 h-4" />

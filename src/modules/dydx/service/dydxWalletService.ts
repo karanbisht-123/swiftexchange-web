@@ -259,7 +259,6 @@ class DydxWalletService {
 
     return {
       getAccounts: async () => {
-        // ... (keep existing getAccounts code)
         const accounts = await self.walletProvider.request({
           method: 'cosmos_getAccounts',
           params: { chainId: self.chainId },
@@ -282,10 +281,11 @@ class DydxWalletService {
 
       signDirect: async (signerAddress: string, signDoc: any) => {
         console.log('[SignDirect] Starting signature process for address:', signerAddress);
+        console.log('[SignDirect] Original signDoc:', signDoc);
 
         let accountNumber = signDoc.accountNumber;
+        let sequence = signDoc.sequence;
 
-        // 1. Fetch account data (keep existing logic to get account number)
         if (self.compositeClient) {
           try {
             const account =
@@ -293,32 +293,30 @@ class DydxWalletService {
             if (account?.accountNumber !== undefined) {
               accountNumber = account.accountNumber;
             }
+            if (account?.sequence !== undefined) {
+              sequence = account.sequence;
+            }
+            console.log('[SignDirect] Account info:', { accountNumber, sequence });
           } catch (err) {
             console.error('[SignDirect] Failed to fetch account details:', err);
           }
         }
 
-        // 2. Generate the Timestamp Sequence
-        // dYdX often uses this as a Client ID/Nonce for orders
-        const timestampSequence = Date.now().toString();
-
-        console.log('[SignDirect] Overriding sequence with timestamp:', timestampSequence);
-
-        // 3. Add 'sequence' to the formatted request object
         const formatted = {
           chainId: signDoc.chainId,
           accountNumber: accountNumber.toString(),
-          sequence: timestampSequence, // <--- NEW FIELD ADDED HERE
+          sequence: (sequence + 1).toString(),
           authInfoBytes: btoa(String.fromCharCode(...new Uint8Array(signDoc.authInfoBytes))),
           bodyBytes: btoa(String.fromCharCode(...new Uint8Array(signDoc.bodyBytes))),
         };
+
+        console.log('[SignDirect] Formatted signDoc:', formatted);
 
         const result = await self.walletProvider.request({
           method: 'cosmos_signDirect',
           params: { signerAddress, signDoc: formatted },
         });
 
-        // ... (keep existing response handling)
         let signature = result.signature;
         if (signature?.signature) {
           signature = signature.signature;
@@ -330,7 +328,6 @@ class DydxWalletService {
           result.signed?.pub_key?.value;
 
         if (!pubkeyValue) {
-          // Fallback if pubkey is missing (common in some WC bridges)
           const accounts = await self.offlineSigner?.getAccounts();
           if (accounts?.[0]?.pubkey) {
             pubkeyValue = btoa(String.fromCharCode(...accounts[0].pubkey));
@@ -341,8 +338,10 @@ class DydxWalletService {
 
         return {
           signed: {
-            ...signDoc,
+            chainId: signDoc.chainId,
             accountNumber: BigInt(accountNumber.toString()),
+            authInfoBytes: signDoc.authInfoBytes,
+            bodyBytes: signDoc.bodyBytes,
           },
           signature: {
             pub_key: {

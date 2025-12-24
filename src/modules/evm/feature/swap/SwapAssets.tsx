@@ -5,8 +5,6 @@ import {
   ChevronDown,
   ExternalLink,
   Loader2,
-  // LogOut,
-  // RefreshCcw,
   TrendingUp,
   Wallet,
 } from 'lucide-react';
@@ -30,18 +28,12 @@ interface SwapAssetsProps {
 }
 
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
-  //  disconnectType,
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
-
-  // FIX 1: Get network from the centralized store
   const currentNetwork = useWalletStore(state => state.network);
-
   const evmWallet = connectedWallets[WalletType.EVM];
   const isConnected = !!evmWallet;
   const senderAddress = evmWallet?.address || '';
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
-
-  // FIX 2: Get EVM chains based on the current network from the store
   const evmChains = getEVMChains(currentNetwork);
 
   const [chainId, setChainId] = useState<number>(() => {
@@ -49,8 +41,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
       if (isValidChain) return currentChainId;
     }
-    // Default to a chain ID based on the network from the store
-    // This logic relies on `evmChains` being filtered by `currentNetwork`
     return evmChains[0]?.chainId || (currentNetwork === 'testnet' ? 11155111 : 1);
   });
 
@@ -84,8 +74,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const selectedSellAsset = assets.find(a => a.code === sellAssetCode);
   const selectedBuyAsset = assets.find(a => a.code === buyAssetCode);
 
-  // FIX 3: Pass currentNetwork to the utility function
   const networkConfig = chainId ? getNetworkConfigByChainId(chainId, currentNetwork) : null;
+  console.log(networkConfig, 'hii i am cahin id ----------');
 
   const isTestnet = chainId
     ? [11155111, 80002, 97, 421614, 11155420, 43113].includes(chainId)
@@ -102,9 +92,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // FIX 4: Add currentNetwork to dependencies and reset chainId if EVM chains change
   useEffect(() => {
-    // 1. If the wallet connects/switches chain, update our local state
     if (currentChainId && currentChainId !== chainId) {
       const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
 
@@ -117,12 +105,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         reset();
         setTimeout(() => setIsChainSwitching(false), 500);
       }
-    } else if (
-      // 2. Case where the global network changes (e.g., store update from mainnet to testnet)
-      // and the current chain is no longer valid for the new network set.
-      !evmChains.some(chain => chain.chainId === chainId)
-    ) {
-      // Force change to the new default chain for the current network type
+    } else if (!evmChains.some(chain => chain.chainId === chainId)) {
       const newDefaultChain = evmChains[0]?.chainId;
       if (newDefaultChain) {
         setIsChainSwitching(true);
@@ -245,10 +228,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           0,
           selectedSellAsset.balance -
             (selectedSellAsset.address.toLowerCase() === swapConfig.wNative.toLowerCase()
-              ? 0.01 // Reserve a small amount for gas if it's native/wNative being sold
+              ? 0.01
               : 0)
         );
-        // Using toString() of the calculated number can lose precision, but matching the original logic here.
         setSellAmount(maxAmount.toString());
       } catch (error) {
         setSellAmount(selectedSellAsset.balance.toString());
@@ -290,7 +272,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           });
         } catch (error: any) {
           if (error.code === 4902) {
-            // FIX 5: Pass currentNetwork to getNetworkConfigByChainId inside handleNetworkChange
             const networkConfig = getNetworkConfigByChainId(newChainId, currentNetwork);
             try {
               const provider = getProvider(WalletType.EVM);

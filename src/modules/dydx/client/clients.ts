@@ -19,11 +19,6 @@ const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
   return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
 
-/**
- * Resets all clients when switching networks.
- * IMPORTANT: Do NOT call webSocketManager.shutdown() here unless it's a full logout.
- * On network change, we want to reconnect to the new endpoint, not kill everything.
- */
 export const resetAllClients = (isLogout = false): void => {
   indexerClient = null;
   validatorClient = null;
@@ -31,10 +26,8 @@ export const resetAllClients = (isLogout = false): void => {
   currentNetwork = null;
 
   if (isLogout) {
-    webSocketManager.shutdown(); // Only on full logout
     console.log('[dYdX Clients] All clients fully shut down (logout)');
   } else {
-    // On network change: let WebSocketManager handle reconnect to new URL naturally
     console.log(
       '[dYdX Clients] Clients reset due to network change (WebSocket will reconnect automatically)'
     );
@@ -119,17 +112,17 @@ const createSocketClient = () => {
       webSocketManager.subscribe('v4_trades', handler, market, batched),
 
     subscribeToMarkets: (handler: MessageHandler, batched = true) =>
-      webSocketManager.subscribe('v4_marketss', handler, undefined, batched),
+      webSocketManager.subscribe('v4_markets', handler, undefined, batched),
 
     subscribeToCandles: (
       market: string,
       resolution: string,
       handler: MessageHandler,
       batched = false
-    ) => webSocketManager.subscribe('v4_candless', handler, `${market}/${resolution}`, batched),
+    ) => webSocketManager.subscribe('v4_candles', handler, `${market}/${resolution}`, batched),
 
     subscribeToOrderbook: (market: string, handler: MessageHandler, batched = false) =>
-      webSocketManager.subscribe('v4_orderbooxk', handler, market, batched),
+      webSocketManager.subscribe('v4_orderbook', handler, market, batched),
 
     subscribeToSubaccounts: (
       address: string,
@@ -163,8 +156,6 @@ const createSocketClient = () => {
     getConnectionStatus: () => webSocketManager.getConnectionStatus(),
     getDebugInfo: () => webSocketManager.getDebugInfo(),
     isConnected: () => webSocketManager.isConnected(),
-
-    // Removed .disconnect() from public API to prevent accidental global shutdown
 
     onConnect: (cb: () => void) => webSocketManager.onConnect(cb),
     onDisconnect: (cb: () => void) => webSocketManager.onDisconnect(cb),

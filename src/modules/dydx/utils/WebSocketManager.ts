@@ -334,7 +334,7 @@ class WebSocketManager {
     try {
       const data: WebSocketMessage = JSON.parse(event.data);
 
-      console.log(data, 'hii i am data ----------');
+      // console.log(data, 'hii i am data ----------');
 
       if (data.type === 'connected' && data.connection_id) {
         this.connectionId = data.connection_id;

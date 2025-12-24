@@ -116,7 +116,6 @@ const StellarTradeScreen = () => {
         </div>
       )}
 
-      {/* Trade Asset Modal - Only shows when coming from Trade button */}
       {selectedAsset && isModalOpen && (
         <TradeAssetModal
           isOpen={isModalOpen}

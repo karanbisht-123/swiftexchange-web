@@ -26,18 +26,16 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [error, setError] = useState<string | null>(null);
   const [slippageTolerance, setSlippageTolerance] = useState<number>(1);
   const [transaction, setTransaction] = useState<LargeOrderTransaction | null>(null);
-  const [popularTokens, setPopularTokens] = useState<TokenInfo[]>([]);
+  const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
   const [orderBook, setOrderBook] = useState<any>(null);
 
-  // Use the wallet store to get the current Stellar configuration
   const currentStellarConfig = useWalletStore(state => state.currentStellarConfig);
 
   console.log(transaction);
 
-  // Initialize the service whenever the Stellar config changes (i.e., network switch)
+  // Initialize service
   useEffect(() => {
     try {
-      // Use the config directly from the centralized store
       const config = currentStellarConfig;
       console.log('OrderBook Stellar Config:', config);
 
@@ -47,13 +45,14 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         config.chainId
       );
       setService(orderBookService);
-      setError(null); // Clear errors on successful service initialization/re-initialization
+      setError(null);
     } catch (err) {
       console.error('Failed to initialize OrderBook service:', err);
       setError('Failed to connect to Stellar network');
     }
-  }, [currentStellarConfig]); // Dependency on the central configuration
+  }, [currentStellarConfig]);
 
+  // Load user's actual token balances only
   useEffect(() => {
     if (!service || !userAddress) {
       if (!userAddress) {
@@ -66,25 +65,29 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
       setIsLoading(true);
       try {
         const balances = await service.getTokenBalances(userAddress);
+
         if (balances.length === 0) {
-          setError('No tokens found in wallet');
+          setError('No tokens found in your account. Please add tokens first.');
+          setAvailableTokens([]);
           return;
         }
 
-        setPopularTokens(balances);
+        setAvailableTokens(balances);
 
-        // Set default tokens based on order type
-        const xlm = balances.find(t => t.code === 'XLM');
-        const usdc = balances.find(t => t.code === 'USDC');
-        const defaultToken = xlm || balances[0];
-        const otherToken = usdc || balances[1] || balances[0];
+        // Auto-select tokens only if not already selected
+        if (!fromToken || !toToken) {
+          const xlm = balances.find(t => t.code === 'XLM');
+          const firstNonXlm = balances.find(t => t.code !== 'XLM');
 
-        if (isBuy) {
-          setFromToken(otherToken);
-          setToToken(defaultToken);
-        } else {
-          setFromToken(defaultToken);
-          setToToken(otherToken);
+          if (isBuy) {
+            // Buy: From other token -> To XLM
+            setFromToken(firstNonXlm || balances[0]);
+            setToToken(xlm || balances[1] || balances[0]);
+          } else {
+            // Sell: From XLM -> To other token
+            setFromToken(xlm || balances[0]);
+            setToToken(firstNonXlm || balances[1] || balances[0]);
+          }
         }
 
         setError(null);
@@ -97,8 +100,9 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     };
 
     fetchBalances();
-  }, [userAddress, service, isBuy]);
+  }, [userAddress, service]);
 
+  // Fetch order book when tokens change
   useEffect(() => {
     if (!service || !fromToken?.asset || !toToken?.asset) return;
 
@@ -108,6 +112,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
         setOrderBook(book);
 
+        // Auto-fill price with best available price if not set
         if (!price) {
           const bestPrice = await service.getBestPrice(fromToken.asset, toToken.asset, isBuy);
           if (bestPrice) {
@@ -116,7 +121,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         }
       } catch (err) {
         console.error('Failed to fetch order book:', err);
-        setError('Failed to load order book');
+        setError('No liquidity available for this trading pair');
       } finally {
         setIsLoading(false);
       }
@@ -125,6 +130,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     fetchOrderBook();
   }, [fromToken, toToken, isBuy, service]);
 
+  // Calculate quote
   useEffect(() => {
     if (!service || !amount || !price || !fromToken?.asset || !toToken?.asset) {
       setTotal('0');
@@ -155,7 +161,6 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
   }, [amount, price, fromToken, toToken, slippageTolerance, service]);
 
-  // Quick percentage buttons
   const setAmountPercentage = useCallback(
     (percentage: number) => {
       if (!fromToken?.balance) {
@@ -316,7 +321,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     isLoading,
     error,
     slippageTolerance,
-    popularTokens,
+    availableTokens,
     orderBook,
     setIsBuy: toggleOrderType,
     setFromToken,

@@ -95,7 +95,6 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
   );
 
   const disconnect = useCallback(async () => {
-    // Clear all timers
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
@@ -274,11 +273,8 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
     console.log('[useDydxWallet] Setting up WebSocket subscription:', { addr, subNo });
 
     const socketClient = getSocketClient();
-
-    // Check WebSocket connection status
     const checkConnection = () => {
       const isConnected = socketClient.isConnected();
-      console.log('[useDydxWallet] WebSocket connection status:', isConnected);
 
       if (!isConnected) {
         console.log('[useDydxWallet] WebSocket not connected, attempting to connect...');
@@ -293,7 +289,7 @@ export const useDydxWallet = (autoConnect = true): UseDydxWalletReturn => {
       addr,
       subNo,
       data => {
-        console.log('[useDydxWallet] Received subaccount update:', data);
+        // console.log('[useDydxWallet] Received subaccount update:', data);
 
         setIsReceivingUpdates(true);
         setLastUpdateTime(Date.now());

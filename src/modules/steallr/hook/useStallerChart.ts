@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// REMOVED: import { getStellarConfig } from '../../walletconnect/config/chains';
-// IMPORTED centralized state store
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { StellarChartService } from '../service/stellarChartService';
 import type {
@@ -68,10 +66,7 @@ export function useStellarChart({
   const streamingRequestedRef = useRef<boolean>(false);
 
   useEffect(() => {
-    // Use config from the store
     const config = currentStellarConfig;
-
-    // Determine the actual network type (mainnet/testnet) based on the config object
     const actualNetwork: NetworkType = config.network === 'PUBLIC' ? 'mainnet' : 'testnet';
 
     try {
@@ -83,7 +78,6 @@ export function useStellarChart({
       setService(chartService);
       setCurrentNetwork(actualNetwork);
 
-      // Set default asset pair based on the actual network
       if (!assetPair) {
         if (actualNetwork === 'mainnet') {
           setCurrentAssetPair({
@@ -103,7 +97,7 @@ export function useStellarChart({
       console.error('Failed to initialize chart service:', err);
       setError('Failed to connect to Stellar network');
     }
-  }, [currentStellarConfig, assetPair]); // Re-initialize service and defaults when config or initial assetPair changes
+  }, [currentStellarConfig, assetPair]);
 
   const fetchData = useCallback(async () => {
     if (!service || !currentAssetPair?.base || !currentAssetPair?.counter) {
@@ -215,12 +209,9 @@ export function useStellarChart({
         const exists = prevData.some(d => d.timestamp === newDataPoint.timestamp);
 
         if (exists) {
-          // Update existing data point
           return prevData.map(d => (d.timestamp === newDataPoint.timestamp ? newDataPoint : d));
         } else {
-          // Add new data point and maintain size/sort order
           const updated = [...prevData, newDataPoint].sort((a, b) => a.timestamp - b.timestamp);
-          // Keep a reasonable number of points (e.g., 500)
           return updated.length > 500 ? updated.slice(-500) : updated;
         }
       });
@@ -277,7 +268,7 @@ export function useStellarChart({
         .then(closer => {
           if (mountedRef.current && streamingRequestedRef.current) {
             streamCloseRef.current = closer;
-            retryCountRef.current = 0; // Reset retry count upon successful connection
+            retryCountRef.current = 0;
           } else {
             closer();
           }

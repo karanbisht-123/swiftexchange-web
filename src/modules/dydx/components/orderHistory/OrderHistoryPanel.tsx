@@ -1,9 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { useLocalState } from '../../hooks/useLocalState';
 import { dydxDataService } from '../../service/dydxOrderService';
 import { dydxWalletService } from '../../service/dydxWalletService';
-import { localStateManager } from '../../utils/localStateManager';
 import { getTimeAgo } from '../../utils/timeUtils';
 import { DataTable } from '../shared/DataTable';
 import { EmptyState } from '../shared/EmptyState';
@@ -14,75 +12,116 @@ import { SideBadge } from '../shared/SideBadge';
 import { StatusIndicator } from '../shared/SideBadge';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
+interface HistoricalOrder {
+  id: string;
+  clientId: number;
+  market: string;
+  side: 'BUY' | 'SELL';
+  type: string;
+  size: string;
+  price: string;
+  filledSize: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  triggerPrice?: string;
+  timeInForce?: string;
+  goodTilBlockTime?: string;
+}
+
 const OrderHistoryPanel: React.FC = () => {
-  const { orderHistory: liveHistory } = useLocalState();
-  const [olderHistory, setOlderHistory] = useState<any[]>([]);
+  const [orders, setOrders] = useState<HistoricalOrder[]>([]);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
   const address = dydxWalletService.getAddress();
   const isConnected = !!address;
-  const isLoading = localStateManager.getIsLoading();
 
-  const allOrders = useMemo(() => {
-    const uniqueMap = new Map();
-    [...liveHistory, ...olderHistory].forEach(item => uniqueMap.set(item.id, item));
-    return Array.from(uniqueMap.values()).sort(
-      (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-  }, [liveHistory, olderHistory]);
+  // Initial fetch of recent orders
+  const fetchInitialOrders = useCallback(async () => {
+    if (!isConnected) return;
 
-  // Load more orders
+    setLoading(true);
+    try {
+      // Fetch initial batch - use a reasonable limit (50-100)
+      const initialOrders = await dydxDataService.fetchHistoricalOrders(50);
+      setOrders(initialOrders);
+
+      // Check if there might be more orders
+      // If we got the full limit, there's likely more data
+      setHasMore(initialOrders.length === 50);
+    } catch (error) {
+      console.error('Error fetching initial order history:', error);
+      setOrders([]);
+      setHasMore(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [isConnected]);
+
+  // Load more older orders using proper pagination
   const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMore || allOrders.length === 0) return;
+    if (!hasMore || loadingMore || orders.length === 0) return;
 
     setLoadingMore(true);
     try {
-      const lastOrder = allOrders[allOrders.length - 1];
-      const moreOrders = await dydxDataService.fetchHistoricalOrders(50, lastOrder.createdAt);
+      // Get the last order's goodTilBlockTime for pagination
+      const lastOrder = orders[orders.length - 1];
 
-      const mapped = moreOrders.map((o: any) => ({
-        id: o.id,
-        clientId: Number(o.clientId || 0),
-        market: o.market,
-        side: o.side.toUpperCase() as 'BUY' | 'SELL',
-        type: o.type,
-        size: o.size,
-        price: o.price,
-        filledSize: o.filledSize || '0',
-        status: o.status,
-        createdAt: o.createdAt,
-        updatedAt: o.updatedAt,
-        triggerPrice: o.triggerPrice,
-        timeInForce: o.timeInForce,
-      }));
+      // Use goodTilBlockTimeBeforeOrAt parameter for pagination
+      // This fetches orders created before the last order's timestamp
+      const moreOrders = await dydxDataService.fetchHistoricalOrders(
+        50,
+        lastOrder.goodTilBlockTime
+      );
 
-      const newOrders = mapped.filter(o => !allOrders.some(existing => existing.id === o.id));
+      // Filter out any duplicates (in case of edge cases)
+      const existingIds = new Set(orders.map(o => o.id));
+      const uniqueNewOrders = moreOrders.filter(o => !existingIds.has(o.id));
 
-      if (newOrders.length === 0) {
-        setHasMore(false);
-      } else {
-        setOlderHistory(prev => [...prev, ...newOrders]);
+      if (uniqueNewOrders.length > 0) {
+        setOrders(prev => [...prev, ...uniqueNewOrders]);
+        // If we got less than requested, we've reached the end
         setHasMore(moreOrders.length === 50);
+      } else {
+        // No new orders returned, we've reached the end
+        setHasMore(false);
       }
     } catch (error) {
       console.error('Error loading more orders:', error);
+      setHasMore(false);
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, loadingMore, allOrders]);
+  }, [hasMore, loadingMore, orders]);
+
+  // Fetch on mount and when wallet connects
+  useEffect(() => {
+    if (isConnected) {
+      fetchInitialOrders();
+    } else {
+      setOrders([]);
+      setHasMore(false);
+    }
+  }, [isConnected, fetchInitialOrders]);
+
+  // Sort orders by creation date (newest first)
+  const sortedOrders = useMemo(() => {
+    return [...orders].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [orders]);
 
   if (!isConnected) {
-    return (
-      <WalletConnectPrompt description="Connect and deposit funds to view your order history" />
-    );
+    return <WalletConnectPrompt description="Connect your wallet to view your order history" />;
   }
 
-  if (isLoading && allOrders.length === 0) {
+  if (loading) {
     return <LoadingState message="Loading order history..." />;
   }
 
-  if (allOrders.length === 0) {
+  if (sortedOrders.length === 0) {
     return <EmptyState title="No Orders" description="Place your first trade to see orders here" />;
   }
 
@@ -91,25 +130,25 @@ const OrderHistoryPanel: React.FC = () => {
       key: 'market',
       header: 'Market',
       align: 'left' as const,
-      render: (order: any) => <MarketBadge market={order.market} />,
+      render: (order: HistoricalOrder) => <MarketBadge market={order.market} />,
     },
     {
       key: 'status',
       header: 'Status',
       align: 'center' as const,
-      render: (order: any) => <StatusIndicator status={order.status} />,
+      render: (order: HistoricalOrder) => <StatusIndicator status={order.status} />,
     },
     {
       key: 'side',
       header: 'Side',
       align: 'center' as const,
-      render: (order: any) => <SideBadge side={order.side} />,
+      render: (order: HistoricalOrder) => <SideBadge side={order.side} />,
     },
     {
       key: 'amount',
       header: 'Amount',
       align: 'right' as const,
-      render: (order: any) => (
+      render: (order: HistoricalOrder) => (
         <span className="text-white font-mono">{parseFloat(order.size).toFixed(4)}</span>
       ),
     },
@@ -117,11 +156,13 @@ const OrderHistoryPanel: React.FC = () => {
       key: 'filled',
       header: 'Filled',
       align: 'right' as const,
-      render: (order: any) => {
-        const fillPercent = (parseFloat(order.filledSize) / parseFloat(order.size)) * 100;
+      render: (order: HistoricalOrder) => {
+        const filled = parseFloat(order.filledSize || '0');
+        const size = parseFloat(order.size);
+        const fillPercent = size > 0 ? (filled / size) * 100 : 0;
         return (
-          <div>
-            <div className="text-white font-mono">{parseFloat(order.filledSize).toFixed(4)}</div>
+          <div className="text-right">
+            <div className="text-white font-mono">{filled.toFixed(4)}</div>
             {fillPercent > 0 && fillPercent < 100 && (
               <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
             )}
@@ -133,8 +174,10 @@ const OrderHistoryPanel: React.FC = () => {
       key: 'orderValue',
       header: 'Order Value',
       align: 'right' as const,
-      render: (order: any) => {
-        const value = (parseFloat(order.filledSize) * parseFloat(order.price)).toFixed(2);
+      render: (order: HistoricalOrder) => {
+        const filled = parseFloat(order.filledSize || '0');
+        const price = parseFloat(order.price);
+        const value = (filled * price).toFixed(2);
         return <span className="text-white font-mono">${value}</span>;
       },
     },
@@ -142,7 +185,7 @@ const OrderHistoryPanel: React.FC = () => {
       key: 'price',
       header: 'Price',
       align: 'right' as const,
-      render: (order: any) => (
+      render: (order: HistoricalOrder) => (
         <span className="text-white font-mono">
           {order.type === 'MARKET' ? 'Market' : `$${parseFloat(order.price).toLocaleString()}`}
         </span>
@@ -152,7 +195,7 @@ const OrderHistoryPanel: React.FC = () => {
       key: 'trigger',
       header: 'Trigger',
       align: 'center' as const,
-      render: (order: any) => (
+      render: (order: HistoricalOrder) => (
         <span className="text-gray-400">
           {order.triggerPrice ? `$${parseFloat(order.triggerPrice).toLocaleString()}` : '—'}
         </span>
@@ -170,7 +213,7 @@ const OrderHistoryPanel: React.FC = () => {
       key: 'time',
       header: 'Time',
       align: 'right' as const,
-      render: (order: any) => (
+      render: (order: HistoricalOrder) => (
         <span className="text-gray-400 text-xs">{getTimeAgo(order.createdAt)}</span>
       ),
     },
@@ -179,7 +222,7 @@ const OrderHistoryPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-primary">
       <div className="flex-1 overflow-auto">
-        <DataTable data={allOrders} columns={columns} getRowKey={order => order.id} />
+        <DataTable data={sortedOrders} columns={columns} getRowKey={order => order.id} />
         <LoadMoreButton onClick={loadMore} loading={loadingMore} show={hasMore} />
       </div>
     </div>

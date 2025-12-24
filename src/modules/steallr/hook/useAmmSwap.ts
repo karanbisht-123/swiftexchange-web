@@ -4,9 +4,6 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { AmmSwapService } from '../service/ammSwapService';
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
 
-// Assuming NetworkType is defined elsewhere, but for completeness:
-// type NetworkType = 'mainnet' | 'testnet';
-
 interface UseAmmSwapProps {
   userAddress: string;
 }
@@ -21,15 +18,12 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [slippageTolerance, setSlippageTolerance] = useState(1);
-  const [popularTokens, setPopularTokens] = useState<TokenInfo[]>([]);
+  const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
 
-  // Use the wallet store to get the current Stellar configuration
   const { currentStellarConfig } = useWalletStore();
 
   useEffect(() => {
     try {
-      // Use the Stellar configuration directly from the centralized store.
-      // The store handles calling getStellarConfig(network) and updating this value.
       const config = currentStellarConfig;
 
       const ammService = new AmmSwapService(
@@ -42,81 +36,46 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
       console.error('Failed to initialize AMM service:', err);
       setError('Failed to connect to Stellar network');
     }
-  }, [currentStellarConfig]); // Re-initialize service if the network/config changes
-
-  // Load user tokens
+  }, [currentStellarConfig]);
   useEffect(() => {
     if (!service || !userAddress) return;
 
     const loadTokens = async () => {
+      setIsLoading(true);
       try {
         const userTokens = await service.getTokenBalances(userAddress);
-        const popularAssets = service.getPopularAssets();
 
-        // Create map for quick lookup
-        const userTokenMap = new Map();
-        userTokens.forEach(token => {
-          const key = token.code === 'XLM' ? 'XLM' : `${token.code}:${token.issuer}`;
-          userTokenMap.set(key, token);
-        });
-
-        // Merge popular assets with user balances
-        const allTokens: TokenInfo[] = [];
-
-        for (const asset of popularAssets) {
-          const isNative = asset.isNative();
-          const key = isNative ? 'XLM' : `${asset.code}:${asset.issuer}`;
-          const userToken = userTokenMap.get(key);
-
-          if (userToken) {
-            // User has this token
-            allTokens.push({ ...userToken, isPopular: true });
-            userTokenMap.delete(key); // Remove from map
-          } else {
-            // User doesn't have this token yet
-            allTokens.push({
-              asset,
-              code: isNative ? 'XLM' : asset.code,
-              issuer: isNative ? undefined : asset.issuer,
-              balance: '0',
-              isPopular: true,
-            });
-          }
+        if (userTokens.length === 0) {
+          setError('No tokens found in your account. Please add tokens first.');
+          setAvailableTokens([]);
+          return;
         }
 
-        // Add remaining user tokens that aren't popular
-        userTokenMap.forEach(token => {
-          allTokens.push(token);
-        });
-
-        setPopularTokens(allTokens);
-
-        // Set default tokens if not set - prefer XLM as one of the pair
-        if (!fromToken && allTokens.length > 0) {
-          const xlmToken = allTokens.find(t => t.code === 'XLM');
-          setFromToken(xlmToken || allTokens[0]);
+        setAvailableTokens(userTokens);
+        if (!fromToken && userTokens.length > 0) {
+          const xlmToken = userTokens.find(t => t.code === 'XLM');
+          setFromToken(xlmToken || userTokens[0]);
         }
-        if (!toToken && allTokens.length > 1) {
-          // If fromToken is XLM, pick first non-XLM token
-          if (fromToken?.code === 'XLM') {
-            const nonXlm = allTokens.find(t => t.code !== 'XLM');
-            setToToken(nonXlm || allTokens[1]);
-          } else {
-            // Otherwise prefer XLM as toToken
-            const xlmToken = allTokens.find(t => t.code === 'XLM');
-            setToToken(xlmToken || allTokens[1]);
-          }
+
+        if (!toToken && userTokens.length > 1) {
+          const nonSelectedToken = userTokens.find(
+            t => t.code !== (fromToken?.code || userTokens[0].code)
+          );
+          setToToken(nonSelectedToken || userTokens[1]);
         }
+
+        setError(null);
       } catch (err) {
         console.error('Failed to load tokens:', err);
-        setError('Failed to load tokens');
+        setError('Failed to load your token balances');
+      } finally {
+        setIsLoading(false);
       }
     };
 
     loadTokens();
   }, [service, userAddress]);
 
-  // Get quote when inputs change
   useEffect(() => {
     if (!service || !fromToken || !toToken || !fromAmount || parseFloat(fromAmount) <= 0) {
       setQuote(null);
@@ -124,7 +83,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
       return;
     }
 
-    // Check if same token
+    // Validate different tokens
     if (
       (fromToken.asset.isNative() && toToken.asset.isNative()) ||
       (!fromToken.asset.isNative() &&
@@ -133,6 +92,20 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
         fromToken.issuer === toToken.issuer)
     ) {
       setError('Please select different tokens');
+      setQuote(null);
+      setToAmount('');
+      return;
+    }
+
+    // Validate sufficient balance
+    const availableBalance = parseFloat(fromToken.balance || '0');
+    const requestedAmount = parseFloat(fromAmount);
+    const reserve = fromToken.code === 'XLM' ? 2 : 0; // Keep 2 XLM reserve for fees
+
+    if (requestedAmount > availableBalance - reserve) {
+      setError(
+        `Insufficient ${fromToken.code} balance. Available: ${(availableBalance - reserve).toFixed(7)}`
+      );
       setQuote(null);
       setToAmount('');
       return;
@@ -166,7 +139,6 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     const temp = fromToken;
     setFromToken(toToken);
     setToToken(temp);
-    // Since `toAmount` is the calculated output, setting `fromAmount` to it reverses the quote calculation.
     setFromAmount(toAmount);
   }, [fromToken, toToken, toAmount]);
 
@@ -237,7 +209,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     isLoading,
     error,
     slippageTolerance,
-    popularTokens,
+    availableTokens,
     setFromToken,
     setToToken,
     setFromAmount,

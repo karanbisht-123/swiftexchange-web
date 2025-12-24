@@ -19,7 +19,7 @@ export const useDydxTrading = () => {
   const [isFetching, setIsFetching] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
 
-  console.log(setIsFetching);
+  // console.log(setIsFetching);
 
   const canTrade = isConnected && hasSubaccount && !!address;
 

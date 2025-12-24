@@ -1,8 +1,8 @@
 import { ShoppingCart, X } from 'lucide-react';
-import { type FC, useEffect, useRef, useState } from 'react';
+import { type FC, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import * as StellarSdk from 'stellar-sdk';
+import * as StellarSdk from '@stellar/stellar-sdk';
 
 import { ROUTES } from '../../../../constants/routes';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
@@ -46,7 +46,14 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
   const stellarAddress = stellarWallet?.address;
   const evmWallet = connectedWallets[WalletType.EVM];
   const evmAddress = evmWallet?.address;
-  const stellarConfig = getStellarConfig(currentNetwork);
+
+  const stellarConfig = useMemo(() => getStellarConfig(currentNetwork), [currentNetwork]);
+  const server = useMemo(() => {
+    if (!stellarConfig) return null;
+    return new StellarSdk.Horizon.Server(stellarConfig.horizonUrl, {
+      allowHttp: stellarConfig.horizonUrl.startsWith('http://'),
+    });
+  }, [stellarConfig]);
 
   useEffect(() => {
     const checkWalletActivation = async () => {
@@ -58,14 +65,12 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
       }
 
       try {
-        if (stellarAddress) {
+        if (stellarAddress && server) {
           try {
-            const server = new StellarSdk.Horizon.Server(stellarConfig.horizonUrl);
             await server.loadAccount(stellarAddress);
             setIsWalletActive(true);
             setIsActivated(true);
-          } catch (error) {
-            console.error('Stellar wallet check failed:', error);
+          } catch (error: any) {
             setIsWalletActive(false);
             if (evmAddress) {
               setIsActivated(true);
@@ -75,15 +80,11 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
           setIsActivated(true);
           setIsWalletActive(true);
         }
+
         let userHasTradableBalance = false;
-
-        if (evmAddress) {
+        if (evmAddress) userHasTradableBalance = true;
+        if (stellarAddress && selectedAsset && selectedAsset.balance > 0)
           userHasTradableBalance = true;
-        }
-
-        if (stellarAddress && selectedAsset && selectedAsset.balance > 0) {
-          userHasTradableBalance = true;
-        }
 
         setHasAssets(userHasTradableBalance);
 
@@ -95,7 +96,6 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
           setStep('no-assets');
         }
       } catch (error) {
-        console.error('Wallet check failed:', error);
         if (evmAddress) {
           setStep('trade');
           setHasAssets(true);
@@ -110,15 +110,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
     if (isOpen) {
       checkWalletActivation();
     }
-  }, [
-    isOpen,
-    selectedAsset,
-    stellarAddress,
-    evmAddress,
-    stellarConfig.horizonUrl,
-    isActivated,
-    currentNetwork,
-  ]);
+  }, [isOpen, selectedAsset, stellarAddress, evmAddress, server, isActivated]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -168,8 +160,6 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
     transactionHash: string;
     bridgeTransactionHash?: string;
   }) => {
-    console.log('Swap completed:', data);
-    alert(`Swap completed!\nAmount: ${data.amount}\nTx: ${data.transactionHash}`);
     onClose();
   };
 
@@ -194,7 +184,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-800 transition-colors duration-200 animate-float z-10"
+          className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-800 transition-colors duration-200 z-10"
           aria-label="Close modal"
         >
           <X size={20} />
@@ -207,20 +197,16 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
               </div>
               <h2 className="text-2xl font-bold text-primary mb-3">No Wallets Connected</h2>
               <p className="text-secondary text-sm mb-6 max-w-xs">
-                Please connect an EVM wallet (MetaMask, Trust Wallet) or Stellar wallet to start
-                trading.
+                Please connect an EVM wallet or Stellar wallet to start trading.
               </p>
               <button
                 onClick={handleBuyAssets}
-                className="btn-primary px-8 py-3 rounded-xl font-semibold text-base shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2"
+                className="btn-primary px-8 py-3 rounded-xl font-semibold text-base flex items-center gap-2"
               >
                 <ShoppingCart size={20} />
                 Buy Crypto & Connect
               </button>
-              <button
-                onClick={onClose}
-                className="mt-4 text-sm text-gray-400 hover:text-gray-300 transition-colors"
-              >
+              <button onClick={onClose} className="mt-4 text-sm text-gray-400 hover:text-gray-300">
                 Maybe Later
               </button>
             </div>

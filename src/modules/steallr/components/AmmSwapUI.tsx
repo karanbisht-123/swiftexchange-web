@@ -12,11 +12,9 @@ const AmmSwapUI = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [swapStatus, setSwapStatus] = useState<'pending' | 'success' | null>(null);
 
-  const { connectedWallets, getProvider, getNetwork } = useWalletConnect();
+  const { connectedWallets, getProvider } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
-  const currentNetwork = getNetwork();
-  console.log(currentNetwork, 'hii i am cureent network ---');
 
   const {
     fromToken,
@@ -27,7 +25,7 @@ const AmmSwapUI = () => {
     isLoading,
     error,
     slippageTolerance,
-    popularTokens,
+    availableTokens, // Changed from popularTokens
     setFromToken,
     setToToken,
     setFromAmount,
@@ -41,11 +39,7 @@ const AmmSwapUI = () => {
     userAddress: stellarAddress,
   });
 
-  const isLoadingTokens = popularTokens.length === 0 && stellarAddress && !error;
-  console.log(isLoadingTokens, 'hii ia m isLOadingd');
   const { addTransaction, defaultSlippage, setDefaultSlippage } = useAmmSwapStore();
-
-  console.log(defaultSlippage, 'dfhkjhfjkh');
 
   const handleSlippageChange = (slippage: number) => {
     setSlippageTolerance(slippage);
@@ -115,6 +109,19 @@ const AmmSwapUI = () => {
     );
   }
 
+  // Show loading state while fetching tokens
+  if (availableTokens.length === 0 && !error) {
+    return (
+      <div className="bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
+        <div className="w-full max-w-lg text-center space-y-4">
+          <RefreshCw className="w-16 h-16 text-brand animate-spin mx-auto" />
+          <h4 className="heading-4">Loading Your Tokens...</h4>
+          <p className="text-muted">Fetching your token balances from the network</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
       <div className="w-full max-w-lg">
@@ -150,7 +157,8 @@ const AmmSwapUI = () => {
             <div className="flex items-center justify-between text-small text-muted">
               <span>From</span>
               <span>
-                Balance: {fromToken?.balance ? parseFloat(fromToken.balance) : '00.0000000'}
+                Balance:{' '}
+                {fromToken?.balance ? parseFloat(fromToken.balance).toFixed(7) : '0.0000000'}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -160,17 +168,23 @@ const AmmSwapUI = () => {
                 onChange={e => setFromAmount(e.target.value)}
                 placeholder="0.0"
                 className="input input-primary flex-1 text-2xl font-semibold"
+                disabled={isLoading}
               />
               <TokenSelector
                 selectedToken={fromToken || { code: 'Select', balance: '0' }}
                 onSelect={setFromToken}
-                tokens={popularTokens}
+                tokens={availableTokens}
                 label="From"
               />
             </div>
             {fromToken?.balance && (
               <button
-                onClick={() => setFromAmount(fromToken.balance || '0')}
+                onClick={() => {
+                  const balance = parseFloat(fromToken.balance || '0');
+                  const reserve = fromToken.code === 'XLM' ? 2 : 0;
+                  const maxAmount = Math.max(0, balance - reserve);
+                  setFromAmount(maxAmount.toFixed(7));
+                }}
                 className="text-xs text-brand-accent hover:text-brand-primary transition-colors"
               >
                 MAX
@@ -182,6 +196,7 @@ const AmmSwapUI = () => {
             <button
               onClick={swapTokens}
               className="btn btn-glass p-3 rounded-xl hover:scale-110 transition-all duration-300 border-2 border-border-accent"
+              disabled={isLoading}
             >
               <ArrowDownUp className="w-5 h-5 text-text-inverse" />
             </button>
@@ -191,7 +206,7 @@ const AmmSwapUI = () => {
             <div className="flex items-center justify-between text-small text-muted">
               <span>To</span>
               <span>
-                Balance: {toToken?.balance ? parseFloat(toToken.balance).toFixed(2) : '0.00'}
+                Balance: {toToken?.balance ? parseFloat(toToken.balance).toFixed(7) : '0.0000000'}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -200,12 +215,12 @@ const AmmSwapUI = () => {
                 value={toAmount}
                 readOnly
                 placeholder="0.0"
-                className="input input-primary flex-1 text-2xl font-semibold"
+                className="input input-primary flex-1 text-2xl font-semibold cursor-not-allowed"
               />
               <TokenSelector
-                selectedToken={fromToken || { code: 'Select', balance: '0' }}
+                selectedToken={toToken || { code: 'Select', balance: '0' }}
                 onSelect={setToToken}
-                tokens={popularTokens}
+                tokens={availableTokens}
                 label="To"
               />
             </div>

@@ -13,7 +13,6 @@ interface PageLayoutProps {
   footerContent?: React.ReactNode;
   headerActions?: React.ReactNode;
 }
-
 const PageLayout: React.FC<PageLayoutProps> = ({
   title,
   subtitle,
@@ -66,11 +65,7 @@ const PageLayout: React.FC<PageLayoutProps> = ({
             {headerActions && <div className="shrink-0">{headerActions}</div>}
           </div>
         </div>
-
-        {/* Content */}
         <div className="flex-1 overflow-y-auto scrollbar-thin py-4">{children}</div>
-
-        {/* Footer */}
         {hasFooter && footerContent && (
           <div className="shrink-0 pt-4 border-t border-color">{footerContent}</div>
         )}

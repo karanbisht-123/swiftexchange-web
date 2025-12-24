@@ -2,7 +2,6 @@ import { OrderExecution, OrderSide, OrderTimeInForce, OrderType } from '@dydxpro
 
 import {
   type MarketInfo,
-  type OpenOrder,
   type OrderConfig,
   type OrderResult,
   OrderSideEnum,
@@ -11,7 +10,6 @@ import {
   mapOrderSide,
   mapOrderType,
 } from '../types/trading.types';
-import { localStateManager } from '../utils/localStateManager';
 import { dydxWalletService } from './dydxWalletService';
 
 class DydxTradingService {
@@ -78,17 +76,6 @@ class DydxTradingService {
         orderConfig.triggerPrice
       );
 
-      // Track order in local state for UI updates
-      localStateManager.handleOrderPlaced({
-        clientId: orderConfig.clientId,
-        market: marketInfo.ticker,
-        side: orderConfig.side === OrderSide.BUY ? 'BUY' : 'SELL',
-        type: params.type,
-        size: String(orderConfig.size),
-        price: String(orderConfig.price),
-        triggerPrice: orderConfig.triggerPrice ? String(orderConfig.triggerPrice) : undefined,
-      });
-
       // Convert hash to hex string for block explorer
       const txHash =
         typeof result.hash === 'string'
@@ -142,108 +129,63 @@ class DydxTradingService {
     const closingSide: OrderSideEnum = position.side === 'LONG' ? 'SELL' : 'BUY';
     const positionSize = Math.abs(parseFloat(position.size));
 
-    if (config.takeProfit) {
-      const tpOrderType =
-        config.takeProfit.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
+    const promises: Promise<void>[] = [];
 
-      results.takeProfitResult = await this.placeOrder(
-        {
-          market: position.market,
-          side: closingSide,
-          type: tpOrderType,
-          size: positionSize,
-          triggerPrice: config.takeProfit.price,
-          price: config.takeProfit.type === 'LIMIT' ? config.takeProfit.price : undefined,
-          reduceOnly: true,
-          timeInForce: 'GTT',
-        },
-        marketInfo
+    if (config.takeProfit) {
+      promises.push(
+        (async () => {
+          const tpOrderType =
+            config.takeProfit!.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
+
+          results.takeProfitResult = await this.placeOrder(
+            {
+              market: position.market,
+              side: closingSide,
+              type: tpOrderType,
+              size: positionSize,
+              triggerPrice: config.takeProfit!.price,
+              price: config.takeProfit!.type === 'LIMIT' ? config.takeProfit!.price : undefined,
+              reduceOnly: true,
+              timeInForce: 'GTT',
+            },
+            marketInfo
+          );
+        })()
       );
     }
 
     if (config.stopLoss) {
-      const slOrderType = config.stopLoss.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
+      promises.push(
+        (async () => {
+          const slOrderType = config.stopLoss!.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
 
-      results.stopLossResult = await this.placeOrder(
-        {
-          market: position.market,
-          side: closingSide,
-          type: slOrderType,
-          size: positionSize,
-          triggerPrice: config.stopLoss.price,
-          price: config.stopLoss.type === 'LIMIT' ? config.stopLoss.price : undefined,
-          reduceOnly: true,
-          timeInForce: 'GTT',
-        },
-        marketInfo
+          results.stopLossResult = await this.placeOrder(
+            {
+              market: position.market,
+              side: closingSide,
+              type: slOrderType,
+              size: positionSize,
+              triggerPrice: config.stopLoss!.price,
+              price: config.stopLoss!.type === 'LIMIT' ? config.stopLoss!.price : undefined,
+              reduceOnly: true,
+              timeInForce: 'GTT',
+            },
+            marketInfo
+          );
+        })()
       );
     }
 
+    await Promise.all(promises);
     return results;
   }
 
-  async cancelOrder(order: OpenOrder): Promise<OrderResult> {
-    const compositeClient = dydxWalletService.getCompositeClient();
-    const subaccountInfo = dydxWalletService.getSubaccountInfo();
-
-    if (!compositeClient || !subaccountInfo) {
-      return this.createErrorResult('Client not ready', 'CLIENT_MISSING', 'Client not ready', true);
-    }
-
-    try {
-      // Calculate appropriate expiry based on order type
-      let goodTilBlock: number | undefined;
-      let goodTilBlockTime: number | undefined;
-
-      if (order.goodTilBlock) {
-        const currentHeight = await compositeClient.validatorClient.get.latestBlockHeight();
-        goodTilBlock = currentHeight + this.SHORT_TERM_ORDER_BLOCKS;
-      } else if (order.goodTilBlockTime) {
-        const datetime = new Date(order.goodTilBlockTime);
-        goodTilBlockTime = Math.round(datetime.getTime() / 1000);
-      }
-
-      const market = order.market.includes('-') ? order.market.split('-')[0] : order.market;
-
-      const tx = await compositeClient.cancelOrder(
-        subaccountInfo,
-        order.clientId,
-        order.orderFlags,
-        market,
-        goodTilBlock ?? 0,
-        goodTilBlockTime ?? 0
-      );
-
-      localStateManager.handleOrderCancelling(order.id, order.clientId);
-
-      const txHash =
-        typeof tx.hash === 'string'
-          ? tx.hash
-          : Array.from(new Uint8Array(tx.hash))
-              .map(b => b.toString(16).padStart(2, '0'))
-              .join('');
-
-      return {
-        success: true,
-        clientId: order.clientId,
-        transactionHash: txHash,
-        userMessage: 'Order cancelled',
-        orderStatus: 'CANCELLED',
-      };
-    } catch (err: any) {
-      console.error('[Trading] Cancel failed:', err);
-      const info = this.parseError(err);
-      return {
-        success: false,
-        userMessage: info.userMessage,
-        error: info.technicalDetails,
-        retryable: info.retryable,
-      };
-    }
-  }
-
   // Close position at market price
-  async closePosition(market: string, position: any, marketInfo: MarketInfo) {
+  async closePosition(
+    market: string,
+    position: Position,
+    marketInfo: MarketInfo
+  ): Promise<OrderResult> {
     const side = position.side === 'LONG' ? 'SELL' : 'BUY';
 
     return this.placeOrder(

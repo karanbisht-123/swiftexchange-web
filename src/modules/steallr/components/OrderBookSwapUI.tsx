@@ -35,7 +35,10 @@ const OrderBookSwapUI = () => {
     isLoading,
     error,
     orderBook,
+    availableTokens,
     setIsBuy,
+    setFromToken,
+    setToToken,
     setAmount,
     setPrice,
     setMaxAmount,
@@ -202,20 +205,74 @@ const OrderBookSwapUI = () => {
             </button>
           </div>
 
-          {/* --- Token Pair --- */}
+          {/* --- Token Pair with Selectors --- */}
           <div className="card flex items-center justify-center gap-4 p-4">
             <div className="text-center flex-1">
-              <div className="text-lg font-bold">{fromToken?.code || 'Select'}</div>
+              <select
+                value={fromToken?.code || ''}
+                onChange={e => {
+                  const selected = availableTokens.find(t => t.code === e.target.value);
+                  if (selected && selected.code !== toToken?.code) {
+                    setFromToken(selected);
+                  }
+                }}
+                className="input input-primary w-full text-sm font-semibold mb-2"
+                disabled={isLoading}
+              >
+                <option value="">Select Token</option>
+                {availableTokens.map(token => (
+                  <option
+                    key={`${token.code}-${token.issuer || 'native'}`}
+                    value={token.code}
+                    disabled={token.code === toToken?.code}
+                  >
+                    {token.code}
+                  </option>
+                ))}
+              </select>
               <div className="text-xs text-muted truncate max-w-[120px] mx-auto">
-                {fromToken?.issuer?.slice(0, 8) || ''}...
+                {fromToken?.issuer?.slice(0, 8) || 'Native'}...
               </div>
               <div className="text-sm text-muted mt-1">Balance: {fromBalance}</div>
             </div>
-            <ArrowDownUp className="w-6 h-6 text-muted" />
+
+            <button
+              onClick={() => {
+                const temp = fromToken;
+                setFromToken(toToken);
+                setToToken(temp);
+              }}
+              className="btn btn-ghost p-2"
+              disabled={isLoading || !fromToken || !toToken}
+            >
+              <ArrowDownUp className="w-6 h-6 text-muted" />
+            </button>
+
             <div className="text-center flex-1">
-              <div className="text-lg font-bold">{toToken?.code || 'Select'}</div>
+              <select
+                value={toToken?.code || ''}
+                onChange={e => {
+                  const selected = availableTokens.find(t => t.code === e.target.value);
+                  if (selected && selected.code !== fromToken?.code) {
+                    setToToken(selected);
+                  }
+                }}
+                className="input input-primary w-full text-sm font-semibold mb-2"
+                disabled={isLoading}
+              >
+                <option value="">Select Token</option>
+                {availableTokens.map(token => (
+                  <option
+                    key={`${token.code}-${token.issuer || 'native'}`}
+                    value={token.code}
+                    disabled={token.code === fromToken?.code}
+                  >
+                    {token.code}
+                  </option>
+                ))}
+              </select>
               <div className="text-xs text-muted truncate max-w-[120px] mx-auto">
-                {toToken?.issuer?.slice(0, 8) || ''}...
+                {toToken?.issuer?.slice(0, 8) || 'Native'}...
               </div>
               <div className="text-sm text-muted mt-1">Balance: {toBalance}</div>
             </div>
@@ -237,8 +294,8 @@ const OrderBookSwapUI = () => {
             <div>
               <label className="block text-sm font-medium text-muted mb-2">
                 {isBuy
-                  ? `Amount to Buy (${toToken?.code || ''})`
-                  : `Amount to Sell (${fromToken?.code || ''})`}
+                  ? `Amount to Buy (${toToken?.code || 'Token'})`
+                  : `Amount to Sell (${fromToken?.code || 'Token'})`}
               </label>
               <div className="flex gap-2">
                 <input
@@ -263,7 +320,7 @@ const OrderBookSwapUI = () => {
             {/* Price */}
             <div>
               <label className="block text-sm font-medium text-muted mb-2">
-                Price ({fromToken?.code || ''} per {toToken?.code || ''})
+                Price ({fromToken?.code || 'From'} per {toToken?.code || 'To'})
               </label>
               <input
                 type="number"
@@ -279,7 +336,7 @@ const OrderBookSwapUI = () => {
             {/* Total */}
             <div>
               <label className="block text-sm font-medium text-muted mb-2">
-                Total ({fromToken?.code || ''})
+                Total ({fromToken?.code || 'From'})
               </label>
               <input
                 type="number"

@@ -12,8 +12,7 @@ import { useWalletConnect } from '../hooks/useWalletConnect';
 import { walletService } from '../services/walletService';
 
 export const WalletListModal: React.FC = () => {
-  const { connectedWallets, isModalOpen, closeModal, connectWallet, disconnectType } =
-    useWalletConnect();
+  const { connectedWallets, isModalOpen, closeModal, connectWallet } = useWalletConnect();
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -144,10 +143,10 @@ export const WalletListModal: React.FC = () => {
       }, 10000);
 
       try {
-        await disconnectType(type);
-        if (disconnectTimeoutRef.current) {
-          window.clearTimeout(disconnectTimeoutRef.current);
-        }
+        // await disconnectType(type);
+        // if (disconnectTimeoutRef.current) {
+        //   window.clearTimeout(disconnectTimeoutRef.current);
+        // }
 
         setDisconnectingType(null);
       } catch (error: any) {
@@ -166,21 +165,21 @@ export const WalletListModal: React.FC = () => {
         }, 5000);
       }
     },
-    [disconnectType, disconnectingType, connectingWallet]
+    [disconnectingType, connectingWallet]
   );
 
   const handleModalClose = useCallback(async () => {
     if (connectingWallet) {
       const [typeStr] = connectingWallet.split('-');
-      const type = typeStr as WalletType;
+      // const type = typeStr as WalletType;
 
       console.log('[WalletModal] Cancelling connection due to modal close');
 
-      try {
-        await walletService.cancelConnection(type);
-      } catch (err) {
-        console.error('[WalletModal] Error cancelling connection:', err);
-      }
+      // try {
+      //   await walletService.cancelConnection(type);
+      // } catch (err) {
+      //   console.error('[WalletModal] Error cancelling connection:', err);
+      // }
 
       setConnectingWallet(null);
       setError(null);

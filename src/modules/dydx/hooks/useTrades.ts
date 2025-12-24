@@ -105,10 +105,18 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
         unsubRef.current = socketClient.subscribeToTrades(market, (msg: any) => {
           console.log('tradesuscrbie');
           if (!mountedRef.current || currentMarketRef.current !== market) return;
+          let tradesArray: any[] = [];
 
-          const tradesArray = msg.contents?.trades || msg.trades;
+          if (Array.isArray(msg.contents)) {
+            tradesArray = msg.contents.flatMap((content: any) => content.trades || []);
+          } else if (msg.contents?.trades) {
+            tradesArray = msg.contents.trades;
+          } else if (msg.trades) {
+            tradesArray = msg.trades;
+          }
 
-          console.log(msg, 'mddkgmdkgkdlfgn');
+          console.log('Received trades via websocket:', tradesArray); // This will now work
+
           if (!Array.isArray(tradesArray) || tradesArray.length === 0) return;
 
           const newTrades: Trade[] = tradesArray
@@ -128,12 +136,16 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
             const uniqueNewTrades = newTrades.filter(t => !existingIds.has(t.id));
 
             if (uniqueNewTrades.length === 0) {
-              console.log('[useTrades] No new unique trades from WS');
               return prevTrades;
             }
 
             console.log(`[useTrades] Adding ${uniqueNewTrades.length} new trades from WS`);
             const updated = [...uniqueNewTrades, ...prevTrades];
+
+            // Sort by createdAt descending just in case batch is out of order
+            updated.sort(
+              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
 
             return updated.slice(0, limit);
           });

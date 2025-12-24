@@ -1,4 +1,4 @@
-import UniversalProvider from '@walletconnect/universal-provider';
+import type UniversalProviderType from '@walletconnect/universal-provider';
 import { Web3Modal } from '@web3modal/standalone';
 import { type Web3ModalConfig } from '@web3modal/standalone';
 
@@ -15,75 +15,68 @@ import { CHAIN_EVENTS, CHAIN_METHODS, WalletType } from '../constants/Wallet';
 
 // Constants
 const CONNECTION_TIMEOUT = 120000;
-const DISCONNECT_TIMEOUT = 3000;
 const MODAL_DELAY = 300;
-// const SESSION_CLEANUP_DELAY = 1000;
-const STORAGE_KEY = 'wallet_sessions';
 const NETWORK_STORAGE_KEY = 'current_network';
+const EXTENSION_STORAGE_PREFIX = 'wallet_extension_';
 
 // Types
-type ConnectionState = 'connecting' | 'connected' | 'failed' | 'cancelled';
+type ConnectionState = 'connecting' | 'connected' | 'failed' | 'cancelled' | 'disconnected';
 type ConnectionCallback = (type: WalletType, state: ConnectionState) => void;
-type ConnectType = 'extension' | 'walletconnect';
-
-interface StoredSession {
-  walletId: string;
-  type: WalletType;
-  connectType: ConnectType;
-}
 
 interface ConnectionResult {
+  type: WalletType;
   address: string;
   chainId: string | number;
   walletId: string;
 }
 
-interface WalletProviders {
-  evm: any;
-  cosmos: any;
-  stellar: any;
-}
-
-interface WCProviders {
-  evm: any;
-  cosmos: any;
-  stellar: any;
-}
+let UniversalProvider: typeof UniversalProviderType | null = null;
+const loadWalletConnect = async (): Promise<typeof UniversalProviderType> => {
+  if (!UniversalProvider) {
+    const module = await import('@walletconnect/universal-provider');
+    UniversalProvider = module.default;
+  }
+  return UniversalProvider;
+};
 
 class WalletService {
-  // Providers
-  private providers: WalletProviders = {
-    evm: null,
-    cosmos: null,
-    stellar: null,
-  };
+  private wcProviders: Map<WalletType, any> = new Map();
+  private wcProviderPromises: Map<WalletType, Promise<any>> = new Map();
+  private extensionProviders: Map<WalletType, any> = new Map();
+  private modals: Map<WalletType, Web3Modal> = new Map();
 
-  private wcProviders: WCProviders = {
-    evm: null,
-    cosmos: null,
-    stellar: null,
-  };
-
-  // Modals
-  private modals: Record<WalletType, Web3Modal | null> = {
-    [WalletType.EVM]: null,
-    [WalletType.COSMOS]: null,
-    [WalletType.STELLAR]: null,
-  };
-
-  // Connection state
   private connecting = new Set<WalletType>();
+  private connectionQueue = new Map<WalletType, Promise<ConnectionResult>>();
   private timeouts = new Map<WalletType, number>();
   private listeners = new Set<ConnectionCallback>();
-
-  // Network
   private currentNetwork: NetworkType;
+  private errorReporter?: (error: Error, context: any) => void;
+
+  // Track extension event listeners for cleanup
+  private extensionListeners = new Map<
+    WalletType,
+    {
+      accountsChanged?: (accounts: string[]) => void;
+      disconnect?: () => void;
+      chainChanged?: (chainId: string) => void;
+    }
+  >();
 
   constructor() {
     this.currentNetwork = this.loadNetwork();
+    console.log('[WalletService] Initialized with network:', this.currentNetwork);
   }
 
-  // ==================== NETWORK MANAGEMENT ====================
+  setErrorReporter(reporter: (error: Error, context: any) => void): void {
+    this.errorReporter = reporter;
+  }
+
+  private reportError(error: Error, context: any): void {
+    console.error('[WalletService] Error:', context, error);
+    if (this.errorReporter) {
+      this.errorReporter(error, context);
+    }
+  }
 
   private loadNetwork(): NetworkType {
     try {
@@ -101,124 +94,173 @@ class WalletService {
   async setNetwork(network: NetworkType): Promise<void> {
     if (this.currentNetwork === network) return;
 
+    console.log('[WalletService] Switching network from', this.currentNetwork, 'to', network);
+
     try {
       localStorage.setItem(NETWORK_STORAGE_KEY, network);
     } catch (e) {
-      console.error('Failed to save network:', e);
+      console.error('[WalletService] Failed to save network:', e);
     }
 
     this.currentNetwork = network;
-
-    // Disconnect all and reset
     transactionRouter.clearAllSessions();
+
     await Promise.all([
       this.disconnect(WalletType.EVM),
       this.disconnect(WalletType.COSMOS),
       this.disconnect(WalletType.STELLAR),
     ]);
+    this.wcProviders.clear();
+    this.wcProviderPromises.clear();
+    this.extensionProviders.clear();
 
-    this.wcProviders = { evm: null, cosmos: null, stellar: null };
+    console.log('[WalletService] Network switched successfully');
   }
 
-  // ==================== SESSION STORAGE ====================
-
-  private loadSessions(): Record<string, StoredSession> {
+  private saveExtensionConnection(type: WalletType, walletId: string): void {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : {};
+      const key = `${EXTENSION_STORAGE_PREFIX}${type}`;
+      localStorage.setItem(key, walletId);
+      console.log('[WalletService] Saved extension connection:', type, walletId);
+    } catch (e) {
+      console.error('[WalletService] Failed to save extension connection:', e);
+    }
+  }
+
+  private loadExtensionConnection(type: WalletType): string | null {
+    try {
+      const key = `${EXTENSION_STORAGE_PREFIX}${type}`;
+      return localStorage.getItem(key);
     } catch {
-      return {};
+      return null;
     }
   }
 
-  private saveSession(type: WalletType, walletId: string, connectType: ConnectType): void {
+  private clearExtensionConnection(type: WalletType): void {
     try {
-      const sessions = this.loadSessions();
-      sessions[type] = { walletId, type, connectType };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+      const key = `${EXTENSION_STORAGE_PREFIX}${type}`;
+      localStorage.removeItem(key);
+      console.log('[WalletService] Cleared extension connection:', type);
     } catch (e) {
-      console.error('Failed to save session:', e);
+      console.error('[WalletService] Failed to clear extension connection:', e);
     }
   }
-
-  private deleteSession(type: WalletType): void {
-    try {
-      const sessions = this.loadSessions();
-      delete sessions[type];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-    } catch (e) {
-      console.error('Failed to delete session:', e);
-    }
-  }
-
-  // ==================== SESSION RESTORATION ====================
 
   async restoreSessions(): Promise<ConnectionResult[]> {
-    const sessions = this.loadSessions();
+    console.log('[WalletService] Starting session restoration...');
     const results: ConnectionResult[] = [];
 
-    for (const [key, session] of Object.entries(sessions)) {
-      const type = key as WalletType;
-
-      try {
-        let result: ConnectionResult | null = null;
-
-        if (session.connectType === 'extension') {
-          // Extension connection
-          if (this.isWalletInstalled(session.walletId)) {
-            result = await this.connectExtension(session.walletId, type);
+    // Try to restore all wallet types in parallel
+    const restorationPromises = [WalletType.EVM, WalletType.COSMOS, WalletType.STELLAR].map(
+      async type => {
+        try {
+          // Try extension first
+          const extensionResult = await this.tryRestoreExtension(type);
+          if (extensionResult) {
+            console.log('[WalletService] Restored extension session:', type, extensionResult);
+            return extensionResult;
           }
-        } else {
-          // WalletConnect connection - VERIFY IT'S STILL ACTIVE
-          const provider = await this.getOrCreateProvider(type);
 
-          // CHECK: Does the provider actually have an active session?
-          if (provider?.session) {
-            const namespace = this.getNamespace(type);
-            const accounts = provider.session.namespaces[namespace]?.accounts || [];
-
-            if (accounts.length > 0) {
-              const [chainPart, addressPart] = this.parseAccount(accounts[0], type);
-              result = {
-                address: addressPart,
-                chainId: chainPart,
-                walletId: session.walletId,
-              };
-            }
+          // Then try WalletConnect
+          const wcResult = await this.tryRestoreWalletConnect(type);
+          if (wcResult) {
+            console.log('[WalletService] Restored WalletConnect session:', type, wcResult);
+            return wcResult;
           }
+
+          return null;
+        } catch (error) {
+          console.error(`[WalletService] Failed to restore ${type}:`, error);
+          this.reportError(error as Error, {
+            context: 'session_restoration',
+            walletType: type,
+          });
+          return null;
         }
-
-        // Only restore if we got valid data
-        if (result) {
-          const provider =
-            session.connectType === 'extension'
-              ? null
-              : this.wcProviders[this.getProviderKey(type)];
-
-          transactionRouter.registerSession(
-            type,
-            provider,
-            result.address,
-            result.chainId,
-            session.walletId
-          );
-
-          results.push({ ...result, type } as any);
-          this.emitState(type, 'connected');
-        } else {
-          // Session is invalid - remove it
-          this.deleteSession(type);
-        }
-      } catch (error) {
-        console.error(`Failed to restore ${type} session:`, error);
-        this.deleteSession(type);
       }
-    }
+    );
 
+    const restoredSessions = await Promise.all(restorationPromises);
+
+    // Filter out null results
+    restoredSessions.forEach(session => {
+      if (session) results.push(session);
+    });
+
+    console.log('[WalletService] Session restoration complete. Restored:', results.length);
     return results;
   }
 
-  // ==================== WALLET DETECTION ====================
+  private async tryRestoreExtension(type: WalletType): Promise<ConnectionResult | null> {
+    const storedWalletId = this.loadExtensionConnection(type);
+    if (!storedWalletId) return null;
+
+    console.log('[WalletService] Attempting to restore extension:', type, storedWalletId);
+
+    if (!this.isWalletInstalled(storedWalletId)) {
+      console.log('[WalletService] Extension no longer installed:', storedWalletId);
+      this.clearExtensionConnection(type);
+      return null;
+    }
+
+    try {
+      const result = await this.connectExtension(storedWalletId, type);
+
+      transactionRouter.registerSession(type, null, result.address, result.chainId, storedWalletId);
+
+      this.emitState(type, 'connected');
+
+      return {
+        type,
+        address: result.address,
+        chainId: result.chainId,
+        walletId: storedWalletId,
+      };
+    } catch (error) {
+      console.error(`[WalletService] Extension restoration failed for ${type}:`, error);
+      this.clearExtensionConnection(type);
+      return null;
+    }
+  }
+
+  private async tryRestoreWalletConnect(type: WalletType): Promise<ConnectionResult | null> {
+    try {
+      console.log('[WalletService] Checking for WalletConnect session:', type);
+      const provider = await this.getOrCreateWCProvider(type);
+      if (!provider.session) {
+        console.log('[WalletService] No WalletConnect session found for:', type);
+        return null;
+      }
+
+      console.log('[WalletService] Found existing WalletConnect session:', type, provider.session);
+
+      const namespace = this.getNamespace(type);
+      const accounts = provider.session.namespaces[namespace]?.accounts || [];
+
+      if (accounts.length === 0) {
+        console.log('[WalletService] No accounts in session for:', type);
+        return null;
+      }
+
+      const [chainId, address] = this.parseAccount(accounts[0], type);
+      const walletId = provider.session.peer?.metadata?.name?.toLowerCase() || 'walletconnect';
+
+      console.log('[WalletService] WalletConnect session details:', {
+        type,
+        address,
+        chainId,
+        walletId,
+      });
+
+      transactionRouter.registerSession(type, provider, address, chainId, walletId);
+      this.emitState(type, 'connected');
+
+      return { type, address, chainId, walletId };
+    } catch (error) {
+      console.error(`[WalletService] WalletConnect restoration failed for ${type}:`, error);
+      return null;
+    }
+  }
 
   private isMobile(): boolean {
     const ua = navigator.userAgent || navigator.vendor || (window as any).opera;
@@ -255,9 +297,8 @@ class WalletService {
     return Object.keys(installed).filter(key => installed[key]);
   }
 
-  // ==================== EXTENSION CONNECTION ====================
-
   private async connectExtension(walletId: string, type: WalletType): Promise<ConnectionResult> {
+    console.log('[WalletService] Connecting to extension:', type, walletId);
     const win = window as any;
 
     if (type === WalletType.EVM) {
@@ -275,8 +316,11 @@ class WalletService {
       const accounts = await provider.request({ method: 'eth_requestAccounts' });
       const chainId = await provider.request({ method: 'eth_chainId' });
 
-      this.providers.evm = provider;
+      this.extensionProviders.set(type, provider);
+      this.setupExtensionListeners(provider, type);
+
       return {
+        type,
         address: accounts[0],
         chainId: parseInt(chainId, 16),
         walletId,
@@ -291,8 +335,10 @@ class WalletService {
       await cosmosProvider.enable(chainId);
       const account = await cosmosProvider.getKey(chainId);
 
-      this.providers.cosmos = cosmosProvider;
+      this.extensionProviders.set(type, cosmosProvider);
+
       return {
+        type,
         address: account.bech32Address,
         chainId,
         walletId,
@@ -302,45 +348,133 @@ class WalletService {
     throw new Error('Extension connection not supported for this wallet type');
   }
 
-  // ==================== WALLETCONNECT PROVIDER ====================
+  private setupExtensionListeners(provider: any, type: WalletType): void {
+    console.log('[WalletService] Setting up extension listeners for:', type);
 
-  private getProviderKey(type: WalletType): keyof WCProviders {
-    return type === WalletType.EVM ? 'evm' : type === WalletType.COSMOS ? 'cosmos' : 'stellar';
+    // Clean up any existing listeners first
+    this.cleanupExtensionListeners(type);
+
+    if (type === WalletType.EVM) {
+      const onAccountsChanged = (accounts: string[]) => {
+        console.log('[WalletService] Extension accounts changed:', type, accounts);
+        if (accounts.length === 0) {
+          this.handleSessionLost(type);
+        }
+      };
+
+      const onDisconnect = () => {
+        console.log('[WalletService] Extension disconnected:', type);
+        this.handleSessionLost(type);
+      };
+
+      const onChainChanged = (chainId: string) => {
+        console.log('[WalletService] Extension chain changed:', type, chainId);
+        // Optionally handle chain change
+      };
+
+      provider.on('accountsChanged', onAccountsChanged);
+      provider.on('disconnect', onDisconnect);
+      provider.on('chainChanged', onChainChanged);
+
+      // Store listeners for cleanup
+      this.extensionListeners.set(type, {
+        accountsChanged: onAccountsChanged,
+        disconnect: onDisconnect,
+        chainChanged: onChainChanged,
+      });
+    }
   }
 
-  private async getOrCreateProvider(type: WalletType): Promise<any> {
-    const key = this.getProviderKey(type);
+  private cleanupExtensionListeners(type: WalletType): void {
+    const provider = this.extensionProviders.get(type);
+    const listeners = this.extensionListeners.get(type);
 
-    // Return existing if valid
-    if (this.wcProviders[key]?.client?.session) {
-      return this.wcProviders[key];
+    if (provider && listeners) {
+      if (listeners.accountsChanged) {
+        provider.removeListener('accountsChanged', listeners.accountsChanged);
+      }
+      if (listeners.disconnect) {
+        provider.removeListener('disconnect', listeners.disconnect);
+      }
+      if (listeners.chainChanged) {
+        provider.removeListener('chainChanged', listeners.chainChanged);
+      }
     }
 
-    // Create new provider
-    const provider = await UniversalProvider.init({
+    this.extensionListeners.delete(type);
+  }
+
+  private async getOrCreateWCProvider(type: WalletType): Promise<any> {
+    const existing = this.wcProviders.get(type);
+    if (existing) {
+      console.log('[WalletService] Using existing WalletConnect provider:', type);
+      return existing;
+    }
+
+    const existingPromise = this.wcProviderPromises.get(type);
+    if (existingPromise) {
+      console.log('[WalletService] Waiting for existing WalletConnect initialization:', type);
+      return existingPromise;
+    }
+
+    console.log('[WalletService] Initializing new WalletConnect provider:', type);
+    const initPromise = this.initWalletConnectProvider(type);
+    this.wcProviderPromises.set(type, initPromise);
+
+    try {
+      const provider = await initPromise;
+      this.wcProviders.set(type, provider);
+      this.wcProviderPromises.delete(type);
+      console.log('[WalletService] WalletConnect provider initialized:', type);
+      return provider;
+    } catch (error) {
+      this.wcProviderPromises.delete(type);
+      console.error('[WalletService] Failed to initialize WalletConnect provider:', type, error);
+      throw error;
+    }
+  }
+
+  private async initWalletConnectProvider(type: WalletType): Promise<any> {
+    const UP = await loadWalletConnect();
+
+    const provider = await UP.init({
       projectId: WALLETCONNECT_PROJECT_ID,
       metadata: WALLETCONNECT_METADATA,
       relayUrl: 'wss://relay.walletconnect.com',
     });
 
     this.setupProviderListeners(provider, type);
-    this.wcProviders[key] = provider;
 
     return provider;
   }
 
   private setupProviderListeners(provider: any, type: WalletType): void {
-    provider.on('session_delete', () => this.handleSessionLost(type));
-    provider.on('disconnect', () => this.handleSessionLost(type));
+    console.log('[WalletService] Setting up WalletConnect listeners for:', type);
+
+    provider.on('session_delete', () => {
+      console.log('[WalletService] SESSION DELETED (user disconnected from wallet app):', type);
+      this.handleSessionLost(type);
+    });
+
+    provider.on('disconnect', () => {
+      console.log('[WalletService] DISCONNECT EVENT (transport closed):', type);
+      this.handleSessionLost(type);
+    });
   }
 
-  private async handleSessionLost(type: WalletType): Promise<void> {
-    this.deleteSession(type);
+  async handleSessionLost(type: WalletType): Promise<void> {
+    console.log('[WalletService] Handling session lost for:', type);
+
+    this.clearExtensionConnection(type);
+    this.cleanupExtensionListeners(type);
     transactionRouter.unregisterSession(type);
-    this.wcProviders[this.getProviderKey(type)] = null;
-  }
 
-  // ==================== NAMESPACE & CHAIN CONFIG ====================
+    this.wcProviders.delete(type);
+    this.extensionProviders.delete(type);
+
+    // Emit disconnected state to update UI
+    this.emitState(type, 'disconnected');
+  }
 
   private getNamespace(type: WalletType): string {
     return type === WalletType.EVM ? 'eip155' : type === WalletType.COSMOS ? 'cosmos' : 'stellar';
@@ -392,8 +526,6 @@ class WalletService {
     };
   }
 
-  // ==================== MOBILE DEEP LINKS ====================
-
   private openMobileWallet(walletId: string, uri: string): void {
     const encoded = encodeURIComponent(uri);
     const deepLinks: Record<string, string> = {
@@ -407,39 +539,61 @@ class WalletService {
     };
 
     const deepLink = deepLinks[walletId.toLowerCase()] || uri;
+    console.log('[WalletService] Opening mobile wallet:', walletId, deepLink);
     window.open(deepLink, '_blank');
   }
 
-  // ==================== CONNECTION FLOW ====================
-
   async connectWallet(type: WalletType, walletId: string): Promise<ConnectionResult> {
-    // Prevent duplicate connections
-    if (this.connecting.has(type)) {
-      throw new Error(`${type} connection already in progress`);
+    console.log('[WalletService] Connect wallet requested:', type, walletId);
+
+    const existingPromise = this.connectionQueue.get(type);
+    if (existingPromise) {
+      console.log('[WalletService] Using existing connection promise for:', type);
+      return existingPromise;
     }
 
     if (this.isConnected(type)) {
       throw new Error(`${type} already connected. Disconnect first.`);
     }
 
+    const promise = this._connectWallet(type, walletId).finally(() =>
+      this.connectionQueue.delete(type)
+    );
+
+    this.connectionQueue.set(type, promise);
+    return promise;
+  }
+
+  private async _connectWallet(type: WalletType, walletId: string): Promise<ConnectionResult> {
     const isMobileDevice = this.isMobile();
     const useWC = walletId === 'walletconnect';
     const hasExtension = !isMobileDevice && !useWC && this.isWalletInstalled(walletId);
 
-    // Try extension first if available
+    console.log('[WalletService] Connection strategy:', {
+      type,
+      walletId,
+      isMobile: isMobileDevice,
+      useWC,
+      hasExtension,
+    });
+
     if (hasExtension) {
       try {
         const result = await this.connectExtension(walletId, type);
+
         transactionRouter.registerSession(type, null, result.address, result.chainId, walletId);
-        this.saveSession(type, walletId, 'extension');
+        this.saveExtensionConnection(type, walletId);
         this.emitState(type, 'connected');
+
         return result;
       } catch (error) {
-        console.error('Extension connection failed:', error);
+        console.error(
+          '[WalletService] Extension connection failed, falling back to WalletConnect:',
+          error
+        );
       }
     }
 
-    // Use WalletConnect
     return this.connectWalletConnect(type, walletId, isMobileDevice, useWC);
   }
 
@@ -449,20 +603,19 @@ class WalletService {
     isMobile: boolean,
     showModal: boolean
   ): Promise<ConnectionResult> {
+    console.log('[WalletService] Starting WalletConnect connection:', type);
+
     this.connecting.add(type);
     this.emitState(type, 'connecting');
 
     try {
-      // Setup modal if needed
       if (!isMobile || showModal) {
         await this.setupModal(type);
       }
 
-      // Get provider
-      const provider = await this.getOrCreateProvider(type);
+      const provider = await this.getOrCreateWCProvider(type);
       const chainConfig = this.getChainConfig(type);
 
-      // Start connection
       return await new Promise((resolve, reject) => {
         this.startConnectionTimeout(type, reject);
 
@@ -471,11 +624,13 @@ class WalletService {
           if (uriShown) return;
           uriShown = true;
 
+          console.log('[WalletService] WalletConnect URI generated');
+
           if (isMobile && !showModal) {
             this.openMobileWallet(walletId, uri);
           } else {
             setTimeout(() => {
-              this.modals[type]?.openModal({
+              this.modals.get(type)?.openModal({
                 uri,
                 standaloneChains: chainConfig.chains,
               });
@@ -496,37 +651,89 @@ class WalletService {
               },
             },
           })
-          .then((session: any) => {
+          .then(async (session: any) => {
+            console.log('[WalletService] WalletConnect connection successful:', type, session);
+
             const accounts = session.namespaces[chainConfig.namespace]?.accounts || [];
             if (accounts.length === 0) {
               throw new Error('No accounts found');
             }
 
             const [chainId, address] = this.parseAccount(accounts[0], type);
+            const connectedWalletId = session.peer?.metadata?.name?.toLowerCase() || walletId;
 
-            transactionRouter.registerSession(type, provider, address, chainId, walletId);
-            this.saveSession(type, walletId, 'walletconnect');
+            if (type === WalletType.COSMOS) {
+              try {
+                await this.authenticateCosmos(provider, address, chainId as string);
+              } catch (authError) {
+                console.error('[WalletService] Cosmos authentication failed:', authError);
+                throw new Error('Authentication signature rejected');
+              }
+            }
+
+            transactionRouter.registerSession(type, provider, address, chainId, connectedWalletId);
 
             this.cleanup(type);
             this.emitState(type, 'connected');
 
-            resolve({ address, chainId, walletId });
+            resolve({ type, address, chainId, walletId: connectedWalletId });
           })
           .catch((error: any) => {
+            console.error('[WalletService] WalletConnect connection failed:', type, error);
+
             this.cleanup(type);
             this.emitState(type, 'failed');
+
+            this.reportError(error, {
+              context: 'walletconnect_connection',
+              walletType: type,
+              walletId,
+            });
+
             reject(new Error(error.message || 'Connection failed'));
           });
       });
     } catch (error) {
+      console.error('[WalletService] WalletConnect setup failed:', type, error);
       this.cleanup(type);
       this.emitState(type, 'failed');
       throw error;
     }
   }
 
+  private async authenticateCosmos(provider: any, address: string, chainId: string): Promise<void> {
+    console.log('[WalletService] Authenticating Cosmos wallet:', address);
+
+    const timestamp = Date.now();
+    const authMessage = {
+      chain_id: chainId,
+      account_number: '0',
+      sequence: '0',
+      fee: { amount: [], gas: '0' },
+      msgs: [
+        {
+          type: 'sign/MsgSignData',
+          value: {
+            signer: address,
+            data: btoa(`Authentication request at ${timestamp}`),
+          },
+        },
+      ],
+      memo: 'Authenticate wallet connection',
+    };
+
+    await provider.request({
+      method: 'cosmos_signAmino',
+      params: [chainId, address, authMessage],
+    });
+
+    console.log('[WalletService] Cosmos authentication successful');
+  }
+
   private async setupModal(type: WalletType): Promise<void> {
-    if (this.modals[type]) return;
+    if (this.modals.has(type)) return;
+
+    console.log('[WalletService] Setting up modal for:', type);
 
     const config: Web3ModalConfig = {
       projectId: WALLETCONNECT_PROJECT_ID,
@@ -540,15 +747,14 @@ class WalletService {
       desktopWallets: [],
     };
 
-    this.modals[type] = new Web3Modal(config);
+    this.modals.set(type, new Web3Modal(config));
   }
-
-  // ==================== TIMEOUT & CLEANUP ====================
 
   private startConnectionTimeout(type: WalletType, reject: (error: Error) => void): void {
     this.clearConnectionTimeout(type);
 
     const timeout = window.setTimeout(() => {
+      console.log('[WalletService] Connection timeout for:', type);
       this.cleanup(type);
       this.emitState(type, 'failed');
       reject(new Error('Connection timeout'));
@@ -568,40 +774,54 @@ class WalletService {
   private cleanup(type: WalletType): void {
     this.clearConnectionTimeout(type);
     this.connecting.delete(type);
-    setTimeout(() => this.modals[type]?.closeModal(), MODAL_DELAY);
+    setTimeout(() => this.modals.get(type)?.closeModal(), MODAL_DELAY);
   }
 
-  // ==================== DISCONNECT ====================
-
   async disconnect(type: WalletType): Promise<void> {
+    console.log('[WalletService] Disconnecting:', type);
+
     try {
       this.clearConnectionTimeout(type);
       this.connecting.delete(type);
-      this.deleteSession(type);
+      this.clearExtensionConnection(type);
+      this.cleanupExtensionListeners(type);
 
       transactionRouter.unregisterSession(type);
 
-      const key = this.getProviderKey(type);
-      this.providers[key] = null;
+      this.extensionProviders.delete(type);
 
-      const wcProvider = this.wcProviders[key];
+      const wcProvider = this.wcProviders.get(type);
       if (wcProvider?.session) {
-        await Promise.race([
-          wcProvider.disconnect(),
-          new Promise(resolve => setTimeout(resolve, DISCONNECT_TIMEOUT)),
-        ]);
-        wcProvider.removeAllListeners();
+        console.log('[WalletService] Disconnecting WalletConnect session:', type);
+        try {
+          await wcProvider.disconnect();
+          console.log('[WalletService] WalletConnect session disconnected successfully:', type);
+        } catch (error) {
+          console.error('[WalletService] Error disconnecting WalletConnect:', type, error);
+        }
       }
 
-      this.wcProviders[key] = null;
-      this.modals[type]?.closeModal();
+      this.wcProviders.delete(type);
+      this.wcProviderPromises.delete(type);
+
+      this.modals.get(type)?.closeModal();
+
+      // Emit disconnected state
+      this.emitState(type, 'disconnected');
+
+      console.log('[WalletService] Disconnect complete:', type);
     } catch (error) {
-      console.error(`Disconnect error for ${type}:`, error);
+      console.error('[WalletService] Disconnect error:', type, error);
+
+      this.clearExtensionConnection(type);
+      this.cleanupExtensionListeners(type);
+      this.wcProviders.delete(type);
+      this.wcProviderPromises.delete(type);
+      this.extensionProviders.delete(type);
+
       throw error;
     }
   }
-
-  // ==================== PUBLIC API ====================
 
   async connectEVM(
     walletId: string
@@ -623,8 +843,7 @@ class WalletService {
   }
 
   getProvider(type: WalletType): any {
-    const key = this.getProviderKey(type);
-    return this.providers[key] || this.wcProviders[key];
+    return this.extensionProviders.get(type) || this.wcProviders.get(type);
   }
 
   isConnecting(type?: WalletType): boolean {
@@ -632,8 +851,7 @@ class WalletService {
   }
 
   isConnected(type: WalletType): boolean {
-    const key = this.getProviderKey(type);
-    return !!(this.providers[key] || this.wcProviders[key]?.session);
+    return !!(this.extensionProviders.has(type) || this.wcProviders.get(type)?.session);
   }
 
   getActiveSessions(): WalletType[] {
@@ -641,8 +859,6 @@ class WalletService {
       this.isConnected(type)
     );
   }
-
-  // ==================== EVENT LISTENERS ====================
 
   onConnectionStateChange(callback: ConnectionCallback): () => void {
     this.listeners.add(callback);
@@ -654,7 +870,7 @@ class WalletService {
       try {
         listener(type, state);
       } catch (error) {
-        console.error('Listener error:', error);
+        console.error('[WalletService] Listener error:', error);
       }
     });
   }

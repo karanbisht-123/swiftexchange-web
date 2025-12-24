@@ -1,10 +1,18 @@
 import { Edit2, Loader2, X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
+import { getSocketClient } from '../../client/clients';
+import { metadataService } from '../../hooks/useCoinGeckoMetadata';
+import { type Position, dydxDataService } from '../../service/dydxOrderService';
 import { dydxTradingService } from '../../service/dydxTradingService';
 import { dydxWalletService } from '../../service/dydxWalletService';
-import { type Position, localStateManager } from '../../utils/localStateManager';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
+
+interface SubaccountWebSocketData {
+  openPerpetualPositions?: Position[];
+  orders?: any[];
+  fills?: any[];
+}
 
 const PositionsPanel: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
@@ -13,48 +21,107 @@ const PositionsPanel: React.FC = () => {
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
   const [oraclePrices, setOraclePrices] = useState<Record<string, number>>({});
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
+  const [icons, setIcons] = useState<Record<string, string>>({});
+  const [useWebSocket, setUseWebSocket] = useState(false); // Disabled by default
+  const [wsConnected, setWsConnected] = useState(false);
 
   const address = dydxWalletService.getAddress();
-  const subNo = dydxWalletService.getSubaccountNumber();
+  const subaccountNumber = dydxWalletService.getSubaccountNumber() ?? 0;
   const isConnected = !!address;
 
-  useEffect(() => {
+  // Fetch positions via HTTP
+  const fetchPositions = useCallback(async () => {
     if (!isConnected) {
-      setLoading(false);
       setPositions([]);
+      setLoading(false);
       return;
     }
 
-    const init = async () => {
-      try {
-        setLoading(true);
-        await localStateManager.initialize(address!, subNo);
-      } catch (error) {
-        console.error('[PositionsPanel] Initialization error:', error);
-      } finally {
-        setLoading(false);
+    try {
+      setLoading(true);
+      const data = await dydxDataService.fetchPositions();
+      setPositions(data);
+
+      // Load icons for all position markets
+      const markets = [...new Set(data.map(p => p.market))];
+      const iconPromises = markets.map(async market => {
+        const metadata = await metadataService.getMetadata(market);
+        return { market, icon: metadata?.image };
+      });
+
+      const iconResults = await Promise.allSettled(iconPromises);
+      const newIcons: Record<string, string> = {};
+
+      iconResults.forEach(result => {
+        if (result.status === 'fulfilled' && result.value.icon) {
+          newIcons[result.value.market] = result.value.icon;
+        }
+      });
+
+      setIcons(prev => ({ ...prev, ...newIcons }));
+    } catch (error) {
+      console.error('[PositionsPanel] Failed to fetch positions:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [isConnected]);
+
+  // WebSocket subscription for real-time updates (optional, disabled by default)
+  useEffect(() => {
+    if (!isConnected || !useWebSocket) {
+      setWsConnected(false);
+      return;
+    }
+
+    console.log('[PositionsPanel] Subscribing to v4_subaccounts WebSocket');
+
+    const socketClient = getSocketClient();
+
+    const unsubscribe = socketClient.subscribeToSubaccounts(
+      address!,
+      subaccountNumber,
+      (message: any) => {
+        if (message.type === 'channel_data' && message.contents) {
+          const data: SubaccountWebSocketData = message.contents;
+
+          if (data.openPerpetualPositions) {
+            console.log('[PositionsPanel] Received WebSocket position update');
+            setPositions(data.openPerpetualPositions);
+            setWsConnected(true);
+          }
+        }
       }
-    };
+    );
 
-    init();
-
-    const unsubscribe = localStateManager.subscribe(data => {
-      setPositions(data.positions);
-      setLoading(localStateManager.getIsLoading());
-    });
+    setWsConnected(socketClient.isConnected());
 
     return () => {
+      console.log('[PositionsPanel] Unsubscribing from WebSocket');
       unsubscribe();
+      setWsConnected(false);
     };
-  }, [address, subNo, isConnected]);
+  }, [isConnected, useWebSocket, address, subaccountNumber]);
 
-  const marketTickers = useMemo(() => {
-    return [...new Set(positions.map(p => p.market))];
-  }, [positions]);
-
+  // Initial HTTP fetch
   useEffect(() => {
-    if (marketTickers.length === 0) return;
+    if (isConnected) {
+      fetchPositions();
+    }
+  }, [isConnected, fetchPositions]);
 
+  // Fallback polling when WebSocket is disabled
+  useEffect(() => {
+    if (!isConnected || useWebSocket) return;
+
+    const interval = setInterval(fetchPositions, 10000);
+    return () => clearInterval(interval);
+  }, [isConnected, useWebSocket, fetchPositions]);
+
+  // Fetch oracle prices for P&L calculations
+  useEffect(() => {
+    if (positions.length === 0) return;
+
+    const marketTickers = [...new Set(positions.map(p => p.market))];
     const indexer = dydxWalletService.getIndexerClient();
     if (!indexer) return;
 
@@ -76,14 +143,14 @@ const PositionsPanel: React.FC = () => {
         return null;
       });
 
-      const results = await Promise.all(pricePromises);
+      const results = await Promise.allSettled(pricePromises);
 
       if (!isActive) return;
 
       const newPrices: Record<string, number> = {};
       results.forEach(result => {
-        if (result) {
-          newPrices[result.ticker] = result.price;
+        if (result.status === 'fulfilled' && result.value) {
+          newPrices[result.value.ticker] = result.value.price;
         }
       });
 
@@ -97,7 +164,7 @@ const PositionsPanel: React.FC = () => {
       isActive = false;
       clearInterval(interval);
     };
-  }, [marketTickers]);
+  }, [positions]);
 
   const handleEditPosition = useCallback((position: Position) => {
     setSelectedPosition(position);
@@ -111,58 +178,28 @@ const PositionsPanel: React.FC = () => {
       try {
         const marketInfo = await dydxTradingService.getMarketInfo(selectedPosition.market);
 
-        const promises: Promise<any>[] = [];
+        const results = await dydxTradingService.setPositionTriggers(selectedPosition, marketInfo, {
+          takeProfit: config.takeProfit?.enabled
+            ? { price: config.takeProfit.price!, type: config.takeProfit.type }
+            : undefined,
+          stopLoss: config.stopLoss?.enabled
+            ? { price: config.stopLoss.price!, type: config.stopLoss.type }
+            : undefined,
+        });
 
-        if (config.takeProfit?.enabled && config.takeProfit.price) {
-          const tpType =
-            config.takeProfit.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
-          const side = selectedPosition.side === 'LONG' ? 'SELL' : 'BUY';
-
-          promises.push(
-            dydxTradingService.placeOrder(
-              {
-                market: selectedPosition.market,
-                side: side as any,
-                type: tpType,
-                size: parseFloat(selectedPosition.size),
-                triggerPrice: config.takeProfit.price,
-                price: config.takeProfit.type === 'LIMIT' ? config.takeProfit.price : undefined,
-                reduceOnly: true,
-              },
-              marketInfo
-            )
-          );
+        const errors: string[] = [];
+        if (results.takeProfitResult && !results.takeProfitResult.success) {
+          errors.push(`TP: ${results.takeProfitResult.userMessage}`);
+        }
+        if (results.stopLossResult && !results.stopLossResult.success) {
+          errors.push(`SL: ${results.stopLossResult.userMessage}`);
         }
 
-        if (config.stopLoss?.enabled && config.stopLoss.price) {
-          const slType = config.stopLoss.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
-          const side = selectedPosition.side === 'LONG' ? 'SELL' : 'BUY';
-
-          promises.push(
-            dydxTradingService.placeOrder(
-              {
-                market: selectedPosition.market,
-                side: side as any,
-                type: slType,
-                size: parseFloat(selectedPosition.size),
-                triggerPrice: config.stopLoss.price,
-                price: config.stopLoss.type === 'LIMIT' ? config.stopLoss.price : undefined,
-                reduceOnly: true,
-              },
-              marketInfo
-            )
-          );
-        }
-
-        const results = await Promise.all(promises);
-        const allSuccess = results.every(r => r.success);
-
-        if (allSuccess) {
+        if (errors.length > 0) {
+          alert('Some triggers failed:\n' + errors.join('\n'));
+        } else {
           alert('Triggers set successfully!');
           setShowPriceTriggers(false);
-        } else {
-          const errors = results.filter(r => !r.success).map(r => r.userMessage);
-          alert('Some triggers failed: ' + errors.join(', '));
         }
       } catch (error: any) {
         console.error('Failed to set triggers:', error);
@@ -172,32 +209,59 @@ const PositionsPanel: React.FC = () => {
     [selectedPosition]
   );
 
-  const handleClosePosition = useCallback(async (position: Position) => {
-    if (!confirm(`Close ${position.side} position for ${position.market}?`)) return;
+  const handleClosePosition = useCallback(
+    async (position: Position) => {
+      if (!confirm(`Close ${position.side} position for ${position.market}?`)) return;
 
-    setClosingPosition(position.market);
-    try {
-      const marketInfo = await dydxTradingService.getMarketInfo(position.market);
-      const result = await dydxTradingService.closePosition(position.market, position, marketInfo);
+      setClosingPosition(position.market);
+      try {
+        // const marketInfo = await dydxTradingService.getMarketInfo(position.market);
+        const result = await dydxTradingService.closePosition(position.market, '', '');
 
-      if (result.success) {
-        alert('Position close order placed successfully!');
-        // Position will be removed via websocket update
-      } else {
-        alert('Failed to close position: ' + result.userMessage);
+        if (result.success) {
+          alert('Position close order placed successfully!');
+          setTimeout(fetchPositions, 2000);
+        } else {
+          alert('Failed to close position: ' + result.userMessage);
+        }
+      } catch (error: any) {
+        console.error('Failed to close position:', error);
+        alert('Failed to close position: ' + error.message);
+      } finally {
+        setClosingPosition(null);
       }
-    } catch (error: any) {
-      console.error('Failed to close position:', error);
-      alert('Failed to close position: ' + error.message);
-    } finally {
-      setClosingPosition(null);
-    }
-  }, []);
+    },
+    [fetchPositions]
+  );
 
   const handleCloseTriggers = useCallback(() => {
     setShowPriceTriggers(false);
     setSelectedPosition(null);
   }, []);
+
+  const getMarketIcon = useCallback(
+    (market: string) => {
+      const baseAsset = market.split('-')[0];
+      const cachedIcon = icons[market];
+
+      if (cachedIcon) {
+        return (
+          <img
+            src={cachedIcon}
+            alt={baseAsset}
+            className="w-full h-full object-cover rounded-full"
+            onError={e => {
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.parentElement!.innerHTML = `<span class="text-white text-xs font-bold">${baseAsset.charAt(0)}</span>`;
+            }}
+          />
+        );
+      }
+
+      return <span className="text-white text-xs font-bold">{baseAsset.charAt(0)}</span>;
+    },
+    [icons]
+  );
 
   if (!isConnected) {
     return (
@@ -229,6 +293,38 @@ const PositionsPanel: React.FC = () => {
   return (
     <>
       <div className="h-full flex flex-col bg-primary">
+        {/* Optional: Header with WebSocket toggle (hidden by default) */}
+        {false && (
+          <div className="px-4 py-2 bg-secondary border-b border-gray-700 flex items-center justify-between">
+            <h2 className="text-white font-semibold">Positions</h2>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-xs">Real-time updates:</span>
+                <button
+                  onClick={() => setUseWebSocket(!useWebSocket)}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    useWebSocket ? 'bg-green-500/20 text-green-400' : 'bg-gray-600/20 text-gray-400'
+                  }`}
+                >
+                  {useWebSocket ? 'WebSocket' : 'Polling'}
+                </button>
+              </div>
+              {useWebSocket && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      wsConnected ? 'bg-green-500' : 'bg-red-500'
+                    }`}
+                  />
+                  <span className="text-xs text-gray-400">
+                    {wsConnected ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-secondary border-b border-gray-600">
@@ -257,8 +353,8 @@ const PositionsPanel: React.FC = () => {
                   >
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
-                          {position.market?.split('-')[0]?.charAt(0) || 'C'}
+                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
+                          {getMarketIcon(position.market)}
                         </div>
                         <span className="text-white font-medium">
                           {position.market?.split('-')[0] || 'N/A'}

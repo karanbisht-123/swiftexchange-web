@@ -1,25 +1,56 @@
+import React, { useEffect, useState } from 'react';
+
+import { metadataService } from '../../hooks/useCoinGeckoMetadata';
+
 interface MarketBadgeProps {
   market: string;
-  gradientFrom?: string;
-  gradientTo?: string;
 }
 
-export const MarketBadge: React.FC<MarketBadgeProps> = ({
-  market,
-  gradientFrom = 'orange-500',
-  gradientTo = 'red-500',
-}) => {
-  const marketName = market?.split('-')[0] || 'N/A';
-  const initial = marketName?.charAt(0) || 'C';
+export const MarketBadge: React.FC<MarketBadgeProps> = ({ market }) => {
+  const [iconUrl, setIconUrl] = useState<string>('');
+  const baseAsset = market.split('-')[0];
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadIcon = async () => {
+      const metadata = await metadataService.getMetadata(market);
+      if (mounted) {
+        if (metadata?.image) {
+          setIconUrl(metadata.image);
+        } else {
+          // Fallback to cryptoicons
+          setIconUrl(`https://cryptoicons.org/api/icon/${baseAsset.toLowerCase()}/200`);
+        }
+      }
+    };
+
+    loadIcon();
+
+    return () => {
+      mounted = false;
+    };
+  }, [market, baseAsset]);
 
   return (
     <div className="flex items-center gap-2">
-      <div
-        className={`w-6 h-6 rounded-full bg-gradient-to-br from-${gradientFrom} to-${gradientTo} flex items-center justify-center text-white text-xs font-bold`}
-      >
-        {initial}
+      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center overflow-hidden">
+        {iconUrl ? (
+          <img
+            src={iconUrl}
+            alt={baseAsset}
+            className="w-full h-full object-cover"
+            onError={e => {
+              // Fallback on error
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.parentElement!.innerHTML = `<span class="text-white text-xs font-bold">${baseAsset.slice(0, 3)}</span>`;
+            }}
+          />
+        ) : (
+          <span className="text-white text-xs font-bold">{baseAsset.slice(0, 3)}</span>
+        )}
       </div>
-      <span className="text-white font-medium">{marketName}</span>
+      <span className="text-white text-xs font-medium">{baseAsset}</span>
     </div>
   );
 };

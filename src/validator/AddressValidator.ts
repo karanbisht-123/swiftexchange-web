@@ -1,67 +1,40 @@
+import { StrKey } from '@stellar/stellar-sdk';
 import { isAddress } from 'ethers';
-import { Keypair, StrKey } from 'stellar-sdk';
 
 export const validateAddress = (
   address: string,
-  asset: any | { addressType: 'evm' | 'cosmos' | 'stellar'; network?: string }
+  asset?: { addressType: 'evm' | 'cosmos' | 'stellar'; network?: string }
 ): boolean => {
+  if (!address || typeof address !== 'string') return false;
+
   try {
     let type = asset?.addressType;
-    console.log(`Validating address for type: ${type}, address: ${address}`);
+
     if (!type) {
-      if (address.startsWith('0x')) {
+      if (address.startsWith('0x') && address.length === 42) {
         type = 'evm';
-        console.log('Fallback: Detected EVM type from address prefix');
-      } else if (address.length === 56 && address[0] === 'G') {
+      } else if (address.length === 56 && address.startsWith('G')) {
         type = 'stellar';
-        console.log('Fallback: Detected Stellar type from address prefix');
-      } else if (
-        address.startsWith('cosmos') ||
-        address.startsWith('osmo') ||
-        address.startsWith('dydx')
-      ) {
+      } else if (/^(cosmos|osmo|dydx)1[a-z0-9]{38,58}$/.test(address)) {
         type = 'cosmos';
-        console.log('Fallback: Detected Cosmos type from address prefix');
       } else {
-        console.log('Fallback: Could not detect address type, treating as invalid');
         return false;
       }
     }
-
     if (type === 'evm') {
-      const valid = isAddress(address);
-      console.log(`EVM validation result: ${valid}`);
-      return valid;
+      return isAddress(address);
     }
     if (type === 'stellar') {
-      if (address.length !== 56 || address[0] !== 'G') {
-        console.log('Stellar: Invalid length or prefix');
-        return false;
-      }
-      if (!StrKey.isValidEd25519PublicKey(address)) {
-        console.log('Stellar: Invalid Ed25519 public key');
-        return false;
-      }
-      try {
-        Keypair.fromPublicKey(address);
-        console.log('Stellar validation: Passed');
-        return true;
-      } catch (stellarError) {
-        console.log('Stellar: Keypair creation failed:', stellarError);
-        return false;
-      }
-    }
-    if (type === 'cosmos') {
-      const valid =
-        address.startsWith('cosmos') || address.startsWith('osmo') || address.startsWith('dydx');
-      console.log(`Cosmos validation result: ${valid}`);
-      return valid;
+      return StrKey.isValidEd25519PublicKey(address);
     }
 
-    console.log(`Unknown type: ${type}, treating as invalid`);
+    if (type === 'cosmos') {
+      return /^(cosmos|osmo|dydx)1[a-z0-9]{38,58}$/.test(address);
+    }
+
     return false;
   } catch (e) {
-    console.error('Address validation error:', e);
+    console.error('Validation error:', e);
     return false;
   }
 };
