@@ -38,6 +38,7 @@ export function getSwapConfigByChainId(chainId: number) {
   }
 
   const config = (SWAP_CONFIGS as any)[networkKey];
+
   if (!config) {
     throw new Error(`Swap configuration not available for network: ${networkKey}`);
   }

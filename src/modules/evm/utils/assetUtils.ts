@@ -144,3 +144,183 @@ export class AssetUtils {
     console.log('Metadata cache cleared');
   }
 }
+
+// import { ethers } from 'ethers';
+
+// import { type Asset } from '../../../types/evm/swap.types';
+// import { getEVMChains } from '../../walletconnect/config/chains';
+// import {
+//   getProviderForChain,
+//   getTokensForChain,
+//   getWrappedNativeAddress,
+// } from '../service/tokenListService';
+
+// export class AssetUtils {
+//   static async fetchAssets(chainId: number, address: string, network: string): Promise<Asset[]> {
+//     if (!this.isValidAddress(address)) {
+//       throw new Error('Invalid wallet address');
+//     }
+
+//     const availableChains = getEVMChains(network);
+//     const chainConfig = availableChains.find(chain => chain.chainId === chainId);
+
+//     if (!chainConfig) {
+//       throw new Error(`Chain ID ${chainId} not found in ${network} configuration`);
+//     }
+
+//     console.log('Using chain:', chainConfig.name, 'on', network);
+
+//     try {
+//       const provider = getProviderForChain(chainId);
+//       const tokens = await getTokensForChain(chainId, provider);
+
+//       if (!tokens || tokens.length === 0) {
+//         console.warn(`No tokens found for chainId: ${chainId}`);
+//         return [];
+//       }
+//       console.log(`Found ${tokens.length} tokens for ${chainConfig.name}`);
+//       const assets: Asset[] = [];
+//       const rpcProvider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+//       const wrappedNativeAddress = getWrappedNativeAddress(chainId);
+//       const BATCH_SIZE = 10;
+//       for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
+//         const batch = tokens.slice(i, i + BATCH_SIZE);
+
+//         const batchPromises = batch.map(async token => {
+//           try {
+//             const balance = await this.fetchTokenBalance(
+//               token.address,
+//               address,
+//               token.decimals,
+//               wrappedNativeAddress,
+//               rpcProvider
+//             );
+
+//             return {
+//               code: token.symbol,
+//               name: token.name,
+//               decimals: token.decimals,
+//               address: token.address,
+//               balance: parseFloat(balance),
+//               logoUri: token.logoURI || null,
+//               isNative: false,
+//             };
+//           } catch (err) {
+//             console.error(`Failed to fetch balance for ${token.symbol}:`, err);
+//             return {
+//               code: token.symbol,
+//               name: token.name,
+//               decimals: token.decimals,
+//               address: token.address,
+//               balance: 0,
+//               logoUri: token.logoURI || null,
+//               isNative: false,
+//             };
+//           }
+//         });
+
+//         const batchResults = await Promise.all(batchPromises);
+//         assets.push(...batchResults);
+//       }
+//       return assets.sort((a, b) => {
+//         if (a.balance > 0 && b.balance === 0) return -1;
+//         if (a.balance === 0 && b.balance > 0) return 1;
+//         return a.code.localeCompare(b.code);
+//       });
+//     } catch (err) {
+//       console.error('Failed to fetch assets:', err);
+//       throw new Error('Failed to load token list. Please try again.');
+//     }
+//   }
+
+//   private static async fetchTokenBalance(
+//     tokenAddress: string,
+//     userAddress: string,
+//     decimals: number,
+//     wrappedNativeAddress: string,
+//     provider: ethers.JsonRpcProvider
+//   ): Promise<string> {
+//     const isWrappedNative = tokenAddress.toLowerCase() === wrappedNativeAddress.toLowerCase();
+
+//     if (isWrappedNative) {
+//       const nativeBalance = await provider.getBalance(userAddress);
+//       const wrappedContract = new ethers.Contract(
+//         tokenAddress,
+//         ['function balanceOf(address) view returns (uint256)'],
+//         provider
+//       );
+//       const wrappedBalance = await wrappedContract.balanceOf(userAddress);
+//       const totalBalance = nativeBalance > wrappedBalance ? nativeBalance : wrappedBalance;
+//       return ethers.formatUnits(totalBalance, decimals);
+//     }
+//     const tokenContract = new ethers.Contract(
+//       tokenAddress,
+//       ['function balanceOf(address) view returns (uint256)'],
+//       provider
+//     );
+
+//     const tokenBalance = await tokenContract.balanceOf(userAddress);
+//     return ethers.formatUnits(tokenBalance, decimals);
+//   }
+//   static async searchTokens(
+//     chainId: number,
+//     searchTerm: string,
+//     limit: number = 20
+//   ): Promise<Asset[]> {
+//     const provider = getProviderForChain(chainId);
+//     const tokens = await getTokensForChain(chainId, provider);
+
+//     const searchLower = searchTerm.toLowerCase();
+//     const filtered = tokens.filter(
+//       token =>
+//         token.symbol.toLowerCase().includes(searchLower) ||
+//         token.name.toLowerCase().includes(searchLower) ||
+//         token.address.toLowerCase() === searchLower
+//     );
+
+//     return filtered.slice(0, limit).map(token => ({
+//       code: token.symbol,
+//       name: token.name,
+//       decimals: token.decimals,
+//       address: token.address,
+//       balance: 0,
+//       logoUri: token.logoURI || null,
+//       isNative: false,
+//     }));
+//   }
+//   static async getPopularTokens(chainId: number, limit: number = 50): Promise<Asset[]> {
+//     const provider = getProviderForChain(chainId);
+//     const tokens = await getTokensForChain(chainId, provider);
+//     const popularSymbols = ['USDC', 'USDT', 'DAI', 'WETH', 'WBNB', 'WMATIC', 'BUSD'];
+//     const wrappedNativeAddress = getWrappedNativeAddress(chainId);
+
+//     const popular = tokens.filter(token => {
+//       const isPopular = popularSymbols.includes(token.symbol);
+//       const isWrappedNative = token.address.toLowerCase() === wrappedNativeAddress.toLowerCase();
+//       return isPopular || isWrappedNative;
+//     });
+//     const remaining = tokens.filter(
+//       token => !popular.find(p => p.address.toLowerCase() === token.address.toLowerCase())
+//     );
+
+//     const combined = [...popular, ...remaining].slice(0, limit);
+
+//     return combined.map(token => ({
+//       code: token.symbol,
+//       name: token.name,
+//       decimals: token.decimals,
+//       address: token.address,
+//       balance: 0,
+//       logoUri: token.logoURI || null,
+//       isNative: false,
+//     }));
+//   }
+
+//   static isValidAddress(address: string): boolean {
+//     return ethers.isAddress(address);
+//   }
+
+//   static clearMetadataCache(): void {
+//     console.log('Metadata cache cleared');
+//   }
+// }

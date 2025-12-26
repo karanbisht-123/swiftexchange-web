@@ -13,10 +13,10 @@
   "dependencies": {
     "@dydxprotocol/v4-client-js": "^3.1.1",
     "@stellar/stellar-sdk": "^14.4.3",
+    "@walletconnect/modal": "^2.7.0",
     "@walletconnect/types": "^2.21.6",
     "@walletconnect/universal-provider": "^2.21.10",
     "@walletconnect/utils": "^2.21.6",
-    "@web3modal/standalone": "^2.4.3",
     "ethers": "^6.15.0",
     "lightweight-charts": "^5.0.8",
     "lodash": "^4.17.21",

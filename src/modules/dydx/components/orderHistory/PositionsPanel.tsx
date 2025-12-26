@@ -215,8 +215,12 @@ const PositionsPanel: React.FC = () => {
 
       setClosingPosition(position.market);
       try {
-        // const marketInfo = await dydxTradingService.getMarketInfo(position.market);
-        const result = await dydxTradingService.closePosition(position.market, '', '');
+        const marketInfo = await dydxTradingService.getMarketInfo(position.market);
+        const result = await dydxTradingService.closePosition(
+          position.market,
+          position,
+          marketInfo
+        );
 
         if (result.success) {
           alert('Position close order placed successfully!');

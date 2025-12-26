@@ -116,7 +116,7 @@ const fetchEVMNativeBalances = async (
       const balanceWei = await provider.getBalance(address);
       const balance = parseFloat(ethers.formatEther(balanceWei));
 
-      if (balance <= 0) continue; // Skip if zero balance
+      if (balance <= 0) continue; 
 
       const symbol = chain.nativeCurrency.symbol;
       const prices = await fetchPrices([symbol]);
@@ -139,7 +139,6 @@ const fetchEVMNativeBalances = async (
         chainName: chain.name,
       });
     } catch {
-      // Skip failed chains silently
     }
   }
 
@@ -199,13 +198,13 @@ export const useWalletAssets = () => {
     }
   }, [connectedWallets, network, fetchAllAssets]);
 
-  // Helper to render empty state in UI
+
   const isEmpty = !loading && assets.length === 0 && Object.keys(connectedWallets).length > 0;
 
   return {
     assets,
     loading,
     refetch: fetchAllAssets,
-    isEmpty, // Use this in your component
+    isEmpty,
   };
 };

@@ -34,15 +34,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const isConnected = !!evmWallet;
   const senderAddress = evmWallet?.address || '';
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
-  const evmChains = getEVMChains(currentNetwork);
 
-  const [chainId, setChainId] = useState<number>(() => {
-    if (currentChainId) {
-      const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
-      if (isValidChain) return currentChainId;
-    }
-    return evmChains[0]?.chainId || (currentNetwork === 'testnet' ? 11155111 : 1);
-  });
+  console.log('sendaddress:', senderAddress );  
+  console.log('Current Network in SwapAssets:', currentNetwork, currentChainId);
+  const evmChains = getEVMChains(currentNetwork);
 
   const [sellAssetCode, setSellAssetCode] = useState<string>('');
   const [buyAssetCode, setBuyAssetCode] = useState<string>('');
@@ -66,7 +61,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     performSwap,
     reset,
   } = useEvmSwap({
-    chainId,
+    currentChainId,
     senderAddress,
     getProvider,
   });
@@ -74,11 +69,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const selectedSellAsset = assets.find(a => a.code === sellAssetCode);
   const selectedBuyAsset = assets.find(a => a.code === buyAssetCode);
 
-  const networkConfig = chainId ? getNetworkConfigByChainId(chainId, currentNetwork) : null;
-  console.log(networkConfig, 'hii i am cahin id ----------');
+  const networkConfig = currentChainId
+    ? getNetworkConfigByChainId(currentChainId, currentNetwork)
+    : null;
 
-  const isTestnet = chainId
-    ? [11155111, 80002, 97, 421614, 11155420, 43113].includes(chainId)
+  const isTestnet = currentChainId
+    ? [11155111, 80002, 97, 421614, 11155420, 43113].includes(currentChainId)
     : false;
 
   useEffect(() => {
@@ -92,24 +88,26 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // FIX 4: Add currentNetwork to dependencies and reset chainId if EVM chains change
   useEffect(() => {
-    if (currentChainId && currentChainId !== chainId) {
+    // 1. If the wallet connects/switches chain, update our local state
+    if (currentChainId) {
       const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
 
       if (isValidChain) {
         setIsChainSwitching(true);
-        setChainId(currentChainId);
         setSellAmount('');
         setSellAssetCode('');
         setBuyAssetCode('');
         reset();
         setTimeout(() => setIsChainSwitching(false), 500);
       }
-    } else if (!evmChains.some(chain => chain.chainId === chainId)) {
+    } else if (
+      !evmChains.some(chain => chain.chainId === currentChainId)
+    ) {
       const newDefaultChain = evmChains[0]?.chainId;
       if (newDefaultChain) {
         setIsChainSwitching(true);
-        setChainId(newDefaultChain);
         setSellAmount('');
         setSellAssetCode('');
         setBuyAssetCode('');
@@ -117,13 +115,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         setTimeout(() => setIsChainSwitching(false), 500);
       }
     }
-  }, [currentChainId, chainId, reset, evmChains, currentNetwork]);
+  }, [currentChainId, currentChainId, reset, evmChains, currentNetwork]);
 
   useEffect(() => {
-    if (isConnected && senderAddress && chainId && !isChainSwitching) {
+    if (isConnected && senderAddress && currentChainId && !isChainSwitching) {
       fetchAssets();
     }
-  }, [chainId, senderAddress, isConnected, fetchAssets, isChainSwitching]);
+  }, [currentChainId, senderAddress, isConnected, fetchAssets, isChainSwitching]);
 
   useEffect(() => {
     if (assets.length > 0 && !sellAssetCode && !buyAssetCode && !isChainSwitching) {
@@ -131,7 +129,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       let defaultBuyAsset: Asset | undefined;
 
       try {
-        const swapConfig = getSwapConfigByChainId(chainId);
+        const swapConfig = getSwapConfigByChainId(currentChainId);
+
+        console.log('swapConfig:', swapConfig);
         const wNativeAsset = assets.find(
           a => a.address.toLowerCase() === swapConfig.wNative.toLowerCase()
         );
@@ -156,7 +156,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         }
       }
     }
-  }, [assets, sellAssetCode, buyAssetCode, chainId, isChainSwitching]);
+  }, [assets, sellAssetCode, buyAssetCode, currentChainId, isChainSwitching]);
 
   const fetchSwapQuote = useCallback(async () => {
     if (
@@ -174,6 +174,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     try {
       const swapConfig = getSwapConfigByChainId(chainId);
       const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset, swapConfig.wNative);
+
+      console.log(
+        'Fetching quote with:',
+        swapConfig,
+        swapType,
+        selectedSellAsset,
+        selectedBuyAsset
+      );
 
       const quoteRequest: SwapQuoteRequest = {
         tokenIn: {
@@ -207,7 +215,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     sellAssetCode,
     buyAssetCode,
     isConnected,
-    chainId,
+    currentChainId,
     fetchQuote,
     isChainSwitching,
   ]);
@@ -223,20 +231,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset) {
       try {
-        const swapConfig = getSwapConfigByChainId(chainId);
+        const swapConfig = getSwapConfigByChainId(currentChainId);
         const maxAmount = Math.max(
           0,
           selectedSellAsset.balance -
             (selectedSellAsset.address.toLowerCase() === swapConfig.wNative.toLowerCase()
-              ? 0.01
+              ? 0.01 // Reserve a small amount for gas if it's native/wNative being sold
               : 0)
         );
+        // Using toString() of the calculated number can lose precision, but matching the original logic here.
         setSellAmount(maxAmount.toString());
       } catch (error) {
         setSellAmount(selectedSellAsset.balance.toString());
       }
     }
-  }, [selectedSellAsset, chainId]);
+  }, [selectedSellAsset, currentChainId]);
 
   const handleAssetSwap = useCallback(() => {
     const newSellCode = buyAssetCode;
@@ -250,14 +259,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleNetworkChange = useCallback(
     async (newChainId: number) => {
-      if (newChainId === chainId) {
+      if (newChainId === currentChainId) {
         setShowNetworkDropdown(false);
         return;
       }
 
       setIsChainSwitching(true);
       setShowNetworkDropdown(false);
-      setChainId(newChainId);
       setSellAmount('');
       setSellAssetCode('');
       setBuyAssetCode('');
@@ -272,6 +280,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           });
         } catch (error: any) {
           if (error.code === 4902) {
+            // FIX 5: Pass currentNetwork to getNetworkConfigByChainId inside handleNetworkChange
             const networkConfig = getNetworkConfigByChainId(newChainId, currentNetwork);
             try {
               const provider = getProvider(WalletType.EVM);
@@ -296,7 +305,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       setTimeout(() => setIsChainSwitching(false), 500);
     },
-    [isConnected, getProvider, reset, chainId, currentNetwork]
+    [isConnected, getProvider, reset, currentChainId, currentNetwork]
   );
 
   const handleSwap = useCallback(async () => {
@@ -467,7 +476,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     disabled={isChainSwitching}
                   >
                     <span className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-lg">{getChainIcon(chainId)}</span>
+                      <span className="text-lg">{getChainIcon(currentChainId)}</span>
                       <span className="truncate">{networkConfig.name}</span>
                     </span>
                     {isChainSwitching ? (
@@ -488,12 +497,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           key={chain.chainId}
                           onClick={() => handleNetworkChange(chain.chainId)}
                           className={`w-full px-3 py-2.5 flex items-center gap-3 hover:bg-hover transition-colors text-left ${
-                            chain.chainId === chainId ? 'bg-hover' : ''
+                            chain.chainId === currentChainId ? 'bg-hover' : ''
                           }`}
                         >
                           <span className="text-lg">{getChainIcon(chain.chainId)}</span>
                           <span className="flex-1 text-sm font-medium">{chain.name}</span>
-                          {chain.chainId === chainId && (
+                          {chain.chainId === currentChainId && (
                             <CheckCircle2 className="w-4 h-4 text-brand flex-shrink-0" />
                           )}
                         </button>
