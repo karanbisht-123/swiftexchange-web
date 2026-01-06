@@ -23,8 +23,8 @@ interface InternalOrderbookState {
 
 // ================= CONSTANTS =================
 
-const MAX_DEPTH = 50; // Internal memory
-const DISPLAY_LIMIT = 15; // How many rows to render
+const MAX_DEPTH = 50;
+const DISPLAY_LIMIT = 15;
 
 function insertSorted(arr: number[], price: number, isBid: boolean) {
   let low = 0;
@@ -53,8 +53,6 @@ export function useOrderbook(market: string = 'BTC-USD') {
   const [orderbook, setOrderbook] = useState<OrderbookData | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [dataSource, setDataSource] = useState<'api' | 'websocket' | null>(null);
-
-  // Mutable ref for high-frequency data
   const stateRef = useRef<InternalOrderbookState>({
     bidsMap: new Map(),
     asksMap: new Map(),
@@ -73,10 +71,6 @@ export function useOrderbook(market: string = 'BTC-USD') {
   const isSubscribedRef = useRef(false);
   const initCompleteRef = useRef(false);
 
-  // --------------------------------------------------------
-  // 1. STATE MANAGEMENT
-  // --------------------------------------------------------
-
   const cleanupState = useCallback(() => {
     stateRef.current.bidsMap.clear();
     stateRef.current.asksMap.clear();
@@ -85,10 +79,6 @@ export function useOrderbook(market: string = 'BTC-USD') {
     lastMessageId.current = 0;
     pendingUpdate.current = false;
   }, []);
-
-  // --------------------------------------------------------
-  // 2. RENDERING (Throttled by RequestAnimationFrame)
-  // --------------------------------------------------------
 
   const forceUpdate = useCallback(() => {
     if (!mountedRef.current) return;
@@ -131,10 +121,7 @@ export function useOrderbook(market: string = 'BTC-USD') {
     });
   }, [forceUpdate]);
 
-  // --------------------------------------------------------
   // 3. DATA PROCESSING
-  // --------------------------------------------------------
-
   const processUpdate = useCallback((levels: [string, string][], isBid: boolean) => {
     if (!mountedRef.current) return false;
 
@@ -177,11 +164,7 @@ export function useOrderbook(market: string = 'BTC-USD') {
 
     return changed;
   }, []);
-
-  // --------------------------------------------------------
   // 4. CONNECTION EFFECTS
-  // --------------------------------------------------------
-
   useEffect(() => {
     let isActive = true;
     mountedRef.current = true;

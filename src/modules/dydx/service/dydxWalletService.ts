@@ -1,15 +1,5 @@
-import { type OfflineDirectSigner } from '@cosmjs/proto-signing';
-import {
-  BECH32_PREFIX,
-  CompositeClient,
-  IndexerClient,
-  LocalWallet,
-  Network,
-  SubaccountInfo,
-} from '@dydxprotocol/v4-client-js';
-
-import { WalletType } from '../../walletconnect/constants/Wallet';
-import { walletService } from '../../walletconnect/services/walletService';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { getCompositeClient, getIndexerClient } from '../client/clients';
 
 type NetworkType = 'mainnet' | 'testnet';
 
@@ -32,12 +22,6 @@ export type DydxStatus = 'disconnected' | 'connecting' | 'connected' | 'no_subac
 type StatusCallback = (status: DydxStatus, payload?: any) => void;
 
 class DydxWalletService {
-  private compositeClient: CompositeClient | null = null;
-  private indexerClient: IndexerClient | null = null;
-  private localWallet: LocalWallet | null = null;
-  private subaccountInfo: SubaccountInfo | null = null;
-  private walletProvider: any = null;
-  private offlineSigner: OfflineDirectSigner | null = null;
   private address = '';
   private chainId = '';
   private subaccountNumber = 0;
@@ -46,106 +30,60 @@ class DydxWalletService {
   private balanceCache: { data: AccountBalance; timestamp: number } | null = null;
   private readonly BALANCE_CACHE_TTL = 10_000;
   private isConnecting = false;
-
-  private static clientCache: Map<
-    string,
-    { composite: CompositeClient; indexer: IndexerClient; timestamp: number }
-  > = new Map();
-  private static readonly CLIENT_CACHE_TTL = 300_000;
+  private currentNetwork: NetworkType | null = null;
 
   async connect(networkType: NetworkType, subaccountNumber: number = 0): Promise<DydxConnection> {
-    if (this.isConnecting) throw new Error('Connection already in progress');
+    if (this.isConnecting) {
+      throw new Error('Connection already in progress');
+    }
+
     this.isConnecting = true;
     this.setStatus('connecting');
 
     try {
-      const network = networkType === 'mainnet' ? Network.mainnet() : Network.testnet();
-
-      this.chainId = network.validatorConfig.chainId;
-      this.subaccountNumber = subaccountNumber;
-
-      console.log('[DydxWallet] Connecting:', {
-        networkType,
-        chainId: this.chainId,
-        subaccountNumber,
-      });
-
-      this.walletProvider = this.getCosmosProvider();
-      this.offlineSigner = await this.getOfflineSigner();
-      const accounts = await this.offlineSigner.getAccounts();
-      this.address = accounts[0].address;
-
-      if (!this.address.startsWith(BECH32_PREFIX)) {
-        throw new Error(`Invalid dYdX address. Must start with "${BECH32_PREFIX}"`);
+      // Get address from store
+      const address = this.getAddressFromStore();
+      if (!address) {
+        throw new Error('No dYdX wallet found in store');
       }
 
-      console.log('[DydxWallet] Connected address:', this.address);
+      // Set network in store (triggers client recreation if needed)
+      useWalletStore.setState({ network: networkType });
 
-      this.setStatus('connecting', { address: this.address, chainId: this.chainId });
+      // Reuse existing clients from dydxClients.ts
+      const compositeClient = await getCompositeClient();
+      const indexerClient = getIndexerClient();
 
-      const cacheKey = `${networkType}_${this.chainId}`;
-      const cachedClients = DydxWalletService.clientCache.get(cacheKey);
-      const now = Date.now();
-
-      if (cachedClients && now - cachedClients.timestamp < DydxWalletService.CLIENT_CACHE_TTL) {
-        console.log('[DydxWallet] Using cached clients');
-        this.compositeClient = cachedClients.composite;
-        this.indexerClient = cachedClients.indexer;
-      } else {
-        console.log('[DydxWallet] Creating new client connections');
-        const [compositeClient, indexerClient] = await Promise.all([
-          CompositeClient.connect(network),
-          Promise.resolve(new IndexerClient(network.indexerConfig)),
-        ]);
-
-        this.compositeClient = compositeClient;
-        this.indexerClient = indexerClient;
-
-        DydxWalletService.clientCache.set(cacheKey, {
-          composite: compositeClient,
-          indexer: indexerClient,
-          timestamp: now,
-        });
-      }
-
-      this.localWallet = await LocalWallet.fromOfflineSigner(this.offlineSigner);
-      this.subaccountInfo = SubaccountInfo.forLocalWallet(this.localWallet, subaccountNumber);
-
+      // Verify indexer connection
       try {
-        const account = await this.compositeClient.validatorClient.get.getAccount(this.address);
-        console.log('[DydxWallet] Account details fetched:', {
-          accountNumber: account?.accountNumber,
-          sequence: account?.sequence,
-        });
+        await indexerClient.utility.getHeight();
+        console.log('[dydxWalletService] IndexerClient verified');
       } catch (err) {
-        console.error('[DydxWallet] Failed to fetch account details:', err);
+        console.error('[dydxWalletService] IndexerClient verification failed:', err);
+        throw new Error('Failed to connect to Indexer');
       }
 
-      const [hasSubaccount, balanceResult] = await Promise.allSettled([
-        this.checkSubaccountExists(),
-        this.fetchBalance(),
-      ]);
+      // Set service state
+      this.address = address;
+      this.currentNetwork = networkType;
+      this.subaccountNumber = subaccountNumber;
+      this.chainId = compositeClient.validatorClient.config.chainId;
 
-      const hasSubaccountValue = hasSubaccount.status === 'fulfilled' ? hasSubaccount.value : false;
-      const balanceValue = balanceResult.status === 'fulfilled' ? balanceResult.value : undefined;
+      // Check subaccount and fetch balance
+      const hasSubaccount = await this.checkSubaccountExists();
+      const balance = hasSubaccount ? await this.fetchBalance(true) : undefined;
 
-      const connection: DydxConnection = {
+      this.setStatus(hasSubaccount ? 'connected' : 'no_subaccount');
+
+      return {
         address: this.address,
         chainId: this.chainId,
         subaccountNumber,
-        hasSubaccount: hasSubaccountValue,
-        balance: balanceValue,
+        hasSubaccount,
+        balance,
       };
-
-      this.setStatus(hasSubaccountValue ? 'connected' : 'no_subaccount', {
-        chainId: this.chainId,
-        hasSubaccount: hasSubaccountValue,
-        balance: balanceValue,
-      });
-
-      return connection;
     } catch (error: any) {
-      this.cleanup();
+      console.error('[dydxWalletService] Connection error:', error);
       this.setStatus('error', { error: error.message });
       throw error;
     } finally {
@@ -153,60 +91,99 @@ class DydxWalletService {
     }
   }
 
-  async disconnect(): Promise<void> {
-    this.cleanup();
+  disconnect(): void {
+    console.log('[dydxWalletService] Disconnecting');
+    this.address = '';
+    this.chainId = '';
+    this.subaccountNumber = 0;
+    this.balanceCache = null;
+    this.currentNetwork = null;
     this.setStatus('disconnected');
   }
 
-  async getBalance(force = false): Promise<AccountBalance> {
-    if (!this.isConnected()) throw new Error('Not connected');
+  getIndexerClient() {
+    return getIndexerClient();
+  }
 
-    const now = Date.now();
-    if (!force && this.balanceCache && now - this.balanceCache.timestamp < this.BALANCE_CACHE_TTL) {
-      return this.balanceCache.data;
+  async getCompositeClient() {
+    return await getCompositeClient();
+  }
+
+  async getBalance(forceRefresh = false): Promise<AccountBalance> {
+    if (!forceRefresh && this.balanceCache) {
+      const age = Date.now() - this.balanceCache.timestamp;
+      if (age < this.BALANCE_CACHE_TTL) {
+        console.log('[dydxWalletService] Returning cached balance');
+        return this.balanceCache.data;
+      }
     }
 
-    return this.fetchBalance();
+    return this.fetchBalance(forceRefresh);
   }
 
-  isConnected(): boolean {
-    return this.status === 'connected' || this.status === 'no_subaccount';
+  private async fetchBalance(forceRefresh = false): Promise<AccountBalance> {
+    const address = this.address || this.getAddressFromStore();
+    if (!address) {
+      throw new Error('Not connected - address missing');
+    }
+
+    try {
+      console.log('[dydxWalletService] Fetching balance for:', address);
+
+      const indexerClient = getIndexerClient();
+      const resp = await indexerClient.account.getSubaccount(address, this.subaccountNumber);
+
+      if (!resp.subaccount) {
+        throw new Error('Subaccount not found');
+      }
+
+      const balance: AccountBalance = {
+        equity: resp.subaccount.equity ?? '0',
+        freeCollateral: resp.subaccount.freeCollateral ?? '0',
+        totalTradingRewards: resp.subaccount.totalTradingRewards ?? '0',
+        marginUsage: resp.subaccount.marginUsage ?? '0',
+      };
+
+      this.balanceCache = { data: balance, timestamp: Date.now() };
+      console.log('[dydxWalletService] Balance fetched successfully');
+
+      return balance;
+    } catch (error: any) {
+      console.error('[dydxWalletService] Balance fetch error:', error);
+      throw new Error(`Failed to fetch balance: ${error.message}`);
+    }
   }
 
-  isReadyForTrading(): boolean {
-    return this.status === 'connected' && !!this.localWallet && !!this.subaccountInfo;
+  isConnected = () => this.status === 'connected' || this.status === 'no_subaccount';
+  isReadyForTrading = () => this.status === 'connected';
+  getAddress = () => this.address || this.getAddressFromStore();
+  getSubaccountNumber = () => this.subaccountNumber;
+  getChainId = () => this.chainId;
+  getStatus = () => this.status;
+
+  private getAddressFromStore(): string | null {
+    const store = useWalletStore.getState();
+    return (
+      store.connectedWallets.evm?.dydxAddress || store.connectedWallets.cosmos?.dydxAddress || null
+    );
   }
 
-  getAddress(): string | null {
-    return this.address || null;
-  }
+  private async checkSubaccountExists(): Promise<boolean> {
+    const address = this.address || this.getAddressFromStore();
+    if (!address) {
+      return false;
+    }
 
-  getSubaccountNumber(): number {
-    return this.subaccountNumber;
-  }
+    try {
+      const indexerClient = getIndexerClient();
+      const resp = await indexerClient.account.getSubaccount(address, this.subaccountNumber);
 
-  getStatus(): DydxStatus {
-    return this.status;
-  }
-
-  getLocalWallet(): LocalWallet | null {
-    return this.localWallet;
-  }
-
-  getSubaccountInfo(): SubaccountInfo | null {
-    return this.subaccountInfo;
-  }
-
-  getCompositeClient(): CompositeClient | null {
-    return this.compositeClient;
-  }
-
-  getIndexerClient(): IndexerClient | null {
-    return this.indexerClient;
-  }
-
-  getChainId(): string {
-    return this.chainId;
+      console.log('[dydxWalletService] Subaccount check:', !!resp.subaccount);
+      return !!resp.subaccount;
+    } catch (error) {
+      console.error('[dydxWalletService] Check subaccount error:', error);
+      return false;
+    }
   }
 
   onStatusChange(callback: StatusCallback): () => void {
@@ -217,189 +194,9 @@ class DydxWalletService {
   }
 
   private setStatus(status: DydxStatus, payload?: any): void {
+    console.log('[dydxWalletService] Status change:', status);
     this.status = status;
     this.listeners.forEach(cb => cb(status, payload));
-  }
-
-  private getCosmosProvider(): any {
-    const wcProvider = walletService.getProvider(WalletType.COSMOS);
-    if (wcProvider) return wcProvider;
-
-    if (typeof window !== 'undefined' && (window as any).keplr) return (window as any).keplr;
-    if (typeof window !== 'undefined' && (window as any).leap) return (window as any).leap;
-
-    throw new Error('No Cosmos wallet detected. Install Keplr/Leap or connect via WalletConnect.');
-  }
-
-  private async enableProvider(): Promise<void> {
-    if (this.walletProvider.enable) {
-      await this.walletProvider.enable(this.chainId);
-    }
-  }
-
-  private async getOfflineSigner(): Promise<OfflineDirectSigner> {
-    await this.enableProvider();
-
-    if (this.walletProvider.request) {
-      return this.createWalletConnectSigner();
-    }
-
-    if (this.walletProvider.getOfflineSigner) {
-      const signer = this.walletProvider.getOfflineSigner(this.chainId);
-      const accounts = await signer.getAccounts();
-      if (!accounts.length) throw new Error('No accounts found');
-      return signer;
-    }
-
-    throw new Error('Wallet does not support OfflineSigner');
-  }
-
-  private createWalletConnectSigner(): OfflineDirectSigner {
-    const self = this;
-
-    return {
-      getAccounts: async () => {
-        const accounts = await self.walletProvider.request({
-          method: 'cosmos_getAccounts',
-          params: { chainId: self.chainId },
-        });
-
-        return accounts.map((acc: any) => {
-          const pubkeyBytes = new Uint8Array(
-            atob(acc.pubkey)
-              .split('')
-              .map(c => c.charCodeAt(0))
-          );
-
-          return {
-            address: acc.address,
-            algo: acc.algo || 'secp256k1',
-            pubkey: pubkeyBytes,
-          };
-        });
-      },
-
-      signDirect: async (signerAddress: string, signDoc: any) => {
-        console.log('[SignDirect] Starting signature process for address:', signerAddress);
-        console.log('[SignDirect] Original signDoc:', signDoc);
-
-        let accountNumber = signDoc.accountNumber;
-        let sequence = signDoc.sequence;
-
-        if (self.compositeClient) {
-          try {
-            const account =
-              await self.compositeClient.validatorClient.get.getAccount(signerAddress);
-            if (account?.accountNumber !== undefined) {
-              accountNumber = account.accountNumber;
-            }
-            if (account?.sequence !== undefined) {
-              sequence = account.sequence;
-            }
-            console.log('[SignDirect] Account info:', { accountNumber, sequence });
-          } catch (err) {
-            console.error('[SignDirect] Failed to fetch account details:', err);
-          }
-        }
-
-        const formatted = {
-          chainId: signDoc.chainId,
-          accountNumber: accountNumber.toString(),
-          sequence: (sequence + 1).toString(),
-          authInfoBytes: btoa(String.fromCharCode(...new Uint8Array(signDoc.authInfoBytes))),
-          bodyBytes: btoa(String.fromCharCode(...new Uint8Array(signDoc.bodyBytes))),
-        };
-
-        console.log('[SignDirect] Formatted signDoc:', formatted);
-
-        const result = await self.walletProvider.request({
-          method: 'cosmos_signDirect',
-          params: { signerAddress, signDoc: formatted },
-        });
-
-        let signature = result.signature;
-        if (signature?.signature) {
-          signature = signature.signature;
-        }
-
-        let pubkeyValue =
-          result.pub_key?.value ||
-          result.signature?.pub_key?.value ||
-          result.signed?.pub_key?.value;
-
-        if (!pubkeyValue) {
-          const accounts = await self.offlineSigner?.getAccounts();
-          if (accounts?.[0]?.pubkey) {
-            pubkeyValue = btoa(String.fromCharCode(...accounts[0].pubkey));
-          } else {
-            throw new Error('Could not extract public key');
-          }
-        }
-
-        return {
-          signed: {
-            chainId: signDoc.chainId,
-            accountNumber: BigInt(accountNumber.toString()),
-            authInfoBytes: signDoc.authInfoBytes,
-            bodyBytes: signDoc.bodyBytes,
-          },
-          signature: {
-            pub_key: {
-              type: 'tendermint/PubKeySecp256k1',
-              value: pubkeyValue,
-            },
-            signature:
-              typeof signature === 'string'
-                ? signature
-                : btoa(String.fromCharCode(...new Uint8Array(signature))),
-          },
-        };
-      },
-    };
-  }
-
-  private async checkSubaccountExists(): Promise<boolean> {
-    if (!this.indexerClient || !this.address) return false;
-    try {
-      const resp = await this.indexerClient.account.getSubaccount(
-        this.address,
-        this.subaccountNumber
-      );
-      return !!resp.subaccount;
-    } catch {
-      return false;
-    }
-  }
-
-  private async fetchBalance(): Promise<AccountBalance> {
-    if (!this.indexerClient || !this.address) throw new Error('Not connected');
-
-    const resp = await this.indexerClient.account.getSubaccount(
-      this.address,
-      this.subaccountNumber
-    );
-    const sub = resp.subaccount;
-
-    const balance: AccountBalance = {
-      equity: sub?.equity ?? '0',
-      freeCollateral: sub?.freeCollateral ?? '0',
-      totalTradingRewards: sub?.totalTradingRewards ?? '0',
-      marginUsage: sub?.marginUsage ?? '0',
-    };
-
-    this.balanceCache = { data: balance, timestamp: Date.now() };
-    return balance;
-  }
-
-  private cleanup(): void {
-    this.address = '';
-    this.chainId = '';
-    this.subaccountNumber = 0;
-    this.walletProvider = null;
-    this.offlineSigner = null;
-    this.localWallet = null;
-    this.subaccountInfo = null;
-    this.balanceCache = null;
   }
 }
 

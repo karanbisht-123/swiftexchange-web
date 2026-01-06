@@ -3,208 +3,175 @@ import { useCallback, useEffect, useState } from 'react';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { ethers } from 'ethers';
 
-import {
-  type EVMChainConfig,
-  type NetworkType,
-  getEVMChains,
-  getStellarConfig,
-} from '../../walletconnect/config/chains';
+import { ERC20_ABI, getTokenAddressesForChain } from '../../../config/tokenConfig';
+import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { useWalletStore } from '../store/walletConnectStore';
+import { portfolioUtils } from '../utils/portfolioUtils';
 
 export interface Asset {
   id: string;
   symbol: string;
   name: string;
   image: string;
-  balance: number;
-  volume: number;
+  balance: number | null;
   current_price: number;
   price_change_percentage_24h: number;
-  chainId?: number;
-  chainName?: string;
+  chainName: string;
+  isNative?: boolean;
 }
 
-const COINGECKO_IDS_MAP: Record<string, string> = {
-  ETH: 'ethereum',
-  MATIC: 'matic-network',
-  BNB: 'binancecoin',
-  AVAX: 'avalanche-2',
-  XLM: 'stellar',
-};
-
-const fetchPrices = async (
-  symbols: string[]
-): Promise<Record<string, { usd: number; usd_24h_change: number; volume: number }>> => {
-  const ids = [
-    ...new Set(symbols.map(s => COINGECKO_IDS_MAP[s.toUpperCase()] || s.toLowerCase())),
-  ].join(',');
-  if (!ids) return {};
-  try {
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true`
-    );
-    if (!response.ok) return {};
-    const data = await response.json();
-    const result: Record<string, any> = {};
-    symbols.forEach(symbol => {
-      const id = COINGECKO_IDS_MAP[symbol.toUpperCase()] || symbol.toLowerCase();
-      if (data[id]) {
-        result[symbol] = {
-          usd: data[id].usd,
-          usd_24h_change: data[id].usd_24hr_change || 0,
-          volume: data[id].usd_24hr_vol || 0,
-        };
-      }
-    });
-    return result;
-  } catch {
-    return {};
-  }
-};
-
-const fetchStellarAssets = async (address: string, network: NetworkType): Promise<Asset[]> => {
-  const config = getStellarConfig(network);
-  const server = new StellarSdk.Horizon.Server(config.horizonUrl);
-
-  try {
-    const account = await server.loadAccount(address);
-    const balances = account.balances.filter(b => parseFloat(b.balance) > 0);
-    if (balances.length === 0) return [];
-
-    const symbols = balances.map(b => ('asset_code' in b ? b.asset_code : 'XLM'));
-    const prices = await fetchPrices(symbols);
-
-    return balances.map(b => {
-      const symbol = 'asset_code' in b ? b.asset_code : 'XLM';
-      const priceData = prices[symbol] || { usd: 0, usd_24h_change: 0, volume: 0 };
-      const balance = parseFloat(b.balance);
-      const id = COINGECKO_IDS_MAP[symbol] || symbol.toLowerCase();
-
-      const image =
-        symbol === 'XLM' && config.logoUrl
-          ? config.logoUrl
-          : `https://coin-images.coingecko.com/coins/images/${id}/large/${id}.png`;
-
-      return {
-        id: `stellar-${symbol.toLowerCase()}`,
-        symbol,
-        name: symbol === 'XLM' ? 'Stellar Lumens' : `${symbol} on Stellar`,
-        image,
-        balance,
-        current_price: priceData.usd,
-        price_change_percentage_24h: priceData.usd_24h_change,
-        volume: priceData.volume,
-      };
-    });
-  } catch {
-    return [];
-  }
-};
-
-const fetchEVMNativeBalances = async (
-  chains: EVMChainConfig[],
-  address: string,
-  currentChainId: number
-): Promise<Asset[]> => {
-  const assets: Asset[] = [];
-
-  for (const chain of chains) {
-    try {
-      const provider = new ethers.JsonRpcProvider(chain.rpcUrl);
-      const balanceWei = await provider.getBalance(address);
-      const balance = parseFloat(ethers.formatEther(balanceWei));
-
-      if (balance <= 0) continue; 
-
-      const symbol = chain.nativeCurrency.symbol;
-      const prices = await fetchPrices([symbol]);
-      const priceData = prices[symbol] || { usd: 0, usd_24h_change: 0, volume: 0 };
-
-      const image =
-        chain.logoUrl ||
-        `https://coin-images.coingecko.com/coins/images/${COINGECKO_IDS_MAP[symbol] || symbol.toLowerCase()}/large/${symbol.toLowerCase()}.png`;
-
-      assets.push({
-        id: `${chain.chainId}-${symbol.toLowerCase()}`,
-        symbol,
-        name: chain.name,
-        image,
-        balance,
-        current_price: priceData.usd,
-        price_change_percentage_24h: priceData.usd_24h_change,
-        volume: priceData.volume,
-        chainId: chain.chainId,
-        chainName: chain.name,
-      });
-    } catch {
-    }
-  }
-
-  return assets;
-};
-
-export const useWalletAssets = () => {
+export const useWalletAssets = (network: any) => {
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const { network } = useWalletStore();
+  const [loading, setLoading] = useState(false);
   const { connectedWallets } = useWalletConnect();
 
-  const fetchAllAssets = useCallback(async () => {
+  const updateAsset = useCallback((newAsset: Asset) => {
+    setAssets(prev => {
+      const index = prev.findIndex(a => a.id === newAsset.id);
+      const nextAssets = [...prev];
+      if (index >= 0) {
+        nextAssets[index] = { ...nextAssets[index], ...newAsset };
+      } else {
+        nextAssets.push(newAsset);
+      }
+      // Sort by USD value descending
+      return nextAssets.sort(
+        (a, b) => (b.balance || 0) * b.current_price - (a.balance || 0) * a.current_price
+      );
+    });
+  }, []);
+
+  const fetchAllBalances = useCallback(async () => {
     setLoading(true);
-    const allAssets: Asset[] = [];
+    setAssets([]);
 
-    try {
-      const evmWallet = connectedWallets[WalletType.EVM];
-      const stellarWallet = connectedWallets[WalletType.STELLAR];
+    const evmAddr = connectedWallets[WalletType.EVM]?.address;
+    const stellarAddr = connectedWallets[WalletType.STELLAR]?.address;
 
-      // Fetch EVM native balances only (no fake tokens)
-      if (evmWallet?.address) {
-        const evmChains = getEVMChains(network);
-        const evmAssets = await fetchEVMNativeBalances(
-          evmChains,
-          evmWallet.address,
-          Number(evmWallet.chainId)
-        );
-        allAssets.push(...evmAssets);
-      }
-
-      // Fetch real Stellar assets user holds
-      if (stellarWallet?.address) {
-        const stellarAssets = await fetchStellarAssets(stellarWallet.address, network);
-        allAssets.push(...stellarAssets);
-      }
-
-      // Sort by balance descending
-      allAssets.sort((a, b) => b.balance - a.balance);
-
-      setAssets(allAssets);
-    } catch (error) {
-      console.error('Error fetching wallet assets:', error);
-      setAssets([]);
-    } finally {
-      setLoading(false);
+    // 1. DYNAMIC STELLAR FETCH - Only show assets with balance > 0
+    if (stellarAddr) {
+      const config = getStellarConfig(network);
+      const server = new StellarSdk.Horizon.Server(config.horizonUrl);
+      server.loadAccount(stellarAddr).then(async acc => {
+        for (const b of acc.balances) {
+          const balanceNum = parseFloat(b.balance);
+          if (balanceNum > 0) {
+            const symbol = 'asset_code' in b ? b.asset_code : 'XLM';
+            const meta = await portfolioUtils.getAssetMetadata(symbol);
+            updateAsset({
+              id: `stellar-${symbol}`,
+              symbol,
+              name: meta.name,
+              image: meta.image,
+              balance: balanceNum,
+              current_price: 0,
+              price_change_percentage_24h: 0,
+              chainName: 'Stellar',
+            });
+          }
+        }
+      });
     }
-  }, [connectedWallets, network]);
 
+    // 2. DYNAMIC EVM FETCH - Render immediately, load balance async
+    if (evmAddr) {
+      const chains = getEVMChains(network);
+      for (const chain of chains) {
+        const provider = new ethers.JsonRpcProvider(chain.rpcUrl);
+
+        // Native Balance - Only show if balance > 0
+        (async () => {
+          const bal = await provider.getBalance(evmAddr);
+          const balanceNum = parseFloat(ethers.formatEther(bal));
+
+          if (balanceNum > 0) {
+            const meta = await portfolioUtils.getAssetMetadata(chain.nativeCurrency.symbol);
+            updateAsset({
+              id: `${chain.chainId}-native`,
+              symbol: chain.nativeCurrency.symbol,
+              name: chain.name,
+              image: meta.image,
+              balance: balanceNum,
+              current_price: 0,
+              price_change_percentage_24h: 0,
+              chainName: chain.name,
+              isNative: true,
+            });
+          }
+        })();
+
+        // Scan common tokens for this chain - Only show if balance > 0
+        const tokens = getTokenAddressesForChain(chain.chainId);
+        Object.entries(tokens).forEach(async ([symbol, address]) => {
+          const contract = new ethers.Contract(address, ERC20_ABI, provider);
+
+          try {
+            const [bal, dec] = await Promise.all([
+              contract.balanceOf(evmAddr),
+              contract.decimals(),
+            ]);
+            const balanceNum = parseFloat(ethers.formatUnits(bal, dec));
+
+            if (balanceNum > 0) {
+              const meta = await portfolioUtils.getAssetMetadata(symbol);
+              updateAsset({
+                id: `${chain.chainId}-${symbol}`,
+                symbol,
+                name: meta.name,
+                image: meta.image,
+                balance: balanceNum,
+                current_price: 0,
+                price_change_percentage_24h: 0,
+                chainName: chain.name,
+              });
+            }
+          } catch (e) {
+            /* Token not on this chain */
+          }
+        });
+      }
+    }
+    setLoading(false);
+  }, [connectedWallets, network, updateAsset]);
+
+  // Price Enrichment: Runs in background when assets are discovered
   useEffect(() => {
-    if (Object.keys(connectedWallets).length > 0) {
-      fetchAllAssets();
-    } else {
-      setAssets([]);
-      setLoading(false);
-    }
-  }, [connectedWallets, network, fetchAllAssets]);
+    const fetchMissingPrices = async () => {
+      const needsPrice = assets.filter(a => a.current_price === 0 && a.balance !== null);
+      if (needsPrice.length === 0) return;
 
+      const metadata = await Promise.all(
+        needsPrice.map(a => portfolioUtils.getAssetMetadata(a.symbol))
+      );
+      const ids = metadata.map(m => m.id);
+      const prices = await portfolioUtils.fetchPrices(ids);
 
-  const isEmpty = !loading && assets.length === 0 && Object.keys(connectedWallets).length > 0;
+      needsPrice.forEach((asset, index) => {
+        const cgId = ids[index];
+        if (prices[cgId]) {
+          updateAsset({
+            ...asset,
+            current_price: prices[cgId].usd,
+            price_change_percentage_24h: prices[cgId].usd_24h_change,
+          });
+        }
+      });
+    };
+
+    const timer = setTimeout(fetchMissingPrices, 1000);
+    return () => clearTimeout(timer);
+  }, [assets, updateAsset]);
+
+  // Auto-load on mount
+  useEffect(() => {
+    fetchAllBalances();
+  }, [fetchAllBalances]);
 
   return {
     assets,
     loading,
-    refetch: fetchAllAssets,
-    isEmpty,
+    refetch: fetchAllBalances,
+    totalValue: portfolioUtils.calculateTotalUSD(assets),
   };
 };

@@ -1,463 +1,484 @@
-import { OrderExecution, OrderSide, OrderTimeInForce, OrderType } from '@dydxprotocol/v4-client-js';
-
 import {
-  type MarketInfo,
-  type OrderConfig,
-  type OrderResult,
-  OrderSideEnum,
+  BECH32_PREFIX,
+  LocalWallet,
+  OrderExecution,
+  OrderSide,
+  OrderTimeInForce,
+  OrderType,
+} from '@dydxprotocol/v4-client-js';
+
+import { walletService } from '../../walletconnect/services/walletService';
+import {
+  type OrderSideEnum,
   type PlaceOrderParams,
   type Position,
-  mapOrderSide,
-  mapOrderType,
+  type TriggerParams,
 } from '../types/trading.types';
 import { dydxWalletService } from './dydxWalletService';
 
+const TRADING_CONFIG = {
+  DEFAULT_SLIPPAGE: 0.05,
+  SHORT_TERM_BLOCKS: 20,
+  DEFAULT_STATEFUL_EXPIRY_SECONDS: 90 * 24 * 3600,
+  CLOSE_POSITION_SLIPPAGE: 0.03,
+} as const;
+
 class DydxTradingService {
   private clientIdCounter = Date.now() >>> 0;
-  private readonly DEFAULT_SLIPPAGE = 0.05;
-  private readonly SHORT_TERM_ORDER_BLOCKS = 20;
-  private readonly STATEFUL_ORDER_TIME_WINDOW = 8_208_000; // ~95 days in seconds
 
-  // Main order placement - handles all order types (market, limit, stop, take profit)
-  async placeOrder(params: PlaceOrderParams, marketInfo: MarketInfo): Promise<OrderResult> {
-    if (!dydxWalletService.isReadyForTrading()) {
-      return this.createErrorResult(
-        'Wallet not connected',
-        'NOT_READY',
-        'Please connect your wallet first',
-        true
-      );
-    }
-
-    const compositeClient = dydxWalletService.getCompositeClient();
-    const subaccountInfo = dydxWalletService.getSubaccountInfo();
-
-    if (!compositeClient || !subaccountInfo) {
-      return this.createErrorResult(
-        'Clients not initialized',
-        'CLIENT_MISSING',
-        'Trading client not ready',
-        true
-      );
-    }
-
-    // Validate order size against market minimum
-    const minSize = parseFloat(marketInfo.minOrderSize);
-    if (params.size <= 0 || params.size < minSize) {
-      return this.createErrorResult(
-        'Invalid or too small size',
-        'INVALID_SIZE',
-        `Minimum size: ${marketInfo.minOrderSize}`,
-        false
-      );
-    }
-
+  async placeOrder(params: PlaceOrderParams) {
     try {
-      const orderConfig = await this.buildOrderConfig(params, marketInfo);
+      const client = await dydxWalletService.getCompositeClient();
+      const address = dydxWalletService.getAddress();
+      if (!client || !address) throw new Error('Wallet not connected');
 
-      console.log('[Trading] Placing order:', {
-        market: marketInfo.ticker,
-        ...orderConfig,
-      });
+      const localWallet = await this.getSigningWallet();
+      const marketInfo = await this.getMarketInfo(params.market);
+      const subaccount = {
+        address,
+        subaccountNumber: dydxWalletService.getSubaccountNumber(),
+        signingWallet: localWallet,
+      };
 
-      const result = await compositeClient.placeOrder(
-        subaccountInfo,
-        marketInfo.ticker,
-        orderConfig.type,
-        orderConfig.side,
-        orderConfig.price,
-        orderConfig.size,
-        orderConfig.clientId,
-        orderConfig.timeInForce,
-        orderConfig.goodTilTimeInSeconds,
-        orderConfig.execution,
-        orderConfig.postOnly,
-        orderConfig.reduceOnly,
-        orderConfig.triggerPrice
-      );
+      const clientId = params.clientId ?? this.generateClientId();
+      const size = typeof params.size === 'string' ? parseFloat(params.size) : params.size;
+      const orderCategory = this.categorizeOrder(params.type);
 
-      // Convert hash to hex string for block explorer
-      const txHash =
-        typeof result.hash === 'string'
-          ? result.hash
-          : Array.from(new Uint8Array(result.hash))
-              .map(b => b.toString(16).padStart(2, '0'))
-              .join('');
+      this.validateReduceOnlyConstraints(params, orderCategory);
 
-      const network = dydxWalletService.getChainId().includes('testnet') ? 'testnet' : 'mainnet';
-      const explorerUrl =
-        network === 'testnet'
-          ? `https://testnet.mintscan.io/dydx-testnet/txs/${txHash}`
-          : `https://www.mintscan.io/dydx/txs/${txHash}`;
+      let price = params.price ?? 0;
+      if (orderCategory.isMarket || !price) {
+        price = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
+      }
+      price = this.roundPrice(price, marketInfo.tickSize);
+
+      const triggerPrice = params.triggerPrice
+        ? this.roundPrice(params.triggerPrice, marketInfo.tickSize)
+        : undefined;
+
+      let result;
+
+      if (orderCategory.isMarket) {
+        result = await this.placeMarketOrder(client, subaccount, params, clientId, price, size);
+      } else if (orderCategory.isConditional) {
+        result = await this.placeConditionalOrder(
+          client,
+          subaccount,
+          params,
+          clientId,
+          price,
+          size,
+          triggerPrice
+        );
+      } else {
+        result = await this.placeLimitOrder(client, subaccount, params, clientId, price, size);
+      }
 
       return {
         success: true,
-        orderId: `client_${orderConfig.clientId}`,
-        clientId: orderConfig.clientId,
-        transactionHash: txHash,
-        confirmationUrl: explorerUrl,
-        timestamp: new Date().toISOString(),
-        userMessage: 'Order placed successfully!',
-        orderStatus: 'PENDING',
+        clientId: clientId.toString(),
+        transactionHash: this.extractHash(result.hash),
+        optimisticOrder: {
+          clientId: clientId.toString(),
+          ticker: params.market,
+          side: params.side,
+          size: size.toString(),
+          price: price.toString(),
+          status: 'PENDING_BROADCAST',
+          type: params.type,
+          createdAt: new Date().toISOString(),
+          id: `temp-${clientId}`,
+        },
       };
-    } catch (err: any) {
-      console.error('[Trading] Place order failed:', err);
-      const info = this.parseError(err);
+    } catch (error: any) {
+      console.error('Order placement error:', error);
       return {
         success: false,
-        error: info.technicalDetails,
-        errorCode: err.code || 'UNKNOWN',
-        errorType: info.errorType,
-        userMessage: info.userMessage,
-        retryable: info.retryable,
+        error: error.message || 'Unknown error',
+        userMessage: this.getUserFriendlyError(error),
+        retryable: this.isRetryableError(error),
       };
     }
   }
 
-  // Set TP/SL for existing position
-  async setPositionTriggers(
-    position: Position,
-    marketInfo: MarketInfo,
-    config: {
-      takeProfit?: { price: number; type: 'MARKET' | 'LIMIT' };
-      stopLoss?: { price: number; type: 'MARKET' | 'LIMIT' };
-    }
-  ): Promise<{ takeProfitResult?: OrderResult; stopLossResult?: OrderResult }> {
-    const results: { takeProfitResult?: OrderResult; stopLossResult?: OrderResult } = {};
+  private async placeMarketOrder(
+    client: any,
+    subaccount: any,
+    params: PlaceOrderParams,
+    clientId: number,
+    price: number,
+    size: number
+  ) {
+    const height = await client.validatorClient.get.latestBlockHeight();
+    const goodTilBlock = height + TRADING_CONFIG.SHORT_TERM_BLOCKS;
+    const side = this.normalizeToOrderSide(params.side);
 
-    // Closing order side is opposite of position side
-    const closingSide: OrderSideEnum = position.side === 'LONG' ? 'SELL' : 'BUY';
-    const positionSize = Math.abs(parseFloat(position.size));
-
-    const promises: Promise<void>[] = [];
-
-    if (config.takeProfit) {
-      promises.push(
-        (async () => {
-          const tpOrderType =
-            config.takeProfit!.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
-
-          results.takeProfitResult = await this.placeOrder(
-            {
-              market: position.market,
-              side: closingSide,
-              type: tpOrderType,
-              size: positionSize,
-              triggerPrice: config.takeProfit!.price,
-              price: config.takeProfit!.type === 'LIMIT' ? config.takeProfit!.price : undefined,
-              reduceOnly: true,
-              timeInForce: 'GTT',
-            },
-            marketInfo
-          );
-        })()
-      );
-    }
-
-    if (config.stopLoss) {
-      promises.push(
-        (async () => {
-          const slOrderType = config.stopLoss!.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
-
-          results.stopLossResult = await this.placeOrder(
-            {
-              market: position.market,
-              side: closingSide,
-              type: slOrderType,
-              size: positionSize,
-              triggerPrice: config.stopLoss!.price,
-              price: config.stopLoss!.type === 'LIMIT' ? config.stopLoss!.price : undefined,
-              reduceOnly: true,
-              timeInForce: 'GTT',
-            },
-            marketInfo
-          );
-        })()
-      );
-    }
-
-    await Promise.all(promises);
-    return results;
-  }
-
-  // Close position at market price
-  async closePosition(
-    market: string,
-    position: Position,
-    marketInfo: MarketInfo
-  ): Promise<OrderResult> {
-    const side = position.side === 'LONG' ? 'SELL' : 'BUY';
-
-    return this.placeOrder(
-      {
-        market,
-        side: side as OrderSideEnum,
-        type: 'MARKET',
-        size: Math.abs(parseFloat(position.size)),
-        reduceOnly: true,
-        slippageTolerance: 0.01,
-      },
-      marketInfo
+    return await client.placeShortTermOrder(
+      subaccount,
+      params.market,
+      side,
+      price,
+      size,
+      clientId,
+      goodTilBlock,
+      OrderTimeInForce.IOC,
+      false
     );
   }
 
-  // Fetch market details from indexer
-  async getMarketInfo(ticker: string): Promise<MarketInfo> {
+  private async placeConditionalOrder(
+    client: any,
+    subaccount: any,
+    params: PlaceOrderParams,
+    clientId: number,
+    price: number,
+    size: number,
+    triggerPrice?: number
+  ) {
+    if (!triggerPrice) {
+      throw new Error('Trigger price is required for conditional orders');
+    }
+
+    const expiry =
+      params.goodTilTimeInSeconds ||
+      Math.floor(Date.now() / 1000) + TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
+
+    const side = this.normalizeToOrderSide(params.side);
+
+    return await client.placeOrder(
+      subaccount,
+      params.market,
+      this.mapOrderType(params.type),
+      side,
+      price,
+      size,
+      clientId,
+      OrderTimeInForce.GTT,
+      expiry,
+      OrderExecution.DEFAULT,
+      params.postOnly || false,
+      false,
+      triggerPrice
+    );
+  }
+
+  private async placeLimitOrder(
+    client: any,
+    subaccount: any,
+    params: PlaceOrderParams,
+    clientId: number,
+    price: number,
+    size: number
+  ) {
+    const expiry =
+      params.goodTilTimeInSeconds ||
+      Math.floor(Date.now() / 1000) + TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
+
+    let timeInForce = OrderTimeInForce.GTT;
+    if (params.timeInForce === 'IOC') {
+      timeInForce = OrderTimeInForce.IOC;
+    } else if (params.timeInForce === 'FOK') {
+      timeInForce = OrderTimeInForce.FOK;
+    }
+
+    const side = this.normalizeToOrderSide(params.side);
+
+    return await client.placeOrder(
+      subaccount,
+      params.market,
+      OrderType.LIMIT,
+      side,
+      price,
+      size,
+      clientId,
+      timeInForce,
+      expiry,
+      OrderExecution.DEFAULT,
+      params.postOnly || false,
+      false,
+      undefined
+    );
+  }
+
+  async closePosition(position: Position) {
+    try {
+      const positionSide = position.side.toUpperCase().trim();
+      const closingSide: OrderSideEnum = positionSide === 'LONG' ? 'SELL' : 'BUY';
+      const size = Math.abs(parseFloat(position.size));
+
+      console.log('Closing position:', {
+        market: position.market,
+        positionSide,
+        closingSide,
+        size,
+      });
+
+      // Use regular market order without reduce-only flag
+      // This will close the position as long as the size matches
+      const result = await this.placeOrder({
+        market: position.market,
+        side: closingSide,
+        type: 'MARKET',
+        size,
+        reduceOnly: false,
+        slippageTolerance: TRADING_CONFIG.CLOSE_POSITION_SLIPPAGE,
+      });
+
+      console.log(result, 'hii i am result -----------');
+      return result;
+    } catch (error: any) {
+      console.error('Close position error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to close position',
+        userMessage: this.getUserFriendlyError(error),
+        retryable: this.isRetryableError(error),
+      };
+    }
+  }
+
+  async setTriggers(position: Position, triggers: TriggerParams) {
+    const positionSide = position.side.toUpperCase().trim();
+    const closingSide: OrderSideEnum = positionSide === 'LONG' ? 'SELL' : 'BUY';
+    const size = Math.abs(parseFloat(position.size));
+    const results: any = {};
+
+    try {
+      if (triggers.takeProfit?.enabled && triggers.takeProfit?.price) {
+        const type =
+          triggers.takeProfit.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
+
+        results.takeProfit = await this.placeOrder({
+          market: position.market,
+          side: closingSide,
+          type,
+          size,
+          price: triggers.takeProfit.price,
+          triggerPrice: triggers.takeProfit.price,
+          reduceOnly: false,
+        });
+      }
+
+      if (triggers.stopLoss?.enabled && triggers.stopLoss?.price) {
+        const type = triggers.stopLoss.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
+
+        results.stopLoss = await this.placeOrder({
+          market: position.market,
+          side: closingSide,
+          type,
+          size,
+          price: triggers.stopLoss.price,
+          triggerPrice: triggers.stopLoss.price,
+          reduceOnly: false,
+        });
+      }
+
+      return { success: true, results };
+    } catch (error: any) {
+      console.error('Error setting triggers:', error);
+      return { success: false, error: error.message, results };
+    }
+  }
+
+  async cancelOrder(order: any) {
+    try {
+      const client = await dydxWalletService.getCompositeClient();
+      const address = dydxWalletService.getAddress();
+      if (!client || !address) throw new Error('Wallet not connected');
+
+      const localWallet = await this.getSigningWallet();
+      const subaccount = {
+        address,
+        subaccountNumber: dydxWalletService.getSubaccountNumber(),
+        signingWallet: localWallet,
+      };
+
+      let goodTilBlock: number | undefined;
+      let goodTilBlockTime: number | undefined;
+
+      if (order.goodTilBlock) {
+        goodTilBlock = parseInt(order.goodTilBlock);
+      }
+
+      if (order.goodTilBlockTime) {
+        const datetime = new Date(order.goodTilBlockTime);
+        const utcMilliseconds = datetime.getTime();
+        goodTilBlockTime = Math.round(utcMilliseconds / 1000);
+      }
+
+      const clientId = parseInt(order.clientId);
+      const orderFlags = parseInt(order.orderFlags);
+      const clobPairId = order.clobPairId || order.market;
+
+      const result = await client.cancelOrder(
+        subaccount,
+        clientId,
+        orderFlags,
+        clobPairId,
+        goodTilBlock,
+        goodTilBlockTime
+      );
+
+      return {
+        success: true,
+        transactionHash: this.extractHash(result.hash),
+        message: 'Order cancelled successfully',
+      };
+    } catch (error: any) {
+      console.error('Cancel order error:', error);
+      return {
+        success: false,
+        error: error.message,
+        userMessage: this.getUserFriendlyError(error),
+      };
+    }
+  }
+
+  async getMarketInfo(ticker: string) {
     const indexer = dydxWalletService.getIndexerClient();
     if (!indexer) throw new Error('Indexer not ready');
 
-    const resp = await indexer.markets.getPerpetualMarkets(ticker);
-    const m = resp.markets[ticker];
-    if (!m) throw new Error(`Market ${ticker} not found`);
+    const response = await indexer.markets.getPerpetualMarkets(ticker);
+    const market = response.markets[ticker];
 
+    if (!market) throw new Error(`Market ${ticker} not found`);
+    return market;
+  }
+
+  private validateReduceOnlyConstraints(params: PlaceOrderParams, orderCategory: any) {
+    if (!params.reduceOnly) return;
+    throw new Error(
+      'Reduce-only is currently disabled on dYdX. Use regular market orders to close positions instead.'
+    );
+  }
+
+  private categorizeOrder(type: string) {
+    const t = type.toUpperCase();
     return {
-      clobPairId: Number(m.clobPairId),
-      ticker: m.ticker,
-      stepSize: m.stepSize,
-      tickSize: m.tickSize,
-      minOrderSize: m.minOrderSize,
-      atomicResolution: m.atomicResolution,
-      status: m.status,
-      baseAsset: m.baseAsset || ticker.split('-')[0],
-      quoteAsset: m.quoteAsset || ticker.split('-')[1],
+      isMarket: t === 'MARKET',
+      isConditional: [
+        'STOP_MARKET',
+        'STOP_LIMIT',
+        'TAKE_PROFIT_MARKET',
+        'TAKE_PROFIT_LIMIT',
+      ].includes(t),
+      isLimit: t === 'LIMIT',
     };
   }
 
-  // Validate TP/SL prices make sense for the position
-  validateTriggerPrice(
-    position: Position,
-    triggerPrice: number,
-    orderType: 'TAKE_PROFIT' | 'STOP_LOSS'
-  ): { valid: boolean; error?: string } {
-    const entryPrice = parseFloat(position.entryPrice);
-    const isLong = position.side === 'LONG';
+  private normalizeToOrderSide(side: string): OrderSide {
+    const normalized = side.toUpperCase().trim();
 
-    if (orderType === 'TAKE_PROFIT') {
-      if (isLong && triggerPrice <= entryPrice) {
-        return {
-          valid: false,
-          error: 'Take Profit price must be above entry price for LONG positions',
-        };
-      }
-      if (!isLong && triggerPrice >= entryPrice) {
-        return {
-          valid: false,
-          error: 'Take Profit price must be below entry price for SHORT positions',
-        };
-      }
+    if (normalized !== 'BUY' && normalized !== 'SELL') {
+      throw new Error(`Invalid side: ${side}. Must be BUY or SELL`);
     }
 
-    if (orderType === 'STOP_LOSS') {
-      if (isLong && triggerPrice >= entryPrice) {
-        return {
-          valid: false,
-          error: 'Stop Loss price must be below entry price for LONG positions',
-        };
-      }
-      if (!isLong && triggerPrice <= entryPrice) {
-        return {
-          valid: false,
-          error: 'Stop Loss price must be above entry price for SHORT positions',
-        };
-      }
-    }
-
-    return { valid: true };
+    return normalized === 'BUY' ? OrderSide.BUY : OrderSide.SELL;
   }
 
-  // Build full order config from user params
-  private async buildOrderConfig(
-    params: PlaceOrderParams,
-    marketInfo: MarketInfo
-  ): Promise<OrderConfig> {
-    const type = mapOrderType(params.type);
-    const side = mapOrderSide(params.side);
-    const clientId = params.clientId ?? this.generateClientId();
-    let price = params.price ?? 0;
-
-    // Fetch market price for market orders
-    if (this.needsMarketPrice(type) && !price) {
-      price = await this.getMarketPrice(marketInfo.ticker, side, params.slippageTolerance);
-    }
-    if (price > 0) {
-      price = this.roundToTick(price, marketInfo.tickSize);
-    }
-
-    const isMarket = type === OrderType.MARKET;
-    const isConditional = this.isConditionalOrder(type);
-    const isLimit = this.isLimitOrder(type);
-
-    let timeInForce: OrderTimeInForce;
-    let goodTilTimeInSeconds: number;
-    let execution: OrderExecution;
-
-    // Configure timing based on order type
-    if (isMarket) {
-      timeInForce = OrderTimeInForce.IOC; // Immediate or Cancel
-      goodTilTimeInSeconds = 0;
-      execution = OrderExecution.DEFAULT;
-    } else if (isConditional) {
-      // Conditional orders use stateful time window (max ~95 days)
-      const desiredDurationSeconds = 94 * 24 * 3600;
-      goodTilTimeInSeconds = Math.min(desiredDurationSeconds, this.STATEFUL_ORDER_TIME_WINDOW);
-      timeInForce = OrderTimeInForce.GTT;
-
-      execution =
-        type === OrderType.STOP_MARKET || type === OrderType.TAKE_PROFIT_MARKET
-          ? OrderExecution.IOC
-          : OrderExecution.DEFAULT;
-    } else if (isLimit) {
-      if (params.timeInForce === 'IOC') {
-        timeInForce = OrderTimeInForce.IOC;
-        goodTilTimeInSeconds = 0;
-        execution = OrderExecution.DEFAULT;
-      } else if (params.timeInForce === 'FOK') {
-        timeInForce = OrderTimeInForce.FOK; // Fill or Kill
-        goodTilTimeInSeconds = 0;
-        execution = OrderExecution.DEFAULT;
-      } else {
-        const desiredDurationSeconds = 94 * 24 * 3600;
-        goodTilTimeInSeconds = Math.min(desiredDurationSeconds, this.STATEFUL_ORDER_TIME_WINDOW);
-        timeInForce = OrderTimeInForce.GTT;
-        execution = OrderExecution.DEFAULT;
-      }
-    } else {
-      throw new Error('Unsupported order type');
-    }
-
-    let triggerPrice = params.triggerPrice;
-    if (isConditional && !triggerPrice) {
-      throw new Error('Trigger price required for conditional orders');
-    }
-
-    if (triggerPrice) {
-      triggerPrice = this.roundToTick(triggerPrice, marketInfo.tickSize);
-    }
-
-    return {
-      type,
-      side,
-      timeInForce,
-      execution,
-      price,
-      size: params.size,
-      clientId,
-      postOnly: params.postOnly || false,
-      reduceOnly: params.reduceOnly || false,
-      triggerPrice,
-      goodTilTimeInSeconds,
+  private mapOrderType(type: string): OrderType {
+    const map: Record<string, OrderType> = {
+      LIMIT: OrderType.LIMIT,
+      MARKET: OrderType.MARKET,
+      STOP_LIMIT: OrderType.STOP_LIMIT,
+      STOP_MARKET: OrderType.STOP_MARKET,
+      TAKE_PROFIT_LIMIT: OrderType.TAKE_PROFIT,
+      TAKE_PROFIT_MARKET: OrderType.TAKE_PROFIT_MARKET,
     };
+
+    const t = type.toUpperCase();
+    if (!map[t]) throw new Error(`Unknown order type: ${type}`);
+
+    return map[t];
   }
 
-  private needsMarketPrice(type: OrderType): boolean {
-    return [OrderType.MARKET, OrderType.STOP_MARKET, OrderType.TAKE_PROFIT_MARKET].includes(type);
-  }
-
-  private isConditionalOrder(type: OrderType): boolean {
-    return [
-      OrderType.STOP_MARKET,
-      OrderType.STOP_LIMIT,
-      OrderType.TAKE_PROFIT_MARKET,
-      OrderType.TAKE_PROFIT_LIMIT,
-    ].includes(type);
-  }
-
-  private isLimitOrder(type: OrderType): boolean {
-    return [OrderType.LIMIT, OrderType.STOP_LIMIT, OrderType.TAKE_PROFIT_LIMIT].includes(type);
-  }
-
-  // Get best price from orderbook with slippage buffer
-  private async getMarketPrice(
+  private async getSlippagePrice(
     ticker: string,
-    side: OrderSide,
-    slippageTolerance?: number
+    side: string,
+    tolerance = TRADING_CONFIG.DEFAULT_SLIPPAGE
   ): Promise<number> {
     const indexer = dydxWalletService.getIndexerClient();
     if (!indexer) throw new Error('Indexer not available');
 
-    const book = await indexer.markets.getPerpetualMarketOrderbook(ticker);
-    if (!book.bids?.length || !book.asks?.length) throw new Error('Empty orderbook');
+    const orderbook = await indexer.markets.getPerpetualMarketOrderbook(ticker);
 
+    if (!orderbook.asks?.length || !orderbook.bids?.length) {
+      throw new Error('Orderbook empty');
+    }
+
+    const normalized = side.toUpperCase().trim();
     const basePrice =
-      side === OrderSide.BUY ? parseFloat(book.asks[0].price) : parseFloat(book.bids[0].price);
+      normalized === 'BUY'
+        ? parseFloat(orderbook.asks[0].price)
+        : parseFloat(orderbook.bids[0].price);
 
-    const slippage = slippageTolerance ?? this.DEFAULT_SLIPPAGE;
-    return side === OrderSide.BUY ? basePrice * (1 + slippage) : basePrice * (1 - slippage);
+    const priceWithSlippage =
+      normalized === 'BUY' ? basePrice * (1 + tolerance) : basePrice * (1 - tolerance);
+
+    return priceWithSlippage;
   }
 
-  // Round price to market tick size
-  private roundToTick(price: number, tickSize: string): number {
+  private roundPrice(value: number, tickSize: string): number {
     const tick = parseFloat(tickSize);
-    return Math.round(price / tick) * tick;
+    return Math.round(value / tick) * tick;
   }
 
-  // Generate unique client ID for order tracking
   private generateClientId(): number {
-    this.clientIdCounter = (this.clientIdCounter + 1) % 0x7fffffff;
-    return this.clientIdCounter;
+    return this.clientIdCounter++ % 0x7fffffff;
   }
 
-  private createErrorResult(
-    error: string,
-    errorCode: string,
-    userMessage: string,
-    retryable: boolean
-  ): OrderResult {
-    return {
-      success: false,
-      error,
-      errorCode,
-      userMessage,
-      retryable,
-    };
+  private extractHash(hash: any): string {
+    if (typeof hash === 'string') return hash;
+
+    const data = hash?.data || hash;
+    if (Array.isArray(data) || data instanceof Uint8Array) {
+      return Array.from(data)
+        .map((b: any) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+
+    return 'unknown';
   }
 
-  // Parse error messages into user-friendly format
-  private parseError(err: any) {
-    const msg = err.message || String(err);
-
-    if (msg.includes('3004') || msg.includes('StatefulOrderTimeWindow')) {
-      return {
-        errorType: 'TIMING_ERROR',
-        userMessage: 'Order duration too long — using shorter duration',
-        technicalDetails: msg,
-        retryable: true,
-      };
+  private async getSigningWallet(): Promise<LocalWallet> {
+    const evmSession = walletService.getSession('evm');
+    if (!evmSession?.evmAddress) {
+      throw new Error('EVM wallet not connected');
     }
 
-    if (msg.includes('GoodTilBlock') || msg.includes('blockHeight')) {
-      return {
-        errorType: 'TIMING_ERROR',
-        userMessage: 'Block timing issue — please retry',
-        technicalDetails: msg,
-        retryable: true,
-      };
+    const mnemonic =
+      walletService.getMnemonic(evmSession.evmAddress) ||
+      (await walletService.restoreMnemonicFromStorage());
+
+    if (!mnemonic) {
+      throw new Error('Mnemonic not found - please reconnect wallet');
     }
 
-    if (msg.includes('insufficient')) {
-      return {
-        errorType: 'INSUFFICIENT_FUNDS',
-        userMessage: 'Insufficient balance',
-        technicalDetails: msg,
-        retryable: false,
-      };
-    }
+    return await LocalWallet.fromMnemonic(mnemonic, BECH32_PREFIX);
+  }
 
-    if (msg.includes('rate limit') || msg.includes('too many requests')) {
-      return {
-        errorType: 'RATE_LIMIT',
-        userMessage: 'Rate limited, please wait',
-        technicalDetails: msg,
-        retryable: true,
-      };
-    }
+  private getUserFriendlyError(error: any): string {
+    const msg = error.message || error.toString();
 
-    return {
-      errorType: 'UNKNOWN',
-      userMessage: 'Order failed — please try again',
-      technicalDetails: msg,
-      retryable: true,
-    };
+    if (msg.includes('insufficient')) return 'Insufficient balance';
+    if (msg.includes('9003') || msg.includes('reduce-only') || msg.includes('Reduce-only'))
+      return 'Reduce-only is currently disabled on dYdX. Using regular market orders instead.';
+    if (msg.includes('network') || msg.includes('timeout'))
+      return 'Network error - please try again';
+    if (msg.includes('Wallet not connected')) return 'Please connect your wallet';
+    if (msg.includes('Mnemonic not found')) return 'Wallet session expired - please reconnect';
+
+    return msg;
+  }
+
+  private isRetryableError(error: any): boolean {
+    const msg = error.message || error.toString();
+    return (
+      msg.includes('network') ||
+      msg.includes('timeout') ||
+      msg.includes('connection') ||
+      msg.includes('Indexer not available')
+    );
   }
 }
 

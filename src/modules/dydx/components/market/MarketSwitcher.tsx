@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { useRealtimeChart } from '../../hooks/useCandles';
 import { useMarkets } from '../../hooks/useMarkets';
+import { useTrades } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
 
 interface AnimatedPriceProps {
@@ -18,45 +18,40 @@ interface AnimatedValueProps {
 const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, className = '' }) => {
   const [displayPrice, setDisplayPrice] = useState(price);
   const [flashClass, setFlashClass] = useState('');
-  const [priceColor, setPriceColor] = useState('text-theme-text');
   const prevPriceRef = useRef(price);
+
+  const getPriceColor = () => {
+    if (tradeSide === 'BUY') return 'text-theme-up';
+    if (tradeSide === 'SELL') return 'text-theme-down';
+    return 'text-theme-text';
+  };
 
   useEffect(() => {
     const prevPrice = parseFloat(prevPriceRef.current as any);
     const currentPrice = parseFloat(price as any);
 
     if (prevPrice !== currentPrice && !isNaN(prevPrice) && !isNaN(currentPrice)) {
-      let flash: string;
-      let color: string;
-
-      if (tradeSide === 'BUY') {
-        flash = 'flash-up';
-        color = 'text-theme-up';
-      } else if (tradeSide === 'SELL') {
-        flash = 'flash-down';
-        color = 'text-theme-down';
-      } else {
-        flash = currentPrice > prevPrice ? 'flash-up' : 'flash-down';
-        color = currentPrice > prevPrice ? 'text-theme-up' : 'text-theme-down';
-      }
-
+      const flash = tradeSide === 'BUY' ? 'flash-up' : tradeSide === 'SELL' ? 'flash-down' : '';
       setFlashClass(flash);
-      setPriceColor(color);
 
       const timeout = setTimeout(() => {
         setFlashClass('');
-        setPriceColor('text-theme-text');
       }, 600);
 
       setDisplayPrice(price);
       prevPriceRef.current = price;
 
       return () => clearTimeout(timeout);
+    } else if (displayPrice !== price) {
+      setDisplayPrice(price);
+      prevPriceRef.current = price;
     }
-  }, [price, tradeSide]);
+  }, [price, tradeSide, displayPrice]);
 
   return (
-    <span className={`${className} ${flashClass} ${priceColor} transition-all duration-200`}>
+    <span
+      className={`${className} ${flashClass} ${getPriceColor()} transition-colors duration-300 font-bold tabular-nums`}
+    >
       {displayPrice}
     </span>
   );
@@ -80,7 +75,7 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) 
   }, [value]);
 
   return (
-    <span className={`${className} ${flashClass} transition-all duration-200 text-xs`}>
+    <span className={`${className} ${flashClass} transition-all duration-200 text-xs tabular-nums`}>
       {displayValue}
     </span>
   );
@@ -88,14 +83,8 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) 
 
 const MarketSwitcher: React.FC = () => {
   const { selectedMarket, setSelectedMarket } = useMarketStore();
-
   const { markets, getMarket, isLoading, totalMarkets } = useMarkets();
-
-  // console.log(markets, 'pppppp');
-
-  // console;
-
-  const { livePrice, livePriceSide } = useRealtimeChart(selectedMarket, '1MIN' as any);
+  const { livePrice, livePriceSide } = useTrades(selectedMarket, 50);
 
   const handleMarketChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newMarket = event.target.value;
@@ -114,7 +103,10 @@ const MarketSwitcher: React.FC = () => {
     openInterest: '0',
   };
 
-  const currentPrice = livePrice && parseFloat(livePrice) > 0 ? livePrice : marketData.oraclePrice;
+  const currentPrice =
+    livePrice && livePrice > 0
+      ? livePrice.toFixed(2)
+      : parseFloat(marketData.oraclePrice).toFixed(2);
 
   const priceChange = parseFloat(marketData.priceChange24H);
   const formattedPriceChange =
@@ -135,22 +127,17 @@ const MarketSwitcher: React.FC = () => {
       <style>{`
         @keyframes flash-up {
           0%, 100% { background-color: transparent; }
-          50% { background-color: rgba(34, 197, 94, 0.3); }
+          50% { background-color: rgba(34, 197, 94, 0.25); }
         }
         
         @keyframes flash-down {
           0%, 100% { background-color: transparent; }
-          50% { background-color: rgba(239, 68, 68, 0.3); }
+          50% { background-color: rgba(239, 68, 68, 0.25); }
         }
         
         @keyframes flash-neutral {
           0%, 100% { background-color: transparent; }
-          50% { background-color: rgba(59, 130, 246, 0.2); }
-        }
-        
-        @keyframes pulse-indicator {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+          50% { background-color: rgba(59, 130, 246, 0.15); }
         }
         
         .flash-up {
@@ -163,10 +150,6 @@ const MarketSwitcher: React.FC = () => {
         
         .flash-neutral {
           animation: flash-neutral 0.4s ease-in-out;
-        }
-        
-        .pulse-indicator {
-          animation: pulse-indicator 2s ease-in-out infinite;
         }
         
         .hide-scrollbar::-webkit-scrollbar {
@@ -185,9 +168,23 @@ const MarketSwitcher: React.FC = () => {
         .hide-scrollbar::-webkit-scrollbar-thumb:hover {
           background: rgba(156, 163, 175, 0.5);
         }
+
+        /* Smooth color transitions */
+        .text-theme-up {
+          color: rgb(34, 197, 94);
+        }
+        
+        .text-theme-down {
+          color: rgb(239, 68, 68);
+        }
+        
+        .text-theme-text {
+          color: rgb(255, 255, 255);
+        }
       `}</style>
 
       <div className="flex bg-secondary items-center w-full bg-theme-bg text-sm text-theme-text border-b border-gray-600">
+        {/* Market Selector */}
         <div className="max-w-[20%] relative">
           <select
             value={selectedMarket}
@@ -202,21 +199,33 @@ const MarketSwitcher: React.FC = () => {
             ))}
           </select>
         </div>
-        <div className="px-2 flex flex-col items-start">
+
+        {/* Live Price Display */}
+        <div className="px-2 flex flex-col items-start min-w-[120px]">
           <AnimatedPrice
             price={currentPrice}
             tradeSide={livePriceSide}
-            className="lg:text-xl font-semibold text-md"
+            className="lg:text-xl font-bold text-md"
           />
+          {livePriceSide && (
+            <span
+              className={`text-[10px] font-medium ${
+                livePriceSide === 'BUY' ? 'text-theme-up' : 'text-theme-down'
+              }`}
+            >
+              {/* {livePriceSide === 'BUY' ? '↑ BUY' : '↓ SELL'} */}
+            </span>
+          )}
         </div>
 
-        <div className="hide-scrollbar flex items-center overflow-x-auto scrollbar-thin scrollbar-thumb-theme-scroll scrollbar-track-theme-bg px-2">
+        {/* Market Stats */}
+        <div className="hide-scrollbar flex items-center overflow-x-auto scrollbar-thin scrollbar-thumb-theme-scroll scrollbar-track-theme-bg px-2 flex-1">
           <div className="flex lg:space-x-4 space-x-2 whitespace-nowrap">
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">Oracle</span>
               <AnimatedValue
-                value={marketData.oraclePrice}
-                className="font-medium text-theme-text "
+                value={parseFloat(marketData.oraclePrice).toFixed(2)}
+                className="font-medium text-theme-text"
               />
             </div>
 
@@ -230,7 +239,12 @@ const MarketSwitcher: React.FC = () => {
 
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">24H Volume</span>
-              <AnimatedValue value={marketData.volume24H} className="font-medium text-theme-text" />
+              <AnimatedValue
+                value={`$${parseFloat(marketData.volume24H).toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })}`}
+                className="font-medium text-theme-text"
+              />
             </div>
 
             <div className="flex flex-col">
@@ -244,7 +258,9 @@ const MarketSwitcher: React.FC = () => {
             <div className="flex flex-col">
               <span className="text-theme-muted text-xs">Open Interest</span>
               <AnimatedValue
-                value={`${marketData.openInterest} ${marketData.ticker.split('-')[0]}`}
+                value={`${parseFloat(marketData.openInterest).toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })} ${marketData.ticker.split('-')[0]}`}
                 className="font-medium text-theme-text"
               />
             </div>
@@ -260,7 +276,7 @@ const MarketSwitcher: React.FC = () => {
             </div>
 
             <div className="flex flex-col">
-              <span className="text-theme-muted text-xs">Funding At</span>
+              <span className="text-theme-muted text-xs">Next Funding</span>
               <AnimatedValue
                 value={marketData.nextFundingAt}
                 className="font-medium text-theme-text"

@@ -16,17 +16,13 @@ const Topbar: React.FC<TopbarProps> = () => {
   const navigate = useNavigate();
   const hasRedirected = useRef(false);
 
-  // Handle redirect to dashboard only AFTER restoration is complete
   useEffect(() => {
-    // if (isRestoringSession) return; // Still loading → wait
-
     if (isAnyWalletConnected && !hasRedirected.current) {
       hasRedirected.current = true;
       navigate(ROUTES.DASHBOARD);
     }
   }, [isAnyWalletConnected, navigate]);
 
-  // Reset redirect flag when all wallets are disconnected
   const handleDisconnectAll = useCallback(async () => {
     await disconnectAll();
     hasRedirected.current = false;

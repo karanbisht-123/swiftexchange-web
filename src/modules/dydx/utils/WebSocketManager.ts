@@ -24,6 +24,12 @@ interface MessageCache {
   lastTimestamp: number;
 }
 
+interface SubscriptionStats {
+  lastMessageTime: number;
+  messageCount: number;
+  errorCount: number;
+}
+
 class WebSocketManager {
   private static instance: WebSocketManager;
   private ws: WebSocket | null = null;
@@ -35,10 +41,13 @@ class WebSocketManager {
   private readonly MAX_RECONNECT_ATTEMPTS = 10;
   private readonly BASE_RECONNECT_DELAY = 1000;
   private readonly MAX_RECONNECT_DELAY = 30000;
+
   private subscriptions = new Map<string, Set<MessageHandler>>();
   private serverSubscriptions = new Set<string>();
   private pendingSubscriptions = new Map<string, WebSocketSubscription>();
   private subscriptionInProgress = new Set<string>();
+  private subscriptionStats = new Map<string, SubscriptionStats>();
+
   private messageQueue: WebSocketSubscription[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
   private readonly FLUSH_INTERVAL = 100;
@@ -67,13 +76,17 @@ class WebSocketManager {
   private throttleMap = new Map<string, NodeJS.Timeout>();
   private readonly THROTTLE_INTERVALS: Record<string, number> = {
     v4_markets: 500,
-    v4_candles: 1000,
+    v4_candles: 0,
     v4_block_height: 1000,
     v4_trades: 0,
     v4_orderbook: 0,
     v4_subaccounts: 0,
     v4_parent_subaccounts: 0,
   };
+
+  // messages received
+  private totalMessagesReceived = 0;
+  private messagesByChannel = new Map<string, number>();
 
   private constructor() {
     this.startHealthCheck();
@@ -107,16 +120,14 @@ class WebSocketManager {
 
   async connect(wsUrl: string): Promise<void> {
     if (this.currentWsUrl !== wsUrl && this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[WS] Network change detected, reconnecting');
-      this.cleanup();
+      // console.log('[WS] Network change detected, reconnecting to:', wsUrl);
+      await this.disconnect();
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-
     if (this.currentWsUrl === wsUrl && this.ws?.readyState === WebSocket.OPEN) {
       console.log('[WS] Already connected to same URL');
       return;
     }
-
     if (this.isConnecting) {
       console.log('[WS] Connection already in progress');
       return;
@@ -130,7 +141,7 @@ class WebSocketManager {
         this.ws = new WebSocket(wsUrl);
 
         const connectionTimeout = setTimeout(() => {
-          console.error('[WS] Connection timeout');
+          // console.error('[WS] Connection timeout');
           this.cleanup();
           reject(new Error('Connection timeout'));
         }, 10000);
@@ -149,12 +160,13 @@ class WebSocketManager {
           this.resubscribeAll();
           this.startPing();
           this.notifyConnectionHandlers();
-          console.log('[WS] Connection established');
+          // console.log('[WS] Connection established to:', wsUrl);
           resolve();
         };
 
         this.ws.onmessage = event => {
           this.lastMessageTime = Date.now();
+          this.totalMessagesReceived++;
           this.handleMessage(event);
         };
 
@@ -168,7 +180,7 @@ class WebSocketManager {
         };
 
         this.ws.onclose = (event: CloseEvent) => {
-          console.log(`[WS] Connection closed: code=${event.code}, reason=${event.reason}`);
+          // console.log(`[WS] Connection closed: code=${event.code}, reason=${event.reason}`);
           clearTimeout(connectionTimeout);
           this.connectionId = null;
           this.isConnecting = false;
@@ -194,6 +206,34 @@ class WebSocketManager {
     });
   }
 
+  private async disconnect(): Promise<void> {
+    // console.log('[WS] Disconnecting gracefully...');
+    this.isReconnecting = false;
+    this.reconnectAttempts = this.MAX_RECONNECT_ATTEMPTS;
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.serverSubscriptions.forEach(key => {
+        const subscription = this.pendingSubscriptions.get(key);
+        if (subscription) {
+          try {
+            this.ws!.send(
+              JSON.stringify({
+                type: 'unsubscribe',
+                channel: subscription.channel,
+                ...(subscription.id && { id: subscription.id }),
+              })
+            );
+          } catch (e) {
+            console.warn('[WS] Failed to send unsubscribe:', e);
+          }
+        }
+      });
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    this.cleanup();
+  }
+
   private async attemptReconnect(): Promise<void> {
     if (
       this.isReconnecting ||
@@ -213,16 +253,16 @@ class WebSocketManager {
     const jitter = Math.random() * 1000;
     const delay = exponentialDelay + jitter;
 
-    console.log(
-      `[WS] Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})`
-    );
+    // console.log(
+    //   `[WS] Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})`
+    // );
 
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
       await this.connect(this.currentWsUrl);
       this.isReconnecting = false;
-      console.log('[WS] Reconnection successful');
+      // console.log('[WS] Reconnection successful');
     } catch (error) {
       console.error('[WS] Reconnection failed:', error);
       this.isReconnecting = false;
@@ -239,8 +279,17 @@ class WebSocketManager {
 
     if (!this.subscriptions.has(subscriptionKey)) {
       this.subscriptions.set(subscriptionKey, new Set());
+      this.subscriptionStats.set(subscriptionKey, {
+        lastMessageTime: 0,
+        messageCount: 0,
+        errorCount: 0,
+      });
     }
     this.subscriptions.get(subscriptionKey)!.add(handler);
+
+    // console.log(
+    //   `[WS] Subscribing to: ${subscriptionKey}, handlers: ${this.subscriptions.get(subscriptionKey)!.size}`
+    // );
 
     if (
       !this.serverSubscriptions.has(subscriptionKey) &&
@@ -262,6 +311,9 @@ class WebSocketManager {
       const handlers = this.subscriptions.get(subscriptionKey);
       if (handlers) {
         handlers.delete(handler);
+        // console.log(
+        //   `[WS] Unsubscribing handler from: ${subscriptionKey}, remaining: ${handlers.size}`
+        // );
 
         if (handlers.size === 0) {
           this.subscriptions.delete(subscriptionKey);
@@ -269,6 +321,7 @@ class WebSocketManager {
           this.serverSubscriptions.delete(subscriptionKey);
           this.subscriptionInProgress.delete(subscriptionKey);
           this.messageCache.delete(subscriptionKey);
+          this.subscriptionStats.delete(subscriptionKey);
 
           const unsubMsg: WebSocketSubscription = {
             type: 'unsubscribe',
@@ -276,6 +329,7 @@ class WebSocketManager {
             ...(id && { id }),
           };
 
+          // console.log(`[WS] Sending unsubscribe for: ${subscriptionKey}`);
           this.queueMessage(unsubMsg);
         }
       }
@@ -283,7 +337,10 @@ class WebSocketManager {
   }
 
   private resubscribeAll(): void {
-    console.log('[WS] Resubscribing to all active channels');
+    // console.log(
+    //   '[WS] Resubscribing to all active channels:',
+    //   Array.from(this.pendingSubscriptions.keys())
+    // );
     this.subscriptionInProgress.clear();
     this.pendingSubscriptions.forEach((subscription, key) => {
       this.subscriptionInProgress.add(key);
@@ -323,6 +380,9 @@ class WebSocketManager {
     messages.forEach(message => {
       try {
         this.ws!.send(JSON.stringify(message));
+        // console.log(
+        //   `[WS] Sent ${message.type} for ${message.channel}${message.id ? `/${message.id}` : ''}`
+        // );
       } catch (error) {
         console.error('[WS] Send error:', error);
         this.messageQueue.push(message);
@@ -334,11 +394,9 @@ class WebSocketManager {
     try {
       const data: WebSocketMessage = JSON.parse(event.data);
 
-      // console.log(data, 'hii i am data ----------');
-
       if (data.type === 'connected' && data.connection_id) {
         this.connectionId = data.connection_id;
-        console.log('[WS] Received connection ID:', data.connection_id);
+        // console.log('[WS] Received connection ID:', data.connection_id);
         return;
       }
 
@@ -346,20 +404,26 @@ class WebSocketManager {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
         this.serverSubscriptions.add(key);
         this.subscriptionInProgress.delete(key);
-        console.log('[WS] Subscribed to:', key);
+        // console.log('[WS] Subscribed to:', key);
         return;
       }
 
       if (data.type === 'unsubscribed') {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
         this.serverSubscriptions.delete(key);
-        console.log('[WS] Unsubscribed from:', key);
+        // console.log('[WS] Unsubscribed from:', key);
         return;
       }
 
       if (data.type === 'error' && data.message) {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
-        console.error('[WS] Subscription error:', data.message);
+        // console.error('[WS] Subscription error:', data.message);
+
+        //Track errors
+        const stats = this.subscriptionStats.get(key);
+        if (stats) {
+          stats.errorCount++;
+        }
 
         if (data.message.includes('already subscribed')) {
           this.serverSubscriptions.add(key);
@@ -375,8 +439,22 @@ class WebSocketManager {
         this.missedPongs = 0;
         return;
       }
+
       if (data.type === 'channel_data' || data.type === 'channel_batch_data') {
         const subscriptionKey = data.id ? `${data.channel}_${data.id}` : data.channel;
+
+        // Update statistics
+        const stats = this.subscriptionStats.get(subscriptionKey);
+        if (stats) {
+          stats.lastMessageTime = Date.now();
+          stats.messageCount++;
+        }
+
+        // Track by channel
+        this.messagesByChannel.set(
+          data.channel,
+          (this.messagesByChannel.get(data.channel) || 0) + 1
+        );
 
         const shouldCheckDuplicates = data.channel !== 'v4_trades';
         if (shouldCheckDuplicates && this.isDuplicateMessage(subscriptionKey, data)) {
@@ -464,10 +542,10 @@ class WebSocketManager {
 
       if (!this.pongReceived) {
         this.missedPongs++;
-        console.warn(`[WS] Missed pong (${this.missedPongs}/${this.MAX_MISSED_PONGS})`);
+        // console.warn(`[WS] Missed pong (${this.missedPongs}/${this.MAX_MISSED_PONGS})`);
 
         if (this.missedPongs >= this.MAX_MISSED_PONGS) {
-          console.error('[WS] Too many missed pongs, forcing reconnect');
+          // console.error('[WS] Too many missed pongs, forcing reconnect');
           this.ws?.close();
           return;
         }
@@ -497,7 +575,7 @@ class WebSocketManager {
       if (this.isConnected()) {
         const timeSinceLastMessage = Date.now() - this.lastMessageTime;
         if (timeSinceLastMessage > this.CONNECTION_TIMEOUT) {
-          console.warn('[WS] Stale connection detected, reconnecting');
+          // console.warn('[WS] Stale connection detected, reconnecting');
           this.ws?.close();
         }
       }
@@ -579,7 +657,20 @@ class WebSocketManager {
     }
   }
 
+  // subscription activity
   getDebugInfo(): any {
+    const now = Date.now();
+    const subscriptionActivity = Array.from(this.subscriptionStats.entries()).map(
+      ([key, stats]) => ({
+        key,
+        isActive: this.serverSubscriptions.has(key),
+        lastMessageAgo: stats.lastMessageTime ? now - stats.lastMessageTime : null,
+        totalMessages: stats.messageCount,
+        errors: stats.errorCount,
+        handlerCount: this.subscriptions.get(key)?.size || 0,
+      })
+    );
+
     return {
       connectionStatus: this.getConnectionStatus(),
       connectionId: this.connectionId,
@@ -601,11 +692,14 @@ class WebSocketManager {
       missedPongs: this.missedPongs,
       cacheSize: this.messageCache.size,
       activeThrottles: this.throttleMap.size,
+      totalMessagesReceived: this.totalMessagesReceived,
+      messagesByChannel: Object.fromEntries(this.messagesByChannel),
+      subscriptionActivity,
     };
   }
 
   shutdown(): void {
-    console.log('[WS] Full shutdown initiated (e.g., user logout)');
+    // console.log('[WS] Full shutdown initiated (e.g., user logout)');
     this.isReconnecting = false;
     this.reconnectAttempts = this.MAX_RECONNECT_ATTEMPTS;
     this.currentWsUrl = null;
@@ -645,16 +739,20 @@ class WebSocketManager {
   }
 
   private clearAllSubscriptions(): void {
+    // console.log('[WS] Clearing all subscriptions');
     this.subscriptions.clear();
     this.serverSubscriptions.clear();
     this.pendingSubscriptions.clear();
     this.subscriptionInProgress.clear();
     this.messageQueue = [];
     this.messageCache.clear();
+    this.subscriptionStats.clear();
     this.throttleMap.forEach(t => clearTimeout(t));
     this.throttleMap.clear();
     this.connectionHandlers.clear();
     this.disconnectionHandlers.clear();
+    this.totalMessagesReceived = 0;
+    this.messagesByChannel.clear();
   }
 
   private clearTimers(): void {

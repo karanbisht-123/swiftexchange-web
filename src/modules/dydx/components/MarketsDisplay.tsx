@@ -1,12 +1,4 @@
-import {
-  ChevronLeft,
-  ChevronRight,
-  Search,
-  SlidersHorizontal,
-  TrendingDown,
-  TrendingUp,
-  X,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Star, TrendingDown, TrendingUp, X } from 'lucide-react';
 import React, { memo, useCallback, useMemo, useState } from 'react';
 
 import { useMarkets } from '../hooks/useMarkets';
@@ -21,10 +13,35 @@ interface MarketRowProps {
   isMobile: boolean;
 }
 
-type SortField = 'ticker' | 'price' | 'change' | 'volume' | 'trades';
+type SortField = 'ticker' | 'price' | 'change' | 'volume' | 'trades' | 'openInterest';
 type SortDirection = 'asc' | 'desc';
 
 const ROWS_PER_PAGE = 50;
+
+const PriceChart = memo(({ change }: { change: number }) => {
+  const isPositive = change >= 0;
+  const points = useMemo(() => {
+    const basePoints = [40, 35, 45, 30, 50, 25, 55, 20];
+    const trend = isPositive ? 1 : -1;
+    return basePoints.map((p, i) => p + i * trend * 3);
+  }, [isPositive]);
+
+  const path = points.map((y, i) => `${i === 0 ? 'M' : 'L'} ${i * 8} ${y}`).join(' ');
+
+  return (
+    <svg width="60" height="30" viewBox="0 0 60 60" className="opacity-80">
+      <path
+        d={path}
+        fill="none"
+        stroke={isPositive ? '#10b981' : '#ef4444'}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+});
+
+PriceChart.displayName = 'PriceChart';
 
 const MarketRow = memo(function MarketRow({
   market,
@@ -38,12 +55,21 @@ const MarketRow = memo(function MarketRow({
   const priceChange = parseFloat(market.priceChange24H);
   const isPositive = priceChange >= 0;
   const fundingRate = parseFloat(market.nextFundingRate);
+  const [isFavorite, setIsFavorite] = useState(false);
 
   if (isMobile) {
     return (
-      <div className=" p-4 active:bg-[#1e293b]/30 transition-colors">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
+      <div className="p-4 active:bg-[#1e293b]/30 transition-colors border-b border-[#1e293b]/30">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-start gap-2.5 flex-1 min-w-0">
+            <button
+              onClick={() => setIsFavorite(!isFavorite)}
+              className="flex-shrink-0 transition-colors mt-1"
+            >
+              <Star
+                className={`w-4 h-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600'}`}
+              />
+            </button>
             <div className="relative w-10 h-10 flex-shrink-0">
               {market.coinIcon ? (
                 <img
@@ -66,7 +92,14 @@ const MarketRow = memo(function MarketRow({
               </div>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="font-semibold text-white text-base">{market.ticker}</div>
+              <div className="font-semibold text-white text-base flex items-center gap-2">
+                {market.ticker}
+                {market.clobPairId && (
+                  <span className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px]">
+                    {market.clobPairId}×
+                  </span>
+                )}
+              </div>
               <div className="text-xs text-slate-500 truncate">
                 {market.coinName || 'Perpetual'}
               </div>
@@ -94,12 +127,12 @@ const MarketRow = memo(function MarketRow({
 
         <div className="grid grid-cols-3 gap-3 text-xs">
           <div>
-            <div className="text-slate-500 mb-1">Volume</div>
+            <div className="text-slate-500 mb-1">24h Volume</div>
             <div className="text-slate-300 font-medium">{formatVolume(market.volume24H)}</div>
           </div>
           <div>
-            <div className="text-slate-500 mb-1">Trades</div>
-            <div className="text-slate-400 font-medium">{market.trades24H.toLocaleString()}</div>
+            <div className="text-slate-500 mb-1">Open Interest</div>
+            <div className="text-slate-300 font-medium">${formatVolume(market.openInterest)}</div>
           </div>
           <div>
             <div className="text-slate-500 mb-1">Funding</div>
@@ -116,15 +149,23 @@ const MarketRow = memo(function MarketRow({
   }
 
   return (
-    <tr className="border-b border-[#1e293b]/30 hover:bg-[#1e293b]/20 transition-colors">
-      <td className="py-3 px-4 sticky left-0 bg-secondary z-10">
-        <div className="flex items-center gap-2.5">
-          <div className="relative w-12 h-12 flex-shrink-0">
+    <tr className="border-b border-[#1e293b]/30 hover:bg-[#1e293b]/20 transition-colors group">
+      <td className="py-3 px-4 sticky left-0 bg-secondary group-hover:bg-[#1e293b]/20 z-10">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsFavorite(!isFavorite)}
+            className="flex-shrink-0 transition-colors hover:scale-110"
+          >
+            <Star
+              className={`w-4 h-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600 hover:text-slate-400'}`}
+            />
+          </button>
+          <div className="relative w-10 h-10 flex-shrink-0">
             {market.coinIcon ? (
               <img
                 src={market.coinIcon}
                 alt={market.ticker}
-                className="w-12 h-12 rounded-full"
+                className="w-10 h-10 rounded-full"
                 onError={e => {
                   const img = e.currentTarget;
                   img.style.display = 'none';
@@ -134,14 +175,21 @@ const MarketRow = memo(function MarketRow({
               />
             ) : null}
             <div
-              className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
+              className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
               style={{ display: market.coinIcon ? 'none' : 'flex' }}
             >
               {market.ticker.split('-')[0].slice(0, 2)}
             </div>
           </div>
           <div className="min-w-0">
-            <div className="font-medium text-white text-sm leading-tight">{market.ticker}</div>
+            <div className="font-medium text-white text-sm leading-tight flex items-center gap-2">
+              {market.ticker.split('-')[0]}
+              {market.clobPairId && (
+                <span className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] text-slate-300">
+                  {market.clobPairId}×
+                </span>
+              )}
+            </div>
             <div className="text-[11px] text-slate-500 truncate">
               {market.coinName || 'Perpetual'}
             </div>
@@ -152,32 +200,37 @@ const MarketRow = memo(function MarketRow({
         <span className="text-white font-mono text-sm">${formatPrice(market.oraclePrice)}</span>
       </td>
       <td className="py-3 px-4 text-right">
-        <span
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${
-            isPositive ? 'text-emerald-400' : 'text-red-400'
-          }`}
-        >
-          {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-          {isPositive ? '+' : ''}
-          {formatPercent(market.priceChange24H)}%
-        </span>
+        <div className="flex items-center justify-end gap-2">
+          <PriceChart change={priceChange} />
+          <span
+            className={`inline-flex items-center gap-1 text-sm font-medium ${
+              isPositive ? 'text-emerald-400' : 'text-red-400'
+            }`}
+          >
+            {isPositive ? '+' : ''}
+            {formatPercent(market.priceChange24H)}%
+          </span>
+        </div>
       </td>
       <td className="py-3 px-4 text-right">
         <span className="text-slate-300 text-sm">{formatVolume(market.volume24H)}</span>
       </td>
       <td className="py-3 px-4 text-right">
+        <span className="text-slate-300 text-sm">${formatVolume(market.openInterest)}</span>
+      </td>
+      <td className="py-3 px-4 text-right">
         <span className="text-slate-400 text-sm">{market.trades24H.toLocaleString()}</span>
       </td>
       <td className="py-3 px-4 text-right">
-        <span
-          className={`font-mono text-xs ${fundingRate >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+        <div
+          className={`font-mono text-sm ${fundingRate >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
         >
           {fundingRate >= 0 ? '+' : ''}
           {formatFundingRate(market.nextFundingRate)}%
-        </span>
-      </td>
-      <td className="py-3 px-4 text-right">
-        <span className="text-slate-500 text-xs">{getTimeUntilFunding(market.nextFundingAt)}</span>
+        </div>
+        <div className="text-slate-500 text-xs mt-0.5">
+          {getTimeUntilFunding(market.nextFundingAt)}
+        </div>
       </td>
     </tr>
   );
@@ -193,7 +246,6 @@ export default function MarketsDisplay() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
-  const [showSortMenu, setShowSortMenu] = useState(false);
 
   React.useEffect(() => {
     const checkMobile = () => {
@@ -236,7 +288,7 @@ export default function MarketsDisplay() {
     const now = Date.now();
     const funding = new Date(fundingAt).getTime();
     const diff = funding - now;
-    if (diff < 0) return 'Passed';
+    if (diff < 0) return 'Soon';
     const hours = Math.floor(diff / 3600000);
     const minutes = Math.floor((diff % 3600000) / 60000);
     return `${hours}h ${minutes}m`;
@@ -274,6 +326,10 @@ export default function MarketsDisplay() {
           aVal = a.trades24H;
           bVal = b.trades24H;
           break;
+        case 'openInterest':
+          aVal = parseFloat(a.openInterest);
+          bVal = parseFloat(b.openInterest);
+          break;
       }
 
       return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
@@ -297,7 +353,6 @@ export default function MarketsDisplay() {
         setSortDirection('desc');
       }
       setCurrentPage(1);
-      setShowSortMenu(false);
     },
     [sortField]
   );
@@ -311,18 +366,6 @@ export default function MarketsDisplay() {
     setSearchTerm(e.target.value);
     setCurrentPage(1);
   }, []);
-
-  const statistics = useMemo(() => {
-    const totalVolume = marketsList.reduce((sum, m) => sum + parseFloat(m.volume24H || '0'), 0);
-    const avgChange =
-      marketsList.length > 0
-        ? (marketsList.reduce((acc, m) => acc + parseFloat(m.priceChange24H || '0'), 0) /
-            marketsList.length) *
-          100
-        : 0;
-    const positiveMarkets = marketsList.filter(m => parseFloat(m.priceChange24H || '0') > 0).length;
-    return { totalVolume, avgChange, positiveMarkets };
-  }, [marketsList]);
 
   const pageNumbers = useMemo(() => {
     const pages = [];
@@ -352,13 +395,11 @@ export default function MarketsDisplay() {
 
   const SortIcon = useCallback(
     ({ field }: { field: SortField }) => {
-      if (sortField !== field) {
-        return <span className="text-slate-600 text-xs ml-1">⇅</span>;
-      }
+      if (sortField !== field) return null;
       return sortDirection === 'asc' ? (
-        <TrendingUp className="w-3.5 h-3.5 text-blue-400 ml-1" />
+        <TrendingUp className="w-3.5 h-3.5 text-blue-400 ml-1 inline" />
       ) : (
-        <TrendingDown className="w-3.5 h-3.5 text-blue-400 ml-1" />
+        <TrendingDown className="w-3.5 h-3.5 text-blue-400 ml-1 inline" />
       );
     },
     [sortField, sortDirection]
@@ -377,142 +418,34 @@ export default function MarketsDisplay() {
 
   return (
     <div className="min-h-screen bg-primary text-white">
-      {/* Stats Bar */}
-      <div className="bg-secondary sticky top-0 z-30 backdrop-blur-sm px-4">
-        <div className="max-w-[1920px] mx-aut *:py-3">
-          <div className={`grid ${isMobile ? 'grid-cols-2' : 'grid-cols-4'} gap-3 md:gap-6`}>
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="text-[10px] md:text-xs text-slate-500">Markets</div>
-              <div className="font-semibold text-white text-sm md:text-base">
-                {marketsList.length}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="text-[10px] md:text-xs text-slate-500">24h Vol</div>
-              <div className="font-semibold text-white text-sm md:text-base">
-                {formatVolume(statistics.totalVolume.toString())}
-              </div>
-            </div>
-            {!isMobile && (
-              <>
-                <div className="flex items-center gap-3">
-                  <div className="text-xs text-slate-500">Avg Change</div>
-                  <div
-                    className={`font-semibold ${statistics.avgChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
-                  >
-                    {statistics.avgChange >= 0 ? '+' : ''}
-                    {statistics.avgChange.toFixed(2)}%
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-xs text-slate-500">Positive</div>
-                  <div className="font-semibold text-emerald-400">
-                    {statistics.positiveMarkets}/{marketsList.length}
-                  </div>
-                </div>
-              </>
+      {/* Search Bar */}
+      <div className="bg-secondary sticky top-0 z-30 border-b border-[#334155]">
+        <div className="max-w-[1920px] mx-auto px-4 py-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Search markets..."
+              value={searchTerm}
+              onChange={handleSearch}
+              className="w-full bg-primary border border-[#334155] rounded-lg pl-10 pr-10 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setCurrentPage(1);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
             )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-svw mx-auto  ">
-        {/* Search & Sort */}
-        <div className="my-1">
-          <div className={`flex gap-2 ${isMobile ? 'flex-row' : 'flex-col'}`}>
-            <div className="relative flex-1 ">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-500" />
-              <input
-                type="text"
-                placeholder="Search markets..."
-                value={searchTerm}
-                onChange={handleSearch}
-                className="w-full bg-secondary  pl-10 pr-10 py-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => {
-                    setSearchTerm('');
-                    setCurrentPage(1);
-                  }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 active:scale-90 transition-transform"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-
-            {isMobile && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowSortMenu(!showSortMenu)}
-                  className={`h-full bg-primary border border-[#334155] rounded-lg text-white transition-all active:scale-95 ${
-                    showSortMenu ? 'bg-blue-500/20 border-blue-500/50' : ''
-                  }`}
-                >
-                  <SlidersHorizontal className="w-5 h-5" />
-                </button>
-
-                {showSortMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 bg-black/50 z-40"
-                      onClick={() => setShowSortMenu(false)}
-                    />
-                    <div className="fixed left-4 right-4 top-1/2 -translate-y-1/2 bg-[#1e293b] border border-[#334155] rounded-xl overflow-hidden shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-200">
-                      <div className="px-4 py-3 border-b border-[#334155]/50 flex items-center justify-between bg-[#1e293b]/80 backdrop-blur-sm">
-                        <h3 className="font-semibold text-white">Sort Markets</h3>
-                        <button
-                          onClick={() => setShowSortMenu(false)}
-                          className="p-1 hover:bg-[#334155]/50 rounded-lg transition-colors active:scale-90"
-                        >
-                          <X className="w-5 h-5 text-slate-400" />
-                        </button>
-                      </div>
-                      <div className="py-2">
-                        {[
-                          { field: 'volume' as SortField, label: '24h Volume', icon: '📊' },
-                          { field: 'change' as SortField, label: '24h Change', icon: '📈' },
-                          { field: 'price' as SortField, label: 'Price', icon: '💰' },
-                          { field: 'trades' as SortField, label: 'Trades', icon: '🔄' },
-                          { field: 'ticker' as SortField, label: 'Market Name', icon: '🏷️' },
-                        ].map(({ field, label, icon }) => (
-                          <button
-                            key={field}
-                            onClick={() => handleSort(field)}
-                            className={`w-full px-4 py-3.5 text-left transition-all flex items-center justify-between active:scale-[0.98] ${
-                              sortField === field
-                                ? 'bg-blue-500/20 text-blue-400'
-                                : 'text-slate-300 hover:bg-[#334155]/30'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="text-xl">{icon}</span>
-                              <span className="font-medium">{label}</span>
-                            </div>
-                            {sortField === field && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-blue-400/70">
-                                  {sortDirection === 'asc' ? 'Low to High' : 'High to Low'}
-                                </span>
-                                {sortDirection === 'asc' ? (
-                                  <TrendingUp className="w-4 h-4" />
-                                ) : (
-                                  <TrendingDown className="w-4 h-4" />
-                                )}
-                              </div>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
+      <div className="max-w-[1920px] mx-auto px-4 py-4">
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
             {error}
@@ -520,7 +453,7 @@ export default function MarketsDisplay() {
         )}
 
         {filteredAndSortedMarkets.length > 0 ? (
-          <div className="bg-[#1e293b]/30 border border-[#334155]/50  overflow-hidden">
+          <div className="bg-secondary border border-[#334155]/50 rounded-lg overflow-hidden">
             {isMobile ? (
               <div className="divide-y divide-[#1e293b]/30">
                 {paginatedMarkets.map(market => (
@@ -543,54 +476,48 @@ export default function MarketsDisplay() {
                     <tr className="bg-[#1e293b]/50 border-b border-[#334155]/50">
                       <th
                         onClick={() => handleSort('ticker')}
-                        className="py-3 px-4 text-left text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200 sticky left-0 bg-[#1e293b]/50 z-20"
+                        className="py-3 px-4 text-left text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200 sticky left-0 bg-secondary z-20"
                       >
-                        <div className="flex items-center">
-                          Market
-                          <SortIcon field="ticker" />
-                        </div>
+                        Market
+                        <SortIcon field="ticker" />
                       </th>
                       <th
                         onClick={() => handleSort('price')}
                         className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                       >
-                        <div className="flex items-center justify-end">
-                          Price
-                          <SortIcon field="price" />
-                        </div>
+                        Oracle Price
+                        <SortIcon field="price" />
                       </th>
                       <th
                         onClick={() => handleSort('change')}
                         className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                       >
-                        <div className="flex items-center justify-end">
-                          24h Change
-                          <SortIcon field="change" />
-                        </div>
+                        24h Change
+                        <SortIcon field="change" />
                       </th>
                       <th
                         onClick={() => handleSort('volume')}
                         className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                       >
-                        <div className="flex items-center justify-end">
-                          24h Volume
-                          <SortIcon field="volume" />
-                        </div>
+                        24h Volume
+                        <SortIcon field="volume" />
+                      </th>
+                      <th
+                        onClick={() => handleSort('openInterest')}
+                        className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
+                      >
+                        Open Interest
+                        <SortIcon field="openInterest" />
                       </th>
                       <th
                         onClick={() => handleSort('trades')}
                         className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
                       >
-                        <div className="flex items-center justify-end">
-                          Trades
-                          <SortIcon field="trades" />
-                        </div>
+                        Trades
+                        <SortIcon field="trades" />
                       </th>
                       <th className="py-3 px-4 text-right text-xs font-medium text-slate-400">
-                        Funding
-                      </th>
-                      <th className="py-3 px-4 text-right text-xs font-medium text-slate-400">
-                        Next
+                        1h Funding
                       </th>
                     </tr>
                   </thead>
@@ -612,6 +539,7 @@ export default function MarketsDisplay() {
               </div>
             )}
 
+            {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-4 py-3 border-t border-[#334155]/50 bg-[#1e293b]/30">
                 <button

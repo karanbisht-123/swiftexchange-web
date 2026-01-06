@@ -1,349 +1,510 @@
-import { IndexerClient } from '@dydxprotocol/v4-client-js';
-
+import { getSocketClient } from '../client/clients';
+import { webSocketManager } from '../utils/WebSocketManager';
 import { dydxWalletService } from './dydxWalletService';
-
-export interface Fill {
-  id: string;
-  market: string;
-  side: 'BUY' | 'SELL';
-  size: string;
-  price: string;
-  fee: string;
-  createdAt: string;
-  liquidity: 'TAKER' | 'MAKER';
-  type: string;
-  orderId?: string;
-  clientMetadata?: string;
-}
-
-export interface OpenOrder {
-  id: string;
-  clientId: number;
-  market: string;
-  side: 'BUY' | 'SELL';
-  type: string;
-  size: string;
-  price: string;
-  filledSize: string;
-  status: string;
-  createdAt: string;
-  triggerPrice?: string;
-  goodTilBlockTime?: string;
-  goodTilBlock?: number;
-  orderFlags: number;
-  timeInForce?: string;
-  postOnly?: boolean;
-  reduceOnly?: boolean;
-}
-
-export interface HistoricalOrder {
-  id: string;
-  clientId: number;
-  market: string;
-  side: 'BUY' | 'SELL';
-  type: string;
-  size: string;
-  price: string;
-  filledSize: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-  triggerPrice?: string;
-  timeInForce?: string;
-  goodTilBlockTime?: string;
-}
 
 export interface Position {
   market: string;
-  side: 'LONG' | 'SHORT';
+  status: string;
+  side: string;
   size: string;
+  maxSize: string;
   entryPrice: string;
-  unrealizedPnl: string;
+  exitPrice: string | null;
   realizedPnl: string;
-  netFunding?: string;
-  sumOpen?: string;
-  sumClose?: string;
-  exitPrice?: string;
+  unrealizedPnl: string;
+  createdAt: string;
+  closedAt: string | null;
+  sumOpen: string;
+  sumClose: string;
+  netFunding: string;
 }
 
 export interface AssetPosition {
   symbol: string;
-  side: 'LONG' | 'SHORT';
+  side: string;
   size: string;
   assetId: string;
+  subaccountNumber: number;
 }
 
-export interface SubaccountData {
-  positions?: Position[];
-  assetPositions?: AssetPosition[];
-  orders?: OpenOrder[];
-  fills?: Fill[];
+export interface Order {
+  id: string;
+  subaccountId: string;
+  clientId: string;
+  clobPairId: string;
+  side: string;
+  size: string;
+  totalFilled: string;
+  price: string;
+  type: string;
+  status: string;
+  timeInForce: string;
+  postOnly: boolean;
+  reduceOnly: boolean;
+  orderFlags: string;
+  goodTilBlock?: string;
+  goodTilBlockTime?: string;
+  ticker: string;
+  createdAtHeight: string;
+  updatedAt?: string;
+  updatedAtHeight?: string;
 }
+
+export interface Fill {
+  id: string;
+  side: string;
+  liquidity: string;
+  type: string;
+  market: string;
+  marketType: string;
+  price: string;
+  size: string;
+  fee: string;
+  createdAt: string;
+  createdAtHeight: string;
+  orderId?: string;
+  clientMetadata?: string;
+}
+
+export interface HistoricalPnl {
+  id: string;
+  subaccountId: string;
+  equity: string;
+  totalPnl: string;
+  netTransfers: string;
+  createdAt: string;
+  blockHeight: string;
+  blockTime: string;
+}
+
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+type DataUpdateCallback<T> = (data: T) => void;
 
 class DydxDataService {
-  private getIndexer(): IndexerClient {
-    const indexer = dydxWalletService.getIndexerClient();
-    if (!indexer) {
-      throw new Error('Indexer client not initialized');
-    }
-    return indexer;
+  private cache = new Map<string, CacheEntry<any>>();
+  private readonly CACHE_TTL = 5000;
+
+  private wsUnsubscribe: (() => void) | null = null;
+  private isSubscribed = false;
+  private subscriptionAttempts = 0;
+  private readonly MAX_RETRY_ATTEMPTS = 3;
+  private retryTimer: NodeJS.Timeout | null = null;
+
+  private positionListeners: DataUpdateCallback<Position[]>[] = [];
+  private orderListeners: DataUpdateCallback<Order[]>[] = [];
+
+  private stats = {
+    wsUpdates: 0,
+    restCalls: 0,
+    lastWsUpdate: 0,
+    positionUpdates: 0,
+    orderUpdates: 0,
+  };
+
+  constructor() {
+    dydxWalletService.onStatusChange(status => {
+      if (status === 'connected') {
+        this.setupWebSocket();
+      } else if (status === 'disconnected') {
+        this.cleanup();
+      }
+    });
+
+    webSocketManager.onConnect(() => {
+      if (dydxWalletService.isConnected() && !this.isSubscribed) {
+        this.setupWebSocket();
+      }
+    });
+
+    webSocketManager.onDisconnect(() => {
+      this.isSubscribed = false;
+    });
   }
 
-  private getAddressAndSubaccount() {
+  private getContext() {
+    const indexer = dydxWalletService.getIndexerClient();
     const address = dydxWalletService.getAddress();
-    const subaccountNumber = dydxWalletService.getSubaccountNumber() ?? 0;
-    if (!address) {
+    const subaccountNumber = dydxWalletService.getSubaccountNumber();
+
+    if (!indexer || !address) {
       throw new Error('Wallet not connected');
     }
-    return { address, subaccountNumber };
+
+    return { indexer, address, subaccountNumber };
   }
 
-  async fetchOpenOrders(limit?: number, returnLatestOrders: boolean = true): Promise<OpenOrder[]> {
-    const indexer = this.getIndexer();
-    const { address, subaccountNumber } = this.getAddressAndSubaccount();
-
-    const response = await indexer.account.getSubaccountOrders(
-      address,
-      subaccountNumber,
-      undefined, // ticker
-      undefined, // tickerType (default: PERPETUAL)
-      undefined, // side
-      undefined, // status - we'll filter client-side for better control
-      undefined, // type
-      limit,
-      undefined, // goodTilBlockBeforeOrAt
-      undefined, // goodTilBlockTimeBeforeOrAt
-      returnLatestOrders
-    );
-
-    const openStatuses = ['OPEN', 'PARTIALLY_FILLED', 'BEST_EFFORT_OPEN', 'UNTRIGGERED'];
-    const openOrders = response.filter((o: any) => openStatuses.includes(o.status));
-
-    return openOrders.map((o: any) => ({
-      id: o.id,
-      clientId: Number(o.clientId),
-      market: o.ticker,
-      side: o.side.toUpperCase() as 'BUY' | 'SELL',
-      type: o.type,
-      size: o.size,
-      price: o.price,
-      filledSize: o.totalFilled || '0',
-      status: o.status,
-      createdAt: o.createdAt,
-      triggerPrice: o.triggerPrice,
-      goodTilBlockTime: o.goodTilBlockTime,
-      goodTilBlock: o.goodTilBlock,
-      orderFlags: o.orderFlags || 0,
-      timeInForce: o.timeInForce,
-      postOnly: o.postOnly,
-      reduceOnly: o.reduceOnly,
-    }));
+  private getCached<T>(key: string): T | null {
+    const cached = this.cache.get(key);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data as T;
+    }
+    if (cached) {
+      this.cache.delete(key);
+    }
+    return null;
   }
 
-  async cancelOrder(orderId: string): Promise<void> {
-    const compositeClient = dydxWalletService.getCompositeClient();
-    const subaccountInfo = dydxWalletService.getSubaccountInfo();
+  private setCache<T>(key: string, data: T): void {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+    });
+  }
 
-    if (!compositeClient || !subaccountInfo) {
-      throw new Error('Client not ready for trading');
+  private clearCachePattern(pattern?: string): void {
+    if (!pattern) {
+      this.cache.clear();
+      return;
     }
 
-    const orders = await this.fetchOpenOrders();
-    const order = orders.find(o => o.id === orderId);
+    const keysToDelete: string[] = [];
+    for (const key of this.cache.keys()) {
+      if (key.includes(pattern)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => this.cache.delete(key));
+  }
 
-    if (!order) {
-      throw new Error('Order not found or already closed');
+  private setupWebSocket(): void {
+    if (this.isSubscribed || !dydxWalletService.isConnected() || !webSocketManager.isConnected()) {
+      return;
     }
 
-    let goodTilBlock: number | undefined;
-    let goodTilBlockTime: number | undefined;
+    try {
+      const address = dydxWalletService.getAddress();
+      const subaccountNumber = dydxWalletService.getSubaccountNumber();
 
-    if (order.goodTilBlock) {
-      const currentHeight = await compositeClient.validatorClient.get.latestBlockHeight();
-      goodTilBlock = currentHeight + 20;
-    } else if (order.goodTilBlockTime) {
-      const datetime = new Date(order.goodTilBlockTime);
-      goodTilBlockTime = Math.round(datetime.getTime() / 1000);
+      if (!address) return;
+
+      const socketClient = getSocketClient();
+      this.wsUnsubscribe = socketClient.subscribeToSubaccounts(address, subaccountNumber, data =>
+        this.handleWebSocketUpdate(data)
+      );
+
+      this.isSubscribed = true;
+      this.subscriptionAttempts = 0;
+    } catch (error) {
+      this.subscriptionAttempts++;
+
+      if (this.subscriptionAttempts < this.MAX_RETRY_ATTEMPTS) {
+        const delay = Math.min(1000 * Math.pow(2, this.subscriptionAttempts), 10000);
+
+        this.retryTimer = setTimeout(() => {
+          this.setupWebSocket();
+        }, delay);
+      }
+    }
+  }
+
+  private handleWebSocketUpdate(data: any): void {
+    const now = Date.now();
+    this.stats.wsUpdates++;
+    this.stats.lastWsUpdate = now;
+
+    if (!data.contents) return;
+
+    const { subaccount } = data.contents;
+    if (!subaccount) return;
+
+    // Handle position updates
+    if (subaccount.openPerpetualPositions !== undefined) {
+      const positions = subaccount.openPerpetualPositions;
+      this.stats.positionUpdates++;
+      this.clearCachePattern('positions');
+      this.notifyPositionListeners(positions);
     }
 
-    const market = order.market.includes('-') ? order.market.split('-')[0] : order.market;
+    // Handle order updates
+    if (subaccount.orders !== undefined) {
+      const orders = subaccount.orders;
+      this.stats.orderUpdates++;
+      this.clearCachePattern('orders');
+      this.notifyOrderListeners(orders);
+    }
 
-    await compositeClient.cancelOrder(
-      subaccountInfo,
-      order.clientId,
-      order.orderFlags,
-      market,
-      goodTilBlock ?? 0,
-      goodTilBlockTime ?? 0
-    );
+    // Handle fills
+    if (subaccount.fills !== undefined) {
+      this.clearCachePattern('fills');
+    }
   }
 
-  async fetchFills(limit: number = 50, createdBeforeOrAt?: string): Promise<Fill[]> {
-    const indexer = this.getIndexer();
-    const { address, subaccountNumber } = this.getAddressAndSubaccount();
+  private cleanup(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
 
-    const response = await indexer.account.getSubaccountFills(
-      address,
-      subaccountNumber,
-      undefined, // ticker
-      undefined, // tickerType (default: PERPETUAL)
-      limit,
-      undefined, // createdBeforeOrAtHeight
-      createdBeforeOrAt
-    );
+    if (this.wsUnsubscribe) {
+      try {
+        this.wsUnsubscribe();
+      } catch (error) {
+        console.error('Error unsubscribing', error);
+      }
+      this.wsUnsubscribe = null;
+    }
 
-    return response.fills.map((f: any) => ({
-      id: f.id,
-      market: f.market,
-      side: f.side.toUpperCase() as 'BUY' | 'SELL',
-      size: f.size,
-      price: f.price,
-      fee: f.fee,
-      createdAt: f.createdAt,
-      liquidity: f.liquidity as 'TAKER' | 'MAKER',
-      type: f.type || 'LIMIT',
-      orderId: f.orderId,
-      clientMetadata: f.clientMetadata,
-    }));
+    this.isSubscribed = false;
+    this.subscriptionAttempts = 0;
+    this.cache.clear();
+    this.positionListeners = [];
+    this.orderListeners = [];
   }
 
-  async fetchHistoricalOrders(
-    limit: number = 50,
-    goodTilBlockTimeBeforeOrAt?: string
-  ): Promise<HistoricalOrder[]> {
-    const indexer = this.getIndexer();
-    const { address, subaccountNumber } = this.getAddressAndSubaccount();
+  onPositionsUpdate(callback: DataUpdateCallback<Position[]>): () => void {
+    this.positionListeners.push(callback);
 
-    const response = await indexer.account.getSubaccountOrders(
-      address,
-      subaccountNumber,
-      undefined, // ticker
-      undefined, // tickerType
-      undefined, // side
-      undefined, // status (fetch all for history)
-      undefined, // type
-      limit,
-      undefined, // goodTilBlockBeforeOrAt
-      goodTilBlockTimeBeforeOrAt,
-      true // returnLatestOrders
-    );
-
-    return response.map((o: any) => ({
-      id: o.id,
-      clientId: Number(o.clientId),
-      market: o.ticker,
-      side: o.side.toUpperCase() as 'BUY' | 'SELL',
-      type: o.type,
-      size: o.size,
-      price: o.price,
-      filledSize: o.totalFilled || '0',
-      status: o.status,
-      createdAt: o.createdAt,
-      updatedAt: o.updatedAt || o.createdAt,
-      triggerPrice: o.triggerPrice,
-      timeInForce: o.timeInForce,
-      goodTilBlockTime: o.goodTilBlockTime,
-    }));
+    return () => {
+      this.positionListeners = this.positionListeners.filter(cb => cb !== callback);
+    };
   }
 
-  async fetchPositions(
-    status: 'OPEN' | 'CLOSED' | null = 'OPEN',
-    limit?: number
+  onOrdersUpdate(callback: DataUpdateCallback<Order[]>): () => void {
+    this.orderListeners.push(callback);
+
+    return () => {
+      this.orderListeners = this.orderListeners.filter(cb => cb !== callback);
+    };
+  }
+
+  private notifyPositionListeners(positions: Position[]): void {
+    this.positionListeners.forEach(listener => {
+      try {
+        listener(positions);
+      } catch (error) {
+        console.error('Position listener error:', error);
+      }
+    });
+  }
+
+  private notifyOrderListeners(orders: Order[]): void {
+    this.orderListeners.forEach(listener => {
+      try {
+        listener(orders);
+      } catch (error) {
+        console.error('Order listener error:', error);
+      }
+    });
+  }
+
+  async getSubaccount(useCache = true) {
+    const cacheKey = 'subaccount';
+
+    if (useCache) {
+      const cached = this.getCached(cacheKey);
+      if (cached) return cached;
+    }
+
+    this.stats.restCalls++;
+    const { indexer, address, subaccountNumber } = this.getContext();
+    const data = await indexer.account.getSubaccount(address, subaccountNumber);
+
+    this.setCache(cacheKey, data);
+    return data;
+  }
+
+  async getPositions(
+    status: 'OPEN' | 'CLOSED' = 'OPEN',
+    limit?: number,
+    useCache = true
   ): Promise<Position[]> {
-    const indexer = this.getIndexer();
-    const { address, subaccountNumber } = this.getAddressAndSubaccount();
+    const cacheKey = `positions-${status}-${limit}`;
 
+    if (useCache) {
+      const cached = this.getCached<Position[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    this.stats.restCalls++;
+    const { indexer, address, subaccountNumber } = this.getContext();
     const response = await indexer.account.getSubaccountPerpetualPositions(
       address,
       subaccountNumber,
       status as any,
-      limit,
-      undefined, // createdBeforeOrAtHeight
-      undefined // createdBeforeOrAt
+      limit
     );
 
-    return response.positions.map((p: any) => ({
-      market: p.market,
-      side: p.side as 'LONG' | 'SHORT',
-      size: p.size,
-      entryPrice: p.entryPrice,
-      unrealizedPnl: p.unrealizedPnl || '0',
-      realizedPnl: p.realizedPnl || '0',
-      netFunding: p.netFunding,
-      sumOpen: p.sumOpen,
-      sumClose: p.sumClose,
-      exitPrice: p.exitPrice,
-    }));
+    const positions = response.positions || [];
+    this.setCache(cacheKey, positions);
+    return positions;
   }
 
-  async fetchAssetPositions(
-    status: 'OPEN' | 'CLOSED' | null = 'OPEN',
-    limit?: number
+  async getAssetPositions(
+    status: 'OPEN' | 'CLOSED' = 'OPEN',
+    limit?: number,
+    useCache = true
   ): Promise<AssetPosition[]> {
-    const indexer = this.getIndexer();
-    const { address, subaccountNumber } = this.getAddressAndSubaccount();
+    const cacheKey = `asset-positions-${status}-${limit}`;
 
+    if (useCache) {
+      const cached = this.getCached<AssetPosition[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    this.stats.restCalls++;
+    const { indexer, address, subaccountNumber } = this.getContext();
     const response = await indexer.account.getSubaccountAssetPositions(
       address,
       subaccountNumber,
       status as any,
-      limit,
-      undefined,
-      undefined
-    );
-
-    return response.positions.map((p: any) => ({
-      symbol: p.symbol,
-      side: p.side as 'LONG' | 'SHORT',
-      size: p.size,
-      assetId: p.assetId,
-    }));
-  }
-
-  async fetchSubaccountData(): Promise<SubaccountData> {
-    const indexer = this.getIndexer();
-    const { address, subaccountNumber } = this.getAddressAndSubaccount();
-    const subaccount = await indexer.account.getSubaccount(address, subaccountNumber);
-
-    return {
-      positions:
-        subaccount.openPerpetualPositions?.map((p: any) => ({
-          market: p.market,
-          side: p.side as 'LONG' | 'SHORT',
-          size: p.size,
-          entryPrice: p.entryPrice,
-          unrealizedPnl: p.unrealizedPnl || '0',
-          realizedPnl: p.realizedPnl || '0',
-        })) || [],
-      assetPositions:
-        subaccount.assetPositions?.map((p: any) => ({
-          symbol: p.symbol,
-          side: p.side as 'LONG' | 'SHORT',
-          size: p.size,
-          assetId: p.assetId,
-        })) || [],
-    };
-  }
-
-  async fetchHistoricalPnl(
-    createdBeforeOrAt?: string,
-    createdOnOrAfter?: string,
-    limit: number = 100
-  ): Promise<any[]> {
-    const indexer = this.getIndexer();
-    const { address, subaccountNumber } = this.getAddressAndSubaccount();
-
-    const response = await indexer.account.getSubaccountHistoricalPNLs(
-      address,
-      subaccountNumber,
-      undefined, // createdBeforeOrAtHeight
-      createdBeforeOrAt,
-      undefined, // createdOnOrAfterHeight
-      createdOnOrAfter,
       limit
     );
 
-    return response.historicalPnl || [];
+    const assetPositions = response.positions || [];
+    this.setCache(cacheKey, assetPositions);
+    return assetPositions;
+  }
+
+  async getOrders(
+    ticker?: string,
+    limit = 10,
+    returnLatestOrders = true,
+    useCache = true
+  ): Promise<Order[]> {
+    const cacheKey = `orders-${ticker || 'all'}-${limit}-${returnLatestOrders}`;
+
+    if (useCache) {
+      const cached = this.getCached<Order[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    this.stats.restCalls++;
+    const { indexer, address, subaccountNumber } = this.getContext();
+    const response = await indexer.account.getSubaccountOrders(
+      address,
+      subaccountNumber,
+      ticker,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      limit,
+      undefined,
+      undefined,
+      returnLatestOrders
+    );
+
+    const orders = response || [];
+    this.setCache(cacheKey, orders);
+    return orders;
+  }
+
+  async getFills(
+    ticker?: string,
+    limit = 10,
+    createdBeforeOrAtHeight?: string,
+    useCache = true
+  ): Promise<Fill[]> {
+    const cacheKey = `fills-${ticker || 'all'}-${limit}-${createdBeforeOrAtHeight || 'latest'}`;
+
+    if (useCache) {
+      const cached = this.getCached<Fill[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    this.stats.restCalls++;
+    const { indexer, address, subaccountNumber } = this.getContext();
+    const response = await indexer.account.getSubaccountFills(
+      address,
+      subaccountNumber,
+      ticker,
+      undefined,
+      limit,
+      undefined,
+      createdBeforeOrAtHeight
+    );
+
+    const fills = response.fills || [];
+    this.setCache(cacheKey, fills);
+    return fills;
+  }
+
+  async getHistoricalPnl(
+    effectiveBeforeOrAt?: string,
+    effectiveAtOrAfter?: string,
+    limit = 100,
+    useCache = true
+  ): Promise<HistoricalPnl[]> {
+    const cacheKey = `pnl-${effectiveBeforeOrAt || 'all'}-${effectiveAtOrAfter || 'all'}-${limit}`;
+
+    if (useCache) {
+      const cached = this.getCached<HistoricalPnl[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    this.stats.restCalls++;
+    const { indexer, address, subaccountNumber } = this.getContext();
+    const response = await indexer.account.getSubaccountHistoricalPNLs(
+      address,
+      subaccountNumber,
+      undefined,
+      effectiveBeforeOrAt,
+      undefined,
+      effectiveAtOrAfter,
+      limit
+    );
+
+    const historicalPnls = response.historicalPnl || [];
+    this.setCache(cacheKey, historicalPnls);
+    return historicalPnls;
+  }
+
+  async refreshPositions(status: 'OPEN' | 'CLOSED' = 'OPEN', limit?: number): Promise<Position[]> {
+    this.clearCachePattern('positions');
+    return this.getPositions(status, limit, false);
+  }
+
+  async refreshOrders(ticker?: string, limit = 10): Promise<Order[]> {
+    this.clearCachePattern('orders');
+    return this.getOrders(ticker, limit, true, false);
+  }
+
+  async refreshFills(ticker?: string, limit = 10): Promise<Fill[]> {
+    this.clearCachePattern('fills');
+    return this.getFills(ticker, limit, undefined, false);
+  }
+
+  clearCache(pattern?: string): void {
+    this.clearCachePattern(pattern);
+  }
+
+  isReady(): boolean {
+    return dydxWalletService.isConnected();
+  }
+
+  isReceivingUpdates(): boolean {
+    return this.isSubscribed && Date.now() - this.stats.lastWsUpdate < 30000;
+  }
+
+  getServiceStatus() {
+    const wsDebug = webSocketManager.getDebugInfo();
+    const timeSinceLastUpdate = this.stats.lastWsUpdate
+      ? Date.now() - this.stats.lastWsUpdate
+      : null;
+
+    return {
+      walletConnected: dydxWalletService.isConnected(),
+      websocketConnected: webSocketManager.isConnected(),
+      subscribed: this.isSubscribed,
+      subscriptionAttempts: this.subscriptionAttempts,
+      stats: {
+        wsUpdates: this.stats.wsUpdates,
+        restCalls: this.stats.restCalls,
+        positionUpdates: this.stats.positionUpdates,
+        orderUpdates: this.stats.orderUpdates,
+        cacheSize: this.cache.size,
+        timeSinceLastUpdate,
+      },
+      listeners: {
+        positions: this.positionListeners.length,
+        orders: this.orderListeners.length,
+      },
+      websocketManager: wsDebug,
+    };
   }
 }
 

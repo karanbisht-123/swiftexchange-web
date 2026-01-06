@@ -1,33 +1,30 @@
 import { useCallback, useState } from 'react';
 
 import { dydxTradingService } from '../service/dydxTradingService';
+import { dydxWalletService } from '../service/dydxWalletService';
 import {
   type OpenOrder,
   type OrderResult,
-  OrderSideEnum,
-  OrderTypeEnum,
   type PlaceOrderParams,
   type Position,
+  type TriggerParams,
 } from '../types/trading.types';
-import { useDydxWallet } from './useDydxWallet';
 
 export const useDydxTrading = () => {
-  const { isConnected, hasSubaccount, address } = useDydxWallet();
-
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
+  const [isSettingTriggers, setIsSettingTriggers] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
 
-  // console.log(setIsFetching);
-
-  const canTrade = isConnected && hasSubaccount && !!address;
+  const canTrade = dydxWalletService.isReadyForTrading();
+  const address = dydxWalletService.getAddress();
 
   const clearOrderError = useCallback(() => setOrderError(null), []);
 
   const placeOrder = useCallback(
     async (params: PlaceOrderParams): Promise<OrderResult> => {
-      if (!canTrade) {
+      console.log(params, 'order Parms --------');
+      if (!canTrade || !address) {
         const msg = 'Wallet not connected or no active subaccount';
         setOrderError(msg);
         return { success: false, error: msg, userMessage: msg, retryable: false };
@@ -37,19 +34,7 @@ export const useDydxTrading = () => {
       setOrderError(null);
 
       try {
-        const marketInfo = await dydxTradingService.getMarketInfo(params.market);
-        if (!marketInfo) {
-          const msg = `Market ${params.market} not found`;
-          setOrderError(msg);
-          return { success: false, error: msg, userMessage: msg, retryable: false };
-        }
-
-        const result = await dydxTradingService.placeOrder(params, marketInfo);
-
-        if (!result.success && result.userMessage) {
-          setOrderError(result.userMessage);
-        }
-
+        const result = await dydxTradingService.placeOrder(params);
         return result;
       } catch (err: any) {
         const msg = err.message || 'Place order failed';
@@ -59,12 +44,12 @@ export const useDydxTrading = () => {
         setIsPlacingOrder(false);
       }
     },
-    [canTrade]
+    [canTrade, address]
   );
 
   const cancelOrder = useCallback(
     async (order: OpenOrder): Promise<OrderResult> => {
-      if (!canTrade) {
+      if (!canTrade || !address) {
         const msg = 'Not ready to trade';
         setOrderError(msg);
         return { success: false, error: msg, userMessage: msg, retryable: false };
@@ -75,11 +60,6 @@ export const useDydxTrading = () => {
 
       try {
         const result = await dydxTradingService.cancelOrder(order);
-
-        if (!result.success && result.userMessage) {
-          setOrderError(result.userMessage);
-        }
-
         return result;
       } catch (err: any) {
         const msg = err.message || 'Cancel failed';
@@ -89,65 +69,66 @@ export const useDydxTrading = () => {
         setIsCancelling(false);
       }
     },
-    [canTrade]
+    [canTrade, address]
   );
 
   const closePosition = useCallback(
-    async (market: string, position: Position): Promise<OrderResult> => {
-      if (!canTrade) {
+    async (position: Position): Promise<OrderResult> => {
+      console.log(position, '-----------------');
+      if (!canTrade || !address) {
         const msg = 'Not ready to trade';
         setOrderError(msg);
         return { success: false, error: msg, userMessage: msg, retryable: false };
       }
 
       try {
-        const marketInfo = await dydxTradingService.getMarketInfo(market);
-        if (!marketInfo) {
-          const msg = `Market ${market} not found`;
-          setOrderError(msg);
-          return { success: false, error: msg, userMessage: msg, retryable: false };
-        }
-
-        return await dydxTradingService.closePosition(market, position, marketInfo);
+        const result = await dydxTradingService.closePosition(position);
+        return result;
       } catch (err: any) {
         const msg = err.message || 'Close position failed';
         setOrderError(msg);
         return { success: false, error: msg, userMessage: msg, retryable: true };
       }
     },
-    [canTrade]
+    [canTrade, address]
   );
 
-  const placeMarketOrder = useCallback(
-    (market: string, side: OrderSideEnum, size: any, slippageTolerance?: number) =>
-      placeOrder({
-        market,
-        side,
-        type: OrderTypeEnum.MARKET,
-        size,
-        slippageTolerance: slippageTolerance ?? 0.01,
-      }),
-    [placeOrder]
-  );
+  const setTriggers = useCallback(
+    async (position: Position, triggers: TriggerParams): Promise<any> => {
+      if (!canTrade || !address) {
+        const msg = 'Not ready to trade';
+        setOrderError(msg);
+        return { success: false, error: msg };
+      }
 
-  const placeLimitOrder = useCallback(
-    (market: string, side: OrderSideEnum, size: any, price: any) =>
-      placeOrder({ market, side, type: OrderTypeEnum.LIMIT, size, price }),
-    [placeOrder]
+      setIsSettingTriggers(true);
+      setOrderError(null);
+
+      try {
+        const result = await dydxTradingService.setTriggers(position, triggers);
+        return result;
+      } catch (err: any) {
+        const msg = err.message || 'Set triggers failed';
+        setOrderError(msg);
+        throw err;
+      } finally {
+        setIsSettingTriggers(false);
+      }
+    },
+    [canTrade, address]
   );
 
   return {
     placeOrder,
     cancelOrder,
     closePosition,
-    placeMarketOrder,
-    placeLimitOrder,
+    setTriggers,
     isPlacingOrder,
     isCancelling,
-    isFetching,
+    isSettingTriggers,
     orderError,
     clearOrderError,
-
     canTrade,
+    address,
   };
 };

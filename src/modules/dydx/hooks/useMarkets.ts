@@ -26,6 +26,17 @@ export interface MarketData {
   tickSize?: string;
   stepSize?: string;
   clobPairId?: string;
+  atomicResolution?: number;
+  quantumConversionExponent?: number;
+  stepBaseQuantums?: number;
+  subticksPerTick?: number;
+  marketType?: string;
+  openInterestLowerCap?: string;
+  openInterestUpperCap?: string;
+  baseOpenInterest?: string;
+  defaultFundingRate1H?: string;
+  spotVolume?: string;
+  marketCap?: string;
 }
 
 interface UseMarketsReturn {
@@ -52,12 +63,12 @@ export function useMarkets(): UseMarketsReturn {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const isMountedRef = useRef(true);
   const hasInitialDataRef = useRef(false);
-  const lastUpdateTimeRef = useRef<number>(Date.now());
+  const lastUpdateTimeRef = useRef<number>(0);
   const socketClientRef = useRef<any>(null);
   const metadataUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const metadataUpdateCounterRef = useRef(0);
 
-  // Subscribe to CoinGecko metadata updates
+  // Subscribe to metadata updates
   useEffect(() => {
     const unsubscribe = metadataService.subscribe(() => {
       setCacheStats(metadataService.getCacheStats());
@@ -80,6 +91,7 @@ export function useMarkets(): UseMarketsReturn {
                   ...updated[ticker],
                   coinIcon: metadata.image,
                   coinName: metadata.name,
+                  marketCap: metadata.market_cap?.toString(),
                 };
                 hasChanges = true;
               }
@@ -113,7 +125,7 @@ export function useMarkets(): UseMarketsReturn {
         volume24H: rawData.volume24H ?? '0',
         trades24H: Number(rawData.trades24H) || 0,
         nextFundingRate: rawData.nextFundingRate ?? '0',
-        nextFundingAt: rawData.nextFundingRate ?? '',
+        nextFundingAt: rawData.nextFundingAt ?? '',
         openInterest: rawData.openInterest ?? '0',
         marketCaps: rawData.marketCaps,
         status: rawData.status || 'ACTIVE',
@@ -125,6 +137,17 @@ export function useMarkets(): UseMarketsReturn {
         maintenanceMarginFraction: rawData.maintenanceMarginFraction,
         tickSize: rawData.tickSize,
         stepSize: rawData.stepSize,
+        atomicResolution: rawData.atomicResolution,
+        quantumConversionExponent: rawData.quantumConversionExponent,
+        stepBaseQuantums: rawData.stepBaseQuantums,
+        subticksPerTick: rawData.subticksPerTick,
+        marketType: rawData.marketType,
+        openInterestLowerCap: rawData.openInterestLowerCap,
+        openInterestUpperCap: rawData.openInterestUpperCap,
+        baseOpenInterest: rawData.baseOpenInterest,
+        defaultFundingRate1H: rawData.defaultFundingRate1H,
+        spotVolume: rawData.spotVolume,
+        marketCap: metadata?.market_cap?.toString(),
       };
     },
     []
@@ -132,7 +155,6 @@ export function useMarkets(): UseMarketsReturn {
 
   const fetchInitialMarketData = useCallback(async () => {
     try {
-      console.log('useMarkets: Fetching initial market data');
       const indexerClient = getIndexerClient();
       const response = await indexerClient.markets.getPerpetualMarkets();
 
@@ -148,17 +170,17 @@ export function useMarkets(): UseMarketsReturn {
         }
       }
 
-      console.log(`useMarkets: Loaded ${tickers.length} markets from indexer`);
       setMarkets(marketsMap);
       setIsLoading(false);
       hasInitialDataRef.current = true;
       lastUpdateTimeRef.current = Date.now();
 
+      // Preload metadata for all markets
       if (tickers.length > 0) {
         metadataService.preloadBatch(tickers);
       }
     } catch (err: any) {
-      console.error('useMarkets: Failed to fetch initial markets:', err);
+      console.error('[useMarkets] Failed to fetch initial markets:', err);
       if (isMountedRef.current) {
         setError(err.message || 'Failed to load markets');
         setIsLoading(false);
@@ -168,11 +190,49 @@ export function useMarkets(): UseMarketsReturn {
 
   const handleWebSocketMessage = useCallback(
     (msg: WebSocketMessage) => {
-      if (!isMountedRef.current || !msg.contents?.markets) return;
+      if (!isMountedRef.current) return;
 
-      const marketsPayload = msg.contents.oraclePrices;
+      if (msg.type !== 'channel_data' && msg.type !== 'channel_batch_data') return;
+      if (!msg.contents) return;
+
+      // Parse market data from message
+      let marketsPayload: Record<string, any> = {};
+
+      try {
+        // Handle batch data format: contents is an array of objects with oraclePrices
+        if (Array.isArray(msg.contents)) {
+          msg.contents.forEach((item: any) => {
+            if (item.oraclePrices && typeof item.oraclePrices === 'object') {
+              Object.assign(marketsPayload, item.oraclePrices);
+            } else if (item.markets && typeof item.markets === 'object') {
+              Object.assign(marketsPayload, item.markets);
+            }
+          });
+        }
+        // Handle single data format
+        else if (msg.contents.oraclePrices && typeof msg.contents.oraclePrices === 'object') {
+          marketsPayload = msg.contents.oraclePrices;
+        } else if (msg.contents.markets && typeof msg.contents.markets === 'object') {
+          marketsPayload = msg.contents.markets;
+        }
+        // Handle direct format
+        else if (typeof msg.contents === 'object') {
+          const keys = Object.keys(msg.contents);
+          const looksLikeMarkets = keys.some(key => key.includes('-'));
+          if (looksLikeMarkets) {
+            marketsPayload = msg.contents;
+          }
+        }
+
+        if (Object.keys(marketsPayload).length === 0) return;
+      } catch (parseError) {
+        console.error('[useMarkets] Error parsing message:', parseError);
+        return;
+      }
+
       lastUpdateTimeRef.current = Date.now();
 
+      // Update markets state
       setMarkets(prev => {
         const updated = { ...prev };
         let hasChanges = false;
@@ -181,13 +241,16 @@ export function useMarkets(): UseMarketsReturn {
           const existing = updated[ticker];
 
           if (existing) {
+            // Check if any field actually changed
             const needsUpdate =
               existing.oraclePrice !== rawData.oraclePrice ||
               existing.volume24H !== rawData.volume24H ||
               existing.status !== rawData.status ||
               existing.trades24H !== Number(rawData.trades24H) ||
               existing.nextFundingRate !== rawData.nextFundingRate ||
-              existing.openInterest !== rawData.openInterest;
+              existing.openInterest !== rawData.openInterest ||
+              existing.priceChange24H !== rawData.priceChange24H ||
+              existing.priceChange24HPercent !== rawData.priceChange24HPercent;
 
             if (needsUpdate) {
               updated[ticker] = {
@@ -204,16 +267,24 @@ export function useMarkets(): UseMarketsReturn {
                 openInterest: rawData.openInterest ?? existing.openInterest,
                 status: rawData.status ?? existing.status,
                 clobPairId: rawData.clobPairId ?? existing.clobPairId,
+                marketCaps: rawData.marketCaps ?? existing.marketCaps,
+                marketId: rawData.marketId ?? existing.marketId,
+                baseOpenInterest: rawData.baseOpenInterest ?? existing.baseOpenInterest,
+                spotVolume: rawData.spotVolume ?? existing.spotVolume,
               };
               hasChanges = true;
             }
           } else {
-            // New market appeared
-            enrichMarketData(ticker, rawData).then(enriched => {
-              if (isMountedRef.current) {
-                setMarkets(current => ({ ...current, [ticker]: enriched }));
-              }
-            });
+            // New market detected - enrich it asynchronously
+            enrichMarketData(ticker, rawData)
+              .then(enriched => {
+                if (isMountedRef.current) {
+                  setMarkets(current => ({ ...current, [ticker]: enriched }));
+                }
+              })
+              .catch(err => {
+                console.error(`[useMarkets] Failed to enrich market ${ticker}:`, err);
+              });
           }
         });
 
@@ -224,69 +295,78 @@ export function useMarkets(): UseMarketsReturn {
   );
 
   const refreshMarkets = useCallback(async () => {
-    console.log('useMarkets: Manual refresh triggered');
     setIsLoading(true);
+    setError(null);
     await fetchInitialMarketData();
   }, [fetchInitialMarketData]);
 
+  // Main initialization effect
   useEffect(() => {
     isMountedRef.current = true;
+    let removeOnConnect: (() => void) | undefined;
+    let removeOnDisconnect: (() => void) | undefined;
 
     const initialize = async () => {
       await fetchInitialMarketData();
 
       if (!isMountedRef.current) return;
+
       const socketClient = getSocketClient();
       socketClientRef.current = socketClient;
 
-      console.log('useMarkets: Subscribing to v4_markets channel');
-      unsubscribeRef.current = socketClient.subscribeToMarkets(handleWebSocketMessage, true);
-
-      // Listen to connection state changes
-      const removeOnConnect = socketClient.onConnect(() => {
-        console.log('useMarkets: WebSocket connected');
-        setIsConnected(true);
-        setError(null);
-
-        // Resubscribe in case of reconnect
-        if (unsubscribeRef.current) unsubscribeRef.current();
+      try {
         unsubscribeRef.current = socketClient.subscribeToMarkets(handleWebSocketMessage, true);
+      } catch (err) {
+        console.error('[useMarkets] Failed to subscribe:', err);
+        setError('Failed to connect to market data feed');
+      }
+
+      removeOnConnect = socketClient.onConnect(() => {
+        if (isMountedRef.current) {
+          setIsConnected(true);
+          setError(null);
+
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+          }
+          try {
+            unsubscribeRef.current = socketClient.subscribeToMarkets(handleWebSocketMessage, true);
+          } catch (err) {
+            console.error('[useMarkets] Failed to resubscribe:', err);
+          }
+        }
       });
 
-      const removeOnDisconnect = socketClient.onDisconnect(() => {
-        console.log('useMarkets: WebSocket disconnected');
-        setIsConnected(false);
+      removeOnDisconnect = socketClient.onDisconnect(() => {
+        if (isMountedRef.current) {
+          setIsConnected(false);
+        }
       });
 
-      // Initial connection status
       setIsConnected(socketClient.isConnected());
-
-      // Cleanup for connection listeners
-      return () => {
-        removeOnConnect();
-        removeOnDisconnect();
-      };
     };
 
-    const cleanupPromise = initialize();
+    initialize();
 
     return () => {
-      console.log('useMarkets: Component unmounting, cleaning up subscription');
       isMountedRef.current = false;
+
+      if (metadataUpdateTimerRef.current) {
+        clearTimeout(metadataUpdateTimerRef.current);
+        metadataUpdateTimerRef.current = null;
+      }
 
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;
       }
 
-      if (metadataUpdateTimerRef.current) {
-        clearTimeout(metadataUpdateTimerRef.current);
-      }
-
-      cleanupPromise.then(cleanup => cleanup?.());
+      if (removeOnConnect) removeOnConnect();
+      if (removeOnDisconnect) removeOnDisconnect();
     };
   }, [fetchInitialMarketData, handleWebSocketMessage]);
 
+  // Memoized sorted markets list
   const marketsList = useMemo(() => {
     return Object.values(markets).sort((a, b) => {
       const volA = parseFloat(a.volume24H) || 0;

@@ -10,7 +10,7 @@ interface FlashState {
 
 export default function TradesDisplay() {
   const { selectedMarket } = useMarketStore();
-  const { trades, error, isLoading, isConnected } = useTrades(selectedMarket, 50);
+  const { trades, error, isLoading, isConnected } = useTrades(selectedMarket, 200);
 
   const prevTradesRef = useRef<Set<string>>(new Set());
   const prevMarketRef = useRef<string>(selectedMarket);

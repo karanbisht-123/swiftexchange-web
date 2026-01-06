@@ -3,7 +3,7 @@ import WalletAssetsSection from '../modules/walletconnect/components/WalletAsset
 
 const Dashboard = () => {
   return (
-    <div className="lg:bg-secondary p-2 md:p-6 rounded-xl">
+    <div className="lg:bg-secondary py-1 md:p-6 lg:rounded-xl">
       <QuickActions />
       <WalletAssetsSection />
     </div>

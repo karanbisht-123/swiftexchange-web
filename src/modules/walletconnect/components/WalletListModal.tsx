@@ -6,30 +6,36 @@ import {
   EVM_WALLETS,
   STELLAR_WALLETS,
   type WalletConfig,
-  WalletType,
 } from '../constants/Wallet';
-import { useWalletConnect } from '../hooks/useWalletConnect';
-import { walletService } from '../services/walletService';
+import { useWalletStore } from '../store/walletConnectStore';
+
+type WalletType = 'evm' | 'stellar';
 
 export const WalletListModal: React.FC = () => {
-  const { connectedWallets, isModalOpen, closeModal, connectWallet } = useWalletConnect();
+  const {
+    connectedWallets,
+    isModalOpen,
+    closeModal,
+    connectWallet,
+    disconnect,
+    deriveDydx,
+    // isConnecting,
+    connectionStatus,
+  } = useWalletStore();
+
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const connectTimeoutRef = useRef<number | null>(null);
-  const disconnectTimeoutRef = useRef<number | null>(null);
-  const connectionListenerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
-
     checkMobile();
     window.addEventListener('resize', checkMobile);
-
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
@@ -42,7 +48,6 @@ export const WalletListModal: React.FC = () => {
       setConnectingWallet(null);
       setError(null);
     }
-
     return () => {
       document.body.style.overflow = 'unset';
     };
@@ -53,74 +58,41 @@ export const WalletListModal: React.FC = () => {
       if (connectTimeoutRef.current) {
         window.clearTimeout(connectTimeoutRef.current);
       }
-      if (disconnectTimeoutRef.current) {
-        window.clearTimeout(disconnectTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (connectionListenerRef.current) {
-      connectionListenerRef.current();
-    }
-
-    connectionListenerRef.current = walletService.onConnectionStateChange((type, state) => {
-      console.log(`[WalletModal] Connection state changed: ${type} - ${state}`);
-
-      if (state === 'connecting') {
-      } else if (state === 'connected') {
-        setConnectingWallet(null);
-        if (connectTimeoutRef.current) {
-          window.clearTimeout(connectTimeoutRef.current);
-        }
-      } else if (state === 'failed' || state === 'cancelled') {
-        setConnectingWallet(null);
-        if (connectTimeoutRef.current) {
-          window.clearTimeout(connectTimeoutRef.current);
-        }
-      }
-    });
-
-    return () => {
-      if (connectionListenerRef.current) {
-        connectionListenerRef.current();
-      }
     };
   }, []);
 
   const handleWalletClick = useCallback(
     async (wallet: WalletConfig) => {
-      if (connectingWallet || disconnectingType) {
-        return;
-      }
+      if (connectingWallet || disconnectingType) return;
 
       const walletKey = `${wallet.type}-${wallet.id}`;
       setConnectingWallet(walletKey);
       setError(null);
 
       connectTimeoutRef.current = window.setTimeout(() => {
-        console.warn('[WalletModal] Connection timeout reached, clearing state');
+        console.warn('[WalletModal] Timeout');
         setConnectingWallet(null);
         setError('Connection timeout. Please try again.');
       }, 125000);
 
       try {
-        await connectWallet(wallet.type, wallet.id);
+        await connectWallet(wallet.type as WalletType, wallet.id);
 
         if (connectTimeoutRef.current) {
           window.clearTimeout(connectTimeoutRef.current);
         }
-
         setConnectingWallet(null);
       } catch (error: any) {
-        console.error('[WalletModal] Failed to connect wallet:', error);
+        console.error('[WalletModal] Connection failed:', error);
+
         if (connectTimeoutRef.current) {
           window.clearTimeout(connectTimeoutRef.current);
         }
 
         setConnectingWallet(null);
-        const errorMessage = error?.message || 'Failed to connect wallet. Please try again.';
+        const errorMessage = error?.message || 'Failed to connect. Please try again.';
         setError(errorMessage);
+
         setTimeout(() => {
           setError(null);
         }, 5000);
@@ -131,33 +103,19 @@ export const WalletListModal: React.FC = () => {
 
   const handleDisconnect = useCallback(
     async (type: WalletType) => {
-      if (disconnectingType || connectingWallet) {
-        return;
-      }
+      if (disconnectingType || connectingWallet) return;
 
       setDisconnectingType(type);
       setError(null);
-      disconnectTimeoutRef.current = window.setTimeout(() => {
-        console.warn('[WalletModal] Disconnect timeout reached, clearing state');
-        setDisconnectingType(null);
-      }, 10000);
 
       try {
-        // await disconnectType(type);
-        // if (disconnectTimeoutRef.current) {
-        //   window.clearTimeout(disconnectTimeoutRef.current);
-        // }
-
+        await disconnect(type);
         setDisconnectingType(null);
       } catch (error: any) {
-        console.error('[WalletModal] Failed to disconnect wallet:', error);
-        if (disconnectTimeoutRef.current) {
-          window.clearTimeout(disconnectTimeoutRef.current);
-        }
-
+        console.error('[WalletModal] Disconnect failed:', error);
         setDisconnectingType(null);
 
-        const errorMessage = error?.message || 'Failed to disconnect wallet. Please try again.';
+        const errorMessage = error?.message || 'Failed to disconnect. Please try again.';
         setError(errorMessage);
 
         setTimeout(() => {
@@ -165,37 +123,52 @@ export const WalletListModal: React.FC = () => {
         }, 5000);
       }
     },
-    [disconnectingType, connectingWallet]
+    [disconnect, disconnectingType, connectingWallet]
   );
 
-  const handleModalClose = useCallback(async () => {
+  const handleDeriveDydx = useCallback(async () => {
+    if (connectingWallet || disconnectingType) return;
+
+    setError(null);
+
+    try {
+      await deriveDydx();
+    } catch (error: any) {
+      console.error('[WalletModal] Derivation failed:', error);
+
+      if (error.message === 'Signature rejected by user') {
+        setError('Signature rejected. You can try again anytime.');
+      } else {
+        const errorMessage = error?.message || 'Failed to derive wallet. Please try again.';
+        setError(errorMessage);
+      }
+
+      setTimeout(() => {
+        setError(null);
+      }, 5000);
+    }
+  }, [deriveDydx, connectingWallet, disconnectingType]);
+
+  const handleModalClose = useCallback(() => {
+    if (disconnectingType) return;
+
+    const isSigning = connectionStatus.evm?.state === 'signing';
+
+    if (isSigning) {
+      // Don't close while signing - let user complete or reject
+      return;
+    }
+
     if (connectingWallet) {
-      const [typeStr] = connectingWallet.split('-');
-      // const type = typeStr as WalletType;
-
-      console.log('[WalletModal] Cancelling connection due to modal close');
-
-      // try {
-      //   await walletService.cancelConnection(type);
-      // } catch (err) {
-      //   console.error('[WalletModal] Error cancelling connection:', err);
-      // }
-
       setConnectingWallet(null);
       setError(null);
-
       if (connectTimeoutRef.current) {
         window.clearTimeout(connectTimeoutRef.current);
       }
     }
 
-    // Don't allow closing while disconnecting
-    if (disconnectingType) {
-      return;
-    }
-
     closeModal();
-  }, [closeModal, connectingWallet, disconnectingType]);
+  }, [closeModal, connectingWallet, disconnectingType, connectionStatus]);
 
   const getWalletConfig = useCallback((type: WalletType, id: string): WalletConfig | undefined => {
     const allWallets = [...EVM_WALLETS, ...COSMOS_WALLETS, ...STELLAR_WALLETS];
@@ -215,48 +188,122 @@ export const WalletListModal: React.FC = () => {
       if (!config) return null;
 
       const isDisconnecting = disconnectingType === type;
+      const hasDydx = type === 'evm' && connected.dydxAddress;
+      const isSigning = type === 'evm' && connectionStatus.evm?.state === 'signing';
 
       return (
-        <div className="flex items-center justify-between gap-3 p-4 rounded-xl border border-green-500/30 bg-green-500/10">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center flex-shrink-0">
-              <img
-                src={config.icon}
-                alt={config.name}
-                className="w-6 h-6 rounded-full"
-                onError={e => {
-                  e.currentTarget.style.display = 'none';
-                  const parent = e.currentTarget.parentElement;
-                  if (parent) {
-                    parent.innerHTML = config.name[0];
-                    parent.classList.add('text-gray-300', 'font-semibold');
-                  }
-                }}
-              />
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 p-4 rounded-xl border border-green-500/30 bg-green-500/10">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center flex-shrink-0">
+                <img
+                  src={config.icon}
+                  alt={config.name}
+                  className="w-6 h-6 rounded-full"
+                  onError={e => {
+                    e.currentTarget.style.display = 'none';
+                    const parent = e.currentTarget.parentElement;
+                    if (parent) {
+                      parent.innerHTML = config.name[0];
+                      parent.classList.add('text-gray-300', 'font-semibold');
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm md:text-base font-medium text-gray-100 truncate">
+                  {config.name}
+                </span>
+                <span className="text-xs md:text-sm text-gray-400 truncate">
+                  {formatAddress(connected.address)}
+                </span>
+              </div>
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-sm md:text-base font-medium text-gray-100 truncate">
-                {config.name}
-              </span>
-              <span className="text-xs md:text-sm text-gray-400 truncate">
-                {formatAddress(connected.address)}
-              </span>
-            </div>
+            <button
+              onClick={() => handleDisconnect(type)}
+              disabled={isDisconnecting || connectingWallet !== null || isSigning}
+              className="px-3 md:px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
+            >
+              {isDisconnecting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span className="hidden sm:inline">Disconnecting...</span>
+                </>
+              ) : (
+                'Disconnect'
+              )}
+            </button>
           </div>
-          <button
-            onClick={() => handleDisconnect(type)}
-            disabled={isDisconnecting || connectingWallet !== null}
-            className="px-3 md:px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
-          >
-            {isDisconnecting ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span className="hidden sm:inline">Disconnecting...</span>
-              </>
-            ) : (
-              'Disconnect'
-            )}
-          </button>
+
+          {type === 'evm' && (
+            <div className="p-4 rounded-xl border border-purple-500/30 bg-purple-500/10">
+              {hasDydx ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-semibold text-purple-300">
+                      dYdX Wallet Derived
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-purple-400/70">dYdX Address:</span>
+                    <span className="text-xs md:text-sm text-purple-300 font-mono break-all">
+                      {connected.dydxAddress}
+                    </span>
+                  </div>
+                </div>
+              ) : isSigning ? (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-purple-300 mb-1">
+                        Sign Message in Wallet
+                      </p>
+                      <p className="text-xs text-purple-400/70">
+                        Please sign the message in your wallet to generate your dYdX address. This
+                        signature proves wallet ownership and is required for dYdX Chain access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-white text-xs font-bold">dY</span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-purple-300 mb-1">
+                        Derive dYdX Wallet
+                      </p>
+                      <p className="text-xs text-purple-400/70">
+                        Generate your dYdX Chain address from your wallet. This requires a signature
+                        to verify ownership.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleDeriveDydx}
+                    disabled={connectingWallet !== null || disconnectingType !== null}
+                    className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    Derive dYdX Wallet
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       );
     },
@@ -265,98 +312,120 @@ export const WalletListModal: React.FC = () => {
       getWalletConfig,
       formatAddress,
       handleDisconnect,
+      handleDeriveDydx,
       disconnectingType,
       connectingWallet,
+      connectionStatus,
     ]
   );
 
-  const renderWalletSection = useCallback(
-    (wallets: WalletConfig[], title: string) => {
-      const isAnyActionInProgress = connectingWallet !== null || disconnectingType !== null;
+  const renderAvailableWallets = useCallback(() => {
+    const isAnyActionInProgress = connectingWallet !== null || disconnectingType !== null;
 
-      return (
-        <div className="space-y-3">
-          <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">{title}</h3>
-          <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
-            {wallets.map(wallet => {
-              const walletKey = `${wallet.type}-${wallet.id}`;
-              const isThisWalletConnecting = connectingWallet === walletKey;
+    const allWallets = [...EVM_WALLETS, ...COSMOS_WALLETS];
+    const stellarWallets = STELLAR_WALLETS;
 
-              return (
-                <button
-                  key={wallet.id}
-                  onClick={() => handleWalletClick(wallet)}
-                  disabled={isAnyActionInProgress}
-                  className="flex flex-col items-center gap-3 p-4 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-blue-500/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative"
-                >
-                  {isThisWalletConnecting && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 rounded-xl backdrop-blur-sm z-10">
-                      <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+    const hasEvm = connectedWallets.evm;
+    const hasStellar = connectedWallets.stellar;
+
+    return (
+      <div className="space-y-6">
+        {!hasEvm && (
+          <div className="space-y-3">
+            <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">
+              Connect Wallet
+            </h3>
+            <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+              {allWallets.map(wallet => {
+                const walletKey = `${wallet.type}-${wallet.id}`;
+                const isThisWalletConnecting = connectingWallet === walletKey;
+
+                return (
+                  <button
+                    key={wallet.id}
+                    onClick={() => handleWalletClick(wallet)}
+                    disabled={isAnyActionInProgress}
+                    className="flex flex-col items-center gap-3 p-4 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-blue-500/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative"
+                  >
+                    {isThisWalletConnecting && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 rounded-xl backdrop-blur-sm z-10">
+                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    )}
+                    <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-700 transition-colors">
+                      <img
+                        src={wallet.icon}
+                        alt={wallet.name}
+                        className="w-11 h-11 rounded-full"
+                        onError={e => {
+                          e.currentTarget.style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent) {
+                            parent.innerHTML = wallet.name[0];
+                            parent.classList.add('text-gray-300', 'font-bold', 'text-xl');
+                          }
+                        }}
+                      />
                     </div>
-                  )}
-                  <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-700 transition-colors">
-                    <img
-                      src={wallet.icon}
-                      alt={wallet.name}
-                      className="w-11 h-11 rounded-full"
-                      onError={e => {
-                        e.currentTarget.style.display = 'none';
-                        const parent = e.currentTarget.parentElement;
-                        if (parent) {
-                          parent.innerHTML = wallet.name[0];
-                          parent.classList.add('text-gray-300', 'font-bold', 'text-xl');
-                        }
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs md:text-sm font-medium text-gray-100 text-center line-clamp-2">
-                    {wallet.name}
-                  </span>
-                </button>
-              );
-            })}
+                    <span className="text-xs md:text-sm font-medium text-gray-100 text-center line-clamp-2">
+                      {wallet.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      );
-    },
-    [handleWalletClick, connectingWallet, disconnectingType]
-  );
+        )}
 
-  const renderEvmSection = useCallback(() => {
-    if (connectedWallets[WalletType.EVM]) {
-      return (
-        <div className="space-y-3">
-          <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">EVM Wallets</h3>
-          {renderConnected(WalletType.EVM)}
-        </div>
-      );
-    }
-    return renderWalletSection(EVM_WALLETS, 'EVM Wallets');
-  }, [connectedWallets, renderConnected, renderWalletSection]);
+        {!hasStellar && (
+          <div className="space-y-3">
+            <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">
+              Stellar Wallets
+            </h3>
+            <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+              {stellarWallets.map(wallet => {
+                const walletKey = `${wallet.type}-${wallet.id}`;
+                const isThisWalletConnecting = connectingWallet === walletKey;
 
-  const renderCosmosSection = useCallback(() => {
-    if (connectedWallets[WalletType.COSMOS]) {
-      return (
-        <div className="space-y-3">
-          <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">Cosmos Wallets</h3>
-          {renderConnected(WalletType.COSMOS)}
-        </div>
-      );
-    }
-    return renderWalletSection(COSMOS_WALLETS, 'Cosmos Wallets');
-  }, [connectedWallets, renderConnected, renderWalletSection]);
-
-  const renderStellarSection = useCallback(() => {
-    if (connectedWallets[WalletType.STELLAR]) {
-      return (
-        <div className="space-y-3">
-          <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">Stellar Wallets</h3>
-          {renderConnected(WalletType.STELLAR)}
-        </div>
-      );
-    }
-    return renderWalletSection(STELLAR_WALLETS, 'Stellar Wallets');
-  }, [connectedWallets, renderConnected, renderWalletSection]);
+                return (
+                  <button
+                    key={wallet.id}
+                    onClick={() => handleWalletClick(wallet)}
+                    disabled={isAnyActionInProgress}
+                    className="flex flex-col items-center gap-3 p-4 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-blue-500/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative"
+                  >
+                    {isThisWalletConnecting && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 rounded-xl backdrop-blur-sm z-10">
+                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    )}
+                    <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-700 transition-colors">
+                      <img
+                        src={wallet.icon}
+                        alt={wallet.name}
+                        className="w-11 h-11 rounded-full"
+                        onError={e => {
+                          e.currentTarget.style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent) {
+                            parent.innerHTML = wallet.name[0];
+                            parent.classList.add('text-gray-300', 'font-bold', 'text-xl');
+                          }
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs md:text-sm font-medium text-gray-100 text-center line-clamp-2">
+                      {wallet.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }, [connectedWallets, handleWalletClick, connectingWallet, disconnectingType]);
 
   if (!isModalOpen) return null;
 
@@ -365,6 +434,7 @@ export const WalletListModal: React.FC = () => {
     : 'relative w-full max-w-2xl bg-gray-900 rounded-2xl shadow-2xl max-h-[90vh] flex flex-col';
 
   const isAnyActionInProgress = connectingWallet !== null || disconnectingType !== null;
+  const isSigning = connectionStatus.evm?.state === 'signing';
 
   return (
     <>
@@ -372,30 +442,15 @@ export const WalletListModal: React.FC = () => {
         dangerouslySetInnerHTML={{
           __html: `
           @keyframes slideUp {
-            from {
-              transform: translateY(100%);
-            }
-            to {
-              transform: translateY(0);
-            }
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
           }
-
-          .modal-slide-up {
-            animation: slideUp 0.3s ease-out;
-          }
-
+          .modal-slide-up { animation: slideUp 0.3s ease-out; }
           @keyframes fadeIn {
-            from {
-              opacity: 0;
-            }
-            to {
-              opacity: 1;
-            }
+            from { opacity: 0; }
+            to { opacity: 1; }
           }
-
-          .fade-in {
-            animation: fadeIn 0.2s ease-out;
-          }
+          .fade-in { animation: fadeIn 0.2s ease-out; }
         `,
         }}
       />
@@ -418,8 +473,8 @@ export const WalletListModal: React.FC = () => {
             <button
               onClick={handleModalClose}
               className="p-2 text-gray-400 hover:text-gray-200 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isAnyActionInProgress}
-              aria-label="Close modal"
+              disabled={isAnyActionInProgress || isSigning}
+              aria-label="Close"
             >
               <X className="w-5 h-5" />
             </button>
@@ -432,12 +487,28 @@ export const WalletListModal: React.FC = () => {
           )}
 
           <div className="p-4 md:p-6 overflow-y-auto space-y-6 flex-1">
-            {renderEvmSection()}
-            {renderStellarSection()}
-            {renderCosmosSection()}
+            {connectedWallets.evm && (
+              <div className="space-y-3">
+                <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">
+                  Connected Wallet
+                </h3>
+                {renderConnected('evm')}
+              </div>
+            )}
+
+            {connectedWallets.stellar && (
+              <div className="space-y-3">
+                <h3 className="text-base md:text-lg font-semibold text-gray-100 px-1">
+                  Stellar Wallet
+                </h3>
+                {renderConnected('stellar')}
+              </div>
+            )}
+
+            {renderAvailableWallets()}
           </div>
 
-          {connectingWallet && (
+          {connectingWallet && !isSigning && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-900/95 backdrop-blur-sm rounded-2xl z-20">
               <div className="text-center px-6">
                 <div className="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -445,7 +516,7 @@ export const WalletListModal: React.FC = () => {
                 <p className="text-gray-400 text-sm">
                   {isMobile
                     ? 'Please approve the connection in your wallet app'
-                    : 'Please scan the QR code with your wallet app'}
+                    : 'Please scan the QR code or approve in your wallet'}
                 </p>
                 <button
                   onClick={handleModalClose}

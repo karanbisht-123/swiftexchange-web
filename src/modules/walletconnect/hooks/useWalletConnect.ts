@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
 import { WalletType } from '../constants/Wallet';
 import { walletService } from '../services/walletService';
@@ -24,26 +24,13 @@ export const useWalletConnect = () => {
   const closeModal = useWalletStore(state => state.closeModal);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
-
-  const restorationAttempted = useRef(false);
+  const deriveDydx = useWalletStore(state => state.deriveDydx);
 
   useEffect(() => {
-    if (!restorationAttempted.current) {
-      restorationAttempted.current = true;
+    restoreSessions();
+  }, [restoreSessions]);
 
-      const timeoutId = setTimeout(() => {
-        if (isRestoringSession) {
-          console.warn('Session restoration timed out, resetting flag');
-          useWalletStore.setState({ isRestoringSession: false });
-        }
-      }, 5000);
-
-      restoreSessions().finally(() => {
-        clearTimeout(timeoutId);
-      });
-    }
-  }, [restoreSessions, isRestoringSession]);
-
+  // FIXED: Memoize computed values
   const isAnyWalletConnected = useMemo(
     () => Object.keys(connectedWallets).length > 0,
     [connectedWallets]
@@ -96,9 +83,9 @@ export const useWalletConnect = () => {
     disconnect,
     disconnectAll,
     restoreSessions,
+    deriveDydx,
 
     setNetwork,
-    getNetwork: useCallback(() => network, [network]),
 
     openModal,
     closeModal,
@@ -113,77 +100,74 @@ export const useWalletConnect = () => {
   };
 };
 
-// ==================== TYPE-SPECIFIC OPTIMIZED HOOKS ====================
-
-// Optimized hook for EVM wallet management
 export const useEVMWallet = () => {
-  // Use specific selectors to prevent unnecessary rerenders
-  const wallet = useWalletStore(selectConnectedWallet(WalletType.EVM));
-  const status = useWalletStore(selectConnectionStatus(WalletType.EVM));
+  // FIXED: Use selector functions
+  const wallet = useWalletStore(selectConnectedWallet('evm'));
+  const status = useWalletStore(selectConnectionStatus('evm'));
 
   const connectWallet = useWalletStore(state => state.connectWallet);
   const disconnect = useWalletStore(state => state.disconnect);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
+  const deriveDydx = useWalletStore(state => state.deriveDydx);
 
-  // Memoized status checks
-  const connected = useMemo(() => isConnected(WalletType.EVM), [isConnected]);
+  const connected = useMemo(() => isConnected('evm'), [isConnected]);
+  const connecting = useMemo(() => isConnecting('evm'), [isConnecting]);
 
-  const connecting = useMemo(() => isConnecting(WalletType.EVM), [isConnecting]);
-
-  // Stable callbacks
   const connect = useCallback(
-    (walletId: string) => connectWallet(WalletType.EVM, walletId),
+    (walletId: string) => connectWallet('evm', walletId),
     [connectWallet]
   );
 
-  const disconnectWallet = useCallback(() => disconnect(WalletType.EVM), [disconnect]);
+  const disconnectWallet = useCallback(() => disconnect('evm'), [disconnect]);
 
   const getProvider = useCallback(() => {
     if (!wallet) return null;
-    return walletService.getProvider(WalletType.EVM);
+    return walletService.getProvider('evm');
   }, [wallet]);
 
   return {
     wallet,
+    dydxAddress: wallet?.dydxAddress,
+    dydxMnemonic: wallet?.dydxMnemonic,
     status: status || { state: 'idle' as const },
     isConnected: connected,
     isConnecting: connecting,
     connect,
     disconnect: disconnectWallet,
+    deriveDydx,
     getProvider,
   };
 };
-
-//  Optimized hook for Cosmos wallet management
 
 export const useCosmosWallet = () => {
-  const wallet = useWalletStore(selectConnectedWallet(WalletType.COSMOS));
-  const status = useWalletStore(selectConnectionStatus(WalletType.COSMOS));
+  const wallet = useWalletStore(selectConnectedWallet('cosmos'));
+  const status = useWalletStore(selectConnectionStatus('cosmos'));
 
   const connectWallet = useWalletStore(state => state.connectWallet);
   const disconnect = useWalletStore(state => state.disconnect);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
 
-  const connected = useMemo(() => isConnected(WalletType.COSMOS), [isConnected]);
-
-  const connecting = useMemo(() => isConnecting(WalletType.COSMOS), [isConnecting]);
+  const connected = useMemo(() => isConnected('cosmos'), [isConnected]);
+  const connecting = useMemo(() => isConnecting('cosmos'), [isConnecting]);
 
   const connect = useCallback(
-    (walletId: string) => connectWallet(WalletType.COSMOS, walletId),
+    (walletId: string) => connectWallet('cosmos', walletId),
     [connectWallet]
   );
 
-  const disconnectWallet = useCallback(() => disconnect(WalletType.COSMOS), [disconnect]);
+  const disconnectWallet = useCallback(() => disconnect('cosmos'), [disconnect]);
 
   const getProvider = useCallback(() => {
     if (!wallet) return null;
-    return walletService.getProvider(WalletType.COSMOS);
+    return walletService.getProvider('cosmos');
   }, [wallet]);
 
   return {
     wallet,
+    dydxAddress: wallet?.dydxAddress,
+    dydxMnemonic: wallet?.dydxMnemonic,
     status: status || { state: 'idle' as const },
     isConnected: connected,
     isConnecting: connecting,
@@ -192,32 +176,29 @@ export const useCosmosWallet = () => {
     getProvider,
   };
 };
-
-//  Optimized hook for Stellar wallet management
 
 export const useStellarWallet = () => {
-  const wallet = useWalletStore(selectConnectedWallet(WalletType.STELLAR));
-  const status = useWalletStore(selectConnectionStatus(WalletType.STELLAR));
+  const wallet = useWalletStore(selectConnectedWallet('stellar'));
+  const status = useWalletStore(selectConnectionStatus('stellar'));
 
   const connectWallet = useWalletStore(state => state.connectWallet);
   const disconnect = useWalletStore(state => state.disconnect);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
 
-  const connected = useMemo(() => isConnected(WalletType.STELLAR), [isConnected]);
-
-  const connecting = useMemo(() => isConnecting(WalletType.STELLAR), [isConnecting]);
+  const connected = useMemo(() => isConnected('stellar'), [isConnected]);
+  const connecting = useMemo(() => isConnecting('stellar'), [isConnecting]);
 
   const connect = useCallback(
-    (walletId: string) => connectWallet(WalletType.STELLAR, walletId),
+    (walletId: string) => connectWallet('stellar', walletId),
     [connectWallet]
   );
 
-  const disconnectWallet = useCallback(() => disconnect(WalletType.STELLAR), [disconnect]);
+  const disconnectWallet = useCallback(() => disconnect('stellar'), [disconnect]);
 
   const getProvider = useCallback(() => {
     if (!wallet) return null;
-    return walletService.getProvider(WalletType.STELLAR);
+    return walletService.getProvider('stellar');
   }, [wallet]);
 
   return {
@@ -231,20 +212,14 @@ export const useStellarWallet = () => {
   };
 };
 
-// ==================== UTILITY HOOKS ====================
-
-//  Hook for checking if any wallet is connected (lightweight)
 export const useIsAnyWalletConnected = () => {
   return useWalletStore(selectIsAnyWalletConnected);
 };
-
-//  Hook for getting all installed wallets
 
 export const useInstalledWallets = () => {
   return useMemo(() => walletService.getInstalledWallets(), []);
 };
 
-//  Hook for network management
 export const useWalletNetwork = () => {
   const network = useWalletStore(state => state.network);
   const setNetwork = useWalletStore(state => state.setNetwork);
@@ -269,7 +244,6 @@ export const useWalletNetwork = () => {
   };
 };
 
-//Hook for modal control
 export const useWalletModal = () => {
   const isModalOpen = useWalletStore(state => state.isModalOpen);
   const openModal = useWalletStore(state => state.openModal);
@@ -282,7 +256,6 @@ export const useWalletModal = () => {
   };
 };
 
-//Hook for connection status of specific wallet type
 export const useWalletConnectionStatus = (type: WalletType) => {
   const status = useWalletStore(selectConnectionStatus(type));
   const isConnected = useWalletStore(state => state.isConnected);

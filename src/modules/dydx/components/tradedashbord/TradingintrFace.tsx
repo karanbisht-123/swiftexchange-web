@@ -260,13 +260,15 @@ const BottomTabsSection = ({
 
   return (
     <>
-      <div className="flex items-center border-b border-gray-800 px-2 sm:px-4 h-12 shrink-0 overflow-x-auto scrollbar-hide">
+      <div className="flex items-center border-b border-gray-800 px-2 sm:px-4  shrink-0 overflow-x-auto scrollbar-hide">
         {tabs.map(tab => (
           <button
             key={tab}
             onClick={() => setActiveBottomTab(tab)}
             className={`px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
-              activeBottomTab === tab ? 'text-white' : 'text-gray-400 hover:text-gray-300'
+              activeBottomTab === tab
+                ? 'text-white border-b-2 border-[#3b4fd9]'
+                : 'text-gray-400 hover:text-gray-300'
             }`}
           >
             {labels[tab]}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   CompositeClient,
@@ -19,18 +19,22 @@ const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
   return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
 
+// 🔧 FIXED: Proper reset without triggering unnecessary reconnections
 export const resetAllClients = (isLogout = false): void => {
+  console.log(`[dYdX Clients] Resetting clients (logout: ${isLogout})`);
+
   indexerClient = null;
   validatorClient = null;
   compositeClient = null;
-  currentNetwork = null;
 
   if (isLogout) {
+    currentNetwork = null;
+    // Only shutdown WebSocket on logout
+    webSocketManager.shutdown();
     console.log('[dYdX Clients] All clients fully shut down (logout)');
   } else {
-    console.log(
-      '[dYdX Clients] Clients reset due to network change (WebSocket will reconnect automatically)'
-    );
+    // On network change, keep currentNetwork for comparison
+    console.log('[dYdX Clients] Clients reset due to network change');
   }
 };
 
@@ -39,7 +43,7 @@ const checkNetworkChange = (network: 'mainnet' | 'testnet'): boolean => {
     console.log(
       `[dYdX Client] Network changed from ${currentNetwork} to ${network}, resetting clients...`
     );
-    resetAllClients(); // No shutdown() here
+    resetAllClients(false);
     return true;
   }
   return false;
@@ -164,18 +168,14 @@ const createSocketClient = () => {
 
 export const getSocketClient = () => {
   const network = useWalletStore.getState().network;
+  const networkConfig = getNetworkConfig(network);
+  webSocketManager.connect(networkConfig.indexerConfig.websocketEndpoint);
 
-  // No need to recreate if network is same — WebSocketManager handles endpoint changes
-  if (currentNetwork === network) {
-    // Reuse existing methods, but ensure connection points to correct endpoint
-    const networkConfig = getNetworkConfig(network);
-    webSocketManager.connect(networkConfig.indexerConfig.websocketEndpoint);
-    return createSocketClient();
+  if (currentNetwork !== network) {
+    checkNetworkChange(network);
+    currentNetwork = network;
+    console.log(`[SocketClient] Created for ${network}`);
   }
-
-  checkNetworkChange(network);
-  currentNetwork = network;
-  console.log(`[SocketClient] Created for ${network}`);
 
   return createSocketClient();
 };
@@ -187,6 +187,7 @@ export const useIndexerClient = (): IndexerClient => {
   const [client, setClient] = useState<IndexerClient>(getIndexerClient());
 
   useEffect(() => {
+    console.log('[useIndexerClient] Network changed:', network);
     setClient(getIndexerClient());
   }, [network]);
 
@@ -196,15 +197,31 @@ export const useIndexerClient = (): IndexerClient => {
 export const useValidatorClient = (): ValidatorClient | null => {
   const network = useWalletStore(s => s.network);
   const [client, setClient] = useState<ValidatorClient | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    resetAllClients(); // Safe — doesn't call shutdown()
+    mountedRef.current = true;
+    console.log('[useValidatorClient] Initializing for network:', network);
+
     getValidatorClient()
-      .then(setClient)
+      .then(validatorClient => {
+        if (mountedRef.current) {
+          setClient(validatorClient);
+        } else {
+          console.log('[useValidatorClient] Component unmounted, ignoring result');
+        }
+      })
       .catch(error => {
         console.error('[useValidatorClient] Connection failed:', error);
-        setClient(null);
+        if (mountedRef.current) {
+          setClient(null);
+        }
       });
+
+    return () => {
+      console.log('[useValidatorClient] Cleanup on unmount');
+      mountedRef.current = false;
+    };
   }, [network]);
 
   return client;
@@ -213,28 +230,53 @@ export const useValidatorClient = (): ValidatorClient | null => {
 export const useCompositeClient = (): CompositeClient | null => {
   const network = useWalletStore(s => s.network);
   const [client, setClient] = useState<CompositeClient | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    resetAllClients();
+    mountedRef.current = true;
+    console.log('[useCompositeClient] Initializing for network:', network);
+
     getCompositeClient()
-      .then(setClient)
+      .then(compositeClient => {
+        if (mountedRef.current) {
+          setClient(compositeClient);
+        } else {
+          console.log('[useCompositeClient] Component unmounted, ignoring result');
+        }
+      })
       .catch(error => {
         console.error('[useCompositeClient] Connection failed:', error);
-        setClient(null);
+        if (mountedRef.current) {
+          setClient(null);
+        }
       });
+
+    return () => {
+      console.log('[useCompositeClient] Cleanup on unmount');
+      mountedRef.current = false;
+    };
   }, [network]);
 
   return client;
 };
 
+// 🔧 FIXED: Proper WebSocket subscription cleanup
 export const useSocketClient = (): SocketClient => {
   const network = useWalletStore(s => s.network);
-  const [client, setClient] = useState<SocketClient>(getSocketClient());
+  const [client, setClient] = useState<SocketClient>(() => getSocketClient());
+  const networkRef = useRef(network);
 
   useEffect(() => {
-    console.log('[useSocketClient] Network changed to:', network);
-    resetAllClients();
-    setClient(getSocketClient());
+    // Only recreate client if network actually changed
+    if (networkRef.current !== network) {
+      console.log('[useSocketClient] Network changed from', networkRef.current, 'to', network);
+      networkRef.current = network;
+
+      // Get new client for new network
+      setClient(getSocketClient());
+    }
+
+    // No cleanup needed here - subscriptions are cleaned up by components using the client
   }, [network]);
 
   return client;
@@ -254,5 +296,6 @@ export const getConnectionHealth = () => {
 };
 
 export const logoutAndShutdown = () => {
+  console.log('[Clients] Logout initiated');
   resetAllClients(true);
 };

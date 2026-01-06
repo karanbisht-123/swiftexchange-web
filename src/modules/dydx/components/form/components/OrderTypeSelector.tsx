@@ -1,24 +1,33 @@
-import { OrderTypeEnum } from '../../../types/trading.types';
+import type { OrderTypeEnum } from '../../../types/trading.types';
 
 interface OrderTypeSelectorProps {
   selected: OrderTypeEnum;
   onChange: (type: OrderTypeEnum) => void;
 }
 
-export const OrderTypeSelector: React.FC<OrderTypeSelectorProps> = ({ selected, onChange }) => {
-  const orderTypes = [
-    { value: OrderTypeEnum.LIMIT, label: 'Limit' },
-    { value: OrderTypeEnum.MARKET, label: 'Market' },
-    { value: OrderTypeEnum.STOP_LIMIT, label: 'Stop Limit' },
-    { value: OrderTypeEnum.STOP_MARKET, label: 'Stop Market' },
-    { value: OrderTypeEnum.TAKE_PROFIT_LIMIT, label: 'TP Limit' },
-    { value: OrderTypeEnum.TAKE_PROFIT_MARKET, label: 'TP Market' },
-  ];
+const ORDER_TYPES = {
+  LIMIT: 'LIMIT' as const,
+  MARKET: 'MARKET' as const,
+  STOP_LIMIT: 'STOP_LIMIT' as const,
+  STOP_MARKET: 'STOP_MARKET' as const,
+  TAKE_PROFIT_LIMIT: 'TAKE_PROFIT_LIMIT' as const,
+  TAKE_PROFIT_MARKET: 'TAKE_PROFIT_MARKET' as const,
+} as const;
 
+const orderTypeOptions = [
+  { value: ORDER_TYPES.LIMIT, label: 'Limit' },
+  { value: ORDER_TYPES.MARKET, label: 'Market' },
+  { value: ORDER_TYPES.STOP_LIMIT, label: 'Stop Limit' },
+  { value: ORDER_TYPES.STOP_MARKET, label: 'Stop Market' },
+  { value: ORDER_TYPES.TAKE_PROFIT_LIMIT, label: 'TP Limit' },
+  { value: ORDER_TYPES.TAKE_PROFIT_MARKET, label: 'TP Market' },
+] as const;
+
+export const OrderTypeSelector: React.FC<OrderTypeSelectorProps> = ({ selected, onChange }) => {
   return (
     <div className="overflow-x-auto px-2 border-b border-gray-600">
       <div className="flex gap-2 min-w-max">
-        {orderTypes.map(type => (
+        {orderTypeOptions.map(type => (
           <button
             key={type.value}
             onClick={() => onChange(type.value)}

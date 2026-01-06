@@ -1,148 +1,197 @@
+// services/assetService.ts
 import { ethers } from 'ethers';
 
-import { TOKEN_CONFIGS } from '../../../config/tokens';
-import { type Asset } from '../../../types/evm/swap.types';
-import { getEVMChains } from '../../walletconnect/config/chains';
+import { fetchApiResponseFromProxy } from '../../../service/apiService';
 
-export class AssetUtils {
-  static async fetchAssets(chainId: any, address: string, network: any): Promise<Asset[]> {
-    if (!this.isValidAddress(address)) {
-      throw new Error('Invalid wallet address');
+export interface TokenInfo {
+  chainId: number;
+  address: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  logoURI?: string;
+  balance?: string;
+  isNative?: boolean;
+}
+
+interface ChainNativeConfig {
+  symbol: string;
+  name: string;
+  decimals: number;
+}
+
+// Only native token info needed on frontend
+const NATIVE_TOKEN_CONFIG: Record<number, ChainNativeConfig> = {
+  1: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+  56: { symbol: 'BNB', name: 'BNB', decimals: 18 },
+  137: { symbol: 'MATIC', name: 'Polygon', decimals: 18 },
+  42161: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+  10: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+  43114: { symbol: 'AVAX', name: 'Avalanche', decimals: 18 },
+  11155111: { symbol: 'ETH', name: 'Sepolia ETH', decimals: 18 },
+  80002: { symbol: 'MATIC', name: 'Amoy MATIC', decimals: 18 },
+  97: { symbol: 'BNB', name: 'Test BNB', decimals: 18 },
+  421614: { symbol: 'ETH', name: 'Arbitrum Sepolia ETH', decimals: 18 },
+  11155420: { symbol: 'ETH', name: 'Optimism Sepolia ETH', decimals: 18 },
+  43113: { symbol: 'AVAX', name: 'Fuji AVAX', decimals: 18 },
+};
+
+/**
+ * Fetch native token balance
+ */
+async function fetchNativeBalance(
+  provider: ethers.BrowserProvider,
+  address: string
+): Promise<string> {
+  try {
+    const balance = await provider.getBalance(address);
+    return ethers.formatEther(balance);
+  } catch (error) {
+    console.error('Error fetching native balance:', error);
+    return '0';
+  }
+}
+
+/**
+ * Fetch ERC20 token balances in batch
+ */
+async function fetchERC20Balances(
+  provider: ethers.BrowserProvider,
+  address: string,
+  tokens: TokenInfo[]
+): Promise<Map<string, string>> {
+  const balances = new Map<string, string>();
+  const erc20Abi = ['function balanceOf(address owner) view returns (uint256)'];
+
+  const promises = tokens.map(async token => {
+    try {
+      const contract = new ethers.Contract(token.address, erc20Abi, provider);
+      const balance = await contract.balanceOf(address);
+      const formatted = ethers.formatUnits(balance, token.decimals);
+      return { address: token.address.toLowerCase(), balance: formatted };
+    } catch (error) {
+      console.error(`Error fetching balance for ${token.symbol}:`, error);
+      return { address: token.address.toLowerCase(), balance: '0' };
+    }
+  });
+
+  const results = await Promise.all(promises);
+  results.forEach(result => {
+    balances.set(result.address, result.balance);
+  });
+
+  return balances;
+}
+
+/**
+ * Fetch all available tokens for a chain from API
+ */
+export async function fetchAvailableTokens(chainId: number): Promise<TokenInfo[]> {
+  try {
+    const endpoint = `/eth/tokens/${chainId}`;
+    const response = await fetchApiResponseFromProxy<{ tokens: TokenInfo[] }>(endpoint, 'GET');
+
+    if (!response.data?.tokens || !Array.isArray(response.data.tokens)) {
+      throw new Error('Invalid response format from API');
     }
 
-    const availableChains = getEVMChains(network);
-    const chainConfig = availableChains.find(chain => chain.chainId === chainId);
+    return response.data.tokens.map(token => ({
+      ...token,
+      isNative: false,
+    }));
+  } catch (error) {
+    console.error(`Error fetching tokens for chain ${chainId}:`, error);
+    throw new Error(`Failed to fetch tokens for chain ${chainId}`);
+  }
+}
 
-    if (!chainConfig) {
-      throw new Error(`Chain ID ${chainId} not found in ${network} configuration`);
+/**
+ * Fetch assets with balances for a specific wallet
+ */
+export async function fetchAssetsWithBalances(
+  chainId: number,
+  walletAddress: string,
+  provider: ethers.BrowserProvider
+): Promise<TokenInfo[]> {
+  try {
+    // Get native token config
+    const nativeConfig = NATIVE_TOKEN_CONFIG[chainId];
+    if (!nativeConfig) {
+      throw new Error(`Unsupported chain: ${chainId}`);
     }
 
-    console.log('Using chain:', chainConfig.name, 'on', network);
+    // Fetch available tokens from API
+    const tokens = await fetchAvailableTokens(chainId);
 
-    const chainIdToNetworkKey: Record<number, string> = {
-      1: 'ethereum',
-      137: 'polygon',
-      56: 'bsc',
-      42161: 'arbitrum',
-      10: 'optimism',
-      43114: 'avalanche',
-      // Testnet
-      11155111: 'sepolia',
-      80002: 'amoy',
-      97: 'bscTestnet',
-      421614: 'arbitrumSepolia',
-      11155420: 'optimismSepolia',
-      43113: 'fuji',
-    };
+    // Fetch native token balance
+    const nativeBalance = await fetchNativeBalance(provider, walletAddress);
 
-    const networkKey = chainIdToNetworkKey[chainId];
-    if (!networkKey) {
-      throw new Error(`No token configuration found for chainId: ${chainId}`);
-    }
-    const tokens = (TOKEN_CONFIGS as any)[networkKey];
+    // Fetch ERC20 balances
+    const erc20Balances = await fetchERC20Balances(provider, walletAddress, tokens);
 
-    if (!tokens || Object.keys(tokens).length === 0) {
-      console.warn(`No tokens configured for network: ${networkKey}`);
-      return [];
-    }
+    // Build assets array
+    const assets: TokenInfo[] = [];
 
-    console.log(`Loading ${Object.keys(tokens).length} tokens for ${networkKey}`);
+    // Add native token first
+    assets.push({
+      chainId,
+      address: ethers.ZeroAddress,
+      name: nativeConfig.name,
+      symbol: nativeConfig.symbol,
+      decimals: nativeConfig.decimals,
+      balance: nativeBalance,
+      isNative: true,
+    });
 
-    const assets: Asset[] = [];
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-
-    for (const [code, rawConfig] of Object.entries(tokens as any)) {
-      const config = rawConfig as {
-        name: string;
-        address: string;
-        decimals: number;
-        logoUri: string;
-      };
-
-      let balance = '0';
-
-      try {
-        const isWrappedNative = this.isWrappedNativeToken(chainId, config.address);
-
-        if (isWrappedNative) {
-          // Check for native balance (e.g., ETH, MATIC)
-          const nativeBalance = await provider.getBalance(address);
-
-          // Check for actual wrapped token balance (e.g., WETH, WMATIC)
-          const wrappedContract = new ethers.Contract(
-            config.address,
-            ['function balanceOf(address) view returns (uint256)'],
-            provider
-          );
-
-          const wrappedBalance = await wrappedContract.balanceOf(address);
-          const totalBalance = nativeBalance > 0n ? nativeBalance : wrappedBalance;
-
-          balance = ethers.formatUnits(totalBalance, config.decimals);
-        } else {
-          const tokenContract = new ethers.Contract(
-            config.address,
-            ['function balanceOf(address) view returns (uint256)'],
-            provider
-          );
-
-          const tokenBalance = await tokenContract.balanceOf(address);
-          balance = ethers.formatUnits(tokenBalance, config.decimals);
-        }
-
-        console.log(`${code} balance:`, balance);
-      } catch (err) {
-        console.error(`Failed to fetch balance for ${code} (${config.address}):`, err);
-        balance = '0';
-      }
-
+    // Add ERC20 tokens with balances
+    tokens.forEach(token => {
+      const balance = erc20Balances.get(token.address.toLowerCase()) || '0';
       assets.push({
-        code,
-        name: config.name,
-        decimals: config.decimals,
-        address: config.address,
-        balance: parseFloat(balance),
-        logoUri: config.logoUri,
+        ...token,
+        balance,
         isNative: false,
       });
-    }
-
-    return assets.sort((a, b) => {
-      if (a.balance > 0 && b.balance === 0) return -1;
-      if (a.balance === 0 && b.balance > 0) return 1;
-      return a.code.localeCompare(b.code);
     });
-  }
 
-  private static isWrappedNativeToken(chainId: number, tokenAddress: string): boolean {
-    const wrappedNativeAddresses: Record<number, string> = {
-      // Mainnet
-      1: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-      137: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
-      56: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
-      42161: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
-      10: '0x4200000000000000000000000000000000000006',
-      43114: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
-      // Testnet
-      11155111: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
-      80002: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
-      97: '0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd',
-      421614: '0xE591bf0A0CF924A0674d7792db046B23CEbF5f34',
-      11155420: '0x4200000000000000000000000000000000000006',
-      43113: '0xd00ae08403B9bbb9124bB305C09058E32C39A48c',
-    };
+    // Sort: native first, then by balance descending, then alphabetically
+    return assets.sort((a, b) => {
+      if (a.isNative) return -1;
+      if (b.isNative) return 1;
 
-    const wrappedNative = wrappedNativeAddresses[chainId];
-    return wrappedNative?.toLowerCase() === tokenAddress.toLowerCase();
-  }
+      const balanceA = parseFloat(a.balance || '0');
+      const balanceB = parseFloat(b.balance || '0');
 
-  static isValidAddress(address: string): boolean {
-    return ethers.isAddress(address);
-  }
+      if (balanceA !== balanceB) {
+        return balanceB - balanceA;
+      }
 
-  static clearMetadataCache(): void {
-    console.log('Metadata cache cleared');
+      return a.symbol.localeCompare(b.symbol);
+    });
+  } catch (error) {
+    console.error('Error fetching assets with balances:', error);
+    throw error;
   }
+}
+
+/**
+ * Get native token config
+ */
+export function getNativeTokenConfig(chainId: number): ChainNativeConfig | undefined {
+  return NATIVE_TOKEN_CONFIG[chainId];
+}
+
+/**
+ * Check if chain is supported
+ */
+export function isChainSupported(chainId: number): boolean {
+  return chainId in NATIVE_TOKEN_CONFIG;
+}
+
+/**
+ * Get all supported chain IDs
+ */
+export function getSupportedChainIds(): number[] {
+  return Object.keys(NATIVE_TOKEN_CONFIG).map(Number);
 }
 
 // import { ethers } from 'ethers';

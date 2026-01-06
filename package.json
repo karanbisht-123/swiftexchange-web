@@ -12,10 +12,11 @@
   },
   "dependencies": {
     "@dydxprotocol/v4-client-js": "^3.1.1",
+    "@reown/walletkit": "^1.4.1",
     "@stellar/stellar-sdk": "^14.4.3",
     "@walletconnect/modal": "^2.7.0",
     "@walletconnect/types": "^2.21.6",
-    "@walletconnect/universal-provider": "^2.21.10",
+    "@walletconnect/universal-provider": "^2.23.1",
     "@walletconnect/utils": "^2.21.6",
     "ethers": "^6.15.0",
     "lightweight-charts": "^5.0.8",

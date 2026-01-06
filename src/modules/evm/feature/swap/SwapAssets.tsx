@@ -11,17 +11,13 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import PageLayout from '../../../../components/layout/PageLayout';
-import type { Asset, SwapQuoteRequest } from '../../../../types/evm/swap.types';
+import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
 import { getEVMChains } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { useEvmSwap } from '../../hook/useEvmSwap';
-import {
-  determineSwapType,
-  getNetworkConfigByChainId,
-  getSwapConfigByChainId,
-} from '../../utils/evmSwapUtils';
+import { determineSwapType } from '../../utils/evmSwapUtils';
 
 interface SwapAssetsProps {
   onClose?: () => void;
@@ -30,22 +26,22 @@ interface SwapAssetsProps {
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
+
   const evmWallet = connectedWallets[WalletType.EVM];
   const isConnected = !!evmWallet;
   const senderAddress = evmWallet?.address || '';
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
 
-  console.log('sendaddress:', senderAddress );  
-  console.log('Current Network in SwapAssets:', currentNetwork, currentChainId);
   const evmChains = getEVMChains(currentNetwork);
 
-  const [sellAssetCode, setSellAssetCode] = useState<string>('');
-  const [buyAssetCode, setBuyAssetCode] = useState<string>('');
+  const [sellAssetSymbol, setSellAssetSymbol] = useState<string>('');
+  const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>('');
   const [sellAmount, setSellAmount] = useState<string>('');
   const [slippageTolerance, setSlippageTolerance] = useState<number>(0.5);
   const [showDetails, setShowDetails] = useState<boolean>(true);
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
   const [showNetworkDropdown, setShowNetworkDropdown] = useState<boolean>(false);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -61,16 +57,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     performSwap,
     reset,
   } = useEvmSwap({
-    currentChainId,
+    chainId: currentChainId || 0,
     senderAddress,
     getProvider,
   });
 
-  const selectedSellAsset = assets.find(a => a.code === sellAssetCode);
-  const selectedBuyAsset = assets.find(a => a.code === buyAssetCode);
+  const selectedSellAsset = assets.find(a => a.symbol === sellAssetSymbol);
+  const selectedBuyAsset = assets.find(a => a.symbol === buyAssetSymbol);
 
   const networkConfig = currentChainId
-    ? getNetworkConfigByChainId(currentChainId, currentNetwork)
+    ? evmChains.find(chain => chain.chainId === currentChainId)
     : null;
 
   const isTestnet = currentChainId
@@ -88,34 +84,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // FIX 4: Add currentNetwork to dependencies and reset chainId if EVM chains change
   useEffect(() => {
-    // 1. If the wallet connects/switches chain, update our local state
     if (currentChainId) {
       const isValidChain = evmChains.some(chain => chain.chainId === currentChainId);
 
       if (isValidChain) {
         setIsChainSwitching(true);
         setSellAmount('');
-        setSellAssetCode('');
-        setBuyAssetCode('');
-        reset();
-        setTimeout(() => setIsChainSwitching(false), 500);
-      }
-    } else if (
-      !evmChains.some(chain => chain.chainId === currentChainId)
-    ) {
-      const newDefaultChain = evmChains[0]?.chainId;
-      if (newDefaultChain) {
-        setIsChainSwitching(true);
-        setSellAmount('');
-        setSellAssetCode('');
-        setBuyAssetCode('');
+        setSellAssetSymbol('');
+        setBuyAssetSymbol('');
         reset();
         setTimeout(() => setIsChainSwitching(false), 500);
       }
     }
-  }, [currentChainId, currentChainId, reset, evmChains, currentNetwork]);
+  }, [currentChainId, evmChains, reset]);
 
   useEffect(() => {
     if (isConnected && senderAddress && currentChainId && !isChainSwitching) {
@@ -123,40 +105,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
   }, [currentChainId, senderAddress, isConnected, fetchAssets, isChainSwitching]);
 
+  // Set default assets
   useEffect(() => {
-    if (assets.length > 0 && !sellAssetCode && !buyAssetCode && !isChainSwitching) {
-      let defaultSellAsset: Asset | undefined;
-      let defaultBuyAsset: Asset | undefined;
+    if (assets.length > 0 && !sellAssetSymbol && !buyAssetSymbol && !isChainSwitching) {
+      const nativeAsset = assets.find(a => a.isNative);
+      const usdcAsset = assets.find(a => a.symbol === 'USDC');
 
-      try {
-        const swapConfig = getSwapConfigByChainId(currentChainId);
-
-        console.log('swapConfig:', swapConfig);
-        const wNativeAsset = assets.find(
-          a => a.address.toLowerCase() === swapConfig.wNative.toLowerCase()
-        );
-        const usdcAsset = assets.find(a => a.code === 'USDC');
-
-        if (wNativeAsset && usdcAsset && wNativeAsset.code !== usdcAsset.code) {
-          defaultSellAsset = wNativeAsset;
-          defaultBuyAsset = usdcAsset;
-        } else if (assets.length >= 2) {
-          defaultSellAsset = assets[0];
-          defaultBuyAsset = assets[1];
-        }
-
-        if (defaultSellAsset && defaultBuyAsset) {
-          setSellAssetCode(defaultSellAsset.code);
-          setBuyAssetCode(defaultBuyAsset.code);
-        }
-      } catch (error) {
-        if (assets.length >= 2) {
-          setSellAssetCode(assets[0].code);
-          setBuyAssetCode(assets[1].code);
-        }
+      if (nativeAsset && usdcAsset) {
+        setSellAssetSymbol(nativeAsset.symbol);
+        setBuyAssetSymbol(usdcAsset.symbol);
+      } else if (assets.length >= 2) {
+        setSellAssetSymbol(assets[0].symbol);
+        setBuyAssetSymbol(assets[1].symbol);
       }
     }
-  }, [assets, sellAssetCode, buyAssetCode, currentChainId, isChainSwitching]);
+  }, [assets, sellAssetSymbol, buyAssetSymbol, isChainSwitching]);
 
   const fetchSwapQuote = useCallback(async () => {
     if (
@@ -164,7 +127,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       !selectedBuyAsset ||
       !sellAmount ||
       parseFloat(sellAmount) <= 0 ||
-      sellAssetCode === buyAssetCode ||
+      sellAssetSymbol === buyAssetSymbol ||
       !isConnected ||
       isChainSwitching
     ) {
@@ -172,33 +135,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
 
     try {
-      const swapConfig = getSwapConfigByChainId(chainId);
-      const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset, swapConfig.wNative);
-
-      console.log(
-        'Fetching quote with:',
-        swapConfig,
-        swapType,
-        selectedSellAsset,
-        selectedBuyAsset
-      );
+      const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset);
 
       const quoteRequest: SwapQuoteRequest = {
         tokenIn: {
-          symbol: selectedSellAsset.code,
+          symbol: selectedSellAsset.symbol,
           name: selectedSellAsset.name,
           decimals: selectedSellAsset.decimals,
           address: selectedSellAsset.address,
-          balance: selectedSellAsset.balance.toString(),
-          logoUri: selectedSellAsset.logoUri,
+          balance: selectedSellAsset.balance || '0',
+          logoUri: selectedSellAsset.logoURI,
         },
         tokenOut: {
-          symbol: selectedBuyAsset.code,
+          symbol: selectedBuyAsset.symbol,
           name: selectedBuyAsset.name,
           decimals: selectedBuyAsset.decimals,
           address: selectedBuyAsset.address,
-          balance: selectedBuyAsset.balance.toString(),
-          logoUri: selectedBuyAsset.logoUri,
+          balance: selectedBuyAsset.balance || '0',
+          logoUri: selectedBuyAsset.logoURI,
         },
         amount: sellAmount,
         swapType,
@@ -212,10 +166,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     selectedSellAsset,
     selectedBuyAsset,
     sellAmount,
-    sellAssetCode,
-    buyAssetCode,
+    sellAssetSymbol,
+    buyAssetSymbol,
     isConnected,
-    currentChainId,
     fetchQuote,
     isChainSwitching,
   ]);
@@ -230,32 +183,22 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset) {
-      try {
-        const swapConfig = getSwapConfigByChainId(currentChainId);
-        const maxAmount = Math.max(
-          0,
-          selectedSellAsset.balance -
-            (selectedSellAsset.address.toLowerCase() === swapConfig.wNative.toLowerCase()
-              ? 0.01 // Reserve a small amount for gas if it's native/wNative being sold
-              : 0)
-        );
-        // Using toString() of the calculated number can lose precision, but matching the original logic here.
-        setSellAmount(maxAmount.toString());
-      } catch (error) {
-        setSellAmount(selectedSellAsset.balance.toString());
-      }
+      const balance = parseFloat(selectedSellAsset.balance || '0');
+      const maxAmount = selectedSellAsset.isNative ? Math.max(0, balance - 0.01) : balance;
+
+      setSellAmount(maxAmount.toString());
     }
-  }, [selectedSellAsset, currentChainId]);
+  }, [selectedSellAsset]);
 
   const handleAssetSwap = useCallback(() => {
-    const newSellCode = buyAssetCode;
-    const newBuyCode = sellAssetCode;
+    const newSell = buyAssetSymbol;
+    const newBuy = sellAssetSymbol;
 
-    setSellAssetCode(newSellCode);
-    setBuyAssetCode(newBuyCode);
+    setSellAssetSymbol(newSell);
+    setBuyAssetSymbol(newBuy);
     setSellAmount('');
     reset();
-  }, [buyAssetCode, sellAssetCode, reset]);
+  }, [buyAssetSymbol, sellAssetSymbol, reset]);
 
   const handleNetworkChange = useCallback(
     async (newChainId: number) => {
@@ -267,8 +210,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       setIsChainSwitching(true);
       setShowNetworkDropdown(false);
       setSellAmount('');
-      setSellAssetCode('');
-      setBuyAssetCode('');
+      setSellAssetSymbol('');
+      setBuyAssetSymbol('');
       reset();
 
       if (isConnected && getProvider(WalletType.EVM)) {
@@ -280,24 +223,25 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           });
         } catch (error: any) {
           if (error.code === 4902) {
-            // FIX 5: Pass currentNetwork to getNetworkConfigByChainId inside handleNetworkChange
-            const networkConfig = getNetworkConfigByChainId(newChainId, currentNetwork);
-            try {
-              const provider = getProvider(WalletType.EVM);
-              await provider.request({
-                method: 'wallet_addEthereumChain',
-                params: [
-                  {
-                    chainId: `0x${newChainId.toString(16)}`,
-                    chainName: networkConfig.name,
-                    nativeCurrency: networkConfig.nativeCurrency,
-                    rpcUrls: [networkConfig.rpcUrl],
-                    blockExplorerUrls: [networkConfig.blockExplorerUrl],
-                  },
-                ],
-              });
-            } catch (addError) {
-              console.error('Error adding network:', addError);
+            const networkConfig = evmChains.find(c => c.chainId === newChainId);
+            if (networkConfig) {
+              try {
+                const provider = getProvider(WalletType.EVM);
+                await provider.request({
+                  method: 'wallet_addEthereumChain',
+                  params: [
+                    {
+                      chainId: `0x${newChainId.toString(16)}`,
+                      chainName: networkConfig.name,
+                      nativeCurrency: networkConfig.nativeCurrency,
+                      rpcUrls: [networkConfig.rpcUrl],
+                      blockExplorerUrls: [networkConfig.blockExplorerUrl],
+                    },
+                  ],
+                });
+              } catch (addError) {
+                console.error('Error adding network:', addError);
+              }
             }
           }
         }
@@ -305,7 +249,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       setTimeout(() => setIsChainSwitching(false), 500);
     },
-    [isConnected, getProvider, reset, currentChainId, currentNetwork]
+    [isConnected, getProvider, reset, currentChainId, evmChains]
   );
 
   const handleSwap = useCallback(async () => {
@@ -337,21 +281,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const isSwapDisabled =
     !isConnected ||
     !senderAddress ||
-    sellAssetCode === buyAssetCode ||
+    sellAssetSymbol === buyAssetSymbol ||
     !sellAmount ||
     parseFloat(sellAmount) <= 0 ||
-    parseFloat(sellAmount) > (selectedSellAsset?.balance ?? 0) ||
+    parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0') ||
     loading ||
     !quote ||
     isFetchingAssets ||
     isChainSwitching;
 
   const buyAmount = quote?.outputAmount
-    ? parseFloat(quote.outputAmount).toFixed(Math.min(selectedBuyAsset?.decimals ?? 6, 6))
+    ? parseFloat(quote.outputAmount).toFixed(Math.min(selectedBuyAsset?.decimals || 6, 6))
     : '0.00';
 
-  const formatBalance = (balance: number, decimals: number) => {
-    return balance.toFixed(Math.min(decimals, 6));
+  const formatBalance = (balance: string, decimals: number) => {
+    return parseFloat(balance).toFixed(Math.min(decimals, 6));
   };
 
   const getChainIcon = (chainId: number) => {
@@ -381,6 +325,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       maxWidth="lg"
     >
       <div className="max-w-xl mx-auto space-y-4">
+        {/* Success Modal */}
         {txHash && networkConfig && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
             <div className="card max-w-md w-full animate-slide-up rounded-t-3xl sm:rounded-2xl border-t-4 border-green-500 shadow-2xl m-0 sm:m-4">
@@ -433,6 +378,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
 
+        {/* Error Display */}
         {error && (
           <div className="card bg-danger-bg border-2 border-red-300 animate-slide-up">
             <div className="flex items-start gap-3">
@@ -445,6 +391,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
 
+        {/* Connect Wallet CTA */}
         {!isConnected && (
           <div className="card text-center py-12">
             <div className="flex justify-center mb-6">
@@ -462,6 +409,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
 
+        {/* Network Selector */}
         {isConnected && networkConfig && (
           <div className="card py-3">
             <div className="flex items-center justify-between gap-3">
@@ -476,7 +424,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     disabled={isChainSwitching}
                   >
                     <span className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-lg">{getChainIcon(currentChainId)}</span>
+                      <span className="text-lg">{getChainIcon(currentChainId!)}</span>
                       <span className="truncate">{networkConfig.name}</span>
                     </span>
                     {isChainSwitching ? (
@@ -511,17 +459,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {isTestnet && (
-                  <span className="badge-warning text-xs px-2 py-0.5 whitespace-nowrap">TEST</span>
-                )}
-              </div>
+              {isTestnet && (
+                <span className="badge-warning text-xs px-2 py-0.5 whitespace-nowrap">TEST</span>
+              )}
             </div>
           </div>
         )}
 
+        {/* Swap Interface */}
         {isConnected && (
-          <div className="card">
+          <div className="card relative">
             {(isChainSwitching || isFetchingAssets) && (
               <div className="absolute inset-0 bg-secondary/80 backdrop-blur-sm rounded-lg flex items-center justify-center z-10">
                 <div className="text-center">
@@ -533,6 +480,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             )}
 
+            {/* Sell Input */}
             <div className="mb-2">
               <div className="flex items-center justify-between mb-3">
                 <label className="block text-sm font-semibold text-primary">You Pay</label>
@@ -548,10 +496,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               <div className="bg-tertiary rounded-xl p-4 border border-color">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {selectedSellAsset?.logoUri && (
+                    {selectedSellAsset?.logoURI && (
                       <img
-                        src={selectedSellAsset.logoUri}
-                        alt={selectedSellAsset.code}
+                        src={selectedSellAsset.logoURI}
+                        alt={selectedSellAsset.symbol}
                         className="w-8 h-8 rounded-full flex-shrink-0"
                         onError={e => {
                           (e.target as HTMLImageElement).style.display = 'none';
@@ -559,10 +507,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       />
                     )}
                     <select
-                      className="input-sm bg-transparent border-none p-0 font-semibold text-sm cursor-pointer max-w-[80px]"
-                      value={sellAssetCode}
+                      className="input-sm bg-transparent border-none p-0 font-semibold text-sm cursor-pointer max-w-[90px]"
+                      value={sellAssetSymbol}
                       onChange={e => {
-                        setSellAssetCode(e.target.value);
+                        setSellAssetSymbol(e.target.value);
                         setSellAmount('');
                         reset();
                       }}
@@ -572,8 +520,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         Select
                       </option>
                       {assets.map(asset => (
-                        <option key={asset.address} value={asset.code}>
-                          {asset.code}
+                        <option key={asset.address} value={asset.symbol}>
+                          {asset.symbol}
                         </option>
                       ))}
                     </select>
@@ -582,7 +530,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   <input
                     type="number"
                     className={`input flex-1 text-right text-xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${
-                      parseFloat(sellAmount) > (selectedSellAsset?.balance ?? 0)
+                      parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0')
                         ? 'text-red-600'
                         : ''
                     }`}
@@ -598,21 +546,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     Balance:{' '}
                     {isFetchingAssets || isChainSwitching ? (
                       <Loader2 className="w-3 h-3 animate-spin inline" />
+                    ) : selectedSellAsset ? (
+                      formatBalance(selectedSellAsset.balance || '0', selectedSellAsset.decimals)
                     ) : (
-                      <>
-                        {selectedSellAsset
-                          ? formatBalance(selectedSellAsset.balance, selectedSellAsset.decimals)
-                          : '0'}
-                      </>
+                      '0'
                     )}
                   </span>
-                  {parseFloat(sellAmount) > (selectedSellAsset?.balance ?? 0) && (
+                  {parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0') && (
                     <span className="text-red-600 font-semibold">Insufficient</span>
                   )}
                 </div>
               </div>
             </div>
 
+            {/* Swap Button */}
             <div className="flex justify-center -my-3 relative z-10">
               <button
                 onClick={handleAssetSwap}
@@ -625,16 +572,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </button>
             </div>
 
+            {/* Buy Output */}
             <div className="mt-2">
               <label className="block text-sm font-semibold text-primary mb-3">You Receive</label>
 
               <div className="bg-tertiary rounded-xl p-4 border border-color">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {selectedBuyAsset?.logoUri && (
+                    {selectedBuyAsset?.logoURI && (
                       <img
-                        src={selectedBuyAsset.logoUri}
-                        alt={selectedBuyAsset.code}
+                        src={selectedBuyAsset.logoURI}
+                        alt={selectedBuyAsset.symbol}
                         className="w-8 h-8 rounded-full flex-shrink-0"
                         onError={e => {
                           (e.target as HTMLImageElement).style.display = 'none';
@@ -642,10 +590,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       />
                     )}
                     <select
-                      className="input-sm bg-transparent border-none p-0 font-semibold text-sm cursor-pointer max-w-[80px]"
-                      value={buyAssetCode}
+                      className="input-sm bg-transparent border-none p-0 font-semibold text-sm cursor-pointer max-w-[90px]"
+                      value={buyAssetSymbol}
                       onChange={e => {
-                        setBuyAssetCode(e.target.value);
+                        setBuyAssetSymbol(e.target.value);
                         setSellAmount('');
                         reset();
                       }}
@@ -655,8 +603,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         Select
                       </option>
                       {assets.map(asset => (
-                        <option key={asset.address} value={asset.code}>
-                          {asset.code}
+                        <option key={asset.address} value={asset.symbol}>
+                          {asset.symbol}
                         </option>
                       ))}
                     </select>
@@ -676,18 +624,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     Balance:{' '}
                     {isFetchingAssets || isChainSwitching ? (
                       <Loader2 className="w-3 h-3 animate-spin inline" />
+                    ) : selectedBuyAsset ? (
+                      formatBalance(selectedBuyAsset.balance || '0', selectedBuyAsset.decimals)
                     ) : (
-                      <>
-                        {selectedBuyAsset
-                          ? formatBalance(selectedBuyAsset.balance, selectedBuyAsset.decimals)
-                          : '0'}
-                      </>
+                      '0'
                     )}
                   </span>
                 </div>
               </div>
             </div>
 
+            {/* Price Info */}
             {quote && !quoteLoading && !isChainSwitching && (
               <div className="mt-4 bg-info-bg rounded-lg p-3 border border-color">
                 <div className="flex items-center justify-center gap-2">
@@ -709,6 +656,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             )}
 
+            {/* Swap Details */}
             {quote && !quoteLoading && networkConfig && !isChainSwitching && (
               <div className="mt-4">
                 <button
@@ -803,13 +751,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </span>
             ) : !senderAddress ? (
               'No Wallet Address'
-            ) : sellAssetCode === buyAssetCode ? (
+            ) : `${''}` === `${''}` ? (
               'Select Different Tokens'
             ) : !sellAmount ? (
               'Enter Amount'
-            ) : parseFloat(sellAmount) <= 0 ? (
-              'Enter Valid Amount'
-            ) : parseFloat(sellAmount) > (selectedSellAsset?.balance ?? 0) ? (
+            ) : parseFloat(sellAmount) > isChainSwitchin ? (
               'Insufficient Balance'
             ) : isFetchingAssets ? (
               'Fetching Assets...'

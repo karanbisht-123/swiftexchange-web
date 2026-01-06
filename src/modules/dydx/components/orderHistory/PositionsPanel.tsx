@@ -1,459 +1,382 @@
-import { Edit2, Loader2, X } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import { Edit2, Loader2, TrendingDown, TrendingUp, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { getSocketClient } from '../../client/clients';
 import { metadataService } from '../../hooks/useCoinGeckoMetadata';
-import { type Position, dydxDataService } from '../../service/dydxOrderService';
-import { dydxTradingService } from '../../service/dydxTradingService';
+import { useDydxData } from '../../hooks/useDydxData';
+import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { dydxWalletService } from '../../service/dydxWalletService';
+import { type Position } from '../../types/trading.types';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
 
-interface SubaccountWebSocketData {
-  openPerpetualPositions?: Position[];
-  orders?: any[];
-  fills?: any[];
-}
-
 const PositionsPanel: React.FC = () => {
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { positions, loadingPositions, positionsError, refreshPositions, isConnected } =
+    useDydxData();
+  const { closePosition, setTriggers, isSettingTriggers, orderError, clearOrderError } =
+    useDydxTrading();
+
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
   const [oraclePrices, setOraclePrices] = useState<Record<string, number>>({});
-  const [closingPosition, setClosingPosition] = useState<string | null>(null);
+  const [closingMarket, setClosingMarket] = useState<string | null>(null);
   const [icons, setIcons] = useState<Record<string, string>>({});
-  const [useWebSocket, setUseWebSocket] = useState(false); // Disabled by default
-  const [wsConnected, setWsConnected] = useState(false);
 
-  const address = dydxWalletService.getAddress();
-  const subaccountNumber = dydxWalletService.getSubaccountNumber() ?? 0;
-  const isConnected = !!address;
+  // New: Inline notification state
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
-  // Fetch positions via HTTP
-  const fetchPositions = useCallback(async () => {
-    if (!isConnected) {
-      setPositions([]);
-      setLoading(false);
-      return;
-    }
+  const showNotification = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000); // Auto hide after 4 seconds
+  };
 
-    try {
-      setLoading(true);
-      const data = await dydxDataService.fetchPositions();
-      setPositions(data);
+  const activeMarkets = useMemo(() => [...new Set(positions.map(p => p.market))], [positions]);
 
-      // Load icons for all position markets
-      const markets = [...new Set(data.map(p => p.market))];
-      const iconPromises = markets.map(async market => {
-        const metadata = await metadataService.getMetadata(market);
-        return { market, icon: metadata?.image };
-      });
+  useEffect(() => {
+    if (activeMarkets.length === 0) return;
 
-      const iconResults = await Promise.allSettled(iconPromises);
+    const fetchIcons = async () => {
+      const results = await Promise.allSettled(
+        activeMarkets.map(async market => {
+          const metadata = await metadataService.getMetadata(market);
+          return { market, icon: metadata?.image };
+        })
+      );
+
       const newIcons: Record<string, string> = {};
-
-      iconResults.forEach(result => {
+      results.forEach(result => {
         if (result.status === 'fulfilled' && result.value.icon) {
           newIcons[result.value.market] = result.value.icon;
         }
       });
 
       setIcons(prev => ({ ...prev, ...newIcons }));
-    } catch (error) {
-      console.error('[PositionsPanel] Failed to fetch positions:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [isConnected]);
-
-  // WebSocket subscription for real-time updates (optional, disabled by default)
-  useEffect(() => {
-    if (!isConnected || !useWebSocket) {
-      setWsConnected(false);
-      return;
-    }
-
-    console.log('[PositionsPanel] Subscribing to v4_subaccounts WebSocket');
-
-    const socketClient = getSocketClient();
-
-    const unsubscribe = socketClient.subscribeToSubaccounts(
-      address!,
-      subaccountNumber,
-      (message: any) => {
-        if (message.type === 'channel_data' && message.contents) {
-          const data: SubaccountWebSocketData = message.contents;
-
-          if (data.openPerpetualPositions) {
-            console.log('[PositionsPanel] Received WebSocket position update');
-            setPositions(data.openPerpetualPositions);
-            setWsConnected(true);
-          }
-        }
-      }
-    );
-
-    setWsConnected(socketClient.isConnected());
-
-    return () => {
-      console.log('[PositionsPanel] Unsubscribing from WebSocket');
-      unsubscribe();
-      setWsConnected(false);
     };
-  }, [isConnected, useWebSocket, address, subaccountNumber]);
 
-  // Initial HTTP fetch
+    fetchIcons();
+  }, [activeMarkets]);
+
   useEffect(() => {
-    if (isConnected) {
-      fetchPositions();
-    }
-  }, [isConnected, fetchPositions]);
+    if (activeMarkets.length === 0 || !isConnected) return;
 
-  // Fallback polling when WebSocket is disabled
-  useEffect(() => {
-    if (!isConnected || useWebSocket) return;
-
-    const interval = setInterval(fetchPositions, 10000);
-    return () => clearInterval(interval);
-  }, [isConnected, useWebSocket, fetchPositions]);
-
-  // Fetch oracle prices for P&L calculations
-  useEffect(() => {
-    if (positions.length === 0) return;
-
-    const marketTickers = [...new Set(positions.map(p => p.market))];
     const indexer = dydxWalletService.getIndexerClient();
     if (!indexer) return;
 
-    let isActive = true;
-
-    const fetchOraclePrices = async () => {
-      if (!isActive) return;
-
-      const pricePromises = marketTickers.map(async ticker => {
-        try {
-          const book = await indexer.markets.getPerpetualMarketOrderbook(ticker);
-          if (book.bids?.length && book.asks?.length) {
-            const midPrice = (parseFloat(book.bids[0].price) + parseFloat(book.asks[0].price)) / 2;
-            return { ticker, price: midPrice };
+    const fetchPrices = async () => {
+      const results = await Promise.allSettled(
+        activeMarkets.map(async market => {
+          const book = await indexer.markets.getPerpetualMarketOrderbook(market);
+          if (book.bids?.[0] && book.asks?.[0]) {
+            const price = (parseFloat(book.bids[0].price) + parseFloat(book.asks[0].price)) / 2;
+            return { market, price };
           }
-        } catch (error) {
-          console.error(`Failed to fetch price for ${ticker}:`, error);
-        }
-        return null;
-      });
-
-      const results = await Promise.allSettled(pricePromises);
-
-      if (!isActive) return;
+          return null;
+        })
+      );
 
       const newPrices: Record<string, number> = {};
       results.forEach(result => {
         if (result.status === 'fulfilled' && result.value) {
-          newPrices[result.value.ticker] = result.value.price;
+          newPrices[result.value.market] = result.value.price;
         }
       });
 
       setOraclePrices(prev => ({ ...prev, ...newPrices }));
     };
 
-    fetchOraclePrices();
-    const interval = setInterval(fetchOraclePrices, 5000);
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 5000);
+    return () => clearInterval(interval);
+  }, [activeMarkets, isConnected]);
 
-    return () => {
-      isActive = false;
-      clearInterval(interval);
-    };
-  }, [positions]);
-
-  const handleEditPosition = useCallback((position: Position) => {
-    setSelectedPosition(position);
-    setShowPriceTriggers(true);
-  }, []);
+  const handleEdit = useCallback(
+    (position: Position) => {
+      clearOrderError();
+      setSelectedPosition(position);
+      setShowPriceTriggers(true);
+    },
+    [clearOrderError]
+  );
 
   const handleSaveTriggers = useCallback(
     async (config: TriggerConfig) => {
       if (!selectedPosition) return;
 
       try {
-        const marketInfo = await dydxTradingService.getMarketInfo(selectedPosition.market);
+        const params: any = {};
+        if (config.takeProfit?.enabled) params.takeProfit = config.takeProfit;
+        if (config.stopLoss?.enabled) params.stopLoss = config.stopLoss;
 
-        const results = await dydxTradingService.setPositionTriggers(selectedPosition, marketInfo, {
-          takeProfit: config.takeProfit?.enabled
-            ? { price: config.takeProfit.price!, type: config.takeProfit.type }
-            : undefined,
-          stopLoss: config.stopLoss?.enabled
-            ? { price: config.stopLoss.price!, type: config.stopLoss.type }
-            : undefined,
-        });
+        const result = await setTriggers(selectedPosition, params);
 
-        const errors: string[] = [];
-        if (results.takeProfitResult && !results.takeProfitResult.success) {
-          errors.push(`TP: ${results.takeProfitResult.userMessage}`);
-        }
-        if (results.stopLossResult && !results.stopLossResult.success) {
-          errors.push(`SL: ${results.stopLossResult.userMessage}`);
-        }
+        let successCount = 0;
+        if (result.takeProfit?.success) successCount++;
+        if (result.stopLoss?.success) successCount++;
 
-        if (errors.length > 0) {
-          alert('Some triggers failed:\n' + errors.join('\n'));
-        } else {
-          alert('Triggers set successfully!');
+        if (successCount > 0) {
+          const triggerText = successCount === 2 ? 'Take Profit & Stop Loss' : 'Trigger';
+          showNotification(`${triggerText} set successfully!`, 'success');
           setShowPriceTriggers(false);
+          setTimeout(refreshPositions, 1500);
+        } else {
+          const errorMsg =
+            result.takeProfit?.error || result.stopLoss?.error || 'Failed to set triggers';
+          showNotification(errorMsg, 'error');
         }
       } catch (error: any) {
-        console.error('Failed to set triggers:', error);
-        alert('Failed to set triggers: ' + (error.message || 'Unknown error'));
+        showNotification(error.message || 'Failed to set triggers', 'error');
       }
     },
-    [selectedPosition]
+    [selectedPosition, setTriggers, refreshPositions]
   );
 
-  const handleClosePosition = useCallback(
+  const handleClose = useCallback(
     async (position: Position) => {
-      if (!confirm(`Close ${position.side} position for ${position.market}?`)) return;
+      if (!window.confirm(`Close ${position.market} position?`)) return;
 
-      setClosingPosition(position.market);
+      setClosingMarket(position.market);
+
       try {
-        const marketInfo = await dydxTradingService.getMarketInfo(position.market);
-        const result = await dydxTradingService.closePosition(
-          position.market,
-          position,
-          marketInfo
-        );
+        const result = await closePosition(position);
 
         if (result.success) {
-          alert('Position close order placed successfully!');
-          setTimeout(fetchPositions, 2000);
+          showNotification(`Position ${position.market} closed successfully!`, 'success');
+          setTimeout(refreshPositions, 2000);
         } else {
-          alert('Failed to close position: ' + result.userMessage);
+          showNotification(result.userMessage || 'Failed to close position', 'error');
         }
       } catch (error: any) {
-        console.error('Failed to close position:', error);
-        alert('Failed to close position: ' + error.message);
+        showNotification(error.message || 'Failed to close position', 'error');
       } finally {
-        setClosingPosition(null);
+        setClosingMarket(null);
       }
     },
-    [fetchPositions]
+    [closePosition, refreshPositions]
   );
 
-  const handleCloseTriggers = useCallback(() => {
-    setShowPriceTriggers(false);
-    setSelectedPosition(null);
+  const formatPrice = useCallback((value: string | number) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }, []);
 
   const getMarketIcon = useCallback(
     (market: string) => {
-      const baseAsset = market.split('-')[0];
-      const cachedIcon = icons[market];
-
-      if (cachedIcon) {
+      const icon = icons[market];
+      if (icon) {
         return (
           <img
-            src={cachedIcon}
-            alt={baseAsset}
-            className="w-full h-full object-cover rounded-full"
+            src={icon}
+            alt={market}
+            className="w-full h-full object-cover"
             onError={e => {
               e.currentTarget.style.display = 'none';
-              e.currentTarget.parentElement!.innerHTML = `<span class="text-white text-xs font-bold">${baseAsset.charAt(0)}</span>`;
+              e.currentTarget.parentElement!.innerHTML = `<span class="text-[8px]">${market.substring(0, 1)}</span>`;
             }}
           />
         );
       }
-
-      return <span className="text-white text-xs font-bold">{baseAsset.charAt(0)}</span>;
+      return <span className="text-[8px]">{market.substring(0, 1)}</span>;
     },
     [icons]
   );
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center">
-        <h3 className="text-lg font-semibold text-white mb-2">Connect Your Wallet</h3>
-        <p className="text-gray-400 text-sm">Connect to view your positions</p>
+      <div className="flex items-center justify-center h-full text-gray-400">
+        <div className="text-center">
+          <h3 className="text-lg font-semibold text-white mb-2">Connect Wallet</h3>
+          <p className="text-sm">Connect your wallet to view positions</p>
+        </div>
       </div>
     );
   }
 
-  if (loading) {
+  if (loadingPositions && positions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-        <span className="ml-3 text-gray-400">Loading positions...</span>
+      <div className="flex flex-col items-center justify-center h-full text-gray-400">
+        <Loader2 className="w-6 h-6 animate-spin mb-2" />
+        <p>Loading positions...</p>
+      </div>
+    );
+  }
+
+  if (positionsError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+        <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-lg text-center max-w-md">
+          <h3 className="text-lg font-semibold text-red-400 mb-2">Error Loading Positions</h3>
+          <p className="text-sm text-gray-400 mb-4">{positionsError}</p>
+          <button
+            onClick={refreshPositions}
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
 
   if (positions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center">
-        <h3 className="text-lg font-semibold text-white mb-2">No Open Positions</h3>
-        <p className="text-gray-400 text-sm">Your positions will appear here after trading</p>
+      <div className="flex items-center justify-center h-full text-gray-400">
+        <div className="text-center">
+          <h3 className="text-lg font-semibold text-white mb-2">No Open Positions</h3>
+          <p className="text-sm">Your active positions will appear here</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <>
-      <div className="h-full flex flex-col bg-primary">
-        {/* Optional: Header with WebSocket toggle (hidden by default) */}
-        {false && (
-          <div className="px-4 py-2 bg-secondary border-b border-gray-700 flex items-center justify-between">
-            <h2 className="text-white font-semibold">Positions</h2>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400 text-xs">Real-time updates:</span>
-                <button
-                  onClick={() => setUseWebSocket(!useWebSocket)}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    useWebSocket ? 'bg-green-500/20 text-green-400' : 'bg-gray-600/20 text-gray-400'
-                  }`}
-                >
-                  {useWebSocket ? 'WebSocket' : 'Polling'}
-                </button>
-              </div>
-              {useWebSocket && (
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      wsConnected ? 'bg-green-500' : 'bg-red-500'
-                    }`}
-                  />
-                  <span className="text-xs text-gray-400">
-                    {wsConnected ? 'Connected' : 'Disconnected'}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-secondary border-b border-gray-600">
-              <tr className="text-gray-400 text-xs">
-                <th className="text-left px-4 py-2 font-normal">Market</th>
-                <th className="text-center px-4 py-2 font-normal">Side</th>
-                <th className="text-right px-4 py-2 font-normal">Size</th>
-                <th className="text-right px-4 py-2 font-normal">Entry Price</th>
-                <th className="text-right px-4 py-2 font-normal">Unrealized PnL</th>
-                <th className="text-right px-4 py-2 font-normal">Realized PnL</th>
-                <th className="text-center px-4 py-2 font-normal">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions.map(position => {
-                const unrealizedPnl = parseFloat(position.unrealizedPnl || '0');
-                const realizedPnl = parseFloat(position.realizedPnl || '0');
-                const size = parseFloat(position.size || '0');
-                const entryPrice = parseFloat(position.entryPrice || '0');
-                const isClosing = closingPosition === position.market;
-
-                return (
-                  <tr
-                    key={position.market}
-                    className={`border-b border-[#2a2a2a] hover:bg-[#1f1818] transition-colors ${isClosing ? 'opacity-50' : ''}`}
-                  >
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
-                          {getMarketIcon(position.market)}
-                        </div>
-                        <span className="text-white font-medium">
-                          {position.market?.split('-')[0] || 'N/A'}
-                        </span>
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-2 text-center">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-semibold ${
-                          position.side === 'LONG'
-                            ? 'bg-green-500/20 text-green-400'
-                            : 'bg-red-500/20 text-red-400'
-                        }`}
-                      >
-                        {position.side}
-                      </span>
-                    </td>
-
-                    <td className="px-4 py-2 text-right text-white font-mono">
-                      {Math.abs(size).toFixed(4)}
-                    </td>
-
-                    <td className="px-4 py-2 text-right text-white font-mono">
-                      $
-                      {entryPrice.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 6,
-                      })}
-                    </td>
-
-                    <td className="px-4 py-2 text-right">
-                      <span
-                        className={`font-mono font-semibold ${
-                          unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        {unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl.toFixed(2)}
-                      </span>
-                    </td>
-
-                    <td className="px-4 py-2 text-right">
-                      <span
-                        className={`font-mono ${
-                          realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        {realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(2)}
-                      </span>
-                    </td>
-
-                    <td className="px-4 py-2 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleEditPosition(position)}
-                          disabled={isClosing}
-                          className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Edit Position (Set TP/SL)"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleClosePosition(position)}
-                          disabled={isClosing}
-                          className="p-1.5 rounded bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                          title="Close Position"
-                        >
-                          {isClosing ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <X className="w-4 h-4" />
-                          )}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+    <div className="h-full bg-[#0a0a0a] overflow-auto">
+      {/* Inline Notification Banner */}
+      {notification && (
+        <div
+          className={`mx-4 mt-4 px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between transition-all animate-in fade-in slide-in-from-top duration-300 ${
+            notification.type === 'success'
+              ? 'bg-green-600/20 text-green-400 border border-green-600/30'
+              : 'bg-red-600/20 text-red-400 border border-red-600/30'
+          }`}
+        >
+          <span>{notification.message}</span>
+          <button
+            onClick={() => setNotification(null)}
+            className="ml-4 opacity-70 hover:opacity-100 transition"
+          >
+            <X size={14} />
+          </button>
         </div>
-      </div>
+      )}
+
+      <table className="w-full text-left text-[11px] border-collapse">
+        <thead className="bg-[#141414] text-gray-500 font-medium uppercase sticky top-0 z-10">
+          <tr>
+            <th className="p-3 border-b border-[#222]">Market</th>
+            <th className="p-3 border-b border-[#222]">Side</th>
+            <th className="p-3 border-b border-[#222] text-right">Size</th>
+            <th className="p-3 border-b border-[#222] text-right">Value</th>
+            <th className="p-3 border-b border-[#222] text-right">Avg. Open</th>
+            <th className="p-3 border-b border-[#222] text-right">Oracle</th>
+            <th className="p-3 border-b border-[#222] text-right">Liq. Price</th>
+            <th className="p-3 border-b border-[#222] text-right">Unrealized P&L</th>
+            <th className="p-3 border-b border-[#222] text-right">Funding</th>
+            <th className="p-3 border-b border-[#222] text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {positions.map(position => {
+            const rawSize = parseFloat(position.size);
+            const absSize = Math.abs(rawSize);
+            const entryPrice = parseFloat(position.entryPrice);
+            const oraclePrice = oraclePrices[position.market] || entryPrice;
+            const unrealizedPnl = parseFloat(position.unrealizedPnl);
+            const positionValue = absSize * oraclePrice;
+            const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
+            const isShort = position.side === 'SHORT';
+            const isClosing = closingMarket === position.market;
+
+            return (
+              <tr
+                key={position.market}
+                className="border-b border-[#1a1a1a] hover:bg-[#111] transition-colors"
+              >
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full bg-[#222] flex items-center justify-center overflow-hidden">
+                      {getMarketIcon(position.market)}
+                    </div>
+                    <span className="font-bold text-gray-200">{position.market}</span>
+                  </div>
+                </td>
+
+                <td className="p-3">
+                  <div
+                    className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+                    }`}
+                  >
+                    {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
+                    {position.side}
+                  </div>
+                </td>
+
+                <td className="p-3 text-right text-gray-300 font-mono">{absSize.toFixed(4)}</td>
+
+                <td className="p-3 text-right text-gray-300 font-mono">
+                  ${formatPrice(positionValue)}
+                </td>
+
+                <td className="p-3 text-right text-gray-400 font-mono">
+                  ${formatPrice(entryPrice)}
+                </td>
+
+                <td className="p-3 text-right text-blue-400 font-mono">
+                  ${formatPrice(oraclePrice)}
+                </td>
+
+                <td className="p-3 text-right text-orange-400 font-mono">
+                  ${position.liquidationPrice ? formatPrice(position.liquidationPrice) : '—'}
+                </td>
+
+                <td className="p-3 text-right">
+                  <div
+                    className={`flex flex-col font-mono ${
+                      unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    <span>
+                      {unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}
+                    </span>
+                    <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
+                  </div>
+                </td>
+
+                <td className="p-3 text-right text-gray-500 font-mono">
+                  {parseFloat(position.netFunding || '0').toFixed(4)}
+                </td>
+
+                <td className="p-3 text-center">
+                  <div className="flex justify-center gap-2">
+                    <button
+                      onClick={() => handleEdit(position)}
+                      disabled={isClosing}
+                      className="p-1.5 bg-[#222] hover:bg-[#333] rounded text-gray-400 hover:text-white transition-all disabled:opacity-50"
+                      title="Set TP/SL"
+                    >
+                      <Edit2 size={12} />
+                    </button>
+                    <button
+                      onClick={() => handleClose(position)}
+                      disabled={isClosing}
+                      className="p-1.5 bg-[#222] hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400 transition-all disabled:opacity-50"
+                      title="Close Position"
+                    >
+                      {isClosing ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
 
       {selectedPosition && (
         <PriceTriggers
           isOpen={showPriceTriggers}
-          onClose={handleCloseTriggers}
+          onClose={() => setShowPriceTriggers(false)}
           position={selectedPosition}
+          isLoading={isSettingTriggers}
+          error={orderError}
           oraclePrice={
             oraclePrices[selectedPosition.market] || parseFloat(selectedPosition.entryPrice)
           }
           onSave={handleSaveTriggers}
         />
       )}
-    </>
+    </div>
   );
 };
 

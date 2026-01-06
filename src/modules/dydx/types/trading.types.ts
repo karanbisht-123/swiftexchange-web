@@ -1,84 +1,62 @@
-import { OrderExecution, OrderSide, OrderTimeInForce, OrderType } from '@dydxprotocol/v4-client-js';
 
-export const OrderTypeEnum = {
-  MARKET: 'MARKET',
-  LIMIT: 'LIMIT',
-  STOP_MARKET: 'STOP_MARKET',
-  STOP_LIMIT: 'STOP_LIMIT',
-  TAKE_PROFIT_MARKET: 'TAKE_PROFIT_MARKET',
-  TAKE_PROFIT_LIMIT: 'TAKE_PROFIT_LIMIT',
-} as const;
+export type OrderSideEnum = 'BUY' | 'SELL';
 
-export type OrderTypeEnum = (typeof OrderTypeEnum)[keyof typeof OrderTypeEnum];
 
-export const OrderSideEnum = {
-  BUY: 'BUY',
-  SELL: 'SELL',
-} as const;
+export type OrderTypeEnum =
+  | 'MARKET' // Immediate execution at best price
+  | 'LIMIT' // Execute at specified price or better
+  | 'STOP_MARKET' // Market order triggered when price crosses trigger
+  | 'STOP_LIMIT' // Limit order triggered when price crosses trigger
+  | 'TAKE_PROFIT_MARKET' // Market order for profit taking
+  | 'TAKE_PROFIT_LIMIT'; // Limit order for profit taking
 
-export type OrderSideEnum = (typeof OrderSideEnum)[keyof typeof OrderSideEnum];
 
-export const TimeInForceEnum = {
-  GTT: 'GTT', // Good Till Time
-  IOC: 'IOC', // Immediate Or Cancel
-  FOK: 'FOK',
-} as const;
+export type TimeInForceEnum = 'GTT' | 'IOC' | 'FOK';
 
-export type TimeInForceEnum = (typeof TimeInForceEnum)[keyof typeof TimeInForceEnum];
-
+/**
+ * Parameters for placing an order
+ */
 export interface PlaceOrderParams {
   market: string;
   side: OrderSideEnum;
   type: OrderTypeEnum;
-  size: any;
+  size: number | string;
+
+  // Optional parameters
   price?: number;
   triggerPrice?: number;
-  timeInForce?: TimeInForceEnum;
+  clientId?: number;
+
+  // Execution options
   reduceOnly?: boolean;
   postOnly?: boolean;
-  clientId?: number;
+  timeInForce?: TimeInForceEnum;
+
+  // Good til time in seconds (for GTT orders)
+  // If not provided, defaults will be used (28 days for limit, 90 days for conditional)
+  goodTilTimeInSeconds?: number;
+
+  // Slippage for market orders
   slippageTolerance?: number;
 }
 
-export interface OrderResult {
-  success: boolean;
-  orderId?: string;
-  clientId?: number;
-  transactionHash?: string;
-  confirmationUrl?: string;
-  timestamp?: string;
-  userMessage?: string;
-  orderStatus?: string;
-  error?: string;
-  errorCode?: string;
-  errorType?: string;
-  retryable?: boolean;
-}
-
-export interface MarketInfo {
-  clobPairId: number;
-  ticker: string;
-  stepSize: string; // Minimum size increment
-  tickSize: string; // Minimum price increment
-  minOrderSize: string; // Minimum order size
-  atomicResolution: number;
-  status: string;
-  baseAsset: string;
-  quoteAsset: string;
-}
-
+/**
+ * Position information
+ */
 export interface Position {
   market: string;
   side: 'LONG' | 'SHORT';
   size: string;
   entryPrice: string;
   unrealizedPnl: string;
-  realizedPnl: string;
-  leverage: string;
-  liquidationPrice: string;
-  createdAt?: string;
+  liquidationPrice?: string;
+  netFunding?: string;
+  leverage?: string;
 }
 
+/**
+ * Open order information
+ */
 export interface OpenOrder {
   id: string;
   clientId: number;
@@ -87,56 +65,137 @@ export interface OpenOrder {
   type: OrderTypeEnum;
   size: string;
   price: string;
-  filledSize: string;
-  remainingSize: string;
-  status: string;
-  createdAt: string;
   triggerPrice?: string;
-  reduceOnly: boolean;
-  postOnly: boolean;
+  status: 'OPEN' | 'FILLED' | 'CANCELED' | 'UNTRIGGERED';
   timeInForce: string;
-  goodTilBlock?: number;
-  goodTilBlockTime?: string;
-  orderFlags: number;
-}
-
-export interface OrderConfig {
-  type: OrderType;
-  side: OrderSide;
-  timeInForce: OrderTimeInForce;
-  execution: OrderExecution;
-  price: number;
-  size: number;
-  clientId: number;
-  postOnly: boolean;
   reduceOnly: boolean;
-  triggerPrice?: number;
-  goodTilTimeInSeconds: number;
+  postOnly: boolean;
+  goodTilBlock?: string | number;
+  goodTilBlockTime?: string;
+  orderFlags: string;
+  clobPairId: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-export const mapOrderType = (type: OrderTypeEnum): OrderType => {
-  const map: Record<OrderTypeEnum, OrderType> = {
-    MARKET: OrderType.MARKET,
-    LIMIT: OrderType.LIMIT,
-    STOP_MARKET: OrderType.STOP_MARKET,
-    STOP_LIMIT: OrderType.STOP_LIMIT,
-    TAKE_PROFIT_MARKET: OrderType.TAKE_PROFIT_MARKET,
-    TAKE_PROFIT_LIMIT: OrderType.TAKE_PROFIT_LIMIT,
+/**
+ * Result from order placement
+ */
+export interface OrderResult {
+  success: boolean;
+  clientId?: number;
+  transactionHash?: string;
+  error?: string;
+  userMessage?: string;
+  retryable?: boolean;
+}
+
+/**
+ * Trigger configuration for stop-loss and take-profit
+ */
+export interface TriggerParams {
+  takeProfit?: {
+    enabled: boolean;
+    type: 'MARKET' | 'LIMIT';
+    price: number;
   };
-  return map[type];
-};
-
-export const mapOrderSide = (side: OrderSideEnum): OrderSide => {
-  return side === 'BUY' ? OrderSide.BUY : OrderSide.SELL;
-};
-
-export const mapTimeInForce = (tif?: TimeInForceEnum): OrderTimeInForce => {
-  if (!tif) return OrderTimeInForce.GTT;
-
-  const map: Record<TimeInForceEnum, OrderTimeInForce> = {
-    GTT: OrderTimeInForce.GTT,
-    IOC: OrderTimeInForce.IOC,
-    FOK: OrderTimeInForce.FOK,
+  stopLoss?: {
+    enabled: boolean;
+    type: 'MARKET' | 'LIMIT';
+    price: number;
   };
-  return map[tif];
-};
+}
+
+/**
+ * Market information
+ */
+export interface MarketInfo {
+  ticker: string;
+  status: string;
+  baseAsset: string;
+  quoteAsset: string;
+  stepSize: string;
+  tickSize: string;
+  indexPrice: string;
+  oraclePrice: string;
+  priceChange24H: string;
+  volume24H: string;
+  trades24H: number;
+  nextFundingRate: string;
+  openInterest: string;
+  atomicResolution: number;
+  quantumConversionExponent: number;
+  subticksPerTick: number;
+  minOrderBaseQuantums: number;
+  initialMarginFraction?: string;
+}
+
+/**
+ * Orderbook data
+ */
+export interface OrderbookLevel {
+  price: string;
+  size: string;
+}
+
+export interface Orderbook {
+  bids: OrderbookLevel[];
+  asks: OrderbookLevel[];
+}
+
+/**
+ * Trading statistics
+ */
+export interface TradingStats {
+  totalVolume: string;
+  totalTrades: number;
+  realizedPnl: string;
+  unrealizedPnl: string;
+  totalFunding: string;
+}
+
+/**
+ * Account information
+ */
+export interface SubaccountInfo {
+  address: string;
+  subaccountNumber: number;
+  equity: string;
+  freeCollateral: string;
+  marginUsage: string;
+  buyingPower: string;
+  leverage: string;
+}
+
+/**
+ * Fill information
+ */
+export interface Fill {
+  id: string;
+  side: OrderSideEnum;
+  liquidity: 'TAKER' | 'MAKER';
+  type: OrderTypeEnum;
+  market: string;
+  marketType: 'PERPETUAL';
+  price: string;
+  size: string;
+  fee: string;
+  createdAt: string;
+  createdAtHeight: string;
+  orderId?: string;
+  clientMetadata?: string;
+}
+
+/**
+ * Transfer information
+ */
+export interface Transfer {
+  id: string;
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+  asset: string;
+  amount: string;
+  createdAt: string;
+  createdAtHeight: string;
+  transactionHash?: string;
+  status: 'PENDING' | 'CONFIRMED' | 'FAILED';
+}

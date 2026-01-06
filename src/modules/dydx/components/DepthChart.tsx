@@ -12,8 +12,6 @@ interface DepthPoint {
 const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
   const { selectedMarket } = useMarketStore();
   const { orderbook } = useOrderbook(selectedMarket);
-  // console.log(isConnected, dataSource, '-----');
-
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -275,7 +273,6 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
 
     const price = minPrice + ((x - padding.left) / chartWidth) * priceRange;
 
-    // Find closest point
     let closestBid: DepthPoint | null = null;
     let closestAsk: DepthPoint | null = null;
     let minBidDist = Infinity;
@@ -302,27 +299,8 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
   };
 
   const base = selectedMarket.split('-')[0] || 'BTC';
-  // const quote = selectedMarket.split('-')[1] || 'USD';
-  // console.log(quote, '---quote---');
-
   return (
     <div className="w-full bg-primary text-white">
-      {/* <div className="flex items-center justify-between px-4 py-3 border-b border-[#232027]">
-        <div className="flex items-center gap-3">
-          <span className="text-[#aaaaaa] text-xs font-semibold">Depth Chart</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-white font-semibold text-sm">{base}</span>
-          <span className="text-[#aaaaaa]">/</span>
-          <span className="text-[#aaaaaa] text-sm">{quote}</span>
-          <div
-            className={`w-2 h-2 rounded-full ${
-              isConnected && dataSource === 'websocket' ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
-            } ${isConnected ? 'animate-pulse' : ''}`}
-          />
-        </div>
-      </div> */}
-
       <div ref={containerRef} className="relative">
         {!depthData ? (
           <div className="flex items-center justify-center" style={{ height }}>

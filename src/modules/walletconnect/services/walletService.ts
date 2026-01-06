@@ -1,8 +1,6 @@
 import { WalletConnectModal } from '@walletconnect/modal';
-import type { WalletConnectModalConfig } from '@walletconnect/modal';
 import type UniversalProviderType from '@walletconnect/universal-provider';
 
-import { transactionRouter } from '../../transction/router/transactionRouter';
 import {
   type NetworkType,
   WALLETCONNECT_METADATA,
@@ -11,78 +9,125 @@ import {
   getEVMChains,
   getStellarConfig,
 } from '../config/chains';
-import { CHAIN_EVENTS, CHAIN_METHODS, WalletType } from '../constants/Wallet';
+import { encryptionService } from './encryptionService';
 
-// Constants
+const { onboarding, LocalWallet, BECH32_PREFIX } = await import('@dydxprotocol/v4-client-js');
+
 const CONNECTION_TIMEOUT = 120000;
-const MODAL_DELAY = 300;
-const NETWORK_STORAGE_KEY = 'current_network';
-const EXTENSION_STORAGE_PREFIX = 'wallet_extension_';
+const SESSION_KEY = 'wallet_sessions';
+const ENCRYPTED_MNEMONIC_KEY = 'dydx_encrypted_mnemonic';
 
-// Types
-type ConnectionState = 'connecting' | 'connected' | 'failed' | 'cancelled' | 'disconnected';
-type ConnectionCallback = (type: WalletType, state: ConnectionState) => void;
+type WalletType = 'evm' | 'cosmos' | 'stellar';
+type ConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'signing'
+  | 'deriving'
+  | 'failed'
+  | 'disconnected';
 
-interface ConnectionResult {
+interface WalletSession {
   type: WalletType;
-  address: string;
-  chainId: string | number;
   walletId: string;
+  evmAddress?: string;
+  evmChainId?: number;
+  cosmosAddress?: string;
+  cosmosChainId?: string;
+  dydxAddress?: string;
+  dydxMnemonic?: string;
+  stellarAddress?: string;
+  stellarChainId?: string;
+}
+
+interface DydxDerivation {
+  address: string;
+  mnemonic: string;
+}
+
+function getDydxChainId(network: NetworkType): string {
+  const chains = getCosmosChains(network);
+  const dydxChain = chains.find(c => c.chainName === 'dYdX' || c.chainId.includes('dydx'));
+  return dydxChain?.chainId || '';
+}
+
+async function signDydxMessage(evmAddress: string, provider: any): Promise<string> {
+  const typedData = {
+    domain: { name: 'dYdX Chain', chainId: 1 },
+    primaryType: 'dYdX',
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+      ],
+      dYdX: [{ name: 'action', type: 'string' }],
+    },
+    message: { action: 'dYdX Chain Onboarding' },
+  };
+
+  const isWC = provider && provider.session;
+  const dataToSign = isWC ? typedData : JSON.stringify(typedData);
+
+  try {
+    const signaturePromise = provider.request({
+      method: 'eth_signTypedData_v4',
+      params: [evmAddress, dataToSign],
+    });
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), 120000);
+    });
+
+    return await Promise.race([signaturePromise, timeoutPromise]);
+  } catch (error: any) {
+    if (error.code === 4001 || error.code === 'ACTION_REJECTED') {
+      throw new Error('USER_REJECTED');
+    }
+    if (error.message === 'SIGNATURE_TIMEOUT') {
+      throw new Error('USER_REJECTED');
+    }
+    throw new Error('Wallet does not support eth_signTypedData_v4');
+  }
+}
+
+async function deriveDydxAddress(evmAddress: string, provider: any): Promise<DydxDerivation> {
+  const signature = await signDydxMessage(evmAddress, provider);
+  const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
+  if (!derived.mnemonic) throw new Error('Failed to derive mnemonic');
+  const wallet = await LocalWallet.fromMnemonic(derived.mnemonic, BECH32_PREFIX);
+  try {
+    const encryptedMnemonic = await encryptionService.encrypt(derived.mnemonic);
+    localStorage.setItem(ENCRYPTED_MNEMONIC_KEY, encryptedMnemonic);
+    // console.log('[WalletService] Mnemonic encrypted and stored securely');
+  } catch (error) {
+    console.error('[WalletService] Failed to encrypt mnemonic:', error);
+  }
+
+  // console.log('[WalletService] Wallet derived:', wallet.address);
+  return { address: wallet.address, mnemonic: derived.mnemonic };
 }
 
 let UniversalProvider: typeof UniversalProviderType | null = null;
-const loadWalletConnect = async (): Promise<typeof UniversalProviderType> => {
-  if (!UniversalProvider) {
-    const module = await import('@walletconnect/universal-provider');
-    UniversalProvider = module.default;
-  }
-  return UniversalProvider;
-};
 
 class WalletService {
-  private wcProviders: Map<WalletType, any> = new Map();
-  private wcProviderPromises: Map<WalletType, Promise<any>> = new Map();
-  private extensionProviders: Map<WalletType, any> = new Map();
-  private modals: Map<WalletType, WalletConnectModal> = new Map();
+  private sessions = new Map<WalletType, WalletSession>();
+  private providers = new Map<string, any>();
+  private modals = new Map<WalletType, WalletConnectModal>();
+  private listeners = new Set<(type: WalletType, state: ConnectionState) => void>();
+  private currentNetwork: NetworkType = 'mainnet';
+  private derivationInProgress = false;
 
-  private connecting = new Set<WalletType>();
-  private connectionQueue = new Map<WalletType, Promise<ConnectionResult>>();
-  private timeouts = new Map<WalletType, number>();
-  private listeners = new Set<ConnectionCallback>();
-  private currentNetwork: NetworkType;
-  private errorReporter?: (error: Error, context: any) => void;
-
-  private extensionListeners = new Map<
-    WalletType,
-    {
-      accountsChanged?: (accounts: string[]) => void;
-      disconnect?: () => void;
-      chainChanged?: (chainId: string) => void;
-    }
-  >();
+  private inMemoryMnemonics = new Map<string, string>();
 
   constructor() {
-    this.currentNetwork = this.loadNetwork();
-    console.log('[WalletService] Initialized with network:', this.currentNetwork);
+    this.loadNetwork();
   }
 
-  setErrorReporter(reporter: (error: Error, context: any) => void): void {
-    this.errorReporter = reporter;
-  }
-
-  private reportError(error: Error, context: any): void {
-    console.error('[WalletService] Error:', context, error);
-    if (this.errorReporter) {
-      this.errorReporter(error, context);
-    }
-  }
-
-  private loadNetwork(): NetworkType {
+  private loadNetwork(): void {
     try {
-      const stored = localStorage.getItem(NETWORK_STORAGE_KEY);
-      return stored === 'testnet' ? 'testnet' : 'mainnet';
+      const stored = localStorage.getItem('network');
+      this.currentNetwork = stored === 'testnet' ? 'testnet' : 'mainnet';
     } catch {
-      return 'mainnet';
+      this.currentNetwork = 'mainnet';
     }
   }
 
@@ -92,790 +137,953 @@ class WalletService {
 
   async setNetwork(network: NetworkType): Promise<void> {
     if (this.currentNetwork === network) return;
-
-    console.log('[WalletService] Switching network from', this.currentNetwork, 'to', network);
-
-    try {
-      localStorage.setItem(NETWORK_STORAGE_KEY, network);
-    } catch (e) {
-      console.error('[WalletService] Failed to save network:', e);
-    }
-
     this.currentNetwork = network;
-    transactionRouter.clearAllSessions();
-
+    localStorage.setItem('network', network);
     await Promise.all([
-      this.disconnect(WalletType.EVM),
-      this.disconnect(WalletType.COSMOS),
-      this.disconnect(WalletType.STELLAR),
+      this.disconnect('evm'),
+      this.disconnect('cosmos'),
+      this.disconnect('stellar'),
     ]);
-    this.wcProviders.clear();
-    this.wcProviderPromises.clear();
-    this.extensionProviders.clear();
-
-    console.log('[WalletService] Network switched successfully');
+    this.clearSessionStorage();
   }
 
-  private saveExtensionConnection(type: WalletType, walletId: string): void {
+  async connectChainWallet(
+    walletId: string,
+    preferredType: 'evm' | 'cosmos' = 'evm',
+    autoDeriveWallet: boolean = true
+  ): Promise<WalletSession & { dydxMnemonic?: string; derivationSkipped?: boolean }> {
+    const type: WalletType = preferredType;
+    console.log(`[WalletService] Connecting ${type}:`, walletId);
+    this.emitState(type, 'connecting');
+
     try {
-      const key = `${EXTENSION_STORAGE_PREFIX}${type}`;
-      localStorage.setItem(key, walletId);
-      console.log('[WalletService] Saved extension connection:', type, walletId);
-    } catch (e) {
-      console.error('[WalletService] Failed to save extension connection:', e);
+      let provider: any;
+      let evmAddress: string | undefined;
+      let evmChainId: number | undefined;
+      let cosmosAddress: string | undefined;
+      let cosmosChainId: string | undefined;
+
+      if (walletId !== 'walletconnect' && this.isExtensionInstalled(walletId)) {
+        const result = await this.connectExtension(walletId, preferredType);
+        provider = result.provider;
+        evmAddress = result.evmAddress;
+        evmChainId = result.evmChainId;
+        cosmosAddress = result.cosmosAddress;
+        cosmosChainId = result.cosmosChainId;
+      } else {
+        const result = await this.connectWalletConnect(walletId, preferredType);
+        provider = result.provider;
+        evmAddress = result.evmAddress;
+        evmChainId = result.evmChainId;
+        cosmosAddress = result.cosmosAddress;
+        cosmosChainId = result.cosmosChainId;
+      }
+
+      const session: WalletSession = {
+        type,
+        walletId,
+        evmAddress,
+        evmChainId,
+        cosmosAddress,
+        cosmosChainId,
+      };
+
+      this.sessions.set(type, session);
+      this.providers.set(type, provider);
+      this.emitState(type, 'connected');
+
+      const dydxChainId = getDydxChainId(this.currentNetwork);
+
+      if (evmAddress && autoDeriveWallet) {
+        // console.log('[WalletService] Auto-deriving dYdX wallet...');
+        this.emitState(type, 'signing');
+
+        try {
+          const isWC = provider && provider.session;
+          if (isWC) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
+          const derived = await deriveDydxAddress(evmAddress, provider);
+          session.dydxAddress = derived.address;
+          this.inMemoryMnemonics.set(evmAddress.toLowerCase(), derived.mnemonic);
+
+          this.sessions.set(type, session);
+          // console.log('[WalletService] dYdX wallet derived:', derived.address);
+
+          this.emitState(type, 'connected');
+          this.saveSession();
+
+          const mnemonic = this.inMemoryMnemonics.get(evmAddress.toLowerCase());
+          return {
+            ...session,
+            dydxMnemonic: mnemonic,
+          };
+        } catch (error: any) {
+          console.warn('[WalletService] dYdX derivation failed:', error);
+          this.emitState(type, 'connected');
+          this.saveSession();
+          if (error.message === 'USER_REJECTED') {
+            console.log('[WalletService] User rejected signature - can derive later');
+            return {
+              ...session,
+              derivationSkipped: true,
+            };
+          }
+          console.log('[WalletService] Derivation skipped due to error - can derive later');
+          return {
+            ...session,
+            derivationSkipped: true,
+          };
+        }
+      } else if (cosmosChainId === dydxChainId) {
+        session.dydxAddress = cosmosAddress!;
+        this.sessions.set(type, session);
+      }
+
+      this.emitState(type, 'connected');
+      this.saveSession();
+
+      const mnemonic = evmAddress
+        ? this.inMemoryMnemonics.get(evmAddress.toLowerCase())
+        : undefined;
+
+      return {
+        ...session,
+        dydxMnemonic: mnemonic,
+      };
+    } catch (error: any) {
+      console.error(`[WalletService] Connection failed:`, error);
+      this.emitState(type, 'failed');
+      throw error;
     }
   }
 
-  private loadExtensionConnection(type: WalletType): string | null {
+  async deriveDydx(): Promise<DydxDerivation> {
+    const session = this.sessions.get('evm') || this.sessions.get('cosmos');
+    if (!session) throw new Error('Wallet not connected');
+
+    if (session.dydxAddress && session.evmAddress) {
+      const mnemonic = this.inMemoryMnemonics.get(session.evmAddress.toLowerCase());
+      if (mnemonic) {
+        return { address: session.dydxAddress, mnemonic };
+      }
+    }
+
+    const evmProvider = this.providers.get('evm');
+    if (!evmProvider || !session.evmAddress) {
+      throw new Error('EVM wallet required');
+    }
+
+    if (this.derivationInProgress) {
+      throw new Error('Derivation already in progress');
+    }
+
     try {
-      const key = `${EXTENSION_STORAGE_PREFIX}${type}`;
-      return localStorage.getItem(key);
-    } catch {
+      this.derivationInProgress = true;
+      console.log('[WalletService] Deriving dYdX wallet...');
+      this.emitState(session.type, 'signing');
+
+      const derived = await deriveDydxAddress(session.evmAddress, evmProvider);
+
+      session.dydxAddress = derived.address;
+      this.inMemoryMnemonics.set(session.evmAddress.toLowerCase(), derived.mnemonic);
+
+      this.sessions.set(session.type, session);
+      this.derivationInProgress = false;
+      this.emitState(session.type, 'connected');
+      this.saveSession();
+
+      console.log('[WalletService] dYdX wallet derived:', derived.address);
+      return derived;
+    } catch (error: any) {
+      this.derivationInProgress = false;
+      this.emitState(session.type, 'connected');
+
+      if (error.message === 'USER_REJECTED') {
+        throw new Error('Signature rejected by user');
+      }
+      throw error;
+    }
+  }
+
+  getMnemonic(evmAddress: string): string | undefined {
+    return this.inMemoryMnemonics.get(evmAddress.toLowerCase());
+  }
+
+  async restoreMnemonicFromStorage(): Promise<string | null> {
+    try {
+      const encrypted = localStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
+      if (!encrypted) return null;
+
+      const decrypted = await encryptionService.decrypt(encrypted);
+      return decrypted;
+    } catch (error) {
+      console.error('[WalletService] Failed to restore mnemonic:', error);
       return null;
     }
   }
 
-  private clearExtensionConnection(type: WalletType): void {
-    try {
-      const key = `${EXTENSION_STORAGE_PREFIX}${type}`;
-      localStorage.removeItem(key);
-      console.log('[WalletService] Cleared extension connection:', type);
-    } catch (e) {
-      console.error('[WalletService] Failed to clear extension connection:', e);
+  private async connectExtension(
+    walletId: string,
+    preferredType: 'evm' | 'cosmos'
+  ): Promise<{
+    provider: any;
+    evmAddress?: string;
+    evmChainId?: number;
+    cosmosAddress?: string;
+    cosmosChainId?: string;
+  }> {
+    const win = window as any;
+    const evmProviders: Record<string, any> = {
+      metamask: win.ethereum?.isMetaMask ? win.ethereum : null,
+      trust: win.ethereum?.isTrust ? win.ethereum : null,
+      coinbase: win.ethereum?.isCoinbaseWallet ? win.ethereum : null,
+      phantom: win.phantom?.ethereum || null,
+      rabby: win.ethereum?.isRabby ? win.ethereum : null,
+      leap: win.leap?.ethereum || null,
+    };
+    const cosmosProviders: Record<string, any> = {
+      keplr: win.keplr,
+      leap: win.leap,
+    };
+
+    let evmProvider = preferredType === 'evm' ? evmProviders[walletId] || win.ethereum : null;
+    let cosmosProvider = preferredType === 'cosmos' ? cosmosProviders[walletId] : null;
+
+    if (!evmProvider && preferredType === 'evm') cosmosProvider = cosmosProviders[walletId];
+    else if (!cosmosProvider && preferredType === 'cosmos')
+      evmProvider = evmProviders[walletId] || win.ethereum;
+
+    if (!evmProvider && !cosmosProvider) throw new Error('Wallet not found');
+
+    let evmAddress, evmChainId, cosmosAddress, cosmosChainId;
+    const provider = evmProvider || cosmosProvider;
+
+    if (evmProvider) {
+      const accounts = await evmProvider.request({ method: 'eth_requestAccounts' });
+      const chainIdHex = await evmProvider.request({ method: 'eth_chainId' });
+      evmAddress = accounts[0];
+      evmChainId = parseInt(chainIdHex, 16);
+      this.setupEVMListeners(evmProvider);
     }
+
+    if (cosmosProvider) {
+      try {
+        const chains = getCosmosChains(this.currentNetwork);
+        const dydxChainId = getDydxChainId(this.currentNetwork);
+        const targetChainId = dydxChainId || chains[0].chainId;
+        await cosmosProvider.enable(targetChainId);
+        const account = await cosmosProvider.getKey(targetChainId);
+        cosmosAddress = account.bech32Address;
+        cosmosChainId = targetChainId;
+        this.providers.set('cosmos', cosmosProvider);
+      } catch (e) {
+        console.warn('[WalletService] Cosmos error:', e);
+      }
+    }
+
+    if (!evmAddress && !cosmosAddress) throw new Error('No accounts found');
+    return { provider, evmAddress, evmChainId, cosmosAddress, cosmosChainId };
   }
 
-  async restoreSessions(): Promise<ConnectionResult[]> {
-    console.log('[WalletService] Starting session restoration...');
-    const results: ConnectionResult[] = [];
+  private async connectWalletConnect(
+    walletId: string,
+    preferredType: 'evm' | 'cosmos'
+  ): Promise<{
+    provider: any;
+    evmAddress?: string;
+    evmChainId?: number;
+    cosmosAddress?: string;
+    cosmosChainId?: string;
+  }> {
+    if (!UniversalProvider) {
+      const module = await import('@walletconnect/universal-provider');
+      UniversalProvider = module.default;
+    }
 
-    const restorationPromises = [WalletType.EVM, WalletType.COSMOS, WalletType.STELLAR].map(
-      async type => {
-        try {
-          const extensionResult = await this.tryRestoreExtension(type);
-          if (extensionResult) {
-            console.log('[WalletService] Restored extension session:', type, extensionResult);
-            return extensionResult;
+    console.log('[WalletService] Initializing WalletConnect...');
+    const provider = await UniversalProvider.init({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      metadata: WALLETCONNECT_METADATA,
+    });
+
+    const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
+    const cosmosChains = getCosmosChains(this.currentNetwork);
+
+    const modal = new WalletConnectModal({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      chains: preferredType === 'evm' ? evmChains : cosmosChains.map(c => `cosmos:${c.chainId}`),
+      themeMode: 'dark',
+    });
+
+    this.modals.set(preferredType, modal);
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        modal.closeModal();
+        reject(new Error('Connection timeout'));
+      }, CONNECTION_TIMEOUT);
+
+      provider.on('display_uri', (uri: string) => {
+        // console.log('[WalletService] WalletConnect URI ready');
+        this.openMobileDeepLink(walletId, uri);
+        modal.openModal({ uri });
+      });
+
+      const namespaces =
+        preferredType === 'evm'
+          ? {
+              eip155: {
+                methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+                chains: evmChains,
+                events: ['chainChanged', 'accountsChanged'],
+              },
+            }
+          : {
+              cosmos: {
+                methods: ['cosmos_signDirect', 'cosmos_signAmino'],
+                chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
+                events: ['accountsChanged'],
+              },
+            };
+
+      console.log('[WalletService] Requesting connection...');
+      provider
+        .connect({ namespaces })
+        .then((session: any) => {
+          clearTimeout(timeout);
+          modal.closeModal();
+          console.log('[WalletService] Connected');
+
+          let evmAccount =
+            preferredType === 'evm' ? session.namespaces.eip155?.accounts[0] : undefined;
+          let cosmosAccount =
+            preferredType === 'cosmos' ? session.namespaces.cosmos?.accounts[0] : undefined;
+
+          if (preferredType === 'evm' && !evmAccount) {
+            reject(new Error('EVM account required'));
+            return;
+          }
+          if (preferredType === 'cosmos' && !cosmosAccount) {
+            reject(new Error('Cosmos account required'));
+            return;
           }
 
-          const wcResult = await this.tryRestoreWalletConnect(type);
-          if (wcResult) {
-            console.log('[WalletService] Restored WalletConnect session:', type, wcResult);
-            return wcResult;
+          let evmAddress, evmChainId, cosmosAddress, cosmosChainId;
+
+          if (evmAccount) {
+            const [, chainIdStr, addr] = evmAccount.split(':');
+            evmAddress = addr;
+            evmChainId = parseInt(chainIdStr);
           }
 
-          return null;
-        } catch (error) {
-          console.error(`[WalletService] Failed to restore ${type}:`, error);
-          this.reportError(error as Error, {
-            context: 'session_restoration',
-            walletType: type,
-          });
-          return null;
+          if (cosmosAccount) {
+            const [, chainId, addr] = cosmosAccount.split(':');
+            cosmosAddress = addr;
+            cosmosChainId = chainId;
+          }
+          this.setupWalletConnectListeners(provider, preferredType);
+
+          resolve({ provider, evmAddress, evmChainId, cosmosAddress, cosmosChainId });
+        })
+        .catch((error: any) => {
+          clearTimeout(timeout);
+          modal.closeModal();
+          console.error('[WalletService] Connection error:', error);
+          reject(error);
+        });
+    });
+  }
+
+  private setupWalletConnectListeners(provider: any, type: WalletType): void {
+    console.log('[WalletService] Setting up WalletConnect listeners for:', type);
+
+    provider.on('session_ping', ({ id, topic }: { id: number; topic: string }) => {
+      console.log('[WalletService] Session ping:', { id, topic, type });
+    });
+
+    // Session event - this is where chainChanged and accountsChanged come through
+    provider.on(
+      'session_event',
+      ({ event, chainId }: { event: { name: string; data: any }; chainId: string }) => {
+        console.log('[WalletService] Session event received:', { event, chainId, type });
+
+        // Handle accountsChanged event
+        if (event.name === 'accountsChanged') {
+          console.log('[WalletService] Accounts changed:', event.data);
+          this.handleAccountsChanged(type, event.data, chainId);
+        }
+
+        // Handle chainChanged event
+        if (event.name === 'chainChanged') {
+          console.log('[WalletService] Chain changed:', event.data);
+          this.handleChainChanged(type, event.data);
         }
       }
     );
 
-    const restoredSessions = await Promise.all(restorationPromises);
+    // Session update - namespace changes
+    provider.on('session_update', ({ topic, params }: { topic: string; params: any }) => {
+      console.log('[WalletService] Session update:', { topic, params, type });
 
-    restoredSessions.forEach(session => {
-      if (session) results.push(session);
+      if (params.namespaces) {
+        this.handleSessionUpdate(type, params.namespaces);
+      }
     });
 
-    console.log('[WalletService] Session restoration complete. Restored:', results.length);
-    return results;
+    // Session extend - session lifetime extended
+    provider.on('session_extend', ({ topic }: { topic: string }) => {
+      console.log('[WalletService] Session extended:', { topic, type });
+    });
+
+    // Session expire - session expired
+    provider.on('session_expire', ({ topic }: { topic: string }) => {
+      console.log('[WalletService] Session expired:', { topic, type });
+      this.handleDisconnect(type);
+    });
+
+    // Session delete
+    provider.on('session_delete', ({ id, topic }: { id: number; topic: string }) => {
+      console.log('[WalletService] Session deleted:', { id, topic, type });
+      this.handleDisconnect(type);
+    });
   }
 
-  private async tryRestoreExtension(type: WalletType): Promise<ConnectionResult | null> {
-    const storedWalletId = this.loadExtensionConnection(type);
-    if (!storedWalletId) return null;
+  private handleAccountsChanged(type: WalletType, accounts: any, chainId?: string): void {
+    console.log('[WalletService] Handling accounts changed:', { type, accounts, chainId });
 
-    console.log('[WalletService] Attempting to restore extension:', type, storedWalletId);
-
-    if (!this.isWalletInstalled(storedWalletId)) {
-      console.log('[WalletService] Extension no longer installed:', storedWalletId);
-      this.clearExtensionConnection(type);
-      return null;
+    if (!accounts || (Array.isArray(accounts) && accounts.length === 0)) {
+      // console.log('[WalletService] No accounts, disconnecting');
+      this.handleDisconnect(type);
+      return;
     }
 
-    try {
-      const result = await this.connectExtension(storedWalletId, type);
+    const session = this.sessions.get(type);
+    if (!session) return;
 
-      transactionRouter.registerSession(type, null, result.address, result.chainId, storedWalletId);
+    const oldEvmAddress = session.evmAddress?.toLowerCase();
 
+    // Handle different account formats
+    const firstAccount = Array.isArray(accounts) ? accounts[0] : accounts;
+
+    if (type === 'evm') {
+      // Could be just address or full CAIP-10 format (eip155:1:0x...)
+      if (typeof firstAccount === 'string') {
+        if (firstAccount.includes(':')) {
+          const [, chainIdStr, address] = firstAccount.split(':');
+          session.evmAddress = address;
+          session.evmChainId = parseInt(chainIdStr);
+        } else {
+          session.evmAddress = firstAccount;
+        }
+
+        // Clear dYdX data on account change
+        const newEvmAddress = session.evmAddress.toLowerCase();
+        if (oldEvmAddress && oldEvmAddress !== newEvmAddress) {
+          delete session.dydxAddress;
+          this.inMemoryMnemonics.delete(oldEvmAddress);
+        }
+      }
+    } else if (type === 'cosmos') {
+      if (typeof firstAccount === 'string') {
+        if (firstAccount.includes(':')) {
+          const [, chainId, address] = firstAccount.split(':');
+          session.cosmosAddress = address;
+          session.cosmosChainId = chainId;
+        } else {
+          session.cosmosAddress = firstAccount;
+        }
+      }
+    }
+
+    this.sessions.set(type, session);
+    this.saveSession();
+    this.emitState(type, 'connected');
+  }
+
+  // Handle chain changes from session_event
+  private handleChainChanged(type: WalletType, chainData: any): void {
+    console.log('[WalletService] Handling chain changed:', { type, chainData });
+
+    const session = this.sessions.get(type);
+    if (!session) return;
+
+    if (type === 'evm') {
+      let parsedChainId: number;
+
+      // chainData could be hex string, decimal string, or number
+      if (typeof chainData === 'string') {
+        parsedChainId = chainData.startsWith('0x')
+          ? parseInt(chainData, 16)
+          : parseInt(chainData, 10);
+      } else if (typeof chainData === 'number') {
+        parsedChainId = chainData;
+      } else {
+        console.warn('[WalletService] Unknown chain data format:', chainData);
+        return;
+      }
+
+      session.evmChainId = parsedChainId;
+      this.sessions.set(type, session);
+      this.saveSession();
       this.emitState(type, 'connected');
-
-      return {
-        type,
-        address: result.address,
-        chainId: result.chainId,
-        walletId: storedWalletId,
-      };
-    } catch (error) {
-      console.error(`[WalletService] Extension restoration failed for ${type}:`, error);
-      this.clearExtensionConnection(type);
-      return null;
     }
   }
 
-  private async tryRestoreWalletConnect(type: WalletType): Promise<ConnectionResult | null> {
+  private handleSessionUpdate(type: WalletType, namespaces: any): void {
+    console.log('[WalletService] Handling session update:', { type, namespaces });
+
+    const session = this.sessions.get(type);
+    if (!session) return;
+
+    if (type === 'evm' && namespaces.eip155) {
+      const account = namespaces.eip155.accounts[0];
+      if (account) {
+        const [, chainIdStr, address] = account.split(':');
+        session.evmAddress = address;
+        session.evmChainId = parseInt(chainIdStr);
+      }
+    } else if (type === 'cosmos' && namespaces.cosmos) {
+      const account = namespaces.cosmos.accounts[0];
+      if (account) {
+        const [, chainId, address] = account.split(':');
+        session.cosmosAddress = address;
+        session.cosmosChainId = chainId;
+      }
+    } else if (type === 'stellar' && namespaces.stellar) {
+      const account = namespaces.stellar.accounts[0];
+      if (account) {
+        const [, chainId, address] = account.split(':');
+        session.stellarAddress = address;
+        session.stellarChainId = chainId;
+      }
+    }
+
+    this.sessions.set(type, session);
+    this.saveSession();
+    this.emitState(type, 'connected');
+  }
+
+  async connectStellar(walletId: string): Promise<WalletSession> {
+    console.log('[WalletService] Connecting Stellar:', walletId);
+    this.emitState('stellar', 'connecting');
+
     try {
-      console.log('[WalletService] Checking for WalletConnect session:', type);
-      const provider = await this.getOrCreateWCProvider(type);
-      if (!provider.session) {
-        console.log('[WalletService] No WalletConnect session found for:', type);
-        return null;
+      const win = window as any;
+      if (walletId === 'freighter' && win.freighter) {
+        return await this.connectStellarExtension(win.freighter);
+      } else {
+        return await this.connectStellarWalletConnect(walletId);
       }
+    } catch (error: any) {
+      console.error('[WalletService] Stellar failed:', error);
+      this.emitState('stellar', 'failed');
+      throw error;
+    }
+  }
 
-      console.log('[WalletService] Found existing WalletConnect session:', type, provider.session);
+  private async connectStellarExtension(freighter: any): Promise<WalletSession> {
+    const isConnected = await freighter.isConnected();
+    if (!isConnected) await freighter.connect();
+    const publicKey = await freighter.getPublicKey();
+    const config = getStellarConfig(this.currentNetwork);
 
-      const namespace = this.getNamespace(type);
-      const accounts = provider.session.namespaces[namespace]?.accounts || [];
+    const session: WalletSession = {
+      type: 'stellar',
+      walletId: 'freighter',
+      stellarAddress: publicKey,
+      stellarChainId: config.chainId,
+    };
 
-      if (accounts.length === 0) {
-        console.log('[WalletService] No accounts in session for:', type);
-        return null;
-      }
+    this.sessions.set('stellar', session);
+    this.providers.set('stellar', freighter);
+    this.emitState('stellar', 'connected');
+    this.saveSession();
+    return session;
+  }
 
-      const [chainId, address] = this.parseAccount(accounts[0], type);
-      const walletId = provider.session.peer?.metadata?.name?.toLowerCase() || 'walletconnect';
+  private async connectStellarWalletConnect(walletId: string): Promise<WalletSession> {
+    if (!UniversalProvider) {
+      const module = await import('@walletconnect/universal-provider');
+      UniversalProvider = module.default;
+    }
 
-      console.log('[WalletService] WalletConnect session details:', {
-        type,
-        address,
-        chainId,
-        walletId,
+    console.log('[WalletService] Stellar WalletConnect init...');
+    const provider = await UniversalProvider.init({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      metadata: WALLETCONNECT_METADATA,
+    });
+
+    const config = getStellarConfig(this.currentNetwork);
+    const stellarChain = `stellar:${config.chainId}`;
+    console.log('[WalletService] Stellar chain:', stellarChain);
+
+    const modal = new WalletConnectModal({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      chains: [stellarChain],
+      themeMode: 'dark',
+    });
+
+    this.modals.set('stellar', modal);
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        modal.closeModal();
+        reject(new Error('Connection timeout'));
+      }, CONNECTION_TIMEOUT);
+
+      provider.on('display_uri', (uri: string) => {
+        console.log('[WalletService] Stellar URI ready');
+        modal.openModal({ uri });
       });
 
-      transactionRouter.registerSession(type, provider, address, chainId, walletId);
-      this.emitState(type, 'connected');
+      console.log('[WalletService] Stellar connection request...');
+      provider
+        .connect({
+          namespaces: {
+            stellar: {
+              methods: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
+              chains: [stellarChain],
+              events: ['accountsChanged'],
+            },
+          },
+        })
+        .then((session: any) => {
+          clearTimeout(timeout);
+          modal.closeModal();
+          console.log('[WalletService] Stellar connected');
 
-      return { type, address, chainId, walletId };
-    } catch (error) {
-      console.error(`[WalletService] WalletConnect restoration failed for ${type}:`, error);
-      return null;
+          const account = session.namespaces.stellar?.accounts[0];
+          if (!account) {
+            reject(new Error('No Stellar account'));
+            return;
+          }
+
+          const [, chainId, address] = account.split(':');
+          const walletSession: WalletSession = {
+            type: 'stellar',
+            walletId,
+            stellarAddress: address,
+            stellarChainId: chainId,
+          };
+
+          this.sessions.set('stellar', walletSession);
+          this.providers.set('stellar', provider);
+
+          // Setup WalletConnect event listeners for Stellar
+          this.setupWalletConnectListeners(provider, 'stellar');
+
+          this.emitState('stellar', 'connected');
+          this.saveSession();
+          resolve(walletSession);
+        })
+        .catch((error: any) => {
+          clearTimeout(timeout);
+          modal.closeModal();
+          console.error('[WalletService] Stellar error:', error);
+          reject(error);
+        });
+    });
+  }
+
+  // Disconnect wallet
+  async disconnect(type: WalletType): Promise<void> {
+    console.log('[WalletService] Disconnecting:', type);
+    const provider = this.providers.get(type);
+    const session = this.sessions.get(type);
+
+    if (provider?.session) {
+      try {
+        await provider.disconnect();
+      } catch (e) {
+        console.error('[WalletService] Disconnect error:', e);
+      }
+    }
+
+    // Clear in-memory mnemonic
+    if (session?.evmAddress) {
+      this.inMemoryMnemonics.delete(session.evmAddress.toLowerCase());
+    }
+
+    if (type === 'evm' || type === 'cosmos') {
+      this.providers.delete('cosmos');
+    }
+
+    this.sessions.delete(type);
+    this.providers.delete(type);
+    this.modals.get(type)?.closeModal();
+    this.modals.delete(type);
+
+    if (type === 'evm') {
+      this.derivationInProgress = false;
+      // Clear encrypted mnemonic from storage on disconnect
+      localStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
+    }
+
+    this.saveSession();
+    this.emitState(type, 'disconnected');
+  }
+
+  private handleDisconnect(type: WalletType): void {
+    this.disconnect(type);
+  }
+
+  private saveSession(): void {
+    try {
+      const data: Record<string, WalletSession> = {};
+      this.sessions.forEach((session, type) => {
+        const safeSession = {
+          type: session.type,
+          walletId: session.walletId,
+          evmAddress: session.evmAddress,
+          evmChainId: session.evmChainId,
+          cosmosAddress: session.cosmosAddress,
+          cosmosChainId: session.cosmosChainId,
+          dydxAddress: session.dydxAddress,
+          stellarAddress: session.stellarAddress,
+          stellarChainId: session.stellarChainId,
+        };
+        data[type] = safeSession;
+      });
+      localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+      console.log('[WalletService] Session saved (no sensitive data)');
+    } catch (e) {
+      console.error('[WalletService] Save error:', e);
     }
   }
 
-  private isMobile(): boolean {
-    const ua = navigator.userAgent || navigator.vendor || (window as any).opera;
-    return /android/i.test(ua) || (/iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream);
+  async restoreSessions(): Promise<WalletSession[]> {
+    console.log('[WalletService] Restoring...');
+    const restored: WalletSession[] = [];
+
+    try {
+      const stored = localStorage.getItem(SESSION_KEY);
+      if (!stored) return [];
+
+      const data = JSON.parse(stored);
+
+      for (const [typeStr, savedSession] of Object.entries(data) as [string, WalletSession][]) {
+        const type = typeStr as WalletType;
+        try {
+          let provider = this.providers.get(type);
+          if (!provider) {
+            provider = await this.initProvider(type);
+            this.providers.set(type, provider);
+          }
+
+          if (provider.session) {
+            // Setup event listeners for restored sessions
+            this.setupWalletConnectListeners(provider, type);
+
+            const refreshed = await this.refreshSessionFromProvider(provider, savedSession);
+            this.sessions.set(type, refreshed);
+            restored.push(refreshed);
+            this.emitState(type, 'connected');
+          }
+        } catch (error) {
+          console.error(`[WalletService] Restore ${type} failed:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('[WalletService] Restore error:', error);
+    }
+
+    console.log(`[WalletService] Restored ${restored.length} sessions`);
+    return restored;
   }
 
-  private isWalletInstalled(walletId: string): boolean {
+  private async initProvider(type: WalletType) {
+    if (!UniversalProvider) {
+      const module = await import('@walletconnect/universal-provider');
+      UniversalProvider = module.default;
+    }
+    return await UniversalProvider.init({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      metadata: WALLETCONNECT_METADATA,
+    });
+  }
+
+  private async refreshSessionFromProvider(
+    provider: any,
+    saved: WalletSession
+  ): Promise<WalletSession> {
+    const session = provider.session;
+    let evmAddress, evmChainId, cosmosAddress, cosmosChainId, stellarAddress, stellarChainId;
+
+    if (session.namespaces.eip155) {
+      const evmAccount = session.namespaces.eip155.accounts[0];
+      if (evmAccount) {
+        const [, chainIdStr, addr] = evmAccount.split(':');
+        evmAddress = addr;
+        evmChainId = parseInt(chainIdStr);
+      }
+    }
+
+    if (session.namespaces.cosmos) {
+      const cosmosAccount = session.namespaces.cosmos.accounts[0];
+      if (cosmosAccount) {
+        const [, chainId, addr] = cosmosAccount.split(':');
+        cosmosAddress = addr;
+        cosmosChainId = chainId;
+      }
+    }
+
+    if (session.namespaces.stellar) {
+      const stellarAccount = session.namespaces.stellar.accounts[0];
+      if (stellarAccount) {
+        const [, chainId, addr] = stellarAccount.split(':');
+        stellarAddress = addr;
+        stellarChainId = chainId;
+      }
+    }
+
+    const refreshed: WalletSession = {
+      type: saved.type,
+      walletId: saved.walletId,
+      evmAddress,
+      evmChainId,
+      cosmosAddress,
+      cosmosChainId,
+      dydxAddress: saved.dydxAddress,
+      stellarAddress,
+      stellarChainId,
+    };
+
+    const dydxChainId = getDydxChainId(this.currentNetwork);
+    if (cosmosChainId === dydxChainId) {
+      refreshed.dydxAddress = cosmosAddress!;
+    }
+
+    return refreshed;
+  }
+
+  private clearSessionStorage(): void {
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
+      this.inMemoryMnemonics.clear();
+    } catch (e) {
+      console.error('[WalletService] Clear error:', e);
+    }
+  }
+
+  private openMobileDeepLink(walletId: string, uri: string): void {
+    if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
+
+    const deepLinks: Record<string, string> = {
+      metamask: `https://metamask.app.link/wc?uri=${encodeURIComponent(uri)}`,
+      trust: `https://link.trustwallet.com/wc?uri=${encodeURIComponent(uri)}`,
+      coinbase: `https://go.cb-w.com/wc?uri=${encodeURIComponent(uri)}`,
+      phantom: `https://phantom.app/ul/v1/connect?uri=${encodeURIComponent(uri)}`,
+      keplr: `keplrwallet://wcV2?uri=${encodeURIComponent(uri)}`,
+      leap: `leapcosmos://wcV2?uri=${encodeURIComponent(uri)}`,
+    };
+
+    const link = deepLinks[walletId];
+    if (link) {
+      setTimeout(() => {
+        window.location.href = link;
+      }, 100);
+    }
+  }
+
+  private setupEVMListeners(provider: any): void {
+    provider.on('accountsChanged', (accounts: string[]) => {
+      if (accounts.length === 0) {
+        this.handleDisconnect('evm');
+      } else {
+        const session = this.sessions.get('evm');
+        if (session) {
+          const oldAddress = session.evmAddress?.toLowerCase();
+          session.evmAddress = accounts[0];
+
+          // Clear dYdX data on account change
+          const newAddress = session.evmAddress.toLowerCase();
+          if (oldAddress && oldAddress !== newAddress) {
+            delete session.dydxAddress;
+            this.inMemoryMnemonics.delete(oldAddress);
+          }
+
+          this.sessions.set('evm', session);
+          this.saveSession();
+          this.emitState('evm', 'connected');
+        }
+      }
+    });
+
+    provider.on('chainChanged', (chainId: string) => {
+      const session = this.sessions.get('evm');
+      if (session) {
+        session.evmChainId = parseInt(chainId, 16);
+        this.sessions.set('evm', session);
+        this.saveSession();
+        this.emitState('evm', 'connected');
+      }
+    });
+
+    provider.on('disconnect', () => {
+      this.handleDisconnect('evm');
+    });
+  }
+
+  getSession(type: WalletType): WalletSession | null {
+    return this.sessions.get(type) || null;
+  }
+
+  getProvider(type: WalletType | 'cosmos' | 'evm' | 'stellar'): any {
+    return this.providers.get(type);
+  }
+
+  isConnected(type: WalletType): boolean {
+    return this.sessions.has(type);
+  }
+
+  hasDydxWallet(): boolean {
+    const session = this.sessions.get('evm') || this.sessions.get('cosmos');
+    return !!session?.dydxAddress;
+  }
+
+  private isExtensionInstalled(walletId: string): boolean {
     const win = window as any;
     const checks: Record<string, boolean> = {
       metamask: !!win.ethereum?.isMetaMask,
       trust: !!win.ethereum?.isTrust,
       coinbase: !!win.ethereum?.isCoinbaseWallet,
+      phantom: !!win.phantom?.ethereum,
       rabby: !!win.ethereum?.isRabby,
-      brave: !!win.ethereum?.isBraveWallet,
       keplr: !!win.keplr,
       leap: !!win.leap,
       freighter: !!win.freighter,
     };
-    return checks[walletId.toLowerCase()] || false;
+    return checks[walletId] || false;
   }
 
   getInstalledWallets(): string[] {
     const win = window as any;
-    const installed: Record<string, boolean> = {
-      metamask: !!win.ethereum?.isMetaMask,
-      trust: !!win.ethereum?.isTrust,
-      coinbase: !!win.ethereum?.isCoinbaseWallet,
-      rabby: !!win.ethereum?.isRabby,
-      brave: !!win.ethereum?.isBraveWallet,
-      keplr: !!win.keplr,
-      leap: !!win.leap,
-      freighter: !!win.freighter,
-    };
-    return Object.keys(installed).filter(key => installed[key]);
+    const wallets = [];
+    if (win.ethereum?.isMetaMask) wallets.push('metamask');
+    if (win.ethereum?.isTrust) wallets.push('trust');
+    if (win.ethereum?.isCoinbaseWallet) wallets.push('coinbase');
+    if (win.phantom?.ethereum) wallets.push('phantom');
+    if (win.ethereum?.isRabby) wallets.push('rabby');
+    if (win.keplr) wallets.push('keplr');
+    if (win.leap) wallets.push('leap');
+    if (win.freighter) wallets.push('freighter');
+    return wallets;
   }
 
-  private async connectExtension(walletId: string, type: WalletType): Promise<ConnectionResult> {
-    console.log('[WalletService] Connecting to extension:', type, walletId);
-    const win = window as any;
-
-    if (type === WalletType.EVM) {
-      const providers: Record<string, any> = {
-        metamask: win.ethereum?.isMetaMask ? win.ethereum : null,
-        trust: win.ethereum?.isTrust ? win.ethereum : null,
-        coinbase: win.ethereum?.isCoinbaseWallet ? win.ethereum : null,
-        rabby: win.ethereum?.isRabby ? win.ethereum : null,
-        brave: win.ethereum?.isBraveWallet ? win.ethereum : null,
-      };
-
-      const provider = providers[walletId.toLowerCase()] || win.ethereum;
-      if (!provider) throw new Error('Wallet extension not found');
-
-      const accounts = await provider.request({ method: 'eth_requestAccounts' });
-      const chainId = await provider.request({ method: 'eth_chainId' });
-
-      this.extensionProviders.set(type, provider);
-      this.setupExtensionListeners(provider, type);
-
-      return {
-        type,
-        address: accounts[0],
-        chainId: parseInt(chainId, 16),
-        walletId,
-      };
-    }
-
-    if (type === WalletType.COSMOS) {
-      const cosmosProvider = walletId.toLowerCase() === 'keplr' ? win.keplr : win.leap;
-      if (!cosmosProvider) throw new Error('Wallet extension not found');
-
-      const chainId = getCosmosChains(this.currentNetwork)[0].chainId;
-      await cosmosProvider.enable(chainId);
-      const account = await cosmosProvider.getKey(chainId);
-
-      this.extensionProviders.set(type, cosmosProvider);
-
-      return {
-        type,
-        address: account.bech32Address,
-        chainId,
-        walletId,
-      };
-    }
-
-    throw new Error('Extension connection not supported for this wallet type');
-  }
-
-  private setupExtensionListeners(provider: any, type: WalletType): void {
-    console.log('[WalletService] Setting up extension listeners for:', type);
-
-    this.cleanupExtensionListeners(type);
-
-    if (type === WalletType.EVM) {
-      const onAccountsChanged = (accounts: string[]) => {
-        console.log('[WalletService] Extension accounts changed:', type, accounts);
-        if (accounts.length === 0) {
-          this.handleSessionLost(type);
-        }
-      };
-
-      const onDisconnect = () => {
-        console.log('[WalletService] Extension disconnected:', type);
-        this.handleSessionLost(type);
-      };
-
-      const onChainChanged = (chainId: string) => {
-        console.log('[WalletService] Extension chain changed:', type, chainId);
-      };
-
-      provider.on('accountsChanged', onAccountsChanged);
-      provider.on('disconnect', onDisconnect);
-      provider.on('chainChanged', onChainChanged);
-
-      this.extensionListeners.set(type, {
-        accountsChanged: onAccountsChanged,
-        disconnect: onDisconnect,
-        chainChanged: onChainChanged,
-      });
-    }
-  }
-
-  private cleanupExtensionListeners(type: WalletType): void {
-    const provider = this.extensionProviders.get(type);
-    const listeners = this.extensionListeners.get(type);
-
-    if (provider && listeners) {
-      if (listeners.accountsChanged) {
-        provider.removeListener('accountsChanged', listeners.accountsChanged);
-      }
-      if (listeners.disconnect) {
-        provider.removeListener('disconnect', listeners.disconnect);
-      }
-      if (listeners.chainChanged) {
-        provider.removeListener('chainChanged', listeners.chainChanged);
-      }
-    }
-
-    this.extensionListeners.delete(type);
-  }
-
-  private async getOrCreateWCProvider(type: WalletType): Promise<any> {
-    const existing = this.wcProviders.get(type);
-    if (existing) {
-      console.log('[WalletService] Using existing WalletConnect provider:', type);
-      return existing;
-    }
-
-    const existingPromise = this.wcProviderPromises.get(type);
-    if (existingPromise) {
-      console.log('[WalletService] Waiting for existing WalletConnect initialization:', type);
-      return existingPromise;
-    }
-
-    console.log('[WalletService] Initializing new WalletConnect provider:', type);
-    const initPromise = this.initWalletConnectProvider(type);
-    this.wcProviderPromises.set(type, initPromise);
-
-    try {
-      const provider = await initPromise;
-      this.wcProviders.set(type, provider);
-      this.wcProviderPromises.delete(type);
-      console.log('[WalletConnect] Provider initialized:', type);
-      return provider;
-    } catch (error) {
-      this.wcProviderPromises.delete(type);
-      console.error('[WalletService] Failed to initialize WalletConnect provider:', type, error);
-      throw error;
-    }
-  }
-
-  private async initWalletConnectProvider(type: WalletType): Promise<any> {
-    const UP = await loadWalletConnect();
-
-    const provider = await UP.init({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      metadata: WALLETCONNECT_METADATA,
-      relayUrl: 'wss://relay.walletconnect.com',
-    });
-
-    this.setupProviderListeners(provider, type);
-
-    return provider;
-  }
-
-  private setupProviderListeners(provider: any, type: WalletType): void {
-    console.log('[WalletService] Setting up WalletConnect listeners for:', type);
-
-    provider.on('display_uri', (uri: string) => {
-      console.log('[WalletConnect] URI displayed:', type);
-    });
-
-    provider.on('session_ping', ({ id, topic }: { id: number; topic: string }) => {
-      console.log('[WalletConnect] Session ping:', type, id, topic);
-    });
-
-    provider.on('session_event', ({ event, chainId }: { event: any; chainId: string }) => {
-      console.log('[WalletConnect] Session event:', type, event, chainId);
-    });
-
-    provider.on('session_update', ({ topic, params }: { topic: string; params: any }) => {
-      console.log('[WalletConnect] Session update:', type, topic, params);
-    });
-
-    provider.on('session_delete', ({ id, topic }: { id: number; topic: string }) => {
-      console.log(
-        '[WalletConnect] Session deleted (user disconnected from wallet):',
-        type,
-        id,
-        topic
-      );
-      this.handleSessionLost(type);
-    });
-  }
-
-  async handleSessionLost(type: WalletType): Promise<void> {
-    console.log('[WalletService] Handling session lost for:', type);
-
-    this.clearExtensionConnection(type);
-    this.cleanupExtensionListeners(type);
-    transactionRouter.unregisterSession(type);
-
-    this.wcProviders.delete(type);
-    this.extensionProviders.delete(type);
-
-    this.emitState(type, 'disconnected');
-  }
-
-  private getNamespace(type: WalletType): string {
-    return type === WalletType.EVM ? 'eip155' : type === WalletType.COSMOS ? 'cosmos' : 'stellar';
-  }
-
-  private parseAccount(fullAccount: string, type: WalletType): [string | number, string] {
-    const parts = fullAccount.split(':');
-    const address = parts[2] || '';
-    const chainId = type === WalletType.EVM ? parseInt(parts[1]) : parts[1];
-    return [chainId, address];
-  }
-
-  private getChainConfig(type: WalletType) {
-    if (type === WalletType.EVM) {
-      const chains = getEVMChains(this.currentNetwork);
-      const rpcMap: Record<string, string> = {};
-      chains.forEach(c => (rpcMap[c.chainId.toString()] = c.rpcUrl));
-
-      return {
-        namespace: 'eip155',
-        chains: chains.map(c => `eip155:${c.chainId}`),
-        methods: CHAIN_METHODS.evm,
-        events: CHAIN_EVENTS.evm,
-        rpcMap,
-      };
-    }
-
-    if (type === WalletType.COSMOS) {
-      const chains = getCosmosChains(this.currentNetwork);
-      const rpcMap: Record<string, string> = {};
-      chains.forEach(c => (rpcMap[c.chainId] = c.rpc));
-
-      return {
-        namespace: 'cosmos',
-        chains: chains.map(c => `cosmos:${c.chainId}`),
-        methods: CHAIN_METHODS.cosmos,
-        events: CHAIN_EVENTS.cosmos,
-        rpcMap,
-      };
-    }
-
-    const config = getStellarConfig(this.currentNetwork);
-    return {
-      namespace: 'stellar',
-      chains: [`stellar:${config.chainId}`],
-      methods: CHAIN_METHODS.stellar,
-      events: CHAIN_EVENTS.stellar,
-      rpcMap: { [config.chainId]: config.horizonUrl },
-    };
-  }
-
-  private openMobileWallet(walletId: string, uri: string): void {
-    const encoded = encodeURIComponent(uri);
-    const deepLinks: Record<string, string> = {
-      metamask: `https://metamask.app.link/wc?uri=${encoded}`,
-      trust: `https://link.trustwallet.com/wc?uri=${encoded}`,
-      rainbow: `https://rnbwapp.com/wc?uri=${encoded}`,
-      coinbase: `https://go.cb-w.com/wc?uri=${encoded}`,
-      keplr: `keplrwallet://wcV2?uri=${encoded}`,
-      leap: `leapcosmos://wcV2?uri=${encoded}`,
-      freighter: `freighter://wc?uri=${encoded}`,
-    };
-
-    const deepLink = deepLinks[walletId.toLowerCase()] || uri;
-    console.log('[WalletService] Opening mobile wallet:', walletId, deepLink);
-    window.open(deepLink, '_blank');
-  }
-
-  async connectWallet(type: WalletType, walletId: string): Promise<ConnectionResult> {
-    console.log('[WalletService] Connect wallet requested:', type, walletId);
-
-    const existingPromise = this.connectionQueue.get(type);
-    if (existingPromise) {
-      console.log('[WalletService] Using existing connection promise for:', type);
-      return existingPromise;
-    }
-
-    if (this.isConnected(type)) {
-      throw new Error(`${type} already connected. Disconnect first.`);
-    }
-
-    const promise = this._connectWallet(type, walletId).finally(() =>
-      this.connectionQueue.delete(type)
-    );
-
-    this.connectionQueue.set(type, promise);
-    return promise;
-  }
-
-  private async _connectWallet(type: WalletType, walletId: string): Promise<ConnectionResult> {
-    const isMobileDevice = this.isMobile();
-    const useWC = walletId === 'walletconnect';
-    const hasExtension = !isMobileDevice && !useWC && this.isWalletInstalled(walletId);
-
-    console.log('[WalletService] Connection strategy:', {
-      type,
-      walletId,
-      isMobile: isMobileDevice,
-      useWC,
-      hasExtension,
-    });
-
-    if (hasExtension) {
-      try {
-        const result = await this.connectExtension(walletId, type);
-
-        transactionRouter.registerSession(type, null, result.address, result.chainId, walletId);
-        this.saveExtensionConnection(type, walletId);
-        this.emitState(type, 'connected');
-
-        return result;
-      } catch (error) {
-        console.error(
-          '[WalletService] Extension connection failed, falling back to WalletConnect:',
-          error
-        );
-      }
-    }
-
-    return this.connectWalletConnect(type, walletId, isMobileDevice, useWC);
-  }
-
-  private async connectWalletConnect(
-    type: WalletType,
-    walletId: string,
-    isMobile: boolean,
-    showModal: boolean
-  ): Promise<ConnectionResult> {
-    console.log('[WalletService] Starting WalletConnect connection:', type);
-
-    this.connecting.add(type);
-    this.emitState(type, 'connecting');
-
-    try {
-      if (!isMobile || showModal) {
-        await this.setupModal(type);
-      }
-
-      const provider = await this.getOrCreateWCProvider(type);
-      const chainConfig = this.getChainConfig(type);
-
-      return await new Promise((resolve, reject) => {
-        this.startConnectionTimeout(type, reject);
-
-        let uriShown = false;
-        const onUri = (uri: string) => {
-          if (uriShown) return;
-          uriShown = true;
-
-          console.log('[WalletConnect] URI generated');
-
-          if (isMobile && !showModal) {
-            this.openMobileWallet(walletId, uri);
-          } else {
-            setTimeout(() => {
-              this.modals.get(type)?.openModal({
-                uri,
-              });
-            }, MODAL_DELAY);
-          }
-        };
-
-        provider.once('display_uri', onUri);
-
-        provider
-          .connect({
-            optionalNamespaces: {
-              [chainConfig.namespace]: {
-                methods: chainConfig.methods,
-                chains: chainConfig.chains,
-                events: chainConfig.events,
-                rpcMap: chainConfig.rpcMap,
-              },
-            },
-          })
-          .then(async (session: any) => {
-            console.log('[WalletConnect] Connection successful:', type);
-
-            const accounts = session.namespaces[chainConfig.namespace]?.accounts || [];
-            if (accounts.length === 0) {
-              throw new Error('No accounts found');
-            }
-
-            const [chainId, address] = this.parseAccount(accounts[0], type);
-            const connectedWalletId = session.peer?.metadata?.name?.toLowerCase() || walletId;
-
-            // if (type === WalletType.COSMOS) {
-            //   try {
-            //     await this.authenticateCosmos(provider, address, chainId as string);
-            //   } catch (authError) {
-            //     console.error('[WalletService] Cosmos authentication failed:', authError);
-            //     throw new Error('Authentication signature rejected');
-            //   }
-            // }
-
-            transactionRouter.registerSession(type, provider, address, chainId, connectedWalletId);
-
-            this.cleanup(type);
-            this.emitState(type, 'connected');
-
-            resolve({ type, address, chainId, walletId: connectedWalletId });
-          })
-          .catch((error: any) => {
-            console.error('[WalletConnect] Connection failed:', type, error);
-
-            this.cleanup(type);
-            this.emitState(type, 'failed');
-
-            this.reportError(error, {
-              context: 'walletconnect_connection',
-              walletType: type,
-              walletId,
-            });
-
-            reject(new Error(error.message || 'Connection failed'));
-          });
-      });
-    } catch (error) {
-      console.error('[WalletConnect] Setup failed:', type, error);
-      this.cleanup(type);
-      this.emitState(type, 'failed');
-      throw error;
-    }
-  }
-
-  // private async authenticateCosmos(provider: any, address: string, chainId: string): Promise<void> {
-  //   console.log('[WalletService] Authenticating Cosmos wallet:', address);
-
-  //   const timestamp = Date.now();
-  //   const authMessage = {
-  //     chain_id: chainId,
-  //     account_number: '0',
-  //     sequence: '0',
-  //     fee: { amount: [], gas: '0' },
-  //     msgs: [
-  //       {
-  //         type: 'sign/MsgSignData',
-  //         value: {
-  //           signer: address,
-  //           data: btoa(`Authentication request at ${timestamp}`),
-  //         },
-  //       },
-  //     ],
-  //     memo: 'Authenticate wallet connection',
-  //   };
-
-  //   await provider.request(
-  //     {
-  //       method: 'cosmos_signAmino',
-  //       params: {
-  //         signerAddress: address,
-  //         signDoc: authMessage,
-  //       },
-  //     },
-  //     `cosmos:${chainId}`
-  //   );
-
-  //   console.log('[WalletService] Cosmos authentication successful');
-  // }
-
-  private async setupModal(type: WalletType): Promise<void> {
-    if (this.modals.has(type)) return;
-
-    console.log('[WalletService] Setting up WalletConnect modal for:', type);
-
-    const config: WalletConnectModalConfig = {
-      projectId: WALLETCONNECT_PROJECT_ID,
-      chains: this.getChainConfig(type).chains,
-      themeMode: 'dark',
-    };
-
-    this.modals.set(type, new WalletConnectModal(config));
-  }
-
-  private startConnectionTimeout(type: WalletType, reject: (error: Error) => void): void {
-    this.clearConnectionTimeout(type);
-
-    const timeout = window.setTimeout(() => {
-      console.log('[WalletService] Connection timeout for:', type);
-      this.cleanup(type);
-      this.emitState(type, 'failed');
-      reject(new Error('Connection timeout'));
-    }, CONNECTION_TIMEOUT);
-
-    this.timeouts.set(type, timeout);
-  }
-
-  private clearConnectionTimeout(type: WalletType): void {
-    const timeout = this.timeouts.get(type);
-    if (timeout) {
-      clearTimeout(timeout);
-      this.timeouts.delete(type);
-    }
-  }
-
-  private cleanup(type: WalletType): void {
-    this.clearConnectionTimeout(type);
-    this.connecting.delete(type);
-    setTimeout(() => this.modals.get(type)?.closeModal(), MODAL_DELAY);
-  }
-
-  async disconnect(type: WalletType): Promise<void> {
-    console.log('[WalletService] Disconnecting:', type);
-
-    try {
-      this.clearConnectionTimeout(type);
-      this.connecting.delete(type);
-      this.clearExtensionConnection(type);
-      this.cleanupExtensionListeners(type);
-
-      transactionRouter.unregisterSession(type);
-
-      this.extensionProviders.delete(type);
-
-      const wcProvider = this.wcProviders.get(type);
-      if (wcProvider?.session) {
-        console.log('[WalletConnect] Disconnecting session:', type);
-        try {
-          await wcProvider.disconnect();
-          console.log('[WalletConnect] Session disconnected successfully:', type);
-        } catch (error) {
-          console.error('[WalletConnect] Error disconnecting:', type, error);
-        }
-      }
-
-      this.wcProviders.delete(type);
-      this.wcProviderPromises.delete(type);
-
-      this.modals.get(type)?.closeModal();
-
-      this.emitState(type, 'disconnected');
-
-      console.log('[WalletService] Disconnect complete:', type);
-    } catch (error) {
-      console.error('[WalletService] Disconnect error:', type, error);
-
-      this.clearExtensionConnection(type);
-      this.cleanupExtensionListeners(type);
-      this.wcProviders.delete(type);
-      this.wcProviderPromises.delete(type);
-      this.extensionProviders.delete(type);
-
-      throw error;
-    }
-  }
-
-  async connectEVM(
-    walletId: string
-  ): Promise<{ address: string; chainId: number; walletId: string }> {
-    const result = await this.connectWallet(WalletType.EVM, walletId);
-    return { ...result, chainId: result.chainId as number };
-  }
-
-  async connectCosmos(
-    walletId: string
-  ): Promise<{ address: string; chainId: string; walletId: string }> {
-    const result = await this.connectWallet(WalletType.COSMOS, walletId);
-    return { ...result, chainId: result.chainId as string };
-  }
-
-  async connectStellar(walletId: string): Promise<{ address: string; walletId: string }> {
-    const result = await this.connectWallet(WalletType.STELLAR, walletId);
-    return { address: result.address, walletId: result.walletId };
-  }
-
-  getProvider(type: WalletType): any {
-    return this.extensionProviders.get(type) || this.wcProviders.get(type);
-  }
-
-  isConnecting(type?: WalletType): boolean {
-    return type ? this.connecting.has(type) : this.connecting.size > 0;
-  }
-
-  isConnected(type: WalletType): boolean {
-    return !!(this.extensionProviders.has(type) || this.wcProviders.get(type)?.session);
-  }
-
-  getActiveSessions(): WalletType[] {
-    return [WalletType.EVM, WalletType.COSMOS, WalletType.STELLAR].filter(type =>
-      this.isConnected(type)
-    );
-  }
-
-  onConnectionStateChange(callback: ConnectionCallback): () => void {
+  onStateChange(callback: (type: WalletType, state: ConnectionState) => void): () => void {
     this.listeners.add(callback);
     return () => this.listeners.delete(callback);
   }
 
   private emitState(type: WalletType, state: ConnectionState): void {
-    this.listeners.forEach(listener => {
+    this.listeners.forEach(cb => {
       try {
-        listener(type, state);
-      } catch (error) {
-        console.error('[WalletService] Listener error:', error);
+        cb(type, state);
+      } catch (e) {
+        console.error('[WalletService] Event error:', e);
       }
     });
   }

@@ -14,25 +14,32 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [livePriceSide, setLivePriceSide] = useState<'BUY' | 'SELL' | null>(null);
+
   const mountedRef = useRef(true);
   const currentMarketRef = useRef(market);
   const unsubRef = useRef<(() => void) | null>(null);
+  const prevMarketRef = useRef(market);
 
   useEffect(() => {
     let isActive = true;
     mountedRef.current = true;
     currentMarketRef.current = market;
 
-    setTrades([]);
-    setIsLoading(true);
+    if (trades.length === 0) {
+      setIsLoading(true);
+    }
+
     setIsConnected(false);
     setError(null);
 
+    // Cleanup previous subscription if exists
     if (unsubRef.current) {
       try {
         unsubRef.current();
       } catch (e) {
-        console.error('[useTrades] Error during cleanup unsubscribe:', e);
+        // console.error('[useTrades] Error during cleanup unsubscribe:', e);
       }
       unsubRef.current = null;
     }
@@ -43,7 +50,7 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
         try {
           unsubRef.current();
         } catch (e) {
-          console.error('[useTrades] Error during final cleanup:', e);
+          // console.error('[useTrades] Error during final cleanup:', e);
         }
         unsubRef.current = null;
       }
@@ -53,7 +60,21 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
       try {
         const { getIndexerClient } = await import('../client/clients');
         const client = getIndexerClient();
-        const response = await client.markets.getPerpetualMarketTrades(market, limit);
+        let response;
+
+        // Primary attempt with full parameters
+        try {
+          response = await client.markets.getPerpetualMarketTrades(
+            market,
+            undefined,
+            undefined,
+            limit
+          );
+        } catch (e) {
+          // Fallback: retry with minimal parameters if the detailed call fails
+          // console.log('[useTrades] Retrying with just market parameter');
+          response = await client.markets.getPerpetualMarketTrades(market);
+        }
 
         if (!isActive || currentMarketRef.current !== market) return;
 
@@ -67,13 +88,22 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
             createdAt: trade.createdAt,
           }));
 
-        if (mountedRef.current) {
-          console.log(`[useTrades] Loaded ${mappedTrades.length} initial trades from snapshot`);
+        if (mountedRef.current && currentMarketRef.current === market) {
+          // console.log(`[useTrades] Loaded ${mappedTrades.length} trades for ${market}`);
           setTrades(mappedTrades);
+
+          // Set initial live price from the most recent trade
+          if (mappedTrades.length > 0) {
+            const latestTrade = mappedTrades[0];
+            setLivePrice(parseFloat(latestTrade.price));
+            setLivePriceSide(latestTrade.side);
+          }
+
           setIsLoading(false);
+          prevMarketRef.current = market;
         }
       } catch (err: any) {
-        console.error('[useTrades] Snapshot error:', err);
+        // console.error('[useTrades] Snapshot error:', err);
         if (isActive && mountedRef.current && currentMarketRef.current === market) {
           setError(err.message || 'Failed to load initial trades');
           setIsLoading(false);
@@ -85,26 +115,26 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
       if (!isActive || currentMarketRef.current !== market) return;
 
       try {
-        console.log('llllllllllllllll');
         const { getSocketClient } = await import('../client/clients');
         const socketClient = getSocketClient();
 
+        // Ensure WebSocket is connected
         if (!socketClient.isConnected?.()) {
-          console.log('connecting ======================');
+          // console.log('[useTrades] Establishing WebSocket connection');
           await socketClient.connect();
         }
 
         if (!isActive || currentMarketRef.current !== market) {
-          console.log('cleanup-----------');
           cleanup();
           return;
         }
 
         setIsConnected(true);
 
+        // Subscribe to live trade updates
         unsubRef.current = socketClient.subscribeToTrades(market, (msg: any) => {
-          console.log('tradesuscrbie');
           if (!mountedRef.current || currentMarketRef.current !== market) return;
+
           let tradesArray: any[] = [];
 
           if (Array.isArray(msg.contents)) {
@@ -114,8 +144,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
           } else if (msg.trades) {
             tradesArray = msg.trades;
           }
-
-          console.log('Received trades via websocket:', tradesArray); // This will now work
 
           if (!Array.isArray(tradesArray) || tradesArray.length === 0) return;
 
@@ -129,20 +157,24 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
               createdAt: trade.createdAt,
             }));
 
+          // Update live price with the latest incoming trade
+          if (newTrades.length > 0) {
+            const latestTrade = newTrades[newTrades.length - 1];
+            setLivePrice(parseFloat(latestTrade.price));
+            setLivePriceSide(latestTrade.side);
+          }
+
+          // Merge new trades, avoid duplicates, keep sorted and limited
           setTrades(prevTrades => {
             if (!mountedRef.current || currentMarketRef.current !== market) return prevTrades;
 
             const existingIds = new Set(prevTrades.map(t => t.id));
             const uniqueNewTrades = newTrades.filter(t => !existingIds.has(t.id));
 
-            if (uniqueNewTrades.length === 0) {
-              return prevTrades;
-            }
+            if (uniqueNewTrades.length === 0) return prevTrades;
 
-            console.log(`[useTrades] Adding ${uniqueNewTrades.length} new trades from WS`);
             const updated = [...uniqueNewTrades, ...prevTrades];
 
-            // Sort by createdAt descending just in case batch is out of order
             updated.sort(
               (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
             );
@@ -150,11 +182,10 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
             return updated.slice(0, limit);
           });
         });
-
-        console.log('[useTrades] Successfully subscribed to live trades');
       } catch (err: any) {
-        console.error('[useTrades] WebSocket connection/subscription error:', err);
+        // console.error('[useTrades] WebSocket connection/subscription error:', err);
         if (isActive && mountedRef.current) {
+          setError('Failed to connect to live trades');
           setIsConnected(false);
         }
       }
@@ -166,7 +197,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     return cleanup;
   }, [market, limit]);
 
-  // Handle unmount
   useEffect(() => {
     return () => {
       mountedRef.current = false;
@@ -178,5 +208,7 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     isLoading,
     isConnected,
     error,
+    livePrice,
+    livePriceSide,
   };
 }

@@ -35,11 +35,11 @@ const PageLayout: React.FC<PageLayoutProps> = ({
   };
 
   return (
-    <div className="flex flex-col items-center min-h-screen p-2  lg:p-6 bg-primary">
+    <div className="flex flex-col items-center min-h-screen py-2  lg:p-6 bg-primary">
       <div
         className={`
           w-full ${maxWidthClasses[maxWidth]} 
-          bg-secondary p-3 md:p-6 rounded-xl
+          lg:bg-secondary p-3 md:p-6 rounded-xl
           flex flex-col
           ${className}
   

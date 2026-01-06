@@ -15,6 +15,7 @@ import {
 } from 'lightweight-charts';
 
 import { type CandleResolution, useRealtimeChart } from '../hooks/useCandles';
+import { useTrades } from '../hooks/useTrades';
 import useMarketStore from '../store/marketStore';
 
 type ChartType = 'candlestick' | 'line' | 'area';
@@ -67,11 +68,17 @@ export default function DyDxTradingChart() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<any> | null>(null);
-  const lastUpdateRef = useRef<number>(0);
-  const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const updateThrottleRef = useRef<number>(0);
+  const lastCandleTimeRef = useRef<number>(0);
 
   const { selectedMarket } = useMarketStore();
-  const { candles, latestCandle, livePrice, isLoading, error, isConnected } = useRealtimeChart(
+
+  // 🆕 Get live price from trades hook
+  const { livePrice, livePriceSide, isConnected: tradesConnected } = useTrades(selectedMarket, 50);
+
+  // Get candles from chart hook (no live price here)
+  const { candles, latestCandle, isLoading, error, isConnected } = useRealtimeChart(
     selectedMarket,
     timeframe,
     500
@@ -102,12 +109,14 @@ export default function DyDxTradingChart() {
     };
   }, [isDark]);
 
+  // 🔧 Optimized chart creation with proper cleanup
   const createChartInstance = useCallback(() => {
     if (!chartContainerRef.current || candles.length === 0) return;
 
     const colors = getThemeColors();
     const container = chartContainerRef.current;
 
+    // Clean up existing chart
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -182,6 +191,7 @@ export default function DyDxTradingChart() {
 
     chartRef.current = chart;
 
+    // Prepare candle data
     const candleData = candles
       .map(c => ({
         time: Math.floor(new Date(c.startedAt).getTime() / 1000) as any,
@@ -193,6 +203,7 @@ export default function DyDxTradingChart() {
       }))
       .sort((a, b) => a.time - b.time);
 
+    // Create appropriate series based on chart type
     if (chartType === 'candlestick') {
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
         upColor: colors.upColor,
@@ -208,7 +219,7 @@ export default function DyDxTradingChart() {
       const brandColor = '#3b82f6';
       const lineSeries = chart.addSeries(LineSeries, {
         color: brandColor,
-        lineWidth: isMobile ? 2 : 2,
+        lineWidth: 2,
         crosshairMarkerVisible: true,
         crosshairMarkerRadius: isMobile ? 3 : 4,
       });
@@ -224,7 +235,7 @@ export default function DyDxTradingChart() {
         topColor: isDark ? `${brandColor}66` : `${brandColor}4D`,
         bottomColor: `${brandColor}00`,
         lineColor: brandColor,
-        lineWidth: isMobile ? 2 : 2,
+        lineWidth: 2,
       });
       const areaData = candleData.map(c => ({
         time: c.time,
@@ -234,12 +245,12 @@ export default function DyDxTradingChart() {
       seriesRef.current = areaSeries;
     }
 
+    // Add volume series
     if (showVolume) {
       const volumeSeries = chart.addSeries(HistogramSeries, {
         color: colors.volumeColor,
         priceFormat: { type: 'volume' },
         priceScaleId: 'volume',
-        // scaleMargins: { top: 0.85, bottom: 0 },
       });
       const volumeData = candleData.map(c => ({
         time: c.time,
@@ -251,33 +262,50 @@ export default function DyDxTradingChart() {
     }
 
     chart.timeScale().fitContent();
+
+    // Store last candle time for comparison
+    if (candleData.length > 0) {
+      lastCandleTimeRef.current = candleData[candleData.length - 1].time;
+    }
   }, [candles, chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
 
+  // 🔧 Optimized resize handler using ResizeObserver
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+
+    const container = chartContainerRef.current;
+
+    // Use ResizeObserver for better performance
+    resizeObserverRef.current = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry || !chartRef.current) return;
+
+      const { width, height } = entry.contentRect;
+
+      // Only resize if dimensions actually changed
+      if (width > 0 && height > 0) {
+        requestAnimationFrame(() => {
+          chartRef.current?.applyOptions({
+            width: Math.floor(width),
+            height: Math.floor(height),
+          });
+        });
+      }
+    });
+
+    resizeObserverRef.current.observe(container);
+
+    return () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+    };
+  }, []);
+
+  // 🔧 Create chart when data or settings change
   useEffect(() => {
     createChartInstance();
 
-    const handleResize = () => {
-      if (resizeTimeoutRef.current) {
-        clearTimeout(resizeTimeoutRef.current);
-      }
-
-      resizeTimeoutRef.current = setTimeout(() => {
-        if (chartContainerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-            height: chartContainerRef.current.clientHeight,
-          });
-        }
-      }, 150);
-    };
-
-    window.addEventListener('resize', handleResize);
-
     return () => {
-      window.removeEventListener('resize', handleResize);
-      if (resizeTimeoutRef.current) {
-        clearTimeout(resizeTimeoutRef.current);
-      }
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
@@ -285,38 +313,46 @@ export default function DyDxTradingChart() {
     };
   }, [createChartInstance]);
 
+  // 🔧 Optimized real-time candle updates with throttling
   useEffect(() => {
-    if (!latestCandle || !seriesRef.current) return;
+    if (!latestCandle || !seriesRef.current || !chartRef.current) return;
 
     const now = Date.now();
-    if (now - lastUpdateRef.current < 16) return;
-    lastUpdateRef.current = now;
+    const candleTime = Math.floor(new Date(latestCandle.startedAt).getTime() / 1000);
+
+    // Throttle updates to max 60fps (16ms)
+    if (now - updateThrottleRef.current < 16) return;
+    updateThrottleRef.current = now;
 
     const candlePoint = {
-      time: Math.floor(new Date(latestCandle.startedAt).getTime() / 1000) as any,
+      time: candleTime as any,
       open: parseFloat(latestCandle.open),
       high: parseFloat(latestCandle.high),
       low: parseFloat(latestCandle.low),
       close: parseFloat(latestCandle.close),
     };
 
-    if (chartType === 'candlestick') {
-      seriesRef.current.update(candlePoint);
-    } else {
-      seriesRef.current.update({
-        time: candlePoint.time,
-        value: candlePoint.close,
-      });
-    }
+    try {
+      if (chartType === 'candlestick') {
+        seriesRef.current.update(candlePoint);
+      } else {
+        seriesRef.current.update({
+          time: candlePoint.time,
+          value: candlePoint.close,
+        });
+      }
 
-    if (showVolume && volumeSeriesRef.current) {
-      const colors = getThemeColors();
-      volumeSeriesRef.current.update({
-        time: candlePoint.time,
-        value: parseFloat(latestCandle.usdVolume),
-        color:
-          candlePoint.close >= candlePoint.open ? colors.upColor + '50' : colors.downColor + '50',
-      });
+      if (showVolume && volumeSeriesRef.current) {
+        const colors = getThemeColors();
+        volumeSeriesRef.current.update({
+          time: candlePoint.time,
+          value: parseFloat(latestCandle.usdVolume),
+          color:
+            candlePoint.close >= candlePoint.open ? colors.upColor + '50' : colors.downColor + '50',
+        });
+      }
+    } catch (error) {
+      console.error('[Chart] Update error:', error);
     }
   }, [latestCandle, chartType, showVolume, getThemeColors]);
 
@@ -488,16 +524,24 @@ export default function DyDxTradingChart() {
 
           <div className="flex items-center gap-1 sm:gap-2 px-2">
             {livePrice && (
-              <div className="flex items-center gap-1 sm:gap-2  px-1  text-xs sm:text-sm backdrop-blur-sm">
+              <div className="flex items-center gap-1 sm:gap-2 px-1 text-xs sm:text-sm backdrop-blur-sm">
                 <span className="text-gray-400 hidden sm:inline font-medium">Live</span>
-                <span className="text-brand font-bold tabular-nums">
+                <span
+                  className={`font-bold tabular-nums ${
+                    livePriceSide === 'BUY'
+                      ? 'text-success'
+                      : livePriceSide === 'SELL'
+                        ? 'text-danger'
+                        : 'text-brand'
+                  }`}
+                >
                   $
                   {livePrice.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}
                 </span>
-                {isConnected && (
+                {(isConnected || tradesConnected) && (
                   <div className="relative">
                     <div className="w-2 h-2 bg-success rounded-full" />
                     <div className="absolute inset-0 w-2 h-2 bg-success rounded-full animate-ping" />

@@ -49,7 +49,6 @@ export class DydxDebugger {
     console.log('Type:', typeof wallet);
     console.log('Constructor:', wallet.constructor?.name);
 
-    // Check for signing methods
     const signingMethods = ['sign', 'signDirect', 'signAmino', 'signTransaction', 'getAccounts'];
 
     signingMethods.forEach(method => {

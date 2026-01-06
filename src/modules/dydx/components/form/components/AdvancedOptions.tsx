@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { OrderTypeEnum } from '../../../types/trading.types';
+import type { OrderTypeEnum } from '../../../types/trading.types';
 
 export type TimeInForceOption = 'GTT' | 'IOC' | 'FOK';
 export type GoodTilUnit = 'minutes' | 'hours' | 'days' | 'weeks';
@@ -19,6 +19,14 @@ interface AdvancedOptionsProps {
   onReduceOnlyChange: (checked: boolean) => void;
 }
 
+// Define as constants for runtime checks
+const CONDITIONAL_TYPES = [
+  'STOP_MARKET',
+  'STOP_LIMIT',
+  'TAKE_PROFIT_MARKET',
+  'TAKE_PROFIT_LIMIT',
+] as const;
+
 export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
   orderType,
   timeInForce,
@@ -34,17 +42,8 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // const isMarket = orderType === OrderTypeEnum.MARKET;
-  const isLimit = orderType === OrderTypeEnum.LIMIT;
-
-  const CONDITIONAL_TYPES: OrderTypeEnum[] = [
-    OrderTypeEnum.STOP_MARKET,
-    OrderTypeEnum.STOP_LIMIT,
-    OrderTypeEnum.TAKE_PROFIT_MARKET,
-    OrderTypeEnum.TAKE_PROFIT_LIMIT,
-  ];
-
-  const isConditional = CONDITIONAL_TYPES.includes(orderType);
+  const isLimit = orderType === 'LIMIT';
+  const isConditional = CONDITIONAL_TYPES.includes(orderType as any);
 
   return (
     <div className="px-4">
@@ -57,9 +56,10 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
           ▼
         </span>
       </button>
-      {/* For IIC */}
+
       {isExpanded && (
         <div className="mt-3 space-y-3 pb-2">
+          {/* Time In Force Selector - Only for Limit Orders */}
           {isLimit && (
             <div>
               <label className="block text-xs text-gray-400 mb-2">Time In Force</label>
@@ -75,6 +75,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             </div>
           )}
 
+          {/* Good Til Time Input - For GTT Limit Orders and Conditional Orders */}
           {((isLimit && timeInForce === 'GTT') || isConditional) && (
             <div>
               <label className="block text-xs text-gray-400 mb-2">Good Til Time</label>
@@ -103,7 +104,9 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             </div>
           )}
 
+          {/* Order Execution Options */}
           <div className="flex flex-col gap-2">
+            {/* Post-Only - Only for Limit Orders */}
             {isLimit && (
               <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
                 <input
@@ -111,10 +114,16 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                   checked={postOnly}
                   onChange={e => onPostOnlyChange(e.target.checked)}
                   className="rounded w-4 h-4"
+                  disabled={reduceOnly}
                 />
-                <span>Post-Only</span>
+                <span className={reduceOnly ? 'opacity-50' : ''}>Post-Only</span>
+                {reduceOnly && (
+                  <span className="text-xs text-gray-500">(disabled with reduce-only)</span>
+                )}
               </label>
             )}
+
+            {/* Reduce-Only - Available for all order types */}
             <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
               <input
                 type="checkbox"
@@ -125,6 +134,13 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
               <span>Reduce-Only</span>
             </label>
           </div>
+
+          {/* Info Text */}
+          {reduceOnly && isLimit && timeInForce === 'GTT' && (
+            <div className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700/30 rounded px-2 py-1">
+              ⚠ Reduce-only orders will automatically use IOC time-in-force
+            </div>
+          )}
         </div>
       )}
     </div>
