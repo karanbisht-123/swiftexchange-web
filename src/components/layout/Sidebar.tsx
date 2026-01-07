@@ -23,7 +23,7 @@ interface NavItem {
   href: string;
   label: string;
   icon: JSX.Element;
-  queryParam?: string; 
+  queryParam?: string;
 }
 
 const Sidebar: FC = () => {
@@ -180,23 +180,17 @@ const Sidebar: FC = () => {
         <div className="h-16 px-4 border-b border-color flex items-center justify-between">
           {!isCompressed ? (
             <div className="flex items-center gap-3">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold"
-                style={{ backgroundColor: 'var(--color-brand-primary)' }}
-              >
-                S
+              <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold">
+                <img src="/logo.avif" alt="swiftEx-logo" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-brand">SwiftEx</h1>
+                <h1 className="text-lg font-bold text-white">SwiftEx</h1>
                 <p className="text-xs text-muted">Trading Platform</p>
               </div>
             </div>
           ) : (
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold mx-auto"
-              style={{ backgroundColor: 'var(--color-brand-primary)' }}
-            >
-              S
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold">
+              <img src="/logo.avif" alt="swiftEx-logo" />
             </div>
           )}
 

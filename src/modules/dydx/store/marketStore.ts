@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import type { MarketData } from '../hooks/useMarkets';
+import type { MarketData } from '../types/trading.types';
 
 interface MarketState {
   selectedMarket: string;

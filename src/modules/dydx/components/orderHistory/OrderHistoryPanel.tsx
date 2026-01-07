@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Order, dydxDataService } from '../../service/dydxOrderService';
@@ -8,140 +8,110 @@ import { EmptyState } from '../shared/EmptyState';
 import { LoadingState } from '../shared/LoadingState';
 import { MarketBadge } from '../shared/MarketBadge';
 import { Pagination } from '../shared/Pagination';
-import { SideBadge } from '../shared/SideBadge';
-import { StatusIndicator } from '../shared/SideBadge';
+import { SideBadge, StatusIndicator } from '../shared/SideBadge';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
-const ITEMS_PER_PAGE = 50;
+const ITEMS_PER_PAGE = 10;
 
 const OrderHistoryPanel: React.FC = () => {
-  const { orders, loadingOrders, ordersError, isConnected } = useDydxData();
+  const {
+    orders: storeOrders,
+    loadingOrders,
+    ordersError,
+    isConnected,
+    // refreshOrders,
+    // isReceivingUpdates,
+  } = useDydxData();
+
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [loadingPage, setLoadingPage] = useState(false);
-  const [pageCache, setPageCache] = useState<Map<number, Order[]>>(new Map());
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreData, setHasMoreData] = useState(true);
 
-  // Reset state on disconnect
+  const initialLoadDoneRef = useRef(false);
+  const getOrderTime = (order: Order): number => {
+    return new Date(order.updatedAt || order.createdAtHeight || '0').getTime();
+  };
   useEffect(() => {
     if (!isConnected) {
       setAllOrders([]);
       setCurrentPage(1);
-      setPageCache(new Map());
+      setHasMoreData(true);
+      initialLoadDoneRef.current = false;
     }
   }, [isConnected]);
 
   useEffect(() => {
-    if (orders.length > 0 && allOrders.length === 0) {
-      setAllOrders(orders);
-      setPageCache(prev => new Map(prev).set(1, orders));
+    if (storeOrders.length > 0) {
+      setAllOrders(prevOrders => {
+        const ordersMap = new Map<string, Order>();
+        prevOrders.forEach(o => ordersMap.set(o.id, o));
+        storeOrders.forEach(o => ordersMap.set(o.id, o));
+        return Array.from(ordersMap.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
+      });
+      initialLoadDoneRef.current = true;
     }
-  }, [orders, allOrders.length]);
+  }, [storeOrders]);
 
   const totalPages = useMemo(() => {
-    const currentDataPages = Math.ceil(allOrders.length / ITEMS_PER_PAGE);
-
-    if (allOrders.length % ITEMS_PER_PAGE === 0 && allOrders.length >= ITEMS_PER_PAGE) {
-      return currentDataPages + 0;
-    }
-    return Math.max(currentDataPages, 1);
-  }, [allOrders.length]);
-
+    const currentPages = Math.ceil(allOrders.length / ITEMS_PER_PAGE);
+    return hasMoreData && allOrders.length >= ITEMS_PER_PAGE
+      ? currentPages
+      : Math.max(currentPages, 1);
+  }, [allOrders.length, hasMoreData]);
   const currentPageData = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
     return allOrders.slice(startIndex, endIndex);
   }, [allOrders, currentPage]);
 
-  const loadPageData = useCallback(
-    async (page: number) => {
-      if (!isConnected) return;
+  const loadMoreData = useCallback(async () => {
+    if (loadingMore || !hasMoreData || !isConnected) return;
 
-      // Check if we already have this page's data
-      const requiredItems = page * ITEMS_PER_PAGE;
-      if (allOrders.length >= requiredItems) {
+    setLoadingMore(true);
+    try {
+      const moreOrders = await dydxDataService.getOrders(undefined, ITEMS_PER_PAGE, true, false);
+
+      if (moreOrders.length === 0) {
+        setHasMoreData(false);
         return;
       }
+      const oldestOrder = allOrders[allOrders.length - 1];
+      const oldestTime = oldestOrder ? getOrderTime(oldestOrder) : Date.now();
+      const olderOrders = moreOrders.filter(o => getOrderTime(o) < oldestTime);
 
-      // Check cache
-      if (pageCache.has(page)) {
+      if (olderOrders.length === 0) {
+        setHasMoreData(false);
         return;
       }
+      setAllOrders(prev => {
+        const ordersMap = new Map<string, Order>();
+        prev.forEach(o => ordersMap.set(o.id, o));
+        olderOrders.forEach(o => ordersMap.set(o.id, o));
 
-      setLoadingPage(true);
-      try {
-        // Calculate how many more items we need
-        const itemsToFetch = requiredItems - allOrders.length;
-        const batchesToFetch = Math.ceil(itemsToFetch / ITEMS_PER_PAGE);
+        return Array.from(ordersMap.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
+      });
 
-        let newOrders: Order[] = [];
-        let lastOrder = allOrders[allOrders.length - 1];
-
-        for (let i = 0; i < batchesToFetch; i++) {
-          const moreOrders = await dydxDataService.getOrders(
-            undefined,
-            ITEMS_PER_PAGE,
-            true,
-            false
-          );
-
-          if (lastOrder) {
-            const lastTime = new Date(lastOrder.updatedAt || lastOrder.createdAtHeight).getTime();
-            const olderOrders = moreOrders.filter(order => {
-              const orderTime = new Date(order.updatedAt || order.createdAtHeight).getTime();
-              return orderTime < lastTime;
-            });
-
-            if (olderOrders.length === 0) break;
-
-            newOrders = [...newOrders, ...olderOrders];
-            lastOrder = olderOrders[olderOrders.length - 1];
-          } else {
-            newOrders = moreOrders;
-            if (moreOrders.length > 0) {
-              lastOrder = moreOrders[moreOrders.length - 1];
-            }
-          }
-
-          if (moreOrders.length < ITEMS_PER_PAGE) break;
-        }
-
-        if (newOrders.length > 0) {
-          const ordersMap = new Map<string, Order>();
-          allOrders.forEach(order => ordersMap.set(order.id, order));
-          newOrders.forEach(order => ordersMap.set(order.id, order));
-
-          const updatedOrders = Array.from(ordersMap.values()).sort((a, b) => {
-            const timeA = new Date(a.updatedAt || a.createdAtHeight).getTime();
-            const timeB = new Date(b.updatedAt || b.createdAtHeight).getTime();
-            return timeB - timeA;
-          });
-
-          setAllOrders(updatedOrders);
-
-          // Cache the page
-          const startIndex = (page - 1) * ITEMS_PER_PAGE;
-          const endIndex = startIndex + ITEMS_PER_PAGE;
-          const pageData = updatedOrders.slice(startIndex, endIndex);
-          setPageCache(prev => new Map(prev).set(page, pageData));
-        }
-      } catch (error) {
-        console.error('Failed to load page data:', error);
-      } finally {
-        setLoadingPage(false);
+      if (moreOrders.length < ITEMS_PER_PAGE) {
+        setHasMoreData(false);
       }
-    },
-    [allOrders, isConnected, pageCache]
-  );
-
-  // Handle page change
+    } catch (error) {
+      console.error('[OrderHistoryPanel] Failed to load more data:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [allOrders, isConnected, loadingMore, hasMoreData]);
   const handlePageChange = useCallback(
     (page: number) => {
       setCurrentPage(page);
-      loadPageData(page);
-    },
-    [loadPageData]
-  );
 
+      const requiredItems = page * ITEMS_PER_PAGE;
+      if (allOrders.length < requiredItems && hasMoreData && !loadingMore) {
+        loadMoreData();
+      }
+    },
+    [allOrders.length, hasMoreData, loadingMore, loadMoreData]
+  );
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view your order history" />;
   }
@@ -154,7 +124,7 @@ const OrderHistoryPanel: React.FC = () => {
     return <EmptyState title="Error Loading Orders" description={ordersError} />;
   }
 
-  if (allOrders.length === 0) {
+  if (allOrders.length === 0 && !loadingOrders) {
     return <EmptyState title="No Orders" description="Place your first trade to see orders here" />;
   }
 
@@ -175,7 +145,7 @@ const OrderHistoryPanel: React.FC = () => {
       key: 'side',
       header: 'Side',
       align: 'center' as const,
-      render: (order: Order) => <SideBadge side={order.side} />,
+      render: (order: Order) => <SideBadge side={order.side as 'BUY' | 'SELL'} />,
     },
     {
       key: 'type',
@@ -234,7 +204,7 @@ const OrderHistoryPanel: React.FC = () => {
     },
     {
       key: 'timeInForce',
-      header: 'Time In Force',
+      header: 'TIF',
       align: 'center' as const,
       render: (order: Order) => (
         <span className="text-gray-400 text-xs">{order.timeInForce || 'GTT'}</span>
@@ -253,6 +223,34 @@ const OrderHistoryPanel: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-primary">
+      {/* <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between bg-secondary">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-medium text-white">Order History</h3>
+          <span className="text-xs text-gray-500">
+            {allOrders.length} order{allOrders.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+
+          {isReceivingUpdates && (
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-xs text-gray-400">Live</span>
+            </div>
+          )}
+          <button
+            onClick={() => refreshOrders()}
+            disabled={loadingOrders}
+            className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors disabled:opacity-50"
+            title="Refresh orders"
+          >
+            <svg className={`w-4 h-4 ${loadingOrders ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
+      </div> */}
+
       <div className="flex-1 overflow-auto">
         <DataTable data={currentPageData} columns={columns} getRowKey={order => order.id} />
       </div>
@@ -260,7 +258,10 @@ const OrderHistoryPanel: React.FC = () => {
         currentPage={currentPage}
         totalPages={totalPages}
         onPageChange={handlePageChange}
-        loading={loadingPage}
+        loading={loadingMore}
+        totalItems={allOrders.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        hasMore={hasMoreData}
       />
     </div>
   );

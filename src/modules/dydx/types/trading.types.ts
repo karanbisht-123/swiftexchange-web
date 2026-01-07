@@ -25,6 +25,8 @@ export interface PlaceOrderParams {
   // Optional parameters
   price?: number;
   triggerPrice?: number;
+  takeProfitPrice?: number;
+  stopLossPrice?: number;
   clientId?: number;
 
   // Execution options
@@ -81,13 +83,17 @@ export interface OpenOrder {
 /**
  * Result from order placement
  */
+/**
+ * Result from order placement
+ */
 export interface OrderResult {
   success: boolean;
-  clientId?: number;
+  clientId?: string | number;
   transactionHash?: string;
   error?: string;
   userMessage?: string;
   retryable?: boolean;
+  optimisticOrder?: any;
 }
 
 /**
@@ -109,25 +115,39 @@ export interface TriggerParams {
 /**
  * Market information
  */
-export interface MarketInfo {
+export interface MarketData {
   ticker: string;
-  status: string;
-  baseAsset: string;
-  quoteAsset: string;
-  stepSize: string;
-  tickSize: string;
-  indexPrice: string;
   oraclePrice: string;
   priceChange24H: string;
+  priceChange24HPercent: string;
   volume24H: string;
   trades24H: number;
   nextFundingRate: string;
+  nextFundingAt: string;
   openInterest: string;
-  atomicResolution: number;
-  quantumConversionExponent: number;
-  subticksPerTick: number;
-  minOrderBaseQuantums: number;
+  marketCaps?: string;
+  baseAsset: string;
+  quoteAsset: string;
+  status: string;
+  marketId?: number;
+  coinIcon: string;
+  coinName?: string;
   initialMarginFraction?: string;
+  maintenanceMarginFraction?: string;
+  tickSize?: string;
+  stepSize?: string;
+  clobPairId?: string;
+  atomicResolution?: number;
+  quantumConversionExponent?: number;
+  stepBaseQuantums?: number;
+  subticksPerTick?: number;
+  marketType?: string;
+  openInterestLowerCap?: string;
+  openInterestUpperCap?: string;
+  baseOpenInterest?: string;
+  defaultFundingRate1H?: string;
+  spotVolume?: string;
+  marketCap?: string;
 }
 
 /**

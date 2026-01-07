@@ -8,7 +8,7 @@ import ReceiveAssets from '../modules/commonfeature/reciveassets/ReceiveAssets';
 import SendAssets from '../modules/commonfeature/sendassets/SendAssets';
 // import MarketsDisplay from '../modules/dydx/components/MarketsDisplay';
 import TradingintrFace from '../modules/dydx/components/tradedashbord/TradingintrFace';
-import WebSocketDebugger from '../modules/dydx/utils/WebSocketDebugger';
+// import WebSocketDebugger from '../modules/dydx/utils/WebSocketDebugger';
 import SwapAssets from '../modules/evm/feature/swap/SwapAssets';
 import CryptoMarket from '../modules/market/CryptoMarket';
 import TradeTransactionUI from '../modules/steallr/components/TradeTransactionUI';
@@ -99,7 +99,7 @@ const router = createBrowserRouter([
             element: (
               <Layout>
                 <TradingintrFace />
-                <WebSocketDebugger />
+                {/* <WebSocketDebugger /> */}
               </Layout>
             ),
           },

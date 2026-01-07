@@ -1,5 +1,3 @@
-import { getSocketClient } from '../client/clients';
-import { webSocketManager } from '../utils/WebSocketManager';
 import { dydxWalletService } from './dydxWalletService';
 
 export interface Position {
@@ -82,48 +80,15 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
-type DataUpdateCallback<T> = (data: T) => void;
-
 class DydxDataService {
   private cache = new Map<string, CacheEntry<any>>();
   private readonly CACHE_TTL = 5000;
 
-  private wsUnsubscribe: (() => void) | null = null;
-  private isSubscribed = false;
-  private subscriptionAttempts = 0;
-  private readonly MAX_RETRY_ATTEMPTS = 3;
-  private retryTimer: NodeJS.Timeout | null = null;
-
-  private positionListeners: DataUpdateCallback<Position[]>[] = [];
-  private orderListeners: DataUpdateCallback<Order[]>[] = [];
-
   private stats = {
-    wsUpdates: 0,
     restCalls: 0,
-    lastWsUpdate: 0,
-    positionUpdates: 0,
-    orderUpdates: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
   };
-
-  constructor() {
-    dydxWalletService.onStatusChange(status => {
-      if (status === 'connected') {
-        this.setupWebSocket();
-      } else if (status === 'disconnected') {
-        this.cleanup();
-      }
-    });
-
-    webSocketManager.onConnect(() => {
-      if (dydxWalletService.isConnected() && !this.isSubscribed) {
-        this.setupWebSocket();
-      }
-    });
-
-    webSocketManager.onDisconnect(() => {
-      this.isSubscribed = false;
-    });
-  }
 
   private getContext() {
     const indexer = dydxWalletService.getIndexerClient();
@@ -140,11 +105,13 @@ class DydxDataService {
   private getCached<T>(key: string): T | null {
     const cached = this.cache.get(key);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      this.stats.cacheHits++;
       return cached.data as T;
     }
     if (cached) {
       this.cache.delete(key);
     }
+    this.stats.cacheMisses++;
     return null;
   }
 
@@ -168,127 +135,6 @@ class DydxDataService {
       }
     }
     keysToDelete.forEach(key => this.cache.delete(key));
-  }
-
-  private setupWebSocket(): void {
-    if (this.isSubscribed || !dydxWalletService.isConnected() || !webSocketManager.isConnected()) {
-      return;
-    }
-
-    try {
-      const address = dydxWalletService.getAddress();
-      const subaccountNumber = dydxWalletService.getSubaccountNumber();
-
-      if (!address) return;
-
-      const socketClient = getSocketClient();
-      this.wsUnsubscribe = socketClient.subscribeToSubaccounts(address, subaccountNumber, data =>
-        this.handleWebSocketUpdate(data)
-      );
-
-      this.isSubscribed = true;
-      this.subscriptionAttempts = 0;
-    } catch (error) {
-      this.subscriptionAttempts++;
-
-      if (this.subscriptionAttempts < this.MAX_RETRY_ATTEMPTS) {
-        const delay = Math.min(1000 * Math.pow(2, this.subscriptionAttempts), 10000);
-
-        this.retryTimer = setTimeout(() => {
-          this.setupWebSocket();
-        }, delay);
-      }
-    }
-  }
-
-  private handleWebSocketUpdate(data: any): void {
-    const now = Date.now();
-    this.stats.wsUpdates++;
-    this.stats.lastWsUpdate = now;
-
-    if (!data.contents) return;
-
-    const { subaccount } = data.contents;
-    if (!subaccount) return;
-
-    // Handle position updates
-    if (subaccount.openPerpetualPositions !== undefined) {
-      const positions = subaccount.openPerpetualPositions;
-      this.stats.positionUpdates++;
-      this.clearCachePattern('positions');
-      this.notifyPositionListeners(positions);
-    }
-
-    // Handle order updates
-    if (subaccount.orders !== undefined) {
-      const orders = subaccount.orders;
-      this.stats.orderUpdates++;
-      this.clearCachePattern('orders');
-      this.notifyOrderListeners(orders);
-    }
-
-    // Handle fills
-    if (subaccount.fills !== undefined) {
-      this.clearCachePattern('fills');
-    }
-  }
-
-  private cleanup(): void {
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-
-    if (this.wsUnsubscribe) {
-      try {
-        this.wsUnsubscribe();
-      } catch (error) {
-        console.error('Error unsubscribing', error);
-      }
-      this.wsUnsubscribe = null;
-    }
-
-    this.isSubscribed = false;
-    this.subscriptionAttempts = 0;
-    this.cache.clear();
-    this.positionListeners = [];
-    this.orderListeners = [];
-  }
-
-  onPositionsUpdate(callback: DataUpdateCallback<Position[]>): () => void {
-    this.positionListeners.push(callback);
-
-    return () => {
-      this.positionListeners = this.positionListeners.filter(cb => cb !== callback);
-    };
-  }
-
-  onOrdersUpdate(callback: DataUpdateCallback<Order[]>): () => void {
-    this.orderListeners.push(callback);
-
-    return () => {
-      this.orderListeners = this.orderListeners.filter(cb => cb !== callback);
-    };
-  }
-
-  private notifyPositionListeners(positions: Position[]): void {
-    this.positionListeners.forEach(listener => {
-      try {
-        listener(positions);
-      } catch (error) {
-        console.error('Position listener error:', error);
-      }
-    });
-  }
-
-  private notifyOrderListeners(orders: Order[]): void {
-    this.orderListeners.forEach(listener => {
-      try {
-        listener(orders);
-      } catch (error) {
-        console.error('Order listener error:', error);
-      }
-    });
   }
 
   async getSubaccount(useCache = true) {
@@ -361,11 +207,12 @@ class DydxDataService {
 
   async getOrders(
     ticker?: string,
-    limit = 10,
+    limit = 50,
     returnLatestOrders = true,
-    useCache = true
+    useCache = true,
+    createdBeforeOrAtHeight?: string
   ): Promise<Order[]> {
-    const cacheKey = `orders-${ticker || 'all'}-${limit}-${returnLatestOrders}`;
+    const cacheKey = `orders-${ticker || 'all'}-${limit}-${returnLatestOrders}-${createdBeforeOrAtHeight || 'latest'}`;
 
     if (useCache) {
       const cached = this.getCached<Order[]>(cacheKey);
@@ -378,17 +225,23 @@ class DydxDataService {
       address,
       subaccountNumber,
       ticker,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+      undefined, // tickerType
+      undefined, // side
+      undefined, // status
+      undefined, // type
       limit,
-      undefined,
-      undefined,
+      undefined, // goodTilBlockBeforeOrAt
+      undefined, // goodTilBlockTimeBeforeOrAt
       returnLatestOrders
     );
 
-    const orders = response || [];
+    // Sort by date (newest first)
+    const orders = (response || []).sort((a: Order, b: Order) => {
+      const timeA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
+      const timeB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
+      return timeB - timeA;
+    });
+
     this.setCache(cacheKey, orders);
     return orders;
   }
@@ -418,7 +271,11 @@ class DydxDataService {
       createdBeforeOrAtHeight
     );
 
-    const fills = response.fills || [];
+    // Sort by date (newest first)
+    const fills = (response.fills || []).sort((a: Fill, b: Fill) => {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
     this.setCache(cacheKey, fills);
     return fills;
   }
@@ -426,7 +283,7 @@ class DydxDataService {
   async getHistoricalPnl(
     effectiveBeforeOrAt?: string,
     effectiveAtOrAfter?: string,
-    limit = 100,
+    limit = 10,
     useCache = true
   ): Promise<HistoricalPnl[]> {
     const cacheKey = `pnl-${effectiveBeforeOrAt || 'all'}-${effectiveAtOrAfter || 'all'}-${limit}`;
@@ -458,12 +315,12 @@ class DydxDataService {
     return this.getPositions(status, limit, false);
   }
 
-  async refreshOrders(ticker?: string, limit = 10): Promise<Order[]> {
+  async refreshOrders(ticker?: string, limit = 50): Promise<Order[]> {
     this.clearCachePattern('orders');
     return this.getOrders(ticker, limit, true, false);
   }
 
-  async refreshFills(ticker?: string, limit = 10): Promise<Fill[]> {
+  async refreshFills(ticker?: string, limit = 50): Promise<Fill[]> {
     this.clearCachePattern('fills');
     return this.getFills(ticker, limit, undefined, false);
   }
@@ -476,34 +333,15 @@ class DydxDataService {
     return dydxWalletService.isConnected();
   }
 
-  isReceivingUpdates(): boolean {
-    return this.isSubscribed && Date.now() - this.stats.lastWsUpdate < 30000;
-  }
-
   getServiceStatus() {
-    const wsDebug = webSocketManager.getDebugInfo();
-    const timeSinceLastUpdate = this.stats.lastWsUpdate
-      ? Date.now() - this.stats.lastWsUpdate
-      : null;
-
     return {
       walletConnected: dydxWalletService.isConnected(),
-      websocketConnected: webSocketManager.isConnected(),
-      subscribed: this.isSubscribed,
-      subscriptionAttempts: this.subscriptionAttempts,
       stats: {
-        wsUpdates: this.stats.wsUpdates,
         restCalls: this.stats.restCalls,
-        positionUpdates: this.stats.positionUpdates,
-        orderUpdates: this.stats.orderUpdates,
+        cacheHits: this.stats.cacheHits,
+        cacheMisses: this.stats.cacheMisses,
         cacheSize: this.cache.size,
-        timeSinceLastUpdate,
       },
-      listeners: {
-        positions: this.positionListeners.length,
-        orders: this.orderListeners.length,
-      },
-      websocketManager: wsDebug,
     };
   }
 }

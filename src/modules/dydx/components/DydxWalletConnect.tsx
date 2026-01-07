@@ -29,8 +29,6 @@ export const DydxWalletConnect: React.FC = () => {
   const network = useWalletStore(state => state.network);
   const openModal = useWalletStore(state => state.openModal);
   const deriveDydx = useWalletStore(state => state.deriveDydx);
-
-  // Check if we have an EVM wallet and dYdX address (derived from EVM)
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
   const cosmosWallet = useWalletStore(state => state.connectedWallets.cosmos);
 
@@ -61,9 +59,34 @@ export const DydxWalletConnect: React.FC = () => {
     isReceivingUpdates,
   } = useDydxWallet();
 
-  // Auto-connect to dYdX when we have a dYdX address
+  // Track if we've attempted to load balance at least once
+  const [hasAttemptedLoad, setHasAttemptedLoad] = React.useState(false);
+
+  // Auto-refresh balance when connected and no balance data
   useEffect(() => {
-    if (hasDydxAddress && !isConnected && !isConnecting && !connectionError) {
+    if (isConnected && !balance && !loadingBalance && !hasAttemptedLoad) {
+      setHasAttemptedLoad(true);
+      console.log('[DydxWalletConnect] Auto-refreshing balance on connect');
+      refresh().catch(err => console.error('[DydxWalletConnect] Auto-refresh failed:', err));
+    }
+  }, [isConnected, balance, loadingBalance, hasAttemptedLoad, refresh]);
+
+  // Reset hasAttemptedLoad when disconnected
+  useEffect(() => {
+    if (!isConnected) {
+      setHasAttemptedLoad(false);
+    }
+  }, [isConnected]);
+
+  useEffect(() => {
+
+    if (
+      hasDydxAddress &&
+      !isConnected &&
+      !isConnecting &&
+      !connectionError &&
+      dydxWalletService.getStatus() !== 'connecting'
+    ) {
       console.log('[DydxWalletConnect] Auto-connecting to dYdX');
       setIsConnecting(true);
       setConnectionError(null);
@@ -76,13 +99,15 @@ export const DydxWalletConnect: React.FC = () => {
         })
         .catch(err => {
           console.error('[DydxWalletConnect] Auto-connect failed:', err);
-          setConnectionError(err.message);
+          // Ignore "already in progress" errors as they mean we are safe
+          if (err.message !== 'Connection already in progress') {
+            setConnectionError(err.message);
+          }
           setIsConnecting(false);
         });
     }
   }, [hasDydxAddress, isConnected, isConnecting, connectionError, network]);
 
-  // Disconnect when wallet is disconnected
   useEffect(() => {
     if (!hasDydxAddress && isConnected) {
       console.log('[DydxWalletConnect] Wallet disconnected, cleaning up');
@@ -148,7 +173,7 @@ export const DydxWalletConnect: React.FC = () => {
     return formatTimeAgo(lastUpdateTime);
   }, [lastUpdateTime]);
 
-  // Show connection error
+
   if (connectionError || error) {
     return (
       <div className="p-4 border-b border-gray-800">
@@ -169,7 +194,6 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-  // Show "Connect Wallet" if no EVM wallet
   if (!hasEvmWallet) {
     return (
       <div className="p-4 border-b border-gray-800">
@@ -192,7 +216,6 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-  // Show "Derive dYdX Account" if EVM wallet but no dYdX address
   if (needsDydxDerivation) {
     return (
       <div className="p-4 border-b border-gray-800">
@@ -221,7 +244,6 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-  // Show connecting state
   if (isConnecting || (!isConnected && hasDydxAddress)) {
     return (
       <div className="p-4 border-b border-gray-800">
@@ -233,8 +255,9 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-  // Show empty balance state
-  if (!balance || (Number(balance.equity) === 0 && Number(balance.freeCollateral) === 0)) {
+
+  // Show loading state while balance is being fetched initially
+  if (loadingBalance && !balance) {
     return (
       <div className="p-4 border-b border-gray-800">
         <div className="flex items-center justify-between mb-3">
@@ -244,9 +267,48 @@ export const DydxWalletConnect: React.FC = () => {
               {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
             </p>
           </div>
-          <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-            No Funds
+          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
+            Loading...
           </span>
+        </div>
+        <div className="flex items-center justify-center py-4">
+          <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-600 border-t-blue-500" />
+        </div>
+        <p className="text-center text-sm text-gray-400">Fetching account balance...</p>
+      </div>
+    );
+  }
+
+  // Only show "No Funds" if we've actually loaded the balance and it's zero
+  const hasZeroBalance = balance &&
+    Number(balance.equity) === 0 &&
+    Number(balance.freeCollateral) === 0;
+
+  if (!balance || hasZeroBalance) {
+    return (
+      <div className="p-4 border-b border-gray-800">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-xs text-gray-500">dYdX Trading Account</p>
+            <p className="text-sm font-mono text-gray-400">
+              {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={refresh}
+              disabled={loadingBalance}
+              className="p-1 rounded hover:bg-gray-700 transition-colors disabled:opacity-50"
+              title="Refresh balance"
+            >
+              <svg className={`w-4 h-4 text-gray-400 ${loadingBalance ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+            <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+              No Funds
+            </span>
+          </div>
         </div>
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded p-3 mb-3">
           <p className="text-xs text-yellow-300">Deposit USDC to start trading on dYdX Chain</p>
@@ -263,7 +325,7 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-  // Show balance and trading info
+
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-4">
       {/* Real-time status indicator */}
@@ -339,11 +401,10 @@ export const DydxWalletConnect: React.FC = () => {
 
           {marginMetrics.marginUsagePercent > 70 && (
             <div
-              className={`rounded p-2 text-xs ${
-                marginMetrics.marginUsagePercent > 85
-                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-                  : 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
-              }`}
+              className={`rounded p-2 text-xs ${marginMetrics.marginUsagePercent > 85
+                ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                : 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
+                }`}
             >
               {marginMetrics.marginUsagePercent > 85 ? 'Critical' : 'High'} margin usage - consider
               closing positions or adding collateral

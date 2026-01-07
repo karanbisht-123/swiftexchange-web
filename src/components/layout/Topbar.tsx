@@ -30,21 +30,17 @@ const Topbar: React.FC<TopbarProps> = () => {
   }, [disconnectAll, navigate]);
 
   return (
-    <header className="h-16 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] flex items-center justify-between px-2">
-      <h1 className="text-lg font-semibold text-[var(--color-text-primary)]">
-        {/* Optional: Add your app logo/name here */}
-      </h1>
+    <header className="h-16 bg-(--color-bg-secondary) border-b border-(--color-border) flex items-center justify-between px-2">
+      <h1 className="text-lg font-semibold text-(--color-text-primary)"></h1>
 
       <div className="flex items-center gap-4">
         <NetworkSwitch />
-
-        {/* Loading state during session restoration */}
         {isAnyWalletConnected ? (
           <div className="flex items-center gap-2">
             <ConnectWalletButton />
             <button
               onClick={handleDisconnectAll}
-              className="hidden lg:block px-3 py-1.5 rounded-sm bg-[var(--color-danger)] text-white text-sm hover:opacity-90 transition"
+              className="hidden lg:block px-3 py-1.5 rounded-sm bg-(--color-danger) text-white text-sm hover:opacity-90 transition"
             >
               Disconnect All
             </button>

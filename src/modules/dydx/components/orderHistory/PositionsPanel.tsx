@@ -7,6 +7,7 @@ import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { dydxWalletService } from '../../service/dydxWalletService';
 import { type Position } from '../../types/trading.types';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
+import { Notification } from '../../../../components/common/Notification';
 
 const PositionsPanel: React.FC = () => {
   const { positions, loadingPositions, positionsError, refreshPositions, isConnected } =
@@ -20,7 +21,7 @@ const PositionsPanel: React.FC = () => {
   const [closingMarket, setClosingMarket] = useState<string | null>(null);
   const [icons, setIcons] = useState<Record<string, string>>({});
 
-  // New: Inline notification state
+  // Updated: Using common notification component
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error';
@@ -28,7 +29,6 @@ const PositionsPanel: React.FC = () => {
 
   const showNotification = (message: string, type: 'success' | 'error') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4000); // Auto hide after 4 seconds
   };
 
   const activeMarkets = useMemo(() => [...new Set(positions.map(p => p.market))], [positions]);
@@ -231,23 +231,15 @@ const PositionsPanel: React.FC = () => {
 
   return (
     <div className="h-full bg-[#0a0a0a] overflow-auto">
-      {/* Inline Notification Banner */}
+      {/* Common Notification Component */}
       {notification && (
-        <div
-          className={`mx-4 mt-4 px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between transition-all animate-in fade-in slide-in-from-top duration-300 ${
-            notification.type === 'success'
-              ? 'bg-green-600/20 text-green-400 border border-green-600/30'
-              : 'bg-red-600/20 text-red-400 border border-red-600/30'
-          }`}
-        >
-          <span>{notification.message}</span>
-          <button
-            onClick={() => setNotification(null)}
-            className="ml-4 opacity-70 hover:opacity-100 transition"
-          >
-            <X size={14} />
-          </button>
-        </div>
+        <Notification
+          type={notification.type}
+          message={notification.message}
+          onClose={() => setNotification(null)}
+          autoClose={true}
+          autoCloseDuration={4000}
+        />
       )}
 
       <table className="w-full text-left text-[11px] border-collapse">
@@ -269,6 +261,10 @@ const PositionsPanel: React.FC = () => {
           {positions.map(position => {
             const rawSize = parseFloat(position.size);
             const absSize = Math.abs(rawSize);
+
+            // Skip closed/empty positions
+            if (absSize === 0) return null;
+
             const entryPrice = parseFloat(position.entryPrice);
             const oraclePrice = oraclePrices[position.market] || entryPrice;
             const unrealizedPnl = parseFloat(position.unrealizedPnl);
@@ -293,9 +289,8 @@ const PositionsPanel: React.FC = () => {
 
                 <td className="p-3">
                   <div
-                    className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                      isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
-                    }`}
+                    className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+                      }`}
                   >
                     {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
                     {position.side}
@@ -322,9 +317,8 @@ const PositionsPanel: React.FC = () => {
 
                 <td className="p-3 text-right">
                   <div
-                    className={`flex flex-col font-mono ${
-                      unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
-                    }`}
+                    className={`flex flex-col font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                      }`}
                   >
                     <span>
                       {unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}

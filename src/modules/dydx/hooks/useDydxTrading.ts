@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 
 import { dydxTradingService } from '../service/dydxTradingService';
 import { dydxWalletService } from '../service/dydxWalletService';
+import useMarketStore from '../store/marketStore';
 import {
   type OpenOrder,
   type OrderResult,
@@ -34,7 +35,10 @@ export const useDydxTrading = () => {
       setOrderError(null);
 
       try {
-        const result = await dydxTradingService.placeOrder(params);
+        const marketInfo = useMarketStore.getState().marketCache[params.market];
+        if (!marketInfo) throw new Error(`Market data not found for ${params.market}`);
+
+        const result = await dydxTradingService.placeOrder(params, marketInfo);
         return result;
       } catch (err: any) {
         const msg = err.message || 'Place order failed';
@@ -82,7 +86,10 @@ export const useDydxTrading = () => {
       }
 
       try {
-        const result = await dydxTradingService.closePosition(position);
+        const marketInfo = useMarketStore.getState().marketCache[position.market];
+        if (!marketInfo) throw new Error(`Market data not found for ${position.market}`);
+
+        const result = await dydxTradingService.closePosition(position, marketInfo);
         return result;
       } catch (err: any) {
         const msg = err.message || 'Close position failed';
@@ -105,7 +112,10 @@ export const useDydxTrading = () => {
       setOrderError(null);
 
       try {
-        const result = await dydxTradingService.setTriggers(position, triggers);
+        const marketInfo = useMarketStore.getState().marketCache[position.market];
+        if (!marketInfo) throw new Error(`Market data not found for ${position.market}`);
+
+        const result = await dydxTradingService.setTriggers(position, triggers, marketInfo);
         return result;
       } catch (err: any) {
         const msg = err.message || 'Set triggers failed';

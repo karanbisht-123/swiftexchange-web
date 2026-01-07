@@ -1,45 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getIndexerClient, getSocketClient } from '../client/clients';
-import type { WebSocketMessage } from '../utils/WebSocketManager';
+import { getIndexerClient } from '../client/clients';
+import useMarketStore from '../store/marketStore';
+import { useWebSocketStore } from '../store/websocketStore';
 import { metadataService } from './useCoinGeckoMetadata';
 
-export interface MarketData {
-  ticker: string;
-  oraclePrice: string;
-  priceChange24H: string;
-  priceChange24HPercent: string;
-  volume24H: string;
-  trades24H: number;
-  nextFundingRate: string;
-  nextFundingAt: string;
-  openInterest: string;
-  marketCaps?: string;
-  baseAsset: string;
-  quoteAsset: string;
-  status: string;
-  marketId?: number;
-  coinIcon: string;
-  coinName?: string;
-  initialMarginFraction?: string;
-  maintenanceMarginFraction?: string;
-  tickSize?: string;
-  stepSize?: string;
-  clobPairId?: string;
-  atomicResolution?: number;
-  quantumConversionExponent?: number;
-  stepBaseQuantums?: number;
-  subticksPerTick?: number;
-  marketType?: string;
-  openInterestLowerCap?: string;
-  openInterestUpperCap?: string;
-  baseOpenInterest?: string;
-  defaultFundingRate1H?: string;
-  spotVolume?: string;
-  marketCap?: string;
-}
+import type { MarketData } from '../types/trading.types';
 
-interface UseMarketsReturn {
+export interface UseMarketsReturn {
   markets: Record<string, MarketData>;
   marketsList: MarketData[];
   getMarket: (ticker: string) => MarketData | undefined;
@@ -57,16 +25,18 @@ export function useMarkets(): UseMarketsReturn {
   const [markets, setMarkets] = useState<Record<string, MarketData>>({});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
   const [cacheStats, setCacheStats] = useState(metadataService.getCacheStats());
 
-  const unsubscribeRef = useRef<(() => void) | null>(null);
   const isMountedRef = useRef(true);
   const hasInitialDataRef = useRef(false);
-  const lastUpdateTimeRef = useRef<number>(0);
-  const socketClientRef = useRef<any>(null);
   const metadataUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const metadataUpdateCounterRef = useRef(0);
+
+  // Get store methods and state
+  const subscribeToAllMarkets = useWebSocketStore(state => state.subscribeToAllMarkets);
+  const unsubscribeFromAllMarkets = useWebSocketStore(state => state.unsubscribeFromAllMarkets);
+  const isConnected = useWebSocketStore(state => state.isConnected);
+  const storeMarkets = useWebSocketStore(state => state.markets);
 
   // Subscribe to metadata updates
   useEffect(() => {
@@ -78,20 +48,24 @@ export function useMarkets(): UseMarketsReturn {
       metadataUpdateCounterRef.current++;
       const currentCount = metadataUpdateCounterRef.current;
 
-      metadataUpdateTimerRef.current = setTimeout(() => {
+      metadataUpdateTimerRef.current = setTimeout(async () => {
         if (currentCount === metadataUpdateCounterRef.current && isMountedRef.current) {
+          // Fetch all metadata asynchronously
+          const tickers = Object.keys(markets);
+          const metadataPromises = tickers.map(ticker => metadataService.getMetadata(ticker));
+          const metadataResults = await Promise.all(metadataPromises);
+
           setMarkets(prev => {
             const updated = { ...prev };
             let hasChanges = false;
 
-            Object.keys(updated).forEach(ticker => {
-              const metadata = metadataService.getMetadata(ticker);
-              if (metadata && metadata.image !== updated[ticker].coinIcon) {
+            tickers.forEach((ticker, index) => {
+              const metadata = metadataResults[index];
+              if (metadata && metadata.image !== updated[ticker]?.coinIcon) {
                 updated[ticker] = {
                   ...updated[ticker],
                   coinIcon: metadata.image,
                   coinName: metadata.name,
-                  marketCap: metadata.market_cap?.toString(),
                 };
                 hasChanges = true;
               }
@@ -109,7 +83,44 @@ export function useMarkets(): UseMarketsReturn {
     };
   }, []);
 
+  // Update local markets with store data
+  useEffect(() => {
+    if (storeMarkets.size === 0) return;
+
+    setMarkets(prev => {
+      const updated = { ...prev };
+      let hasChanges = false;
+
+      storeMarkets.forEach((marketData, ticker) => {
+        const existing = updated[ticker];
+        if (existing) {
+          const needsUpdate =
+            existing.oraclePrice !== marketData.oraclePrice ||
+            existing.volume24H !== marketData.volume24H ||
+            existing.nextFundingRate !== marketData.nextFundingRate ||
+            existing.openInterest !== marketData.openInterest ||
+            existing.priceChange24H !== marketData.priceChange24H;
+
+          if (needsUpdate) {
+            updated[ticker] = {
+              ...existing,
+              oraclePrice: marketData.oraclePrice ?? existing.oraclePrice,
+              priceChange24H: marketData.priceChange24H ?? existing.priceChange24H,
+              volume24H: marketData.volume24H ?? existing.volume24H,
+              nextFundingRate: marketData.nextFundingRate ?? existing.nextFundingRate,
+              openInterest: marketData.openInterest ?? existing.openInterest,
+            };
+            hasChanges = true;
+          }
+        }
+      });
+
+      return hasChanges ? updated : prev;
+    });
+  }, [storeMarkets]);
+
   const enrichMarketData = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (ticker: string, rawData: any): Promise<MarketData> => {
       const metadata = await metadataService.getMetadata(ticker);
       const baseAsset = ticker.split('-')[0];
@@ -147,7 +158,7 @@ export function useMarkets(): UseMarketsReturn {
         baseOpenInterest: rawData.baseOpenInterest,
         defaultFundingRate1H: rawData.defaultFundingRate1H,
         spotVolume: rawData.spotVolume,
-        marketCap: metadata?.market_cap?.toString(),
+        marketCap: rawData.marketCaps, // Use market caps from API response if available
       };
     },
     []
@@ -173,126 +184,25 @@ export function useMarkets(): UseMarketsReturn {
       setMarkets(marketsMap);
       setIsLoading(false);
       hasInitialDataRef.current = true;
-      lastUpdateTimeRef.current = Date.now();
+
+      // Sync to global store
+      useMarketStore.getState().updateMarketCache(marketsMap);
 
       // Preload metadata for all markets
       if (tickers.length > 0) {
         metadataService.preloadBatch(tickers);
       }
-    } catch (err: any) {
+
+      // Subscribe to WebSocket updates for all markets (single handler)
+      subscribeToAllMarkets();
+    } catch (err: unknown) {
       console.error('[useMarkets] Failed to fetch initial markets:', err);
       if (isMountedRef.current) {
-        setError(err.message || 'Failed to load markets');
+        setError(err instanceof Error ? err.message : 'Failed to load markets');
         setIsLoading(false);
       }
     }
-  }, [enrichMarketData]);
-
-  const handleWebSocketMessage = useCallback(
-    (msg: WebSocketMessage) => {
-      if (!isMountedRef.current) return;
-
-      if (msg.type !== 'channel_data' && msg.type !== 'channel_batch_data') return;
-      if (!msg.contents) return;
-
-      // Parse market data from message
-      let marketsPayload: Record<string, any> = {};
-
-      try {
-        // Handle batch data format: contents is an array of objects with oraclePrices
-        if (Array.isArray(msg.contents)) {
-          msg.contents.forEach((item: any) => {
-            if (item.oraclePrices && typeof item.oraclePrices === 'object') {
-              Object.assign(marketsPayload, item.oraclePrices);
-            } else if (item.markets && typeof item.markets === 'object') {
-              Object.assign(marketsPayload, item.markets);
-            }
-          });
-        }
-        // Handle single data format
-        else if (msg.contents.oraclePrices && typeof msg.contents.oraclePrices === 'object') {
-          marketsPayload = msg.contents.oraclePrices;
-        } else if (msg.contents.markets && typeof msg.contents.markets === 'object') {
-          marketsPayload = msg.contents.markets;
-        }
-        // Handle direct format
-        else if (typeof msg.contents === 'object') {
-          const keys = Object.keys(msg.contents);
-          const looksLikeMarkets = keys.some(key => key.includes('-'));
-          if (looksLikeMarkets) {
-            marketsPayload = msg.contents;
-          }
-        }
-
-        if (Object.keys(marketsPayload).length === 0) return;
-      } catch (parseError) {
-        console.error('[useMarkets] Error parsing message:', parseError);
-        return;
-      }
-
-      lastUpdateTimeRef.current = Date.now();
-
-      // Update markets state
-      setMarkets(prev => {
-        const updated = { ...prev };
-        let hasChanges = false;
-
-        Object.entries(marketsPayload).forEach(([ticker, rawData]: [string, any]) => {
-          const existing = updated[ticker];
-
-          if (existing) {
-            // Check if any field actually changed
-            const needsUpdate =
-              existing.oraclePrice !== rawData.oraclePrice ||
-              existing.volume24H !== rawData.volume24H ||
-              existing.status !== rawData.status ||
-              existing.trades24H !== Number(rawData.trades24H) ||
-              existing.nextFundingRate !== rawData.nextFundingRate ||
-              existing.openInterest !== rawData.openInterest ||
-              existing.priceChange24H !== rawData.priceChange24H ||
-              existing.priceChange24HPercent !== rawData.priceChange24HPercent;
-
-            if (needsUpdate) {
-              updated[ticker] = {
-                ...existing,
-                oraclePrice: rawData.oraclePrice ?? existing.oraclePrice,
-                priceChange24H: rawData.priceChange24H ?? existing.priceChange24H,
-                priceChange24HPercent:
-                  rawData.priceChange24HPercent ?? existing.priceChange24HPercent,
-                volume24H: rawData.volume24H ?? existing.volume24H,
-                trades24H:
-                  rawData.trades24H !== undefined ? Number(rawData.trades24H) : existing.trades24H,
-                nextFundingRate: rawData.nextFundingRate ?? existing.nextFundingRate,
-                nextFundingAt: rawData.nextFundingAt ?? existing.nextFundingAt,
-                openInterest: rawData.openInterest ?? existing.openInterest,
-                status: rawData.status ?? existing.status,
-                clobPairId: rawData.clobPairId ?? existing.clobPairId,
-                marketCaps: rawData.marketCaps ?? existing.marketCaps,
-                marketId: rawData.marketId ?? existing.marketId,
-                baseOpenInterest: rawData.baseOpenInterest ?? existing.baseOpenInterest,
-                spotVolume: rawData.spotVolume ?? existing.spotVolume,
-              };
-              hasChanges = true;
-            }
-          } else {
-            // New market detected - enrich it asynchronously
-            enrichMarketData(ticker, rawData)
-              .then(enriched => {
-                if (isMountedRef.current) {
-                  setMarkets(current => ({ ...current, [ticker]: enriched }));
-                }
-              })
-              .catch(err => {
-                console.error(`[useMarkets] Failed to enrich market ${ticker}:`, err);
-              });
-          }
-        });
-
-        return hasChanges ? updated : prev;
-      });
-    },
-    [enrichMarketData]
-  );
+  }, [enrichMarketData, subscribeToAllMarkets]);
 
   const refreshMarkets = useCallback(async () => {
     setIsLoading(true);
@@ -303,50 +213,8 @@ export function useMarkets(): UseMarketsReturn {
   // Main initialization effect
   useEffect(() => {
     isMountedRef.current = true;
-    let removeOnConnect: (() => void) | undefined;
-    let removeOnDisconnect: (() => void) | undefined;
 
-    const initialize = async () => {
-      await fetchInitialMarketData();
-
-      if (!isMountedRef.current) return;
-
-      const socketClient = getSocketClient();
-      socketClientRef.current = socketClient;
-
-      try {
-        unsubscribeRef.current = socketClient.subscribeToMarkets(handleWebSocketMessage, true);
-      } catch (err) {
-        console.error('[useMarkets] Failed to subscribe:', err);
-        setError('Failed to connect to market data feed');
-      }
-
-      removeOnConnect = socketClient.onConnect(() => {
-        if (isMountedRef.current) {
-          setIsConnected(true);
-          setError(null);
-
-          if (unsubscribeRef.current) {
-            unsubscribeRef.current();
-          }
-          try {
-            unsubscribeRef.current = socketClient.subscribeToMarkets(handleWebSocketMessage, true);
-          } catch (err) {
-            console.error('[useMarkets] Failed to resubscribe:', err);
-          }
-        }
-      });
-
-      removeOnDisconnect = socketClient.onDisconnect(() => {
-        if (isMountedRef.current) {
-          setIsConnected(false);
-        }
-      });
-
-      setIsConnected(socketClient.isConnected());
-    };
-
-    initialize();
+    fetchInitialMarketData();
 
     return () => {
       isMountedRef.current = false;
@@ -356,15 +224,10 @@ export function useMarkets(): UseMarketsReturn {
         metadataUpdateTimerRef.current = null;
       }
 
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-
-      if (removeOnConnect) removeOnConnect();
-      if (removeOnDisconnect) removeOnDisconnect();
+      // Unsubscribe from all markets
+      unsubscribeFromAllMarkets();
     };
-  }, [fetchInitialMarketData, handleWebSocketMessage]);
+  }, [fetchInitialMarketData, unsubscribeFromAllMarkets]);
 
   // Memoized sorted markets list
   const marketsList = useMemo(() => {

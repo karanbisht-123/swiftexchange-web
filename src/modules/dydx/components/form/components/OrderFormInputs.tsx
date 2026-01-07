@@ -22,9 +22,11 @@ interface OrderFormInputsProps {
   currencyMode?: CurrencyMode;
   onCurrencyModeChange?: (mode: CurrencyMode) => void;
   baseAsset?: string;
+  maxBuyingPower?: number;
+  leverage?: number;
+  onSetMax?: () => void;
 }
 
-// Define as constants for runtime checks
 const PRICE_REQUIRED_TYPES = ['LIMIT', 'STOP_LIMIT', 'TAKE_PROFIT_LIMIT'] as const;
 
 const TRIGGER_REQUIRED_TYPES = [
@@ -39,8 +41,6 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
   size,
   price,
   triggerPrice,
-  currentPrice,
-  bestPrices,
   onSizeChange,
   onPriceChange,
   onTriggerPriceChange,
@@ -53,6 +53,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
   currencyMode = 'USD',
   onCurrencyModeChange,
   baseAsset = 'USD',
+  maxBuyingPower,
+  leverage = 1,
+  onSetMax,
 }) => {
   const showPrice = PRICE_REQUIRED_TYPES.includes(orderType as any);
   const showTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(orderType as any);
@@ -62,35 +65,6 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
       onCurrencyModeChange(currencyMode === 'USD' ? 'BASE' : 'USD');
     }
   };
-
-  const renderPriceButtons = (onChange: (value: string) => void) => (
-    <div className="flex gap-1 mt-1">
-      <button
-        type="button"
-        onClick={() => onChange(currentPrice)}
-        className="px-2 py-0.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-300 transition-colors"
-        title="Use last traded price"
-      >
-        Last
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(bestPrices.bestBid)}
-        className="px-2 py-0.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-300 transition-colors"
-        title="Use best bid price"
-      >
-        Bid
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(bestPrices.bestAsk)}
-        className="px-2 py-0.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-300 transition-colors"
-        title="Use best ask price"
-      >
-        Ask
-      </button>
-    </div>
-  );
 
   const renderFeedback = (error?: string, warning?: string) => {
     if (error) {
@@ -112,7 +86,7 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
     if (hasError) borderClass = 'border-red-500';
     else if (hasWarning) borderClass = 'border-yellow-500';
 
-    return `w-full bg-gray-800 border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-gray-600 ${borderClass}`;
+    return `w-full bg-gray-900/50 border ${borderClass} rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all`;
   };
 
   return (
@@ -131,7 +105,6 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
             aria-invalid={!!priceError}
             aria-describedby={priceError ? 'price-error' : undefined}
           />
-          {renderPriceButtons(onPriceChange)}
           <div id="price-error">{renderFeedback(priceError, priceWarning)}</div>
         </div>
       )}
@@ -150,7 +123,6 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
             aria-invalid={!!triggerError}
             aria-describedby={triggerError ? 'trigger-error' : undefined}
           />
-          {renderPriceButtons(onTriggerPriceChange)}
           <div id="trigger-error">{renderFeedback(triggerError, triggerWarning)}</div>
         </div>
       )}
@@ -169,16 +141,27 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
             {currencyMode === 'USD' ? 'USD' : baseAsset}
           </button>
         </div>
-        <input
-          type="text"
-          value={size}
-          onChange={e => onSizeChange(e.target.value)}
-          placeholder={currencyMode === 'USD' ? '0.00' : '0.00000000'}
-          className={getInputClasses(sizeError, sizeWarning)}
-          aria-label="Order Size"
-          aria-invalid={!!sizeError}
-          aria-describedby={sizeError ? 'size-error' : undefined}
-        />
+        <div className="relative">
+          <input
+            type="text"
+            value={size}
+            onChange={e => onSizeChange(e.target.value)}
+            placeholder={currencyMode === 'USD' ? '0.00' : '0.00000000'}
+            className={getInputClasses(sizeError, sizeWarning)}
+            aria-label="Order Size"
+            aria-invalid={!!sizeError}
+            aria-describedby={sizeError ? 'size-error' : undefined}
+          />
+          {maxBuyingPower && maxBuyingPower > 0 && (
+            <div
+              className="absolute right-3 top-2.5 text-[10px] text-gray-400 cursor-pointer hover:text-blue-400 transition-colors bg-gray-900/80 px-1.5 rounded z-10"
+              onClick={onSetMax}
+              title="Click to fill max size"
+            >
+              Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x
+            </div>
+          )}
+        </div>
         <div id="size-error">{renderFeedback(sizeError, sizeWarning)}</div>
       </div>
     </div>

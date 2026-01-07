@@ -9,6 +9,7 @@ import {
 
 import { walletService } from '../../walletconnect/services/walletService';
 import {
+  type MarketData,
   type OrderSideEnum,
   type PlaceOrderParams,
   type Position,
@@ -26,14 +27,18 @@ const TRADING_CONFIG = {
 class DydxTradingService {
   private clientIdCounter = Date.now() >>> 0;
 
-  async placeOrder(params: PlaceOrderParams) {
+  async placeOrder(params: PlaceOrderParams, marketInfo?: MarketData) {
     try {
       const client = await dydxWalletService.getCompositeClient();
       const address = dydxWalletService.getAddress();
       if (!client || !address) throw new Error('Wallet not connected');
 
       const localWallet = await this.getSigningWallet();
-      const marketInfo = await this.getMarketInfo(params.market);
+
+      if (!marketInfo) {
+        throw new Error('Market information is required');
+      }
+
       const subaccount = {
         address,
         subaccountNumber: dydxWalletService.getSubaccountNumber(),
@@ -50,10 +55,10 @@ class DydxTradingService {
       if (orderCategory.isMarket || !price) {
         price = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
       }
-      price = this.roundPrice(price, marketInfo.tickSize);
+      price = this.roundPrice(price, marketInfo.tickSize!);
 
       const triggerPrice = params.triggerPrice
-        ? this.roundPrice(params.triggerPrice, marketInfo.tickSize)
+        ? this.roundPrice(params.triggerPrice, marketInfo.tickSize!)
         : undefined;
 
       let result;
@@ -200,7 +205,7 @@ class DydxTradingService {
     );
   }
 
-  async closePosition(position: Position) {
+  async closePosition(position: Position, marketInfo?: MarketData) {
     try {
       const positionSide = position.side.toUpperCase().trim();
       const closingSide: OrderSideEnum = positionSide === 'LONG' ? 'SELL' : 'BUY';
@@ -215,14 +220,17 @@ class DydxTradingService {
 
       // Use regular market order without reduce-only flag
       // This will close the position as long as the size matches
-      const result = await this.placeOrder({
-        market: position.market,
-        side: closingSide,
-        type: 'MARKET',
-        size,
-        reduceOnly: false,
-        slippageTolerance: TRADING_CONFIG.CLOSE_POSITION_SLIPPAGE,
-      });
+      const result = await this.placeOrder(
+        {
+          market: position.market,
+          side: closingSide,
+          type: 'MARKET',
+          size,
+          reduceOnly: false,
+          slippageTolerance: TRADING_CONFIG.CLOSE_POSITION_SLIPPAGE,
+        },
+        marketInfo
+      );
 
       console.log(result, 'hii i am result -----------');
       return result;
@@ -237,7 +245,7 @@ class DydxTradingService {
     }
   }
 
-  async setTriggers(position: Position, triggers: TriggerParams) {
+  async setTriggers(position: Position, triggers: TriggerParams, marketInfo?: MarketData) {
     const positionSide = position.side.toUpperCase().trim();
     const closingSide: OrderSideEnum = positionSide === 'LONG' ? 'SELL' : 'BUY';
     const size = Math.abs(parseFloat(position.size));
@@ -248,29 +256,35 @@ class DydxTradingService {
         const type =
           triggers.takeProfit.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
 
-        results.takeProfit = await this.placeOrder({
-          market: position.market,
-          side: closingSide,
-          type,
-          size,
-          price: triggers.takeProfit.price,
-          triggerPrice: triggers.takeProfit.price,
-          reduceOnly: false,
-        });
+        results.takeProfit = await this.placeOrder(
+          {
+            market: position.market,
+            side: closingSide,
+            type,
+            size,
+            price: triggers.takeProfit.price,
+            triggerPrice: triggers.takeProfit.price,
+            reduceOnly: false,
+          },
+          marketInfo
+        );
       }
 
       if (triggers.stopLoss?.enabled && triggers.stopLoss?.price) {
         const type = triggers.stopLoss.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
 
-        results.stopLoss = await this.placeOrder({
-          market: position.market,
-          side: closingSide,
-          type,
-          size,
-          price: triggers.stopLoss.price,
-          triggerPrice: triggers.stopLoss.price,
-          reduceOnly: false,
-        });
+        results.stopLoss = await this.placeOrder(
+          {
+            market: position.market,
+            side: closingSide,
+            type,
+            size,
+            price: triggers.stopLoss.price,
+            triggerPrice: triggers.stopLoss.price,
+            reduceOnly: false,
+          },
+          marketInfo
+        );
       }
 
       return { success: true, results };
@@ -332,17 +346,6 @@ class DydxTradingService {
         userMessage: this.getUserFriendlyError(error),
       };
     }
-  }
-
-  async getMarketInfo(ticker: string) {
-    const indexer = dydxWalletService.getIndexerClient();
-    if (!indexer) throw new Error('Indexer not ready');
-
-    const response = await indexer.markets.getPerpetualMarkets(ticker);
-    const market = response.markets[ticker];
-
-    if (!market) throw new Error(`Market ${ticker} not found`);
-    return market;
   }
 
   private validateReduceOnlyConstraints(params: PlaceOrderParams, orderCategory: any) {

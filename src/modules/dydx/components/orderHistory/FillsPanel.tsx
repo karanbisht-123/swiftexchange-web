@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Fill, dydxDataService } from '../../service/dydxOrderService';
@@ -11,125 +11,98 @@ import { Pagination } from '../shared/Pagination';
 import { SideBadge } from '../shared/SideBadge';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
-const ITEMS_PER_PAGE = 50;
+const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
-  const { fills, loadingFills, fillsError, isConnected } = useDydxData();
+  const { fills: storeFills, loadingFills, fillsError, isConnected, refreshFills } = useDydxData();
   const [allFills, setAllFills] = useState<Fill[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [loadingPage, setLoadingPage] = useState(false);
-  const [pageCache, setPageCache] = useState<Map<number, Fill[]>>(new Map());
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreData, setHasMoreData] = useState(true);
+  const initialLoadDoneRef = useRef(false);
 
-  // Reset state on disconnect
   useEffect(() => {
     if (!isConnected) {
       setAllFills([]);
       setCurrentPage(1);
-      setPageCache(new Map());
+      setHasMoreData(true);
+      initialLoadDoneRef.current = false;
     }
   }, [isConnected]);
-
-  // Initialize with first page from hook
   useEffect(() => {
-    if (fills.length > 0 && allFills.length === 0) {
-      setAllFills(fills);
-      setPageCache(prev => new Map(prev).set(1, fills));
+    if (storeFills.length > 0) {
+      setAllFills(prevFills => {
+        const fillsMap = new Map<string, Fill>();
+        prevFills.forEach(f => fillsMap.set(f.id, f));
+        storeFills.forEach(f => fillsMap.set(f.id, f));
+        return Array.from(fillsMap.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+      initialLoadDoneRef.current = true;
     }
-  }, [fills, allFills.length]);
+  }, [storeFills]);
 
-  // Calculate total pages
   const totalPages = useMemo(() => {
-    const currentDataPages = Math.ceil(allFills.length / ITEMS_PER_PAGE);
-    if (allFills.length % ITEMS_PER_PAGE === 0 && allFills.length >= ITEMS_PER_PAGE) {
-      return currentDataPages + 0;
-    }
-    return Math.max(currentDataPages, 1);
-  }, [allFills.length]);
+    const currentPages = Math.ceil(allFills.length / ITEMS_PER_PAGE);
+    return hasMoreData && allFills.length >= ITEMS_PER_PAGE
+      ? currentPages
+      : Math.max(currentPages, 1);
+  }, [allFills.length, hasMoreData]);
 
-  // Get current page data
   const currentPageData = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
     return allFills.slice(startIndex, endIndex);
   }, [allFills, currentPage]);
 
-  // Load more data when navigating to a new page
-  const loadPageData = useCallback(
-    async (page: number) => {
-      if (!isConnected) return;
+  const loadMoreData = useCallback(async () => {
+    if (loadingMore || !hasMoreData || !isConnected) return;
 
-      const requiredItems = page * ITEMS_PER_PAGE;
-      if (allFills.length >= requiredItems) {
+    const lastFill = allFills[allFills.length - 1];
+    if (!lastFill) return;
+
+    setLoadingMore(true);
+    try {
+      const moreFills = await dydxDataService.getFills(
+        undefined,
+        ITEMS_PER_PAGE,
+        lastFill.createdAtHeight,
+        false
+      );
+
+      if (moreFills.length === 0) {
+        setHasMoreData(false);
         return;
       }
+      setAllFills(prev => {
+        const fillsMap = new Map<string, Fill>();
+        prev.forEach(f => fillsMap.set(f.id, f));
+        moreFills.forEach(f => fillsMap.set(f.id, f));
 
-      if (pageCache.has(page)) {
-        return;
+        return Array.from(fillsMap.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+      if (moreFills.length < ITEMS_PER_PAGE) {
+        setHasMoreData(false);
       }
-
-      setLoadingPage(true);
-      try {
-        const itemsToFetch = requiredItems - allFills.length;
-        const batchesToFetch = Math.ceil(itemsToFetch / ITEMS_PER_PAGE);
-
-        let newFills: Fill[] = [];
-        let lastFill = allFills[allFills.length - 1];
-
-        for (let i = 0; i < batchesToFetch; i++) {
-          const moreFills = await dydxDataService.getFills(
-            undefined,
-            ITEMS_PER_PAGE,
-            lastFill?.createdAtHeight,
-            false
-          );
-
-          if (moreFills.length === 0) break;
-
-          const existingIds = new Set([...allFills.map(f => f.id), ...newFills.map(f => f.id)]);
-          const uniqueFills = moreFills.filter(f => !existingIds.has(f.id));
-
-          if (uniqueFills.length === 0) break;
-
-          newFills = [...newFills, ...uniqueFills];
-          lastFill = uniqueFills[uniqueFills.length - 1];
-
-          if (moreFills.length < ITEMS_PER_PAGE) break;
-        }
-
-        if (newFills.length > 0) {
-          const fillsMap = new Map<string, Fill>();
-          allFills.forEach(fill => fillsMap.set(fill.id, fill));
-          newFills.forEach(fill => fillsMap.set(fill.id, fill));
-
-          const updatedFills = Array.from(fillsMap.values()).sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-
-          setAllFills(updatedFills);
-
-          const startIndex = (page - 1) * ITEMS_PER_PAGE;
-          const endIndex = startIndex + ITEMS_PER_PAGE;
-          const pageData = updatedFills.slice(startIndex, endIndex);
-          setPageCache(prev => new Map(prev).set(page, pageData));
-        }
-      } catch (error) {
-        console.error('Failed to load page data:', error);
-      } finally {
-        setLoadingPage(false);
-      }
-    },
-    [allFills, isConnected, pageCache]
-  );
-
-  // Handle page change
+    } catch (error) {
+      console.error('[FillsPanel] Failed to load more data:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [allFills, isConnected, loadingMore, hasMoreData]);
   const handlePageChange = useCallback(
     (page: number) => {
       setCurrentPage(page);
-      loadPageData(page);
+      const requiredItems = page * ITEMS_PER_PAGE;
+      if (allFills.length < requiredItems && hasMoreData && !loadingMore) {
+        loadMoreData();
+      }
     },
-    [loadPageData]
+    [allFills.length, hasMoreData, loadingMore, loadMoreData]
   );
-
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view your trade fills" />;
   }
@@ -142,7 +115,7 @@ const FillsPanel: React.FC = () => {
     return <EmptyState title="Error Loading Fills" description={fillsError} />;
   }
 
-  if (allFills.length === 0) {
+  if (allFills.length === 0 && !loadingFills) {
     return (
       <EmptyState
         title="No Fills Yet"
@@ -181,7 +154,7 @@ const FillsPanel: React.FC = () => {
       key: 'side',
       header: 'Side',
       align: 'center' as const,
-      render: (f: Fill) => <SideBadge side={f.side} />,
+      render: (f: Fill) => <SideBadge side={f.side as 'BUY' | 'SELL'} />,
     },
     {
       key: 'amount',
@@ -237,6 +210,41 @@ const FillsPanel: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-primary">
+      {/* <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between bg-secondary">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-medium text-white">Trade Fills</h3>
+          <span className="text-xs text-gray-500">
+            {allFills.length} fill{allFills.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs text-gray-400">Live</span>
+          </div>
+
+          <button
+            onClick={() => refreshFills()}
+            disabled={loadingFills}
+            className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors disabled:opacity-50"
+            title="Refresh fills"
+          >
+            <svg
+              className={`w-4 h-4 ${loadingFills ? 'animate-spin' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
+        </div>
+      </div> */}
       <div className="flex-1 overflow-auto">
         <DataTable data={currentPageData} columns={columns} getRowKey={f => f.id} />
       </div>
@@ -244,7 +252,10 @@ const FillsPanel: React.FC = () => {
         currentPage={currentPage}
         totalPages={totalPages}
         onPageChange={handlePageChange}
-        loading={loadingPage}
+        loading={loadingMore}
+        totalItems={allFills.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        hasMore={hasMoreData}
       />
     </div>
   );

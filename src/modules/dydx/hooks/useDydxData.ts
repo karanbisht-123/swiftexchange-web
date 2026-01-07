@@ -8,69 +8,51 @@ import {
   dydxDataService,
 } from '../service/dydxOrderService';
 import { dydxWalletService } from '../service/dydxWalletService';
+import { useWebSocketStore } from '../store/websocketStore';
 
 interface UseDydxDataReturn {
-  // Positions
   positions: Position[];
   loadingPositions: boolean;
   positionsError: string | null;
   refreshPositions: () => Promise<void>;
 
-  // Asset Positions
   assetPositions: AssetPosition[];
   loadingAssetPositions: boolean;
   assetPositionsError: string | null;
   refreshAssetPositions: () => Promise<void>;
 
-  // Orders
   orders: Order[];
   loadingOrders: boolean;
   ordersError: string | null;
   refreshOrders: () => Promise<void>;
 
-  // Fills
   fills: Fill[];
   loadingFills: boolean;
   fillsError: string | null;
   refreshFills: () => Promise<void>;
 
-  // General
   isConnected: boolean;
   isReceivingUpdates: boolean;
   lastUpdateTime: number | null;
 }
 
 export const useDydxData = (): UseDydxDataReturn => {
-  // Positions state
-  const [positions, setPositions] = useState<Position[]>([]);
   const [loadingPositions, setLoadingPositions] = useState(false);
   const [positionsError, setPositionsError] = useState<string | null>(null);
 
-  // Asset positions state
-  const [assetPositions, setAssetPositions] = useState<AssetPosition[]>([]);
   const [loadingAssetPositions, setLoadingAssetPositions] = useState(false);
   const [assetPositionsError, setAssetPositionsError] = useState<string | null>(null);
 
-  // Orders state
-  const [orders, setOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
 
-  // Fills state
-  const [fills, setFills] = useState<Fill[]>([]);
   const [loadingFills, setLoadingFills] = useState(false);
   const [fillsError, setFillsError] = useState<string | null>(null);
 
-  // General state
   const [isConnected, setIsConnected] = useState(false);
-  const [isReceivingUpdates, setIsReceivingUpdates] = useState(false);
-  const [lastUpdateTime, setLastUpdateTime] = useState<number | null>(null);
 
-  // Refs
   const isMountedRef = useRef(true);
   const hasInitialFetchRef = useRef(false);
-  const positionUnsubRef = useRef<(() => void) | null>(null);
-  const orderUnsubRef = useRef<(() => void) | null>(null);
   const isFetchingRef = useRef({
     positions: false,
     assetPositions: false,
@@ -78,7 +60,33 @@ export const useDydxData = (): UseDydxDataReturn => {
     fills: false,
   });
 
-  // Track mount state
+  const subscribeToSubaccount = useWebSocketStore(state => state.subscribeToSubaccount);
+  const unsubscribeFromSubaccount = useWebSocketStore(state => state.unsubscribeFromSubaccount);
+
+  // Get address
+  const dydxAddress = dydxWalletService.getAddress();
+  const subaccountNumber = dydxWalletService.getSubaccountNumber();
+
+  // Get data from store
+  const subaccountKey = dydxAddress ? `subaccount_${dydxAddress}_${subaccountNumber}` : null;
+
+  const subaccountData = useWebSocketStore(
+    useCallback(
+      state => (subaccountKey ? state.subaccounts.get(subaccountKey) : null),
+      [subaccountKey]
+    )
+  );
+
+  // Extract data from store
+  const positions = subaccountData?.openPerpetualPositions || [];
+  const orders = subaccountData?.orders || [];
+  const fills = subaccountData?.fills || [];
+  const assetPositions = subaccountData?.assetPositions || [];
+  const lastUpdateTime = subaccountData?.lastUpdate || null;
+  const isReceivingUpdates = subaccountData
+    ? Date.now() - subaccountData.lastUpdate < 30000
+    : false;
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -86,175 +94,145 @@ export const useDydxData = (): UseDydxDataReturn => {
     };
   }, []);
 
-  // Fetch positions
-  const fetchPositions = useCallback(async (forceRefresh = false): Promise<void> => {
-    if (isFetchingRef.current.positions || !isMountedRef.current) {
-      return;
-    }
+  const updateSubaccount = useWebSocketStore(state => state.updateSubaccount);
+  const fetchPositions = useCallback(
+    async (forceRefresh = false): Promise<void> => {
+      if (isFetchingRef.current.positions || !isMountedRef.current) return;
+      if (!dydxDataService.isReady() || !subaccountKey) return;
 
-    if (!dydxDataService.isReady()) {
+      isFetchingRef.current.positions = true;
       if (isMountedRef.current) {
-        setPositionsError('Service not ready');
+        setLoadingPositions(true);
+        setPositionsError(null);
       }
-      return;
-    }
 
-    isFetchingRef.current.positions = true;
+      try {
+        const data = await (forceRefresh
+          ? dydxDataService.refreshPositions('OPEN')
+          : dydxDataService.getPositions('OPEN'));
 
-    if (isMountedRef.current) {
-      setLoadingPositions(true);
-      setPositionsError(null);
-    }
+        updateSubaccount(subaccountKey, {
+          openPerpetualPositions: data,
+          lastUpdate: Date.now(),
+        });
+      } catch (err: any) {
+        if (isMountedRef.current) {
+          setPositionsError(err.message || 'Failed to fetch positions');
+        }
+      } finally {
+        if (isMountedRef.current) setLoadingPositions(false);
+        isFetchingRef.current.positions = false;
+      }
+    },
+    [subaccountKey, updateSubaccount]
+  );
 
-    try {
-      const data = forceRefresh
-        ? await dydxDataService.refreshPositions('OPEN')
-        : await dydxDataService.getPositions('OPEN');
+  const fetchAssetPositions = useCallback(
+    async (forceRefresh = false): Promise<void> => {
+      if (isFetchingRef.current.assetPositions || !isMountedRef.current) return;
+      if (!dydxDataService.isReady() || !subaccountKey) return;
 
+      isFetchingRef.current.assetPositions = true;
       if (isMountedRef.current) {
-        setPositions(data);
-        setLastUpdateTime(Date.now());
+        setLoadingAssetPositions(true);
+        setAssetPositionsError(null);
       }
-    } catch (err: any) {
+
+      try {
+        const data = await dydxDataService.getAssetPositions('OPEN', undefined, !forceRefresh);
+
+        // Sync with store
+        updateSubaccount(subaccountKey, {
+          assetPositions: data,
+          lastUpdate: Date.now(),
+        });
+      } catch (err: any) {
+        if (isMountedRef.current) {
+          setAssetPositionsError(err.message || 'Failed to fetch asset positions');
+        }
+      } finally {
+        if (isMountedRef.current) setLoadingAssetPositions(false);
+        isFetchingRef.current.assetPositions = false;
+      }
+    },
+    [subaccountKey, updateSubaccount]
+  );
+
+  const fetchOrders = useCallback(
+    async (forceRefresh = false): Promise<void> => {
+      if (isFetchingRef.current.orders || !isMountedRef.current) return;
+      if (!dydxDataService.isReady() || !subaccountKey) return;
+
+      isFetchingRef.current.orders = true;
       if (isMountedRef.current) {
-        setPositionsError(err.message || 'Failed to fetch positions');
+        setLoadingOrders(true);
+        setOrdersError(null);
       }
-    } finally {
+
+      try {
+        const data = await (forceRefresh
+          ? dydxDataService.refreshOrders()
+          : dydxDataService.getOrders());
+
+        // Sync with store
+        updateSubaccount(subaccountKey, {
+          orders: data,
+          lastUpdate: Date.now(),
+        });
+      } catch (err: any) {
+        if (isMountedRef.current) {
+          setOrdersError(err.message || 'Failed to fetch orders');
+        }
+      } finally {
+        if (isMountedRef.current) setLoadingOrders(false);
+        isFetchingRef.current.orders = false;
+      }
+    },
+    [subaccountKey, updateSubaccount]
+  );
+
+  const fetchFills = useCallback(
+    async (forceRefresh = false): Promise<void> => {
+      if (isFetchingRef.current.fills || !isMountedRef.current) return;
+      if (!dydxDataService.isReady() || !subaccountKey) return;
+
+      isFetchingRef.current.fills = true;
       if (isMountedRef.current) {
-        setLoadingPositions(false);
+        setLoadingFills(true);
+        setFillsError(null);
       }
-      isFetchingRef.current.positions = false;
-    }
-  }, []);
 
-  // Fetch asset positions
-  const fetchAssetPositions = useCallback(async (forceRefresh = false): Promise<void> => {
-    if (isFetchingRef.current.assetPositions || !isMountedRef.current) {
-      return;
-    }
+      try {
+        const data = await (forceRefresh
+          ? dydxDataService.refreshFills()
+          : dydxDataService.getFills());
 
-    if (!dydxDataService.isReady()) {
-      if (isMountedRef.current) {
-        setAssetPositionsError('Service not ready');
+        // Sync with store
+        updateSubaccount(subaccountKey, {
+          fills: data,
+          lastUpdate: Date.now(),
+        });
+      } catch (err: any) {
+        if (isMountedRef.current) {
+          setFillsError(err.message || 'Failed to fetch fills');
+        }
+      } finally {
+        if (isMountedRef.current) setLoadingFills(false);
+        isFetchingRef.current.fills = false;
       }
-      return;
-    }
+    },
+    [subaccountKey, updateSubaccount]
+  );
 
-    isFetchingRef.current.assetPositions = true;
-
-    if (isMountedRef.current) {
-      setLoadingAssetPositions(true);
-      setAssetPositionsError(null);
-    }
-
-    try {
-      const data = await dydxDataService.getAssetPositions('OPEN', undefined, !forceRefresh);
-
-      if (isMountedRef.current) {
-        setAssetPositions(data);
-      }
-    } catch (err: any) {
-      if (isMountedRef.current) {
-        setAssetPositionsError(err.message || 'Failed to fetch asset positions');
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setLoadingAssetPositions(false);
-      }
-      isFetchingRef.current.assetPositions = false;
-    }
-  }, []);
-
-  const fetchOrders = useCallback(async (forceRefresh = false): Promise<void> => {
-    if (isFetchingRef.current.orders || !isMountedRef.current) {
-      return;
-    }
-
-    if (!dydxDataService.isReady()) {
-      if (isMountedRef.current) {
-        setOrdersError('Service not ready');
-      }
-      return;
-    }
-
-    isFetchingRef.current.orders = true;
-
-    if (isMountedRef.current) {
-      setLoadingOrders(true);
-      setOrdersError(null);
-    }
-
-    try {
-      const data = forceRefresh
-        ? await dydxDataService.refreshOrders()
-        : await dydxDataService.getOrders();
-
-      if (isMountedRef.current) {
-        setOrders(data);
-        setLastUpdateTime(Date.now());
-      }
-    } catch (err: any) {
-      if (isMountedRef.current) {
-        setOrdersError(err.message || 'Failed to fetch orders');
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setLoadingOrders(false);
-      }
-      isFetchingRef.current.orders = false;
-    }
-  }, []);
-
-  const fetchFills = useCallback(async (forceRefresh = false): Promise<void> => {
-    if (isFetchingRef.current.fills || !isMountedRef.current) {
-      return;
-    }
-
-    if (!dydxDataService.isReady()) {
-      if (isMountedRef.current) {
-        setFillsError('Service not ready');
-      }
-      return;
-    }
-
-    isFetchingRef.current.fills = true;
-
-    if (isMountedRef.current) {
-      setLoadingFills(true);
-      setFillsError(null);
-    }
-
-    try {
-      const data = forceRefresh
-        ? await dydxDataService.refreshFills()
-        : await dydxDataService.getFills();
-
-      if (isMountedRef.current) {
-        setFills(data);
-      }
-    } catch (err: any) {
-      if (isMountedRef.current) {
-        setFillsError(err.message || 'Failed to fetch fills');
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setLoadingFills(false);
-      }
-      isFetchingRef.current.fills = false;
-    }
-  }, []);
-
-  // Effect: Monitor wallet connection status
+  // Monitor wallet connection
   useEffect(() => {
     const unsubscribe = dydxWalletService.onStatusChange(status => {
       if (!isMountedRef.current) return;
 
       if (status === 'connected') {
         setIsConnected(true);
-
         if (!hasInitialFetchRef.current) {
           hasInitialFetchRef.current = true;
-
           setTimeout(() => fetchPositions(true), 100);
           setTimeout(() => fetchAssetPositions(true), 300);
           setTimeout(() => fetchOrders(true), 500);
@@ -263,12 +241,6 @@ export const useDydxData = (): UseDydxDataReturn => {
       } else if (status === 'disconnected') {
         setIsConnected(false);
         hasInitialFetchRef.current = false;
-        setPositions([]);
-        setAssetPositions([]);
-        setOrders([]);
-        setFills([]);
-        setLastUpdateTime(null);
-        setIsReceivingUpdates(false);
       }
     });
 
@@ -283,110 +255,54 @@ export const useDydxData = (): UseDydxDataReturn => {
       }
     }
 
-    return () => {
-      unsubscribe();
-    };
+    return unsubscribe;
   }, [fetchPositions, fetchAssetPositions, fetchOrders, fetchFills]);
 
-  // Effect: Setup WebSocket listeners for real-time updates
+  // Subscribe to WebSocket updates via centralized store
   useEffect(() => {
-    if (!isConnected) {
-      // Cleanup listeners if not connected
-      if (positionUnsubRef.current) {
-        positionUnsubRef.current();
-        positionUnsubRef.current = null;
-      }
-      if (orderUnsubRef.current) {
-        orderUnsubRef.current();
-        orderUnsubRef.current = null;
-      }
-      setIsReceivingUpdates(false);
+    if (!dydxAddress || !isConnected) {
       return;
     }
 
-    // Subscribe to position updates
-    const positionUnsub = dydxDataService.onPositionsUpdate(updatedPositions => {
-      if (!isMountedRef.current) return;
+    console.log('[useDydxData] Subscribing via Zustand store');
 
-      setPositions(updatedPositions);
-      setLastUpdateTime(Date.now());
-      setIsReceivingUpdates(true);
-    });
+    // Subscribe (store handles deduplication)
+    subscribeToSubaccount(dydxAddress, subaccountNumber);
 
-    const orderUnsub = dydxDataService.onOrdersUpdate(updatedOrders => {
-      if (!isMountedRef.current) return;
-
-      setOrders(updatedOrders);
-      setLastUpdateTime(Date.now());
-      setIsReceivingUpdates(true);
-    });
-
-    positionUnsubRef.current = positionUnsub;
-    orderUnsubRef.current = orderUnsub;
-
-    const statusInterval = setInterval(() => {
-      if (!isMountedRef.current) return;
-
-      const receiving = dydxDataService.isReceivingUpdates();
-      setIsReceivingUpdates(receiving);
-    }, 5000);
-
+    // Cleanup: unsubscribe when component unmounts
     return () => {
-      if (positionUnsubRef.current) {
-        positionUnsubRef.current();
-        positionUnsubRef.current = null;
-      }
-      if (orderUnsubRef.current) {
-        orderUnsubRef.current();
-        orderUnsubRef.current = null;
-      }
-      clearInterval(statusInterval);
+      console.log('[useDydxData] Unsubscribing via Zustand store');
+      unsubscribeFromSubaccount(dydxAddress, subaccountNumber);
     };
-  }, [isConnected]);
-
-  // Public refresh methods
-  const refreshPositions = useCallback(async () => {
-    await fetchPositions(true);
-  }, [fetchPositions]);
-
-  const refreshAssetPositions = useCallback(async () => {
-    await fetchAssetPositions(true);
-  }, [fetchAssetPositions]);
-
-  const refreshOrders = useCallback(async () => {
-    await fetchOrders(true);
-  }, [fetchOrders]);
-
-  const refreshFills = useCallback(async () => {
-    await fetchFills(true);
-  }, [fetchFills]);
+  }, [
+    dydxAddress,
+    isConnected,
+    subaccountNumber,
+    subscribeToSubaccount,
+    unsubscribeFromSubaccount,
+  ]);
 
   return {
-    // Positions
     positions,
     loadingPositions,
     positionsError,
-    refreshPositions,
+    refreshPositions: useCallback(() => fetchPositions(true), [fetchPositions]),
 
-    // Asset Positions
     assetPositions,
     loadingAssetPositions,
     assetPositionsError,
-    refreshAssetPositions,
+    refreshAssetPositions: useCallback(() => fetchAssetPositions(true), [fetchAssetPositions]),
 
-    // Orders
     orders,
     loadingOrders,
     ordersError,
-    refreshOrders,
+    refreshOrders: useCallback(() => fetchOrders(true), [fetchOrders]),
 
-    // Fills
     fills,
     loadingFills,
     fillsError,
-    refreshFills,
+    refreshFills: useCallback(() => fetchFills(true), [fetchFills]),
 
-    // General
     isConnected,
     isReceivingUpdates,
     lastUpdateTime,

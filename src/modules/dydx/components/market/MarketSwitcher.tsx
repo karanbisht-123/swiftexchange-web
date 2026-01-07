@@ -1,8 +1,10 @@
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { useMarkets } from '../../hooks/useMarkets';
 import { useTrades } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
+import MarketSelectorModal from './MarketSelectorModal';
 
 interface AnimatedPriceProps {
   price: string | number;
@@ -27,8 +29,8 @@ const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, classNa
   };
 
   useEffect(() => {
-    const prevPrice = parseFloat(prevPriceRef.current as any);
-    const currentPrice = parseFloat(price as any);
+    const prevPrice = parseFloat(prevPriceRef.current as string);
+    const currentPrice = parseFloat(price as string);
 
     if (prevPrice !== currentPrice && !isNaN(prevPrice) && !isNaN(currentPrice)) {
       const flash = tradeSide === 'BUY' ? 'flash-up' : tradeSide === 'SELL' ? 'flash-down' : '';
@@ -82,15 +84,11 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) 
 };
 
 const MarketSwitcher: React.FC = () => {
-  const { selectedMarket, setSelectedMarket } = useMarketStore();
-  const { markets, getMarket, isLoading, totalMarkets } = useMarkets();
+  const { selectedMarket } = useMarketStore();
+  const { getMarket, isLoading } = useMarkets();
   const { livePrice, livePriceSide } = useTrades(selectedMarket, 50);
 
-  const handleMarketChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newMarket = event.target.value;
-    const marketData = getMarket(newMarket);
-    setSelectedMarket(newMarket, marketData || undefined);
-  };
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const marketData = getMarket(selectedMarket) || {
     ticker: selectedMarket,
@@ -101,6 +99,7 @@ const MarketSwitcher: React.FC = () => {
     nextFundingRate: '0',
     nextFundingAt: '',
     openInterest: '0',
+    coinIcon: '',
   };
 
   const currentPrice =
@@ -119,8 +118,6 @@ const MarketSwitcher: React.FC = () => {
   const changePercentage = parseFloat(priceChangePercentage);
   const formattedPercentage =
     changePercentage >= 0 ? `+${priceChangePercentage}` : priceChangePercentage;
-
-  const isSelectDisabled = isLoading || totalMarkets === 0;
 
   return (
     <>
@@ -169,7 +166,6 @@ const MarketSwitcher: React.FC = () => {
           background: rgba(156, 163, 175, 0.5);
         }
 
-        /* Smooth color transitions */
         .text-theme-up {
           color: rgb(34, 197, 94);
         }
@@ -184,24 +180,39 @@ const MarketSwitcher: React.FC = () => {
       `}</style>
 
       <div className="flex bg-secondary items-center w-full bg-theme-bg text-sm text-theme-text border-b border-gray-600">
-        {/* Market Selector */}
-        <div className="max-w-[20%] relative">
-          <select
-            value={selectedMarket}
-            onChange={handleMarketChange}
-            className="w-full bg-primary text-xs lg:text-md bg-theme-input text-theme-text border-none px-0 lg:px-2 py-2 lg:py-3.5 focus:ring-theme-accent focus:outline-none disabled:opacity-50 transition-all cursor-pointer"
-            disabled={isSelectDisabled}
-          >
-            {Object.keys(markets).map(market => (
-              <option key={market} value={market} className="bg-theme-input text-theme-text">
-                {market}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Market Selector Button */}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          disabled={isLoading}
+          className="flex items-center gap-2 px-3 py-2 lg:py-3.5 bg-primary hover:bg-[#1e293b] transition-colors disabled:opacity-50 min-w-[140px]"
+        >
+          {/* Market Icon */}
+          {'coinIcon' in marketData && marketData.coinIcon ? (
+            <img
+              src={marketData.coinIcon}
+              alt={selectedMarket}
+              className="w-6 h-6 rounded-full"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-[10px] font-bold">
+              {selectedMarket.split('-')[0].slice(0, 2)}
+            </div>
+          )}
+
+          <div className="flex flex-col items-start">
+            <span className="font-semibold text-white text-sm lg:text-base">
+              {selectedMarket.split('-')[0]}
+            </span>
+          </div>
+
+          <ChevronDown className="w-4 h-4 text-slate-400 ml-1" />
+        </button>
 
         {/* Live Price Display */}
-        <div className="px-2 flex flex-col items-start min-w-[120px]">
+        <div className="px-3 flex flex-col items-start min-w-[100px] lg:min-w-[120px]">
           <AnimatedPrice
             price={currentPrice}
             tradeSide={livePriceSide}
@@ -209,11 +220,10 @@ const MarketSwitcher: React.FC = () => {
           />
           {livePriceSide && (
             <span
-              className={`text-[10px] font-medium ${
-                livePriceSide === 'BUY' ? 'text-theme-up' : 'text-theme-down'
-              }`}
+              className={`text-[10px] font-medium ${livePriceSide === 'BUY' ? 'text-theme-up' : 'text-theme-down'
+                }`}
             >
-              {/* {livePriceSide === 'BUY' ? '↑ BUY' : '↓ SELL'} */}
+              {/* Price side indicator */}
             </span>
           )}
         </div>
@@ -269,9 +279,8 @@ const MarketSwitcher: React.FC = () => {
               <span className="text-theme-muted text-xs">Funding Rate</span>
               <AnimatedValue
                 value={`${marketData.nextFundingRate}%`}
-                className={`font-medium ${
-                  parseFloat(marketData.nextFundingRate) >= 0 ? 'text-theme-up' : 'text-theme-down'
-                }`}
+                className={`font-medium ${parseFloat(marketData.nextFundingRate) >= 0 ? 'text-theme-up' : 'text-theme-down'
+                  }`}
               />
             </div>
 
@@ -285,6 +294,12 @@ const MarketSwitcher: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Market Selector Modal */}
+      <MarketSelectorModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      />
     </>
   );
 };

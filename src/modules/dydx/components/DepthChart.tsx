@@ -27,6 +27,8 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
     let bidTotal = 0;
     let askTotal = 0;
 
+    // Bids: process from best bid (highest price) outward
+    // The orderbook.bids should already be sorted highest to lowest
     orderbook.bids.slice(0, 50).forEach(b => {
       const price = parseFloat(b.price);
       const size = parseFloat(b.size);
@@ -36,6 +38,7 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       }
     });
 
+    // Asks: process from best ask (lowest price) outward
     orderbook.asks.slice(0, 50).forEach(a => {
       const price = parseFloat(a.price);
       const size = parseFloat(a.size);
@@ -52,7 +55,10 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
     const midPrice = (bestBid + bestAsk) / 2;
     const spread = bestAsk - bestBid;
 
-    return { bids, asks, bestBid, bestAsk, midPrice, spread };
+    // Reverse bids so they go from low price to high price (left to center on chart)
+    const reversedBids = [...bids].reverse();
+
+    return { bids: reversedBids, asks, bestBid, bestAsk, midPrice, spread, originalBids: bids };
   }, [orderbook]);
 
   useEffect(() => {

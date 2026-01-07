@@ -1,7 +1,10 @@
-// services/assetService.ts
 import { ethers } from 'ethers';
 
-import { fetchApiResponseFromProxy } from '../../../service/apiService';
+import {
+  ERC20_ABI,
+  getTokenAddressesForChain,
+} from '../../../config/tokenConfig';
+import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 
 export interface TokenInfo {
   chainId: number;
@@ -40,7 +43,7 @@ const NATIVE_TOKEN_CONFIG: Record<number, ChainNativeConfig> = {
  * Fetch native token balance
  */
 async function fetchNativeBalance(
-  provider: ethers.BrowserProvider,
+  provider: ethers.BrowserProvider | ethers.JsonRpcProvider,
   address: string
 ): Promise<string> {
   try {
@@ -55,54 +58,51 @@ async function fetchNativeBalance(
 /**
  * Fetch ERC20 token balances in batch
  */
-async function fetchERC20Balances(
-  provider: ethers.BrowserProvider,
+async function fetchERC20BalancesAndMetadata(
+  provider: ethers.BrowserProvider | ethers.JsonRpcProvider,
   address: string,
-  tokens: TokenInfo[]
-): Promise<Map<string, string>> {
-  const balances = new Map<string, string>();
-  const erc20Abi = ['function balanceOf(address owner) view returns (uint256)'];
-
+  tokens: { symbol: string; address: string }[]
+): Promise<TokenInfo[]> {
   const promises = tokens.map(async token => {
     try {
-      const contract = new ethers.Contract(token.address, erc20Abi, provider);
-      const balance = await contract.balanceOf(address);
-      const formatted = ethers.formatUnits(balance, token.decimals);
-      return { address: token.address.toLowerCase(), balance: formatted };
+      const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
+
+      // Fetch balance and decimals in parallel
+      const [balance, decimals] = await Promise.all([
+        contract.balanceOf(address),
+        contract.decimals().catch(() => 18), // Default to 18 if decimals fail
+      ]);
+
+      const formattedBalance = ethers.formatUnits(balance, decimals);
+      const metadata = await portfolioUtils.getAssetMetadata(token.symbol);
+
+      return {
+        chainId: 0, // Will be set by caller
+        address: token.address,
+        name: metadata.name,
+        symbol: token.symbol,
+        decimals: Number(decimals),
+        logoURI: metadata.image,
+        balance: formattedBalance,
+        isNative: false,
+      };
     } catch (error) {
-      console.error(`Error fetching balance for ${token.symbol}:`, error);
-      return { address: token.address.toLowerCase(), balance: '0' };
+      console.warn(`Error fetching data for ${token.symbol}:`, error);
+      // Return basic info with 0 balance if fetch fails
+      return {
+        chainId: 0,
+        address: token.address,
+        name: token.symbol,
+        symbol: token.symbol,
+        decimals: 18,
+        logoURI: '',
+        balance: '0',
+        isNative: false,
+      };
     }
   });
 
-  const results = await Promise.all(promises);
-  results.forEach(result => {
-    balances.set(result.address, result.balance);
-  });
-
-  return balances;
-}
-
-/**
- * Fetch all available tokens for a chain from API
- */
-export async function fetchAvailableTokens(chainId: number): Promise<TokenInfo[]> {
-  try {
-    const endpoint = `/eth/tokens/${chainId}`;
-    const response = await fetchApiResponseFromProxy<{ tokens: TokenInfo[] }>(endpoint, 'GET');
-
-    if (!response.data?.tokens || !Array.isArray(response.data.tokens)) {
-      throw new Error('Invalid response format from API');
-    }
-
-    return response.data.tokens.map(token => ({
-      ...token,
-      isNative: false,
-    }));
-  } catch (error) {
-    console.error(`Error fetching tokens for chain ${chainId}:`, error);
-    throw new Error(`Failed to fetch tokens for chain ${chainId}`);
-  }
+  return Promise.all(promises);
 }
 
 /**
@@ -111,7 +111,7 @@ export async function fetchAvailableTokens(chainId: number): Promise<TokenInfo[]
 export async function fetchAssetsWithBalances(
   chainId: number,
   walletAddress: string,
-  provider: ethers.BrowserProvider
+  provider: ethers.BrowserProvider | ethers.JsonRpcProvider
 ): Promise<TokenInfo[]> {
   try {
     // Get native token config
@@ -120,41 +120,40 @@ export async function fetchAssetsWithBalances(
       throw new Error(`Unsupported chain: ${chainId}`);
     }
 
-    // Fetch available tokens from API
-    const tokens = await fetchAvailableTokens(chainId);
-
-    // Fetch native token balance
+    // 1. Fetch Native Token Balance
     const nativeBalance = await fetchNativeBalance(provider, walletAddress);
+    const nativeMetadata = await portfolioUtils.getAssetMetadata(nativeConfig.symbol);
 
-    // Fetch ERC20 balances
-    const erc20Balances = await fetchERC20Balances(provider, walletAddress, tokens);
-
-    // Build assets array
-    const assets: TokenInfo[] = [];
-
-    // Add native token first
-    assets.push({
+    const nativeAsset: TokenInfo = {
       chainId,
       address: ethers.ZeroAddress,
       name: nativeConfig.name,
       symbol: nativeConfig.symbol,
       decimals: nativeConfig.decimals,
+      logoURI: nativeMetadata.image,
       balance: nativeBalance,
       isNative: true,
-    });
+    };
 
-    // Add ERC20 tokens with balances
-    tokens.forEach(token => {
-      const balance = erc20Balances.get(token.address.toLowerCase()) || '0';
-      assets.push({
-        ...token,
-        balance,
-        isNative: false,
-      });
-    });
+    // 2. Get Supported ERC20 Tokens for this Chain
+    const tokenAddresses = getTokenAddressesForChain(chainId);
+    const tokensToFetch = Object.entries(tokenAddresses).map(([symbol, address]) => ({
+      symbol,
+      address,
+    }));
 
-    // Sort: native first, then by balance descending, then alphabetically
-    return assets.sort((a, b) => {
+    // 3. Fetch Balances and Metadata for ERC20s
+    const erc20Assets = await fetchERC20BalancesAndMetadata(
+      provider,
+      walletAddress,
+      tokensToFetch
+    );
+
+    // 4. Combine and Sort
+    // Sort: Native first, then by balance descending, then alphabetically through symbol
+    const allAssets = [nativeAsset, ...erc20Assets].map(asset => ({ ...asset, chainId }));
+
+    return allAssets.sort((a, b) => {
       if (a.isNative) return -1;
       if (b.isNative) return 1;
 
@@ -192,4 +191,19 @@ export function isChainSupported(chainId: number): boolean {
  */
 export function getSupportedChainIds(): number[] {
   return Object.keys(NATIVE_TOKEN_CONFIG).map(Number);
+}
+
+// Deprecated functions kept for compatibility if needed, or can be removed
+export async function fetchAvailableTokens(chainId: number): Promise<TokenInfo[]> {
+  // Since we don't have an API, we return the static list with 0 balances
+  const tokenAddresses = getTokenAddressesForChain(chainId);
+  return Object.entries(tokenAddresses).map(([symbol, address]) => ({
+    chainId,
+    address,
+    name: symbol,
+    symbol,
+    decimals: 18,
+    balance: '0',
+    isNative: false
+  }));
 }

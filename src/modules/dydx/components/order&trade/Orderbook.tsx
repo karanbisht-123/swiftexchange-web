@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useOrderbook } from '../../hooks/useOrderbook';
 import useMarketStore from '../../store/marketStore';
+import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 
 interface OrderbookRow {
   price: number;
@@ -16,6 +17,8 @@ interface FlashState {
 
 const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
   const { selectedMarket } = useMarketStore();
+  const { onPriceClick } = useOrderbookClickStore();
+  const [hoveredPrice, setHoveredPrice] = useState<string | null>(null);
   const { orderbook, isConnected, dataSource } = useOrderbook(selectedMarket);
 
   const prevBidsRef = useRef<Map<string, number>>(new Map());
@@ -221,6 +224,11 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
   const base = selectedMarket.split('-')[0] || 'BTC';
   const quote = selectedMarket.split('-')[1] || 'USD';
 
+  const handlePriceClick = (price: string) => {
+    if (onPriceClick) {
+      onPriceClick(price);
+    }
+  };
   return (
     <div className="w-full max-w-md bg-[#0e0c15] text-white font-medium text-sm select-none">
       <div className="flex items-center justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
@@ -254,6 +262,9 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
           return (
             <div
               key={`ask-${priceKey}`}
+              onClick={() => handlePriceClick(ask.price.toString())}
+              onMouseEnter={() => setHoveredPrice(priceKey)}
+              onMouseLeave={() => setHoveredPrice(null)}
               className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
                 flash?.type === 'up'
                   ? 'bg-[#ff3b6955] animate-flash-up'
@@ -305,6 +316,9 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 12 }) => {
           return (
             <div
               key={`bid-${priceKey}`}
+              onClick={() => handlePriceClick(bid.price.toString())}
+              onMouseEnter={() => setHoveredPrice(priceKey)}
+              onMouseLeave={() => setHoveredPrice(null)}
               className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
                 flash?.type === 'up'
                   ? 'bg-[#00ff9d55] animate-flash-up'

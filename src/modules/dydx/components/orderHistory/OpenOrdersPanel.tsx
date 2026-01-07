@@ -6,6 +6,8 @@ import { useDydxData } from '../../hooks/useDydxData';
 import { type Order } from '../../service/dydxOrderService';
 import { dydxTradingService } from '../../service/dydxTradingService';
 
+const OPEN_STATUSES = ['OPEN', 'PARTIALLY_FILLED', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'BEST_EFFORT_CANCELED'];
+
 const OpenOrdersPanel: React.FC = () => {
   const { orders, loadingOrders, ordersError, refreshOrders, isConnected, isReceivingUpdates } =
     useDydxData();
@@ -13,17 +15,19 @@ const OpenOrdersPanel: React.FC = () => {
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const [icons, setIcons] = useState<Record<string, string>>({});
 
+
   const openOrders = useMemo(() => {
-    const openStatuses = [
-      'OPEN',
-      'PARTIALLY_FILLED',
-      'BEST_EFFORT_OPENED',
-      'UNTRIGGERED',
-      'BEST_EFFORT_CANCELED',
-    ];
-    return orders.filter(order => openStatuses.includes(order.status));
+    return orders
+      .filter(order => OPEN_STATUSES.includes(order.status))
+      .sort((a, b) => {
+
+        const timeA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
+        const timeB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
+        return timeB - timeA;
+      });
   }, [orders]);
 
+  // Fetch market icons
   useEffect(() => {
     if (openOrders.length === 0) return;
 
@@ -65,13 +69,14 @@ const OpenOrdersPanel: React.FC = () => {
         });
 
         if (result.success) {
-          console.log('Order cancelled:', result);
+          console.log('[OpenOrdersPanel] Order cancelled:', result);
+          // Refresh after a short delay to allow the order to be removed
           setTimeout(() => refreshOrders(), 1500);
         } else {
           throw new Error(result.userMessage || result.error || 'Failed to cancel order');
         }
       } catch (err: any) {
-        console.error('Failed to cancel order:', err);
+        console.error('[OpenOrdersPanel] Failed to cancel order:', err);
         alert(`Failed to cancel order: ${err.message || 'Unknown error'}`);
       } finally {
         setCancelling(prev => {
@@ -164,6 +169,7 @@ const OpenOrdersPanel: React.FC = () => {
     }
   }, []);
 
+  // Render states
   if (!isConnected) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
@@ -209,8 +215,12 @@ const OpenOrdersPanel: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-primary">
+      {/* Header */}
       <div className="px-4 py-2 bg-secondary border-b border-gray-700 flex items-center justify-between">
-        <h2 className="text-white font-semibold text-sm">Open Orders ({openOrders.length})</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-white font-semibold text-sm">Open Orders</h2>
+          <span className="text-xs text-gray-500">({openOrders.length})</span>
+        </div>
         <div className="flex items-center gap-3">
           {isReceivingUpdates && (
             <div className="flex items-center gap-2">
@@ -229,6 +239,7 @@ const OpenOrdersPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Table */}
       <div className="flex-1 overflow-y-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-gray-700 z-10">
@@ -258,9 +269,8 @@ const OpenOrdersPanel: React.FC = () => {
               return (
                 <tr
                   key={order.id}
-                  className={`border-b border-[#2a2a2a] hover:bg-[#1a1a1a] transition-colors ${
-                    isCancelling ? 'opacity-50' : ''
-                  } ${isPending ? 'bg-yellow-500/5' : ''}`}
+                  className={`border-b border-[#2a2a2a] hover:bg-[#1a1a1a] transition-colors ${isCancelling ? 'opacity-50' : ''
+                    } ${isPending ? 'bg-yellow-500/5' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -283,11 +293,10 @@ const OpenOrdersPanel: React.FC = () => {
 
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`px-2 py-1 rounded text-xs font-bold ${
-                        order.side === 'BUY'
-                          ? 'bg-green-500/20 text-green-400'
-                          : 'bg-red-500/20 text-red-400'
-                      }`}
+                      className={`px-2 py-1 rounded text-xs font-bold ${order.side === 'BUY'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-red-500/20 text-red-400'
+                        }`}
                     >
                       {order.side}
                     </span>
@@ -324,11 +333,10 @@ const OpenOrdersPanel: React.FC = () => {
                     <button
                       onClick={() => handleCancel(order)}
                       disabled={isCancelling || order.status === 'BEST_EFFORT_CANCELED'}
-                      className={`p-1.5 rounded transition-colors ${
-                        isCancelling || order.status === 'BEST_EFFORT_CANCELED'
-                          ? 'bg-gray-600 cursor-not-allowed'
-                          : 'bg-red-600 hover:bg-red-500 text-white'
-                      }`}
+                      className={`p-1.5 rounded transition-colors ${isCancelling || order.status === 'BEST_EFFORT_CANCELED'
+                        ? 'bg-gray-600 cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-500 text-white'
+                        }`}
                       title="Cancel order"
                     >
                       {isCancelling ? (

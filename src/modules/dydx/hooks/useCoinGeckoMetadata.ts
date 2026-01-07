@@ -48,10 +48,27 @@ class MetadataService {
 
   private listeners = new Set<() => void>();
 
-  // Dynamic mapping - no hardcoding
   private assetMapping: Record<string, string> | null = null;
   private mappingPromise: Promise<void> | null = null;
   private mappingInitialized = false;
+
+  private readonly PRIORITY_MAPPINGS: Record<string, string> = {
+    BTC: 'bitcoin',
+    ETH: 'ethereum',
+    USDT: 'tether',
+    BNB: 'binancecoin',
+    SOL: 'solana',
+    USDC: 'usd-coin',
+    XRP: 'ripple',
+    DOGE: 'dogecoin',
+    ADA: 'cardano',
+    TRX: 'tron',
+    AVAX: 'avalanche-2',
+    MATIC: 'matic-network',
+    DOT: 'polkadot',
+    LINK: 'chainlink',
+    UNI: 'uniswap',
+  };
 
   constructor() {
     this.loadFromStorage();
@@ -81,9 +98,7 @@ class MetadataService {
     const minutes = Math.round(timeout / 60000);
 
     console.warn(
-      `🛑 [MetadataService] Circuit breaker OPEN (Level ${this.circuitBreakerLevel})`,
-      `\n   Reason: ${reason}`,
-      `\n   Cooldown: ${minutes} minutes`
+      `Circuit breaker OPEN (Level ${this.circuitBreakerLevel}) - ${reason} - Cooldown: ${minutes}min`
     );
 
     this.queue = [];
@@ -96,8 +111,6 @@ class MetadataService {
   }
 
   private closeCircuitBreaker(): void {
-    console.log(`✅ [MetadataService] Circuit breaker CLOSED`);
-
     this.circuitBreakerOpen = false;
     this.consecutiveErrors = 0;
     this.errorCooldown = false;
@@ -112,16 +125,13 @@ class MetadataService {
     );
   }
 
-  // ==================== DYNAMIC MAPPING - NO HARDCODING ====================
+  // ==================== DYNAMIC MAPPING WITH PRIORITY ====================
 
   private async initializeAssetMapping(): Promise<void> {
     if (this.mappingPromise) return this.mappingPromise;
 
     this.mappingPromise = (async () => {
       try {
-        console.log('🔍 [MetadataService] Fetching CoinGecko coin list...');
-
-        // Fetch the full CoinGecko coins list
         const response = await fetch('https://api.coingecko.com/api/v3/coins/list');
 
         if (!response.ok) {
@@ -134,13 +144,10 @@ class MetadataService {
           name: string;
         }>;
 
-        console.log(`✅ [MetadataService] Loaded ${coinsList.length} coins from CoinGecko`);
-
         // Create symbol to ID mapping
         const symbolToId = new Map<string, string>();
         coinsList.forEach(coin => {
           const symbol = coin.symbol.toUpperCase();
-          // Prefer certain well-known IDs if there are duplicates
           if (!symbolToId.has(symbol)) {
             symbolToId.set(symbol, coin.id);
           }
@@ -155,23 +162,23 @@ class MetadataService {
         if (markets?.markets) {
           Object.keys(markets.markets).forEach(ticker => {
             const baseAsset = ticker.split('-')[0].toUpperCase();
-            const coingeckoId = symbolToId.get(baseAsset);
+
+            let coingeckoId = this.PRIORITY_MAPPINGS[baseAsset];
+            if (!coingeckoId) {
+              coingeckoId = symbolToId.get(baseAsset);
+            }
 
             if (coingeckoId) {
               this.assetMapping![baseAsset] = coingeckoId;
-              console.log(`✓ Mapped ${baseAsset} → ${coingeckoId}`);
             } else {
-              console.warn(`⚠️  No CoinGecko ID found for ${baseAsset}`);
+              console.warn(` No CoinGecko ID found for ${baseAsset}`);
             }
           });
         }
 
         this.mappingInitialized = true;
-        console.log(
-          `✅ [MetadataService] Initialized with ${Object.keys(this.assetMapping).length} mapped assets`
-        );
       } catch (error) {
-        console.error('❌ [MetadataService] Failed to initialize mapping:', error);
+        console.error('Failed to initialize coin mapping:', error);
         this.assetMapping = {};
         this.mappingInitialized = true;
       }
@@ -188,18 +195,12 @@ class MetadataService {
       if (stored) {
         const data = JSON.parse(stored) as Record<string, CacheEntry>;
         const now = Date.now();
-        let loaded = 0;
 
         Object.entries(data).forEach(([key, value]) => {
           if (now - value.timestamp < this.CACHE_DURATION) {
             this.cache.set(key, value);
-            loaded++;
           }
         });
-
-        if (loaded > 0) {
-          console.log(`📦 [MetadataService] Loaded ${loaded} entries from cache`);
-        }
       }
     } catch (error) {
       localStorage.removeItem(this.STORAGE_KEY);
@@ -220,18 +221,14 @@ class MetadataService {
 
   private cleanExpiredCache(): void {
     const now = Date.now();
-    let cleaned = 0;
 
     this.cache.forEach((entry, key) => {
       if (now - entry.timestamp >= this.CACHE_DURATION) {
         this.cache.delete(key);
-        cleaned++;
       }
     });
 
-    if (cleaned > 0) {
-      this.saveToStorage();
-    }
+    this.saveToStorage();
   }
 
   // ==================== QUEUE MANAGEMENT ====================
@@ -311,6 +308,7 @@ class MetadataService {
       this.notifyListeners();
     } catch (error: any) {
       this.consecutiveErrors++;
+      console.error(`Failed to fetch ${item.symbol}:`, error.message);
 
       if (this.consecutiveErrors >= 2) {
         this.openCircuitBreaker(`${this.consecutiveErrors} consecutive errors`);
@@ -381,6 +379,7 @@ class MetadataService {
       return cached.data.image;
     }
 
+    console.error(`No icon found for ${symbol}`);
     return `https://cryptoicons.org/api/icon/${symbol.toLowerCase()}/200`;
   }
 
@@ -390,7 +389,6 @@ class MetadataService {
     }
 
     if (this.circuitBreakerOpen) {
-      console.log('⏸️  [MetadataService] Preload skipped - circuit breaker open');
       return;
     }
 
@@ -407,8 +405,6 @@ class MetadataService {
     if (needsFetch.length === 0) {
       return;
     }
-
-    console.log(`🔄 [MetadataService] Preloading ${needsFetch.length} assets`);
 
     needsFetch.forEach((symbol, index) => {
       if (this.assetMapping && this.assetMapping[symbol] && !this.pendingSymbols.has(symbol)) {
@@ -434,9 +430,7 @@ class MetadataService {
     this.listeners.forEach(listener => {
       try {
         listener();
-      } catch (error) {
-        // Silent
-      }
+      } catch (error) {}
     });
   }
 
@@ -479,7 +473,6 @@ class MetadataService {
     this.queue = [];
     this.pendingSymbols.clear();
     localStorage.removeItem(this.STORAGE_KEY);
-    console.log('🗑️  [MetadataService] Cache cleared');
   }
 
   forceCloseCircuitBreaker(): void {
@@ -488,7 +481,6 @@ class MetadataService {
 
   resetCircuitBreakerLevel(): void {
     this.circuitBreakerLevel = 0;
-    console.log('🔄 [MetadataService] Circuit breaker level reset to 0');
   }
 }
 

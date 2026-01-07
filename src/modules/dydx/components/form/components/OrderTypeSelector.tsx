@@ -25,17 +25,16 @@ const orderTypeOptions = [
 
 export const OrderTypeSelector: React.FC<OrderTypeSelectorProps> = ({ selected, onChange }) => {
   return (
-    <div className="overflow-x-auto px-2 border-b border-gray-600">
+    <div className="overflow-x-auto  border-b border-gray-600 hide-scrollbar">
       <div className="flex gap-2 min-w-max">
         {orderTypeOptions.map(type => (
           <button
             key={type.value}
             onClick={() => onChange(type.value)}
-            className={`px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 ${
-              selected === type.value
-                ? 'border-blue-500 text-white'
-                : 'border-transparent text-gray-400 hover:text-white'
-            }`}
+            className={`px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 ${selected === type.value
+              ? 'border-blue-500 text-white'
+              : 'border-transparent text-gray-400 hover:text-white'
+              }`}
           >
             {type.label}
           </button>

@@ -4,8 +4,9 @@ import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
+import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 import type { OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
-import { Notification, type NotificationType } from '../../utils/Notification';
+import { Notification, type NotificationType } from '../../../../components/common/Notification';
 import {
   getMaxBuyingPower,
   validateOrderPrice,
@@ -24,6 +25,7 @@ import { LeverageSlider } from './components/LeverageSlider';
 import { type MarginType, MarginTypeSelector } from './components/MarginTypeSelector';
 import { OrderFormInputs } from './components/OrderFormInputs';
 import { OrderTypeSelector } from './components/OrderTypeSelector';
+import { TpSlInputs } from './components/TpSlInputs';
 
 interface NotificationState {
   id: number;
@@ -80,6 +82,7 @@ const validateGoodTil = (
 
 export const DydxTradingForm: React.FC = () => {
   const { selectedMarket } = useMarketStore();
+  const { setOnPriceClick } = useOrderbookClickStore();
   const { getMarket } = useMarkets();
   const marketData = selectedMarket ? getMarket(selectedMarket) : null;
   const { balance } = useDydxWallet();
@@ -99,6 +102,11 @@ export const DydxTradingForm: React.FC = () => {
   const [goodTilUnit, setGoodTilUnit] = useState<GoodTilUnit>('days');
   const [reduceOnly, setReduceOnly] = useState(false);
   const [postOnly, setPostOnly] = useState(false);
+
+  // TP/SL State
+  const [showTpSl, setShowTpSl] = useState(false);
+  const [tpPrice, setTpPrice] = useState('');
+  const [slPrice, setSlPrice] = useState('');
 
   const [sizeError, setSizeError] = useState<string>('');
   const [sizeWarning, setSizeWarning] = useState<string>('');
@@ -161,6 +169,26 @@ export const DydxTradingForm: React.FC = () => {
       }
     }
   }, [postOnly, isLimit, reduceOnly, orderType]);
+
+  useEffect(() => {
+    const handlePriceClick = (clickedPrice: string) => {
+      if (PRICE_REQUIRED_TYPES.includes(orderType as any)) {
+        setPrice(clickedPrice);
+      } else if (TRIGGER_REQUIRED_TYPES.includes(orderType as any)) {
+        if (!triggerPrice) {
+          setTriggerPrice(clickedPrice);
+        } else if (PRICE_REQUIRED_TYPES.includes(orderType as any) && !price) {
+          setPrice(clickedPrice);
+        }
+      }
+    };
+
+    setOnPriceClick(handlePriceClick);
+
+    return () => {
+      setOnPriceClick(null);
+    };
+  }, [orderType, price, triggerPrice, setOnPriceClick]);
 
   useEffect(() => {
     if (size && marketData) {
@@ -284,6 +312,8 @@ export const DydxTradingForm: React.FC = () => {
       reduceOnly,
       postOnly: postOnly && orderType === 'LIMIT',
       goodTilTimeInSeconds,
+      takeProfitPrice: showTpSl && tpPrice ? parseFloat(tpPrice) : undefined,
+      stopLossPrice: showTpSl && slPrice ? parseFloat(slPrice) : undefined,
     });
 
     if (result.success) {
@@ -295,6 +325,10 @@ export const DydxTradingForm: React.FC = () => {
       setSize('');
       setPrice(marketData?.oraclePrice || '');
       setTriggerPrice('');
+      if (showTpSl) {
+        setTpPrice('');
+        setSlPrice('');
+      }
     } else {
       addNotification('error', result.userMessage || result.error || 'Failed', 'Order Failed');
     }
@@ -311,7 +345,7 @@ export const DydxTradingForm: React.FC = () => {
   };
 
   return (
-    <div className="max-w-lvw lg:max-w-[300px] h-full overflow-y-auto border-l border-gray-600">
+    <div className="flex flex-col max-w-lvw lg:max-w-[300px] h-[100svh] border-l border-gray-600  bg-secondary">
       {notifications.map(notif => (
         <Notification
           key={notif.id}
@@ -324,80 +358,131 @@ export const DydxTradingForm: React.FC = () => {
         />
       ))}
 
-      <div className="hidden lg:block">
+      {/* Wallet Connect - Fixed at top */}
+      <div className="hidden lg:block flex-shrink-0">
         <DydxWalletConnect />
       </div>
 
-      <div className="space-y-4">
+      {/* Fixed Selectors */}
+      <div className="flex-shrink-0 space-y-4  pb-2 bg-secondary">
         <BuySellSelector selected={side} onChange={setSide} />
         <MarginTypeSelector selected={marginType} onChange={setMarginType} />
         <OrderTypeSelector selected={orderType} onChange={setOrderType} />
+      </div>
 
-        <OrderFormInputs
-          orderType={orderType}
-          size={size}
-          price={price}
-          triggerPrice={triggerPrice}
-          currentPrice={marketData?.oraclePrice || '0'}
-          bestPrices={{ bestBid: '0', bestAsk: '0' }}
-          onSizeChange={setSize}
-          onPriceChange={setPrice}
-          onTriggerPriceChange={setTriggerPrice}
-          sizeError={sizeError}
-          sizeWarning={sizeWarning}
-          priceError={priceError}
-          priceWarning={priceWarning}
-          triggerError={triggerError}
-          triggerWarning={triggerWarning}
-          currencyMode={currencyMode}
-          onCurrencyModeChange={handleCurrencyModeChange}
-          baseAsset={marketData?.baseAsset || 'USD'}
-        />
+      {/* Scrollable form content */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+        <div className="space-y-4 py-4">
+          <OrderFormInputs
+            orderType={orderType}
+            size={size}
+            price={price}
+            triggerPrice={triggerPrice}
+            currentPrice={marketData?.oraclePrice || '0'}
+            bestPrices={{ bestBid: '0', bestAsk: '0' }}
+            onSizeChange={setSize}
+            onPriceChange={setPrice}
+            onTriggerPriceChange={setTriggerPrice}
+            sizeError={sizeError}
+            sizeWarning={sizeWarning}
+            priceError={priceError}
+            priceWarning={priceWarning}
+            triggerError={triggerError}
+            triggerWarning={triggerWarning}
+            currencyMode={currencyMode}
+            onCurrencyModeChange={handleCurrencyModeChange}
+            baseAsset={marketData?.baseAsset || 'USD'}
+            maxBuyingPower={maxBuyingPower}
+            leverage={leverage}
+            onSetMax={() => {
+              if (maxBuyingPower) {
+                // If mode is USD, set directly. If Base, convert. 
+                // Simplification: Assume maxBuyingPower is in USD? 
+                // getMaxBuyingPower usually returns USD value based on margin.
+                // Let's verify getMaxBuyingPower return type/unit. Assuming USD for now.
+                if (currencyMode === 'USD') {
+                  setSize(maxBuyingPower.toFixed(2));
+                } else {
+                  // Need oracle price to convert back to base asset if max is USD
+                  // Or use getMaxBuyingPower and divide by price
+                  if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
+                    const baseAmount = maxBuyingPower / parseFloat(marketData.oraclePrice);
+                    const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
+                    setSize(baseAmount.toFixed(decimals));
+                  }
+                }
+              }
+            }}
+          />
 
-        {maxBuyingPower > 0 && (
-          <div className="px-4">
-            <div className="text-xs text-gray-400">
-              Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x
-            </div>
-          </div>
-        )}
 
-        <div className="px-4">
+
           <LeverageSlider leverage={leverage} maxLeverage={maxLeverage} onChange={setLeverage} />
+
+          {orderType !== 'MARKET' && (
+            <AdvancedOptions
+              orderType={orderType}
+              timeInForce={timeInForce}
+              goodTilValue={goodTilValue}
+              goodTilUnit={goodTilUnit}
+              postOnly={postOnly}
+              reduceOnly={reduceOnly}
+              onTimeInForceChange={setTimeInForce}
+              onGoodTilValueChange={setGoodTilValue}
+              onGoodTilUnitChange={setGoodTilUnit}
+              onPostOnlyChange={setPostOnly}
+              onReduceOnlyChange={setReduceOnly}
+            />
+          )}
+
+          {orderType === 'MARKET' && (
+            <div className="px-5 py-3 border-b border-gray-800/50 bg-gray-900/20">
+              <label className="flex items-center justify-between cursor-pointer group">
+                <span className="text-[11px] uppercase tracking-wider text-gray-500 font-bold group-hover:text-gray-400 transition-colors">Take Profit / Stop Loss</span>
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={showTpSl}
+                    onChange={(e) => setShowTpSl(e.target.checked)}
+                    className="appearance-none w-9 h-5 rounded-full bg-gray-700 checked:bg-blue-500 transition-colors cursor-pointer"
+                  />
+                  <div className={`absolute top-1 left-1 w-3 h-3 rounded-full bg-white transition-transform pointer-events-none ${showTpSl ? 'translate-x-4' : 'translate-x-0'}`} />
+                </div>
+              </label>
+            </div>
+          )}
+
+          {orderType === 'MARKET' && showTpSl && (
+            <TpSlInputs
+              side={side}
+              entryPrice={parseFloat(marketData?.oraclePrice || '0')}
+              tpPrice={tpPrice}
+              slPrice={slPrice}
+              onChangeTp={setTpPrice}
+              onChangeSl={setSlPrice}
+            />
+          )}
+
+          {goodTilError && <div className="text-xs text-red-500">{goodTilError}</div>}
+
+          {/* Bottom padding for smooth scroll */}
+          <div className="h-2" />
         </div>
+      </div>
 
-        <AdvancedOptions
-          orderType={orderType}
-          timeInForce={timeInForce}
-          goodTilValue={goodTilValue}
-          goodTilUnit={goodTilUnit}
-          postOnly={postOnly}
-          reduceOnly={reduceOnly}
-          onTimeInForceChange={setTimeInForce}
-          onGoodTilValueChange={setGoodTilValue}
-          onGoodTilUnitChange={setGoodTilUnit}
-          onPostOnlyChange={setPostOnly}
-          onReduceOnlyChange={setReduceOnly}
-        />
-
-        {goodTilError && (
-          <div className="px-4">
-            <div className="text-xs text-red-500">{goodTilError}</div>
-          </div>
-        )}
-
-        <div className="px-4">
-          <button
-            onClick={handlePlaceOrder}
-            disabled={isPlacingOrder || !isFormValid}
-            className={`w-full py-3 rounded-lg font-bold text-sm transition-colors
-            ${
-              side === 'BUY' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
-            } disabled:opacity-50 disabled:cursor-not-allowed text-white`}
-          >
-            {isPlacingOrder ? 'Placing Order...' : `${side} ${selectedMarket}`}
-          </button>
-        </div>
+      {/* Fixed button at bottom with shadow */}
+      <div className="flex-shrink-0 p-4 mb-6 border-t border-gray-700   bg-secondary shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
+        <button
+          onClick={handlePlaceOrder}
+          disabled={isPlacingOrder || !isFormValid}
+          className={`w-full py-3 rounded-lg font-bold text-sm transition-all
+          ${side === 'BUY'
+              ? 'bg-green-600 hover:bg-green-700 active:bg-green-800'
+              : 'bg-red-600 hover:bg-red-700 active:bg-red-800'
+            } disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg`}
+        >
+          {isPlacingOrder ? 'Placing Order...' : `${side} ${selectedMarket}`}
+        </button>
       </div>
     </div>
   );
