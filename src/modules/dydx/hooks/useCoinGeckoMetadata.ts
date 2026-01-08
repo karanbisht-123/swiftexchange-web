@@ -163,7 +163,7 @@ class MetadataService {
           Object.keys(markets.markets).forEach(ticker => {
             const baseAsset = ticker.split('-')[0].toUpperCase();
 
-            let coingeckoId = this.PRIORITY_MAPPINGS[baseAsset];
+            let coingeckoId: string | undefined = this.PRIORITY_MAPPINGS[baseAsset];
             if (!coingeckoId) {
               coingeckoId = symbolToId.get(baseAsset);
             }

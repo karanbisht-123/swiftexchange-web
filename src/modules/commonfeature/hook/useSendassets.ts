@@ -223,7 +223,10 @@ export const useSendAsset = (onBack?: () => void) => {
         !recipientAddress ||
         !amount ||
         parseFloat(amount) <= 0 ||
-        !validateAddress(recipientAddress, currentAsset.network)
+        !validateAddress(recipientAddress, {
+          addressType: currentAsset.addressType as any,
+          network: currentAsset.network,
+        })
       ) {
         setEstimatedFees(null);
         return;
@@ -290,7 +293,12 @@ export const useSendAsset = (onBack?: () => void) => {
     if (!senderAddress)
       return `No ${currentAsset.type.toUpperCase()} address available. Please ensure your wallet supports ${currentAsset.network}.`;
     if (!recipientAddress.trim()) return 'Recipient address cannot be empty.';
-    if (!validateAddress(recipientAddress, currentAsset.network))
+    if (
+      !validateAddress(recipientAddress, {
+        addressType: currentAsset.addressType as any,
+        network: currentAsset.network,
+      })
+    )
       return `Invalid recipient address for ${currentAsset.network}.`;
 
     const numAmount = parseFloat(amount);

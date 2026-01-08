@@ -103,7 +103,7 @@ async function deriveDydxAddress(evmAddress: string, provider: any): Promise<Dyd
   }
 
   // console.log('[WalletService] Wallet derived:', wallet.address);
-  return { address: wallet.address, mnemonic: derived.mnemonic };
+  return { address: wallet.address || '', mnemonic: derived.mnemonic };
 }
 
 let UniversalProvider: typeof UniversalProviderType | null = null;
@@ -450,7 +450,7 @@ class WalletService {
 
       console.log('[WalletService] Requesting connection...');
       provider
-        .connect({ namespaces })
+        .connect({ namespaces: namespaces as any })
         .then((session: any) => {
           clearTimeout(timeout);
           modal.closeModal();
@@ -893,7 +893,7 @@ class WalletService {
     return restored;
   }
 
-  private async initProvider(type: WalletType) {
+  private async initProvider(_type: WalletType) {
     if (!UniversalProvider) {
       const module = await import('@walletconnect/universal-provider');
       UniversalProvider = module.default;

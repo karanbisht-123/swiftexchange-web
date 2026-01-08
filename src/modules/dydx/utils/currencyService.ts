@@ -1,4 +1,4 @@
-import type { MarketData } from '../hooks/useMarkets';
+import type { MarketData } from '../types/trading.types';
 
 export type CurrencyMode = 'USD' | 'BASE';
 

@@ -1,4 +1,4 @@
-import type * as StellarSDK from 'stellar-sdk';
+import type * as StellarSDK from '@stellar/stellar-sdk';
 
 export interface LargeOrderOffer {
   id: string;

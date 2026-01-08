@@ -1,6 +1,4 @@
-
 export type OrderSideEnum = 'BUY' | 'SELL';
-
 
 export type OrderTypeEnum =
   | 'MARKET' // Immediate execution at best price
@@ -9,7 +7,6 @@ export type OrderTypeEnum =
   | 'STOP_LIMIT' // Limit order triggered when price crosses trigger
   | 'TAKE_PROFIT_MARKET' // Market order for profit taking
   | 'TAKE_PROFIT_LIMIT'; // Limit order for profit taking
-
 
 export type TimeInForceEnum = 'GTT' | 'IOC' | 'FOK';
 

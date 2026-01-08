@@ -37,7 +37,7 @@ interface AllAssetsProps {
 }
 
 export const useStellarBalances = (publicKey?: string) => {
-  const [balances, setBalances] = useState<Horizon.BalanceLine[]>([]);
+  const [balances, setBalances] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const currentNetwork = useWalletStore(state => state.network);
@@ -91,7 +91,7 @@ const GlobalAssets: React.FC<AllAssetsProps> = ({ userAddress, onAddAsset }) => 
   const [userAssets, setUserAssets] = useState<UserAsset[]>([]);
   const [trustlineProcessing, setTrustlineProcessing] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [assetFilter, setAssetFilter] = useState('All assets');
+
   const [typeFilter, setTypeFilter] = useState('Any type');
 
   useEffect(() => {

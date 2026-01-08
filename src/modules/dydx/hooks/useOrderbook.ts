@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
+import { getSocketClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
 
 // ================= TYPES =================
@@ -13,40 +14,6 @@ export interface OrderbookData {
   bids: OrderbookLevel[];
   asks: OrderbookLevel[];
   ts: number;
-  messageId?: number;
-}
-
-interface InternalOrderbookState {
-  bidsMap: Map<number, number>;
-  asksMap: Map<number, number>;
-  bidsSorted: number[];
-  asksSorted: number[];
-}
-
-// ================= CONSTANTS =================
-
-const MAX_DEPTH = 50;
-const DISPLAY_LIMIT = 15;
-
-function insertSorted(arr: number[], price: number, isBid: boolean) {
-  let low = 0;
-  let high = arr.length;
-
-  if (isBid) {
-    while (low < high) {
-      const mid = (low + high) >>> 1;
-      if (arr[mid] > price) low = mid + 1;
-      else high = mid;
-    }
-  } else {
-    while (low < high) {
-      const mid = (low + high) >>> 1;
-      if (arr[mid] < price) low = mid + 1;
-      else high = mid;
-    }
-  }
-
-  arr.splice(low, 0, price);
 }
 
 // ================= HOOK =================
@@ -55,228 +22,195 @@ export function useOrderbook(market: string = 'BTC-USD') {
   const [orderbook, setOrderbook] = useState<OrderbookData | null>(null);
   const [dataSource, setDataSource] = useState<'api' | 'websocket' | null>(null);
 
-  const stateRef = useRef<InternalOrderbookState>({
-    bidsMap: new Map(),
-    asksMap: new Map(),
-    bidsSorted: [],
-    asksSorted: [],
-  });
+  const bidsMap = useRef(new Map<number, number>());
+  const asksMap = useRef(new Map<number, number>());
+  const rafRef = useRef<number | undefined>(undefined);
 
-  const rafId = useRef<number | null>(null);
-  const pendingUpdate = useRef(false);
-  const mountedRef = useRef(true);
-  const currentMarketRef = useRef(market);
-  const initCompleteRef = useRef(false);
-
-  // Get store methods and state
-  const subscribeToOrderbook = useWebSocketStore(state => state.subscribeToOrderbook);
-  const unsubscribeFromOrderbook = useWebSocketStore(state => state.unsubscribeFromOrderbook);
   const isConnected = useWebSocketStore(state => state.isConnected);
-  const storeOrderbook = useWebSocketStore(state => state.orderbooks.get(market));
 
-  const cleanupState = useCallback(() => {
-    stateRef.current.bidsMap.clear();
-    stateRef.current.asksMap.clear();
-    stateRef.current.bidsSorted = [];
-    stateRef.current.asksSorted = [];
-    pendingUpdate.current = false;
-  }, []);
-
-  const forceUpdate = useCallback(() => {
-    if (!mountedRef.current) return;
-
-    const ts = Date.now();
-    const state = stateRef.current;
-
-    const newBids: OrderbookLevel[] = state.bidsSorted.slice(0, DISPLAY_LIMIT).map(price => ({
-      price: price.toString(),
-      size: state.bidsMap.get(price)?.toString() || '0',
-    }));
-
-    const newAsks: OrderbookLevel[] = state.asksSorted.slice(0, DISPLAY_LIMIT).map(price => ({
-      price: price.toString(),
-      size: state.asksMap.get(price)?.toString() || '0',
-    }));
-    newAsks.reverse();
-
-    setOrderbook({
-      bids: newBids,
-      asks: newAsks,
-      ts,
-    });
-  }, []);
-
-  const scheduleUpdate = useCallback(() => {
-    if (pendingUpdate.current || !mountedRef.current) return;
-
-    pendingUpdate.current = true;
-    if (rafId.current !== null) {
-      cancelAnimationFrame(rafId.current);
-    }
-
-    rafId.current = requestAnimationFrame(() => {
-      pendingUpdate.current = false;
-      if (mountedRef.current) {
-        forceUpdate();
-      }
-    });
-  }, [forceUpdate]);
-
-  // Process orderbook updates from store
-  const processLevels = useCallback((levels: Array<[string, string]>, isBid: boolean) => {
-    const state = stateRef.current;
-    const map = isBid ? state.bidsMap : state.asksMap;
-    const sorted = isBid ? state.bidsSorted : state.asksSorted;
-    let changed = false;
-
-    for (let i = 0; i < levels.length; i++) {
-      const [priceStr, sizeStr] = levels[i];
-      const price = Number(priceStr);
-      const size = Number(sizeStr);
-      const prevSize = map.get(price);
-
-      if (size <= 0) {
-        if (prevSize !== undefined) {
-          map.delete(price);
-          const idx = sorted.indexOf(price);
-          if (idx !== -1) {
-            sorted.splice(idx, 1);
-          }
-          changed = true;
-        }
-      } else if (prevSize !== size) {
-        map.set(price, size);
-        if (prevSize === undefined) {
-          insertSorted(sorted, price, isBid);
-        }
-        changed = true;
-      }
-    }
-    if (sorted.length > MAX_DEPTH) {
-      for (let i = MAX_DEPTH; i < sorted.length; i++) {
-        map.delete(sorted[i]);
-      }
-      sorted.length = MAX_DEPTH;
-    }
-    if (isBid) state.bidsSorted = sorted;
-    else state.asksSorted = sorted;
-
-    return changed;
-  }, []);
-
-  // Load initial snapshot from REST API
+  // Single effect that handles everything for the current market
   useEffect(() => {
-    let isActive = true;
-    mountedRef.current = true;
-    currentMarketRef.current = market;
-    cleanupState();
+    console.log(`[useOrderbook] Initializing ${market}`);
+
+    // Clear everything immediately
+    bidsMap.current.clear();
+    asksMap.current.clear();
     setOrderbook(null);
     setDataSource(null);
-    initCompleteRef.current = false;
 
-    if (rafId.current !== null) {
-      cancelAnimationFrame(rafId.current);
-      rafId.current = null;
+    // Cancel any pending animation frame from previous market
+    if (rafRef.current !== undefined) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = undefined;
     }
 
-    const initSnapshot = async () => {
-      if (!isActive || currentMarketRef.current !== market) return;
+    let active = true;
+    let unsubscribe: (() => void) | null = null;
 
+    // Update function - created fresh for each market
+    const updateDisplay = () => {
+      if (!active) return; // Don't update if effect has been cleaned up
+
+      const sortedBids = Array.from(bidsMap.current.entries())
+        .sort(([a], [b]) => b - a)
+        .slice(0, 9);
+
+      const sortedAsks = Array.from(asksMap.current.entries())
+        .sort(([a], [b]) => a - b)
+        .slice(0, 9);
+
+      setOrderbook({
+        bids: sortedBids.map(([price, size]) => ({
+          price: price.toString(),
+          size: size.toString(),
+        })),
+        asks: sortedAsks.map(([price, size]) => ({
+          price: price.toString(),
+          size: size.toString(),
+        })),
+        ts: Date.now(),
+      });
+    };
+
+    // Schedule function - created fresh for each market
+    const scheduleUpdate = () => {
+      if (!active) return; // Don't schedule if effect has been cleaned up
+      if (rafRef.current !== undefined) return; // Already scheduled
+
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = undefined;
+        updateDisplay();
+      });
+    };
+
+    // WebSocket handler - created fresh for each market
+    const handleUpdate = (data: any) => {
+      if (!active) {
+        // console.log(`[useOrderbook] Ignoring update, component unmounted or market changed`);
+        return;
+      }
+
+      if (!data?.contents) return;
+
+      let changed = false;
+
+      // Process bids
+      if (data.contents.bids?.length) {
+        data.contents.bids.forEach((level: [string, string]) => {
+          const price = Number(level[0]);
+          const size = Number(level[1]);
+
+          if (isNaN(price) || isNaN(size)) return;
+
+          if (size === 0) {
+            if (bidsMap.current.delete(price)) changed = true;
+          } else {
+            bidsMap.current.set(price, size);
+            changed = true;
+          }
+        });
+      }
+
+      // Process asks
+      if (data.contents.asks?.length) {
+        data.contents.asks.forEach((level: [string, string]) => {
+          const price = Number(level[0]);
+          const size = Number(level[1]);
+
+          if (isNaN(price) || isNaN(size)) return;
+
+          if (size === 0) {
+            if (asksMap.current.delete(price)) changed = true;
+          } else {
+            asksMap.current.set(price, size);
+            changed = true;
+          }
+        });
+      }
+
+      if (changed) {
+        setDataSource('websocket');
+        scheduleUpdate();
+      }
+    };
+
+    // Load snapshot
+    const loadSnapshot = async () => {
       try {
         const { getIndexerClient } = await import('../client/clients');
-        const client = getIndexerClient();
-        const snap = await client.markets.getPerpetualMarketOrderbook(market);
+        const snap = await getIndexerClient().markets.getPerpetualMarketOrderbook(market);
 
-        if (!isActive || currentMarketRef.current !== market) return;
-
-        const state = stateRef.current;
-
-        if (snap?.bids) {
-          snap.bids.forEach((b: { price: string; size: string }) => {
-            const price = Number(b.price);
-            const size = Number(b.size);
-            if (size > 0) {
-              state.bidsMap.set(price, size);
-              state.bidsSorted.push(price);
-            }
-          });
-          state.bidsSorted.sort((a, b) => b - a);
+        if (!active) {
+          console.log(`[useOrderbook] Snapshot aborted, market changed`);
+          return;
         }
 
-        if (snap?.asks) {
-          snap.asks.forEach((a: { price: string; size: string }) => {
-            const price = Number(a.price);
-            const size = Number(a.size);
-            if (size > 0) {
-              state.asksMap.set(price, size);
-              state.asksSorted.push(price);
-            }
-          });
-          state.asksSorted.sort((a, b) => a - b);
-        }
-        if (state.bidsSorted.length > MAX_DEPTH) state.bidsSorted.length = MAX_DEPTH;
-        if (state.asksSorted.length > MAX_DEPTH) state.asksSorted.length = MAX_DEPTH;
+        // Load bids
+        snap?.bids?.forEach((b: { price: string; size: string }) => {
+          const price = Number(b.price);
+          const size = Number(b.size);
+          if (size > 0 && !isNaN(price) && !isNaN(size)) {
+            bidsMap.current.set(price, size);
+          }
+        });
 
-        if (isActive && mountedRef.current) {
-          forceUpdate();
+        // Load asks
+        snap?.asks?.forEach((a: { price: string; size: string }) => {
+          const price = Number(a.price);
+          const size = Number(a.size);
+          if (size > 0 && !isNaN(price) && !isNaN(size)) {
+            asksMap.current.set(price, size);
+          }
+        });
+
+        if (active) {
+          updateDisplay();
           setDataSource('api');
-          initCompleteRef.current = true;
+          console.log(
+            `[useOrderbook] Snapshot loaded: ${bidsMap.current.size} bids, ${asksMap.current.size} asks`
+          );
         }
       } catch (err) {
         console.error('[useOrderbook] Snapshot error:', err);
       }
     };
 
-    initSnapshot();
-
-    return () => {
-      isActive = false;
-      if (rafId.current !== null) {
-        cancelAnimationFrame(rafId.current);
-        rafId.current = null;
+    // Setup WebSocket subscription
+    const setupWebSocket = () => {
+      if (!isConnected) {
+        console.log('[useOrderbook] WebSocket not connected');
+        return;
       }
-      cleanupState();
+
+      try {
+        const socketClient = getSocketClient();
+        unsubscribe = socketClient.subscribeToOrderbook(market, handleUpdate);
+        console.log(`[useOrderbook] Subscribed to ${market}`);
+      } catch (err) {
+        console.error('[useOrderbook] Subscribe error:', err);
+      }
     };
-  }, [market, cleanupState, forceUpdate]);
 
-  // Subscribe to WebSocket updates via store
-  useEffect(() => {
-    currentMarketRef.current = market;
+    // Execute setup
+    loadSnapshot();
+    setupWebSocket();
 
-    // Subscribe to orderbook for this market
-    subscribeToOrderbook(market);
-
+    // Cleanup
     return () => {
-      unsubscribeFromOrderbook(market);
+      console.log(`[useOrderbook] Cleaning up ${market}`);
+      active = false;
+
+      if (unsubscribe) {
+        unsubscribe();
+        console.log(`[useOrderbook] Unsubscribed from ${market}`);
+      }
+
+      if (rafRef.current !== undefined) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = undefined;
+      }
     };
-  }, [market, subscribeToOrderbook, unsubscribeFromOrderbook]);
-
-  // Process store orderbook updates
-  useEffect(() => {
-    if (!storeOrderbook || !initCompleteRef.current) return;
-
-    let changed = false;
-
-    if (storeOrderbook.bids && storeOrderbook.bids.length > 0) {
-      if (processLevels(storeOrderbook.bids, true)) changed = true;
-    }
-
-    if (storeOrderbook.asks && storeOrderbook.asks.length > 0) {
-      if (processLevels(storeOrderbook.asks, false)) changed = true;
-    }
-
-    if (changed) {
-      setDataSource('websocket');
-      scheduleUpdate();
-    }
-  }, [storeOrderbook, processLevels, scheduleUpdate]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  }, [market, isConnected]);
 
   return { orderbook, isConnected, dataSource };
 }

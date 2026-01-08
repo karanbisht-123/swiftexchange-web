@@ -55,7 +55,10 @@ export const useReceiveAssets = () => {
     // Ensure currentAsset.network is passed to validation
     const addressValidationResult =
       hasWalletAddress && hasCurrentAsset
-        ? validateAddress(walletAddress, currentAsset.network)
+        ? validateAddress(walletAddress, {
+            addressType: currentAsset.addressType as any,
+            network: currentAsset.network,
+          })
         : false;
 
     console.log('Debug: hasWalletAddress:', hasWalletAddress);

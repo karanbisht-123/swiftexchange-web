@@ -49,6 +49,8 @@ export async function getSwapQuote(chainId: number, request: SwapQuoteRequest): 
     pricePerToken: res.data.pricePerToken,
     fee: parseInt(res.data.fee, 10),
     poolAddress: res.data.poolAddress,
+    priceImpact: res.data.priceImpact || '0',
+    rawQuote: res.data,
   };
 }
 

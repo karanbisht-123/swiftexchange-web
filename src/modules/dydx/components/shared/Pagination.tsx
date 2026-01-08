@@ -90,9 +90,7 @@ export const Pagination: React.FC<PaginationProps> = ({
             {hasMore && '+'}
           </span>
         )}
-        {loading && (
-          <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />
-        )}
+        {loading && <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />}
       </div>
 
       {/* Page navigation */}
@@ -125,10 +123,11 @@ export const Pagination: React.FC<PaginationProps> = ({
                 key={page}
                 onClick={() => handlePageClick(page)}
                 disabled={loading}
-                className={`min-w-[28px] px-2 py-1 rounded text-xs font-medium transition-colors ${isActive
+                className={`min-w-[28px] px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  isActive
                     ? 'bg-blue-600 text-white'
                     : 'text-gray-400 hover:bg-[#2a2a2a] hover:text-white'
-                  } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
               >
                 {page}
               </button>

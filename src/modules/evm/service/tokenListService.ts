@@ -1,9 +1,6 @@
 import { ethers } from 'ethers';
 
-import {
-  ERC20_ABI,
-  getTokenAddressesForChain,
-} from '../../../config/tokenConfig';
+import { ERC20_ABI, getTokenAddressesForChain } from '../../../config/tokenConfig';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 
 export interface TokenInfo {
@@ -143,11 +140,7 @@ export async function fetchAssetsWithBalances(
     }));
 
     // 3. Fetch Balances and Metadata for ERC20s
-    const erc20Assets = await fetchERC20BalancesAndMetadata(
-      provider,
-      walletAddress,
-      tokensToFetch
-    );
+    const erc20Assets = await fetchERC20BalancesAndMetadata(provider, walletAddress, tokensToFetch);
 
     // 4. Combine and Sort
     // Sort: Native first, then by balance descending, then alphabetically through symbol
@@ -204,6 +197,6 @@ export async function fetchAvailableTokens(chainId: number): Promise<TokenInfo[]
     symbol,
     decimals: 18,
     balance: '0',
-    isNative: false
+    isNative: false,
   }));
 }

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { dydxTradingService } from '../service/dydxTradingService';
 import { dydxWalletService } from '../service/dydxWalletService';
@@ -10,6 +10,22 @@ import {
   type Position,
   type TriggerParams,
 } from '../types/trading.types';
+
+// Create a global event emitter for trade actions
+const TRADE_EVENT = 'dydx-trade-action';
+
+export const triggerTradeRefresh = (action: 'order' | 'cancel' | 'close' | 'trigger') => {
+  window.dispatchEvent(new CustomEvent(TRADE_EVENT, { detail: { action, timestamp: Date.now() } }));
+};
+
+// Helper hook to listen for trade events in useDydxData
+export const useTradeEvents = (callback: (action: string) => void) => {
+  useEffect(() => {
+    const handler = (e: any) => callback(e.detail?.action);
+    window.addEventListener(TRADE_EVENT, handler);
+    return () => window.removeEventListener(TRADE_EVENT, handler);
+  }, [callback]);
+};
 
 export const useDydxTrading = () => {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
@@ -39,6 +55,12 @@ export const useDydxTrading = () => {
         if (!marketInfo) throw new Error(`Market data not found for ${params.market}`);
 
         const result = await dydxTradingService.placeOrder(params, marketInfo);
+
+        if (result.success) {
+          console.log('[useDydxTrading] ✅ Order placed successfully, triggering refresh');
+          triggerTradeRefresh('order');
+        }
+
         return result;
       } catch (err: any) {
         const msg = err.message || 'Place order failed';
@@ -64,6 +86,12 @@ export const useDydxTrading = () => {
 
       try {
         const result = await dydxTradingService.cancelOrder(order);
+
+        if (result.success) {
+          console.log('[useDydxTrading] ✅ Order cancelled successfully, triggering refresh');
+          triggerTradeRefresh('cancel');
+        }
+
         return result;
       } catch (err: any) {
         const msg = err.message || 'Cancel failed';
@@ -78,7 +106,7 @@ export const useDydxTrading = () => {
 
   const closePosition = useCallback(
     async (position: Position): Promise<OrderResult> => {
-      console.log(position, '-----------------');
+      console.log(position, 'Closing position -----------------');
       if (!canTrade || !address) {
         const msg = 'Not ready to trade';
         setOrderError(msg);
@@ -90,6 +118,12 @@ export const useDydxTrading = () => {
         if (!marketInfo) throw new Error(`Market data not found for ${position.market}`);
 
         const result = await dydxTradingService.closePosition(position, marketInfo);
+
+        if (result.success) {
+          console.log('[useDydxTrading] ✅ Position closed successfully, triggering refresh');
+          triggerTradeRefresh('close');
+        }
+
         return result;
       } catch (err: any) {
         const msg = err.message || 'Close position failed';
@@ -116,6 +150,12 @@ export const useDydxTrading = () => {
         if (!marketInfo) throw new Error(`Market data not found for ${position.market}`);
 
         const result = await dydxTradingService.setTriggers(position, triggers, marketInfo);
+
+        if (result.success) {
+          console.log('[useDydxTrading] ✅ Triggers set successfully, triggering refresh');
+          triggerTradeRefresh('trigger');
+        }
+
         return result;
       } catch (err: any) {
         const msg = err.message || 'Set triggers failed';

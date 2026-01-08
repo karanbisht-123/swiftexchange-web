@@ -14,7 +14,9 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
   return (
     <div className="px-5 py-4 bg-gray-900/40 border-y border-gray-800/50">
       <div className="flex items-center justify-between mb-3">
-        <label className="text-[11px] uppercase tracking-wider text-gray-500 font-bold">Leverage</label>
+        <label className="text-[11px] uppercase tracking-wider text-gray-500 font-bold">
+          Leverage
+        </label>
         <span className="text-[10px] text-gray-600 font-medium">Max {maxLeverage}x</span>
       </div>
 
@@ -54,8 +56,8 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
             <input
               type="number"
               value={leverage}
-              onChange={(e) => onChange(parseFloat(e.target.value))}
-              onBlur={(e) => {
+              onChange={e => onChange(parseFloat(e.target.value))}
+              onBlur={e => {
                 let val = parseFloat(e.target.value);
                 if (isNaN(val) || val < 1) val = 1;
                 if (val > maxLeverage) val = maxLeverage;

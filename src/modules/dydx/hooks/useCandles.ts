@@ -142,7 +142,7 @@ export function useRealtimeChart(
     });
 
     // Override/add with live candles
-    liveCandles.forEach((c: Partial<Candle> & { startedAt: string }) => {
+    liveCandles.forEach((c: any) => {
       candleMap.set(c.startedAt, {
         startedAt: c.startedAt,
         ticker: c.ticker || '',

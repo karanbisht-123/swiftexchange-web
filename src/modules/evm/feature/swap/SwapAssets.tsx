@@ -144,7 +144,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           decimals: selectedSellAsset.decimals,
           address: selectedSellAsset.address,
           balance: selectedSellAsset.balance || '0',
-          logoUri: selectedSellAsset.logoURI,
+          logoUri: selectedSellAsset.logoURI || null,
         },
         tokenOut: {
           symbol: selectedBuyAsset.symbol,
@@ -152,7 +152,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           decimals: selectedBuyAsset.decimals,
           address: selectedBuyAsset.address,
           balance: selectedBuyAsset.balance || '0',
-          logoUri: selectedBuyAsset.logoURI,
+          logoUri: selectedBuyAsset.logoURI || null,
         },
         amount: sellAmount,
         swapType,
@@ -755,7 +755,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               'Select Different Tokens'
             ) : !sellAmount ? (
               'Enter Amount'
-            ) : parseFloat(sellAmount) > isChainSwitchin ? (
+            ) : parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0') ? (
               'Insufficient Balance'
             ) : isFetchingAssets ? (
               'Fetching Assets...'

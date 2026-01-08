@@ -1,111 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { useTrades } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
 
-interface FlashState {
-  type: 'buy' | 'sell';
-  timestamp: number;
-}
-
 export default function TradesDisplay() {
   const { selectedMarket } = useMarketStore();
   const { trades, error, isLoading, isConnected } = useTrades(selectedMarket, 200);
-
-  const prevTradesRef = useRef<Set<string>>(new Set());
-  const prevMarketRef = useRef<string>(selectedMarket);
-  const flashTimerRef = useRef<number | null>(null);
-  const mountedRef = useRef(true);
-  const animationFrameRef = useRef<number | null>(null);
-
-  const [flashingTrades, setFlashingTrades] = useState<Map<string, FlashState>>(new Map());
-  const [isTransitioning, setIsTransitioning] = useState(false);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (flashTimerRef.current) {
-        clearTimeout(flashTimerRef.current);
-      }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (prevMarketRef.current !== selectedMarket) {
-      setIsTransitioning(true);
-
-      prevTradesRef.current.clear();
-      setFlashingTrades(new Map());
-      prevMarketRef.current = selectedMarket;
-
-      if (flashTimerRef.current) {
-        clearTimeout(flashTimerRef.current);
-        flashTimerRef.current = null;
-      }
-
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-
-      const transitionTimer = setTimeout(() => {
-        if (mountedRef.current) {
-          setIsTransitioning(false);
-        }
-      }, 50);
-
-      return () => clearTimeout(transitionTimer);
-    }
-  }, [selectedMarket]);
-
-  const clearFlashAnimations = useCallback(() => {
-    if (!mountedRef.current) return;
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-
-    animationFrameRef.current = requestAnimationFrame(() => {
-      if (!mountedRef.current) return;
-      setFlashingTrades(new Map());
-      animationFrameRef.current = null;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!trades || trades.length === 0 || !mountedRef.current || isTransitioning) return;
-
-    const newFlashing = new Map<string, FlashState>();
-    const timestamp = Date.now();
-
-    trades.slice(0, 5).forEach(trade => {
-      if (!prevTradesRef.current.has(trade.id)) {
-        newFlashing.set(trade.id, {
-          type: trade.side === 'BUY' ? 'buy' : 'sell',
-          timestamp,
-        });
-      }
-    });
-
-    prevTradesRef.current = new Set(trades.map(t => t.id));
-
-    if (newFlashing.size > 0 && mountedRef.current) {
-      setFlashingTrades(newFlashing);
-
-      if (flashTimerRef.current) {
-        clearTimeout(flashTimerRef.current);
-      }
-
-      flashTimerRef.current = window.setTimeout(() => {
-        clearFlashAnimations();
-        flashTimerRef.current = null;
-      }, 600);
-    }
-  }, [trades, isTransitioning, clearFlashAnimations]);
 
   const maxTradeSize = useMemo(() => {
     if (!trades || trades.length === 0) return 1;
@@ -187,27 +87,23 @@ export default function TradesDisplay() {
         <div className="relative overflow-auto hide-scrollbar">
           {trades.map((trade, index) => {
             const uniqueKey = `${trade.id}-${index}`;
-            const flash = flashingTrades.get(trade.id);
             const isBuy = trade.side === 'BUY';
             const size = parseFloat(trade.size) || 0;
-            const depthPct = maxTradeSize > 0 ? (size / maxTradeSize) * 100 : 0;
+            const depthPct = maxTradeSize > 0 ? size / maxTradeSize : 0; // ratio 0 to 1
 
             return (
               <div
                 key={uniqueKey}
-                className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 ${
-                  flash?.type === 'buy'
-                    ? 'animate-flash-buy'
-                    : flash?.type === 'sell'
-                      ? 'animate-flash-sell'
-                      : ''
-                }`}
+                className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150"
               >
                 <div
-                  className={`absolute inset-y-0 right-0 transition-all duration-500 ease-out ${
+                  className={`absolute inset-y-0 right-0 origin-right will-change-transform transition-transform duration-200 ease-out ${
                     isBuy ? 'bg-[#00ff9d15]' : 'bg-[#ff3b6915]'
                   }`}
-                  style={{ width: `${depthPct}%` }}
+                  style={{
+                    width: '100%',
+                    transform: `scaleX(${depthPct})`,
+                  }}
                 />
 
                 <div
@@ -238,32 +134,6 @@ export default function TradesDisplay() {
       )}
 
       <style>{`
-        @keyframes flash-buy {
-          0% {
-            background-color: rgba(0, 255, 157, 0.3);
-          }
-          100% {
-            background-color: transparent;
-          }
-        }
-
-        @keyframes flash-sell {
-          0% {
-            background-color: rgba(255, 59, 105, 0.3);
-          }
-          100% {
-            background-color: transparent;
-          }
-        }
-
-        .animate-flash-buy {
-          animation: flash-buy 600ms ease-out;
-        }
-
-        .animate-flash-sell {
-          animation: flash-sell 600ms ease-out;
-        }
-
         .hide-scrollbar::-webkit-scrollbar {
           display: none;
         }

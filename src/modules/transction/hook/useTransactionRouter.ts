@@ -32,7 +32,7 @@ export const useTransactionRouter = () => {
 
         const provider = getProvider(walletType);
 
-        if (provider) {
+        if (provider && wallet.chainId) {
           console.log(`${walletType}] Provider found, registering session...`);
           console.log(`Provider details:`, {
             hasProvider: !!provider,
@@ -48,7 +48,7 @@ export const useTransactionRouter = () => {
             wallet.walletId
           );
         } else {
-          console.warn(`[${walletType}] Wallet connected but provider not available`);
+          console.warn(`[${walletType}] Wallet connected but provider or chainId not available`);
         }
       } else {
         const hadSession = transactionRouter.hasActiveSession(walletType);

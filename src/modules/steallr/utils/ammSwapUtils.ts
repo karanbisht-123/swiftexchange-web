@@ -1,4 +1,4 @@
-import * as StellarSDK from 'stellar-sdk';
+import * as StellarSDK from '@stellar/stellar-sdk';
 
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
 

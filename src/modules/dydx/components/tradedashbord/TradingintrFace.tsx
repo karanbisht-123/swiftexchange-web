@@ -139,10 +139,11 @@ const PortfolioView = ({
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === tab
+            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
+              activeTab === tab
                 ? 'text-white border-b-2 border-blue-500'
                 : 'text-gray-400 hover:text-gray-300'
-              }`}
+            }`}
           >
             {labels[tab]}
           </button>
@@ -179,19 +180,21 @@ const MobileLayout = () => {
         <div className="flex bg-secondary border-b border-gray-800 shrink-0">
           <button
             onClick={() => setChartType('price')}
-            className={`flex-1 text-xs font-medium transition-all active:scale-95 ${chartType === 'price'
+            className={`flex-1 text-xs font-medium transition-all active:scale-95 ${
+              chartType === 'price'
                 ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
                 : 'bg-gray-800/50 text-gray-400 active:bg-gray-800'
-              }`}
+            }`}
           >
             Price Chart
           </button>
           <button
             onClick={() => setChartType('depth')}
-            className={`flex-1 py-2 text-xs font-medium transition-all active:scale-95 ${chartType === 'depth'
+            className={`flex-1 py-2 text-xs font-medium transition-all active:scale-95 ${
+              chartType === 'depth'
                 ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
                 : 'bg-gray-800/50 text-gray-400 active:bg-gray-800'
-              }`}
+            }`}
           >
             Depth Chart
           </button>
@@ -225,8 +228,9 @@ const MobileLayout = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 flex flex-col items-center gap-1 transition-all active:scale-95 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
-                }`}
+              className={`flex-1 py-3 flex flex-col items-center gap-1 transition-all active:scale-95 ${
+                activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
+              }`}
             >
               <Icon className={`w-5 h-5 ${activeTab === tab.id ? 'text-blue-500' : ''}`} />
               <span className="text-[10px] font-medium">{tab.label}</span>
@@ -261,10 +265,11 @@ const BottomTabsSection = ({
           <button
             key={tab}
             onClick={() => setActiveBottomTab(tab)}
-            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${activeBottomTab === tab
+            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
+              activeBottomTab === tab
                 ? 'text-white border-b-2 border-[#3b4fd9]'
                 : 'text-gray-400 hover:text-gray-300'
-              }`}
+            }`}
           >
             {labels[tab]}
           </button>

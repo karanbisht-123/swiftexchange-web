@@ -39,7 +39,7 @@ const AmmSwapUI = () => {
     userAddress: stellarAddress,
   });
 
-  const { addTransaction, defaultSlippage, setDefaultSlippage } = useAmmSwapStore();
+  const { addTransaction, setDefaultSlippage } = useAmmSwapStore();
 
   const handleSlippageChange = (slippage: number) => {
     setSlippageTolerance(slippage);

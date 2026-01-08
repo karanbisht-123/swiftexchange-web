@@ -58,11 +58,11 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
 
   const balance: AccountBalance | null = subaccountData
     ? {
-      equity: subaccountData.equity || '0',
-      freeCollateral: subaccountData.freeCollateral || '0',
-      marginUsage: subaccountData.marginUsage || '0',
-      totalTradingRewards: subaccountData.totalTradingRewards || '0',
-    }
+        equity: subaccountData.equity || '0',
+        freeCollateral: subaccountData.freeCollateral || '0',
+        marginUsage: subaccountData.marginUsage || '0',
+        totalTradingRewards: subaccountData.totalTradingRewards || '0',
+      }
     : null;
 
   const lastUpdateTime = subaccountData?.lastUpdate || null;
@@ -78,40 +78,42 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
   }, []);
 
   // Fetch initial balance from REST API
-  const fetchBalance = useCallback(async (forceRefresh = false): Promise<void> => {
-    if (isFetchingRef.current || !isMountedRef.current) return;
-    if (!dydxWalletService.isConnected() || !dydxAddress || !subaccountKey) return;
+  const fetchBalance = useCallback(
+    async (forceRefresh = false): Promise<void> => {
+      if (isFetchingRef.current || !isMountedRef.current) return;
+      if (!dydxWalletService.isConnected() || !dydxAddress || !subaccountKey) return;
 
-    isFetchingRef.current = true;
-    if (isMountedRef.current) {
-      setLoadingBalance(true);
-      setError(null);
-    }
-
-    try {
-      const initialData = await dydxWalletService.getBalance(forceRefresh);
-      hasInitialFetchRef.current = true;
-
-      // Sync with store to show data immediately
-      updateSubaccount(subaccountKey, {
-        equity: initialData.equity,
-        freeCollateral: initialData.freeCollateral,
-        marginUsage: initialData.marginUsage,
-        totalTradingRewards: initialData.totalTradingRewards,
-        lastUpdate: Date.now()
-      });
-
-    } catch (err: any) {
+      isFetchingRef.current = true;
       if (isMountedRef.current) {
-        setError(err.message || 'Failed to fetch balance');
+        setLoadingBalance(true);
+        setError(null);
       }
-    } finally {
-      if (isMountedRef.current) {
-        setLoadingBalance(false);
+
+      try {
+        const initialData = await dydxWalletService.getBalance(forceRefresh);
+        hasInitialFetchRef.current = true;
+
+        // Sync with store to show data immediately
+        updateSubaccount(subaccountKey, {
+          equity: initialData.equity,
+          freeCollateral: initialData.freeCollateral,
+          marginUsage: initialData.marginUsage,
+          totalTradingRewards: initialData.totalTradingRewards,
+          lastUpdate: Date.now(),
+        });
+      } catch (err: any) {
+        if (isMountedRef.current) {
+          setError(err.message || 'Failed to fetch balance');
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setLoadingBalance(false);
+        }
+        isFetchingRef.current = false;
       }
-      isFetchingRef.current = false;
-    }
-  }, [dydxAddress, subaccountKey, updateSubaccount]);
+    },
+    [dydxAddress, subaccountKey, updateSubaccount]
+  );
 
   // Handle wallet connection/disconnection
   useEffect(() => {
@@ -128,7 +130,7 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     }
 
     // Also listen for status changes from dydxWalletService
-    const unsubscribe = dydxWalletService.onStatusChange((status) => {
+    const unsubscribe = dydxWalletService.onStatusChange(status => {
       if (status === 'connected' && !hasInitialFetchRef.current) {
         console.log('[useDydxWallet] Service connected, fetching balance');
         fetchBalance(true);

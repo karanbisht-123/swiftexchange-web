@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 
-import { getSocketClient } from '../client/clients';
-
 export const useDydxBalance = (dydxAddress: string | null) => {
   const [balance, setBalance] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdateTime, setLastUpdateTime] = useState<number | null>(null);
-  const [isLive, setIsLive] = useState(false);
+  const [loading] = useState(false);
+  const [error] = useState<string | null>(null);
+  const [lastUpdateTime] = useState<number | null>(null);
+  const [isLive] = useState(false);
 
   const fetchBalance = async () => {
     if (!dydxAddress) return;

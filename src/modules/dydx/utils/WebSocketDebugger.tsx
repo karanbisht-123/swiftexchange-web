@@ -1,12 +1,12 @@
 import { Activity, AlertCircle, CheckCircle, Radio, XCircle, Zap } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { getSocketClient } from '../client/clients';
 
 const WebSocketDebugger = () => {
-  const [debugInfo, setDebugInfo] = useState(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const [connectionHistory, setConnectionHistory] = useState([]);
+  const [connectionHistory, setConnectionHistory] = useState<any[]>([]);
   const [selectedTab, setSelectedTab] = useState('overview');
 
   useEffect(() => {
@@ -58,7 +58,7 @@ const WebSocketDebugger = () => {
     );
   }
 
-  const getStatusIcon = status => {
+  const getStatusIcon = (status: any) => {
     switch (status) {
       case 'connected':
         return <CheckCircle className="text-green-500" size={20} />;
@@ -69,14 +69,14 @@ const WebSocketDebugger = () => {
     }
   };
 
-  const formatTime = ms => {
+  const formatTime = (ms: any) => {
     if (!ms) return 'Never';
     if (ms < 1000) return `${ms}ms`;
     if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
     return `${(ms / 60000).toFixed(1)}m`;
   };
 
-  const getActivityStatus = lastMessageAgo => {
+  const getActivityStatus = (lastMessageAgo: any) => {
     if (!lastMessageAgo) return { color: 'text-gray-400', label: 'No data' };
     if (lastMessageAgo < 1000) return { color: 'text-green-500', label: 'Active' };
     if (lastMessageAgo < 5000) return { color: 'text-yellow-500', label: 'Recent' };
@@ -232,7 +232,7 @@ const WebSocketDebugger = () => {
                 </h4>
 
                 {debugInfo.subscriptionActivity && debugInfo.subscriptionActivity.length > 0 ? (
-                  debugInfo.subscriptionActivity.map((sub, idx) => {
+                  debugInfo.subscriptionActivity.map((sub: any, idx: any) => {
                     const status = getActivityStatus(sub.lastMessageAgo);
                     return (
                       <div
@@ -300,7 +300,7 @@ const WebSocketDebugger = () => {
                   <div className="mt-4">
                     <h5 className="text-sm font-semibold text-gray-600 mb-2">Pending</h5>
                     <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
-                      {debugInfo.pendingSubscriptions.map((sub, idx) => (
+                      {debugInfo.pendingSubscriptions.map((sub: any, idx: any) => (
                         <div key={idx} className="text-xs font-mono text-gray-700 py-1">
                           ⏳ {sub}
                         </div>
@@ -321,12 +321,14 @@ const WebSocketDebugger = () => {
                       <div key={channel} className="mb-2">
                         <div className="flex justify-between text-sm mb-1">
                           <span className="font-mono text-gray-700">{channel}</span>
-                          <span className="font-semibold text-gray-800">{count}</span>
+                          <span className="font-semibold text-gray-800">{count as any}</span>
                         </div>
                         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-gradient-to-r from-blue-500 to-purple-500"
-                            style={{ width: `${(count / debugInfo.totalMessagesReceived) * 100}%` }}
+                            style={{
+                              width: `${((count as number) / debugInfo.totalMessagesReceived) * 100}%`,
+                            }}
                           />
                         </div>
                       </div>

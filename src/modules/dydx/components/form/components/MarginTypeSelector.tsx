@@ -12,15 +12,17 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({ selected
       <div className="flex gap-4 ml-auto">
         <button
           onClick={() => onChange('CROSS')}
-          className={`font-medium transition-colors ${selected === 'CROSS' ? 'text-white' : 'text-gray-500'
-            }`}
+          className={`font-medium transition-colors ${
+            selected === 'CROSS' ? 'text-white' : 'text-gray-500'
+          }`}
         >
           Cross
         </button>
         <button
           onClick={() => onChange('ISOLATED')}
-          className={`font-medium transition-colors ${selected === 'ISOLATED' ? 'text-white' : 'text-gray-500'
-            }`}
+          className={`font-medium transition-colors ${
+            selected === 'ISOLATED' ? 'text-white' : 'text-gray-500'
+          }`}
         >
           Isolated
         </button>

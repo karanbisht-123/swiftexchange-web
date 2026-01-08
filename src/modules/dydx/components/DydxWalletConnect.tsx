@@ -79,7 +79,6 @@ export const DydxWalletConnect: React.FC = () => {
   }, [isConnected]);
 
   useEffect(() => {
-
     if (
       hasDydxAddress &&
       !isConnected &&
@@ -173,7 +172,6 @@ export const DydxWalletConnect: React.FC = () => {
     return formatTimeAgo(lastUpdateTime);
   }, [lastUpdateTime]);
 
-
   if (connectionError || error) {
     return (
       <div className="p-4 border-b border-gray-800">
@@ -255,7 +253,6 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-
   // Show loading state while balance is being fetched initially
   if (loadingBalance && !balance) {
     return (
@@ -280,9 +277,8 @@ export const DydxWalletConnect: React.FC = () => {
   }
 
   // Only show "No Funds" if we've actually loaded the balance and it's zero
-  const hasZeroBalance = balance &&
-    Number(balance.equity) === 0 &&
-    Number(balance.freeCollateral) === 0;
+  const hasZeroBalance =
+    balance && Number(balance.equity) === 0 && Number(balance.freeCollateral) === 0;
 
   if (!balance || hasZeroBalance) {
     return (
@@ -301,8 +297,18 @@ export const DydxWalletConnect: React.FC = () => {
               className="p-1 rounded hover:bg-gray-700 transition-colors disabled:opacity-50"
               title="Refresh balance"
             >
-              <svg className={`w-4 h-4 text-gray-400 ${loadingBalance ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <svg
+                className={`w-4 h-4 text-gray-400 ${loadingBalance ? 'animate-spin' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
               </svg>
             </button>
             <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
@@ -324,7 +330,6 @@ export const DydxWalletConnect: React.FC = () => {
       </div>
     );
   }
-
 
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-4">
@@ -401,10 +406,11 @@ export const DydxWalletConnect: React.FC = () => {
 
           {marginMetrics.marginUsagePercent > 70 && (
             <div
-              className={`rounded p-2 text-xs ${marginMetrics.marginUsagePercent > 85
-                ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-                : 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
-                }`}
+              className={`rounded p-2 text-xs ${
+                marginMetrics.marginUsagePercent > 85
+                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                  : 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
+              }`}
             >
               {marginMetrics.marginUsagePercent > 85 ? 'Critical' : 'High'} margin usage - consider
               closing positions or adding collateral

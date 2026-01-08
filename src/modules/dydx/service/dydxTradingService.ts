@@ -20,8 +20,10 @@ import { dydxWalletService } from './dydxWalletService';
 const TRADING_CONFIG = {
   DEFAULT_SLIPPAGE: 0.05,
   SHORT_TERM_BLOCKS: 20,
-  DEFAULT_STATEFUL_EXPIRY_SECONDS: 90 * 24 * 3600,
+  DEFAULT_STATEFUL_EXPIRY_SECONDS: 28 * 24 * 3600,
   CLOSE_POSITION_SLIPPAGE: 0.03,
+
+  MAX_STATEFUL_EXPIRY_SECONDS: 28 * 24 * 3600,
 } as const;
 
 class DydxTradingService {
@@ -144,9 +146,18 @@ class DydxTradingService {
       throw new Error('Trigger price is required for conditional orders');
     }
 
-    const expiry =
-      params.goodTilTimeInSeconds ||
-      Math.floor(Date.now() / 1000) + TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
+    // Use duration in seconds (not absolute timestamp)
+    // dYdX expects goodTilTimeInSeconds as a duration, not an absolute time
+    const durationSeconds =
+      params.goodTilTimeInSeconds || TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
+
+    // Ensure we don't exceed the maximum allowed window (28 days = 2,419,200 seconds)
+    const safeDuration = Math.min(durationSeconds, TRADING_CONFIG.MAX_STATEFUL_EXPIRY_SECONDS);
+
+    console.log('Conditional order expiry:', {
+      duration: safeDuration,
+      durationInDays: safeDuration / (24 * 3600),
+    });
 
     const side = this.normalizeToOrderSide(params.side);
 
@@ -159,7 +170,7 @@ class DydxTradingService {
       size,
       clientId,
       OrderTimeInForce.GTT,
-      expiry,
+      safeDuration,
       OrderExecution.DEFAULT,
       params.postOnly || false,
       false,
@@ -175,9 +186,9 @@ class DydxTradingService {
     price: number,
     size: number
   ) {
-    const expiry =
-      params.goodTilTimeInSeconds ||
-      Math.floor(Date.now() / 1000) + TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
+    const durationSeconds =
+      params.goodTilTimeInSeconds || TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
+    const safeDuration = Math.min(durationSeconds, TRADING_CONFIG.MAX_STATEFUL_EXPIRY_SECONDS);
 
     let timeInForce = OrderTimeInForce.GTT;
     if (params.timeInForce === 'IOC') {
@@ -197,7 +208,7 @@ class DydxTradingService {
       size,
       clientId,
       timeInForce,
-      expiry,
+      safeDuration,
       OrderExecution.DEFAULT,
       params.postOnly || false,
       false,
@@ -218,8 +229,6 @@ class DydxTradingService {
         size,
       });
 
-      // Use regular market order without reduce-only flag
-      // This will close the position as long as the size matches
       const result = await this.placeOrder(
         {
           market: position.market,
@@ -324,8 +333,13 @@ class DydxTradingService {
       const orderFlags = parseInt(order.orderFlags);
       const clobPairId = order.clobPairId || order.market;
 
+      // console.log("dsjhfjkh", clientId,
+      //   orderFlags, "sdgjdlkj",
+      //   clobPairId, "cloud if ",
+      //   goodTilBlock,
+      //   goodTilBlockTime)
       const result = await client.cancelOrder(
-        subaccount,
+        subaccount as any,
         clientId,
         orderFlags,
         clobPairId,
@@ -348,7 +362,7 @@ class DydxTradingService {
     }
   }
 
-  private validateReduceOnlyConstraints(params: PlaceOrderParams, orderCategory: any) {
+  private validateReduceOnlyConstraints(params: PlaceOrderParams, _orderCategory: any) {
     if (!params.reduceOnly) return;
     throw new Error(
       'Reduce-only is currently disabled on dYdX. Use regular market orders to close positions instead.'
@@ -385,7 +399,7 @@ class DydxTradingService {
       MARKET: OrderType.MARKET,
       STOP_LIMIT: OrderType.STOP_LIMIT,
       STOP_MARKET: OrderType.STOP_MARKET,
-      TAKE_PROFIT_LIMIT: OrderType.TAKE_PROFIT,
+      TAKE_PROFIT_LIMIT: OrderType.TAKE_PROFIT_LIMIT,
       TAKE_PROFIT_MARKET: OrderType.TAKE_PROFIT_MARKET,
     };
 
@@ -398,7 +412,7 @@ class DydxTradingService {
   private async getSlippagePrice(
     ticker: string,
     side: string,
-    tolerance = TRADING_CONFIG.DEFAULT_SLIPPAGE
+    tolerance: number = TRADING_CONFIG.DEFAULT_SLIPPAGE
   ): Promise<number> {
     const indexer = dydxWalletService.getIndexerClient();
     if (!indexer) throw new Error('Indexer not available');
@@ -470,6 +484,8 @@ class DydxTradingService {
       return 'Network error - please try again';
     if (msg.includes('Wallet not connected')) return 'Please connect your wallet';
     if (msg.includes('Mnemonic not found')) return 'Wallet session expired - please reconnect';
+    if (msg.includes('StatefulOrderTimeWindow'))
+      return 'Order expiry time is too far in the future. Maximum is 28 days.';
 
     return msg;
   }

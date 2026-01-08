@@ -45,7 +45,7 @@ export async function fetchEvmQuote(
         decimals: selectedSellAsset.decimals,
         address: selectedSellAsset.address,
         balance: selectedSellAsset.balance || '0',
-        logoUri: selectedSellAsset.logoURI,
+        logoUri: selectedSellAsset.logoURI || null,
       },
       tokenOut: {
         symbol: selectedBuyAsset.symbol,
@@ -53,10 +53,9 @@ export async function fetchEvmQuote(
         decimals: selectedBuyAsset.decimals,
         address: selectedBuyAsset.address,
         balance: selectedBuyAsset.balance || '0',
-        logoUri: selectedBuyAsset.logoURI,
+        logoUri: selectedBuyAsset.logoURI || null,
       },
       swapType,
-      chainId,
     };
 
     const quote = await getSwapQuote(chainId, adjustedRequest);

@@ -2,7 +2,7 @@ import { X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
-  COSMOS_WALLETS,
+  // COSMOS_WALLETS,
   EVM_WALLETS,
   STELLAR_WALLETS,
   type WalletConfig,
@@ -171,7 +171,8 @@ export const WalletListModal: React.FC = () => {
   }, [closeModal, connectingWallet, disconnectingType, connectionStatus]);
 
   const getWalletConfig = useCallback((type: WalletType, id: string): WalletConfig | undefined => {
-    const allWallets = [...EVM_WALLETS, ...COSMOS_WALLETS, ...STELLAR_WALLETS];
+    // Only EVM and Stellar wallets (Cosmos commented out)
+    const allWallets = [...EVM_WALLETS, /* ...COSMOS_WALLETS, */ ...STELLAR_WALLETS];
     return allWallets.find(w => w.type === type && w.id === id);
   }, []);
 
@@ -322,7 +323,8 @@ export const WalletListModal: React.FC = () => {
   const renderAvailableWallets = useCallback(() => {
     const isAnyActionInProgress = connectingWallet !== null || disconnectingType !== null;
 
-    const allWallets = [...EVM_WALLETS, ...COSMOS_WALLETS];
+    // Only show EVM wallets (Cosmos commented out)
+    const allWallets = [...EVM_WALLETS /* ...COSMOS_WALLETS */];
     const stellarWallets = STELLAR_WALLETS;
 
     const hasEvm = connectedWallets.evm;

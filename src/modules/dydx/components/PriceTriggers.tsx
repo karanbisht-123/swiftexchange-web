@@ -47,7 +47,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
   const [tpPercentage, setTpPercentage] = useState('');
   const [slPrice, setSlPrice] = useState('');
   const [slPercentage, setSlPercentage] = useState('');
-  const [customAmount, setCustomAmount] = useState(false);
+  const [customAmount] = useState(false);
 
   const entryPrice = parseFloat(position.entryPrice);
   const isLong = position.side === 'LONG';

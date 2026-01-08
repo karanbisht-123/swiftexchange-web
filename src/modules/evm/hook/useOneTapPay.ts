@@ -284,7 +284,13 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
             amount: currentAmount,
           };
 
-          const swapResponse: SwapQuoteResponse = await getSwapQuote(networkKey, swapPayload);
+          const swapResponse = (await getSwapQuote(
+            chainId,
+            swapPayload as any
+          )) as unknown as SwapQuoteResponse;
+
+          // Convert fee from number to string for SwapQuoteResponse compatibility
+          swapResponse.fee = String(swapResponse.fee);
 
           if (requestId !== lastRequestIdRef.current) return;
           // logger.success('Swap quote received', swapResponse);

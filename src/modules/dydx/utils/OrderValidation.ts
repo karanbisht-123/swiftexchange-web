@@ -1,4 +1,4 @@
-import type { MarketData } from '../hooks/useMarkets';
+import type { MarketData } from '../types/trading.types';
 import { type CurrencyMode, currencyService } from './currencyService';
 
 /**
@@ -74,7 +74,7 @@ export function validateOrderSize(
   const { baseAmount, usdAmount } = conversion;
 
   // Validate minimum order size
-  const minSizeValidation = validateMinimumSize(marketData, baseAmount, usdAmount);
+  const minSizeValidation = validateMinimumSize(marketData, baseAmount);
   if (!minSizeValidation.isValid) {
     return minSizeValidation;
   }
@@ -99,11 +99,7 @@ export function validateOrderSize(
 /**
  * Validates that order size meets minimum requirements
  */
-function validateMinimumSize(
-  marketData: MarketData,
-  baseAmount: number,
-  usdAmount: number
-): OrderValidationResult {
+function validateMinimumSize(marketData: MarketData, baseAmount: number): OrderValidationResult {
   if (!marketData.stepSize) {
     return { isValid: true };
   }

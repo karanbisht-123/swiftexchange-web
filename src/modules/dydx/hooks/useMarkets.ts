@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getIndexerClient } from '../client/clients';
 import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
+import type { MarketData } from '../types/trading.types';
 import { metadataService } from './useCoinGeckoMetadata';
 
-import type { MarketData } from '../types/trading.types';
+export type { MarketData };
 
 export interface UseMarketsReturn {
   markets: Record<string, MarketData>;

@@ -60,6 +60,8 @@ export const useDydxData = (): UseDydxDataReturn => {
     fills: false,
   });
 
+  const isFirstMountRef = useRef(true);
+
   const subscribeToSubaccount = useWebSocketStore(state => state.subscribeToSubaccount);
   const unsubscribeFromSubaccount = useWebSocketStore(state => state.unsubscribeFromSubaccount);
 
@@ -67,7 +69,6 @@ export const useDydxData = (): UseDydxDataReturn => {
   const dydxAddress = dydxWalletService.getAddress();
   const subaccountNumber = dydxWalletService.getSubaccountNumber();
 
-  // Get data from store
   const subaccountKey = dydxAddress ? `subaccount_${dydxAddress}_${subaccountNumber}` : null;
 
   const subaccountData = useWebSocketStore(
@@ -76,8 +77,6 @@ export const useDydxData = (): UseDydxDataReturn => {
       [subaccountKey]
     )
   );
-
-  // Extract data from store
   const positions = subaccountData?.openPerpetualPositions || [];
   const orders = subaccountData?.orders || [];
   const fills = subaccountData?.fills || [];
@@ -87,6 +86,21 @@ export const useDydxData = (): UseDydxDataReturn => {
     ? Date.now() - subaccountData.lastUpdate < 30000
     : false;
 
+  // useEffect(() => {
+  //   if (process.env.NODE_ENV === 'development') {
+  //     console.log('[useDydxData]  Data Update:', {
+  //       subaccountKey,
+  //       hasSubaccountData: !!subaccountData,
+  //       ordersCount: orders.length,
+  //       positionsCount: positions.length,
+  //       fillsCount: fills.length,
+  //       assetPositionsCount: assetPositions.length,
+  //       lastUpdateTime: lastUpdateTime ? new Date(lastUpdateTime).toISOString() : 'N/A',
+  //       isReceivingUpdates,
+  //     });
+  //   }
+  // }, [orders.length, positions.length, fills.length, assetPositions.length, lastUpdateTime, isReceivingUpdates, subaccountKey, subaccountData]);
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -95,6 +109,7 @@ export const useDydxData = (): UseDydxDataReturn => {
   }, []);
 
   const updateSubaccount = useWebSocketStore(state => state.updateSubaccount);
+
   const fetchPositions = useCallback(
     async (forceRefresh = false): Promise<void> => {
       if (isFetchingRef.current.positions || !isMountedRef.current) return;
@@ -111,11 +126,14 @@ export const useDydxData = (): UseDydxDataReturn => {
           ? dydxDataService.refreshPositions('OPEN')
           : dydxDataService.getPositions('OPEN'));
 
-        updateSubaccount(subaccountKey, {
-          openPerpetualPositions: data,
-          lastUpdate: Date.now(),
-        });
+        if (isMountedRef.current) {
+          updateSubaccount(subaccountKey, {
+            openPerpetualPositions: data,
+            lastUpdate: Date.now(),
+          });
+        }
       } catch (err: any) {
+        console.error('[useDydxData] Positions fetch failed:', err);
         if (isMountedRef.current) {
           setPositionsError(err.message || 'Failed to fetch positions');
         }
@@ -141,12 +159,14 @@ export const useDydxData = (): UseDydxDataReturn => {
       try {
         const data = await dydxDataService.getAssetPositions('OPEN', undefined, !forceRefresh);
 
-        // Sync with store
-        updateSubaccount(subaccountKey, {
-          assetPositions: data,
-          lastUpdate: Date.now(),
-        });
+        if (isMountedRef.current) {
+          updateSubaccount(subaccountKey, {
+            assetPositions: data,
+            lastUpdate: Date.now(),
+          });
+        }
       } catch (err: any) {
+        console.error('[useDydxData] Asset positions fetch failed:', err);
         if (isMountedRef.current) {
           setAssetPositionsError(err.message || 'Failed to fetch asset positions');
         }
@@ -174,12 +194,14 @@ export const useDydxData = (): UseDydxDataReturn => {
           ? dydxDataService.refreshOrders()
           : dydxDataService.getOrders());
 
-        // Sync with store
-        updateSubaccount(subaccountKey, {
-          orders: data,
-          lastUpdate: Date.now(),
-        });
+        if (isMountedRef.current) {
+          updateSubaccount(subaccountKey, {
+            orders: data,
+            lastUpdate: Date.now(),
+          });
+        }
       } catch (err: any) {
+        console.error('[useDydxData] Orders fetch failed:', err);
         if (isMountedRef.current) {
           setOrdersError(err.message || 'Failed to fetch orders');
         }
@@ -207,12 +229,14 @@ export const useDydxData = (): UseDydxDataReturn => {
           ? dydxDataService.refreshFills()
           : dydxDataService.getFills());
 
-        // Sync with store
-        updateSubaccount(subaccountKey, {
-          fills: data,
-          lastUpdate: Date.now(),
-        });
+        if (isMountedRef.current) {
+          updateSubaccount(subaccountKey, {
+            fills: data,
+            lastUpdate: Date.now(),
+          });
+        }
       } catch (err: any) {
+        console.error('[useDydxData]  Fills fetch failed:', err);
         if (isMountedRef.current) {
           setFillsError(err.message || 'Failed to fetch fills');
         }
@@ -224,7 +248,6 @@ export const useDydxData = (): UseDydxDataReturn => {
     [subaccountKey, updateSubaccount]
   );
 
-  // Monitor wallet connection
   useEffect(() => {
     const unsubscribe = dydxWalletService.onStatusChange(status => {
       if (!isMountedRef.current) return;
@@ -258,29 +281,69 @@ export const useDydxData = (): UseDydxDataReturn => {
     return unsubscribe;
   }, [fetchPositions, fetchAssetPositions, fetchOrders, fetchFills]);
 
-  // Subscribe to WebSocket updates via centralized store
   useEffect(() => {
     if (!dydxAddress || !isConnected) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[useDydxData] WebSocket subscription skipped:', {
+          hasDydxAddress: !!dydxAddress,
+          isConnected,
+        });
+      }
       return;
     }
 
-    console.log('[useDydxData] Subscribing via Zustand store');
+    // Only subscribe once
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
 
-    // Subscribe (store handles deduplication)
-    subscribeToSubaccount(dydxAddress, subaccountNumber);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[useDydxData] 🔌 Subscribing to WebSocket:', {
+          address: dydxAddress,
+          subaccountNumber,
+          subaccountKey,
+        });
+      }
 
-    // Cleanup: unsubscribe when component unmounts
+      subscribeToSubaccount(dydxAddress, subaccountNumber);
+    }
+
     return () => {
-      console.log('[useDydxData] Unsubscribing via Zustand store');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[useDydxData] 🔌 Component cleanup - unsubscribing:', {
+          address: dydxAddress,
+          subaccountNumber,
+        });
+      }
       unsubscribeFromSubaccount(dydxAddress, subaccountNumber);
+      isFirstMountRef.current = true;
     };
-  }, [
-    dydxAddress,
-    isConnected,
-    subaccountNumber,
-    subscribeToSubaccount,
-    unsubscribeFromSubaccount,
-  ]);
+  }, [dydxAddress, subaccountNumber]);
+
+  useEffect(() => {
+    if (!isConnected || orders.length === 0) return;
+
+    const recentlyFilled = orders.filter(order => {
+      if (order.status !== 'FILLED') return false;
+
+      const updatedAt = order.updatedAt || order.goodTilBlockTime;
+      if (!updatedAt) return false;
+
+      const timeSinceUpdate = Date.now() - new Date(updatedAt).getTime();
+      return timeSinceUpdate < 10000;
+    });
+
+    if (recentlyFilled.length > 0) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[useDydxData] Detected filled orders, refreshing positions in 3s...');
+      }
+      const timer = setTimeout(() => {
+        fetchPositions(true);
+        fetchAssetPositions(true);
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [orders, isConnected, fetchPositions, fetchAssetPositions]);
 
   return {
     positions,

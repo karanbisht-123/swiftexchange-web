@@ -18,13 +18,11 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
   const mountedRef = useRef(true);
   const currentMarketRef = useRef(market);
 
-  // Get store methods and state
   const subscribeToTrades = useWebSocketStore(state => state.subscribeToTrades);
   const unsubscribeFromTrades = useWebSocketStore(state => state.unsubscribeFromTrades);
   const isConnected = useWebSocketStore(state => state.isConnected);
   const tradesData = useWebSocketStore(state => state.trades.get(market));
 
-  // Load initial snapshot from REST API
   useEffect(() => {
     let isActive = true;
     mountedRef.current = true;
@@ -55,13 +53,21 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
 
         const mappedTrades: Trade[] = (response?.trades || [])
           .filter((trade: { id?: string }) => trade?.id)
-          .map((trade: { id: string; side: 'BUY' | 'SELL'; size: string; price: string; createdAt: string }) => ({
-            id: trade.id,
-            side: trade.side,
-            size: trade.size,
-            price: trade.price,
-            createdAt: trade.createdAt,
-          }));
+          .map(
+            (trade: {
+              id: string;
+              side: 'BUY' | 'SELL';
+              size: string;
+              price: string;
+              createdAt: string;
+            }) => ({
+              id: trade.id,
+              side: trade.side,
+              size: trade.size,
+              price: trade.price,
+              createdAt: trade.createdAt,
+            })
+          );
 
         if (mountedRef.current && currentMarketRef.current === market) {
           setSnapshotTrades(mappedTrades);
@@ -101,7 +107,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     };
   }, []);
 
-  // Merge snapshot and live trades
   const trades = useMemo(() => {
     const liveTrades = tradesData?.trades || [];
 
@@ -109,7 +114,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
       return snapshotTrades;
     }
 
-    // Merge live trades with snapshot, avoiding duplicates
     const existingIds = new Set(snapshotTrades.map(t => t.id));
     const uniqueLiveTrades = liveTrades
       .filter((t: { id?: string }) => t?.id && !existingIds.has(t.id))
@@ -127,7 +131,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     return merged.slice(0, limit);
   }, [snapshotTrades, tradesData, limit]);
 
-  // Derive live price from the most recent trade
   const livePrice = useMemo(() => {
     if (trades.length > 0) {
       return parseFloat(trades[0].price);

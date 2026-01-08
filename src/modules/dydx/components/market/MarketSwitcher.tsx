@@ -192,7 +192,7 @@ const MarketSwitcher: React.FC = () => {
               src={marketData.coinIcon}
               alt={selectedMarket}
               className="w-6 h-6 rounded-full"
-              onError={(e) => {
+              onError={e => {
                 (e.currentTarget as HTMLImageElement).style.display = 'none';
               }}
             />
@@ -220,8 +220,9 @@ const MarketSwitcher: React.FC = () => {
           />
           {livePriceSide && (
             <span
-              className={`text-[10px] font-medium ${livePriceSide === 'BUY' ? 'text-theme-up' : 'text-theme-down'
-                }`}
+              className={`text-[10px] font-medium ${
+                livePriceSide === 'BUY' ? 'text-theme-up' : 'text-theme-down'
+              }`}
             >
               {/* Price side indicator */}
             </span>
@@ -279,8 +280,9 @@ const MarketSwitcher: React.FC = () => {
               <span className="text-theme-muted text-xs">Funding Rate</span>
               <AnimatedValue
                 value={`${marketData.nextFundingRate}%`}
-                className={`font-medium ${parseFloat(marketData.nextFundingRate) >= 0 ? 'text-theme-up' : 'text-theme-down'
-                  }`}
+                className={`font-medium ${
+                  parseFloat(marketData.nextFundingRate) >= 0 ? 'text-theme-up' : 'text-theme-down'
+                }`}
               />
             </div>
 
@@ -296,10 +298,7 @@ const MarketSwitcher: React.FC = () => {
       </div>
 
       {/* Market Selector Modal */}
-      <MarketSelectorModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-      />
+      <MarketSelectorModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </>
   );
 };

@@ -120,6 +120,9 @@ interface WebSocketState {
   updateOrderbook: (market: string, data: Partial<OrderbookData>) => void;
   updateCandles: (key: string, data: Partial<CandleData>) => void;
 
+  // New action for optimization
+  setOrderbookSnapshot: (market: string, data: OrderbookData) => void;
+
   // Cleanup
   cleanup: () => void;
 }
@@ -146,7 +149,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     // ========================================
     subscribeToSubaccount: (address: string, subaccountNumber: number) => {
       const key = `subaccount_${address}_${subaccountNumber}`;
-      const { activeSubscriptions, subscriptionRefs } = get();
+      const { activeSubscriptions } = get();
 
       // Already subscribed
       if (activeSubscriptions.has(key)) {
@@ -210,7 +213,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     // ========================================
     subscribeToMarket: (ticker: string) => {
       const key = `market_${ticker}`;
-      const { activeSubscriptions, subscriptionRefs } = get();
+      const { activeSubscriptions } = get();
 
       if (activeSubscriptions.has(key)) {
         console.log(`[WSStore] Already subscribed to ${key}`);
@@ -276,7 +279,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     // ========================================
     subscribeToAllMarkets: () => {
       const key = 'markets_all';
-      const { activeSubscriptions, subscriptionRefs } = get();
+      const { activeSubscriptions } = get();
 
       if (activeSubscriptions.has(key)) {
         console.log(`[WSStore] Already subscribed to all markets`);
@@ -342,7 +345,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     // ========================================
     subscribeToTrades: (market: string) => {
       const key = `trades_${market}`;
-      const { activeSubscriptions, subscriptionRefs } = get();
+      const { activeSubscriptions } = get();
 
       if (activeSubscriptions.has(key)) {
         console.log(`[WSStore] Already subscribed to ${key}`);
@@ -399,7 +402,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     // ========================================
     subscribeToOrderbook: (market: string) => {
       const key = `orderbook_${market}`;
-      const { activeSubscriptions, subscriptionRefs } = get();
+      const { activeSubscriptions } = get();
 
       if (activeSubscriptions.has(key)) {
         console.log(`[WSStore] Already subscribed to ${key}`);
@@ -457,7 +460,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     // ========================================
     subscribeToCandles: (market: string, resolution: string) => {
       const key = `candles_${market}_${resolution}`;
-      const { activeSubscriptions, subscriptionRefs } = get();
+      const { activeSubscriptions } = get();
 
       if (activeSubscriptions.has(key)) {
         console.log(`[WSStore] Already subscribed to ${key}`);
@@ -609,6 +612,14 @@ export const useWebSocketStore = create<WebSocketState>()(
         const existing = newMap.get(key);
         newMap.set(key, { ...existing, ...data } as CandleData);
         return { candles: newMap };
+      });
+    },
+
+    setOrderbookSnapshot: (market: string, data: OrderbookData) => {
+      set(state => {
+        const newMap = new Map(state.orderbooks);
+        newMap.set(market, data);
+        return { orderbooks: newMap };
       });
     },
 

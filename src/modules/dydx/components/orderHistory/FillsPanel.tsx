@@ -14,7 +14,7 @@ import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
-  const { fills: storeFills, loadingFills, fillsError, isConnected, refreshFills } = useDydxData();
+  const { fills: storeFills, loadingFills, fillsError, isConnected } = useDydxData();
   const [allFills, setAllFills] = useState<Fill[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);

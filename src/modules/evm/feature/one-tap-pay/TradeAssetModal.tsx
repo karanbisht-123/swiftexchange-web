@@ -154,12 +154,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
     }
   };
 
-  const handleQuoteComplete = (data: {
-    amount: number;
-    quoteDetails: any;
-    transactionHash: string;
-    bridgeTransactionHash?: string;
-  }) => {
+  const handleQuoteComplete = () => {
     onClose();
   };
 

@@ -1,17 +1,23 @@
 import { Edit2, Loader2, TrendingDown, TrendingUp, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { Notification } from '../../../../components/common/Notification';
 import { metadataService } from '../../hooks/useCoinGeckoMetadata';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { dydxWalletService } from '../../service/dydxWalletService';
 import { type Position } from '../../types/trading.types';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
-import { Notification } from '../../../../components/common/Notification';
 
 const PositionsPanel: React.FC = () => {
-  const { positions, loadingPositions, positionsError, refreshPositions, isConnected } =
-    useDydxData();
+  const {
+    positions: rawPositions,
+    loadingPositions,
+    positionsError,
+    refreshPositions,
+    isConnected,
+  } = useDydxData();
+  const positions = rawPositions as Position[];
   const { closePosition, setTriggers, isSettingTriggers, orderError, clearOrderError } =
     useDydxTrading();
 
@@ -289,8 +295,9 @@ const PositionsPanel: React.FC = () => {
 
                 <td className="p-3">
                   <div
-                    className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
-                      }`}
+                    className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+                    }`}
                   >
                     {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
                     {position.side}
@@ -317,8 +324,9 @@ const PositionsPanel: React.FC = () => {
 
                 <td className="p-3 text-right">
                   <div
-                    className={`flex flex-col font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
-                      }`}
+                    className={`flex flex-col font-mono ${
+                      unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
                   >
                     <span>
                       {unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}

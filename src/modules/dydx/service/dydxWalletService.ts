@@ -30,7 +30,6 @@ class DydxWalletService {
   private balanceCache: { data: AccountBalance; timestamp: number } | null = null;
   private readonly BALANCE_CACHE_TTL = 10_000;
   private isConnecting = false;
-  private currentNetwork: NetworkType | null = null;
 
   async connect(networkType: NetworkType, subaccountNumber: number = 0): Promise<DydxConnection> {
     if (this.isConnecting) {
@@ -65,7 +64,6 @@ class DydxWalletService {
 
       // Set service state
       this.address = address;
-      this.currentNetwork = networkType;
       this.subaccountNumber = subaccountNumber;
       this.chainId = compositeClient.validatorClient.config.chainId;
 
@@ -97,7 +95,7 @@ class DydxWalletService {
     this.chainId = '';
     this.subaccountNumber = 0;
     this.balanceCache = null;
-    this.currentNetwork = null;
+
     this.setStatus('disconnected');
   }
 
@@ -121,7 +119,7 @@ class DydxWalletService {
     return this.fetchBalance(forceRefresh);
   }
 
-  private async fetchBalance(forceRefresh = false): Promise<AccountBalance> {
+  private async fetchBalance(_forceRefresh = false): Promise<AccountBalance> {
     const address = this.address || this.getAddressFromStore();
     if (!address) {
       throw new Error('Not connected - address missing');

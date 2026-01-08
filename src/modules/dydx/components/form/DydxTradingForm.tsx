@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { Notification, type NotificationType } from '../../../../components/common/Notification';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 import type { OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
-import { Notification, type NotificationType } from '../../../../components/common/Notification';
 import {
   getMaxBuyingPower,
   validateOrderPrice,
@@ -84,7 +84,7 @@ export const DydxTradingForm: React.FC = () => {
   const { selectedMarket } = useMarketStore();
   const { setOnPriceClick } = useOrderbookClickStore();
   const { getMarket } = useMarkets();
-  const marketData = selectedMarket ? getMarket(selectedMarket) : null;
+  const marketData = (selectedMarket ? getMarket(selectedMarket) : null) ?? null;
   const { balance } = useDydxWallet();
   const { placeOrder, isPlacingOrder, orderError, clearOrderError, canTrade } = useDydxTrading();
 
@@ -396,8 +396,8 @@ export const DydxTradingForm: React.FC = () => {
             leverage={leverage}
             onSetMax={() => {
               if (maxBuyingPower) {
-                // If mode is USD, set directly. If Base, convert. 
-                // Simplification: Assume maxBuyingPower is in USD? 
+                // If mode is USD, set directly. If Base, convert.
+                // Simplification: Assume maxBuyingPower is in USD?
                 // getMaxBuyingPower usually returns USD value based on margin.
                 // Let's verify getMaxBuyingPower return type/unit. Assuming USD for now.
                 if (currencyMode === 'USD') {
@@ -407,15 +407,15 @@ export const DydxTradingForm: React.FC = () => {
                   // Or use getMaxBuyingPower and divide by price
                   if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
                     const baseAmount = maxBuyingPower / parseFloat(marketData.oraclePrice);
-                    const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
+                    const decimals = currencyService.getStepSizeDecimals(
+                      marketData.stepSize || '0.00000001'
+                    );
                     setSize(baseAmount.toFixed(decimals));
                   }
                 }
               }
             }}
           />
-
-
 
           <LeverageSlider leverage={leverage} maxLeverage={maxLeverage} onChange={setLeverage} />
 
@@ -438,15 +438,19 @@ export const DydxTradingForm: React.FC = () => {
           {orderType === 'MARKET' && (
             <div className="px-5 py-3 border-b border-gray-800/50 bg-gray-900/20">
               <label className="flex items-center justify-between cursor-pointer group">
-                <span className="text-[11px] uppercase tracking-wider text-gray-500 font-bold group-hover:text-gray-400 transition-colors">Take Profit / Stop Loss</span>
+                <span className="text-[11px] uppercase tracking-wider text-gray-500 font-bold group-hover:text-gray-400 transition-colors">
+                  Take Profit / Stop Loss
+                </span>
                 <div className="relative">
                   <input
                     type="checkbox"
                     checked={showTpSl}
-                    onChange={(e) => setShowTpSl(e.target.checked)}
+                    onChange={e => setShowTpSl(e.target.checked)}
                     className="appearance-none w-9 h-5 rounded-full bg-gray-700 checked:bg-blue-500 transition-colors cursor-pointer"
                   />
-                  <div className={`absolute top-1 left-1 w-3 h-3 rounded-full bg-white transition-transform pointer-events-none ${showTpSl ? 'translate-x-4' : 'translate-x-0'}`} />
+                  <div
+                    className={`absolute top-1 left-1 w-3 h-3 rounded-full bg-white transition-transform pointer-events-none ${showTpSl ? 'translate-x-4' : 'translate-x-0'}`}
+                  />
                 </div>
               </label>
             </div>
@@ -476,10 +480,11 @@ export const DydxTradingForm: React.FC = () => {
           onClick={handlePlaceOrder}
           disabled={isPlacingOrder || !isFormValid}
           className={`w-full py-3 rounded-lg font-bold text-sm transition-all
-          ${side === 'BUY'
+          ${
+            side === 'BUY'
               ? 'bg-green-600 hover:bg-green-700 active:bg-green-800'
               : 'bg-red-600 hover:bg-red-700 active:bg-red-800'
-            } disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg`}
+          } disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg`}
         >
           {isPlacingOrder ? 'Placing Order...' : `${side} ${selectedMarket}`}
         </button>
