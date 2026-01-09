@@ -6,6 +6,9 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import removeConsole from 'vite-plugin-remove-console';
 
 export default defineConfig({
+  define: {
+    global: 'globalThis',
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -14,10 +17,11 @@ export default defineConfig({
       globals: {
         Buffer: true,
         global: true,
-        process: true,
       },
       protocolImports: true,
     }),
   ],
-  base: './',
+  optimizeDeps: {
+    include: ['buffer', 'process', 'vm-browserify'],
+  },
 });

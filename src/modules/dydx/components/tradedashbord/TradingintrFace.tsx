@@ -1,7 +1,8 @@
 import { BookOpen, ShoppingCart, TrendingUp } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { useDydxData } from '../../hooks/useDydxData';
 import DydxTopBar from '../../layout/DydxTopBar';
 import DepthChart from '../DepthChart';
 import DyDxTradingChart from '../DyDxTradingChart';
@@ -86,7 +87,6 @@ const TradingintrFace = () => {
           </div>
         </div>
 
-        {/* Mobile Layout */}
         <MobileLayout />
       </div>
     );
@@ -124,6 +124,8 @@ const PortfolioView = ({
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }) => {
+  const { positions, orders, fills, loadingPositions, loadingOrders, loadingFills } = useDydxData();
+
   const tabs = ['positions', 'orders', 'fills', 'history'];
   const labels: Record<string, string> = {
     positions: 'Positions',
@@ -132,22 +134,83 @@ const PortfolioView = ({
     history: 'Order History',
   };
 
+  const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
+  const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
+
+  useEffect(() => {
+    const currentCounts = {
+      positions: positions.length,
+      orders: orders.length,
+      fills: fills.length,
+    };
+
+    const newChanges = {
+      positions:
+        currentCounts.positions > prevCountsRef.current.positions
+          ? currentCounts.positions - prevCountsRef.current.positions
+          : 0,
+      orders:
+        currentCounts.orders > prevCountsRef.current.orders
+          ? currentCounts.orders - prevCountsRef.current.orders
+          : 0,
+      fills:
+        currentCounts.fills > prevCountsRef.current.fills
+          ? currentCounts.fills - prevCountsRef.current.fills
+          : 0,
+    };
+
+    setNewCounts(newChanges);
+
+    const timer = setTimeout(() => {
+      setNewCounts({ positions: 0, orders: 0, fills: 0 });
+    }, 5000);
+
+    prevCountsRef.current = currentCounts;
+
+    return () => clearTimeout(timer);
+  }, [positions.length, orders.length, fills.length]);
+
   return (
     <div className="h-full flex flex-col max-w-full">
       <div className="flex items-center border-b border-gray-800 mb-4 overflow-x-auto scrollbar-hide">
-        {tabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
-              activeTab === tab
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-gray-400 hover:text-gray-300'
-            }`}
-          >
-            {labels[tab]}
-          </button>
-        ))}
+        {tabs.map(tab => {
+          const isLoading =
+            (tab === 'positions' && loadingPositions) ||
+            (tab === 'orders' && loadingOrders) ||
+            (tab === 'fills' && loadingFills);
+          const newCount =
+            tab === 'positions'
+              ? newCounts.positions
+              : tab === 'orders'
+                ? newCounts.orders
+                : tab === 'fills'
+                  ? newCounts.fills
+                  : 0;
+
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
+                activeTab === tab
+                  ? 'text-white border-b-2 border-blue-500'
+                  : 'text-gray-400 hover:text-gray-300'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                {labels[tab]}
+                {isLoading && (
+                  <div className="w-3 h-3 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+                )}
+                {newCount > 0 && (
+                  <span className="bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                    +{newCount}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -201,7 +264,6 @@ const MobileLayout = () => {
         </div>
       )}
 
-      {/* Main Content Area */}
       <div className="flex-1 overflow-hidden bg-secondary">
         {activeTab === 'chart' && (
           <div className="h-full">
@@ -220,7 +282,6 @@ const MobileLayout = () => {
         )}
       </div>
 
-      {/* Bottom Navigation */}
       <div className="flex bg-secondary backdrop-blur-sm shrink-0 safe-area-inset-bottom">
         {tabs.map(tab => {
           const Icon = tab.icon;
@@ -249,6 +310,8 @@ const BottomTabsSection = ({
   activeBottomTab: string;
   setActiveBottomTab: (tab: string) => void;
 }) => {
+  const { positions, orders, fills, loadingPositions, loadingOrders, loadingFills } = useDydxData();
+
   const tabs = ['positions', 'orders', 'fills', 'history', 'funding'];
   const labels: Record<string, string> = {
     positions: 'Positions',
@@ -258,22 +321,83 @@ const BottomTabsSection = ({
     funding: 'Funding Payments',
   };
 
+  const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
+  const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
+
+  useEffect(() => {
+    const currentCounts = {
+      positions: positions.length,
+      orders: orders.length,
+      fills: fills.length,
+    };
+
+    const newChanges = {
+      positions:
+        currentCounts.positions > prevCountsRef.current.positions
+          ? currentCounts.positions - prevCountsRef.current.positions
+          : 0,
+      orders:
+        currentCounts.orders > prevCountsRef.current.orders
+          ? currentCounts.orders - prevCountsRef.current.orders
+          : 0,
+      fills:
+        currentCounts.fills > prevCountsRef.current.fills
+          ? currentCounts.fills - prevCountsRef.current.fills
+          : 0,
+    };
+
+    setNewCounts(newChanges);
+
+    const timer = setTimeout(() => {
+      setNewCounts({ positions: 0, orders: 0, fills: 0 });
+    }, 5000);
+
+    prevCountsRef.current = currentCounts;
+
+    return () => clearTimeout(timer);
+  }, [positions.length, orders.length, fills.length]);
+
   return (
     <>
-      <div className="flex items-center border-b border-gray-800 px-2 sm:px-4  shrink-0 overflow-x-auto scrollbar-hide">
-        {tabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveBottomTab(tab)}
-            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
-              activeBottomTab === tab
-                ? 'text-white border-b-2 border-[#3b4fd9]'
-                : 'text-gray-400 hover:text-gray-300'
-            }`}
-          >
-            {labels[tab]}
-          </button>
-        ))}
+      <div className="flex items-center border-b border-gray-800 px-2 sm:px-4 shrink-0 overflow-x-auto scrollbar-hide">
+        {tabs.map(tab => {
+          const isLoading =
+            (tab === 'positions' && loadingPositions) ||
+            (tab === 'orders' && loadingOrders) ||
+            (tab === 'fills' && loadingFills);
+          const newCount =
+            tab === 'positions'
+              ? newCounts.positions
+              : tab === 'orders'
+                ? newCounts.orders
+                : tab === 'fills'
+                  ? newCounts.fills
+                  : 0;
+
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveBottomTab(tab)}
+              className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
+                activeBottomTab === tab
+                  ? 'text-white border-b-2 border-[#3b4fd9]'
+                  : 'text-gray-400 hover:text-gray-300'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                {labels[tab]}
+                {isLoading && (
+                  <div className="w-2.5 h-2.5 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+                )}
+                {newCount > 0 && (
+                  <span className="bg-green-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                    +{newCount}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex-1 overflow-auto">

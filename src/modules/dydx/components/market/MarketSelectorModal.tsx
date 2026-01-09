@@ -145,14 +145,12 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
   const panelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Focus search on open
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
       setTimeout(() => searchInputRef.current?.focus(), 300);
     }
   }, [isOpen]);
 
-  // Close on escape
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -163,7 +161,6 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  // Save favorites to localStorage
   useEffect(() => {
     localStorage.setItem('market_favorites', JSON.stringify([...favorites]));
   }, [favorites]);

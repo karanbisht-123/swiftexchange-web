@@ -3,10 +3,10 @@ import type { EVMNetworkConfig } from './evmNetworks';
 import STELLAR_NETWORKS from './stellarNetworks';
 import type { StellarNetworkConfig } from './stellarNetworks';
 
-const ENVIRONMENT = process.env.NODE_ENV || 'development';
-const isTestnet = ENVIRONMENT === 'development' || ENVIRONMENT === 'test';
+const ENVIRONMENT = import.meta.env.MODE;
+const isTestnet = ENVIRONMENT !== 'production';
 
 export const NETWORK_CONFIGS: Record<string, EVMNetworkConfig | StellarNetworkConfig> = {
-  ...(!isTestnet ? EVM_NETWORKS.mainnet : EVM_NETWORKS.testnet),
-  ...(!isTestnet ? STELLAR_NETWORKS.mainnet : STELLAR_NETWORKS.testnet),
+  ...(isTestnet ? EVM_NETWORKS.testnet : EVM_NETWORKS.mainnet),
+  ...(isTestnet ? STELLAR_NETWORKS.testnet : STELLAR_NETWORKS.mainnet),
 };

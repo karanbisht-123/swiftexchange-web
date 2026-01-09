@@ -1,11 +1,10 @@
 import { Edit2, Loader2, TrendingDown, TrendingUp, X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Notification } from '../../../../components/common/Notification';
 import { metadataService } from '../../hooks/useCoinGeckoMetadata';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
-import { dydxWalletService } from '../../service/dydxWalletService';
 import { type Position } from '../../types/trading.types';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
 
@@ -16,18 +15,22 @@ const PositionsPanel: React.FC = () => {
     positionsError,
     refreshPositions,
     isConnected,
+    isReceivingUpdates,
   } = useDydxData();
+
   const positions = rawPositions as Position[];
   const { closePosition, setTriggers, isSettingTriggers, orderError, clearOrderError } =
     useDydxTrading();
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
-  const [oraclePrices, setOraclePrices] = useState<Record<string, number>>({});
   const [closingMarket, setClosingMarket] = useState<string | null>(null);
   const [icons, setIcons] = useState<Record<string, string>>({});
+  const [newPositionsCount, setNewPositionsCount] = useState(0);
 
-  // Updated: Using common notification component
+  const prevPositionsLengthRef = useRef(positions.length);
+  const newPositionTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error';
@@ -38,6 +41,32 @@ const PositionsPanel: React.FC = () => {
   };
 
   const activeMarkets = useMemo(() => [...new Set(positions.map(p => p.market))], [positions]);
+
+  useEffect(() => {
+    const currentLength = positions.length;
+    const prevLength = prevPositionsLengthRef.current;
+
+    if (currentLength > prevLength && prevLength > 0) {
+      const newCount = currentLength - prevLength;
+      setNewPositionsCount(newCount);
+
+      if (newPositionTimerRef.current) {
+        clearTimeout(newPositionTimerRef.current);
+      }
+
+      newPositionTimerRef.current = setTimeout(() => {
+        setNewPositionsCount(0);
+      }, 5000);
+    }
+
+    prevPositionsLengthRef.current = currentLength;
+
+    return () => {
+      if (newPositionTimerRef.current) {
+        clearTimeout(newPositionTimerRef.current);
+      }
+    };
+  }, [positions.length]);
 
   useEffect(() => {
     if (activeMarkets.length === 0) return;
@@ -62,39 +91,6 @@ const PositionsPanel: React.FC = () => {
 
     fetchIcons();
   }, [activeMarkets]);
-
-  useEffect(() => {
-    if (activeMarkets.length === 0 || !isConnected) return;
-
-    const indexer = dydxWalletService.getIndexerClient();
-    if (!indexer) return;
-
-    const fetchPrices = async () => {
-      const results = await Promise.allSettled(
-        activeMarkets.map(async market => {
-          const book = await indexer.markets.getPerpetualMarketOrderbook(market);
-          if (book.bids?.[0] && book.asks?.[0]) {
-            const price = (parseFloat(book.bids[0].price) + parseFloat(book.asks[0].price)) / 2;
-            return { market, price };
-          }
-          return null;
-        })
-      );
-
-      const newPrices: Record<string, number> = {};
-      results.forEach(result => {
-        if (result.status === 'fulfilled' && result.value) {
-          newPrices[result.value.market] = result.value.price;
-        }
-      });
-
-      setOraclePrices(prev => ({ ...prev, ...newPrices }));
-    };
-
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 5000);
-    return () => clearInterval(interval);
-  }, [activeMarkets, isConnected]);
 
   const handleEdit = useCallback(
     (position: Position) => {
@@ -236,8 +232,7 @@ const PositionsPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full bg-[#0a0a0a] overflow-auto">
-      {/* Common Notification Component */}
+    <div className="h-full bg-[#0a0a0a] overflow-auto relative">
       {notification && (
         <Notification
           type={notification.type}
@@ -248,13 +243,28 @@ const PositionsPanel: React.FC = () => {
         />
       )}
 
+      {newPositionsCount > 0 && (
+        <div className="absolute top-2 right-2 z-20 bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg animate-pulse">
+          +{newPositionsCount} New Position{newPositionsCount > 1 ? 's' : ''}
+        </div>
+      )}
+
       <table className="w-full text-left text-[11px] border-collapse">
         <thead className="bg-[#141414] text-gray-500 font-medium uppercase sticky top-0 z-10">
           <tr>
-            <th className="p-3 border-b border-[#222]">Market</th>
+            <th className="p-3 border-b border-[#222]">
+              <div className="flex items-center gap-2">
+                Market
+                {!isReceivingUpdates && (
+                  <div
+                    className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"
+                    title="Reconnecting..."
+                  />
+                )}
+              </div>
+            </th>
             <th className="p-3 border-b border-[#222]">Side</th>
             <th className="p-3 border-b border-[#222] text-right">Size</th>
-            <th className="p-3 border-b border-[#222] text-right">Value</th>
             <th className="p-3 border-b border-[#222] text-right">Avg. Open</th>
             <th className="p-3 border-b border-[#222] text-right">Oracle</th>
             <th className="p-3 border-b border-[#222] text-right">Liq. Price</th>
@@ -267,14 +277,11 @@ const PositionsPanel: React.FC = () => {
           {positions.map(position => {
             const rawSize = parseFloat(position.size);
             const absSize = Math.abs(rawSize);
-
-            // Skip closed/empty positions
             if (absSize === 0) return null;
 
             const entryPrice = parseFloat(position.entryPrice);
-            const oraclePrice = oraclePrices[position.market] || entryPrice;
+            const oraclePrice = position.market || entryPrice;
             const unrealizedPnl = parseFloat(position.unrealizedPnl);
-            const positionValue = absSize * oraclePrice;
             const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
             const isShort = position.side === 'SHORT';
             const isClosing = closingMarket === position.market;
@@ -305,10 +312,6 @@ const PositionsPanel: React.FC = () => {
                 </td>
 
                 <td className="p-3 text-right text-gray-300 font-mono">{absSize.toFixed(4)}</td>
-
-                <td className="p-3 text-right text-gray-300 font-mono">
-                  ${formatPrice(positionValue)}
-                </td>
 
                 <td className="p-3 text-right text-gray-400 font-mono">
                   ${formatPrice(entryPrice)}
@@ -372,9 +375,6 @@ const PositionsPanel: React.FC = () => {
           position={selectedPosition}
           isLoading={isSettingTriggers}
           error={orderError}
-          oraclePrice={
-            oraclePrices[selectedPosition.market] || parseFloat(selectedPosition.entryPrice)
-          }
           onSave={handleSaveTriggers}
         />
       )}

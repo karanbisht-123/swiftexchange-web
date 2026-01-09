@@ -215,7 +215,7 @@ class MetadataService {
       });
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
-      // Silent fail
+      console.log(error, 'faild to save locally ');
     }
   }
 

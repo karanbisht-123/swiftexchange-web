@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-
 import { getSocketClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
-
-// ================= TYPES =================
-
 interface OrderbookLevel {
   price: string;
   size: string;
@@ -16,7 +12,6 @@ export interface OrderbookData {
   ts: number;
 }
 
-// ================= HOOK =================
 
 export function useOrderbook(market: string = 'BTC-USD') {
   const [orderbook, setOrderbook] = useState<OrderbookData | null>(null);
@@ -27,18 +22,12 @@ export function useOrderbook(market: string = 'BTC-USD') {
   const rafRef = useRef<number | undefined>(undefined);
 
   const isConnected = useWebSocketStore(state => state.isConnected);
-
-  // Single effect that handles everything for the current market
   useEffect(() => {
     console.log(`[useOrderbook] Initializing ${market}`);
-
-    // Clear everything immediately
     bidsMap.current.clear();
     asksMap.current.clear();
     setOrderbook(null);
     setDataSource(null);
-
-    // Cancel any pending animation frame from previous market
     if (rafRef.current !== undefined) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = undefined;
@@ -46,11 +35,8 @@ export function useOrderbook(market: string = 'BTC-USD') {
 
     let active = true;
     let unsubscribe: (() => void) | null = null;
-
-    // Update function - created fresh for each market
     const updateDisplay = () => {
-      if (!active) return; // Don't update if effect has been cleaned up
-
+      if (!active) return; 
       const sortedBids = Array.from(bidsMap.current.entries())
         .sort(([a], [b]) => b - a)
         .slice(0, 9);
@@ -72,7 +58,7 @@ export function useOrderbook(market: string = 'BTC-USD') {
       });
     };
 
-    // Schedule function - created fresh for each market
+
     const scheduleUpdate = () => {
       if (!active) return; // Don't schedule if effect has been cleaned up
       if (rafRef.current !== undefined) return; // Already scheduled

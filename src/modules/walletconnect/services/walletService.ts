@@ -11,8 +11,6 @@ import {
 } from '../config/chains';
 import { encryptionService } from './encryptionService';
 
-const { onboarding, LocalWallet, BECH32_PREFIX } = await import('@dydxprotocol/v4-client-js');
-
 const CONNECTION_TIMEOUT = 120000;
 const SESSION_KEY = 'wallet_sessions';
 const ENCRYPTED_MNEMONIC_KEY = 'dydx_encrypted_mnemonic';
@@ -90,6 +88,8 @@ async function signDydxMessage(evmAddress: string, provider: any): Promise<strin
 }
 
 async function deriveDydxAddress(evmAddress: string, provider: any): Promise<DydxDerivation> {
+  const { onboarding, LocalWallet, BECH32_PREFIX } = await import('@dydxprotocol/v4-client-js');
+
   const signature = await signDydxMessage(evmAddress, provider);
   const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
   if (!derived.mnemonic) throw new Error('Failed to derive mnemonic');

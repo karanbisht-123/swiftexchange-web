@@ -3,12 +3,17 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
-import {
-  calculateCurrentMargin,
-  formatCurrency,
-  formatPercent,
-  getMarginUsageColors,
-} from '../utils/marginCalculator';
+
+const formatCurrency = (value: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
+const formatPercent = (value: number): string => {
+  return value.toFixed(2);
+};
 
 const formatTimeAgo = (timestamp: number | null): string => {
   if (!timestamp) return 'Never';
@@ -25,6 +30,26 @@ const formatTimeAgo = (timestamp: number | null): string => {
   return `${hours}h ago`;
 };
 
+const calculateMarginUsage = (equity: string, freeCollateral: string) => {
+  const equityNum = Number(equity);
+  const freeCollateralNum = Number(freeCollateral);
+  const usedMargin = equityNum - freeCollateralNum;
+  const marginUsagePercent = equityNum > 0 ? (usedMargin / equityNum) * 100 : 0;
+
+  return {
+    portfolioValue: equityNum,
+    availableBalance: freeCollateralNum,
+    marginUsagePercent,
+  };
+};
+
+const Shimmer: React.FC = () => (
+  <div className="animate-pulse">
+    <div className="h-4 bg-gray-700/50 rounded w-24 mb-2" />
+    <div className="h-5 bg-gray-700/50 rounded w-32" />
+  </div>
+);
+
 export const DydxWalletConnect: React.FC = () => {
   const network = useWalletStore(state => state.network);
   const openModal = useWalletStore(state => state.openModal);
@@ -36,9 +61,7 @@ export const DydxWalletConnect: React.FC = () => {
     return !!(evmWallet?.dydxAddress || cosmosWallet?.dydxAddress);
   }, [evmWallet, cosmosWallet]);
 
-  const hasEvmWallet = useMemo(() => {
-    return !!evmWallet;
-  }, [evmWallet]);
+  const hasEvmWallet = useMemo(() => !!evmWallet, [evmWallet]);
 
   const needsDydxDerivation = useMemo(() => {
     return hasEvmWallet && !evmWallet?.dydxAddress;
@@ -47,6 +70,7 @@ export const DydxWalletConnect: React.FC = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDeriving, setIsDeriving] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
 
   const {
     isConnected,
@@ -59,19 +83,13 @@ export const DydxWalletConnect: React.FC = () => {
     isReceivingUpdates,
   } = useDydxWallet();
 
-  // Track if we've attempted to load balance at least once
-  const [hasAttemptedLoad, setHasAttemptedLoad] = React.useState(false);
-
-  // Auto-refresh balance when connected and no balance data
   useEffect(() => {
     if (isConnected && !balance && !loadingBalance && !hasAttemptedLoad) {
       setHasAttemptedLoad(true);
-      console.log('[DydxWalletConnect] Auto-refreshing balance on connect');
       refresh().catch(err => console.error('[DydxWalletConnect] Auto-refresh failed:', err));
     }
   }, [isConnected, balance, loadingBalance, hasAttemptedLoad, refresh]);
 
-  // Reset hasAttemptedLoad when disconnected
   useEffect(() => {
     if (!isConnected) {
       setHasAttemptedLoad(false);
@@ -86,19 +104,13 @@ export const DydxWalletConnect: React.FC = () => {
       !connectionError &&
       dydxWalletService.getStatus() !== 'connecting'
     ) {
-      console.log('[DydxWalletConnect] Auto-connecting to dYdX');
       setIsConnecting(true);
       setConnectionError(null);
 
       dydxWalletService
         .connect(network, 0)
-        .then(() => {
-          console.log('[DydxWalletConnect] Auto-connect successful');
-          setIsConnecting(false);
-        })
+        .then(() => setIsConnecting(false))
         .catch(err => {
-          console.error('[DydxWalletConnect] Auto-connect failed:', err);
-          // Ignore "already in progress" errors as they mean we are safe
           if (err.message !== 'Connection already in progress') {
             setConnectionError(err.message);
           }
@@ -109,7 +121,6 @@ export const DydxWalletConnect: React.FC = () => {
 
   useEffect(() => {
     if (!hasDydxAddress && isConnected) {
-      console.log('[DydxWalletConnect] Wallet disconnected, cleaning up');
       dydxWalletService.disconnect();
       setConnectionError(null);
     }
@@ -121,9 +132,7 @@ export const DydxWalletConnect: React.FC = () => {
 
     try {
       await deriveDydx();
-      console.log('[DydxWalletConnect] dYdX derivation successful');
     } catch (err: any) {
-      console.error('[DydxWalletConnect] dYdX derivation failed:', err);
       setConnectionError(err.message);
     } finally {
       setIsDeriving(false);
@@ -146,9 +155,7 @@ export const DydxWalletConnect: React.FC = () => {
 
     try {
       await dydxWalletService.connect(network, 0);
-      console.log('[DydxWalletConnect] Manual connect successful');
     } catch (err: any) {
-      console.error('[DydxWalletConnect] Manual connect failed:', err);
       setConnectionError(err.message);
     } finally {
       setIsConnecting(false);
@@ -161,16 +168,11 @@ export const DydxWalletConnect: React.FC = () => {
   }, [handleConnect]);
 
   const marginMetrics = useMemo(() => {
-    return calculateCurrentMargin(balance);
+    if (!balance) return null;
+    return calculateMarginUsage(balance.equity, balance.freeCollateral);
   }, [balance]);
 
-  const usageColors = useMemo(() => {
-    return getMarginUsageColors(marginMetrics.marginUsagePercent);
-  }, [marginMetrics.marginUsagePercent]);
-
-  const timeAgo = useMemo(() => {
-    return formatTimeAgo(lastUpdateTime);
-  }, [lastUpdateTime]);
+  const timeAgo = useMemo(() => formatTimeAgo(lastUpdateTime), [lastUpdateTime]);
 
   if (connectionError || error) {
     return (
@@ -253,30 +255,6 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-  // Show loading state while balance is being fetched initially
-  if (loadingBalance && !balance) {
-    return (
-      <div className="p-4 border-b border-gray-800">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-xs text-gray-500">dYdX Trading Account</p>
-            <p className="text-sm font-mono text-gray-400">
-              {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
-            </p>
-          </div>
-          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
-            Loading...
-          </span>
-        </div>
-        <div className="flex items-center justify-center py-4">
-          <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-600 border-t-blue-500" />
-        </div>
-        <p className="text-center text-sm text-gray-400">Fetching account balance...</p>
-      </div>
-    );
-  }
-
-  // Only show "No Funds" if we've actually loaded the balance and it's zero
   const hasZeroBalance =
     balance && Number(balance.equity) === 0 && Number(balance.freeCollateral) === 0;
 
@@ -333,7 +311,6 @@ export const DydxWalletConnect: React.FC = () => {
 
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-4">
-      {/* Real-time status indicator */}
       <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-700/50">
         <div className="flex items-center gap-2">
           <div
@@ -353,11 +330,22 @@ export const DydxWalletConnect: React.FC = () => {
         </button>
       </div>
 
-      {loadingBalance ? (
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-600 border-t-blue-500" />
+      {loadingBalance && !marginMetrics ? (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <span className="text-gray-400 text-xs">Portfolio Value</span>
+            <Shimmer />
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-gray-400 text-xs">Available Balance</span>
+            <Shimmer />
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-gray-400 text-xs">Margin Used</span>
+            <Shimmer />
+          </div>
         </div>
-      ) : (
+      ) : marginMetrics ? (
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <span className="text-gray-400 text-xs">Portfolio Value</span>
@@ -398,7 +386,17 @@ export const DydxWalletConnect: React.FC = () => {
                   />
                 </svg>
               </div>
-              <span className={`text-sm font-semibold ${usageColors.text}`}>
+              <span
+                className={`text-sm font-semibold ${
+                  marginMetrics.marginUsagePercent > 85
+                    ? 'text-red-400'
+                    : marginMetrics.marginUsagePercent > 70
+                      ? 'text-orange-400'
+                      : marginMetrics.marginUsagePercent > 50
+                        ? 'text-yellow-400'
+                        : 'text-emerald-400'
+                }`}
+              >
                 {formatPercent(marginMetrics.marginUsagePercent)}%
               </span>
             </div>
@@ -417,15 +415,6 @@ export const DydxWalletConnect: React.FC = () => {
             </div>
           )}
 
-          <div className="pt-2 border-t border-gray-700/50 space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 text-xs">Trading Rewards</span>
-              <span className="text-gray-300 text-xs">
-                ${formatCurrency(Number(balance.totalTradingRewards || 0))}
-              </span>
-            </div>
-          </div>
-
           <a
             href="https://trade.dydx.exchange/portfolio/deposit"
             target="_blank"
@@ -435,7 +424,7 @@ export const DydxWalletConnect: React.FC = () => {
             Deposit
           </a>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

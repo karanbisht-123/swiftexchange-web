@@ -64,8 +64,8 @@ export const useDydxData = (): UseDydxDataReturn => {
 
   const subscribeToSubaccount = useWebSocketStore(state => state.subscribeToSubaccount);
   const unsubscribeFromSubaccount = useWebSocketStore(state => state.unsubscribeFromSubaccount);
+  const updateTrigger = useWebSocketStore(state => state.updateTrigger);
 
-  // Get address
   const dydxAddress = dydxWalletService.getAddress();
   const subaccountNumber = dydxWalletService.getSubaccountNumber();
 
@@ -74,32 +74,28 @@ export const useDydxData = (): UseDydxDataReturn => {
   const subaccountData = useWebSocketStore(
     useCallback(
       state => (subaccountKey ? state.subaccounts.get(subaccountKey) : null),
-      [subaccountKey]
+      [subaccountKey, updateTrigger]
     )
   );
-  const positions = subaccountData?.openPerpetualPositions || [];
+
+  const positions = subaccountData?.openPerpetualPositions
+    ? Array.isArray(subaccountData.openPerpetualPositions)
+      ? subaccountData.openPerpetualPositions
+      : Object.values(subaccountData.openPerpetualPositions)
+    : [];
+
+  const assetPositions = subaccountData?.assetPositions
+    ? Array.isArray(subaccountData.assetPositions)
+      ? subaccountData.assetPositions
+      : Object.values(subaccountData.assetPositions)
+    : [];
+
   const orders = subaccountData?.orders || [];
   const fills = subaccountData?.fills || [];
-  const assetPositions = subaccountData?.assetPositions || [];
   const lastUpdateTime = subaccountData?.lastUpdate || null;
   const isReceivingUpdates = subaccountData
     ? Date.now() - subaccountData.lastUpdate < 30000
     : false;
-
-  // useEffect(() => {
-  //   if (process.env.NODE_ENV === 'development') {
-  //     console.log('[useDydxData]  Data Update:', {
-  //       subaccountKey,
-  //       hasSubaccountData: !!subaccountData,
-  //       ordersCount: orders.length,
-  //       positionsCount: positions.length,
-  //       fillsCount: fills.length,
-  //       assetPositionsCount: assetPositions.length,
-  //       lastUpdateTime: lastUpdateTime ? new Date(lastUpdateTime).toISOString() : 'N/A',
-  //       isReceivingUpdates,
-  //     });
-  //   }
-  // }, [orders.length, positions.length, fills.length, assetPositions.length, lastUpdateTime, isReceivingUpdates, subaccountKey, subaccountData]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -236,7 +232,7 @@ export const useDydxData = (): UseDydxDataReturn => {
           });
         }
       } catch (err: any) {
-        console.error('[useDydxData]  Fills fetch failed:', err);
+        console.error('[useDydxData] Fills fetch failed:', err);
         if (isMountedRef.current) {
           setFillsError(err.message || 'Failed to fetch fills');
         }
@@ -283,67 +279,25 @@ export const useDydxData = (): UseDydxDataReturn => {
 
   useEffect(() => {
     if (!dydxAddress || !isConnected) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[useDydxData] WebSocket subscription skipped:', {
-          hasDydxAddress: !!dydxAddress,
-          isConnected,
-        });
-      }
       return;
     }
 
-    // Only subscribe once
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[useDydxData] 🔌 Subscribing to WebSocket:', {
-          address: dydxAddress,
-          subaccountNumber,
-          subaccountKey,
-        });
-      }
-
       subscribeToSubaccount(dydxAddress, subaccountNumber);
     }
 
     return () => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[useDydxData] 🔌 Component cleanup - unsubscribing:', {
-          address: dydxAddress,
-          subaccountNumber,
-        });
-      }
       unsubscribeFromSubaccount(dydxAddress, subaccountNumber);
       isFirstMountRef.current = true;
     };
-  }, [dydxAddress, subaccountNumber]);
-
-  useEffect(() => {
-    if (!isConnected || orders.length === 0) return;
-
-    const recentlyFilled = orders.filter(order => {
-      if (order.status !== 'FILLED') return false;
-
-      const updatedAt = order.updatedAt || order.goodTilBlockTime;
-      if (!updatedAt) return false;
-
-      const timeSinceUpdate = Date.now() - new Date(updatedAt).getTime();
-      return timeSinceUpdate < 10000;
-    });
-
-    if (recentlyFilled.length > 0) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[useDydxData] Detected filled orders, refreshing positions in 3s...');
-      }
-      const timer = setTimeout(() => {
-        fetchPositions(true);
-        fetchAssetPositions(true);
-      }, 3000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [orders, isConnected, fetchPositions, fetchAssetPositions]);
+  }, [
+    dydxAddress,
+    subaccountNumber,
+    isConnected,
+    subscribeToSubaccount,
+    unsubscribeFromSubaccount,
+  ]);
 
   return {
     positions,

@@ -6,8 +6,8 @@ type NetworkType = 'mainnet' | 'testnet';
 export interface AccountBalance {
   equity: string;
   freeCollateral: string;
-  totalTradingRewards: string;
-  marginUsage: string;
+  // totalTradingRewards: string;
+  // marginUsage: string;
 }
 
 export interface DydxConnection {
@@ -32,6 +32,7 @@ class DydxWalletService {
   private isConnecting = false;
 
   async connect(networkType: NetworkType, subaccountNumber: number = 0): Promise<DydxConnection> {
+    // console.log(networkType);
     if (this.isConnecting) {
       throw new Error('Connection already in progress');
     }
@@ -40,16 +41,13 @@ class DydxWalletService {
     this.setStatus('connecting');
 
     try {
-      // Get address from store
       const address = this.getAddressFromStore();
       if (!address) {
         throw new Error('No dYdX wallet found in store');
       }
 
-      // Set network in store (triggers client recreation if needed)
       useWalletStore.setState({ network: networkType });
 
-      // Reuse existing clients from dydxClients.ts
       const compositeClient = await getCompositeClient();
       const indexerClient = getIndexerClient();
 
@@ -138,8 +136,8 @@ class DydxWalletService {
       const balance: AccountBalance = {
         equity: resp.subaccount.equity ?? '0',
         freeCollateral: resp.subaccount.freeCollateral ?? '0',
-        totalTradingRewards: resp.subaccount.totalTradingRewards ?? '0',
-        marginUsage: resp.subaccount.marginUsage ?? '0',
+        // totalTradingRewards: resp.subaccount.totalTradingRewards ?? '0',
+        // marginUsage: resp.subaccount.marginUsage ?? '0',
       };
 
       this.balanceCache = { data: balance, timestamp: Date.now() };

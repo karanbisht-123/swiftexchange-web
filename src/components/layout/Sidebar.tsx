@@ -181,7 +181,7 @@ const Sidebar: FC = () => {
           {!isCompressed ? (
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold">
-                <img src="./logo.avif" alt="swiftEx-logo" />
+                <img src="" alt="swiftEx-logo" />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white">SwiftEx</h1>
@@ -190,7 +190,7 @@ const Sidebar: FC = () => {
             </div>
           ) : (
             <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold">
-              <img src="./logo.avif" alt="swiftEx-logo" />
+              <img src="" alt="swiftEx-logo" />
             </div>
           )}
 

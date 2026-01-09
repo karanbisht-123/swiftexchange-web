@@ -38,16 +38,14 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
   const isMountedRef = useRef(true);
   const isFetchingRef = useRef(false);
   const hasInitialFetchRef = useRef(false);
+  const isFirstMountRef = useRef(true);
 
-  // Get store methods
   const subscribeToSubaccount = useWebSocketStore(state => state.subscribeToSubaccount);
   const unsubscribeFromSubaccount = useWebSocketStore(state => state.unsubscribeFromSubaccount);
   const updateSubaccount = useWebSocketStore(state => state.updateSubaccount);
 
-  // Get data from store
-  const subaccountKey = dydxAddress
-    ? `subaccount_${dydxAddress}_${dydxWalletService.getSubaccountNumber()}`
-    : null;
+  const subaccountNumber = dydxWalletService.getSubaccountNumber();
+  const subaccountKey = dydxAddress ? `subaccount_${dydxAddress}_${subaccountNumber}` : null;
 
   const subaccountData = useWebSocketStore(
     useCallback(
@@ -60,8 +58,6 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     ? {
         equity: subaccountData.equity || '0',
         freeCollateral: subaccountData.freeCollateral || '0',
-        marginUsage: subaccountData.marginUsage || '0',
-        totalTradingRewards: subaccountData.totalTradingRewards || '0',
       }
     : null;
 
@@ -77,7 +73,6 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     };
   }, []);
 
-  // Fetch initial balance from REST API
   const fetchBalance = useCallback(
     async (forceRefresh = false): Promise<void> => {
       if (isFetchingRef.current || !isMountedRef.current) return;
@@ -92,13 +87,9 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
       try {
         const initialData = await dydxWalletService.getBalance(forceRefresh);
         hasInitialFetchRef.current = true;
-
-        // Sync with store to show data immediately
         updateSubaccount(subaccountKey, {
           equity: initialData.equity,
           freeCollateral: initialData.freeCollateral,
-          marginUsage: initialData.marginUsage,
-          totalTradingRewards: initialData.totalTradingRewards,
           lastUpdate: Date.now(),
         });
       } catch (err: any) {
@@ -115,7 +106,6 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     [dydxAddress, subaccountKey, updateSubaccount]
   );
 
-  // Handle wallet connection/disconnection
   useEffect(() => {
     if (!hasDydxWallet || !dydxAddress) {
       setError(null);
@@ -123,16 +113,12 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
       return;
     }
 
-    // Fetch balance immediately if connected
     if (!hasInitialFetchRef.current && dydxWalletService.isConnected()) {
-      console.log('[useDydxWallet] Fetching initial balance');
       fetchBalance(true);
     }
 
-    // Also listen for status changes from dydxWalletService
     const unsubscribe = dydxWalletService.onStatusChange(status => {
       if (status === 'connected' && !hasInitialFetchRef.current) {
-        console.log('[useDydxWallet] Service connected, fetching balance');
         fetchBalance(true);
       } else if (status === 'disconnected') {
         hasInitialFetchRef.current = false;
@@ -142,24 +128,21 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     return unsubscribe;
   }, [dydxAddress, hasDydxWallet, fetchBalance]);
 
-  // Subscribe to WebSocket updates via centralized store
   useEffect(() => {
     if (!dydxAddress || !dydxWalletService.isConnected()) {
       return;
     }
 
-    const subaccountNumber = dydxWalletService.getSubaccountNumber();
-    console.log('[useDydxWallet] Subscribing via Zustand store');
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
+      subscribeToSubaccount(dydxAddress, subaccountNumber);
+    }
 
-    // Subscribe (store handles deduplication)
-    subscribeToSubaccount(dydxAddress, subaccountNumber);
-
-    // Cleanup: unsubscribe when component unmounts
     return () => {
-      console.log('[useDydxWallet] Unsubscribing via Zustand store');
       unsubscribeFromSubaccount(dydxAddress, subaccountNumber);
+      isFirstMountRef.current = true;
     };
-  }, [dydxAddress, subscribeToSubaccount, unsubscribeFromSubaccount]);
+  }, [dydxAddress, subaccountNumber, subscribeToSubaccount, unsubscribeFromSubaccount]);
 
   const refresh = useCallback(async () => {
     if (dydxAddress && dydxWalletService.isConnected()) {

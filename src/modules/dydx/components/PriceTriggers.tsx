@@ -10,7 +10,7 @@ export interface PriceTriggersProps {
     size: string;
     entryPrice: string;
   };
-  oraclePrice: number;
+  // oraclePrice: number;
   onSave: (triggers: TriggerConfig) => Promise<void>;
   isLoading?: boolean;
   error?: string | null;
@@ -36,7 +36,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
   isOpen,
   onClose,
   position,
-  oraclePrice,
+  // oraclePrice,
   onSave,
   isLoading,
   error,
@@ -195,9 +195,9 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
             </div>
             <div className="text-right">
               <span className="text-xs text-gray-500 block mb-1">Oracle Price</span>
-              <span className="text-sm text-white font-mono font-medium">
+              {/* <span className="text-sm text-white font-mono font-medium">
                 ${oraclePrice.toLocaleString()}
-              </span>
+              </span> */}
             </div>
           </div>
 

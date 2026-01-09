@@ -396,7 +396,7 @@ class WebSocketManager {
 
       if (data.type === 'connected' && data.connection_id) {
         this.connectionId = data.connection_id;
-        // console.log('[WS] Received connection ID:', data.connection_id);
+        console.log('[WS] Received connection ID:', data.connection_id);
         return;
       }
 
@@ -404,22 +404,33 @@ class WebSocketManager {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
         this.serverSubscriptions.add(key);
         this.subscriptionInProgress.delete(key);
-        // console.log('[WS] Subscribed to:', key);
+        console.log('[WS] ✅ Subscribed to:', key);
+
+        // 🔥 FIX: Process the initial snapshot data from the subscribed message
+        if (data.contents) {
+          console.log('[WS] 📦 Processing initial subscription data for:', key);
+          const handlers = this.subscriptions.get(key);
+          if (handlers && handlers.size > 0) {
+            handlers.forEach(handler => {
+              this.pendingHandlerCalls.push({ handler, data });
+            });
+            this.scheduleHandlerExecution();
+          }
+        }
         return;
       }
 
       if (data.type === 'unsubscribed') {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
         this.serverSubscriptions.delete(key);
-        // console.log('[WS] Unsubscribed from:', key);
+        console.log('[WS] Unsubscribed from:', key);
         return;
       }
 
       if (data.type === 'error' && data.message) {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
-        // console.error('[WS] Subscription error:', data.message);
+        console.error('[WS] Subscription error:', data.message);
 
-        //Track errors
         const stats = this.subscriptionStats.get(key);
         if (stats) {
           stats.errorCount++;
@@ -443,14 +454,12 @@ class WebSocketManager {
       if (data.type === 'channel_data' || data.type === 'channel_batch_data') {
         const subscriptionKey = data.id ? `${data.channel}_${data.id}` : data.channel;
 
-        // Update statistics
         const stats = this.subscriptionStats.get(subscriptionKey);
         if (stats) {
           stats.lastMessageTime = Date.now();
           stats.messageCount++;
         }
 
-        // Track by channel
         this.messagesByChannel.set(
           data.channel,
           (this.messagesByChannel.get(data.channel) || 0) + 1
