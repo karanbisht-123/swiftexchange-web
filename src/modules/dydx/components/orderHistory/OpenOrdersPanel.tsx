@@ -6,30 +6,19 @@ import { useDydxData } from '../../hooks/useDydxData';
 import { type Order } from '../../service/dydxOrderService';
 import { dydxTradingService } from '../../service/dydxTradingService';
 
-const OPEN_STATUSES = [
-  'OPEN',
-  'PARTIALLY_FILLED',
-  'BEST_EFFORT_OPENED',
-  'UNTRIGGERED',
-  'BEST_EFFORT_CANCELED',
-];
-
 const OpenOrdersPanel: React.FC = () => {
-  const { orders, loadingOrders, ordersError, refreshOrders, isConnected, isReceivingUpdates } =
-    useDydxData();
+  const { openOrders, loadingOrders, ordersError, refreshOrders, isConnected } = useDydxData();
 
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const [icons, setIcons] = useState<Record<string, string>>({});
 
-  const openOrders = useMemo(() => {
-    return orders
-      .filter(order => OPEN_STATUSES.includes(order.status))
-      .sort((a, b) => {
-        const timeA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
-        const timeB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
-        return timeB - timeA;
-      });
-  }, [orders]);
+  const sortedOpenOrders = useMemo(() => {
+    return [...openOrders].sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
+      const timeB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
+      return timeB - timeA;
+    });
+  }, [openOrders]);
 
   useEffect(() => {
     if (openOrders.length === 0) return;
@@ -217,30 +206,6 @@ const OpenOrdersPanel: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-primary">
-      {/* Header */}
-      <div className="px-4 py-2 bg-secondary border-b border-gray-700 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-white font-semibold text-sm">Open Orders</h2>
-          <span className="text-xs text-gray-500">({openOrders.length})</span>
-        </div>
-        <div className="flex items-center gap-3">
-          {isReceivingUpdates && (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-xs text-gray-400">Live</span>
-            </div>
-          )}
-          <button
-            onClick={refreshOrders}
-            disabled={loadingOrders}
-            className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors disabled:opacity-50"
-            title="Refresh orders"
-          >
-            <RefreshCw className={`w-4 h-4 ${loadingOrders ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
-
       {/* Table */}
       <div className="flex-1 overflow-y-auto">
         <table className="w-full text-sm">
@@ -259,7 +224,7 @@ const OpenOrdersPanel: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {openOrders.map(order => {
+            {sortedOpenOrders.map(order => {
               const isCancelling = cancelling.has(order.id);
               const filled = parseFloat(order.totalFilled || '0');
               const size = parseFloat(order.size);

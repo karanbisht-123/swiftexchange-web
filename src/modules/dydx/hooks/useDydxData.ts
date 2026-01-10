@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import {
   type AssetPosition,
@@ -22,6 +23,7 @@ interface UseDydxDataReturn {
   refreshAssetPositions: () => Promise<void>;
 
   orders: Order[];
+  openOrders: Order[];
   loadingOrders: boolean;
   ordersError: string | null;
   refreshOrders: () => Promise<void>;
@@ -31,18 +33,16 @@ interface UseDydxDataReturn {
   fillsError: string | null;
   refreshFills: () => Promise<void>;
 
+  openOrderCount: number;
+  activePositionCount: number;
+  fillCount: number;
+
   isConnected: boolean;
   isReceivingUpdates: boolean;
   lastUpdateTime: number | null;
 }
 
 export const useDydxData = (): UseDydxDataReturn => {
-  const [loadingPositions, setLoadingPositions] = useState(false);
-  const [positionsError, setPositionsError] = useState<string | null>(null);
-
-  const [loadingAssetPositions, setLoadingAssetPositions] = useState(false);
-  const [assetPositionsError, setAssetPositionsError] = useState<string | null>(null);
-
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
 
@@ -52,50 +52,76 @@ export const useDydxData = (): UseDydxDataReturn => {
   const [isConnected, setIsConnected] = useState(false);
 
   const isMountedRef = useRef(true);
-  const hasInitialFetchRef = useRef(false);
-  const isFetchingRef = useRef({
-    positions: false,
-    assetPositions: false,
-    orders: false,
-    fills: false,
-  });
-
+  const hasInitializedRef = useRef(false);
   const isFirstMountRef = useRef(true);
+  const isFetchingRef = useRef(false);
 
-  const subscribeToSubaccount = useWebSocketStore(state => state.subscribeToSubaccount);
-  const unsubscribeFromSubaccount = useWebSocketStore(state => state.unsubscribeFromSubaccount);
-  const updateTrigger = useWebSocketStore(state => state.updateTrigger);
+  const subscribeToParentSubaccount = useWebSocketStore(state => state.subscribeToParentSubaccount);
+  const unsubscribeFromParentSubaccount = useWebSocketStore(
+    state => state.unsubscribeFromParentSubaccount
+  );
 
   const dydxAddress = dydxWalletService.getAddress();
   const subaccountNumber = dydxWalletService.getSubaccountNumber();
 
-  const subaccountKey = dydxAddress ? `subaccount_${dydxAddress}_${subaccountNumber}` : null;
+  const parentKey = dydxAddress ? `parent_subaccount_${dydxAddress}_${subaccountNumber}` : null;
 
-  const subaccountData = useWebSocketStore(
-    useCallback(
-      state => (subaccountKey ? state.subaccounts.get(subaccountKey) : null),
-      [subaccountKey, updateTrigger]
-    )
+  const { parentData, updateTrigger } = useWebSocketStore(
+    useShallow(state => ({
+      parentData: parentKey ? state.parentSubaccounts.get(parentKey) : null,
+      updateTrigger: state.updateTrigger,
+    }))
   );
 
-  const positions = subaccountData?.openPerpetualPositions
-    ? Array.isArray(subaccountData.openPerpetualPositions)
-      ? subaccountData.openPerpetualPositions
-      : Object.values(subaccountData.openPerpetualPositions)
-    : [];
+  const OPEN_ORDER_STATUSES = ['OPEN', 'PARTIALLY_FILLED', 'BEST_EFFORT_OPENED', 'UNTRIGGERED'];
 
-  const assetPositions = subaccountData?.assetPositions
-    ? Array.isArray(subaccountData.assetPositions)
-      ? subaccountData.assetPositions
-      : Object.values(subaccountData.assetPositions)
-    : [];
+  const positions = useMemo(() => {
+    const raw =
+      parentData?.childSubaccounts?.flatMap(child =>
+        Object.values(child.openPerpetualPositions || {})
+      ) || [];
 
-  const orders = subaccountData?.orders || [];
-  const fills = subaccountData?.fills || [];
-  const lastUpdateTime = subaccountData?.lastUpdate || null;
-  const isReceivingUpdates = subaccountData
-    ? Date.now() - subaccountData.lastUpdate < 30000
-    : false;
+    return raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
+  }, [parentData?.childSubaccounts, updateTrigger]);
+
+  const assetPositions = useMemo(() => {
+    return (
+      parentData?.childSubaccounts?.flatMap(child => Object.values(child.assetPositions || {})) ||
+      []
+    );
+  }, [parentData?.childSubaccounts, updateTrigger]);
+
+  const orders = useMemo(() => {
+    const allOrders = parentData?.orders || [];
+    return [...allOrders].sort((a, b) => {
+      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : Number(a.createdAtHeight || 0);
+      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : Number(b.createdAtHeight || 0);
+      return timeB - timeA;
+    });
+  }, [parentData?.orders, updateTrigger]);
+
+  const openOrders = useMemo(() => {
+    return orders.filter(order => OPEN_ORDER_STATUSES.includes(order.status));
+  }, [orders]);
+
+  const fills = useMemo(() => {
+    const allFills = parentData?.fills || [];
+    return [...allFills].sort((a, b) => {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [parentData?.fills, updateTrigger]);
+
+  const openOrderCount = openOrders.length;
+  const activePositionCount = positions.length;
+  const fillCount = fills.length;
+
+  const lastUpdateTime = parentData?.lastUpdate || null;
+  const isReceivingUpdates = parentData ? Date.now() - parentData.lastUpdate < 30000 : false;
+
+  const loadingPositions = false;
+  const positionsError = null;
+  const loadingAssetPositions = false;
+  const assetPositionsError = null;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -103,179 +129,132 @@ export const useDydxData = (): UseDydxDataReturn => {
       isMountedRef.current = false;
     };
   }, []);
-
-  const updateSubaccount = useWebSocketStore(state => state.updateSubaccount);
-
-  const fetchPositions = useCallback(
-    async (forceRefresh = false): Promise<void> => {
-      if (isFetchingRef.current.positions || !isMountedRef.current) return;
-      if (!dydxDataService.isReady() || !subaccountKey) return;
-
-      isFetchingRef.current.positions = true;
-      if (isMountedRef.current) {
-        setLoadingPositions(true);
-        setPositionsError(null);
-      }
-
-      try {
-        const data = await (forceRefresh
-          ? dydxDataService.refreshPositions('OPEN')
-          : dydxDataService.getPositions('OPEN'));
-
-        if (isMountedRef.current) {
-          updateSubaccount(subaccountKey, {
-            openPerpetualPositions: data,
-            lastUpdate: Date.now(),
-          });
-        }
-      } catch (err: any) {
-        console.error('[useDydxData] Positions fetch failed:', err);
-        if (isMountedRef.current) {
-          setPositionsError(err.message || 'Failed to fetch positions');
-        }
-      } finally {
-        if (isMountedRef.current) setLoadingPositions(false);
-        isFetchingRef.current.positions = false;
-      }
-    },
-    [subaccountKey, updateSubaccount]
-  );
-
-  const fetchAssetPositions = useCallback(
-    async (forceRefresh = false): Promise<void> => {
-      if (isFetchingRef.current.assetPositions || !isMountedRef.current) return;
-      if (!dydxDataService.isReady() || !subaccountKey) return;
-
-      isFetchingRef.current.assetPositions = true;
-      if (isMountedRef.current) {
-        setLoadingAssetPositions(true);
-        setAssetPositionsError(null);
-      }
-
-      try {
-        const data = await dydxDataService.getAssetPositions('OPEN', undefined, !forceRefresh);
-
-        if (isMountedRef.current) {
-          updateSubaccount(subaccountKey, {
-            assetPositions: data,
-            lastUpdate: Date.now(),
-          });
-        }
-      } catch (err: any) {
-        console.error('[useDydxData] Asset positions fetch failed:', err);
-        if (isMountedRef.current) {
-          setAssetPositionsError(err.message || 'Failed to fetch asset positions');
-        }
-      } finally {
-        if (isMountedRef.current) setLoadingAssetPositions(false);
-        isFetchingRef.current.assetPositions = false;
-      }
-    },
-    [subaccountKey, updateSubaccount]
-  );
-
-  const fetchOrders = useCallback(
-    async (forceRefresh = false): Promise<void> => {
-      if (isFetchingRef.current.orders || !isMountedRef.current) return;
-      if (!dydxDataService.isReady() || !subaccountKey) return;
-
-      isFetchingRef.current.orders = true;
-      if (isMountedRef.current) {
-        setLoadingOrders(true);
-        setOrdersError(null);
-      }
-
-      try {
-        const data = await (forceRefresh
-          ? dydxDataService.refreshOrders()
-          : dydxDataService.getOrders());
-
-        if (isMountedRef.current) {
-          updateSubaccount(subaccountKey, {
-            orders: data,
-            lastUpdate: Date.now(),
-          });
-        }
-      } catch (err: any) {
-        console.error('[useDydxData] Orders fetch failed:', err);
-        if (isMountedRef.current) {
-          setOrdersError(err.message || 'Failed to fetch orders');
-        }
-      } finally {
-        if (isMountedRef.current) setLoadingOrders(false);
-        isFetchingRef.current.orders = false;
-      }
-    },
-    [subaccountKey, updateSubaccount]
-  );
-
-  const fetchFills = useCallback(
-    async (forceRefresh = false): Promise<void> => {
-      if (isFetchingRef.current.fills || !isMountedRef.current) return;
-      if (!dydxDataService.isReady() || !subaccountKey) return;
-
-      isFetchingRef.current.fills = true;
-      if (isMountedRef.current) {
-        setLoadingFills(true);
-        setFillsError(null);
-      }
-
-      try {
-        const data = await (forceRefresh
-          ? dydxDataService.refreshFills()
-          : dydxDataService.getFills());
-
-        if (isMountedRef.current) {
-          updateSubaccount(subaccountKey, {
-            fills: data,
-            lastUpdate: Date.now(),
-          });
-        }
-      } catch (err: any) {
-        console.error('[useDydxData] Fills fetch failed:', err);
-        if (isMountedRef.current) {
-          setFillsError(err.message || 'Failed to fetch fills');
-        }
-      } finally {
-        if (isMountedRef.current) setLoadingFills(false);
-        isFetchingRef.current.fills = false;
-      }
-    },
-    [subaccountKey, updateSubaccount]
-  );
-
-  useEffect(() => {
-    const unsubscribe = dydxWalletService.onStatusChange(status => {
-      if (!isMountedRef.current) return;
-
-      if (status === 'connected') {
-        setIsConnected(true);
-        if (!hasInitialFetchRef.current) {
-          hasInitialFetchRef.current = true;
-          setTimeout(() => fetchPositions(true), 100);
-          setTimeout(() => fetchAssetPositions(true), 300);
-          setTimeout(() => fetchOrders(true), 500);
-          setTimeout(() => fetchFills(true), 700);
-        }
-      } else if (status === 'disconnected') {
-        setIsConnected(false);
-        hasInitialFetchRef.current = false;
-      }
-    });
-
-    if (dydxWalletService.isConnected()) {
-      setIsConnected(true);
-      if (!hasInitialFetchRef.current) {
-        hasInitialFetchRef.current = true;
-        setTimeout(() => fetchPositions(true), 100);
-        setTimeout(() => fetchAssetPositions(true), 300);
-        setTimeout(() => fetchOrders(true), 500);
-        setTimeout(() => fetchFills(true), 700);
-      }
+  const fetchHistoricalData = useCallback(async (): Promise<void> => {
+    if (isFetchingRef.current || hasInitializedRef.current) {
+      console.log('[useDydxData] Skipping fetch - already initialized or in progress');
+      return;
     }
 
-    return unsubscribe;
-  }, [fetchPositions, fetchAssetPositions, fetchOrders, fetchFills]);
+    if (!dydxDataService.isReady() || !parentKey) {
+      console.log('[useDydxData] Skipping fetch - not ready');
+      return;
+    }
+
+    isFetchingRef.current = true;
+    hasInitializedRef.current = true;
+
+    console.log('[useDydxData] Starting historical data fetch...');
+
+    setLoadingOrders(true);
+    setLoadingFills(true);
+
+    try {
+      const [orderData, fillData] = await Promise.all([
+        dydxDataService.getOrders(undefined, 100, true, false),
+        dydxDataService.getFills(undefined, 100, undefined, false),
+      ]);
+
+      console.log('[useDydxData] Historical data fetched:', {
+        orders: orderData.length,
+        fills: fillData.length,
+      });
+
+      if (isMountedRef.current && parentKey) {
+        // Merge with existing WebSocket data
+        const currentData = useWebSocketStore.getState().parentSubaccounts.get(parentKey);
+
+        // Deduplicate orders by ID
+        const existingOrderIds = new Set((currentData?.orders || []).map(o => o.id));
+        const newOrders = orderData.filter(o => !existingOrderIds.has(o.id));
+        const mergedOrders = [...(currentData?.orders || []), ...newOrders];
+
+        // Deduplicate fills by ID
+        const existingFillIds = new Set((currentData?.fills || []).map(f => f.id));
+        const newFills = fillData.filter(f => !existingFillIds.has(f.id));
+        const mergedFills = [...(currentData?.fills || []), ...newFills];
+
+        useWebSocketStore.getState().updateParentSubaccount(parentKey, {
+          orders: mergedOrders,
+          fills: mergedFills,
+          lastUpdate: Date.now(),
+        });
+
+        console.log('[useDydxData] Historical data merged into store');
+      }
+    } catch (err: any) {
+      console.error('[useDydxData] Historical data fetch failed:', err);
+      if (isMountedRef.current) {
+        setOrdersError(err.message || 'Failed to fetch historical orders');
+        setFillsError(err.message || 'Failed to fetch historical fills');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoadingOrders(false);
+        setLoadingFills(false);
+      }
+      isFetchingRef.current = false;
+    }
+  }, [parentKey]);
+
+  const refreshOrders = useCallback(async (): Promise<void> => {
+    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+
+    setLoadingOrders(true);
+    setOrdersError(null);
+
+    try {
+      const data = await dydxDataService.refreshOrders(undefined, 100);
+      console.log('[useDydxData] Orders manually refreshed:', data.length);
+
+      if (isMountedRef.current && parentKey) {
+        useWebSocketStore.getState().updateParentSubaccount(parentKey, {
+          orders: data,
+          lastUpdate: Date.now(),
+        });
+      }
+    } catch (err: any) {
+      console.error('[useDydxData] Orders refresh failed:', err);
+      if (isMountedRef.current) {
+        setOrdersError(err.message || 'Failed to refresh orders');
+      }
+    } finally {
+      if (isMountedRef.current) setLoadingOrders(false);
+    }
+  }, [parentKey]);
+
+  const refreshFills = useCallback(async (): Promise<void> => {
+    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+
+    setLoadingFills(true);
+    setFillsError(null);
+
+    try {
+      const data = await dydxDataService.refreshFills(undefined, 100);
+      console.log('[useDydxData] Fills manually refreshed:', data.length);
+
+      if (isMountedRef.current && parentKey) {
+        useWebSocketStore.getState().updateParentSubaccount(parentKey, {
+          fills: data,
+          lastUpdate: Date.now(),
+        });
+      }
+    } catch (err: any) {
+      console.error('[useDydxData] Fills refresh failed:', err);
+      if (isMountedRef.current) {
+        setFillsError(err.message || 'Failed to refresh fills');
+      }
+    } finally {
+      if (isMountedRef.current) setLoadingFills(false);
+    }
+  }, [parentKey]);
+
+  const refreshPositions = useCallback(async (): Promise<void> => {
+    console.log('[useDydxData] Positions are real-time from WebSocket');
+  }, []);
+
+  const refreshAssetPositions = useCallback(async (): Promise<void> => {
+    console.log('[useDydxData] Asset positions are real-time from WebSocket');
+  }, []);
 
   useEffect(() => {
     if (!dydxAddress || !isConnected) {
@@ -284,41 +263,78 @@ export const useDydxData = (): UseDydxDataReturn => {
 
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
-      subscribeToSubaccount(dydxAddress, subaccountNumber);
+      subscribeToParentSubaccount(dydxAddress, subaccountNumber);
+      console.log('[useDydxData] ✅ WebSocket subscribed');
+
+      setTimeout(() => {
+        if (!hasInitializedRef.current) {
+          fetchHistoricalData();
+        }
+      }, 1000);
     }
 
     return () => {
-      unsubscribeFromSubaccount(dydxAddress, subaccountNumber);
+      unsubscribeFromParentSubaccount(dydxAddress, subaccountNumber);
       isFirstMountRef.current = true;
+      console.log('[useDydxData] WebSocket unsubscribed');
     };
   }, [
     dydxAddress,
     subaccountNumber,
     isConnected,
-    subscribeToSubaccount,
-    unsubscribeFromSubaccount,
+    subscribeToParentSubaccount,
+    unsubscribeFromParentSubaccount,
+    fetchHistoricalData,
   ]);
+
+  useEffect(() => {
+    const unsubscribe = dydxWalletService.onStatusChange(status => {
+      if (!isMountedRef.current) return;
+
+      if (status === 'connected') {
+        console.log('[useDydxData] Wallet connected');
+        setIsConnected(true);
+      } else if (status === 'disconnected') {
+        console.log('[useDydxData] Wallet disconnected');
+        setIsConnected(false);
+        hasInitializedRef.current = false;
+        isFetchingRef.current = false;
+      }
+    });
+
+    if (dydxWalletService.isConnected()) {
+      setIsConnected(true);
+    }
+
+    return unsubscribe;
+  }, []);
 
   return {
     positions,
     loadingPositions,
     positionsError,
-    refreshPositions: useCallback(() => fetchPositions(true), [fetchPositions]),
+    refreshPositions,
 
     assetPositions,
     loadingAssetPositions,
     assetPositionsError,
-    refreshAssetPositions: useCallback(() => fetchAssetPositions(true), [fetchAssetPositions]),
+    refreshAssetPositions,
 
     orders,
+    openOrders,
     loadingOrders,
     ordersError,
-    refreshOrders: useCallback(() => fetchOrders(true), [fetchOrders]),
+    refreshOrders,
 
     fills,
     loadingFills,
     fillsError,
-    refreshFills: useCallback(() => fetchFills(true), [fetchFills]),
+    refreshFills,
+
+    // Computed counts for UI tabs
+    openOrderCount,
+    activePositionCount,
+    fillCount,
 
     isConnected,
     isReceivingUpdates,

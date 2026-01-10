@@ -1,3 +1,5 @@
+import { PositionStatus } from '@dydxprotocol/v4-client-js';
+
 import { dydxWalletService } from './dydxWalletService';
 
 export interface Position {
@@ -15,13 +17,14 @@ export interface Position {
   sumOpen: string;
   sumClose: string;
   netFunding: string;
+  subaccountNumber?: any;
 }
 
 export interface AssetPosition {
+  assetId: string;
   symbol: string;
   side: string;
   size: string;
-  assetId: string;
   subaccountNumber: number;
 }
 
@@ -82,7 +85,7 @@ interface CacheEntry<T> {
 
 class DydxDataService {
   private cache = new Map<string, CacheEntry<any>>();
-  private readonly CACHE_TTL = 5000;
+  private readonly CACHE_TTL = 8000;
 
   private stats = {
     restCalls: 0,
@@ -95,70 +98,49 @@ class DydxDataService {
     const address = dydxWalletService.getAddress();
     const subaccountNumber = dydxWalletService.getSubaccountNumber();
 
-    if (!indexer || !address) {
-      throw new Error('Wallet not connected');
+    if (!indexer || !address || subaccountNumber === undefined) {
+      throw new Error('Wallet not connected or missing subaccount');
     }
 
-    return { indexer, address, subaccountNumber };
+    return { indexer, address, subaccountNumber: Number(subaccountNumber) };
   }
 
   private getCached<T>(key: string): T | null {
-    const cached = this.cache.get(key);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+    const entry = this.cache.get(key);
+    if (entry && Date.now() - entry.timestamp < this.CACHE_TTL) {
       this.stats.cacheHits++;
-      return cached.data as T;
+      return entry.data as T;
     }
-    if (cached) {
-      this.cache.delete(key);
-    }
+    this.cache.delete(key);
     this.stats.cacheMisses++;
     return null;
   }
 
   private setCache<T>(key: string, data: T): void {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now(),
+    this.cache.set(key, { data, timestamp: Date.now() });
+  }
+
+  private invalidateCache(keys: string | string[]): void {
+    if (typeof keys === 'string') {
+      keys = [keys];
+    }
+    keys.forEach(pattern => {
+      for (const key of this.cache.keys()) {
+        if (key.includes(pattern)) {
+          this.cache.delete(key);
+        }
+      }
     });
   }
 
-  private clearCachePattern(pattern?: string): void {
-    if (!pattern) {
-      this.cache.clear();
-      return;
-    }
-
-    const keysToDelete: string[] = [];
-    for (const key of this.cache.keys()) {
-      if (key.includes(pattern)) {
-        keysToDelete.push(key);
-      }
-    }
-    keysToDelete.forEach(key => this.cache.delete(key));
-  }
-
-  async getSubaccount(useCache = true) {
-    const cacheKey = 'subaccount';
-
-    if (useCache) {
-      const cached = this.getCached(cacheKey);
-      if (cached) return cached;
-    }
-
-    this.stats.restCalls++;
-    const { indexer, address, subaccountNumber } = this.getContext();
-    const data = await indexer.account.getSubaccount(address, subaccountNumber);
-
-    this.setCache(cacheKey, data);
-    return data;
-  }
-
+  // REST API methods (fallback / manual refresh only)
   async getPositions(
     status: 'OPEN' | 'CLOSED' = 'OPEN',
-    limit?: number,
+    limit = 100,
     useCache = true
   ): Promise<Position[]> {
-    const cacheKey = `positions-${status}-${limit}`;
+    const statusEnum = status === 'OPEN' ? PositionStatus.OPEN : PositionStatus.CLOSED;
+    const cacheKey = `positions_${status}_${limit}`;
 
     if (useCache) {
       const cached = this.getCached<Position[]>(cacheKey);
@@ -166,25 +148,34 @@ class DydxDataService {
     }
 
     this.stats.restCalls++;
-    const { indexer, address, subaccountNumber } = this.getContext();
-    const response = await indexer.account.getSubaccountPerpetualPositions(
-      address,
-      subaccountNumber,
-      status as any,
-      limit
-    );
+    console.log('[DydxDataService] REST API call for positions (fallback/manual refresh)');
 
-    const positions = response.positions || [];
-    this.setCache(cacheKey, positions);
-    return positions;
+    const { indexer, address, subaccountNumber } = this.getContext();
+
+    try {
+      const response = await indexer.account.getSubaccountPerpetualPositions(
+        address,
+        subaccountNumber,
+        statusEnum,
+        limit
+      );
+
+      const positions = (response?.positions || []) as Position[];
+      this.setCache(cacheKey, positions);
+      return positions;
+    } catch (err) {
+      console.error('[DydxDataService] getPositions failed:', err);
+      return [];
+    }
   }
 
   async getAssetPositions(
     status: 'OPEN' | 'CLOSED' = 'OPEN',
-    limit?: number,
+    limit = 50,
     useCache = true
   ): Promise<AssetPosition[]> {
-    const cacheKey = `asset-positions-${status}-${limit}`;
+    const statusEnum = status === 'OPEN' ? PositionStatus.OPEN : PositionStatus.CLOSED;
+    const cacheKey = `asset_positions_${status}_${limit}`;
 
     if (useCache) {
       const cached = this.getCached<AssetPosition[]>(cacheKey);
@@ -193,16 +184,23 @@ class DydxDataService {
 
     this.stats.restCalls++;
     const { indexer, address, subaccountNumber } = this.getContext();
-    const response = await indexer.account.getSubaccountAssetPositions(
-      address,
-      subaccountNumber,
-      status as any,
-      limit
-    );
 
-    const assetPositions = response.positions || [];
-    this.setCache(cacheKey, assetPositions);
-    return assetPositions;
+    try {
+      const response = await indexer.account.getSubaccountAssetPositions(
+        address,
+        subaccountNumber,
+        statusEnum,
+        limit
+      );
+
+      const positions = (response?.positions || []).map((p: any) => p.position) as AssetPosition[];
+
+      this.setCache(cacheKey, positions);
+      return positions;
+    } catch (err) {
+      console.error('[DydxDataService] getAssetPositions failed:', err);
+      return [];
+    }
   }
 
   async getOrders(
@@ -212,7 +210,7 @@ class DydxDataService {
     useCache = true,
     createdBeforeOrAtHeight?: string
   ): Promise<Order[]> {
-    const cacheKey = `orders-${ticker || 'all'}-${limit}-${returnLatestOrders}-${createdBeforeOrAtHeight || 'latest'}`;
+    const cacheKey = `orders_${ticker || 'all'}_${limit}_${returnLatestOrders}_${createdBeforeOrAtHeight || 'latest'}`;
 
     if (useCache) {
       const cached = this.getCached<Order[]>(cacheKey);
@@ -221,38 +219,49 @@ class DydxDataService {
 
     this.stats.restCalls++;
     const { indexer, address, subaccountNumber } = this.getContext();
-    const response = await indexer.account.getSubaccountOrders(
-      address,
-      subaccountNumber,
-      ticker,
-      undefined, // tickerType
-      undefined, // side
-      undefined, // status
-      undefined, // type
-      limit,
-      undefined, // goodTilBlockBeforeOrAt
-      undefined, // goodTilBlockTimeBeforeOrAt
-      returnLatestOrders
-    );
 
-    // Sort by date (newest first)
-    const orders = (response || []).sort((a: Order, b: Order) => {
-      const timeA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
-      const timeB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
-      return timeB - timeA;
-    });
+    try {
+      const response = await indexer.account.getSubaccountOrders(
+        address,
+        subaccountNumber,
+        ticker,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        limit,
+        undefined,
+        undefined,
+        returnLatestOrders
+      );
 
-    this.setCache(cacheKey, orders);
-    return orders;
+      const orders = (response || []) as Order[];
+
+      const sorted = orders.sort((a, b) => {
+        const timeA = a.updatedAt
+          ? new Date(a.updatedAt).getTime()
+          : Number(a.createdAtHeight || 0);
+        const timeB = b.updatedAt
+          ? new Date(b.updatedAt).getTime()
+          : Number(b.createdAtHeight || 0);
+        return timeB - timeA;
+      });
+
+      this.setCache(cacheKey, sorted);
+      return sorted;
+    } catch (err) {
+      console.error('[DydxDataService] getOrders failed:', err);
+      return [];
+    }
   }
 
   async getFills(
     ticker?: string,
-    limit = 10,
+    limit = 50,
     createdBeforeOrAtHeight?: string,
     useCache = true
   ): Promise<Fill[]> {
-    const cacheKey = `fills-${ticker || 'all'}-${limit}-${createdBeforeOrAtHeight || 'latest'}`;
+    const cacheKey = `fills_${ticker || 'all'}_${limit}_${createdBeforeOrAtHeight || 'latest'}`;
 
     if (useCache) {
       const cached = this.getCached<Fill[]>(cacheKey);
@@ -261,23 +270,30 @@ class DydxDataService {
 
     this.stats.restCalls++;
     const { indexer, address, subaccountNumber } = this.getContext();
-    const response = await indexer.account.getSubaccountFills(
-      address,
-      subaccountNumber,
-      ticker,
-      undefined,
-      limit,
-      undefined,
-      createdBeforeOrAtHeight
-    );
 
-    // Sort by date (newest first)
-    const fills = (response.fills || []).sort((a: Fill, b: Fill) => {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+    try {
+      const response = await indexer.account.getSubaccountFills(
+        address,
+        subaccountNumber,
+        ticker,
+        undefined,
+        limit,
+        undefined,
+        createdBeforeOrAtHeight
+      );
 
-    this.setCache(cacheKey, fills);
-    return fills;
+      const fills = (response?.fills || []) as Fill[];
+
+      const sorted = fills.sort((a, b) => {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      this.setCache(cacheKey, sorted);
+      return sorted;
+    } catch (err) {
+      console.error('[DydxDataService] getFills failed:', err);
+      return [];
+    }
   }
 
   async getHistoricalPnl(
@@ -286,7 +302,7 @@ class DydxDataService {
     limit = 10,
     useCache = true
   ): Promise<HistoricalPnl[]> {
-    const cacheKey = `pnl-${effectiveBeforeOrAt || 'all'}-${effectiveAtOrAfter || 'all'}-${limit}`;
+    const cacheKey = `pnl_${effectiveBeforeOrAt || 'all'}_${effectiveAtOrAfter || 'all'}_${limit}`;
 
     if (useCache) {
       const cached = this.getCached<HistoricalPnl[]>(cacheKey);
@@ -295,38 +311,44 @@ class DydxDataService {
 
     this.stats.restCalls++;
     const { indexer, address, subaccountNumber } = this.getContext();
-    const response = await indexer.account.getSubaccountHistoricalPNLs(
-      address,
-      subaccountNumber,
-      undefined,
-      effectiveBeforeOrAt,
-      undefined,
-      effectiveAtOrAfter,
-      limit
-    );
 
-    const historicalPnls = response.historicalPnl || [];
-    this.setCache(cacheKey, historicalPnls);
-    return historicalPnls;
+    try {
+      const response = await indexer.account.getSubaccountHistoricalPNLs(
+        address,
+        subaccountNumber,
+        undefined,
+        effectiveBeforeOrAt,
+        undefined,
+        effectiveAtOrAfter,
+        limit
+      );
+
+      const historicalPnls = response.historicalPnl || [];
+      this.setCache(cacheKey, historicalPnls);
+      return historicalPnls;
+    } catch (err) {
+      console.error('[DydxDataService] getHistoricalPnl failed:', err);
+      return [];
+    }
   }
 
-  async refreshPositions(status: 'OPEN' | 'CLOSED' = 'OPEN', limit?: number): Promise<Position[]> {
-    this.clearCachePattern('positions');
+  async refreshPositions(status: 'OPEN' | 'CLOSED' = 'OPEN', limit = 100): Promise<Position[]> {
+    this.invalidateCache('positions');
     return this.getPositions(status, limit, false);
   }
 
   async refreshOrders(ticker?: string, limit = 50): Promise<Order[]> {
-    this.clearCachePattern('orders');
+    this.invalidateCache('orders');
     return this.getOrders(ticker, limit, true, false);
   }
 
   async refreshFills(ticker?: string, limit = 50): Promise<Fill[]> {
-    this.clearCachePattern('fills');
+    this.invalidateCache('fills');
     return this.getFills(ticker, limit, undefined, false);
   }
 
   clearCache(pattern?: string): void {
-    this.clearCachePattern(pattern);
+    this.invalidateCache(pattern || '');
   }
 
   isReady(): boolean {
@@ -337,9 +359,7 @@ class DydxDataService {
     return {
       walletConnected: dydxWalletService.isConnected(),
       stats: {
-        restCalls: this.stats.restCalls,
-        cacheHits: this.stats.cacheHits,
-        cacheMisses: this.stats.cacheMisses,
+        ...this.stats,
         cacheSize: this.cache.size,
       },
     };

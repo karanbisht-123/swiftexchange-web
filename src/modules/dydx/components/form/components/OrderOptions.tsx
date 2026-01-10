@@ -99,7 +99,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                 </select>
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {isConditional ? 'Max: 94 days' : 'Max: 28 days'}
+                Max: 95 days
               </div>
             </div>
           )}

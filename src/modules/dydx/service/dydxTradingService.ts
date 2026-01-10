@@ -20,10 +20,9 @@ import { dydxWalletService } from './dydxWalletService';
 const TRADING_CONFIG = {
   DEFAULT_SLIPPAGE: 0.05,
   SHORT_TERM_BLOCKS: 20,
-  DEFAULT_STATEFUL_EXPIRY_SECONDS: 28 * 24 * 3600,
+  DEFAULT_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
   CLOSE_POSITION_SLIPPAGE: 0.03,
-
-  MAX_STATEFUL_EXPIRY_SECONDS: 28 * 24 * 3600,
+  MAX_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
 } as const;
 
 class DydxTradingService {
@@ -146,18 +145,12 @@ class DydxTradingService {
       throw new Error('Trigger price is required for conditional orders');
     }
 
-    // Use duration in seconds (not absolute timestamp)
-    // dYdX expects goodTilTimeInSeconds as a duration, not an absolute time
+    // Use duration in seconds
+    // dYdX expects goodTilTimeInSeconds as a duration
     const durationSeconds =
       params.goodTilTimeInSeconds || TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
 
-    // Ensure we don't exceed the maximum allowed window (28 days = 2,419,200 seconds)
     const safeDuration = Math.min(durationSeconds, TRADING_CONFIG.MAX_STATEFUL_EXPIRY_SECONDS);
-
-    console.log('Conditional order expiry:', {
-      duration: safeDuration,
-      durationInDays: safeDuration / (24 * 3600),
-    });
 
     const side = this.normalizeToOrderSide(params.side);
 
@@ -241,7 +234,7 @@ class DydxTradingService {
         marketInfo
       );
 
-      console.log(result, 'hii i am result -----------');
+      console.log(result, 'Close position result');
       return result;
     } catch (error: any) {
       console.error('Close position error:', error);
@@ -316,35 +309,46 @@ class DydxTradingService {
         signingWallet: localWallet,
       };
 
-      let goodTilBlock: number | undefined;
-      let goodTilBlockTime: number | undefined;
-
-      if (order.goodTilBlock) {
-        goodTilBlock = parseInt(order.goodTilBlock);
-      }
-
-      if (order.goodTilBlockTime) {
-        const datetime = new Date(order.goodTilBlockTime);
-        const utcMilliseconds = datetime.getTime();
-        goodTilBlockTime = Math.round(utcMilliseconds / 1000);
-      }
-
       const clientId = parseInt(order.clientId);
       const orderFlags = parseInt(order.orderFlags);
-      const clobPairId = order.clobPairId || order.market;
+      const marketId = order.clobPairId || order.ticker;
 
-      // console.log("dsjhfjkh", clientId,
-      //   orderFlags, "sdgjdlkj",
-      //   clobPairId, "cloud if ",
-      //   goodTilBlock,
-      //   goodTilBlockTime)
+      const isShortTermOrder = orderFlags === 0;
+
+      let goodTilBlock: number | undefined;
+      let goodTilTimeInSeconds: number | undefined;
+
+      if (isShortTermOrder) {
+        goodTilBlock = order.goodTilBlock ? parseInt(order.goodTilBlock) : undefined;
+        goodTilTimeInSeconds = undefined;
+      } else {
+        goodTilBlock = 0;
+
+        const goodTilBlockTime = order.goodTilBlockTime
+          ? Math.floor(new Date(order.goodTilBlockTime).getTime() / 1000)
+          : Math.floor((Date.now() + 30000) / 1000);
+
+        const nowInSeconds = Math.floor(Date.now() / 1000);
+        goodTilTimeInSeconds = goodTilBlockTime - nowInSeconds;
+      }
+
+      console.log('[cancelOrder] Order details:', {
+        clientId,
+        orderFlags,
+        isShortTermOrder,
+        goodTilBlock: goodTilTimeInSeconds,
+        rawGoodTilBlockTime: order.goodTilBlockTime,
+        rawType: typeof order.goodTilBlockTime,
+        marketId,
+      });
+
       const result = await client.cancelOrder(
         subaccount as any,
         clientId,
         orderFlags,
-        clobPairId,
+        marketId,
         goodTilBlock,
-        goodTilBlockTime
+        goodTilTimeInSeconds
       );
 
       return {

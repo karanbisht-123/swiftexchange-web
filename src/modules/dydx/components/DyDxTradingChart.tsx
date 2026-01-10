@@ -15,7 +15,7 @@ import {
 } from 'lightweight-charts';
 
 import { type CandleResolution, useRealtimeChart } from '../hooks/useCandles';
-import { useTrades } from '../hooks/useTrades';
+// import { useTrades } from '../hooks/useTrades';
 import useMarketStore from '../store/marketStore';
 
 type ChartType = 'candlestick' | 'line' | 'area';
@@ -54,7 +54,7 @@ const useIsMobile = () => {
 export default function DyDxTradingChart() {
   const isDark = useTheme();
   const isMobile = useIsMobile();
-  const [timeframe, setTimeframe] = useState<CandleResolution>('1DAY');
+  const [timeframe, setTimeframe] = useState<CandleResolution>('15MINS');
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
@@ -69,19 +69,14 @@ export default function DyDxTradingChart() {
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const updateThrottleRef = useRef<number>(0);
-  const lastCandleTimeRef = useRef<number>(0);
 
   const { selectedMarket } = useMarketStore();
 
-  // 🆕 Get live price from trades hook
-  const { livePrice, livePriceSide, isConnected: tradesConnected } = useTrades(selectedMarket, 50);
-
-  // Get candles from chart hook (no live price here)
-  const { candles, latestCandle, isLoading, error, isConnected } = useRealtimeChart(
+  // const { livePrice, livePriceSide, isConnected: tradesConnected } = useTrades(selectedMarket, 50);
+  const { candles, latestCandle, isLoading, error } = useRealtimeChart(
     selectedMarket,
     timeframe,
-    500
+    300
   );
 
   const getThemeColors = useCallback(() => {
@@ -89,34 +84,32 @@ export default function DyDxTradingChart() {
       return {
         background: '#0a0e1a',
         textColor: '#f8f9fa',
-        gridColor: '#2d3241',
-        borderColor: '#3a3f4f',
-        upColor: '#10b981',
-        downColor: '#ef4444',
-        volumeColor: 'rgba(128, 128, 128, 0.3)',
-        crosshairColor: '#8b95a5',
+        gridColor: '#1a1f2e',
+        borderColor: '#2d3241',
+        upColor: '#00ff9d',
+        downColor: '#ff3b69',
+        volumeColor: 'rgba(128, 128, 128, 0.2)',
+        crosshairColor: '#6b7280',
       };
     }
     return {
-      background: '#f5f7fb',
+      background: '#ffffff',
       textColor: '#1a1d29',
-      gridColor: '#e2e8f0',
-      borderColor: '#cbd5e0',
+      gridColor: '#f0f0f0',
+      borderColor: '#e5e7eb',
       upColor: '#10b981',
       downColor: '#ef4444',
-      volumeColor: 'rgba(107, 114, 128, 0.3)',
-      crosshairColor: '#718096',
+      volumeColor: 'rgba(107, 114, 128, 0.2)',
+      crosshairColor: '#9ca3af',
     };
   }, [isDark]);
 
-  // 🔧 Optimized chart creation with proper cleanup
   const createChartInstance = useCallback(() => {
     if (!chartContainerRef.current || candles.length === 0) return;
 
     const colors = getThemeColors();
     const container = chartContainerRef.current;
 
-    // Clean up existing chart
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -130,8 +123,8 @@ export default function DyDxTradingChart() {
       layout: {
         background: { type: ColorType.Solid, color: colors.background },
         textColor: colors.textColor,
-        fontSize: isMobile ? 10 : 12,
-        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+        fontSize: isMobile ? 11 : 12,
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       },
       grid: {
         vertLines: {
@@ -163,18 +156,18 @@ export default function DyDxTradingChart() {
       rightPriceScale: {
         borderColor: colors.borderColor,
         scaleMargins: {
-          top: 0.05,
-          bottom: showVolume ? 0.18 : 0.05,
+          top: 0.1,
+          bottom: showVolume ? 0.2 : 0.1,
         },
-        minimumWidth: isMobile ? 50 : 60,
+        minimumWidth: isMobile ? 55 : 70,
       },
       timeScale: {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: isMobile ? 5 : 12,
-        barSpacing: isMobile ? 4 : 8,
-        minBarSpacing: isMobile ? 2 : 4,
+        rightOffset: isMobile ? 8 : 15,
+        barSpacing: isMobile ? 8 : 12,
+        minBarSpacing: isMobile ? 4 : 6,
       },
       handleScroll: {
         mouseWheel: true,
@@ -191,7 +184,6 @@ export default function DyDxTradingChart() {
 
     chartRef.current = chart;
 
-    // Prepare candle data
     const candleData = candles
       .map(c => ({
         time: Math.floor(new Date(c.startedAt).getTime() / 1000) as any,
@@ -203,7 +195,6 @@ export default function DyDxTradingChart() {
       }))
       .sort((a, b) => a.time - b.time);
 
-    // Create appropriate series based on chart type
     if (chartType === 'candlestick') {
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
         upColor: colors.upColor,
@@ -216,12 +207,11 @@ export default function DyDxTradingChart() {
       candlestickSeries.setData(candleData);
       seriesRef.current = candlestickSeries;
     } else if (chartType === 'line') {
-      const brandColor = '#3b82f6';
       const lineSeries = chart.addSeries(LineSeries, {
-        color: brandColor,
+        color: '#3b82f6',
         lineWidth: 2,
         crosshairMarkerVisible: true,
-        crosshairMarkerRadius: isMobile ? 3 : 4,
+        crosshairMarkerRadius: 4,
       });
       const lineData = candleData.map(c => ({
         time: c.time,
@@ -230,11 +220,10 @@ export default function DyDxTradingChart() {
       lineSeries.setData(lineData);
       seriesRef.current = lineSeries;
     } else if (chartType === 'area') {
-      const brandColor = '#3b82f6';
       const areaSeries = chart.addSeries(AreaSeries, {
-        topColor: isDark ? `${brandColor}66` : `${brandColor}4D`,
-        bottomColor: `${brandColor}00`,
-        lineColor: brandColor,
+        topColor: isDark ? '#3b82f666' : '#3b82f64D',
+        bottomColor: '#3b82f600',
+        lineColor: '#3b82f6',
         lineWidth: 2,
       });
       const areaData = candleData.map(c => ({
@@ -245,7 +234,6 @@ export default function DyDxTradingChart() {
       seriesRef.current = areaSeries;
     }
 
-    // Add volume series
     if (showVolume) {
       const volumeSeries = chart.addSeries(HistogramSeries, {
         color: colors.volumeColor,
@@ -255,34 +243,26 @@ export default function DyDxTradingChart() {
       const volumeData = candleData.map(c => ({
         time: c.time,
         value: c.volume,
-        color: c.close >= c.open ? colors.upColor + '50' : colors.downColor + '50',
+        color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
       }));
       volumeSeries.setData(volumeData);
       volumeSeriesRef.current = volumeSeries;
     }
 
     chart.timeScale().fitContent();
-
-    // Store last candle time for comparison
-    if (candleData.length > 0) {
-      lastCandleTimeRef.current = candleData[candleData.length - 1].time;
-    }
   }, [candles, chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
 
-  // 🔧 Optimized resize handler using ResizeObserver
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
     const container = chartContainerRef.current;
 
-    // Use ResizeObserver for better performance
     resizeObserverRef.current = new ResizeObserver(entries => {
       const entry = entries[0];
       if (!entry || !chartRef.current) return;
 
       const { width, height } = entry.contentRect;
 
-      // Only resize if dimensions actually changed
       if (width > 0 && height > 0) {
         requestAnimationFrame(() => {
           chartRef.current?.applyOptions({
@@ -301,7 +281,6 @@ export default function DyDxTradingChart() {
     };
   }, []);
 
-  // 🔧 Create chart when data or settings change
   useEffect(() => {
     createChartInstance();
 
@@ -313,16 +292,10 @@ export default function DyDxTradingChart() {
     };
   }, [createChartInstance]);
 
-  // 🔧 Optimized real-time candle updates with throttling
   useEffect(() => {
     if (!latestCandle || !seriesRef.current || !chartRef.current) return;
 
-    const now = Date.now();
     const candleTime = Math.floor(new Date(latestCandle.startedAt).getTime() / 1000);
-
-    // Throttle updates to max 60fps (16ms)
-    if (now - updateThrottleRef.current < 16) return;
-    updateThrottleRef.current = now;
 
     const candlePoint = {
       time: candleTime as any,
@@ -348,7 +321,7 @@ export default function DyDxTradingChart() {
           time: candlePoint.time,
           value: parseFloat(latestCandle.usdVolume),
           color:
-            candlePoint.close >= candlePoint.open ? colors.upColor + '50' : colors.downColor + '50',
+            candlePoint.close >= candlePoint.open ? colors.upColor + '40' : colors.downColor + '40',
         });
       }
     } catch (error) {
@@ -383,7 +356,7 @@ export default function DyDxTradingChart() {
   ];
 
   const chartTypes: { value: ChartType; label: string }[] = [
-    { value: 'candlestick', label: 'Candlestick' },
+    { value: 'candlestick', label: 'Candles' },
     { value: 'line', label: 'Line' },
     { value: 'area', label: 'Area' },
   ];
@@ -403,7 +376,7 @@ export default function DyDxTradingChart() {
         onClick={onToggle}
         className="border-e border-color flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm hover:bg-hover transition-colors active:bg-hover/80"
       >
-        <span className="hidden sm:inline text-gray-400">{label}:</span>
+        <span className="hidden sm:inline text-gray-400">{label}</span>
         <span className="font-medium text-white">{value}</span>
         <ChevronDown
           className={`w-3 h-3 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
@@ -439,12 +412,12 @@ export default function DyDxTradingChart() {
     <div className="relative">
       <button
         onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-        className="border-e border-color flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 md:py-2 text-xs sm:text-sm hover:bg-hover transition-colors active:bg-hover/80"
+        className="border-e border-color flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm hover:bg-hover transition-colors active:bg-hover/80"
       >
         <span className="hidden sm:inline text-white">Settings</span>
         <span className="sm:hidden text-lg">⚙️</span>
         <ChevronDown
-          className={`w-3 h-3 transition-transform duration-200 ${showSettingsMenu ? 'rotate-180' : ''}`}
+          className={`hidden sm:block w-3 h-3 transition-transform duration-200 ${showSettingsMenu ? 'rotate-180' : ''}`}
         />
       </button>
       {showSettingsMenu && (
@@ -503,7 +476,7 @@ export default function DyDxTradingChart() {
           <div className="flex items-center">
             <Dropdown
               label="Time"
-              value={timeframes.find(t => t.value === timeframe)?.label || '1d'}
+              value={timeframes.find(t => t.value === timeframe)?.label || '15m'}
               options={timeframes}
               onChange={setTimeframe}
               isOpen={showTimeframeMenu}
@@ -512,7 +485,7 @@ export default function DyDxTradingChart() {
 
             <Dropdown
               label="Type"
-              value={chartTypes.find(t => t.value === chartType)?.label || 'Candlestick'}
+              value={chartTypes.find(t => t.value === chartType)?.label || 'Candles'}
               options={chartTypes}
               onChange={setChartType}
               isOpen={showChartTypeMenu}
@@ -523,8 +496,8 @@ export default function DyDxTradingChart() {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2 px-2">
-            {livePrice && (
-              <div className="flex items-center gap-1 sm:gap-2 px-1 text-xs sm:text-sm backdrop-blur-sm">
+            {/* {livePrice && (
+              <div className="flex items-center gap-1 sm:gap-2 px-1 text-xs sm:text-sm">
                 <span className="text-gray-400 hidden sm:inline font-medium">Live</span>
                 <span
                   className={`font-bold tabular-nums ${
@@ -548,7 +521,7 @@ export default function DyDxTradingChart() {
                   </div>
                 )}
               </div>
-            )}
+            )} */}
             <button
               onClick={downloadChart}
               className="p-2 hover:bg-hover rounded-md transition-colors hidden sm:block"
@@ -574,14 +547,14 @@ export default function DyDxTradingChart() {
       <div className="flex-1 bg-secondary relative overflow-hidden">
         {error && (
           <div className="absolute top-2 left-2 right-2 sm:mx-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg z-10 backdrop-blur-sm">
-            <p className="text-xs sm:text-sm text-red-400 font-medium">⚠️ {error}</p>
+            <p className="text-xs sm:text-sm text-red-400 font-medium">{error}</p>
           </div>
         )}
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <div className="w-12 h-12 border-4 border-brand/30 border-t-brand rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-gray-400 text-sm font-medium">Loading chart data...</p>
+              <p className="text-gray-400 text-sm font-medium">Loading chart...</p>
             </div>
           </div>
         ) : (

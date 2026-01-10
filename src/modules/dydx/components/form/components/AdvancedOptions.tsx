@@ -104,7 +104,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                   Good Til Time
                 </label>
                 <span className="text-[10px] text-gray-600 font-medium">
-                  Max: {isConditional ? '94d' : '28d'}
+                  Max: 95d
                 </span>
               </div>
               <div className="grid grid-cols-[1fr_100px] gap-2">
@@ -156,11 +156,10 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             {/* Post-Only */}
             {isLimit && (
               <label
-                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
-                  postOnly
+                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${postOnly
                     ? 'bg-blue-500/10 border-blue-500/30'
                     : 'bg-gray-900/30 border-gray-800 hover:border-gray-700'
-                } ${reduceOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  } ${reduceOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <div className="relative flex items-center">
                   <input
@@ -200,11 +199,10 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             {/* Reduce-Only - Hidden for Market Orders */}
             {orderType !== 'MARKET' && (
               <label
-                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
-                  reduceOnly
+                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${reduceOnly
                     ? 'bg-blue-500/10 border-blue-500/30'
                     : 'bg-gray-900/30 border-gray-800 hover:border-gray-700'
-                }`}
+                  }`}
               >
                 <div className="relative flex items-center">
                   <input

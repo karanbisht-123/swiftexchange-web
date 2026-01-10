@@ -124,7 +124,15 @@ const PortfolioView = ({
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }) => {
-  const { positions, orders, fills, loadingPositions, loadingOrders, loadingFills } = useDydxData();
+  // Use computed counts from hook - openOrderCount shows only open orders, not all historical
+  const {
+    positions,
+    openOrderCount,
+    fillCount,
+    loadingPositions,
+    loadingOrders,
+    loadingFills
+  } = useDydxData();
 
   const tabs = ['positions', 'orders', 'fills', 'history'];
   const labels: Record<string, string> = {
@@ -138,10 +146,11 @@ const PortfolioView = ({
   const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
 
   useEffect(() => {
+    // Use positions.length (already filtered for active), openOrderCount (open only), fillCount
     const currentCounts = {
       positions: positions.length,
-      orders: orders.length,
-      fills: fills.length,
+      orders: openOrderCount,
+      fills: fillCount,
     };
 
     const newChanges = {
@@ -168,7 +177,7 @@ const PortfolioView = ({
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, orders.length, fills.length]);
+  }, [positions.length, openOrderCount, fillCount]);
 
   return (
     <div className="h-full flex flex-col max-w-full">
@@ -191,11 +200,10 @@ const PortfolioView = ({
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
-                activeTab === tab
+              className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === tab
                   ? 'text-white border-b-2 border-blue-500'
                   : 'text-gray-400 hover:text-gray-300'
-              }`}
+                }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}
@@ -243,21 +251,19 @@ const MobileLayout = () => {
         <div className="flex bg-secondary border-b border-gray-800 shrink-0">
           <button
             onClick={() => setChartType('price')}
-            className={`flex-1 text-xs font-medium transition-all active:scale-95 ${
-              chartType === 'price'
+            className={`flex-1 text-xs font-medium transition-all active:scale-95 ${chartType === 'price'
                 ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
                 : 'bg-gray-800/50 text-gray-400 active:bg-gray-800'
-            }`}
+              }`}
           >
             Price Chart
           </button>
           <button
             onClick={() => setChartType('depth')}
-            className={`flex-1 py-2 text-xs font-medium transition-all active:scale-95 ${
-              chartType === 'depth'
+            className={`flex-1 py-2 text-xs font-medium transition-all active:scale-95 ${chartType === 'depth'
                 ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
                 : 'bg-gray-800/50 text-gray-400 active:bg-gray-800'
-            }`}
+              }`}
           >
             Depth Chart
           </button>
@@ -289,9 +295,8 @@ const MobileLayout = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 flex flex-col items-center gap-1 transition-all active:scale-95 ${
-                activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
-              }`}
+              className={`flex-1 py-3 flex flex-col items-center gap-1 transition-all active:scale-95 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
+                }`}
             >
               <Icon className={`w-5 h-5 ${activeTab === tab.id ? 'text-blue-500' : ''}`} />
               <span className="text-[10px] font-medium">{tab.label}</span>
@@ -310,7 +315,15 @@ const BottomTabsSection = ({
   activeBottomTab: string;
   setActiveBottomTab: (tab: string) => void;
 }) => {
-  const { positions, orders, fills, loadingPositions, loadingOrders, loadingFills } = useDydxData();
+  // Use computed counts from hook - openOrderCount shows only open orders, not all historical
+  const {
+    positions,
+    openOrderCount,
+    fillCount,
+    loadingPositions,
+    loadingOrders,
+    loadingFills
+  } = useDydxData();
 
   const tabs = ['positions', 'orders', 'fills', 'history', 'funding'];
   const labels: Record<string, string> = {
@@ -325,10 +338,11 @@ const BottomTabsSection = ({
   const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
 
   useEffect(() => {
+    // Use positions.length (already filtered for active), openOrderCount (open only), fillCount
     const currentCounts = {
       positions: positions.length,
-      orders: orders.length,
-      fills: fills.length,
+      orders: openOrderCount,
+      fills: fillCount,
     };
 
     const newChanges = {
@@ -355,7 +369,7 @@ const BottomTabsSection = ({
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, orders.length, fills.length]);
+  }, [positions.length, openOrderCount, fillCount]);
 
   return (
     <>
@@ -378,11 +392,10 @@ const BottomTabsSection = ({
             <button
               key={tab}
               onClick={() => setActiveBottomTab(tab)}
-              className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
-                activeBottomTab === tab
+              className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${activeBottomTab === tab
                   ? 'text-white border-b-2 border-[#3b4fd9]'
                   : 'text-gray-400 hover:text-gray-300'
-              }`}
+                }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}

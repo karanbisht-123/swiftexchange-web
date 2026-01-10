@@ -310,7 +310,7 @@ export const DydxWalletConnect: React.FC = () => {
   }
 
   return (
-    <div className="bg-[#1a1a2e] rounded-lg p-4">
+    <div className="bg-secondary rounded-lg p-4">
       <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-700/50">
         <div className="flex items-center gap-2">
           <div

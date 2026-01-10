@@ -129,7 +129,7 @@ const FillsPanel: React.FC = () => {
       key: 'market',
       header: 'Market',
       align: 'left' as const,
-      render: (f: Fill) => <MarketBadge market={f.market} />,
+      render: (f: Fill) => <MarketBadge market={f.market || (f as any).ticker} />,
     },
     {
       key: 'time',
@@ -196,11 +196,10 @@ const FillsPanel: React.FC = () => {
       align: 'center' as const,
       render: (f: Fill) => (
         <span
-          className={`px-2 py-0.5 rounded text-xs font-medium ${
-            f.liquidity === 'MAKER'
+          className={`px-2 py-0.5 rounded text-xs font-medium ${f.liquidity === 'MAKER'
               ? 'bg-blue-500/20 text-blue-400'
               : 'bg-purple-500/20 text-purple-400'
-          }`}
+            }`}
         >
           {f.liquidity}
         </span>

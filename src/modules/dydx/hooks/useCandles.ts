@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { getIndexerClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
@@ -37,11 +37,6 @@ export function useRealtimeChart(
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const mountedRef = useRef(true);
-  const currentMarketRef = useRef(market);
-  const currentResolutionRef = useRef(resolution);
-
-  // Get store methods and state
   const subscribeToCandles = useWebSocketStore(state => state.subscribeToCandles);
   const unsubscribeFromCandles = useWebSocketStore(state => state.unsubscribeFromCandles);
   const isConnected = useWebSocketStore(state => state.isConnected);
@@ -49,18 +44,13 @@ export function useRealtimeChart(
   const candleKey = `candles_${market}_${resolution}`;
   const storeCandlesData = useWebSocketStore(state => state.candles.get(candleKey));
 
-  // Load initial snapshot from REST API
   useEffect(() => {
-    let isActive = true;
-    mountedRef.current = true;
-    currentMarketRef.current = market;
-    currentResolutionRef.current = resolution;
+    let mounted = true;
 
-    setSnapshotCandles([]);
     setIsLoading(true);
     setError(null);
 
-    const initCandles = async () => {
+    const loadCandles = async () => {
       try {
         const indexerClient = getIndexerClient();
         const data = await indexerClient.markets.getPerpetualMarketCandles(
@@ -71,13 +61,7 @@ export function useRealtimeChart(
           limit
         );
 
-        if (
-          !isActive ||
-          currentMarketRef.current !== market ||
-          currentResolutionRef.current !== resolution
-        ) {
-          return;
-        }
+        if (!mounted) return;
 
         const fetchedCandles = data.candles || [];
 
@@ -87,45 +71,36 @@ export function useRealtimeChart(
           );
 
           setSnapshotCandles(sortedCandles);
+        } else {
+          setSnapshotCandles([]);
         }
 
         setIsLoading(false);
-      } catch (err: unknown) {
-        if (isActive && mountedRef.current && currentMarketRef.current === market) {
-          setError(err instanceof Error ? err.message : 'Failed to load initial candles');
-          setIsLoading(false);
-        }
+      } catch (err) {
+        if (!mounted) return;
+        console.error('[Candles] Load error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load candles');
+        setIsLoading(false);
       }
     };
 
-    initCandles();
+    loadCandles();
 
     return () => {
-      isActive = false;
+      mounted = false;
     };
   }, [market, resolution, limit]);
 
-  // Subscribe to WebSocket updates via store
   useEffect(() => {
-    currentMarketRef.current = market;
-    currentResolutionRef.current = resolution;
-
-    // Subscribe to candles for this market/resolution
+    console.log(`[Candles] Subscribing to ${market} ${resolution}`);
     subscribeToCandles(market, resolution);
 
     return () => {
+      console.log(`[Candles] Unsubscribing from ${market} ${resolution}`);
       unsubscribeFromCandles(market, resolution);
     };
   }, [market, resolution, subscribeToCandles, unsubscribeFromCandles]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  // Merge snapshot and live candles
   const candles = useMemo(() => {
     const liveCandles = storeCandlesData?.candles || [];
 
@@ -133,20 +108,17 @@ export function useRealtimeChart(
       return snapshotCandles;
     }
 
-    // Merge live candles with snapshot
     const candleMap = new Map<string, Candle>();
 
-    // Add snapshot candles first
     snapshotCandles.forEach(c => {
       candleMap.set(c.startedAt, c);
     });
 
-    // Override/add with live candles
     liveCandles.forEach((c: any) => {
       candleMap.set(c.startedAt, {
         startedAt: c.startedAt,
-        ticker: c.ticker || '',
-        resolution: c.resolution || '',
+        ticker: c.ticker || market,
+        resolution: c.resolution || resolution,
         low: c.low || '0',
         high: c.high || '0',
         open: c.open || '0',
@@ -155,28 +127,18 @@ export function useRealtimeChart(
         usdVolume: c.usdVolume || '0',
         trades: Number(c.trades) || 0,
         startingOpenInterest: c.startingOpenInterest || '0',
-        id: c.startedAt, // Use startedAt as id if not provided
+        id: c.startedAt,
       });
     });
 
-    // Convert back to sorted array
     const merged = Array.from(candleMap.values());
     merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 
-    // Limit to most recent candles
-    if (merged.length > limit) {
-      return merged.slice(-limit);
-    }
+    return merged.slice(-limit);
+  }, [snapshotCandles, storeCandlesData, limit, market, resolution]);
 
-    return merged;
-  }, [snapshotCandles, storeCandlesData, limit]);
-
-  // Derive latest candle
   const latestCandle = useMemo(() => {
-    if (candles.length > 0) {
-      return candles[candles.length - 1];
-    }
-    return null;
+    return candles.length > 0 ? candles[candles.length - 1] : null;
   }, [candles]);
 
   return {

@@ -19,7 +19,6 @@ const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
   return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
 
-// 🔧 FIXED: Proper reset without triggering unnecessary reconnections
 export const resetAllClients = (isLogout = false): void => {
   console.log(`[dYdX Clients] Resetting clients (logout: ${isLogout})`);
 
@@ -29,11 +28,9 @@ export const resetAllClients = (isLogout = false): void => {
 
   if (isLogout) {
     currentNetwork = null;
-    // Only shutdown WebSocket on logout
     webSocketManager.shutdown();
     console.log('[dYdX Clients] All clients fully shut down (logout)');
   } else {
-    // On network change, keep currentNetwork for comparison
     console.log('[dYdX Clients] Clients reset due to network change');
   }
 };
@@ -127,19 +124,6 @@ const createSocketClient = () => {
 
     subscribeToOrderbook: (market: string, handler: MessageHandler, batched = false) =>
       webSocketManager.subscribe('v4_orderbook', handler, market, batched),
-
-    subscribeToSubaccounts: (
-      address: string,
-      subaccountNumber: number,
-      handler: MessageHandler,
-      batched = false
-    ) =>
-      webSocketManager.subscribe(
-        'v4_subaccounts',
-        handler,
-        `${address}/${subaccountNumber}`,
-        batched
-      ),
 
     subscribeToParentSubaccounts: (
       address: string,
@@ -260,23 +244,17 @@ export const useCompositeClient = (): CompositeClient | null => {
   return client;
 };
 
-// 🔧 FIXED: Proper WebSocket subscription cleanup
 export const useSocketClient = (): SocketClient => {
   const network = useWalletStore(s => s.network);
   const [client, setClient] = useState<SocketClient>(() => getSocketClient());
   const networkRef = useRef(network);
 
   useEffect(() => {
-    // Only recreate client if network actually changed
     if (networkRef.current !== network) {
       console.log('[useSocketClient] Network changed from', networkRef.current, 'to', network);
       networkRef.current = network;
-
-      // Get new client for new network
       setClient(getSocketClient());
     }
-
-    // No cleanup needed here - subscriptions are cleaned up by components using the client
   }, [network]);
 
   return client;

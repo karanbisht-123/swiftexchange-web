@@ -83,7 +83,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
   };
 
   return (
-    <div className="w-full max-w-md bg-[#0e0c15] text-white font-medium text-sm select-none">
+    <div className="w-full max-w-md bg-secondary text-white font-medium text-sm select-none">
       <div className="flex items-center justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
         <div className=" items-center gap-3 hidden lg:flex">
           <span className="text-[#aaaaaa] text-xs font-semibold ">Orderbook</span>
@@ -115,8 +115,6 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
             <div
               key={`ask-${priceKey}`}
               onClick={() => handlePriceClick(ask.price.toString())}
-              // onMouseEnter={() => setHoveredPrice(priceKey)}
-              // onMouseLeave={() => setHoveredPrice(null)}
               className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 cursor-pointer"
             >
               <div
@@ -163,8 +161,6 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
             <div
               key={`bid-${priceKey}`}
               onClick={() => handlePriceClick(bid.price.toString())}
-              // onMouseEnter={() => setHoveredPrice(priceKey)}
-              // onMouseLeave={() => setHoveredPrice(null)}
               className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 cursor-pointer"
             >
               <div

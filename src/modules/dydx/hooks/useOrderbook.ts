@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+
 import { getSocketClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
+
 interface OrderbookLevel {
   price: string;
   size: string;
@@ -12,189 +14,200 @@ export interface OrderbookData {
   ts: number;
 }
 
+const orderbookState = new Map<
+  string,
+  {
+    bidsMap: Map<number, number>;
+    asksMap: Map<number, number>;
+    listeners: Set<(data: OrderbookData) => void>;
+    unsubscribe: (() => void) | null;
+    rafId: number | undefined;
+    isSubscribed: boolean;
+  }
+>();
+
+function getOrCreateState(market: string) {
+  if (!orderbookState.has(market)) {
+    orderbookState.set(market, {
+      bidsMap: new Map(),
+      asksMap: new Map(),
+      listeners: new Set(),
+      unsubscribe: null,
+      rafId: undefined,
+      isSubscribed: false,
+    });
+  }
+  return orderbookState.get(market)!;
+}
+
+function scheduleUpdate(market: string) {
+  const state = getOrCreateState(market);
+
+  if (state.rafId !== undefined) return;
+
+  state.rafId = requestAnimationFrame(() => {
+    state.rafId = undefined;
+
+    const sortedBids = Array.from(state.bidsMap.entries())
+      .sort(([a], [b]) => b - a)
+      .slice(0, 9);
+
+    const sortedAsks = Array.from(state.asksMap.entries())
+      .sort(([a], [b]) => a - b)
+      .slice(0, 9);
+
+    const data: OrderbookData = {
+      bids: sortedBids.map(([price, size]) => ({
+        price: price.toString(),
+        size: size.toString(),
+      })),
+      asks: sortedAsks.map(([price, size]) => ({
+        price: price.toString(),
+        size: size.toString(),
+      })),
+      ts: Date.now(),
+    };
+
+    state.listeners.forEach(listener => listener(data));
+  });
+}
+
+function handleOrderbookUpdate(market: string, data: any) {
+  const state = getOrCreateState(market);
+  const contents = data?.contents;
+  if (!contents) return;
+
+  let changed = false;
+  const dataArray = Array.isArray(contents) ? contents : [contents];
+
+  dataArray.forEach((item: any) => {
+    if (item.bids?.length) {
+      item.bids.forEach((level: [string, string]) => {
+        const price = Number(level[0]);
+        const size = Number(level[1]);
+
+        if (isNaN(price) || isNaN(size)) return;
+
+        if (size === 0) {
+          if (state.bidsMap.delete(price)) changed = true;
+        } else {
+          state.bidsMap.set(price, size);
+          changed = true;
+        }
+      });
+    }
+
+    if (item.asks?.length) {
+      item.asks.forEach((level: [string, string]) => {
+        const price = Number(level[0]);
+        const size = Number(level[1]);
+
+        if (isNaN(price) || isNaN(size)) return;
+
+        if (size === 0) {
+          if (state.asksMap.delete(price)) changed = true;
+        } else {
+          state.asksMap.set(price, size);
+          changed = true;
+        }
+      });
+    }
+  });
+
+  if (changed) {
+    scheduleUpdate(market);
+  }
+}
+
+function subscribeToMarket(market: string, isConnected: boolean) {
+  const state = getOrCreateState(market);
+  if (state.isSubscribed || !isConnected) return;
+
+  try {
+    const socketClient = getSocketClient();
+    state.unsubscribe = socketClient.subscribeToOrderbook(market, data =>
+      handleOrderbookUpdate(market, data)
+    );
+    state.isSubscribed = true;
+  } catch (err) {
+    console.error('[Orderbook] Subscribe error:', err);
+  }
+}
+
+function unsubscribeFromMarket(market: string) {
+  const state = orderbookState.get(market);
+  if (!state) return;
+
+  if (state.listeners.size === 0 && state.unsubscribe) {
+    state.unsubscribe();
+    state.unsubscribe = null;
+    state.isSubscribed = false;
+
+    if (state.rafId !== undefined) {
+      cancelAnimationFrame(state.rafId);
+      state.rafId = undefined;
+    }
+
+    state.bidsMap.clear();
+    state.asksMap.clear();
+    orderbookState.delete(market);
+  }
+}
+
+async function loadSnapshot(market: string) {
+  const state = getOrCreateState(market);
+  if (state.bidsMap.size > 0 || state.asksMap.size > 0) return;
+
+  try {
+    const { getIndexerClient } = await import('../client/clients');
+    const snap = await getIndexerClient().markets.getPerpetualMarketOrderbook(market);
+
+    snap?.bids?.forEach((b: { price: string; size: string }) => {
+      const price = Number(b.price);
+      const size = Number(b.size);
+      if (size > 0 && !isNaN(price) && !isNaN(size)) {
+        state.bidsMap.set(price, size);
+      }
+    });
+
+    snap?.asks?.forEach((a: { price: string; size: string }) => {
+      const price = Number(a.price);
+      const size = Number(a.size);
+      if (size > 0 && !isNaN(price) && !isNaN(size)) {
+        state.asksMap.set(price, size);
+      }
+    });
+
+    scheduleUpdate(market);
+  } catch (err) {
+    console.error('[Orderbook] Snapshot error:', err);
+  }
+}
 
 export function useOrderbook(market: string = 'BTC-USD') {
   const [orderbook, setOrderbook] = useState<OrderbookData | null>(null);
   const [dataSource, setDataSource] = useState<'api' | 'websocket' | null>(null);
-
-  const bidsMap = useRef(new Map<number, number>());
-  const asksMap = useRef(new Map<number, number>());
-  const rafRef = useRef<number | undefined>(undefined);
-
   const isConnected = useWebSocketStore(state => state.isConnected);
+
   useEffect(() => {
-    console.log(`[useOrderbook] Initializing ${market}`);
-    bidsMap.current.clear();
-    asksMap.current.clear();
-    setOrderbook(null);
-    setDataSource(null);
-    if (rafRef.current !== undefined) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = undefined;
-    }
+    const state = getOrCreateState(market);
 
-    let active = true;
-    let unsubscribe: (() => void) | null = null;
-    const updateDisplay = () => {
-      if (!active) return; 
-      const sortedBids = Array.from(bidsMap.current.entries())
-        .sort(([a], [b]) => b - a)
-        .slice(0, 9);
-
-      const sortedAsks = Array.from(asksMap.current.entries())
-        .sort(([a], [b]) => a - b)
-        .slice(0, 9);
-
-      setOrderbook({
-        bids: sortedBids.map(([price, size]) => ({
-          price: price.toString(),
-          size: size.toString(),
-        })),
-        asks: sortedAsks.map(([price, size]) => ({
-          price: price.toString(),
-          size: size.toString(),
-        })),
-        ts: Date.now(),
-      });
+    const listener = (data: OrderbookData) => {
+      setOrderbook(data);
+      setDataSource('websocket');
     };
 
+    state.listeners.add(listener);
 
-    const scheduleUpdate = () => {
-      if (!active) return; // Don't schedule if effect has been cleaned up
-      if (rafRef.current !== undefined) return; // Already scheduled
+    loadSnapshot(market).then(() => {
+      setDataSource('api');
+    });
 
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = undefined;
-        updateDisplay();
-      });
-    };
+    subscribeToMarket(market, isConnected);
 
-    // WebSocket handler - created fresh for each market
-    const handleUpdate = (data: any) => {
-      if (!active) {
-        // console.log(`[useOrderbook] Ignoring update, component unmounted or market changed`);
-        return;
-      }
-
-      if (!data?.contents) return;
-
-      let changed = false;
-
-      // Process bids
-      if (data.contents.bids?.length) {
-        data.contents.bids.forEach((level: [string, string]) => {
-          const price = Number(level[0]);
-          const size = Number(level[1]);
-
-          if (isNaN(price) || isNaN(size)) return;
-
-          if (size === 0) {
-            if (bidsMap.current.delete(price)) changed = true;
-          } else {
-            bidsMap.current.set(price, size);
-            changed = true;
-          }
-        });
-      }
-
-      // Process asks
-      if (data.contents.asks?.length) {
-        data.contents.asks.forEach((level: [string, string]) => {
-          const price = Number(level[0]);
-          const size = Number(level[1]);
-
-          if (isNaN(price) || isNaN(size)) return;
-
-          if (size === 0) {
-            if (asksMap.current.delete(price)) changed = true;
-          } else {
-            asksMap.current.set(price, size);
-            changed = true;
-          }
-        });
-      }
-
-      if (changed) {
-        setDataSource('websocket');
-        scheduleUpdate();
-      }
-    };
-
-    // Load snapshot
-    const loadSnapshot = async () => {
-      try {
-        const { getIndexerClient } = await import('../client/clients');
-        const snap = await getIndexerClient().markets.getPerpetualMarketOrderbook(market);
-
-        if (!active) {
-          console.log(`[useOrderbook] Snapshot aborted, market changed`);
-          return;
-        }
-
-        // Load bids
-        snap?.bids?.forEach((b: { price: string; size: string }) => {
-          const price = Number(b.price);
-          const size = Number(b.size);
-          if (size > 0 && !isNaN(price) && !isNaN(size)) {
-            bidsMap.current.set(price, size);
-          }
-        });
-
-        // Load asks
-        snap?.asks?.forEach((a: { price: string; size: string }) => {
-          const price = Number(a.price);
-          const size = Number(a.size);
-          if (size > 0 && !isNaN(price) && !isNaN(size)) {
-            asksMap.current.set(price, size);
-          }
-        });
-
-        if (active) {
-          updateDisplay();
-          setDataSource('api');
-          console.log(
-            `[useOrderbook] Snapshot loaded: ${bidsMap.current.size} bids, ${asksMap.current.size} asks`
-          );
-        }
-      } catch (err) {
-        console.error('[useOrderbook] Snapshot error:', err);
-      }
-    };
-
-    // Setup WebSocket subscription
-    const setupWebSocket = () => {
-      if (!isConnected) {
-        console.log('[useOrderbook] WebSocket not connected');
-        return;
-      }
-
-      try {
-        const socketClient = getSocketClient();
-        unsubscribe = socketClient.subscribeToOrderbook(market, handleUpdate);
-        console.log(`[useOrderbook] Subscribed to ${market}`);
-      } catch (err) {
-        console.error('[useOrderbook] Subscribe error:', err);
-      }
-    };
-
-    // Execute setup
-    loadSnapshot();
-    setupWebSocket();
-
-    // Cleanup
     return () => {
-      console.log(`[useOrderbook] Cleaning up ${market}`);
-      active = false;
-
-      if (unsubscribe) {
-        unsubscribe();
-        console.log(`[useOrderbook] Unsubscribed from ${market}`);
-      }
-
-      if (rafRef.current !== undefined) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = undefined;
-      }
+      state.listeners.delete(listener);
+      unsubscribeFromMarket(market);
     };
   }, [market, isConnected]);
 

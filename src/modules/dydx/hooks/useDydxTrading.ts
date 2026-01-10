@@ -40,7 +40,6 @@ export const useDydxTrading = () => {
 
   const placeOrder = useCallback(
     async (params: PlaceOrderParams): Promise<OrderResult> => {
-      console.log(params, 'order Parms --------');
       if (!canTrade || !address) {
         const msg = 'Wallet not connected or no active subaccount';
         setOrderError(msg);
@@ -88,7 +87,7 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.cancelOrder(order);
 
         if (result.success) {
-          console.log('[useDydxTrading] ✅ Order cancelled successfully, triggering refresh');
+          console.log('[useDydxTrading]  Order cancelled successfully, triggering refresh');
           triggerTradeRefresh('cancel');
         }
 
@@ -106,7 +105,6 @@ export const useDydxTrading = () => {
 
   const closePosition = useCallback(
     async (position: Position): Promise<OrderResult> => {
-      console.log(position, 'Closing position -----------------');
       if (!canTrade || !address) {
         const msg = 'Not ready to trade';
         setOrderError(msg);
@@ -120,7 +118,7 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.closePosition(position, marketInfo);
 
         if (result.success) {
-          console.log('[useDydxTrading] ✅ Position closed successfully, triggering refresh');
+          console.log('[useDydxTrading] Position closed successfully, triggering refresh');
           triggerTradeRefresh('close');
         }
 
@@ -152,7 +150,7 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.setTriggers(position, triggers, marketInfo);
 
         if (result.success) {
-          console.log('[useDydxTrading] ✅ Triggers set successfully, triggering refresh');
+          console.log('[useDydxTrading] riggers set successfully, triggering refresh');
           triggerTradeRefresh('trigger');
         }
 

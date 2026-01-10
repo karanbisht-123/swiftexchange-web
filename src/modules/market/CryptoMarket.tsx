@@ -44,7 +44,7 @@ const CryptoMarket = () => {
   useEffect(() => {
     const fetchMarketData = async (forceRefresh = false) => {
       try {
-        // Check cache first
+
         const cachedData = localStorage.getItem(CACHE_KEY);
         const cacheTime = localStorage.getItem(`${CACHE_KEY}_time`);
         const now = Date.now();
@@ -53,15 +53,12 @@ const CryptoMarket = () => {
           const timeDiff = now - parseInt(cacheTime);
 
           if (timeDiff < CACHE_DURATION) {
-            // Use cached data
             setData(JSON.parse(cachedData));
             setLastFetchTime(parseInt(cacheTime));
             setLoading(false);
             return;
           }
         }
-
-        // Fetch fresh data
         setLoading(true);
         const response = await fetchApiResponseFromServer<{ marketData: Crypto[] }>(
           '/market-data/',
@@ -71,8 +68,6 @@ const CryptoMarket = () => {
         const marketData = response.data.marketData;
         setData(marketData);
         setError(null);
-
-        // Save to cache
         localStorage.setItem(CACHE_KEY, JSON.stringify(marketData));
         localStorage.setItem(`${CACHE_KEY}_time`, now.toString());
         setLastFetchTime(now);

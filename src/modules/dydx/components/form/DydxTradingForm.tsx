@@ -63,14 +63,14 @@ const convertToSeconds = (value: number, unit: GoodTilUnit): number => {
 const validateGoodTil = (
   value: number,
   unit: GoodTilUnit,
-  isConditional: boolean
+  _isConditional: boolean
 ): string | null => {
   const seconds = convertToSeconds(value, unit);
-  const maxSeconds = isConditional ? 94 * 86400 : 28 * 86400;
+  // dYdX StatefulOrderTimeWindow is 95 days
+  const maxSeconds = 95 * 86400;
 
   if (seconds > maxSeconds) {
-    const maxDays = isConditional ? 94 : 28;
-    return `Maximum duration is ${maxDays} days`;
+    return 'Maximum duration is 95 days';
   }
 
   if (value < 1) {
@@ -294,10 +294,11 @@ export const DydxTradingForm: React.FC = () => {
       ? parseFloat(triggerPrice)
       : undefined;
 
+    // dYdX expects goodTilTimeInSeconds as a DURATION in seconds, NOT absolute timestamp
+    // For example: 28 days = 28 * 24 * 60 * 60 = 2,419,200 seconds
     let goodTilTimeInSeconds: number | undefined;
     if ((isLimit && timeInForce === 'GTT') || isConditional) {
-      const durationSeconds = convertToSeconds(goodTilValue, goodTilUnit);
-      goodTilTimeInSeconds = Math.floor(Date.now() / 1000) + durationSeconds;
+      goodTilTimeInSeconds = convertToSeconds(goodTilValue, goodTilUnit);
     }
 
     console.log(side, '-----------hii i am order Sider');
@@ -358,13 +359,63 @@ export const DydxTradingForm: React.FC = () => {
         />
       ))}
 
-      {/* Wallet Connect - Fixed at top */}
+      {/* Wallet Connect - Desktop only */}
       <div className="hidden lg:block flex-shrink-0">
         <DydxWalletConnect />
       </div>
 
+      {/* Mobile Balance Display - Premium glassmorphism card */}
+      <div className="lg:hidden flex-shrink-0   py-3 px-2 bg-primary">
+        {balance ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-5">
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Portfolio</span>
+                <span className="text-base font-bold text-white">
+                  ${Number(balance.equity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="w-px h-8 bg-gray-700/50" />
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Available</span>
+                <span className="text-base font-bold text-emerald-400">
+                  ${Number(balance.freeCollateral).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+            {/* <div className="flex flex-col items-end gap-1">
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full ${canTrade ? 'bg-green-500/20' : 'bg-yellow-500/20'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${canTrade ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
+                <span className={`text-[10px] font-semibold ${canTrade ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {canTrade ? '' : 'Connect'}
+                </span>
+              </div>
+            </div> */}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between py-1">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-gray-700/50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-400">Connect wallet to trade</span>
+            </div>
+            <a
+              href="https://trade.dydx.exchange/portfolio/deposit"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-semibold rounded-lg transition-colors"
+            >
+              Deposit
+            </a>
+          </div>
+        )}
+      </div>
+
       {/* Fixed Selectors */}
-      <div className="flex-shrink-0 space-y-4  pb-2 bg-secondary">
+      <div className="flex-shrink-0 space-y-4 pb-2 bg-secondary">
         <BuySellSelector selected={side} onChange={setSide} />
         <MarginTypeSelector selected={marginType} onChange={setMarginType} />
         <OrderTypeSelector selected={orderType} onChange={setOrderType} />
@@ -480,11 +531,10 @@ export const DydxTradingForm: React.FC = () => {
           onClick={handlePlaceOrder}
           disabled={isPlacingOrder || !isFormValid}
           className={`w-full py-3 rounded-lg font-bold text-sm transition-all
-          ${
-            side === 'BUY'
+          ${side === 'BUY'
               ? 'bg-green-600 hover:bg-green-700 active:bg-green-800'
               : 'bg-red-600 hover:bg-red-700 active:bg-red-800'
-          } disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg`}
+            } disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg`}
         >
           {isPlacingOrder ? 'Placing Order...' : `${side} ${selectedMarket}`}
         </button>

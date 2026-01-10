@@ -8,6 +8,19 @@ interface MarketBadgeProps {
 
 export const MarketBadge: React.FC<MarketBadgeProps> = ({ market }) => {
   const [iconUrl, setIconUrl] = useState<string>('');
+
+  // Guard against undefined market
+  if (!market) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center">
+          <span className="text-white text-xs font-bold">?</span>
+        </div>
+        <span className="text-gray-400 text-xs font-medium">Unknown</span>
+      </div>
+    );
+  }
+
   const baseAsset = market.split('-')[0];
 
   useEffect(() => {
