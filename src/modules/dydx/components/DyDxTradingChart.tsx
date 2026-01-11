@@ -1,4 +1,14 @@
-import { ChevronDown, Download, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  BarChart3,
+  CandlestickChart,
+  ChevronDown,
+  Download,
+  Maximize2,
+  Minimize2,
+  Settings,
+  TrendingUp,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -15,7 +25,6 @@ import {
 } from 'lightweight-charts';
 
 import { type CandleResolution, useRealtimeChart } from '../hooks/useCandles';
-// import { useTrades } from '../hooks/useTrades';
 import useMarketStore from '../store/marketStore';
 
 type ChartType = 'candlestick' | 'line' | 'area';
@@ -51,6 +60,13 @@ const useIsMobile = () => {
   return isMobile;
 };
 
+// Chart type icons mapping
+const chartTypeIcons: Record<ChartType, React.ReactNode> = {
+  candlestick: <CandlestickChart className="w-4 h-4" />,
+  line: <TrendingUp className="w-4 h-4" />,
+  area: <BarChart3 className="w-4 h-4" />,
+};
+
 export default function DyDxTradingChart() {
   const isDark = useTheme();
   const isMobile = useIsMobile();
@@ -60,9 +76,10 @@ export default function DyDxTradingChart() {
   const [showGrid, setShowGrid] = useState(true);
   const [showCrosshair, setShowCrosshair] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showTimeframeMenu, setShowTimeframeMenu] = useState(false);
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [hasInitialData, setHasInitialData] = useState(false);
+  const [chartKey, setChartKey] = useState(0); // Key to force re-render chart container
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -72,12 +89,18 @@ export default function DyDxTradingChart() {
 
   const { selectedMarket } = useMarketStore();
 
-  // const { livePrice, livePriceSide, isConnected: tradesConnected } = useTrades(selectedMarket, 50);
   const { candles, latestCandle, isLoading, error } = useRealtimeChart(
     selectedMarket,
     timeframe,
     300
   );
+
+  // Track when we first get data
+  useEffect(() => {
+    if (candles.length > 0 && !hasInitialData) {
+      setHasInitialData(true);
+    }
+  }, [candles, hasInitialData]);
 
   const getThemeColors = useCallback(() => {
     if (isDark) {
@@ -110,6 +133,7 @@ export default function DyDxTradingChart() {
     const colors = getThemeColors();
     const container = chartContainerRef.current;
 
+    // Clear existing chart
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -123,7 +147,7 @@ export default function DyDxTradingChart() {
       layout: {
         background: { type: ColorType.Solid, color: colors.background },
         textColor: colors.textColor,
-        fontSize: isMobile ? 11 : 12,
+        fontSize: isMobile ? 10 : 12,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       },
       grid: {
@@ -156,18 +180,18 @@ export default function DyDxTradingChart() {
       rightPriceScale: {
         borderColor: colors.borderColor,
         scaleMargins: {
-          top: 0.1,
-          bottom: showVolume ? 0.2 : 0.1,
+          top: 0.08,
+          bottom: showVolume ? 0.18 : 0.08,
         },
-        minimumWidth: isMobile ? 55 : 70,
+        minimumWidth: isMobile ? 50 : 65,
       },
       timeScale: {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: isMobile ? 8 : 15,
-        barSpacing: isMobile ? 8 : 12,
-        minBarSpacing: isMobile ? 4 : 6,
+        rightOffset: isMobile ? 5 : 10,
+        barSpacing: isMobile ? 12 : 18,
+        minBarSpacing: isMobile ? 6 : 8,
       },
       handleScroll: {
         mouseWheel: true,
@@ -252,6 +276,7 @@ export default function DyDxTradingChart() {
     chart.timeScale().fitContent();
   }, [candles, chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
 
+  // ResizeObserver for container size changes
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -279,8 +304,9 @@ export default function DyDxTradingChart() {
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     };
-  }, []);
+  }, [chartKey]); // Re-attach observer when chartKey changes
 
+  // Create chart when data or chartKey changes
   useEffect(() => {
     createChartInstance();
 
@@ -290,8 +316,27 @@ export default function DyDxTradingChart() {
         chartRef.current = null;
       }
     };
-  }, [createChartInstance]);
+  }, [createChartInstance, chartKey]);
 
+  // Force chart recreation when fullscreen changes
+  useEffect(() => {
+    // Destroy current chart
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      volumeSeriesRef.current = null;
+    }
+
+    // Small delay to allow DOM to update, then trigger re-render
+    const timeoutId = setTimeout(() => {
+      setChartKey(prev => prev + 1);
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [isFullscreen]);
+
+  // Update candle in realtime
   useEffect(() => {
     if (!latestCandle || !seriesRef.current || !chartRef.current) return;
 
@@ -350,56 +395,64 @@ export default function DyDxTradingChart() {
     { value: '5MINS', label: '5m' },
     { value: '15MINS', label: '15m' },
     { value: '30MINS', label: '30m' },
-    { value: '1HOUR', label: '1h' },
-    { value: '4HOURS', label: '4h' },
-    { value: '1DAY', label: '1d' },
+    { value: '1HOUR', label: '1H' },
+    { value: '4HOURS', label: '4H' },
+    { value: '1DAY', label: '1D' },
   ];
 
-  const chartTypes: { value: ChartType; label: string }[] = [
-    { value: 'candlestick', label: 'Candles' },
-    { value: 'line', label: 'Line' },
-    { value: 'area', label: 'Area' },
+  const chartTypes: { value: ChartType; label: string; icon: React.ReactNode }[] = [
+    { value: 'candlestick', label: 'Candles', icon: <CandlestickChart className="w-4 h-4" /> },
+    { value: 'line', label: 'Line', icon: <TrendingUp className="w-4 h-4" /> },
+    { value: 'area', label: 'Area', icon: <BarChart3 className="w-4 h-4" /> },
   ];
 
-  interface DropdownProps {
-    label: string;
-    value: string;
-    options: Array<{ value: string; label: string }>;
-    onChange: (value: any) => void;
-    isOpen: boolean;
-    onToggle: () => void;
-  }
+  // Timeframe selector component - inside chart frame
+  const TimeframeSelector = () => (
+    <div className="absolute top-2 left-2 z-10 flex items-center gap-0.5 bg-secondary/90 backdrop-blur-sm rounded-lg p-1 border border-color shadow-lg">
+      {timeframes.map(tf => (
+        <button
+          key={tf.value}
+          onClick={() => setTimeframe(tf.value)}
+          className={`px-2 py-1 text-[10px] sm:text-xs font-medium rounded transition-all min-w-[28px] sm:min-w-[32px] ${timeframe === tf.value
+            ? 'bg-brand text-white'
+            : 'text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+        >
+          {tf.label}
+        </button>
+      ))}
+    </div>
+  );
 
-  const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: DropdownProps) => (
+  // Chart type dropdown with icons
+  const ChartTypeDropdown = () => (
     <div className="relative">
       <button
-        onClick={onToggle}
-        className="border-e border-color flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm hover:bg-hover transition-colors active:bg-hover/80"
+        onClick={() => setShowChartTypeMenu(!showChartTypeMenu)}
+        className="flex items-center gap-1.5 px-2 py-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] justify-center"
+        title={`Chart Type: ${chartType}`}
       >
-        <span className="hidden sm:inline text-gray-400">{label}</span>
-        <span className="font-medium text-white">{value}</span>
+        {chartTypeIcons[chartType]}
         <ChevronDown
-          className={`w-3 h-3 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`w-3 h-3 transition-transform duration-200 ${showChartTypeMenu ? 'rotate-180' : ''}`}
         />
       </button>
-      {isOpen && (
+      {showChartTypeMenu && (
         <>
-          <div className="fixed inset-0 z-10" onClick={onToggle} />
-          <div className="absolute top-full left-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[100px] sm:min-w-[140px] z-20 max-h-[300px] overflow-y-auto">
-            {options.map(opt => (
+          <div className="fixed inset-0 z-10" onClick={() => setShowChartTypeMenu(false)} />
+          <div className="absolute top-full left-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[140px] z-20">
+            {chartTypes.map(ct => (
               <button
-                key={opt.value}
+                key={ct.value}
                 onClick={() => {
-                  onChange(opt.value);
-                  onToggle();
+                  setChartType(ct.value);
+                  setShowChartTypeMenu(false);
                 }}
-                className={`w-full text-left px-3 sm:px-4 py-2.5 text-xs hover:bg-hover transition-colors ${
-                  value === opt.label || value === opt.value
-                    ? 'bg-hover text-brand font-medium'
-                    : 'text-primary'
-                }`}
+                className={`w-full text-left px-3 py-2.5 text-xs hover:bg-hover transition-colors flex items-center gap-2 ${chartType === ct.value ? 'bg-hover text-brand font-medium' : 'text-primary'
+                  }`}
               >
-                {opt.label}
+                {ct.icon}
+                <span>{ct.label}</span>
               </button>
             ))}
           </div>
@@ -408,25 +461,23 @@ export default function DyDxTradingChart() {
     </div>
   );
 
+  // Settings dropdown
   const SettingsDropdown = () => (
     <div className="relative">
       <button
         onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-        className="border-e border-color flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm hover:bg-hover transition-colors active:bg-hover/80"
+        className="flex items-center justify-center p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px]"
+        title="Chart Settings"
       >
-        <span className="hidden sm:inline text-white">Settings</span>
-        <span className="sm:hidden text-lg">⚙️</span>
-        <ChevronDown
-          className={`hidden sm:block w-3 h-3 transition-transform duration-200 ${showSettingsMenu ? 'rotate-180' : ''}`}
-        />
+        <Settings className="w-4 h-4 text-gray-400" />
       </button>
       {showSettingsMenu && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setShowSettingsMenu(false)} />
-          <div className="absolute top-full right-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[140px] sm:min-w-[160px] z-20">
+          <div className="absolute top-full right-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[160px] z-20">
             <button
               onClick={() => setShowVolume(!showVolume)}
-              className="w-full text-left px-3 sm:px-4 py-2.5 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+              className="w-full text-left px-4 py-3 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
             >
               <span>Volume</span>
               <div
@@ -439,7 +490,7 @@ export default function DyDxTradingChart() {
             </button>
             <button
               onClick={() => setShowGrid(!showGrid)}
-              className="w-full text-left px-3 sm:px-4 py-2.5 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+              className="w-full text-left px-4 py-3 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
             >
               <span>Grid</span>
               <div
@@ -452,7 +503,7 @@ export default function DyDxTradingChart() {
             </button>
             <button
               onClick={() => setShowCrosshair(!showCrosshair)}
-              className="w-full text-left px-3 sm:px-4 py-2.5 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+              className="w-full text-left px-4 py-3 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
             >
               <span>Crosshair</span>
               <div
@@ -469,69 +520,108 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-  return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50' : 'h-full'} bg-primary flex flex-col`}>
+  // Loading overlay component - shown when changing timeframe
+  const LoadingOverlay = () => {
+    if (!isLoading || !hasInitialData) return null;
+
+    return (
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] z-20 flex items-center justify-center transition-opacity">
+        <div className="flex items-center gap-3 bg-secondary/90 px-4 py-2 rounded-lg border border-color">
+          <div className="w-5 h-5 border-2 border-brand/30 border-t-brand rounded-full animate-spin" />
+          <span className="text-sm text-gray-300">Loading...</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Initial loading spinner
+  const InitialLoadingSpinner = () => {
+    if (!isLoading || hasInitialData) return null;
+
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-brand/30 border-t-brand rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-400 text-sm font-medium">Loading chart...</p>
+        </div>
+      </div>
+    );
+  };
+
+  // Mobile fullscreen modal - TRUE FULLSCREEN like an app
+  const MobileFullscreenModal = () => {
+    if (!isFullscreen || !isMobile) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 bg-primary flex flex-col animate-fade-in">
+        {/* Minimal header */}
+        <div className="bg-secondary border-b border-color flex-shrink-0 safe-area-top">
+          <div className="flex items-center justify-between px-2 py-1">
+            {/* Left side - Chart controls */}
+            <div className="flex items-center gap-0.5">
+              <ChartTypeDropdown />
+              <SettingsDropdown />
+            </div>
+
+            {/* Right side - Close button */}
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            >
+              <X className="w-5 h-5 text-gray-400" />
+            </button>
+          </div>
+        </div>
+
+        {/* Chart container - takes all remaining space */}
+        <div className="flex-1 bg-secondary relative overflow-hidden">
+          {/* Timeframe selector inside chart */}
+          <TimeframeSelector />
+
+          {/* Loading overlay */}
+          <LoadingOverlay />
+
+          {error && (
+            <div className="absolute top-14 left-2 right-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg z-10">
+              <p className="text-xs text-red-400">{error}</p>
+            </div>
+          )}
+
+          {/* Chart */}
+          {!hasInitialData && isLoading ? (
+            <InitialLoadingSpinner />
+          ) : (
+            <div key={chartKey} ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Desktop fullscreen or inline chart
+  const renderDesktopChart = () => (
+    <div className={`${isFullscreen && !isMobile ? 'fixed inset-0 z-50' : 'h-full'} bg-primary flex flex-col`}>
+      {/* Compact Toolbar */}
       <div className="bg-secondary border-b border-color flex-shrink-0">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between px-1">
+          {/* Left side - Chart Type & Settings */}
           <div className="flex items-center">
-            <Dropdown
-              label="Time"
-              value={timeframes.find(t => t.value === timeframe)?.label || '15m'}
-              options={timeframes}
-              onChange={setTimeframe}
-              isOpen={showTimeframeMenu}
-              onToggle={() => setShowTimeframeMenu(!showTimeframeMenu)}
-            />
-
-            <Dropdown
-              label="Type"
-              value={chartTypes.find(t => t.value === chartType)?.label || 'Candles'}
-              options={chartTypes}
-              onChange={setChartType}
-              isOpen={showChartTypeMenu}
-              onToggle={() => setShowChartTypeMenu(!showChartTypeMenu)}
-            />
-
+            <ChartTypeDropdown />
             <SettingsDropdown />
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-2 px-2">
-            {/* {livePrice && (
-              <div className="flex items-center gap-1 sm:gap-2 px-1 text-xs sm:text-sm">
-                <span className="text-gray-400 hidden sm:inline font-medium">Live</span>
-                <span
-                  className={`font-bold tabular-nums ${
-                    livePriceSide === 'BUY'
-                      ? 'text-success'
-                      : livePriceSide === 'SELL'
-                        ? 'text-danger'
-                        : 'text-brand'
-                  }`}
-                >
-                  $
-                  {livePrice.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-                {(isConnected || tradesConnected) && (
-                  <div className="relative">
-                    <div className="w-2 h-2 bg-success rounded-full" />
-                    <div className="absolute inset-0 w-2 h-2 bg-success rounded-full animate-ping" />
-                  </div>
-                )}
-              </div>
-            )} */}
+          {/* Right side - Actions */}
+          <div className="flex items-center gap-1 px-1">
             <button
               onClick={downloadChart}
-              className="p-2 hover:bg-hover rounded-md transition-colors hidden sm:block"
+              className="p-2 hover:bg-hover rounded-md transition-colors hidden sm:flex items-center justify-center min-w-[40px] min-h-[40px]"
               title="Download Chart"
             >
               <Download className="w-4 h-4 text-gray-400" />
             </button>
             <button
               onClick={toggleFullscreen}
-              className="p-2 hover:bg-hover rounded-md transition-colors"
+              className="p-2 hover:bg-hover rounded-md transition-colors flex items-center justify-center min-w-[40px] min-h-[40px]"
               title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
             >
               {isFullscreen ? (
@@ -544,23 +634,78 @@ export default function DyDxTradingChart() {
         </div>
       </div>
 
+      {/* Chart Area */}
       <div className="flex-1 bg-secondary relative overflow-hidden">
+        {/* Timeframe selector inside chart */}
+        <TimeframeSelector />
+
+        {/* Loading overlay */}
+        <LoadingOverlay />
+
         {error && (
-          <div className="absolute top-2 left-2 right-2 sm:mx-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg z-10 backdrop-blur-sm">
+          <div className="absolute top-14 left-2 right-2 sm:mx-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg z-10 backdrop-blur-sm">
             <p className="text-xs sm:text-sm text-red-400 font-medium">{error}</p>
           </div>
         )}
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="w-12 h-12 border-4 border-brand/30 border-t-brand rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-gray-400 text-sm font-medium">Loading chart...</p>
-            </div>
-          </div>
+
+        {/* Chart */}
+        {!hasInitialData && isLoading ? (
+          <InitialLoadingSpinner />
         ) : (
-          <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+          <div key={chartKey} ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
         )}
       </div>
     </div>
   );
+
+  // Mobile inline chart (non-fullscreen)
+  const renderMobileChart = () => (
+    <div className="h-full bg-primary flex flex-col">
+      {/* Compact Toolbar */}
+      <div className="bg-secondary border-b border-color flex-shrink-0">
+        <div className="flex items-center justify-end px-2 py-1">
+          <div className="flex items-center gap-0.5">
+            <ChartTypeDropdown />
+            <SettingsDropdown />
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+              title="Expand Chart"
+            >
+              <Maximize2 className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Chart Area */}
+      <div className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]">
+        {/* Timeframe selector inside chart */}
+        <TimeframeSelector />
+
+        {/* Loading overlay */}
+        <LoadingOverlay />
+
+        {error && (
+          <div className="absolute top-14 left-2 right-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg z-10">
+            <p className="text-xs text-red-400">{error}</p>
+          </div>
+        )}
+
+        {/* Chart */}
+        {!hasInitialData && isLoading ? (
+          <InitialLoadingSpinner />
+        ) : (
+          <div key={chartKey} ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+        )}
+      </div>
+    </div>
+  );
+
+  // Render based on device and fullscreen state
+  if (isMobile && isFullscreen) {
+    return <MobileFullscreenModal />;
+  }
+
+  return isMobile ? renderMobileChart() : renderDesktopChart();
 }

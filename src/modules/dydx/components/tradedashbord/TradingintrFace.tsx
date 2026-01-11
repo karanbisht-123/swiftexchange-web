@@ -1,4 +1,4 @@
-import { BookOpen, ShoppingCart, TrendingUp } from 'lucide-react';
+import { BookOpen, ArrowRightLeft, CandlestickChart, Wallet, BarChart2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -9,13 +9,17 @@ import DyDxTradingChart from '../DyDxTradingChart';
 import MarketsDisplay from '../MarketsDisplay';
 import { DydxTradingForm } from '../form/DydxTradingForm';
 import MarketSwitcher from '../market/MarketSwitcher';
+import { MarketStats } from '../market/MarketSwitcher';
+import { DydxWalletConnect } from '../DydxWalletConnect';
 import OrderAndTrades from '../order&trade/OrderAndTrades';
 import FillsPanel from '../orderHistory/FillsPanel';
 import OpenOrdersPanel from '../orderHistory/OpenOrdersPanel';
 import OrderHistoryPanel from '../orderHistory/OrderHistoryPanel';
 import PositionsPanel from '../orderHistory/PositionsPanel';
 import ResizablePanel from './ResizablePanel';
-
+import { useMarkets } from '../../hooks/useMarkets';
+import useMarketStore from '../../store/marketStore';
+import Orderbook from '../order&trade/Orderbook';
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
   const [activeChartTab, setActiveChartTab] = useState<'price' | 'depth'>('price');
@@ -33,7 +37,7 @@ const TradingintrFace = () => {
             <div className="flex overflow-hidden flex-1">
               <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
                 <MarketSwitcher />
-                <div className="flex border-b border-gray-800 bg-secondary">
+                <div className="flex border-b border-color bg-secondary">
                   {(['price', 'depth'] as const).map(tab => (
                     <button
                       key={tab}
@@ -43,8 +47,8 @@ const TradingintrFace = () => {
                       <span
                         className={
                           activeChartTab === tab
-                            ? 'text-white'
-                            : 'text-gray-400 hover:text-gray-200'
+                            ? 'text-primary'
+                            : 'text-muted hover:text-primary'
                         }
                       >
                         {tab === 'price' ? 'Price Chart' : 'Depth'}
@@ -124,7 +128,6 @@ const PortfolioView = ({
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }) => {
-  // Use computed counts from hook - openOrderCount shows only open orders, not all historical
   const {
     positions,
     openOrderCount,
@@ -134,8 +137,9 @@ const PortfolioView = ({
     loadingFills
   } = useDydxData();
 
-  const tabs = ['positions', 'orders', 'fills', 'history'];
+  const tabs = ['wallet', 'positions', 'orders', 'fills', 'history'];
   const labels: Record<string, string> = {
+    wallet: 'Wallet',
     positions: 'Positions',
     orders: 'Open Orders',
     fills: 'Fills',
@@ -146,7 +150,6 @@ const PortfolioView = ({
   const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
 
   useEffect(() => {
-    // Use positions.length (already filtered for active), openOrderCount (open only), fillCount
     const currentCounts = {
       positions: positions.length,
       orders: openOrderCount,
@@ -181,7 +184,7 @@ const PortfolioView = ({
 
   return (
     <div className="h-full flex flex-col max-w-full">
-      <div className="flex items-center border-b border-gray-800 mb-4 overflow-x-auto scrollbar-hide">
+      <div className="flex items-center border-b border-color mb-4 overflow-x-auto scrollbar-hide">
         {tabs.map(tab => {
           const isLoading =
             (tab === 'positions' && loadingPositions) ||
@@ -201,14 +204,14 @@ const PortfolioView = ({
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === tab
-                  ? 'text-white border-b-2 border-blue-500'
-                  : 'text-gray-400 hover:text-gray-300'
+                ? 'text-primary border-b-2 border-blue-500'
+                : 'text-muted hover:text-primary'
                 }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}
                 {isLoading && (
-                  <div className="w-3 h-3 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+                  <div className="w-3 h-3 border-2 border-muted border-t-blue-500 rounded-full animate-spin" />
                 )}
                 {newCount > 0 && (
                   <span className="bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
@@ -222,6 +225,11 @@ const PortfolioView = ({
       </div>
 
       <div className="flex-1 overflow-auto">
+        {activeTab === 'wallet' && (
+          <div className="p-4">
+            <DydxWalletConnect />
+          </div>
+        )}
         {activeTab === 'positions' && <PositionsPanel />}
         {activeTab === 'orders' && <OpenOrdersPanel />}
         {activeTab === 'fills' && <FillsPanel />}
@@ -232,77 +240,199 @@ const PortfolioView = ({
 };
 
 const MobileLayout = () => {
-  const [activeTab, setActiveTab] = useState('chart');
-  const [chartType, setChartType] = useState<'price' | 'depth'>('price');
+  const [activeTab, setActiveTab] = useState('price');
+  const { getMarket } = useMarkets();
+  const { selectedMarket } = useMarketStore();
+
+  const marketData = getMarket(selectedMarket);
 
   const tabs = [
-    { id: 'chart', label: 'Chart', icon: TrendingUp },
-    { id: 'orderbook', label: 'Book', icon: BookOpen },
-    { id: 'trade', label: 'Trade', icon: ShoppingCart },
+    { id: 'price', label: 'Price', icon: CandlestickChart },
+    { id: 'depth', label: 'Depth', icon: BarChart2 },
+    { id: 'orderbook', label: 'Orderbook', icon: BookOpen },
+    { id: 'trade', label: 'Trade', icon: ArrowRightLeft },
+    { id: 'portfolio', label: 'Portfolio', icon: Wallet },
   ];
 
   return (
-    <div className="md:hidden flex flex-col h-[calc(100svh-60px)] overflow-hidden">
+    <div className="md:hidden flex flex-col max-w-lvw flex h-[calc(100svh-60px)] overflow-hidden">
       <div className="max-w-lvw shrink-0">
         <MarketSwitcher />
       </div>
 
-      {activeTab === 'chart' && (
-        <div className="flex bg-secondary border-b border-gray-800 shrink-0">
-          <button
-            onClick={() => setChartType('price')}
-            className={`flex-1 text-xs font-medium transition-all active:scale-95 ${chartType === 'price'
-                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
-                : 'bg-gray-800/50 text-gray-400 active:bg-gray-800'
-              }`}
-          >
-            Price Chart
-          </button>
-          <button
-            onClick={() => setChartType('depth')}
-            className={`flex-1 py-2 text-xs font-medium transition-all active:scale-95 ${chartType === 'depth'
-                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
-                : 'bg-gray-800/50 text-gray-400 active:bg-gray-800'
-              }`}
-          >
-            Depth Chart
-          </button>
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-hidden bg-secondary flex flex-col">
+        <div className="flex-1 overflow-hidden">
+          {activeTab === 'price' && (
+            <div className="h-full">
+              <DyDxTradingChart />
+            </div>
+          )}
+          {activeTab === 'depth' && (
+            <div className="h-full">
+              <DepthChart />
+            </div>
+          )}
+          {activeTab === 'orderbook' && (
+            <div className="h-full overflow-auto">
+              <OrderAndTrades />
+            </div>
+          )}
+          {activeTab === 'trade' && (
+            <div className="h-full overflow-hidden flex">
+              {/* Split View: Orderbook + Trading Form */}
+              <div className="w-2/4 overflow-auto border-r border-color">
+                <Orderbook />
+              </div>
+              <div className="flex-1 overflow-auto">
+                <DydxTradingForm />
+              </div>
+            </div>
+          )}
+          {activeTab === 'portfolio' && (
+            <div className="h-full overflow-auto">
+              <MobilePortfolio />
+            </div>
+          )}
         </div>
-      )}
 
-      <div className="flex-1 overflow-hidden bg-secondary">
-        {activeTab === 'chart' && (
-          <div className="h-full">
-            {chartType === 'price' ? <DyDxTradingChart /> : <DepthChart />}
-          </div>
-        )}
-        {activeTab === 'orderbook' && (
-          <div className="h-full overflow-auto">
-            <OrderAndTrades />
-          </div>
-        )}
-        {activeTab === 'trade' && (
-          <div className="h-full overflow-auto">
-            <DydxTradingForm />
-          </div>
-        )}
+        {/* Action Buttons Below Chart */}
+        <div className="flex items-center justify-center gap-2 px-4 py-3 bg-secondary border-t border-color shrink-0">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-primary text-muted hover:bg-hover hover:text-primary'
+                  }`}
+              >
+                <Icon className="w-5 h-5 shrink-0" />
+                {isActive && (
+                  <span className="text-xs font-medium whitespace-nowrap">{tab.label}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {marketData && <MarketStats marketData={marketData} />}
       </div>
+    </div>
+  );
+};
 
-      <div className="flex bg-secondary backdrop-blur-sm shrink-0 safe-area-inset-bottom">
+const MobilePortfolio = () => {
+  const [activeTab, setActiveTab] = useState('wallet');
+
+  const {
+    positions,
+    openOrderCount,
+    fillCount,
+    loadingPositions,
+    loadingOrders,
+    loadingFills
+  } = useDydxData();
+
+  const tabs = ['wallet', 'positions', 'orders', 'fills', 'history'];
+  const labels: Record<string, string> = {
+    wallet: 'Wallet',
+    positions: 'Positions',
+    orders: 'Open Orders',
+    fills: 'Fills',
+    history: 'Order History',
+  };
+
+  const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
+  const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
+
+  useEffect(() => {
+    const currentCounts = {
+      positions: positions.length,
+      orders: openOrderCount,
+      fills: fillCount,
+    };
+
+    const newChanges = {
+      positions:
+        currentCounts.positions > prevCountsRef.current.positions
+          ? currentCounts.positions - prevCountsRef.current.positions
+          : 0,
+      orders:
+        currentCounts.orders > prevCountsRef.current.orders
+          ? currentCounts.orders - prevCountsRef.current.orders
+          : 0,
+      fills:
+        currentCounts.fills > prevCountsRef.current.fills
+          ? currentCounts.fills - prevCountsRef.current.fills
+          : 0,
+    };
+
+    setNewCounts(newChanges);
+
+    const timer = setTimeout(() => {
+      setNewCounts({ positions: 0, orders: 0, fills: 0 });
+    }, 5000);
+
+    prevCountsRef.current = currentCounts;
+
+    return () => clearTimeout(timer);
+  }, [positions.length, openOrderCount, fillCount]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center border-b border-color overflow-x-auto scrollbar-hide shrink-0">
         {tabs.map(tab => {
-          const Icon = tab.icon;
+          const isLoading =
+            (tab === 'positions' && loadingPositions) ||
+            (tab === 'orders' && loadingOrders) ||
+            (tab === 'fills' && loadingFills);
+          const newCount =
+            tab === 'positions'
+              ? newCounts.positions
+              : tab === 'orders'
+                ? newCounts.orders
+                : tab === 'fills'
+                  ? newCounts.fills
+                  : 0;
+
           return (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 flex flex-col items-center gap-1 transition-all active:scale-95 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`relative px-4 py-3 text-xs font-semibold transition-colors whitespace-nowrap ${activeTab === tab
+                ? 'text-primary border-b-2 border-blue-500'
+                : 'text-muted hover:text-primary'
                 }`}
             >
-              <Icon className={`w-5 h-5 ${activeTab === tab.id ? 'text-blue-500' : ''}`} />
-              <span className="text-[10px] font-medium">{tab.label}</span>
+              <span className="flex items-center gap-2">
+                {labels[tab]}
+                {isLoading && (
+                  <div className="w-2.5 h-2.5 border-2 border-muted border-t-blue-500 rounded-full animate-spin" />
+                )}
+                {newCount > 0 && (
+                  <span className="bg-green-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                    +{newCount}
+                  </span>
+                )}
+              </span>
             </button>
           );
         })}
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        {activeTab === 'wallet' && (
+          <div className="p-4">
+            <DydxWalletConnect />
+          </div>
+        )}
+        {activeTab === 'positions' && <PositionsPanel />}
+        {activeTab === 'orders' && <OpenOrdersPanel />}
+        {activeTab === 'fills' && <FillsPanel />}
+        {activeTab === 'history' && <OrderHistoryPanel />}
       </div>
     </div>
   );
@@ -315,7 +445,6 @@ const BottomTabsSection = ({
   activeBottomTab: string;
   setActiveBottomTab: (tab: string) => void;
 }) => {
-  // Use computed counts from hook - openOrderCount shows only open orders, not all historical
   const {
     positions,
     openOrderCount,
@@ -338,7 +467,6 @@ const BottomTabsSection = ({
   const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
 
   useEffect(() => {
-    // Use positions.length (already filtered for active), openOrderCount (open only), fillCount
     const currentCounts = {
       positions: positions.length,
       orders: openOrderCount,
@@ -373,7 +501,7 @@ const BottomTabsSection = ({
 
   return (
     <>
-      <div className="flex items-center border-b border-gray-800 px-2 sm:px-4 shrink-0 overflow-x-auto scrollbar-hide">
+      <div className="flex items-center border-b border-color px-2 sm:px-4 shrink-0 overflow-x-auto scrollbar-hide bg-secondary">
         {tabs.map(tab => {
           const isLoading =
             (tab === 'positions' && loadingPositions) ||
@@ -393,14 +521,14 @@ const BottomTabsSection = ({
               key={tab}
               onClick={() => setActiveBottomTab(tab)}
               className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${activeBottomTab === tab
-                  ? 'text-white border-b-2 border-[#3b4fd9]'
-                  : 'text-gray-400 hover:text-gray-300'
+                ? 'text-primary border-b-2 border-blue-500'
+                : 'text-muted hover:text-primary'
                 }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}
                 {isLoading && (
-                  <div className="w-2.5 h-2.5 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+                  <div className="w-2.5 h-2.5 border-2 border-muted border-t-blue-500 rounded-full animate-spin" />
                 )}
                 {newCount > 0 && (
                   <span className="bg-green-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
@@ -426,8 +554,8 @@ const BottomTabsSection = ({
 
 const FundingPlaceholder = () => (
   <div className="flex flex-col items-center justify-center h-full text-center p-4">
-    <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Funding Payments</h3>
-    <p className="text-gray-400 text-xs sm:text-sm">This feature is coming soon</p>
+    <h3 className="text-base sm:text-lg font-semibold text-primary mb-2">Funding Payments</h3>
+    <p className="text-muted text-xs sm:text-sm">This feature is coming soon</p>
   </div>
 );
 

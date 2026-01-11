@@ -31,7 +31,7 @@ const DydxTopBar: FC = () => {
   };
 
   return (
-    <div className="w-full bg-secondary border-b border-color">
+    <div className="w-full bg-secondary border-b border-color hidden lg:block">
       <div className="flex items-center gap-1  ">
         {tabs.map(tab => {
           const isActive = activeTab === tab.key;

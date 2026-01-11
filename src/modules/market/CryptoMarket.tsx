@@ -40,11 +40,20 @@ const CryptoMarket = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedCrypto, setSelectedCrypto] = useState<Crypto | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     const fetchMarketData = async (forceRefresh = false) => {
       try {
-
         const cachedData = localStorage.getItem(CACHE_KEY);
         const cacheTime = localStorage.getItem(`${CACHE_KEY}_time`);
         const now = Date.now();
@@ -123,9 +132,9 @@ const CryptoMarket = () => {
 
   if (loading && data.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+      <div className="flex items-center justify-center min-h-screen bg-primary text-primary">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-2 mx-auto mb-4" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-brand-accent)' }}></div>
           Loading market data...
         </div>
       </div>
@@ -134,12 +143,12 @@ const CryptoMarket = () => {
 
   if (error && data.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-red-400">
+      <div className="flex items-center justify-center min-h-screen bg-primary" style={{ color: 'var(--color-danger)' }}>
         <div className="text-center">
           <p className="mb-4">{error}</p>
           <button
             onClick={handleRefresh}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+            className="btn btn-primary"
           >
             Retry
           </button>
@@ -149,100 +158,141 @@ const CryptoMarket = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      <div className="p-4 bg-gray-800 flex justify-between items-center">
+    <div className="min-h-screen bg-secondary text-primary">
+      {/* <div className="p-4 bg-secondary flex justify-between items-center border-b border-color">
         <h1 className="text-2xl font-bold">Crypto Market</h1>
         <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">
-            Last updated:{' '}
-            {lastFetchTime ? new Date(lastFetchTime).toLocaleTimeString() : 'Just now'}
-          </span>
+          {!isMobile && (
+            <span className="text-sm text-muted">
+              Last updated:{' '}
+              {lastFetchTime ? new Date(lastFetchTime).toLocaleTimeString() : 'Just now'}
+            </span>
+          )}
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded text-sm transition-colors"
+            className="btn btn-primary btn-sm"
           >
             {loading ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
-      </div>
+      </div> */}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="bg-gray-800 sticky top-0">
-            <tr>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase">#</th>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase">Coin</th>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase text-right">
-                Price
-              </th>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase text-right">
-                24h
-              </th>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase text-right hidden md:table-cell">
-                24h High
-              </th>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase text-right hidden md:table-cell">
-                24h Low
-              </th>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase text-right hidden lg:table-cell">
-                Market Cap
-              </th>
-              <th className="px-6 py-4 text-xs font-medium text-gray-400 uppercase text-right hidden lg:table-cell">
-                Volume (24h)
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map(coin => (
-              <tr
-                key={coin._id}
-                onClick={() => setSelectedCrypto(coin)}
-                className="border-t border-gray-700 hover:bg-gray-800 transition-colors cursor-pointer"
-              >
-                <td className="px-6 py-4 text-sm">{coin.marketCapRank}</td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <img src={coin.image} alt={coin.name} className="w-8 h-8 rounded-full" />
-                    <div>
-                      <div className="font-medium">{coin.name}</div>
-                      <div className="text-xs text-gray-400 uppercase">{coin.symbol}</div>
-                    </div>
+      {isMobile ? (
+        <div className="divide-y divide-color">
+          {data.map(coin => (
+            <div
+              key={coin._id}
+              onClick={() => setSelectedCrypto(coin)}
+              className="flex items-center justify-between py-3 px-4 hover:bg-hover transition-colors cursor-pointer"
+            >
+              {/* Left: Icon + Name + Volume */}
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <img src={coin.image} alt={coin.name} className="w-10 h-10 rounded-full flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-primary text-base">
+                    {coin.symbol.toUpperCase()}
                   </div>
-                </td>
-                <td className="px-6 py-4 text-right font-medium">
+                  <div className="text-xs text-muted">
+                    Volume {formatLargeNumber(coin.totalVolume)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Price + Change */}
+              <div className="text-right flex-shrink-0">
+                <div className="text-primary font-semibold text-base">
                   {formatPrice(coin.currentPrice)}
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <span
-                    className={`font-medium ${coin.priceChangePercentage24h >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                  >
-                    {coin.priceChangePercentage24h >= 0 ? '↑' : '↓'}{' '}
-                    {Math.abs(coin.priceChangePercentage24h).toFixed(2)}%
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-right text-green-400 hidden md:table-cell">
-                  {formatPrice(coin.high24h)}
-                </td>
-                <td className="px-6 py-4 text-right text-red-400 hidden md:table-cell">
-                  {formatPrice(coin.low24h)}
-                </td>
-                <td className="px-6 py-4 text-right hidden lg:table-cell">
-                  {formatLargeNumber(coin.marketCap)}
-                </td>
-                <td className="px-6 py-4 text-right hidden lg:table-cell">
-                  {formatLargeNumber(coin.totalVolume)}
-                </td>
+                </div>
+                <div
+                  className={`text-xs font-medium ${coin.priceChangePercentage24h >= 0 ? 'price-up' : 'price-down'
+                    }`}
+                >
+                  {coin.priceChangePercentage24h >= 0 ? '+' : ''}
+                  {coin.priceChangePercentage24h.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-tertiary sticky top-0">
+              <tr>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase">#</th>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase">Coin</th>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase text-right">
+                  Price
+                </th>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase text-right">
+                  24h
+                </th>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase text-right hidden md:table-cell">
+                  24h High
+                </th>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase text-right hidden md:table-cell">
+                  24h Low
+                </th>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase text-right hidden lg:table-cell">
+                  Market Cap
+                </th>
+                <th className="px-6 py-4 text-xs font-medium text-muted uppercase text-right hidden lg:table-cell">
+                  Volume (24h)
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {data.map(coin => (
+                <tr
+                  key={coin._id}
+                  onClick={() => setSelectedCrypto(coin)}
+                  className="border-t border-color hover:bg-hover transition-colors cursor-pointer"
+                >
+                  <td className="px-6 py-4 text-sm">{coin.marketCapRank}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <img src={coin.image} alt={coin.name} className="w-8 h-8 rounded-full" />
+                      <div>
+                        <div className="font-medium">{coin.name}</div>
+                        <div className="text-xs text-muted uppercase">{coin.symbol}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-right font-medium">
+                    {formatPrice(coin.currentPrice)}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <span
+                      className={`font-medium ${coin.priceChangePercentage24h >= 0 ? 'price-up' : 'price-down'}`}
+                    >
+                      {coin.priceChangePercentage24h >= 0 ? '↑' : '↓'}{' '}
+                      {Math.abs(coin.priceChangePercentage24h).toFixed(2)}%
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right price-up hidden md:table-cell">
+                    {formatPrice(coin.high24h)}
+                  </td>
+                  <td className="px-6 py-4 text-right price-down hidden md:table-cell">
+                    {formatPrice(coin.low24h)}
+                  </td>
+                  <td className="px-6 py-4 text-right hidden lg:table-cell">
+                    {formatLargeNumber(coin.marketCap)}
+                  </td>
+                  <td className="px-6 py-4 text-right hidden lg:table-cell">
+                    {formatLargeNumber(coin.totalVolume)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {selectedCrypto && (
-        <div className="fixed inset-0 bg-black/40 bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-6 flex justify-between items-start">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-secondary rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-color">
+            <div className="sticky top-0 bg-secondary border-b border-color p-6 flex justify-between items-start">
               <div className="flex items-center gap-4">
                 <img
                   src={selectedCrypto.image}
@@ -251,12 +301,12 @@ const CryptoMarket = () => {
                 />
                 <div>
                   <h2 className="text-2xl font-bold">{selectedCrypto.name}</h2>
-                  <p className="text-gray-400 uppercase">{selectedCrypto.symbol}</p>
+                  <p className="text-muted uppercase">{selectedCrypto.symbol}</p>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedCrypto(null)}
-                className="text-gray-400 hover:text-white transition-colors"
+                className="text-muted hover:text-primary transition-colors"
               >
                 <X size={24} />
               </button>
@@ -265,18 +315,18 @@ const CryptoMarket = () => {
             <div className="space-y-2">
               {/* Price Section */}
               <div>
-                <div className="bg-gray-900  p-4">
+                <div className="bg-tertiary p-4">
                   <div className="text-3xl font-bold mb-2">
                     {formatPrice(selectedCrypto.currentPrice)}
                   </div>
                   <div
-                    className={`text-lg ${selectedCrypto.priceChangePercentage24h >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                    className={`text-lg ${selectedCrypto.priceChangePercentage24h >= 0 ? 'price-up' : 'price-down'}`}
                   >
                     {selectedCrypto.priceChangePercentage24h >= 0 ? '↑' : '↓'}{' '}
                     {Math.abs(selectedCrypto.priceChangePercentage24h).toFixed(2)}% (24h)
                   </div>
                   {selectedCrypto.priceChange24h && (
-                    <div className="text-sm text-gray-400 mt-1">
+                    <div className="text-sm text-muted mt-1">
                       {formatPrice(Math.abs(selectedCrypto.priceChange24h))} change
                     </div>
                   )}
@@ -286,26 +336,26 @@ const CryptoMarket = () => {
               {/* 24h Stats */}
               <div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-900 p-4">
-                    <div className="text-sm text-gray-400 mb-1">24h High</div>
-                    <div className="text-xl font-semibold text-green-400">
+                  <div className="bg-tertiary p-4">
+                    <div className="text-sm text-muted mb-1">24h High</div>
+                    <div className="text-xl font-semibold price-up">
                       {formatPrice(selectedCrypto.high24h)}
                     </div>
                   </div>
-                  <div className="bg-gray-900  p-4">
-                    <div className="text-sm text-gray-400 mb-1">24h Low</div>
-                    <div className="text-xl font-semibold text-red-400">
+                  <div className="bg-tertiary p-4">
+                    <div className="text-sm text-muted mb-1">24h Low</div>
+                    <div className="text-xl font-semibold price-down">
                       {formatPrice(selectedCrypto.low24h)}
                     </div>
                   </div>
-                  <div className="bg-gray-900  p-4">
-                    <div className="text-sm text-gray-400 mb-1">24h Volume</div>
+                  <div className="bg-tertiary p-4">
+                    <div className="text-sm text-muted mb-1">24h Volume</div>
                     <div className="text-xl font-semibold">
                       {formatLargeNumber(selectedCrypto.totalVolume)}
                     </div>
                   </div>
-                  <div className="bg-gray-900  p-4">
-                    <div className="text-sm text-gray-400 mb-1">Market Cap Change</div>
+                  <div className="bg-tertiary p-4">
+                    <div className="text-sm text-muted mb-1">Market Cap Change</div>
                     <div className="text-xl font-semibold">
                       {selectedCrypto.marketCapChange24h
                         ? formatLargeNumber(Math.abs(selectedCrypto.marketCapChange24h))
@@ -317,20 +367,20 @@ const CryptoMarket = () => {
 
               {/* Market Data */}
               <div>
-                <div className="bg-gray-900 p-4 space-y-3">
+                <div className="bg-tertiary p-4 space-y-3">
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Market Cap Rank</span>
+                    <span className="text-muted">Market Cap Rank</span>
                     <span className="font-semibold">#{selectedCrypto.marketCapRank}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Market Cap</span>
+                    <span className="text-muted">Market Cap</span>
                     <span className="font-semibold">
                       {formatLargeNumber(selectedCrypto.marketCap)}
                     </span>
                   </div>
                   {selectedCrypto.fullyDilutedValuation && (
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Fully Diluted Valuation</span>
+                      <span className="text-muted">Fully Diluted Valuation</span>
                       <span className="font-semibold">
                         {formatLargeNumber(selectedCrypto.fullyDilutedValuation)}
                       </span>
@@ -338,7 +388,7 @@ const CryptoMarket = () => {
                   )}
                   {selectedCrypto.circulatingSupply && (
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Circulating Supply</span>
+                      <span className="text-muted">Circulating Supply</span>
                       <span className="font-semibold">
                         {selectedCrypto.circulatingSupply.toLocaleString()}{' '}
                         {selectedCrypto.symbol.toUpperCase()}
@@ -347,7 +397,7 @@ const CryptoMarket = () => {
                   )}
                   {selectedCrypto.maxSupply && (
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Max Supply</span>
+                      <span className="text-muted">Max Supply</span>
                       <span className="font-semibold">
                         {selectedCrypto.maxSupply.toLocaleString()}{' '}
                         {selectedCrypto.symbol.toUpperCase()}
@@ -360,33 +410,33 @@ const CryptoMarket = () => {
               {/* All-Time Stats */}
               <div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-gray-900  p-4">
-                    <div className="text-sm text-gray-400 mb-1">All-Time High</div>
-                    <div className="text-xl font-semibold text-green-400 mb-1">
+                  <div className="bg-tertiary p-4">
+                    <div className="text-sm text-muted mb-1">All-Time High</div>
+                    <div className="text-xl font-semibold price-up mb-1">
                       {formatPrice(selectedCrypto.ath)}
                     </div>
-                    <div className="text-sm text-red-400">
+                    <div className="text-sm price-down">
                       {selectedCrypto.athChangePercentage.toFixed(2)}% from ATH
                     </div>
                     {selectedCrypto.athDate && (
-                      <div className="text-xs text-gray-500 mt-1">
+                      <div className="text-xs text-muted mt-1">
                         {formatDate(selectedCrypto.athDate)}
                       </div>
                     )}
                   </div>
                   {selectedCrypto.atl && (
-                    <div className="bg-gray-900 p-4">
-                      <div className="text-sm text-gray-400 mb-1">All-Time Low</div>
-                      <div className="text-xl font-semibold text-red-400 mb-1">
+                    <div className="bg-tertiary p-4">
+                      <div className="text-sm text-muted mb-1">All-Time Low</div>
+                      <div className="text-xl font-semibold price-down mb-1">
                         {formatPrice(selectedCrypto.atl)}
                       </div>
                       {selectedCrypto.atlChangePercentage && (
-                        <div className="text-sm text-green-400">
+                        <div className="text-sm price-up">
                           {selectedCrypto.atlChangePercentage.toFixed(2)}% from ATL
                         </div>
                       )}
                       {selectedCrypto.atlDate && (
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-muted mt-1">
                           {formatDate(selectedCrypto.atlDate)}
                         </div>
                       )}
@@ -396,7 +446,7 @@ const CryptoMarket = () => {
               </div>
 
               {selectedCrypto.lastUpdated && (
-                <div className="text-center text-sm text-gray-500">
+                <div className="text-center text-sm text-muted p-4">
                   Last updated: {new Date(selectedCrypto.lastUpdated).toLocaleString()}
                 </div>
               )}

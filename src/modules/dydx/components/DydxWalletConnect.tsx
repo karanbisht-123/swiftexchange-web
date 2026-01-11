@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { RefreshCw, AlertCircle } from 'lucide-react';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
@@ -45,8 +46,8 @@ const calculateMarginUsage = (equity: string, freeCollateral: string) => {
 
 const Shimmer: React.FC = () => (
   <div className="animate-pulse">
-    <div className="h-4 bg-gray-700/50 rounded w-24 mb-2" />
-    <div className="h-5 bg-gray-700/50 rounded w-32" />
+    <div className="h-4 bg-tertiary rounded w-24 mb-2" />
+    <div className="h-5 bg-tertiary rounded w-32" />
   </div>
 );
 
@@ -176,17 +177,21 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (connectionError || error) {
     return (
-      <div className="p-4 border-b border-gray-800">
+      <div className="bg-secondary rounded-lg lg:rounded-none p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-xs text-red-400">Connection Error</p>
-            <p className="text-sm text-gray-400 mt-1">{connectionError || error}</p>
+            <p className="text-xs text-danger">Connection Error</p>
+            <p className="text-xs text-muted mt-1">{connectionError || error}</p>
           </div>
         </div>
         <button
           onClick={handleRetry}
           disabled={isConnecting || isDeriving}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-medium transition disabled:opacity-50"
+          className="w-full py-2 rounded text-sm font-medium transition disabled:opacity-50"
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)'
+          }}
         >
           {isConnecting || isDeriving ? 'Processing...' : 'Retry Connection'}
         </button>
@@ -196,19 +201,23 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (!hasEvmWallet) {
     return (
-      <div className="p-4 border-b border-gray-800">
+      <div className="bg-secondary rounded-lg lg:rounded-none p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-xs text-gray-500">dYdX Trading Account</p>
-            <p className="text-sm text-gray-400">Connect wallet to start</p>
+            <p className="text-xs text-muted">dYdX Trading Account</p>
+            <p className="text-xs text-secondary">Connect wallet to start</p>
           </div>
-          <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+          <span className="px-2 py-1 rounded text-xs font-medium bg-warning text-white">
             Setup Required
           </span>
         </div>
         <button
           onClick={openModal}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded text-sm transition"
+          className="w-full font-medium py-2 rounded text-sm transition"
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)'
+          }}
         >
           Connect Wallet
         </button>
@@ -218,25 +227,29 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (needsDydxDerivation) {
     return (
-      <div className="p-4 border-b border-gray-800">
+      <div className="bg-secondary rounded-lg lg:rounded-none p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-xs text-gray-500">dYdX Trading Account</p>
-            <p className="text-sm text-gray-400">Sign message to create account</p>
+            <p className="text-xs text-muted">dYdX Trading Account</p>
+            <p className="text-xs text-secondary">Sign message to create account</p>
           </div>
-          <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+          <span className="px-2 py-1 rounded text-xs font-medium bg-warning text-white">
             Derivation Required
           </span>
         </div>
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded p-3 mb-3">
-          <p className="text-xs text-blue-300">
+        <div className="bg-info-bg border border-color rounded p-2 mb-3">
+          <p className="text-xs text-info">
             Sign a message with your wallet to derive your dYdX trading account
           </p>
         </div>
         <button
           onClick={handleDeriveDydx}
           disabled={isDeriving}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded text-sm transition disabled:opacity-50"
+          className="w-full font-medium py-2 rounded text-sm transition disabled:opacity-50"
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)'
+          }}
         >
           {isDeriving ? 'Deriving...' : 'Derive dYdX Account'}
         </button>
@@ -246,11 +259,11 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (isConnecting || (!isConnected && hasDydxAddress)) {
     return (
-      <div className="p-4 border-b border-gray-800">
+      <div className="bg-secondary rounded-lg p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-center py-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-600 border-t-blue-500" />
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-tertiary border-t-brand" />
         </div>
-        <p className="text-center text-sm text-gray-400 mt-2">Connecting to dYdX...</p>
+        <p className="text-center text-sm text-muted mt-2">Connecting to dYdX...</p>
       </div>
     );
   }
@@ -260,11 +273,11 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (!balance || hasZeroBalance) {
     return (
-      <div className="p-4 border-b border-gray-800">
+      <div className="bg-secondary rounded-lg p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-xs text-gray-500">dYdX Trading Account</p>
-            <p className="text-sm font-mono text-gray-400">
+            <p className="text-xs text-muted">dYdX Trading Account</p>
+            <p className="text-xs font-mono text-secondary">
               {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
             </p>
           </div>
@@ -272,36 +285,30 @@ export const DydxWalletConnect: React.FC = () => {
             <button
               onClick={refresh}
               disabled={loadingBalance}
-              className="p-1 rounded hover:bg-gray-700 transition-colors disabled:opacity-50"
+              className="p-1 rounded hover:bg-hover transition-colors disabled:opacity-50"
               title="Refresh balance"
             >
-              <svg
-                className={`w-4 h-4 text-gray-400 ${loadingBalance ? 'animate-spin' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
+              <RefreshCw
+                className={`w-4 h-4 text-muted ${loadingBalance ? 'animate-spin' : ''}`}
+              />
             </button>
-            <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+            <span className="px-2 py-1 rounded text-xs font-medium bg-warning text-white">
               No Funds
             </span>
           </div>
         </div>
-        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded p-3 mb-3">
-          <p className="text-xs text-yellow-300">Deposit USDC to start trading on dYdX Chain</p>
+        <div className="bg-warning-bg border border-color rounded p-2 mb-3">
+          <p className="text-xs text-warning">Deposit USDC to start trading on dYdX Chain</p>
         </div>
         <a
           href="https://trade.dydx.exchange/portfolio/deposit"
           target="_blank"
           rel="noopener noreferrer"
-          className="block text-center bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-medium transition"
+          className="block text-center py-2 rounded text-sm font-medium transition"
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)'
+          }}
         >
           Deposit Funds
         </a>
@@ -310,75 +317,90 @@ export const DydxWalletConnect: React.FC = () => {
   }
 
   return (
-    <div className="bg-secondary rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-700/50">
+    <div className="bg-secondary lg:rounded-none rounded-lg p-3 sm:p-4 ">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-3 mb-3 border-b border-color">
         <div className="flex items-center gap-2">
           <div
-            className={`w-2 h-2 rounded-full ${isReceivingUpdates ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}
+            className={`w-2 h-2 rounded-full ${isReceivingUpdates ? 'bg-success animate-pulse' : 'bg-muted'}`}
           />
-          <span className="text-xs text-gray-400">
-            {isReceivingUpdates ? 'Live Updates' : 'Connecting...'}
+          <span className="text-xs text-muted">
+            {isReceivingUpdates ? 'Live' : 'Connecting...'}
           </span>
         </div>
         <button
           onClick={refresh}
           disabled={loadingBalance}
-          className="text-xs text-gray-400 hover:text-blue-400 transition disabled:opacity-50"
+          className="text-xs text-muted hover:text-brand transition disabled:opacity-50 flex items-center gap-1"
           title="Refresh balance"
         >
-          {loadingBalance ? '...' : `Updated ${timeAgo}`}
+          <RefreshCw className={`w-3 h-3 ${loadingBalance ? 'animate-spin' : ''}`} />
+          {loadingBalance ? '...' : `${timeAgo}`}
         </button>
       </div>
 
+      {/* Loading State */}
       {loadingBalance && !marginMetrics ? (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="flex justify-between items-center">
-            <span className="text-gray-400 text-xs">Portfolio Value</span>
+            <span className="text-xs text-muted">Portfolio Value</span>
             <Shimmer />
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-gray-400 text-xs">Available Balance</span>
+            <span className="text-xs text-muted">Available Balance</span>
             <Shimmer />
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-gray-400 text-xs">Margin Used</span>
+            <span className="text-xs text-muted">Margin Used</span>
             <Shimmer />
           </div>
         </div>
       ) : marginMetrics ? (
         <div className="space-y-3">
+          {/* Portfolio Value */}
           <div className="flex justify-between items-center">
-            <span className="text-gray-400 text-xs">Portfolio Value</span>
-            <span className="text-white text-sm font-medium">
+            <span className="text-xs text-muted">Portfolio Value</span>
+            <span className="text-base font-semibold text-primary">
               ${formatCurrency(marginMetrics.portfolioValue)}
             </span>
           </div>
+
+          {/* Available Balance */}
           <div className="flex justify-between items-center">
-            <span className="text-gray-400 text-xs">Available Balance</span>
-            <span className="text-emerald-400 text-sm font-medium">
+            <span className="text-xs text-muted">Available Balance</span>
+            <span className="text-sm font-medium text-success">
               ${formatCurrency(marginMetrics.availableBalance)}
             </span>
           </div>
+
+          {/* Margin Usage */}
           <div className="flex justify-between items-center">
-            <span className="text-gray-400 text-xs">Margin Used</span>
+            <span className="text-xs text-muted">Margin Used</span>
             <div className="flex items-center gap-2">
-              <div className="relative w-5 h-5">
-                <svg className="w-5 h-5 transform -rotate-90" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="10" stroke="#374151" strokeWidth="3" fill="none" />
+              <div className="relative w-6 h-6">
+                <svg className="w-6 h-6 transform -rotate-90" viewBox="0 0 24 24">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="var(--color-bg-tertiary)"
+                    strokeWidth="2"
+                    fill="none"
+                  />
                   <circle
                     cx="12"
                     cy="12"
                     r="10"
                     stroke={
                       marginMetrics.marginUsagePercent > 85
-                        ? '#ef4444'
+                        ? 'var(--color-danger)'
                         : marginMetrics.marginUsagePercent > 70
-                          ? '#f97316'
+                          ? 'var(--color-warning)'
                           : marginMetrics.marginUsagePercent > 50
-                            ? '#eab308'
-                            : '#10b981'
+                            ? 'var(--color-warning)'
+                            : 'var(--color-success)'
                     }
-                    strokeWidth="3"
+                    strokeWidth="2"
                     fill="none"
                     strokeDasharray={`${2 * Math.PI * 10}`}
                     strokeDashoffset={`${2 * Math.PI * 10 * (1 - marginMetrics.marginUsagePercent / 100)}`}
@@ -387,39 +409,45 @@ export const DydxWalletConnect: React.FC = () => {
                 </svg>
               </div>
               <span
-                className={`text-sm font-semibold ${
-                  marginMetrics.marginUsagePercent > 85
-                    ? 'text-red-400'
-                    : marginMetrics.marginUsagePercent > 70
-                      ? 'text-orange-400'
-                      : marginMetrics.marginUsagePercent > 50
-                        ? 'text-yellow-400'
-                        : 'text-emerald-400'
-                }`}
+                className={`text-sm font-semibold ${marginMetrics.marginUsagePercent > 85
+                  ? 'text-danger'
+                  : marginMetrics.marginUsagePercent > 70
+                    ? 'text-warning'
+                    : marginMetrics.marginUsagePercent > 50
+                      ? 'text-warning'
+                      : 'text-success'
+                  }`}
               >
                 {formatPercent(marginMetrics.marginUsagePercent)}%
               </span>
             </div>
           </div>
 
+          {/* Warning Message */}
           {marginMetrics.marginUsagePercent > 70 && (
             <div
-              className={`rounded p-2 text-xs ${
-                marginMetrics.marginUsagePercent > 85
-                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-                  : 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
-              }`}
+              className={`rounded p-2 text-xs flex items-start gap-2 ${marginMetrics.marginUsagePercent > 85
+                ? 'bg-danger-bg text-danger'
+                : 'bg-warning-bg text-warning'
+                }`}
             >
-              {marginMetrics.marginUsagePercent > 85 ? 'Critical' : 'High'} margin usage - consider
-              closing positions or adding collateral
+              <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+              <span>
+                {marginMetrics.marginUsagePercent > 85 ? 'Critical' : 'High'} margin usage
+              </span>
             </div>
           )}
 
+          {/* Deposit Button */}
           <a
             href="https://trade.dydx.exchange/portfolio/deposit"
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full bg-[#5865f2] hover:bg-[#4752c4] text-white text-center font-medium py-3 rounded-lg transition-colors mt-4"
+            className="block w-full text-center text-sm font-medium py-2 rounded-lg transition-colors mt-3"
+            style={{
+              backgroundColor: 'var(--color-brand-accent)',
+              color: 'var(--color-text-inverse)'
+            }}
           >
             Deposit
           </a>

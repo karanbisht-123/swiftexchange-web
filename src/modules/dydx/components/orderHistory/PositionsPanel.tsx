@@ -185,9 +185,9 @@ const PositionsPanel: React.FC = () => {
 
   if (!isConnected) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-full text-muted">
         <div className="text-center">
-          <h3 className="text-lg font-semibold text-white mb-2">Connect Wallet</h3>
+          <h3 className="text-lg font-semibold text-primary mb-2">Connect Wallet</h3>
           <p className="text-sm">Connect your wallet to view positions</p>
         </div>
       </div>
@@ -196,7 +196,7 @@ const PositionsPanel: React.FC = () => {
 
   if (loadingPositions && positions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400">
+      <div className="flex flex-col items-center justify-center h-full text-muted">
         <Loader2 className="w-6 h-6 animate-spin mb-2" />
         <p>Loading positions...</p>
       </div>
@@ -208,7 +208,7 @@ const PositionsPanel: React.FC = () => {
       <div className="flex flex-col items-center justify-center h-full">
         <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-lg text-center max-w-md">
           <h3 className="text-lg font-semibold text-red-400 mb-2">Error Loading Positions</h3>
-          <p className="text-sm text-gray-400 mb-4">{positionsError}</p>
+          <p className="text-sm text-muted mb-4">{positionsError}</p>
           <button
             onClick={refreshPositions}
             className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
@@ -222,9 +222,9 @@ const PositionsPanel: React.FC = () => {
 
   if (positions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-full text-muted">
         <div className="text-center">
-          <h3 className="text-lg font-semibold text-white mb-2">No Open Positions</h3>
+          <h3 className="text-lg font-semibold text-primary mb-2">No Open Positions</h3>
           <p className="text-sm">Your active positions will appear here</p>
         </div>
       </div>
@@ -232,7 +232,7 @@ const PositionsPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full bg-[#0a0a0a] overflow-auto relative">
+    <div className="h-full bg-primary overflow-auto relative">
       {notification && (
         <Notification
           type={notification.type}
@@ -249,122 +249,225 @@ const PositionsPanel: React.FC = () => {
         </div>
       )}
 
-      <table className="w-full text-left text-[11px] border-collapse">
-        <thead className="bg-[#141414] text-gray-500 font-medium uppercase sticky top-0 z-10">
-          <tr>
-            <th className="p-3 border-b border-[#222]">
-              <div className="flex items-center gap-2">
-                Market
-                {!isReceivingUpdates && (
-                  <div
-                    className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"
-                    title="Reconnecting..."
-                  />
-                )}
-              </div>
-            </th>
-            <th className="p-3 border-b border-[#222]">Side</th>
-            <th className="p-3 border-b border-[#222] text-right">Size</th>
-            <th className="p-3 border-b border-[#222] text-right">Avg. Open</th>
-            <th className="p-3 border-b border-[#222] text-right">Oracle</th>
-            <th className="p-3 border-b border-[#222] text-right">Liq. Price</th>
-            <th className="p-3 border-b border-[#222] text-right">Unrealized P&L</th>
-            <th className="p-3 border-b border-[#222] text-right">Funding</th>
-            <th className="p-3 border-b border-[#222] text-center">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {positions.map(position => {
-            const rawSize = parseFloat(position.size);
-            const absSize = Math.abs(rawSize);
-            if (absSize === 0) return null;
+      {/* Desktop Table */}
+      <div className="hidden md:block">
+        <table className="w-full text-left text-[11px] border-collapse">
+          <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
+            <tr>
+              <th className="p-3 border-b border-color">
+                <div className="flex items-center gap-2">
+                  Market
+                  {!isReceivingUpdates && (
+                    <div
+                      className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"
+                      title="Reconnecting..."
+                    />
+                  )}
+                </div>
+              </th>
+              <th className="p-3 border-b border-color">Side</th>
+              <th className="p-3 border-b border-color text-right">Size</th>
+              <th className="p-3 border-b border-color text-right">Avg. Open</th>
+              <th className="p-3 border-b border-color text-right">Oracle</th>
+              <th className="p-3 border-b border-color text-right">Liq. Price</th>
+              <th className="p-3 border-b border-color text-right">Unrealized P&L</th>
+              <th className="p-3 border-b border-color text-right">Funding</th>
+              <th className="p-3 border-b border-color text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {positions.map(position => {
+              const rawSize = parseFloat(position.size);
+              const absSize = Math.abs(rawSize);
+              if (absSize === 0) return null;
 
-            const entryPrice = parseFloat(position.entryPrice);
-            const oraclePrice = position.market || entryPrice;
-            const unrealizedPnl = parseFloat(position.unrealizedPnl);
-            const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
-            const isShort = position.side === 'SHORT';
-            const isClosing = closingMarket === position.market;
+              const entryPrice = parseFloat(position.entryPrice);
+              const oraclePrice = position.market || entryPrice;
+              const unrealizedPnl = parseFloat(position.unrealizedPnl);
+              const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
+              const isShort = position.side === 'SHORT';
+              const isClosing = closingMarket === position.market;
 
-            return (
-              <tr
-                key={position.market}
-                className="border-b border-[#1a1a1a] hover:bg-[#111] transition-colors"
-              >
-                <td className="p-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-full bg-[#222] flex items-center justify-center overflow-hidden">
-                      {getMarketIcon(position.market)}
+              return (
+                <tr
+                  key={position.market}
+                  className="border-b border-color hover:bg-hover transition-colors"
+                >
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-secondary flex items-center justify-center overflow-hidden">
+                        {getMarketIcon(position.market)}
+                      </div>
+                      <span className="font-bold text-primary">{position.market}</span>
                     </div>
-                    <span className="font-bold text-gray-200">{position.market}</span>
-                  </div>
-                </td>
+                  </td>
 
-                <td className="p-3">
+                  <td className="p-3">
+                    <div
+                      className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+                        }`}
+                    >
+                      {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
+                      {position.side}
+                    </div>
+                  </td>
+
+                  <td className="p-3 text-right text-primary font-mono">{absSize.toFixed(4)}</td>
+
+                  <td className="p-3 text-right text-muted font-mono">
+                    ${formatPrice(entryPrice)}
+                  </td>
+
+                  <td className="p-3 text-right text-blue-400 font-mono">
+                    ${formatPrice(oraclePrice)}
+                  </td>
+
+                  <td className="p-3 text-right text-orange-400 font-mono">
+                    ${position.liquidationPrice ? formatPrice(position.liquidationPrice) : '—'}
+                  </td>
+
+                  <td className="p-3 text-right">
+                    <div
+                      className={`flex flex-col font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}
+                    >
+                      <span>
+                        {unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}
+                      </span>
+                      <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
+                    </div>
+                  </td>
+
+                  <td className="p-3 text-right text-muted font-mono">
+                    {parseFloat(position.netFunding || '0').toFixed(4)}
+                  </td>
+
+                  <td className="p-3 text-center">
+                    <div className="flex justify-center gap-2">
+                      <button
+                        onClick={() => handleEdit(position)}
+                        disabled={isClosing}
+                        className="p-1.5 bg-secondary hover:bg-hover rounded text-muted hover:text-primary transition-all disabled:opacity-50"
+                        title="Set TP/SL"
+                      >
+                        <Edit2 size={12} />
+                      </button>
+                      <button
+                        onClick={() => handleClose(position)}
+                        disabled={isClosing}
+                        className="p-1.5 bg-secondary hover:bg-red-900/40 rounded text-muted hover:text-red-400 transition-all disabled:opacity-50"
+                        title="Close Position"
+                      >
+                        {isClosing ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <X size={12} />
+                        )}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile Cards */}
+      <div className="md:hidden space-y-1.5 p-2">
+        {positions.map(position => {
+          const rawSize = parseFloat(position.size);
+          const absSize = Math.abs(rawSize);
+          if (absSize === 0) return null;
+
+          const entryPrice = parseFloat(position.entryPrice);
+          const oraclePrice = position.market || entryPrice;
+          const unrealizedPnl = parseFloat(position.unrealizedPnl);
+          const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
+          const isShort = position.side === 'SHORT';
+          const isClosing = closingMarket === position.market;
+
+          return (
+            <div key={position.market} className="bg-secondary border border-color rounded-lg p-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center overflow-hidden">
+                    {getMarketIcon(position.market)}
+                  </div>
+                  <span className="font-bold text-primary">{position.market}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
                   <div
-                    className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
                       }`}
                   >
                     {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
                     {position.side}
                   </div>
-                </td>
 
-                <td className="p-3 text-right text-gray-300 font-mono">{absSize.toFixed(4)}</td>
-
-                <td className="p-3 text-right text-gray-400 font-mono">
-                  ${formatPrice(entryPrice)}
-                </td>
-
-                <td className="p-3 text-right text-blue-400 font-mono">
-                  ${formatPrice(oraclePrice)}
-                </td>
-
-                <td className="p-3 text-right text-orange-400 font-mono">
-                  ${position.liquidationPrice ? formatPrice(position.liquidationPrice) : '—'}
-                </td>
-
-                <td className="p-3 text-right">
-                  <div
-                    className={`flex flex-col font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
-                      }`}
+                  <button
+                    onClick={() => handleEdit(position)}
+                    disabled={isClosing}
+                    className="p-1.5 bg-primary hover:bg-hover rounded text-muted hover:text-primary transition-all disabled:opacity-50"
+                    title="Set TP/SL"
                   >
-                    <span>
-                      {unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}
-                    </span>
-                    <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
-                  </div>
-                </td>
+                    <Edit2 size={12} />
+                  </button>
+                  <button
+                    onClick={() => handleClose(position)}
+                    disabled={isClosing}
+                    className="p-1.5 bg-primary hover:bg-red-900/40 rounded text-muted hover:text-red-400 transition-all disabled:opacity-50"
+                    title="Close Position"
+                  >
+                    {isClosing ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                  </button>
+                </div>
+              </div>
 
-                <td className="p-3 text-right text-gray-500 font-mono">
-                  {parseFloat(position.netFunding || '0').toFixed(4)}
-                </td>
 
-                <td className="p-3 text-center">
-                  <div className="flex justify-center gap-2">
-                    <button
-                      onClick={() => handleEdit(position)}
-                      disabled={isClosing}
-                      className="p-1.5 bg-[#222] hover:bg-[#333] rounded text-gray-400 hover:text-white transition-all disabled:opacity-50"
-                      title="Set TP/SL"
-                    >
-                      <Edit2 size={12} />
-                    </button>
-                    <button
-                      onClick={() => handleClose(position)}
-                      disabled={isClosing}
-                      className="p-1.5 bg-[#222] hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400 transition-all disabled:opacity-50"
-                      title="Close Position"
-                    >
-                      {isClosing ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
-                    </button>
+              <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Size</span>
+                  <span className="text-primary font-medium font-mono">{absSize.toFixed(4)}</span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Avg Open</span>
+                  <span className="text-primary font-medium font-mono">${formatPrice(entryPrice)}</span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Oracle</span>
+                  <span className="text-blue-400 font-medium font-mono">${formatPrice(oraclePrice)}</span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Liq Price</span>
+                  <span className="text-orange-400 font-medium font-mono">
+                    ${position.liquidationPrice ? formatPrice(position.liquidationPrice) : '—'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Unrealized P&L</span>
+                  <div className={`font-medium font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <div>{unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}</div>
+                    <div className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</div>
                   </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Funding</span>
+                  <span className="text-primary font-medium font-mono">
+                    {parseFloat(position.netFunding || '0').toFixed(4)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {selectedPosition && (
         <PriceTriggers

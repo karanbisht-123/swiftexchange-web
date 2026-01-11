@@ -223,34 +223,6 @@ const OrderHistoryPanel: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-primary">
-      {/* <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between bg-secondary">
-        <div className="flex items-center gap-3">
-          <h3 className="text-sm font-medium text-white">Order History</h3>
-          <span className="text-xs text-gray-500">
-            {allOrders.length} order{allOrders.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-
-          {isReceivingUpdates && (
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-xs text-gray-400">Live</span>
-            </div>
-          )}
-          <button
-            onClick={() => refreshOrders()}
-            disabled={loadingOrders}
-            className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors disabled:opacity-50"
-            title="Refresh orders"
-          >
-            <svg className={`w-4 h-4 ${loadingOrders ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          </button>
-        </div>
-      </div> */}
-
       <div className="flex-1 overflow-auto">
         <DataTable data={currentPageData} columns={columns} getRowKey={order => order.id} />
       </div>

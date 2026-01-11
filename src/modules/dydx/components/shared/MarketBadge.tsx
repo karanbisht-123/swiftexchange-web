@@ -47,7 +47,7 @@ export const MarketBadge: React.FC<MarketBadgeProps> = ({ market }) => {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center overflow-hidden">
+      <div className="w-6 h-6 rounded-full flex items-center justify-center overflow-hidden">
         {iconUrl ? (
           <img
             src={iconUrl}

@@ -27,24 +27,23 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
     let bidTotal = 0;
     let askTotal = 0;
 
-    // Bids: process from best bid (highest price) outward
-    // The orderbook.bids should already be sorted highest to lowest
+    // Process bids from highest to lowest price
     orderbook.bids.slice(0, 50).forEach(b => {
       const price = parseFloat(b.price);
       const size = parseFloat(b.size);
       if (!isNaN(price) && !isNaN(size) && size > 0) {
         bidTotal += size;
-        bids.push({ price, total: bidTotal });
+        bids.push({ price, total: bidTotal, isBid: true });
       }
     });
 
-    // Asks: process from best ask (lowest price) outward
+    // Process asks from lowest to highest price
     orderbook.asks.slice(0, 50).forEach(a => {
       const price = parseFloat(a.price);
       const size = parseFloat(a.size);
       if (!isNaN(price) && !isNaN(size) && size > 0) {
         askTotal += size;
-        asks.push({ price, total: askTotal });
+        asks.push({ price, total: askTotal, isBid: false });
       }
     });
 
@@ -55,10 +54,7 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
     const midPrice = (bestBid + bestAsk) / 2;
     const spread = bestAsk - bestBid;
 
-    // Reverse bids so they go from low price to high price (left to center on chart)
-    const reversedBids = [...bids].reverse();
-
-    return { bids: reversedBids, asks, bestBid, bestAsk, midPrice, spread, originalBids: bids };
+    return { bids, asks, bestBid, bestAsk, midPrice, spread };
   }, [orderbook]);
 
   useEffect(() => {
@@ -97,78 +93,97 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       ctx.scale(dpr, dpr);
 
       const { bids, asks, midPrice } = depthData;
-      const padding = { top: 20, right: 60, bottom: 40, left: 60 };
+      const padding = { top: 20, right: 40, bottom: 40, left: 40 };
       const chartWidth = canvasSize.width - padding.left - padding.right;
       const chartHeight = canvasSize.height - padding.top - padding.bottom;
+      const centerX = padding.left + chartWidth / 2;
 
-      // Clear canvas
-      ctx.fillStyle = '#0e0c15';
+      // Clear canvas with theme background
+      ctx.fillStyle = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-bg-secondary')
+        .trim() || '#191c25';
       ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
-      // Calculate scales
-      const minPrice = Math.min(bids[bids.length - 1]?.price || 0);
-      const maxPrice = Math.max(asks[asks.length - 1]?.price || 0);
+      // Calculate max total for scaling
       const maxTotal = Math.max(
         bids[bids.length - 1]?.total || 0,
         asks[asks.length - 1]?.total || 0
       );
 
-      const priceRange = maxPrice - minPrice;
-      const xScale = (price: number) =>
-        padding.left + ((price - minPrice) / priceRange) * chartWidth;
+      // Calculate price ranges from center
+      const maxBidSpread = midPrice - (bids[bids.length - 1]?.price || midPrice);
+      const maxAskSpread = (asks[asks.length - 1]?.price || midPrice) - midPrice;
+      const maxSpread = Math.max(maxBidSpread, maxAskSpread);
+
+      // Scale functions - bids go left from center, asks go right from center
+      const xScaleBid = (price: number) => {
+        const percentFromCenter = (midPrice - price) / maxSpread;
+        return centerX - (percentFromCenter * chartWidth) / 2;
+      };
+
+      const xScaleAsk = (price: number) => {
+        const percentFromCenter = (price - midPrice) / maxSpread;
+        return centerX + (percentFromCenter * chartWidth) / 2;
+      };
+
       const yScale = (total: number) =>
         padding.top + chartHeight - (total / maxTotal) * chartHeight;
 
+      // Get theme colors
+      const borderColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-border')
+        .trim() || '#2d3241';
+      const textMuted = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-text-muted')
+        .trim() || '#8b95a5';
+
       // Draw grid
-      ctx.strokeStyle = '#232027';
+      ctx.strokeStyle = borderColor;
       ctx.lineWidth = 1;
 
       // Horizontal grid lines
-      for (let i = 0; i <= 5; i++) {
-        const y = padding.top + (chartHeight / 5) * i;
+      for (let i = 0; i <= 4; i++) {
+        const y = padding.top + (chartHeight / 4) * i;
         ctx.beginPath();
         ctx.moveTo(padding.left, y);
         ctx.lineTo(canvasSize.width - padding.right, y);
         ctx.stroke();
 
         // Y-axis labels
-        const total = maxTotal * (1 - i / 5);
-        ctx.fillStyle = '#6b6b76';
-        ctx.font = '11px monospace';
+        const total = maxTotal * (1 - i / 4);
+        ctx.fillStyle = textMuted;
+        ctx.font = '10px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(total.toFixed(2), padding.left - 10, y + 4);
+        ctx.fillText(total.toFixed(1), padding.left - 5, y + 3);
       }
 
-      for (let i = 0; i <= 5; i++) {
-        const x = padding.left + (chartWidth / 5) * i;
-        ctx.beginPath();
-        ctx.moveTo(x, padding.top);
-        ctx.lineTo(x, canvasSize.height - padding.bottom);
-        ctx.stroke();
-
-        const price = minPrice + (priceRange / 5) * i;
-        ctx.fillStyle = '#6b6b76';
-        ctx.font = '11px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(price.toFixed(0), x, canvasSize.height - padding.bottom + 20);
-      }
-
-      const midX = xScale(midPrice);
-      ctx.strokeStyle = '#666';
-      ctx.lineWidth = 1;
+      // Center line
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 2;
       ctx.setLineDash([5, 5]);
       ctx.beginPath();
-      ctx.moveTo(midX, padding.top);
-      ctx.lineTo(midX, canvasSize.height - padding.bottom);
+      ctx.moveTo(centerX, padding.top);
+      ctx.lineTo(centerX, canvasSize.height - padding.bottom);
       ctx.stroke();
       ctx.setLineDash([]);
 
+      // Mid price label
+      ctx.fillStyle = textMuted;
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        `${midPrice.toFixed(2)}`,
+        centerX,
+        canvasSize.height - padding.bottom + 20
+      );
+
+      // Draw BIDS (green, moving left from center)
       ctx.beginPath();
-      ctx.moveTo(xScale(bids[0].price), yScale(0));
+      ctx.moveTo(centerX, yScale(0));
       bids.forEach(b => {
-        ctx.lineTo(xScale(b.price), yScale(b.total));
+        ctx.lineTo(xScaleBid(b.price), yScale(b.total));
       });
-      ctx.lineTo(xScale(bids[bids.length - 1].price), yScale(0));
+      ctx.lineTo(xScaleBid(bids[bids.length - 1].price), yScale(0));
       ctx.closePath();
 
       const bidGradient = ctx.createLinearGradient(
@@ -177,29 +192,30 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
         0,
         canvasSize.height - padding.bottom
       );
-      bidGradient.addColorStop(0, 'rgba(0, 255, 157, 0.3)');
-      bidGradient.addColorStop(1, 'rgba(0, 255, 157, 0.02)');
+      bidGradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)');
+      bidGradient.addColorStop(1, 'rgba(16, 185, 129, 0.02)');
       ctx.fillStyle = bidGradient;
       ctx.fill();
 
-      // Draw bids line
+      // Bids line
       ctx.beginPath();
-      bids.forEach((b, i) => {
-        const x = xScale(b.price);
-        const y = yScale(b.total);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      ctx.moveTo(centerX, yScale(0));
+      bids.forEach(b => {
+        ctx.lineTo(xScaleBid(b.price), yScale(b.total));
       });
-      ctx.strokeStyle = '#00ff9d';
+      ctx.strokeStyle = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-success')
+        .trim() || '#10b981';
       ctx.lineWidth = 2;
       ctx.stroke();
 
+      // Draw ASKS (red, moving right from center)
       ctx.beginPath();
-      ctx.moveTo(xScale(asks[0].price), yScale(0));
+      ctx.moveTo(centerX, yScale(0));
       asks.forEach(a => {
-        ctx.lineTo(xScale(a.price), yScale(a.total));
+        ctx.lineTo(xScaleAsk(a.price), yScale(a.total));
       });
-      ctx.lineTo(xScale(asks[asks.length - 1].price), yScale(0));
+      ctx.lineTo(xScaleAsk(asks[asks.length - 1].price), yScale(0));
       ctx.closePath();
 
       const askGradient = ctx.createLinearGradient(
@@ -208,31 +224,37 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
         0,
         canvasSize.height - padding.bottom
       );
-      askGradient.addColorStop(0, 'rgba(255, 59, 105, 0.3)');
-      askGradient.addColorStop(1, 'rgba(255, 59, 105, 0.02)');
+      askGradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+      askGradient.addColorStop(1, 'rgba(239, 68, 68, 0.02)');
       ctx.fillStyle = askGradient;
       ctx.fill();
 
+      // Asks line
       ctx.beginPath();
-      asks.forEach((a, i) => {
-        const x = xScale(a.price);
-        const y = yScale(a.total);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      ctx.moveTo(centerX, yScale(0));
+      asks.forEach(a => {
+        ctx.lineTo(xScaleAsk(a.price), yScale(a.total));
       });
-      ctx.strokeStyle = '#ff3b69';
+      ctx.strokeStyle = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-danger')
+        .trim() || '#ef4444';
       ctx.lineWidth = 2;
       ctx.stroke();
 
+      // Draw hovered point
       if (hoveredPoint) {
-        const x = xScale(hoveredPoint.price);
+        const x = hoveredPoint.isBid
+          ? xScaleBid(hoveredPoint.price)
+          : xScaleAsk(hoveredPoint.price);
         const y = yScale(hoveredPoint.total);
 
         ctx.beginPath();
         ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = hoveredPoint.isBid ? '#00ff9d' : '#ff3b69';
+        ctx.fillStyle = hoveredPoint.isBid ? '#10b981' : '#ef4444';
         ctx.fill();
-        ctx.strokeStyle = '#0e0c15';
+        ctx.strokeStyle = ctx.fillStyle = getComputedStyle(document.documentElement)
+          .getPropertyValue('--color-bg-secondary')
+          .trim() || '#191c25';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
@@ -259,8 +281,8 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const padding = { top: 20, right: 60, bottom: 40, left: 60 };
-    const chartWidth = canvasSize.width - padding.left - padding.right;
+    const padding = { top: 20, right: 40, bottom: 40, left: 40 };
+    const centerX = canvasSize.width / 2;
 
     if (
       x < padding.left ||
@@ -272,45 +294,35 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       return;
     }
 
-    const { bids, asks } = depthData;
-    const minPrice = Math.min(bids[bids.length - 1]?.price || 0);
-    const maxPrice = Math.max(asks[asks.length - 1]?.price || 0);
-    const priceRange = maxPrice - minPrice;
+    const { bids, asks, midPrice } = depthData;
 
-    const price = minPrice + ((x - padding.left) / chartWidth) * priceRange;
+    // Determine if hovering over bids (left) or asks (right)
+    const isLeftSide = x < centerX;
 
-    let closestBid: DepthPoint | null = null;
-    let closestAsk: DepthPoint | null = null;
-    let minBidDist = Infinity;
-    let minAskDist = Infinity;
+    let closest: DepthPoint | null = null;
+    let minDist = Infinity;
 
-    bids.forEach(b => {
-      const dist = Math.abs(b.price - price);
-      if (dist < minBidDist) {
-        minBidDist = dist;
-        closestBid = { ...b, isBid: true };
+    const dataToCheck = isLeftSide ? bids : asks;
+
+    dataToCheck.forEach(point => {
+      const dist = Math.abs(point.price - midPrice);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = point;
       }
     });
 
-    asks.forEach(a => {
-      const dist = Math.abs(a.price - price);
-      if (dist < minAskDist) {
-        minAskDist = dist;
-        closestAsk = { ...a, isBid: false };
-      }
-    });
-
-    const closest = minBidDist < minAskDist ? closestBid : closestAsk;
     setHoveredPoint(closest);
   };
 
   const base = selectedMarket.split('-')[0] || 'BTC';
+
   return (
-    <div className="w-full bg-primary text-white">
-      <div ref={containerRef} className="relative">
+    <div className="w-full h-full bg-secondary text-primary flex flex-col">
+      <div ref={containerRef} className="relative flex-1">
         {!depthData ? (
-          <div className="flex items-center justify-center" style={{ height }}>
-            <span className="text-[#6b6b76] text-sm">Loading depth data...</span>
+          <div className="flex items-center justify-center h-full">
+            <span className="text-muted text-sm">Loading depth data...</span>
           </div>
         ) : (
           <>
@@ -319,11 +331,12 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
               onMouseMove={handleMouseMove}
               onMouseLeave={() => setHoveredPoint(null)}
               style={{ cursor: 'crosshair', display: 'block' }}
+              className="w-full h-full"
             />
 
             {hoveredPoint && (
               <div
-                className="absolute bg-primary border border-gray-600 rounded px-3 py-2 text-xs pointer-events-none shadow-lg"
+                className="absolute bg-secondary border border-color rounded px-3 py-2 text-xs pointer-events-none shadow-lg"
                 style={{
                   left: '50%',
                   top: '10px',
@@ -333,8 +346,8 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
               >
                 <div className="flex gap-4">
                   <div>
-                    <span className="text-[#6b6b76]">Price: </span>
-                    <span className={hoveredPoint.isBid ? 'text-[#00ff9d]' : 'text-[#ff3b69]'}>
+                    <span className="text-muted">Price: </span>
+                    <span className={hoveredPoint.isBid ? 'price-up' : 'price-down'}>
                       {hoveredPoint.price.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
@@ -342,8 +355,8 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
                     </span>
                   </div>
                   <div>
-                    <span className="text-[#6b6b76]">Total: </span>
-                    <span className="text-white">
+                    <span className="text-muted">Total: </span>
+                    <span className="text-primary">
                       {hoveredPoint.total.toFixed(4)} {base}
                     </span>
                   </div>
@@ -355,17 +368,17 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       </div>
 
       {depthData && (
-        <div className="flex items-center justify-center gap-6 px-4 py-3 border-t border-[#232027] text-xs">
+        <div className="flex items-center justify-center gap-6 px-4 py-3 border-t border-color text-xs shrink-0">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-[#00ff9d] rounded-sm"></div>
-            <span className="text-[#6b6b76]">Bids</span>
+            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-success)' }}></div>
+            <span className="text-muted">Bids</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-[#ff3b69] rounded-sm"></div>
-            <span className="text-[#6b6b76]">Asks</span>
+            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-danger)' }}></div>
+            <span className="text-muted">Asks</span>
           </div>
-          <div className="text-[#6b6b76]">
-            Spread: <span className="text-white">{depthData.spread.toFixed(2)}</span>
+          <div className="text-muted">
+            Spread: <span className="text-primary">{depthData.spread.toFixed(2)}</span>
           </div>
         </div>
       )}

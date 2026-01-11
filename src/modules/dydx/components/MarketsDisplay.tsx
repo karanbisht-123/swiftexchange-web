@@ -33,7 +33,7 @@ const PriceChart = memo(({ change }: { change: number }) => {
       <path
         d={path}
         fill="none"
-        stroke={isPositive ? '#10b981' : '#ef4444'}
+        stroke={isPositive ? 'var(--color-success)' : 'var(--color-danger)'}
         strokeWidth="2"
         strokeLinecap="round"
       />
@@ -59,89 +59,54 @@ const MarketRow = memo(function MarketRow({
 
   if (isMobile) {
     return (
-      <div className="p-4 active:bg-[#1e293b]/30 transition-colors border-b border-[#1e293b]/30">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-start gap-2.5 flex-1 min-w-0">
-            <button
-              onClick={() => setIsFavorite(!isFavorite)}
-              className="flex-shrink-0 transition-colors mt-1"
-            >
-              <Star
-                className={`w-4 h-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600'}`}
+      <div className="flex items-center justify-between py-3 px-4 border-b border-color hover:bg-hover transition-colors">
+        {/* Left: Icon + Name + Volume */}
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="relative w-10 h-10 flex-shrink-0">
+            {market.coinIcon ? (
+              <img
+                src={market.coinIcon}
+                alt={market.ticker}
+                className="w-10 h-10 rounded-full"
+                onError={e => {
+                  const img = e.currentTarget;
+                  img.style.display = 'none';
+                  const fallback = img.nextElementSibling as HTMLElement | null;
+                  if (fallback) fallback.style.display = 'flex';
+                }}
               />
-            </button>
-            <div className="relative w-10 h-10 flex-shrink-0">
-              {market.coinIcon ? (
-                <img
-                  src={market.coinIcon}
-                  alt={market.ticker}
-                  className="w-10 h-10 rounded-full"
-                  onError={e => {
-                    const img = e.currentTarget;
-                    img.style.display = 'none';
-                    const fallback = img.nextElementSibling as HTMLElement | null;
-                    if (fallback) fallback.style.display = 'flex';
-                  }}
-                />
-              ) : null}
-              <div
-                className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-xs font-bold absolute top-0 left-0"
-                style={{ display: market.coinIcon ? 'none' : 'flex' }}
-              >
-                {market.ticker.split('-')[0].slice(0, 2)}
-              </div>
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="font-semibold text-white text-base flex items-center gap-2">
-                {market.ticker}
-                {market.clobPairId && (
-                  <span className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px]">
-                    {market.clobPairId}×
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-slate-500 truncate">
-                {market.coinName || 'Perpetual'}
-              </div>
+            ) : null}
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold absolute top-0 left-0"
+              style={{
+                display: market.coinIcon ? 'none' : 'flex',
+                background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))'
+              }}
+            >
+              {market.ticker.split('-')[0].slice(0, 2)}
             </div>
           </div>
-          <div className="text-right flex-shrink-0">
-            <div className="text-white font-semibold text-base">
-              ${formatPrice(market.oraclePrice)}
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-primary text-base">
+              {market.ticker.split('-')[0]}
             </div>
-            <div
-              className={`inline-flex items-center gap-1 text-xs font-medium ${
-                isPositive ? 'text-emerald-400' : 'text-red-400'
-              }`}
-            >
-              {isPositive ? (
-                <TrendingUp className="w-3 h-3" />
-              ) : (
-                <TrendingDown className="w-3 h-3" />
-              )}
-              {isPositive ? '+' : ''}
-              {formatPercent(market.priceChange24H)}%
+            <div className="text-xs text-muted">
+              Volume {formatVolume(market.volume24H)}
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 text-xs">
-          <div>
-            <div className="text-slate-500 mb-1">24h Volume</div>
-            <div className="text-slate-300 font-medium">{formatVolume(market.volume24H)}</div>
+        {/* Right: Price + Change */}
+        <div className="text-right flex-shrink-0">
+          <div className="text-primary font-semibold text-base">
+            ${formatPrice(market.oraclePrice)}
           </div>
-          <div>
-            <div className="text-slate-500 mb-1">Open Interest</div>
-            <div className="text-slate-300 font-medium">${formatVolume(market.openInterest)}</div>
-          </div>
-          <div>
-            <div className="text-slate-500 mb-1">Funding</div>
-            <div
-              className={`font-medium ${fundingRate >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
-            >
-              {fundingRate >= 0 ? '+' : ''}
-              {formatFundingRate(market.nextFundingRate)}%
-            </div>
+          <div
+            className={`text-xs font-medium ${isPositive ? 'price-up' : 'price-down'
+              }`}
+          >
+            {isPositive ? '+' : ''}
+            {formatPercent(market.priceChange24H)}%
           </div>
         </div>
       </div>
@@ -149,15 +114,15 @@ const MarketRow = memo(function MarketRow({
   }
 
   return (
-    <tr className="border-b border-[#1e293b]/30 hover:bg-[#1e293b]/20 transition-colors group">
-      <td className="py-3 px-4 sticky left-0 bg-secondary group-hover:bg-[#1e293b]/20 z-10">
+    <tr className="border-b border-color hover:bg-hover transition-colors group">
+      <td className="py-3 px-4 sticky left-0 bg-secondary group-hover:bg-hover z-10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsFavorite(!isFavorite)}
             className="flex-shrink-0 transition-colors hover:scale-110"
           >
             <Star
-              className={`w-4 h-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600 hover:text-slate-400'}`}
+              className={`w-4 h-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-muted hover:text-secondary'}`}
             />
           </button>
           <div className="relative w-10 h-10 flex-shrink-0">
@@ -175,37 +140,39 @@ const MarketRow = memo(function MarketRow({
               />
             ) : null}
             <div
-              className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
-              style={{ display: market.coinIcon ? 'none' : 'flex' }}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
+              style={{
+                display: market.coinIcon ? 'none' : 'flex',
+                background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))'
+              }}
             >
               {market.ticker.split('-')[0].slice(0, 2)}
             </div>
           </div>
           <div className="min-w-0">
-            <div className="font-medium text-white text-sm leading-tight flex items-center gap-2">
+            <div className="font-medium text-primary text-sm leading-tight flex items-center gap-2">
               {market.ticker.split('-')[0]}
               {market.clobPairId && (
-                <span className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] text-slate-300">
+                <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
                   {market.clobPairId}×
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-slate-500 truncate">
+            <div className="text-[11px] text-muted truncate">
               {market.coinName || 'Perpetual'}
             </div>
           </div>
         </div>
       </td>
       <td className="py-3 px-4 text-right">
-        <span className="text-white font-mono text-sm">${formatPrice(market.oraclePrice)}</span>
+        <span className="text-primary font-mono text-sm">${formatPrice(market.oraclePrice)}</span>
       </td>
       <td className="py-3 px-4 text-right">
         <div className="flex items-center justify-end gap-2">
           <PriceChart change={priceChange} />
           <span
-            className={`inline-flex items-center gap-1 text-sm font-medium ${
-              isPositive ? 'text-emerald-400' : 'text-red-400'
-            }`}
+            className={`inline-flex items-center gap-1 text-sm font-medium ${isPositive ? 'price-up' : 'price-down'
+              }`}
           >
             {isPositive ? '+' : ''}
             {formatPercent(market.priceChange24H)}%
@@ -213,22 +180,22 @@ const MarketRow = memo(function MarketRow({
         </div>
       </td>
       <td className="py-3 px-4 text-right">
-        <span className="text-slate-300 text-sm">{formatVolume(market.volume24H)}</span>
+        <span className="text-secondary text-sm">{formatVolume(market.volume24H)}</span>
       </td>
       <td className="py-3 px-4 text-right">
-        <span className="text-slate-300 text-sm">${formatVolume(market.openInterest)}</span>
+        <span className="text-secondary text-sm">${formatVolume(market.openInterest)}</span>
       </td>
       <td className="py-3 px-4 text-right">
-        <span className="text-slate-400 text-sm">{market.trades24H.toLocaleString()}</span>
+        <span className="text-muted text-sm">{market.trades24H.toLocaleString()}</span>
       </td>
       <td className="py-3 px-4 text-right">
         <div
-          className={`font-mono text-sm ${fundingRate >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+          className={`font-mono text-sm ${fundingRate >= 0 ? 'price-up' : 'price-down'}`}
         >
           {fundingRate >= 0 ? '+' : ''}
           {formatFundingRate(market.nextFundingRate)}%
         </div>
-        <div className="text-slate-500 text-xs mt-0.5">
+        <div className="text-muted text-xs mt-0.5">
           {getTimeUntilFunding(market.nextFundingAt)}
         </div>
       </td>
@@ -397,9 +364,9 @@ export default function MarketsDisplay() {
     ({ field }: { field: SortField }) => {
       if (sortField !== field) return null;
       return sortDirection === 'asc' ? (
-        <TrendingUp className="w-3.5 h-3.5 text-blue-400 ml-1 inline" />
+        <TrendingUp className="w-3.5 h-3.5 ml-1 inline" style={{ color: 'var(--color-brand-accent)' }} />
       ) : (
-        <TrendingDown className="w-3.5 h-3.5 text-blue-400 ml-1 inline" />
+        <TrendingDown className="w-3.5 h-3.5 ml-1 inline" style={{ color: 'var(--color-brand-accent)' }} />
       );
     },
     [sortField, sortDirection]
@@ -409,26 +376,26 @@ export default function MarketsDisplay() {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-2 border-slate-700 border-t-blue-500 mx-auto mb-4" />
-          <p className="text-slate-400">Loading markets...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-2 mx-auto mb-4" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-brand-accent)' }} />
+          <p className="text-muted">Loading markets...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-primary text-white">
+    <div className="min-h-screen bg-primary text-primary">
       {/* Search Bar */}
-      <div className="bg-secondary sticky top-0 z-30 border-b border-[#334155]">
+      <div className="bg-secondary sticky top-0 z-30 border-b border-color">
         <div className="max-w-[1920px] mx-auto px-4 py-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
             <input
               type="text"
               placeholder="Search markets..."
               value={searchTerm}
               onChange={handleSearch}
-              className="w-full bg-primary border border-[#334155] rounded-lg pl-10 pr-10 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
+              className="input w-full pl-10 pr-10"
             />
             {searchTerm && (
               <button
@@ -436,7 +403,7 @@ export default function MarketsDisplay() {
                   setSearchTerm('');
                   setCurrentPage(1);
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-secondary"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -447,15 +414,15 @@ export default function MarketsDisplay() {
 
       <div className="max-w-[1920px] mx-auto px-4 py-4">
         {error && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
+          <div className="mb-4 p-3 rounded-lg text-sm" style={{ backgroundColor: 'var(--color-danger-bg)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}>
             {error}
           </div>
         )}
 
         {filteredAndSortedMarkets.length > 0 ? (
-          <div className="bg-secondary border border-[#334155]/50 rounded-lg overflow-hidden">
+          <div className="card">
             {isMobile ? (
-              <div className="divide-y divide-[#1e293b]/30">
+              <div className="divide-y divide-color">
                 {paginatedMarkets.map(market => (
                   <MarketRow
                     key={market.ticker}
@@ -473,50 +440,50 @@ export default function MarketsDisplay() {
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="bg-[#1e293b]/50 border-b border-[#334155]/50">
+                    <tr className="bg-tertiary border-b border-color">
                       <th
                         onClick={() => handleSort('ticker')}
-                        className="py-3 px-4 text-left text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200 sticky left-0 bg-secondary z-20"
+                        className="py-3 px-4 text-left text-xs font-medium text-muted cursor-pointer hover:text-secondary sticky left-0 bg-secondary z-20"
                       >
                         Market
                         <SortIcon field="ticker" />
                       </th>
                       <th
                         onClick={() => handleSort('price')}
-                        className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
+                        className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
                       >
                         Oracle Price
                         <SortIcon field="price" />
                       </th>
                       <th
                         onClick={() => handleSort('change')}
-                        className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
+                        className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
                       >
                         24h Change
                         <SortIcon field="change" />
                       </th>
                       <th
                         onClick={() => handleSort('volume')}
-                        className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
+                        className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
                       >
                         24h Volume
                         <SortIcon field="volume" />
                       </th>
                       <th
                         onClick={() => handleSort('openInterest')}
-                        className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
+                        className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
                       >
                         Open Interest
                         <SortIcon field="openInterest" />
                       </th>
                       <th
                         onClick={() => handleSort('trades')}
-                        className="py-3 px-4 text-right text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200"
+                        className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
                       >
                         Trades
                         <SortIcon field="trades" />
                       </th>
-                      <th className="py-3 px-4 text-right text-xs font-medium text-slate-400">
+                      <th className="py-3 px-4 text-right text-xs font-medium text-muted">
                         1h Funding
                       </th>
                     </tr>
@@ -541,11 +508,11 @@ export default function MarketsDisplay() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-[#334155]/50 bg-[#1e293b]/30">
+              <div className="flex items-center justify-between px-4 py-3 border-t border-color bg-tertiary">
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="p-2 rounded-lg hover:bg-[#334155]/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors active:scale-95"
+                  className="p-2 rounded-lg hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors active:scale-95"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
@@ -553,18 +520,18 @@ export default function MarketsDisplay() {
                 <div className="flex items-center gap-1">
                   {pageNumbers.map((page, idx) =>
                     page === '...' ? (
-                      <span key={`ellipsis-${idx}`} className="px-2 text-slate-600">
+                      <span key={`ellipsis-${idx}`} className="px-2 text-muted">
                         ...
                       </span>
                     ) : (
                       <button
                         key={page}
                         onClick={() => handlePageChange(page as number)}
-                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${
-                          currentPage === page
-                            ? 'bg-blue-500 text-white font-medium shadow-lg shadow-blue-500/30'
-                            : 'hover:bg-[#334155]/50 text-slate-400'
-                        }`}
+                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${currentPage === page
+                            ? 'text-white font-medium shadow-lg'
+                            : 'hover:bg-hover text-muted'
+                          }`}
+                        style={currentPage === page ? { backgroundColor: 'var(--color-brand-accent)' } : {}}
                       >
                         {page}
                       </button>
@@ -575,15 +542,15 @@ export default function MarketsDisplay() {
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="p-2 rounded-lg hover:bg-[#334155]/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors active:scale-95"
+                  className="p-2 rounded-lg hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors active:scale-95"
                 >
                   <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
             )}
 
-            <div className="px-4 py-2 border-t border-[#334155]/30 text-center">
-              <span className="text-xs text-slate-500">
+            <div className="px-4 py-2 border-t border-color text-center">
+              <span className="text-xs text-muted">
                 Showing {(currentPage - 1) * ROWS_PER_PAGE + 1}-
                 {Math.min(currentPage * ROWS_PER_PAGE, filteredAndSortedMarkets.length)} of{' '}
                 {filteredAndSortedMarkets.length} markets
@@ -592,9 +559,9 @@ export default function MarketsDisplay() {
           </div>
         ) : (
           <div className="text-center py-16">
-            <Search className="w-12 h-12 mx-auto mb-3 text-slate-700" />
-            <p className="text-slate-500">No markets found</p>
-            {searchTerm && <p className="text-xs text-slate-600 mt-1">Try a different search</p>}
+            <Search className="w-12 h-12 mx-auto mb-3 text-muted" />
+            <p className="text-muted">No markets found</p>
+            {searchTerm && <p className="text-xs text-muted mt-1">Try a different search</p>}
           </div>
         )}
       </div>

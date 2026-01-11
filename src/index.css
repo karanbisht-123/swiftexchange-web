@@ -182,9 +182,11 @@
     background-color: var(--color-brand-primary);
     color: var(--color-text-inverse);
   }
+
   .btn-primary:hover:not(:disabled) {
     background-color: var(--color-brand-primary-hover);
   }
+
   .btn-primary:focus {
     --tw-ring-color: var(--color-brand-primary);
   }
@@ -194,6 +196,7 @@
     color: var(--color-text-primary);
     border: 1px solid var(--color-border);
   }
+
   .btn-secondary:hover:not(:disabled) {
     background-color: var(--color-bg-hover);
     border-color: var(--color-border-dark);
@@ -204,6 +207,7 @@
     color: var(--color-brand-primary);
     border: 1px solid var(--color-brand-primary);
   }
+
   .btn-outline:hover:not(:disabled) {
     background-color: var(--color-brand-primary);
     color: var(--color-text-inverse);
@@ -213,6 +217,7 @@
     background-color: transparent;
     color: var(--color-text-primary);
   }
+
   .btn-ghost:hover:not(:disabled) {
     background-color: var(--color-bg-secondary);
   }
@@ -221,6 +226,7 @@
     background-color: var(--color-success);
     color: white;
   }
+
   .btn-success:hover:not(:disabled) {
     opacity: 0.9;
   }
@@ -229,6 +235,7 @@
     background-color: var(--color-danger);
     color: white;
   }
+
   .btn-danger:hover:not(:disabled) {
     opacity: 0.9;
   }
@@ -238,6 +245,7 @@
     padding: 0.5rem 1rem;
     font-size: 0.75rem;
   }
+
   .btn-lg {
     padding: 0.875rem 1.75rem;
     font-size: 1rem;
@@ -271,6 +279,7 @@
   .input-success {
     border-color: var(--color-success);
   }
+
   .input-success:focus {
     --tw-ring-color: var(--color-success);
   }
@@ -278,6 +287,7 @@
   .input-danger {
     border-color: var(--color-danger);
   }
+
   .input-danger:focus {
     --tw-ring-color: var(--color-danger);
   }
@@ -287,6 +297,7 @@
     padding: 0.5rem 0.75rem;
     font-size: 0.75rem;
   }
+
   .input-lg {
     padding: 0.875rem 1rem;
     font-size: 1rem;
@@ -412,6 +423,7 @@
    UTILITIES
 -------------------------- */
 @layer utilities {
+
   /* Borders */
   .border-color {
     border-color: var(--color-border);
@@ -490,6 +502,7 @@
     from {
       opacity: 0;
     }
+
     to {
       opacity: 1;
     }
@@ -500,6 +513,7 @@
       opacity: 0;
       transform: translateY(10px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -520,6 +534,7 @@
       opacity: 0;
       transform: translateX(20px);
     }
+
     to {
       opacity: 1;
       transform: translateX(0);
@@ -531,13 +546,16 @@
       opacity: 0;
       transform: scale(0.3) translateY(20px);
     }
+
     50% {
       opacity: 1;
       transform: scale(1.05) translateY(-5px);
     }
+
     70% {
       transform: scale(0.9) translateY(2px);
     }
+
     100% {
       opacity: 1;
       transform: scale(1) translateY(0);
@@ -578,13 +596,16 @@
   0% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.5;
   }
+
   100% {
     opacity: 1;
   }
 }
+
 .animate-pulse-once {
   animation: pulseOnce 0.5s ease-in-out;
 }
@@ -594,6 +615,40 @@
 }
 
 .hide-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+/* Scrollbar hide utility */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Enhanced slide-up animation for mobile modals */
+@keyframes slideUpModal {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUpModal 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Hover state for interactive elements */
+.bg-hover {
+  background-color: var(--color-bg-hover);
 }

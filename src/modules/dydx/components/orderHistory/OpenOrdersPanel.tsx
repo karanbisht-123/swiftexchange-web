@@ -105,13 +105,13 @@ const OpenOrdersPanel: React.FC = () => {
             className="w-full h-full object-cover rounded-full"
             onError={e => {
               e.currentTarget.style.display = 'none';
-              e.currentTarget.parentElement!.innerHTML = `<span class="text-white text-xs font-bold">${baseAsset.slice(0, 3)}</span>`;
+              e.currentTarget.parentElement!.innerHTML = `<span class="text-primary text-xs font-bold">${baseAsset.slice(0, 3)}</span>`;
             }}
           />
         );
       }
 
-      return <span className="text-white text-xs font-bold">{baseAsset.slice(0, 3)}</span>;
+      return <span className="text-primary text-xs font-bold">{baseAsset.slice(0, 3)}</span>;
     },
     [icons]
   );
@@ -155,7 +155,7 @@ const OpenOrdersPanel: React.FC = () => {
         );
       default:
         return (
-          <span className="px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded text-xs">{status}</span>
+          <span className="px-2 py-0.5 bg-secondary text-muted rounded text-xs">{status}</span>
         );
     }
   }, []);
@@ -163,8 +163,8 @@ const OpenOrdersPanel: React.FC = () => {
   // Render states
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-        <h3 className="text-lg font-semibold text-white mb-2">Connect Wallet</h3>
+      <div className="flex flex-col items-center justify-center h-full text-center text-muted">
+        <h3 className="text-lg font-semibold text-primary mb-2">Connect Wallet</h3>
         <p className="text-sm">Connect your wallet to manage orders</p>
       </div>
     );
@@ -172,7 +172,7 @@ const OpenOrdersPanel: React.FC = () => {
 
   if (loadingOrders && openOrders.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-full text-muted">
         <Loader2 className="w-6 h-6 mr-2 animate-spin" />
         Loading orders...
       </div>
@@ -183,7 +183,7 @@ const OpenOrdersPanel: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center">
         <h3 className="text-lg font-semibold text-red-400 mb-2">Error Loading Orders</h3>
-        <p className="text-gray-400 text-sm mb-4">{ordersError}</p>
+        <p className="text-muted text-sm mb-4">{ordersError}</p>
         <button
           onClick={refreshOrders}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors flex items-center gap-2"
@@ -197,20 +197,20 @@ const OpenOrdersPanel: React.FC = () => {
 
   if (openOrders.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-        <h3 className="text-lg font-semibold text-white mb-2">No Open Orders</h3>
+      <div className="flex flex-col items-center justify-center h-full text-center text-muted">
+        <h3 className="text-lg font-semibold text-primary mb-2">No Open Orders</h3>
         <p className="text-sm">Your active orders will appear here</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-primary">
-      {/* Table */}
-      <div className="flex-1 overflow-y-auto">
+    <div className="h-full flex flex-col bg-primary overflow-auto">
+      {/* Desktop Table */}
+      <div className="hidden md:block">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-secondary border-b border-gray-700 z-10">
-            <tr className="text-gray-400 text-xs">
+          <thead className="sticky top-0 bg-secondary border-b border-color z-10">
+            <tr className="text-muted text-xs">
               <th className="text-left px-4 py-2 font-normal">Market</th>
               <th className="text-center px-4 py-2 font-normal">Status</th>
               <th className="text-center px-4 py-2 font-normal">Type</th>
@@ -236,16 +236,15 @@ const OpenOrdersPanel: React.FC = () => {
               return (
                 <tr
                   key={order.id}
-                  className={`border-b border-[#2a2a2a] hover:bg-[#1a1a1a] transition-colors ${
-                    isCancelling ? 'opacity-50' : ''
-                  } ${isPending ? 'bg-yellow-500/5' : ''}`}
+                  className={`border-b border-color hover:bg-hover transition-colors ${isCancelling ? 'opacity-50' : ''
+                    } ${isPending ? 'bg-yellow-500/5' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
                         {getMarketIcon(order.ticker)}
                       </div>
-                      <span className="text-white text-xs font-medium">
+                      <span className="text-primary text-xs font-medium">
                         {order.ticker.split('-')[0]}
                       </span>
                     </div>
@@ -254,43 +253,42 @@ const OpenOrdersPanel: React.FC = () => {
                   <td className="px-4 py-3 text-center">{getStatusBadge(order.status)}</td>
 
                   <td className="px-4 py-3 text-center">
-                    <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
+                    <span className="px-2 py-0.5 bg-secondary text-primary rounded text-xs">
                       {order.type}
                     </span>
                   </td>
 
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`px-2 py-1 rounded text-xs font-bold ${
-                        order.side === 'BUY'
+                      className={`px-2 py-1 rounded text-xs font-bold ${order.side === 'BUY'
                           ? 'bg-green-500/20 text-green-400'
                           : 'bg-red-500/20 text-red-400'
-                      }`}
+                        }`}
                     >
                       {order.side}
                     </span>
                   </td>
 
-                  <td className="px-4 py-3 text-right text-white font-mono">{size.toFixed(4)}</td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{size.toFixed(4)}</td>
 
                   <td className="px-4 py-3 text-right">
-                    <div className="text-gray-400 text-xs font-mono">{filled.toFixed(4)}</div>
+                    <div className="text-muted text-xs font-mono">{filled.toFixed(4)}</div>
                     {fillPercent > 0 && (
-                      <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
+                      <div className="text-xs text-muted">{fillPercent.toFixed(0)}%</div>
                     )}
                   </td>
 
-                  <td className="px-4 py-3 text-right text-white font-mono">
+                  <td className="px-4 py-3 text-right text-primary font-mono">
                     {order.type === 'MARKET'
                       ? 'Market'
                       : `$${parseFloat(order.price).toLocaleString()}`}
                   </td>
 
-                  <td className="px-4 py-3 text-center text-gray-400 text-xs">
+                  <td className="px-4 py-3 text-center text-muted text-xs">
                     {order.timeInForce || 'GTT'}
                   </td>
 
-                  <td className="px-4 py-3 text-right text-gray-400 text-xs">
+                  <td className="px-4 py-3 text-right text-muted text-xs">
                     {order.goodTilBlockTime
                       ? getTimeAgo(order.goodTilBlockTime)
                       : order.updatedAt
@@ -302,11 +300,10 @@ const OpenOrdersPanel: React.FC = () => {
                     <button
                       onClick={() => handleCancel(order)}
                       disabled={isCancelling || order.status === 'BEST_EFFORT_CANCELED'}
-                      className={`p-1.5 rounded transition-colors ${
-                        isCancelling || order.status === 'BEST_EFFORT_CANCELED'
-                          ? 'bg-gray-600 cursor-not-allowed'
+                      className={`p-1.5 rounded transition-colors ${isCancelling || order.status === 'BEST_EFFORT_CANCELED'
+                          ? 'bg-secondary cursor-not-allowed'
                           : 'bg-red-600 hover:bg-red-500 text-white'
-                      }`}
+                        }`}
                       title="Cancel order"
                     >
                       {isCancelling ? (
@@ -321,6 +318,110 @@ const OpenOrdersPanel: React.FC = () => {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Cards */}
+      <div className="md:hidden space-y-1.5 p-2">
+        {sortedOpenOrders.map(order => {
+          const isCancelling = cancelling.has(order.id);
+          const filled = parseFloat(order.totalFilled || '0');
+          const size = parseFloat(order.size);
+          const fillPercent = size > 0 ? (filled / size) * 100 : 0;
+
+          return (
+            <div
+              key={order.id}
+              className={`bg-secondary border border-color rounded-lg p-2.5 text-xs ${isCancelling ? 'opacity-50' : ''
+                }`}
+            >
+              {/* Row 1: Market, Type, Side, Cancel */}
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                    {getMarketIcon(order.ticker)}
+                  </div>
+                  <span className="text-primary font-bold">{order.ticker.split('-')[0]}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 bg-primary text-primary rounded text-[10px]">
+                    {order.type}
+                  </span>
+
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-red-500/20 text-red-400'
+                      }`}
+                  >
+                    {order.side}
+                  </span>
+
+                  <button
+                    onClick={() => handleCancel(order)}
+                    disabled={isCancelling || order.status === 'BEST_EFFORT_CANCELED'}
+                    className={`p-1.5 rounded transition-colors ${isCancelling || order.status === 'BEST_EFFORT_CANCELED'
+                        ? 'bg-primary cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-500 text-white'
+                      }`}
+                  >
+                    {isCancelling ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <X className="w-3 h-3" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <div className="mb-2">{getStatusBadge(order.status)}</div>
+
+              {/* Row 2: Details Grid */}
+              <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Amount</span>
+                  <span className="text-primary font-medium font-mono">{size.toFixed(4)}</span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Filled</span>
+                  <div>
+                    <div className="text-primary font-medium font-mono">{filled.toFixed(4)}</div>
+                    {fillPercent > 0 && (
+                      <div className="text-[9px] text-muted">{fillPercent.toFixed(0)}%</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Price</span>
+                  <span className="text-primary font-medium font-mono">
+                    {order.type === 'MARKET'
+                      ? 'Market'
+                      : `$${parseFloat(order.price).toLocaleString()}`}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">TIF</span>
+                  <span className="text-primary font-medium">{order.timeInForce || 'GTT'}</span>
+                </div>
+
+                <div className="flex flex-col gap-0.5 col-span-2">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Created</span>
+                  <span className="text-primary font-medium">
+                    {order.goodTilBlockTime
+                      ? getTimeAgo(order.goodTilBlockTime)
+                      : order.updatedAt
+                        ? getTimeAgo(order.updatedAt)
+                        : '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
