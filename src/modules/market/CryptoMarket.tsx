@@ -41,6 +41,7 @@ const CryptoMarket = () => {
   const [selectedCrypto, setSelectedCrypto] = useState<Crypto | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
   const [isMobile, setIsMobile] = useState(false);
+  console.log(lastFetchTime);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -193,9 +194,8 @@ const CryptoMarket = () => {
                   {formatPrice(coin.currentPrice)}
                 </div>
                 <div
-                  className={`text-xs font-medium ${
-                    coin.priceChangePercentage24h >= 0 ? 'price-up' : 'price-down'
-                  }`}
+                  className={`text-xs font-medium ${coin.priceChangePercentage24h >= 0 ? 'price-up' : 'price-down'
+                    }`}
                 >
                   {coin.priceChangePercentage24h >= 0 ? '+' : ''}
                   {coin.priceChangePercentage24h.toFixed(2)}%

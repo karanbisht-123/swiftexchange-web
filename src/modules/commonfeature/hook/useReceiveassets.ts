@@ -3,12 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 import { validateAddress } from '../../../validator/AddressValidator';
-import { getCosmosChains, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type ReceiveAsset,
-  assetFromCosmos,
   assetFromEVM,
   assetFromStellar,
 } from '../../walletconnect/utils/assetFromChain';
@@ -22,9 +21,8 @@ export const useReceiveAssets = () => {
 
   const assets: ReceiveAsset[] = useMemo(() => {
     const evm = getEVMChains(currentNetwork).map(assetFromEVM);
-    const cosmos = getCosmosChains(currentNetwork).map(assetFromCosmos);
     const stellar = [assetFromStellar(getStellarConfig(currentNetwork))];
-    return [...evm, ...cosmos, ...stellar];
+    return [...evm, ...stellar];
   }, [currentNetwork]);
 
   useEffect(() => {
@@ -38,7 +36,6 @@ export const useReceiveAssets = () => {
     [assets, selectedAssetValue]
   );
 
-  console.log('Current Asset:', currentAsset);
   const walletAddress = useMemo(() => {
     if (!currentAsset) return '';
     const wallet = connectedWallets[currentAsset.walletType];
@@ -46,29 +43,11 @@ export const useReceiveAssets = () => {
   }, [connectedWallets, currentAsset]);
 
   const isAddressValid = useMemo(() => {
-    console.log('Debug: walletAddress:', walletAddress);
-    console.log('Debug: currentAsset:', currentAsset);
-
-    const hasWalletAddress = !!walletAddress;
-    const hasCurrentAsset = !!currentAsset;
-
-    // Ensure currentAsset.network is passed to validation
-    const addressValidationResult =
-      hasWalletAddress && hasCurrentAsset
-        ? validateAddress(walletAddress, {
-            addressType: currentAsset.addressType as any,
-            network: currentAsset.network,
-          })
-        : false;
-
-    console.log('Debug: hasWalletAddress:', hasWalletAddress);
-    console.log('Debug: hasCurrentAsset:', hasCurrentAsset);
-    console.log('Debug: validateAddress result:', addressValidationResult);
-
-    const valid = hasWalletAddress && hasCurrentAsset && addressValidationResult;
-    console.log('Debug: final isAddressValid:', valid);
-
-    return valid;
+    if (!walletAddress || !currentAsset) return false;
+    return validateAddress(walletAddress, {
+      addressType: currentAsset.addressType as any,
+      network: currentAsset.network,
+    });
   }, [walletAddress, currentAsset]);
 
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -91,13 +70,21 @@ export const useReceiveAssets = () => {
     }
   }, [walletAddress, isAddressValid]);
 
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
   const handleCopy = useCallback(async () => {
     if (!walletAddress || !isAddressValid) return;
-    await navigator.clipboard.writeText(walletAddress);
-    alert(`${currentAsset?.value} address copied!`);
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      setCopyFeedback(`${currentAsset?.value} address copied!`);
+      setTimeout(() => setCopyFeedback(null), 2000);
+    } catch {
+      setCopyFeedback('Failed to copy address');
+      setTimeout(() => setCopyFeedback(null), 2000);
+    }
   }, [walletAddress, isAddressValid, currentAsset]);
 
-  const handleShare = useCallback(() => {
+  const handleShare = useCallback(async () => {
     if (!walletAddress || !isAddressValid) return;
     const text = `Send ${currentAsset?.value} to my wallet:
 
@@ -107,10 +94,20 @@ Network: ${currentAsset?.network}
 Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
 
     if (navigator.share) {
-      navigator.share({ title: `My ${currentAsset?.value} address`, text });
+      try {
+        await navigator.share({ title: `My ${currentAsset?.value} address`, text });
+      } catch {
+        // User cancelled or share failed
+      }
     } else {
-      navigator.clipboard.writeText(text);
-      alert('Address + network copied to clipboard.');
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopyFeedback('Address + network copied!');
+        setTimeout(() => setCopyFeedback(null), 2000);
+      } catch {
+        setCopyFeedback('Failed to share');
+        setTimeout(() => setCopyFeedback(null), 2000);
+      }
     }
   }, [walletAddress, isAddressValid, currentAsset]);
 
@@ -126,5 +123,6 @@ Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
     handleCopy,
     handleShare,
     qrCanvasRef,
+    copyFeedback,
   };
 };

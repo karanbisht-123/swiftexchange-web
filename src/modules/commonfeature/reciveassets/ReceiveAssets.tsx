@@ -17,6 +17,7 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
     handleCopy,
     handleShare,
     qrCanvasRef,
+    copyFeedback,
   } = useReceiveAssets();
 
   const { openModal } = useWalletConnect();
@@ -41,6 +42,13 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
             >
               Connect Wallet
             </button>
+          </div>
+        )}
+
+        {/* Toast notification for copy feedback */}
+        {copyFeedback && (
+          <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg animate-fade-in">
+            {copyFeedback}
           </div>
         )}
 
@@ -139,11 +147,10 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                   Your {currentAsset?.value} Address
                 </p>
                 <div
-                  className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${
-                    isAddressValid
-                      ? 'border-border text-text-primary'
-                      : 'border-danger text-danger-dark bg-danger-light'
-                  }`}
+                  className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${isAddressValid
+                    ? 'border-border text-text-primary'
+                    : 'border-danger text-danger-dark bg-danger-light'
+                    }`}
                 >
                   {walletAddress || `No ${currentAsset?.network} address available`}
                   <button

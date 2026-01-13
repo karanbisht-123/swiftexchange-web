@@ -205,18 +205,8 @@ class TransactionRouter {
 
     try {
       console.log('Preparing EVM transaction...');
-      console.log('Provider info:', {
-        hasProvider: !!provider,
-        hasRequest: typeof provider.request === 'function',
-        providerType: typeof provider,
-      });
 
       const amountInWei = BigInt(Math.floor(parseFloat(request.amount) * 1e18));
-      console.log('Amount conversion:', {
-        original: request.amount,
-        wei: amountInWei.toString(),
-        hex: '0x' + amountInWei.toString(16),
-      });
 
       const txParams: any = {
         from: request.from,
@@ -224,18 +214,38 @@ class TransactionRouter {
         value: '0x' + amountInWei.toString(16),
       };
 
-      if (request.data) {
-        txParams.data = typeof request.data === 'string' ? request.data : '0x';
-        console.log('Data attached:', txParams.data);
+      // Only add data if it's actually transaction data (not a memo)
+      if (request.data && typeof request.data === 'string' && request.data.startsWith('0x') && request.data.length > 2) {
+        txParams.data = request.data;
       }
 
-      console.log('Final transaction params:', txParams);
-      console.log('Calling provider.request with eth_sendTransaction...');
+      console.log('Transaction params:', txParams);
 
-      const hash = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [txParams],
-      });
+      // Check if this is a WalletConnect provider (has session property)
+      const isWalletConnect = !!provider.session;
+
+      let hash: string;
+
+      if (isWalletConnect) {
+        // For WalletConnect Universal Provider, we need to specify the chain
+        const chainId = typeof request.networkKey === 'number'
+          ? request.networkKey
+          : parseInt(String(session.chainId));
+
+        const chainIdCAIP = `eip155:${chainId}`;
+        console.log('Using WalletConnect with chain:', chainIdCAIP);
+
+        hash = await provider.request({
+          method: 'eth_sendTransaction',
+          params: [txParams],
+        }, chainIdCAIP);
+      } else {
+        // For browser extension providers (MetaMask, etc.)
+        hash = await provider.request({
+          method: 'eth_sendTransaction',
+          params: [txParams],
+        });
+      }
 
       console.log('Transaction sent successfully!');
       console.log('Transaction hash:', hash);
@@ -246,8 +256,6 @@ class TransactionRouter {
       console.error('EVM transaction failed:', {
         message: error.message,
         code: error.code,
-        data: error.data,
-        fullError: error,
       });
       console.groupEnd();
       throw error;

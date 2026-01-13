@@ -13,12 +13,11 @@ import type {
 } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
-import { getCosmosChains, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type ReceiveAsset,
-  assetFromCosmos,
   assetFromEVM,
   assetFromStellar,
 } from '../../walletconnect/utils/assetFromChain';
@@ -30,7 +29,7 @@ interface TransactionState {
   stellarTransaction?: StellarSendTransaction | null;
 }
 interface EnhancedReceiveAsset extends ReceiveAsset {
-  type: 'evm' | 'stellar' | 'cosmos';
+  type: 'evm' | 'stellar';
   networkKey: number | string;
   decimals: number;
   baseFee: number;
@@ -92,17 +91,11 @@ const formatErrorMessage = (error: any, context: string): string => {
 };
 
 const enhanceAsset = (asset: ReceiveAsset): EnhancedReceiveAsset => {
-  let type: 'evm' | 'stellar' | 'cosmos' = 'evm';
-  if (asset.addressType === 'stellar' || asset.walletType === 'stellar') {
-    type = 'stellar';
-  } else if (asset.addressType === 'cosmos' || asset.walletType === 'cosmos') {
-    type = 'cosmos';
-  }
+  const type: 'evm' | 'stellar' =
+    asset.addressType === 'stellar' || asset.walletType === 'stellar' ? 'stellar' : 'evm';
   const networkKey = asset.chainId || 0;
-
-  // Standardized decimals and base fees (approximation for generic display)
-  const decimals = type === 'stellar' ? 7 : type === 'cosmos' ? 6 : 18;
-  const baseFee = type === 'stellar' ? 0.00001 : type === 'cosmos' ? 0.0025 : 0.001;
+  const decimals = type === 'stellar' ? 7 : 18;
+  const baseFee = type === 'stellar' ? 0.00001 : 0.001;
 
   return {
     ...asset,
@@ -117,16 +110,12 @@ export const useSendAsset = (onBack?: () => void) => {
   const { connectedWallets } = useWalletConnect();
   const { sendTransaction, canHandleTransaction, getSessionInfo } = useTransactionRouter();
 
-  // Get network from the centralized store
   const currentNetwork = useWalletStore(state => state.network);
 
   const rawAssets: ReceiveAsset[] = useMemo(() => {
-    // Pass currentNetwork to chain configuration getters
     const evm = getEVMChains(currentNetwork).map(assetFromEVM);
-    const cosmos = getCosmosChains(currentNetwork).map(assetFromCosmos);
     const stellar = [assetFromStellar(getStellarConfig(currentNetwork))];
-    return [...evm, ...cosmos, ...stellar];
-    // Add currentNetwork as a dependency
+    return [...evm, ...stellar];
   }, [currentNetwork]);
 
   const assets: EnhancedReceiveAsset[] = useMemo(() => {
@@ -149,9 +138,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Select first asset
   useEffect(() => {
-    // If the selected asset doesn't exist in the new list (e.g., due to network change), select the first one.
     if (assets.length && !assets.some(a => a.value === selectedAssetValue)) {
       setSelectedAssetValue(assets[0].value);
     }
@@ -161,7 +148,6 @@ export const useSendAsset = (onBack?: () => void) => {
     () => assets.find(a => a.value === selectedAssetValue),
     [assets, selectedAssetValue]
   );
-  // Wallet address
   const senderAddress = useMemo(() => {
     if (!currentAsset) return null;
     const walletInfo = connectedWallets[currentAsset.walletType];
@@ -190,15 +176,11 @@ export const useSendAsset = (onBack?: () => void) => {
       try {
         let balStr: string;
 
-        console.log(currentAsset, '------');
         if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
           balStr = await getNativeBalance(currentAsset.networkKey, senderAddress);
         } else if (currentAsset.type === 'stellar') {
-          console.log('Fetching stellar balance', currentAsset.addressType);
-          // Note: getStellarBalance uses 'native' for XLM balance implicitly
           balStr = await getStellarBalance('native', senderAddress);
         } else {
-          // Placeholder for Cosmos, pending implementation
           balStr = '0';
         }
 
@@ -211,10 +193,8 @@ export const useSendAsset = (onBack?: () => void) => {
       }
     };
     fetchBalance();
-    // Re-fetch when currentAsset or senderAddress changes (which happens on network change)
   }, [currentAsset, senderAddress]);
 
-  //  Fee estimation
   useEffect(() => {
     const estimate = async () => {
       if (
@@ -407,19 +387,10 @@ export const useSendAsset = (onBack?: () => void) => {
           },
         };
       } else {
-        // Cosmos transaction placeholder
-        transactionRequest = {
-          type: 'cosmos',
-          network: currentAsset.network,
-          networkKey: currentAsset.networkKey as string,
-          from: senderAddress,
-          to: recipientAddress,
-          amount,
-          memo: memo || undefined,
-        };
+        // This should never happen since we only support evm and stellar now
+        throw new Error(`Unsupported asset type: ${currentAsset.type}`);
       }
 
-      console.log('[useSendAsset] Sending via router:', transactionRequest);
       const response = await sendTransaction(transactionRequest);
 
       if (response.status === 'success') {
@@ -495,13 +466,13 @@ export const useSendAsset = (onBack?: () => void) => {
     console.log(label);
     try {
       await navigator.clipboard.writeText(text);
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
     if (currentAsset) {
-      const info = getSessionInfo(currentAsset.walletType);
-      console.log(`[useSendAsset] Session for ${currentAsset.walletType}:`, info);
+      // Session info used for debugging - can be enabled when needed
+      getSessionInfo(currentAsset.walletType);
     }
   }, [currentAsset, getSessionInfo]);
 
