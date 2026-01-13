@@ -15,6 +15,7 @@ import type {
   AlchemyQuoteRequest,
   AlchemySellOrderRequest,
 } from '../types/alchemyTypes';
+import { useUserCountry } from './useUserCountry';
 
 interface ParsedApiResponse {
   success: boolean;
@@ -31,6 +32,7 @@ type CryptoOption = {
   network: string;
   minSellAmount: number;
   maxSellAmount: number;
+  icon: string;
 };
 
 type PaymentOption = {
@@ -39,8 +41,10 @@ type PaymentOption = {
   currency: string;
   payWayCode: string;
   country: string;
+  countryName: string;
   payMin: number;
   payMax: number;
+  flag: string;
 };
 
 const cryptoOptions: CryptoOption[] = cryptoSupportData
@@ -52,6 +56,7 @@ const cryptoOptions: CryptoOption[] = cryptoSupportData
     network: crypto.network,
     minSellAmount: crypto.minSellAmount ?? MIN_AMOUNT_SELL,
     maxSellAmount: crypto.maxSellAmount ?? Number.MAX_SAFE_INTEGER,
+    icon: crypto.icon || '',
   }));
 
 const paymentOptions: PaymentOption[] = fiatSupportData.map(fiat => ({
@@ -60,8 +65,10 @@ const paymentOptions: PaymentOption[] = fiatSupportData.map(fiat => ({
   currency: fiat.currency,
   payWayCode: fiat.payWayCode,
   country: fiat.country,
+  countryName: fiat.countryName,
   payMin: fiat.payMin,
   payMax: fiat.payMax,
+  flag: `https://flagcdn.com/24x18/${fiat.country.toLowerCase()}.png`,
 }));
 
 export const useAlchemySell = () => {
@@ -81,6 +88,21 @@ export const useAlchemySell = () => {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderUrl, setOrderUrl] = useState('');
   const [paymentTab, setPaymentTab] = useState<Window | null>(null);
+
+  const { country, isLoading: isLoadingCountry } = useUserCountry();
+  const [hasAutoSelectedCountry, setHasAutoSelectedCountry] = useState(false);
+
+  useEffect(() => {
+    if (!hasAutoSelectedCountry && country && !isLoadingCountry) {
+      const matchingOption = paymentOptions.find(
+        option => option.country === country
+      );
+      if (matchingOption) {
+        setSelectedPaymentOption(matchingOption);
+      }
+      setHasAutoSelectedCountry(true);
+    }
+  }, [country, isLoadingCountry, hasAutoSelectedCountry]);
 
   const parseApiResponse = (response: any): ParsedApiResponse => {
     try {
@@ -112,6 +134,14 @@ export const useAlchemySell = () => {
     return fallback;
   };
 
+  const getEffectiveMinCryptoAmount = () => {
+    return selectedCryptoOption?.minSellAmount || MIN_AMOUNT_SELL;
+  };
+
+  const getEffectiveMaxCryptoAmount = () => {
+    return selectedCryptoOption?.maxSellAmount || Number.MAX_SAFE_INTEGER;
+  };
+
   useEffect(() => {
     const fetchQuote = async () => {
       setQuoteError('');
@@ -123,14 +153,6 @@ export const useAlchemySell = () => {
       if (!cryptoAmount || amount <= 0) {
         setFiatAmount('0.0');
         setQuote(null);
-        if (cryptoAmount) {
-          setQuoteError(
-            ERROR_MESSAGES.MIN_AMOUNT(
-              selectedCryptoOption?.minSellAmount || MIN_AMOUNT_SELL,
-              selectedCryptoOption?.crypto || ''
-            )
-          );
-        }
         return;
       }
 
@@ -148,20 +170,20 @@ export const useAlchemySell = () => {
         return;
       }
 
-      if (amount < (selectedCryptoOption.minSellAmount || MIN_AMOUNT_SELL)) {
+      const effectiveMin = getEffectiveMinCryptoAmount();
+      const effectiveMax = getEffectiveMaxCryptoAmount();
+
+      if (amount < effectiveMin) {
         setFiatAmount('0.0');
         setQuote(null);
-        setQuoteError(
-          ERROR_MESSAGES.MIN_AMOUNT(selectedCryptoOption.minSellAmount, selectedCryptoOption.crypto)
-        );
+        setQuoteError(ERROR_MESSAGES.MIN_AMOUNT(effectiveMin, selectedCryptoOption.crypto));
         return;
       }
-      if (selectedCryptoOption.maxSellAmount && amount > selectedCryptoOption.maxSellAmount) {
+
+      if (amount > effectiveMax) {
         setFiatAmount('0.0');
         setQuote(null);
-        setQuoteError(
-          ERROR_MESSAGES.MAX_AMOUNT(selectedCryptoOption.maxSellAmount, selectedCryptoOption.crypto)
-        );
+        setQuoteError(ERROR_MESSAGES.MAX_AMOUNT(effectiveMax, selectedCryptoOption.crypto));
         return;
       }
 
@@ -207,6 +229,14 @@ export const useAlchemySell = () => {
           networkFee: parsedResponse.data.networkFee || '0',
         };
 
+        // Validate that fiat amount meets payment method minimum
+        const fiatValue = parseFloat(quoteData.fiatQuantity || '0');
+        if (fiatValue < selectedPaymentOption.payMin) {
+          throw new Error(
+            `The resulting fiat amount (${fiatValue} ${selectedPaymentOption.currency}) is below the minimum for this payment method (${selectedPaymentOption.payMin} ${selectedPaymentOption.currency}). Please increase the crypto amount.`
+          );
+        }
+
         setQuote(quoteData);
         setFiatAmount(quoteData.fiatQuantity || '0.0');
       } catch (error) {
@@ -241,15 +271,24 @@ export const useAlchemySell = () => {
       return;
     }
 
-    if (amount < (selectedCryptoOption.minSellAmount || MIN_AMOUNT_SELL)) {
-      setOrderError(
-        ERROR_MESSAGES.MIN_AMOUNT(selectedCryptoOption.minSellAmount, selectedCryptoOption.crypto)
-      );
+    const effectiveMin = getEffectiveMinCryptoAmount();
+    const effectiveMax = getEffectiveMaxCryptoAmount();
+
+    if (amount < effectiveMin) {
+      setOrderError(ERROR_MESSAGES.MIN_AMOUNT(effectiveMin, selectedCryptoOption.crypto));
       return;
     }
-    if (selectedCryptoOption.maxSellAmount && amount > selectedCryptoOption.maxSellAmount) {
+
+    if (amount > effectiveMax) {
+      setOrderError(ERROR_MESSAGES.MAX_AMOUNT(effectiveMax, selectedCryptoOption.crypto));
+      return;
+    }
+
+    // Validate fiat amount meets payment method minimum
+    const fiatValue = parseFloat(fiatAmount);
+    if (fiatValue < selectedPaymentOption.payMin) {
       setOrderError(
-        ERROR_MESSAGES.MAX_AMOUNT(selectedCryptoOption.maxSellAmount, selectedCryptoOption.crypto)
+        `The resulting fiat amount (${fiatValue} ${selectedPaymentOption.currency}) is below the minimum for this payment method (${selectedPaymentOption.payMin} ${selectedPaymentOption.currency}).`
       );
       return;
     }
@@ -355,9 +394,14 @@ export const useAlchemySell = () => {
 
   const isFormValid = () => {
     const amount = parseFloat(cryptoAmount);
+    const effectiveMin = getEffectiveMinCryptoAmount();
+    const effectiveMax = getEffectiveMaxCryptoAmount();
+    const fiatValue = parseFloat(fiatAmount);
+
     return (
-      amount >= (selectedCryptoOption?.minSellAmount || MIN_AMOUNT_SELL) &&
-      (!selectedCryptoOption?.maxSellAmount || amount <= selectedCryptoOption.maxSellAmount) &&
+      amount >= effectiveMin &&
+      amount <= effectiveMax &&
+      fiatValue >= (selectedPaymentOption?.payMin || 0) &&
       quote &&
       !isLoadingQuote &&
       !isCreatingOrder &&
@@ -391,7 +435,7 @@ export const useAlchemySell = () => {
     resetForm,
     isFormValid,
     setOrderError,
-    MIN_AMOUNT: MIN_AMOUNT_SELL,
+    MIN_AMOUNT: getEffectiveMinCryptoAmount(),
     SUCCESS_MESSAGES,
     ERROR_MESSAGES,
   };

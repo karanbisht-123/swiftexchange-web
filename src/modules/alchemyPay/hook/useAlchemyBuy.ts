@@ -12,14 +12,14 @@ import {
   type AlchemyQuoteRequest,
   ORDER_TYPES,
 } from '../types/alchemyTypes';
+import { useUserCountry } from './useUserCountry';
 
 type CryptoOption = {
   value: string;
   label: string;
   crypto: string;
   network: string;
-  minPurchaseAmount: number;
-  maxPurchaseAmount: number;
+  icon: string;
 };
 
 type PaymentOption = {
@@ -28,8 +28,10 @@ type PaymentOption = {
   currency: string;
   payWayCode: string;
   country: string;
+  countryName: string;
   payMin: number;
   payMax: number;
+  flag: string;
 };
 
 const cryptoOptions: CryptoOption[] = cryptoSupportData
@@ -39,8 +41,7 @@ const cryptoOptions: CryptoOption[] = cryptoSupportData
     label: `${crypto.crypto} (${crypto.network})`,
     crypto: crypto.crypto,
     network: crypto.network,
-    minPurchaseAmount: crypto.minPurchaseAmount,
-    maxPurchaseAmount: crypto.maxPurchaseAmount,
+    icon: crypto.icon || '',
   }));
 
 const paymentOptions: PaymentOption[] = fiatSupportData.map(fiat => ({
@@ -49,8 +50,11 @@ const paymentOptions: PaymentOption[] = fiatSupportData.map(fiat => ({
   currency: fiat.currency,
   payWayCode: fiat.payWayCode,
   country: fiat.country,
+  countryName: fiat.countryName,
   payMin: fiat.payMin,
   payMax: fiat.payMax,
+  // Using flagcdn.com for free country flag images
+  flag: `https://flagcdn.com/24x18/${fiat.country.toLowerCase()}.png`,
 }));
 
 export const useAlchemyBuy = () => {
@@ -71,10 +75,34 @@ export const useAlchemyBuy = () => {
   const [quote, setQuote] = useState<any | null>(null);
   const [paymentTab, setPaymentTab] = useState<Window | null>(null);
 
-  // Fixed: Properly retrieve EVM wallet address from connectedWallets
   const connectedWallets = useWalletStore(state => state.connectedWallets);
   const evmWallet = connectedWallets[WalletType.EVM];
   const evmAddress = evmWallet?.address || '0x1f2fee51c15f6be9ff65833516358e6a55736092';
+
+  // Geolocation for auto-selecting user's country
+  const { country, isLoading: isLoadingCountry } = useUserCountry();
+  const [hasAutoSelectedCountry, setHasAutoSelectedCountry] = useState(false);
+
+  // Auto-select payment option based on detected country
+  useEffect(() => {
+    if (!hasAutoSelectedCountry && country && !isLoadingCountry) {
+      // Find a payment option matching the user's country
+      const matchingOption = paymentOptions.find(
+        option => option.country === country
+      );
+      if (matchingOption) {
+        setSelectedPaymentOption(matchingOption);
+      }
+      setHasAutoSelectedCountry(true);
+    }
+  }, [country, isLoadingCountry, hasAutoSelectedCountry]);
+
+  const getEffectiveMinAmount = () => {
+    return selectedPaymentOption?.payMin || MIN_AMOUNT_BUY;
+  };
+  const getEffectiveMaxAmount = () => {
+    return selectedPaymentOption?.payMax || Number.MAX_SAFE_INTEGER;
+  };
 
   useEffect(() => {
     const fetchQuote = async () => {
@@ -87,14 +115,6 @@ export const useAlchemyBuy = () => {
       if (!fiatAmount || amount <= 0) {
         setCryptoAmount('0.0');
         setQuote(null);
-        if (fiatAmount) {
-          setQuoteError(
-            ERROR_MESSAGES.MIN_AMOUNT(
-              selectedPaymentOption?.payMin || MIN_AMOUNT_BUY,
-              selectedPaymentOption?.currency || ''
-            )
-          );
-        }
         return;
       }
 
@@ -112,43 +132,20 @@ export const useAlchemyBuy = () => {
         return;
       }
 
-      if (amount < selectedPaymentOption.payMin) {
+      const effectiveMin = getEffectiveMinAmount();
+      const effectiveMax = getEffectiveMaxAmount();
+
+      if (amount < effectiveMin) {
         setCryptoAmount('0.0');
         setQuote(null);
-        setQuoteError(
-          ERROR_MESSAGES.MIN_AMOUNT(selectedPaymentOption.payMin, selectedPaymentOption.currency)
-        );
-        return;
-      }
-      if (amount > selectedPaymentOption.payMax) {
-        setCryptoAmount('0.0');
-        setQuote(null);
-        setQuoteError(
-          ERROR_MESSAGES.MAX_AMOUNT(selectedPaymentOption.payMax, selectedPaymentOption.currency)
-        );
+        setQuoteError(ERROR_MESSAGES.MIN_AMOUNT(effectiveMin, selectedPaymentOption.currency));
         return;
       }
 
-      if (amount < selectedCryptoOption.minPurchaseAmount) {
+      if (amount > effectiveMax) {
         setCryptoAmount('0.0');
         setQuote(null);
-        setQuoteError(
-          ERROR_MESSAGES.MIN_AMOUNT(
-            selectedCryptoOption.minPurchaseAmount,
-            selectedPaymentOption.currency
-          )
-        );
-        return;
-      }
-      if (amount > selectedCryptoOption.maxPurchaseAmount) {
-        setCryptoAmount('0.0');
-        setQuote(null);
-        setQuoteError(
-          ERROR_MESSAGES.MAX_AMOUNT(
-            selectedCryptoOption.maxPurchaseAmount,
-            selectedPaymentOption.currency
-          )
-        );
+        setQuoteError(ERROR_MESSAGES.MAX_AMOUNT(effectiveMax, selectedPaymentOption.currency));
         return;
       }
 
@@ -180,13 +177,24 @@ export const useAlchemyBuy = () => {
 
         const quoteData = JSON.parse(response.data);
         if (!quoteData.success || !quoteData.data) {
+          // Show the API's error message if available
+          if (quoteData.returnMsg) {
+            throw new Error(quoteData.returnMsg);
+          }
           throw new Error(ERROR_MESSAGES.INVALID_QUOTE);
         }
 
         setQuote(quoteData.data);
         setCryptoAmount(quoteData.data.cryptoQuantity);
       } catch (error: any) {
-        const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.QUOTE_FAILED;
+        let errorMessage = ERROR_MESSAGES.QUOTE_FAILED;
+
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+
         setQuoteError(errorMessage);
         setCryptoAmount('0.0');
         setQuote(null);
@@ -217,35 +225,16 @@ export const useAlchemyBuy = () => {
       return;
     }
 
-    if (amount < selectedPaymentOption.payMin) {
-      setOrderError(
-        ERROR_MESSAGES.MIN_AMOUNT(selectedPaymentOption.payMin, selectedPaymentOption.currency)
-      );
-      return;
-    }
-    if (amount > selectedPaymentOption.payMax) {
-      setOrderError(
-        ERROR_MESSAGES.MAX_AMOUNT(selectedPaymentOption.payMax, selectedPaymentOption.currency)
-      );
+    const effectiveMin = getEffectiveMinAmount();
+    const effectiveMax = getEffectiveMaxAmount();
+
+    if (amount < effectiveMin) {
+      setOrderError(ERROR_MESSAGES.MIN_AMOUNT(effectiveMin, selectedPaymentOption.currency));
       return;
     }
 
-    if (amount < selectedCryptoOption.minPurchaseAmount) {
-      setOrderError(
-        ERROR_MESSAGES.MIN_AMOUNT(
-          selectedCryptoOption.minPurchaseAmount,
-          selectedPaymentOption.currency
-        )
-      );
-      return;
-    }
-    if (amount > selectedCryptoOption.maxPurchaseAmount) {
-      setOrderError(
-        ERROR_MESSAGES.MAX_AMOUNT(
-          selectedCryptoOption.maxPurchaseAmount,
-          selectedPaymentOption.currency
-        )
-      );
+    if (amount > effectiveMax) {
+      setOrderError(ERROR_MESSAGES.MAX_AMOUNT(effectiveMax, selectedPaymentOption.currency));
       return;
     }
 
@@ -351,11 +340,12 @@ export const useAlchemyBuy = () => {
 
   const isFormValid = () => {
     const amount = parseFloat(fiatAmount);
+    const effectiveMin = getEffectiveMinAmount();
+    const effectiveMax = getEffectiveMaxAmount();
+
     return (
-      amount >= (selectedPaymentOption?.payMin || MIN_AMOUNT_BUY) &&
-      amount <= (selectedPaymentOption?.payMax || Infinity) &&
-      amount >= (selectedCryptoOption?.minPurchaseAmount || MIN_AMOUNT_BUY) &&
-      amount <= (selectedCryptoOption?.maxPurchaseAmount || Infinity) &&
+      amount >= effectiveMin &&
+      amount <= effectiveMax &&
       quote &&
       !isLoadingQuote &&
       !isCreatingOrder &&
@@ -389,7 +379,7 @@ export const useAlchemyBuy = () => {
     resetForm,
     isFormValid,
     evmAddress,
-    MIN_AMOUNT: MIN_AMOUNT_BUY,
+    MIN_AMOUNT: getEffectiveMinAmount(),
     SUCCESS_MESSAGES,
     ERROR_MESSAGES,
     setOrderError,

@@ -28,18 +28,18 @@ const PageLayout: React.FC<PageLayoutProps> = ({
   const maxWidthClasses = {
     sm: 'max-w-md',
     md: 'max-w-lg',
-    lg: 'max-w-2xl',
-    xl: 'max-w-4xl',
+    lg: 'max-w-3xl',
+    xl: 'max-w-5xl',
     '2xl': 'max-w-6xl',
     full: 'max-w-full',
   };
 
   return (
-    <div className="flex flex-col items-center min-h-screen py-2  lg:p-6 bg-primary">
+    <div className="flex flex-col items-center min-h-screen lg:p-6 bg-primary  ">
       <div
         className={`
           w-full ${maxWidthClasses[maxWidth]} 
-          lg:bg-secondary p-3 md:p-6 rounded-xl
+          bg-secondary p-3 md:p-6 lg:rounded-xl
           flex flex-col
           ${className}
   

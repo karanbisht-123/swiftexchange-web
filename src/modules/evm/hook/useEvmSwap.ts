@@ -1,11 +1,14 @@
-// hook/useEvmSwap.ts
 import { useCallback, useRef, useState } from 'react';
 
 import { ethers } from 'ethers';
 
 import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
-import { type TokenInfo, fetchAssetsWithBalances } from '../service/tokenListService';
+import {
+  type TokenInfo,
+  fetchSingleTokenBalance,
+  getTokensForChain,
+} from '../service/tokenListService';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
 
 interface UseEvmSwapProps {
@@ -25,7 +28,8 @@ interface UseEvmSwapState {
 }
 
 interface UseEvmSwapActions {
-  fetchAssets: () => Promise<void>;
+  fetchTokenList: () => void;
+  updateTokenBalances: (sellToken?: TokenInfo, buyToken?: TokenInfo) => Promise<void>;
   fetchQuote: (
     request: SwapQuoteRequest,
     sellAsset: TokenInfo,
@@ -57,7 +61,6 @@ export const useEvmSwap = ({
   });
 
   const quoteAbortController = useRef<AbortController | null>(null);
-  const assetsAbortController = useRef<AbortController | null>(null);
 
   const updateState = useCallback((updates: Partial<UseEvmSwapState>) => {
     setState(prev => ({ ...prev, ...updates }));
@@ -75,44 +78,64 @@ export const useEvmSwap = ({
     return true;
   }, [senderAddress, updateState]);
 
-  const fetchAssets = useCallback(async () => {
-    if (!senderAddress || !chainId) {
-      return;
-    }
+  const fetchTokenList = useCallback(() => {
+    if (!chainId) return;
 
-    if (assetsAbortController.current) {
-      assetsAbortController.current.abort();
-    }
-
-    assetsAbortController.current = new AbortController();
     updateState({ isFetchingAssets: true, error: null });
 
     try {
-      const provider = getProvider(WalletType.EVM);
-      if (!provider) {
-        throw new Error('Wallet not connected');
-      }
-
-      const ethersProvider = new ethers.BrowserProvider(provider);
-      const fetchedAssets = await fetchAssetsWithBalances(chainId, senderAddress, ethersProvider);
-
-      if (!assetsAbortController.current.signal.aborted) {
-        updateState({ assets: fetchedAssets, isFetchingAssets: false });
-      }
-    } catch (err: any) {
-      if (err.name === 'AbortError' || assetsAbortController.current?.signal.aborted) {
-        return;
-      }
-
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch assets';
-      console.error('Asset fetch error:', err);
+      const tokens = getTokensForChain(chainId);
+      updateState({ assets: tokens, isFetchingAssets: false });
+    } catch (err) {
+      console.error('Failed to load token list:', err);
       updateState({
-        error: errorMessage,
+        error: 'Failed to load token list',
         assets: [],
         isFetchingAssets: false,
       });
     }
-  }, [chainId, senderAddress, getProvider, updateState]);
+  }, [chainId, updateState]);
+
+  const updateTokenBalances = useCallback(
+    async (sellToken?: TokenInfo, buyToken?: TokenInfo) => {
+      if (!senderAddress || !chainId) return;
+
+      const provider = getProvider(WalletType.EVM);
+      if (!provider) return;
+
+      const ethersProvider = new ethers.BrowserProvider(provider);
+
+      const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
+      if (tokensToFetch.length === 0) return;
+      const updates = await Promise.all(
+        tokensToFetch.map(async token => {
+          const bal = await fetchSingleTokenBalance(
+            senderAddress,
+            ethersProvider,
+            token.address,
+            !!token.isNative,
+            token.decimals
+          );
+          return { address: token.address, balance: bal };
+        })
+      );
+      setState(prev => {
+        const newAssets = [...prev.assets];
+        let hasChanges = false;
+
+        updates.forEach(({ address, balance }) => {
+          const index = newAssets.findIndex(a => a.address === address);
+          if (index !== -1 && newAssets[index].balance !== balance) {
+            newAssets[index] = { ...newAssets[index], balance };
+            hasChanges = true;
+          }
+        });
+
+        return hasChanges ? { ...prev, assets: newAssets } : prev;
+      });
+    },
+    [chainId, senderAddress, getProvider]
+  );
 
   const fetchQuote = useCallback(
     async (
@@ -137,7 +160,8 @@ export const useEvmSwap = ({
         if (sellAsset.address === buyAsset.address) {
           throw new Error('Cannot swap same token');
         }
-        if (parseFloat(request.amount) > parseFloat(sellAsset.balance || '0')) {
+        const currentSellBalance = sellAsset.balance || '0';
+        if (parseFloat(request.amount) > parseFloat(currentSellBalance)) {
           throw new Error(`Insufficient ${sellAsset.symbol} balance`);
         }
 
@@ -176,21 +200,7 @@ export const useEvmSwap = ({
       updateState({ loading: true, error: null, txHash: null });
 
       try {
-        if (!quote) {
-          throw new Error('No quote available for swap');
-        }
-        if (!sellAsset || !buyAsset) {
-          throw new Error('Invalid assets for swap');
-        }
-        if (!sellAmount || parseFloat(sellAmount) <= 0) {
-          throw new Error('Invalid sell amount');
-        }
-        if (slippageTolerance < 0 || slippageTolerance > 50) {
-          throw new Error('Invalid slippage tolerance (must be 0-50%)');
-        }
-        if (parseFloat(sellAmount) > parseFloat(sellAsset.balance || '0')) {
-          throw new Error(`Insufficient ${sellAsset.symbol} balance`);
-        }
+        if (!quote) throw new Error('No quote available');
 
         const hash = await executeSwap(
           chainId,
@@ -204,11 +214,9 @@ export const useEvmSwap = ({
         );
 
         updateState({ txHash: hash, loading: false });
-
-        // Refresh assets after successful swap
         setTimeout(() => {
-          fetchAssets();
-        }, 3000);
+          updateTokenBalances(sellAsset, buyAsset);
+        }, 8000);
 
         return hash;
       } catch (err: any) {
@@ -218,14 +226,13 @@ export const useEvmSwap = ({
         throw new Error(errorMsg);
       }
     },
-    [chainId, senderAddress, getProvider, fetchAssets, validateSenderAddress, updateState]
+    [chainId, senderAddress, getProvider, updateTokenBalances, validateSenderAddress, updateState]
   );
 
   const reset = useCallback(() => {
     if (quoteAbortController.current) {
       quoteAbortController.current.abort();
     }
-
     updateState({
       quote: null,
       txHash: null,
@@ -237,7 +244,8 @@ export const useEvmSwap = ({
 
   return {
     ...state,
-    fetchAssets,
+    fetchTokenList,
+    updateTokenBalances,
     fetchQuote,
     performSwap,
     reset,

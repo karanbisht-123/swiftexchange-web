@@ -1,12 +1,6 @@
-/* -------------------------
-   IMPORTS
--------------------------- */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;600;700&display=swap');
 @import 'tailwindcss';
 
-/* -------------------------
-   CLEAN THEME VARIABLES
--------------------------- */
 :root {
   /* Brand Colors - Based on #020e46 */
   --color-brand-primary: #020e46;
@@ -423,7 +417,6 @@
    UTILITIES
 -------------------------- */
 @layer utilities {
-
   /* Borders */
   .border-color {
     border-color: var(--color-border);
@@ -616,9 +609,7 @@
 
 .hide-scrollbar {
   -ms-overflow-style: none;
-  /* IE and Edge */
   scrollbar-width: none;
-  /* Firefox */
 }
 
 /* Scrollbar hide utility */
@@ -631,7 +622,6 @@
   scrollbar-width: none;
 }
 
-/* Enhanced slide-up animation for mobile modals */
 @keyframes slideUpModal {
   from {
     opacity: 0;

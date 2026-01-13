@@ -1,14 +1,17 @@
 import { ethers } from 'ethers';
-
 import type { SwapQuote, SwapQuoteRequest, SwapType } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
-import { executeSwapTransaction, getSwapQuote } from '../service/evmSwapService';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { prepareSwapTransaction, getSwapQuote } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
+
+function isMainnet(): boolean {
+  return useWalletStore.getState().network === 'mainnet';
+}
 
 export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
   const isSellNative = sellAsset.isNative;
   const isBuyNative = buyAsset.isNative;
-
   const isSellUsdc = sellAsset.symbol.toUpperCase() === 'USDC';
   const isBuyUsdc = buyAsset.symbol.toUpperCase() === 'USDC';
 
@@ -16,7 +19,6 @@ export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): Sw
   if (isSellUsdc && isBuyNative) return 'UsdcToWeth';
   if (isSellNative && !isBuyUsdc) return 'EthToToken';
   if (!isSellNative && isBuyNative) return 'TokenToEth';
-
   return 'TokenToToken';
 }
 
@@ -30,7 +32,6 @@ export async function fetchEvmQuote(
     if (!selectedSellAsset.isNative && !ethers.isAddress(selectedSellAsset.address)) {
       throw new Error(`Invalid sell token address: ${selectedSellAsset.address}`);
     }
-
     if (!selectedBuyAsset.isNative && !ethers.isAddress(selectedBuyAsset.address)) {
       throw new Error(`Invalid buy token address: ${selectedBuyAsset.address}`);
     }
@@ -67,7 +68,6 @@ export async function fetchEvmQuote(
     };
   } catch (error: any) {
     console.error('Error fetching quote:', error);
-
     if (error.message?.includes('No liquidity')) {
       throw new Error('Insufficient liquidity for this token pair');
     }
@@ -77,7 +77,6 @@ export async function fetchEvmQuote(
     if (error.message?.includes('timeout')) {
       throw new Error('Request timeout. Please try again');
     }
-
     throw new Error(error.message || 'Failed to fetch swap quote');
   }
 }
@@ -98,10 +97,6 @@ export async function executeSwap(
       throw new Error('EVM wallet not connected');
     }
 
-    const ethersProvider = new ethers.BrowserProvider(provider);
-    const signer = await ethersProvider.getSigner();
-
-    // Prepare transaction request for backend
     const swapRequest = {
       chainId,
       quote,
@@ -122,43 +117,78 @@ export async function executeSwap(
       slippageTolerance,
     };
 
-    // Get transaction data from backend
-    const txData = await executeSwapTransaction(swapRequest);
+    const transactions = await prepareSwapTransaction(swapRequest);
 
-    // Handle ERC20 approval if needed (only for non-native tokens)
-    if (!selectedSellAsset.isNative && txData.requiresApproval) {
-      const erc20Abi = [
-        'function approve(address spender, uint256 amount) public returns (bool)',
-        'function allowance(address owner, address spender) public view returns (uint256)',
-      ];
+    if (!transactions || transactions.length === 0) {
+      throw new Error('No transactions received from API');
+    }
 
-      const tokenContract = new ethers.Contract(selectedSellAsset.address, erc20Abi, signer);
+    let lastTxHash = '';
 
-      const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
-      const currentAllowance = await tokenContract.allowance(senderAddress, txData.spenderAddress);
+    if (isMainnet()) {
+      for (const tx of transactions) {
+        const txParams: Record<string, any> = {
+          from: tx.from || senderAddress,
+          to: tx.to,
+          data: tx.data,
+          value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : '0x0',
+        };
 
-      if (currentAllowance < amountIn) {
-        const approveTx = await tokenContract.approve(txData.spenderAddress, amountIn);
-        await approveTx.wait();
+        if (tx.gasLimit || tx.gas) {
+          txParams.gas = tx.gasLimit || tx.gas;
+        }
+        if (tx.maxFeePerGas) {
+          txParams.maxFeePerGas = `0x${BigInt(tx.maxFeePerGas).toString(16)}`;
+        }
+        if (tx.maxPriorityFeePerGas) {
+          txParams.maxPriorityFeePerGas = `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}`;
+        }
+
+        const txHash = await provider.request({
+          method: 'eth_sendTransaction',
+          params: [txParams],
+        });
+
+        lastTxHash = txHash;
       }
+    } else {
+      const ethersProvider = new ethers.BrowserProvider(provider);
+      const signer = await ethersProvider.getSigner();
+      const txData = transactions[0];
+
+      if (!selectedSellAsset.isNative && (txData as any).requiresApproval) {
+        const erc20Abi = [
+          'function approve(address spender, uint256 amount) public returns (bool)',
+          'function allowance(address owner, address spender) public view returns (uint256)',
+        ];
+        const tokenContract = new ethers.Contract(selectedSellAsset.address, erc20Abi, signer);
+        const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
+        const currentAllowance = await tokenContract.allowance(senderAddress, (txData as any).spenderAddress);
+
+        if (currentAllowance < amountIn) {
+          const approveTx = await tokenContract.approve((txData as any).spenderAddress, amountIn);
+          await approveTx.wait();
+        }
+      }
+
+      const tx = {
+        to: txData.to,
+        data: txData.data,
+        value: txData.value ? BigInt(txData.value) : 0n,
+        from: senderAddress,
+      };
+
+      const txResponse = await signer.sendTransaction(tx);
+      const receipt = await txResponse.wait();
+
+      if (!receipt || receipt.status === 0) {
+        throw new Error('Transaction failed');
+      }
+
+      lastTxHash = txResponse.hash;
     }
 
-    // Execute the swap transaction
-    const tx = {
-      to: txData.to,
-      data: txData.data,
-      value: txData.value || 0n,
-      from: senderAddress,
-    };
-
-    const txResponse = await signer.sendTransaction(tx);
-    const receipt = await txResponse.wait();
-
-    if (!receipt || receipt.status === 0) {
-      throw new Error('Transaction failed');
-    }
-
-    return txResponse.hash;
+    return lastTxHash;
   } catch (error: any) {
     console.error('Swap execution error:', error);
 

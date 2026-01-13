@@ -11,12 +11,30 @@ export const fetchAlchemyQuote = async (quoteData: AlchemyQuoteRequest): Promise
       'POST',
       quoteData
     );
-
     if (!response.data) {
       throw new Error('No quote data received from Alchemy Pay');
     }
+    const apiResponse = response.data;
+    if (apiResponse.success === false) {
+      if (apiResponse.data) {
+        try {
+          const parsedData = typeof apiResponse.data === 'string'
+            ? JSON.parse(apiResponse.data)
+            : apiResponse.data;
 
-    return response.data;
+          if (parsedData.returnMsg) {
+            throw new Error(parsedData.returnMsg);
+          }
+        } catch (parseError) {
+          if (parseError instanceof Error && !parseError.message.includes('Unexpected')) {
+            throw parseError;
+          }
+        }
+      }
+      throw new Error('Quote request failed');
+    }
+
+    return apiResponse;
   } catch (error) {
     console.error('Error fetching Alchemy Pay quote:', error);
     throw error;

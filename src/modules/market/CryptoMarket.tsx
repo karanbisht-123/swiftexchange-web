@@ -134,7 +134,13 @@ const CryptoMarket = () => {
     return (
       <div className="flex items-center justify-center min-h-screen bg-primary text-primary">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-2 mx-auto mb-4" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-brand-accent)' }}></div>
+          <div
+            className="animate-spin rounded-full h-12 w-12 border-2 mx-auto mb-4"
+            style={{
+              borderColor: 'var(--color-border)',
+              borderTopColor: 'var(--color-brand-accent)',
+            }}
+          ></div>
           Loading market data...
         </div>
       </div>
@@ -143,13 +149,13 @@ const CryptoMarket = () => {
 
   if (error && data.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-primary" style={{ color: 'var(--color-danger)' }}>
+      <div
+        className="flex items-center justify-center min-h-screen bg-primary"
+        style={{ color: 'var(--color-danger)' }}
+      >
         <div className="text-center">
           <p className="mb-4">{error}</p>
-          <button
-            onClick={handleRefresh}
-            className="btn btn-primary"
-          >
+          <button onClick={handleRefresh} className="btn btn-primary">
             Retry
           </button>
         </div>
@@ -159,25 +165,6 @@ const CryptoMarket = () => {
 
   return (
     <div className="min-h-screen bg-secondary text-primary">
-      {/* <div className="p-4 bg-secondary flex justify-between items-center border-b border-color">
-        <h1 className="text-2xl font-bold">Crypto Market</h1>
-        <div className="flex items-center gap-4">
-          {!isMobile && (
-            <span className="text-sm text-muted">
-              Last updated:{' '}
-              {lastFetchTime ? new Date(lastFetchTime).toLocaleTimeString() : 'Just now'}
-            </span>
-          )}
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className="btn btn-primary btn-sm"
-          >
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-      </div> */}
-
       {isMobile ? (
         <div className="divide-y divide-color">
           {data.map(coin => (
@@ -186,9 +173,12 @@ const CryptoMarket = () => {
               onClick={() => setSelectedCrypto(coin)}
               className="flex items-center justify-between py-3 px-4 hover:bg-hover transition-colors cursor-pointer"
             >
-              {/* Left: Icon + Name + Volume */}
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <img src={coin.image} alt={coin.name} className="w-10 h-10 rounded-full flex-shrink-0" />
+                <img
+                  src={coin.image}
+                  alt={coin.name}
+                  className="w-10 h-10 rounded-full flex-shrink-0"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-primary text-base">
                     {coin.symbol.toUpperCase()}
@@ -198,15 +188,14 @@ const CryptoMarket = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Right: Price + Change */}
-              <div className="text-right flex-shrink-0">
+              <div className="text-right shrink-0">
                 <div className="text-primary font-semibold text-base">
                   {formatPrice(coin.currentPrice)}
                 </div>
                 <div
-                  className={`text-xs font-medium ${coin.priceChangePercentage24h >= 0 ? 'price-up' : 'price-down'
-                    }`}
+                  className={`text-xs font-medium ${
+                    coin.priceChangePercentage24h >= 0 ? 'price-up' : 'price-down'
+                  }`}
                 >
                   {coin.priceChangePercentage24h >= 0 ? '+' : ''}
                   {coin.priceChangePercentage24h.toFixed(2)}%
@@ -332,8 +321,6 @@ const CryptoMarket = () => {
                   )}
                 </div>
               </div>
-
-              {/* 24h Stats */}
               <div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-tertiary p-4">
@@ -364,8 +351,6 @@ const CryptoMarket = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Market Data */}
               <div>
                 <div className="bg-tertiary p-4 space-y-3">
                   <div className="flex justify-between">
@@ -406,8 +391,6 @@ const CryptoMarket = () => {
                   )}
                 </div>
               </div>
-
-              {/* All-Time Stats */}
               <div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-tertiary p-4">

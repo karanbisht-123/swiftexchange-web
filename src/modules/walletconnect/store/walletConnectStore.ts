@@ -285,11 +285,6 @@ export const initWalletListener = async () => {
       try {
         const currentStatus = useWalletStore.getState().connectionStatus[type];
 
-        // Skip if state hasn't changed
-        if (currentStatus?.state === state) {
-          return;
-        }
-
         console.log('[WalletStore] State change:', { type, state });
 
         // Handle disconnection and failures
@@ -313,6 +308,42 @@ export const initWalletListener = async () => {
               [type]: { state },
             },
           }));
+          return;
+        }
+
+        // Handle 'connected' state - sync wallet data including chainId
+        if (state === 'connected') {
+          const session = walletService.getSession(type);
+          if (session) {
+            const currentWallet = useWalletStore.getState().connectedWallets[type];
+
+            // Check if chainId changed
+            const newChainId = type === 'evm' ? session.evmChainId :
+              type === 'cosmos' ? session.cosmosChainId :
+                session.stellarChainId;
+
+            if (currentWallet && currentWallet.chainId !== newChainId) {
+              console.log('[WalletStore] Chain changed:', currentWallet.chainId, '->', newChainId);
+            }
+
+            const updatedWallet = {
+              type,
+              walletId: session.walletId,
+              address: type === 'evm' ? session.evmAddress! :
+                type === 'cosmos' ? session.cosmosAddress! :
+                  session.stellarAddress!,
+              chainId: newChainId,
+              dydxAddress: session.dydxAddress,
+            };
+
+            useWalletStore.setState(prev => ({
+              connectedWallets: { ...prev.connectedWallets, [type]: updatedWallet },
+              connectionStatus: {
+                ...prev.connectionStatus,
+                [type]: { state: 'connected' },
+              },
+            }));
+          }
         }
       } catch (error) {
         console.error('[WalletStore] State change handler error:', error);
