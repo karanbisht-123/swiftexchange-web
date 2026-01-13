@@ -15,6 +15,7 @@ import {
   type Position,
   type TriggerParams,
 } from '../types/trading.types';
+import { dydxSubaccountService } from './dydxSubaccountService';
 import { dydxWalletService } from './dydxWalletService';
 
 const TRADING_CONFIG = {
@@ -42,7 +43,7 @@ class DydxTradingService {
 
       const subaccount = {
         address,
-        subaccountNumber: dydxWalletService.getSubaccountNumber(),
+        subaccountNumber: params.subaccountNumber ?? dydxWalletService.getActiveSubaccountNumber(),
         signingWallet: localWallet,
       };
 
@@ -57,6 +58,24 @@ class DydxTradingService {
         price = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
       }
       price = this.roundPrice(price, marketInfo.tickSize!);
+
+      // Auto-Deposit for Isolated Margin
+      if (subaccount.subaccountNumber >= 128 && params.leverage) {
+        const orderValue = size * price;
+        const requiredMargin = orderValue / params.leverage;
+
+        // $20 equity tier minimum only applies to long-term/conditional orders, NOT market orders
+        const isLongTermOrder = !orderCategory.isMarket;
+        const targetEquity = isLongTermOrder
+          ? Math.max(requiredMargin, 20.1) // Long-term orders require min $20
+          : requiredMargin; // Market orders just need the calculated margin
+
+        // Ensure sufficient equity on the isolated subaccount
+        const equityResult = await dydxSubaccountService.ensureIsolatedEquity(subaccount.subaccountNumber, targetEquity);
+        if (!equityResult.success) {
+          throw new Error(equityResult.error || 'Failed to ensure isolated equity');
+        }
+      }
 
       const triggerPrice = params.triggerPrice
         ? this.roundPrice(params.triggerPrice, marketInfo.tickSize!)

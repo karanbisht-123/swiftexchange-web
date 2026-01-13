@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { Notification, type NotificationType } from '../../../../components/common/Notification';
+import { useSubaccounts } from '../../hooks/useSubaccounts';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
-import type { OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
+import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
 import {
   getMaxBuyingPower,
   validateOrderPrice,
@@ -22,7 +23,7 @@ import {
 } from './components/AdvancedOptions';
 import { BuySellSelector } from './components/BuySellSelector';
 import { LeverageSlider } from './components/LeverageSlider';
-import { type MarginType, MarginTypeSelector } from './components/MarginTypeSelector';
+import { MarginTypeSelector } from './components/MarginTypeSelector';
 import { OrderFormInputs } from './components/OrderFormInputs';
 import { OrderTypeSelector } from './components/OrderTypeSelector';
 import { TpSlInputs } from './components/TpSlInputs';
@@ -87,10 +88,11 @@ export const DydxTradingForm: React.FC = () => {
   const marketData = (selectedMarket ? getMarket(selectedMarket) : null) ?? null;
   const { balance } = useDydxWallet();
   const { placeOrder, isPlacingOrder, orderError, clearOrderError, canTrade } = useDydxTrading();
+  const { activeSubaccountNumber, getNextIsolatedSubaccount, childSubaccounts } = useSubaccounts();
 
   const [orderType, setOrderType] = useState<OrderTypeEnum>('LIMIT');
   const [side, setSide] = useState<OrderSideEnum>('BUY');
-  const [marginType, setMarginType] = useState<MarginType>('CROSS');
+  const [marginMode, setMarginMode] = useState<MarginMode>('CROSS');
   const [size, setSize] = useState('');
   const [price, setPrice] = useState('');
   const [triggerPrice, setTriggerPrice] = useState('');
@@ -131,6 +133,18 @@ export const DydxTradingForm: React.FC = () => {
   const maxBuyingPower = useMemo(() => {
     return getMaxBuyingPower(balance, marketData, leverage);
   }, [balance, marketData, leverage]);
+
+  // Calculate target subaccount and equity for UI
+  const targetSubaccount = useMemo(() => {
+    if (marginMode === 'CROSS') return activeSubaccountNumber;
+    return getNextIsolatedSubaccount(selectedMarket);
+  }, [marginMode, activeSubaccountNumber, selectedMarket, getNextIsolatedSubaccount]);
+
+  const isolatedEquity = useMemo(() => {
+    if (marginMode !== 'ISOLATED') return 0;
+    const subaccount = childSubaccounts.find(c => c.subaccountNumber === targetSubaccount);
+    return subaccount ? parseFloat(subaccount.equity || '0') : 0;
+  }, [marginMode, targetSubaccount, childSubaccounts]);
 
   const hasValidationErrors = !!(sizeError || priceError || triggerError || goodTilError);
   const isFormValid = !hasValidationErrors && size && canTrade;
@@ -301,7 +315,40 @@ export const DydxTradingForm: React.FC = () => {
       goodTilTimeInSeconds = convertToSeconds(goodTilValue, goodTilUnit);
     }
 
-    console.log(side, '-----------hii i am order Sider');
+    // Isolated margin: Auto-deposit handles collateral transfer
+    // $20 minimum only applies to long-term/conditional orders (checked in trading service)
+    if (marginMode === 'ISOLATED') {
+      const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
+      // Use freeCollateral (not equity) - this is what can actually be transferred
+      const crossFreeCollateral = crossSub ? parseFloat(crossSub.freeCollateral || '0') : 0;
+      const requiredMargin = conversion.usdAmount / leverage;
+
+      // For conditional/limit orders, enforce $20 minimum
+      const isLongTermOrder = orderType !== 'MARKET';
+      const minRequired = isLongTermOrder ? Math.max(requiredMargin, 20) : requiredMargin;
+
+      if (crossFreeCollateral + isolatedEquity < minRequired) {
+        const orderTypeLabel = isLongTermOrder ? 'long-term/conditional' : 'market';
+        addNotification(
+          'error',
+          isLongTermOrder
+            ? `Your order is below the minimum collateral requirement for isolated ${orderTypeLabel} orders. Requires at least $20.00. (Available Free Collateral: $${(crossFreeCollateral + isolatedEquity).toFixed(2)})`
+            : `Insufficient collateral for isolated ${orderTypeLabel} order. Requires $${minRequired.toFixed(2)}. (Available Free Collateral: $${(crossFreeCollateral + isolatedEquity).toFixed(2)})`,
+          'Insufficient Margin'
+        );
+        return;
+      }
+
+      if (isolatedEquity < minRequired) {
+        addNotification(
+          'info',
+          `$${(minRequired - isolatedEquity).toFixed(2)} will be auto-deposited from Cross Margin.`,
+          'Auto-Deposit'
+        );
+      }
+    }
+
+    console.log('[DydxTradingForm] Placing order:', { side, marginMode, targetSubaccount });
     const result = await placeOrder({
       market: selectedMarket,
       side,
@@ -313,6 +360,8 @@ export const DydxTradingForm: React.FC = () => {
       reduceOnly,
       postOnly: postOnly && orderType === 'LIMIT',
       goodTilTimeInSeconds,
+      subaccountNumber: targetSubaccount,
+      leverage,
       takeProfitPrice: showTpSl && tpPrice ? parseFloat(tpPrice) : undefined,
       stopLossPrice: showTpSl && slPrice ? parseFloat(slPrice) : undefined,
     });
@@ -417,7 +466,11 @@ export const DydxTradingForm: React.FC = () => {
       {/* Fixed Selectors */}
       <div className="flex-shrink-0 space-y-4 pb-2 bg-secondary">
         <BuySellSelector selected={side} onChange={setSide} />
-        <MarginTypeSelector selected={marginType} onChange={setMarginType} />
+        <MarginTypeSelector
+          selected={marginMode}
+          onChange={setMarginMode}
+          isolatedEquity={isolatedEquity}
+        />
         <OrderTypeSelector selected={orderType} onChange={setOrderType} />
       </div>
 

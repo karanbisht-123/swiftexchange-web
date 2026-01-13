@@ -1,47 +1,33 @@
 export type OrderSideEnum = 'BUY' | 'SELL';
 
 export type OrderTypeEnum =
-  | 'MARKET' // Immediate execution at best price
-  | 'LIMIT' // Execute at specified price or better
-  | 'STOP_MARKET' // Market order triggered when price crosses trigger
-  | 'STOP_LIMIT' // Limit order triggered when price crosses trigger
-  | 'TAKE_PROFIT_MARKET' // Market order for profit taking
-  | 'TAKE_PROFIT_LIMIT'; // Limit order for profit taking
+  | 'MARKET'
+  | 'LIMIT'
+  | 'STOP_MARKET'
+  | 'STOP_LIMIT'
+  | 'TAKE_PROFIT_MARKET'
+  | 'TAKE_PROFIT_LIMIT';
 
 export type TimeInForceEnum = 'GTT' | 'IOC' | 'FOK';
-
-/**
- * Parameters for placing an order
- */
 export interface PlaceOrderParams {
   market: string;
   side: OrderSideEnum;
   type: OrderTypeEnum;
   size: number | string;
-
-  // Optional parameters
   price?: number;
   triggerPrice?: number;
   takeProfitPrice?: number;
   stopLossPrice?: number;
   clientId?: number;
-
-  // Execution options
+  subaccountNumber?: number;
   reduceOnly?: boolean;
   postOnly?: boolean;
   timeInForce?: TimeInForceEnum;
-
-  // Good til time in seconds (for GTT orders)
-  // If not provided, defaults will be used (28 days for limit, 90 days for conditional)
   goodTilTimeInSeconds?: number;
-
-  // Slippage for market orders
   slippageTolerance?: number;
+  leverage?: number;
 }
 
-/**
- * Position information
- */
 export interface Position {
   market: string;
   side: 'LONG' | 'SHORT';
@@ -53,9 +39,6 @@ export interface Position {
   leverage?: string;
 }
 
-/**
- * Open order information
- */
 export interface OpenOrder {
   id: string;
   clientId: number;
@@ -77,12 +60,6 @@ export interface OpenOrder {
   updatedAt?: string;
 }
 
-/**
- * Result from order placement
- */
-/**
- * Result from order placement
- */
 export interface OrderResult {
   success: boolean;
   clientId?: string | number;
@@ -93,9 +70,6 @@ export interface OrderResult {
   optimisticOrder?: any;
 }
 
-/**
- * Trigger configuration for stop-loss and take-profit
- */
 export interface TriggerParams {
   takeProfit?: {
     enabled: boolean;
@@ -109,9 +83,6 @@ export interface TriggerParams {
   };
 }
 
-/**
- * Market information
- */
 export interface MarketData {
   ticker: string;
   oraclePrice: string;
@@ -147,9 +118,6 @@ export interface MarketData {
   marketCap?: string;
 }
 
-/**
- * Orderbook data
- */
 export interface OrderbookLevel {
   price: string;
   size: string;
@@ -160,9 +128,6 @@ export interface Orderbook {
   asks: OrderbookLevel[];
 }
 
-/**
- * Trading statistics
- */
 export interface TradingStats {
   totalVolume: string;
   totalTrades: number;
@@ -171,9 +136,6 @@ export interface TradingStats {
   totalFunding: string;
 }
 
-/**
- * Account information
- */
 export interface SubaccountInfo {
   address: string;
   subaccountNumber: number;
@@ -184,9 +146,6 @@ export interface SubaccountInfo {
   leverage: string;
 }
 
-/**
- * Fill information
- */
 export interface Fill {
   id: string;
   side: OrderSideEnum;
@@ -203,9 +162,6 @@ export interface Fill {
   clientMetadata?: string;
 }
 
-/**
- * Transfer information
- */
 export interface Transfer {
   id: string;
   type: 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSFER_IN' | 'TRANSFER_OUT';
@@ -216,3 +172,32 @@ export interface Transfer {
   transactionHash?: string;
   status: 'PENDING' | 'CONFIRMED' | 'FAILED';
 }
+export type MarginMode = 'CROSS' | 'ISOLATED';
+
+
+export interface TransferResult {
+  success: boolean;
+  transactionHash?: string;
+  error?: string;
+  fromSubaccount: number;
+  toSubaccount: number;
+  amount: string;
+}
+
+
+export interface SubaccountBalance {
+  subaccountNumber: number;
+  marginMode: MarginMode;
+  equity: string;
+  freeCollateral: string;
+  market?: string;
+  hasOpenPosition: boolean;
+}
+
+export const SUBACCOUNT_CONSTANTS = {
+  ISOLATED_START: 128,
+  ISOLATED_END: 128000,
+  MIN_ISOLATED_EQUITY: 20,
+  DEFAULT_CROSS_SUBACCOUNT: 0,
+} as const;
+

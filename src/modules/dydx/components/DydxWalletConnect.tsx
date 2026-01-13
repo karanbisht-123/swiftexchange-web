@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { RefreshCw, AlertCircle, ArrowUpDown } from 'lucide-react';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
+import { SubaccountTransfer } from './SubaccountTransfer';
 
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -72,6 +73,7 @@ export const DydxWalletConnect: React.FC = () => {
   const [isDeriving, setIsDeriving] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
 
   const {
     isConnected,
@@ -438,21 +440,36 @@ export const DydxWalletConnect: React.FC = () => {
             </div>
           )}
 
-          {/* Deposit Button */}
-          <a
-            href="https://trade.dydx.exchange/portfolio/deposit"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-full text-center text-sm font-medium py-2 rounded-lg transition-colors mt-3"
-            style={{
-              backgroundColor: 'var(--color-brand-accent)',
-              color: 'var(--color-text-inverse)'
-            }}
-          >
-            Deposit
-          </a>
+          {/* Action Buttons */}
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={() => setShowTransferModal(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors bg-gray-700 hover:bg-gray-600 text-white"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              Transfer
+            </button>
+            <a
+              href="https://trade.dydx.exchange/portfolio/deposit"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 text-center text-sm font-medium py-2 rounded-lg transition-colors"
+              style={{
+                backgroundColor: 'var(--color-brand-accent)',
+                color: 'var(--color-text-inverse)'
+              }}
+            >
+              Deposit
+            </a>
+          </div>
         </div>
       ) : null}
+
+      {/* Transfer Modal */}
+      <SubaccountTransfer
+        isOpen={showTransferModal}
+        onClose={() => setShowTransferModal(false)}
+      />
     </div>
   );
 };

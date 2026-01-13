@@ -1,5 +1,6 @@
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getCompositeClient, getIndexerClient } from '../client/clients';
+import { type MarginMode, SUBACCOUNT_CONSTANTS } from '../types/trading.types';
 
 type NetworkType = 'mainnet' | 'testnet';
 
@@ -25,6 +26,7 @@ class DydxWalletService {
   private address = '';
   private chainId = '';
   private subaccountNumber = 0;
+  private activeSubaccountNumber = 0; // For trading operations (can differ from connection subaccount)
   private status: DydxStatus = 'disconnected';
   private listeners: StatusCallback[] = [];
   private balanceCache: { data: AccountBalance; timestamp: number } | null = null;
@@ -154,8 +156,28 @@ class DydxWalletService {
   isReadyForTrading = () => this.status === 'connected';
   getAddress = () => this.address || this.getAddressFromStore();
   getSubaccountNumber = () => this.subaccountNumber;
+  getActiveSubaccountNumber = () => this.activeSubaccountNumber;
   getChainId = () => this.chainId;
   getStatus = () => this.status;
+
+
+  setActiveSubaccount(subaccountNumber: number): void {
+    if (subaccountNumber < 0 || subaccountNumber > SUBACCOUNT_CONSTANTS.ISOLATED_END) {
+      console.warn('[dydxWalletService] Invalid subaccount number:', subaccountNumber);
+      return;
+    }
+    console.log('[dydxWalletService] Active subaccount changed:', this.activeSubaccountNumber, '->', subaccountNumber);
+    this.activeSubaccountNumber = subaccountNumber;
+  }
+
+  getMarginMode(): MarginMode {
+    return this.activeSubaccountNumber >= SUBACCOUNT_CONSTANTS.ISOLATED_START ? 'ISOLATED' : 'CROSS';
+  }
+
+
+  resetToDefaultSubaccount(): void {
+    this.activeSubaccountNumber = SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT;
+  }
 
   private getAddressFromStore(): string | null {
     const store = useWalletStore.getState();
