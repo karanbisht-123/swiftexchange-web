@@ -9,7 +9,7 @@ import { generateTransactionId, getNetworkPrefix } from '../../../utils/transact
 import { type NetworkKey, getEVMNetworkConfig, isValidEVMNetwork } from '../utils/evmUtils';
 
 export async function sendCryptoEVMPrepare(
-  networkKey: NetworkKey,
+  networkKey: any,
   from: string,
   to: string,
   amount: string
@@ -127,8 +127,8 @@ export async function sendCryptoEVMBuild(
 
 export async function sendCryptoEVMBroadcast(
   signedTransaction: string,
-  networkKey: NetworkKey
-): Promise<string> {
+  networkKey: any
+): Promise<any> {
   try {
     const prefix = getNetworkPrefix(networkKey);
     console.log(prefix, 'oooooooo');

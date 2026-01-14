@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import {
-  DEFAULT_RESOLUTION,
-  NATIVE_ASSET,
-  STREAM_MAX_RETRIES,
-  STREAM_RECONNECT_DELAY,
-} from '../constants/steallrChartConstant';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { StellarChartService } from '../service/stellarChartService';
 import type {
   ChartAssetPair,
@@ -16,8 +11,14 @@ import type {
   UseChartReturn,
 } from '../types/stellarChart.types';
 
+type NetworkType = 'mainnet' | 'testnet';
+
+const DEFAULT_RESOLUTION = 900000;
+const STREAM_MAX_RETRIES = 3;
+const STREAM_RECONNECT_DELAY = 2000;
+const POLLING_INTERVAL = 30000;
+
 interface UseStellarChartProps {
-  networkKey?: string;
   assetPair?: ChartAssetPair;
   resolution?: ChartResolution;
   timeRange?: ChartTimeRange;
@@ -25,38 +26,25 @@ interface UseStellarChartProps {
 }
 
 export function useStellarChart({
-  networkKey = 'mainnet',
-  assetPair = {
-    base: 'XLM',
-    counter: 'USDC',
-    counterIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-  },
+  assetPair,
   resolution = DEFAULT_RESOLUTION,
   timeRange,
   autoStream = false,
-}: UseStellarChartProps): UseChartReturn {
-  // Validate initial assetPair
-  if (!assetPair || !assetPair.base || !assetPair.counter) {
-    throw new Error('Invalid initial asset pair: base and counter are required');
-  }
-  if (assetPair.base !== 'XLM' && assetPair.base !== NATIVE_ASSET && !assetPair.baseIssuer) {
-    throw new Error(`Issuer required for non-native base asset: ${assetPair.base}`);
-  }
-  if (
-    assetPair.counter !== 'XLM' &&
-    assetPair.counter !== NATIVE_ASSET &&
-    !assetPair.counterIssuer
-  ) {
-    throw new Error(`Issuer required for non-native counter asset: ${assetPair.counter}`);
-  }
-
-  const [service] = useState(() => new StellarChartService(networkKey));
+}: UseStellarChartProps = {}): UseChartReturn {
+  const [service, setService] = useState<StellarChartService | null>(null);
   const [data, setData] = useState<ChartDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const [isPolling, setIsPolling] = useState<boolean>(false);
+
+  // Retrieve current Stellar configuration and network state from the central store
+  const currentStellarConfig = useWalletStore(state => state.currentStellarConfig);
+  const initialNetwork = useWalletStore.getState().network;
+
+  // Initialize currentNetwork with the store's initial network state
+  const [currentNetwork, setCurrentNetwork] = useState<NetworkType>(initialNetwork);
 
   const [currentResolution, setCurrentResolution] = useState<ChartResolution>(resolution);
   const [currentTimeRange, setCurrentTimeRange] = useState<ChartTimeRange>(
@@ -65,7 +53,9 @@ export function useStellarChart({
       endTime: Date.now(),
     }
   );
-  const [currentAssetPair, setCurrentAssetPair] = useState<ChartAssetPair>(assetPair);
+  const [currentAssetPair, setCurrentAssetPair] = useState<ChartAssetPair | null>(
+    assetPair || null
+  );
 
   const streamCloseRef = useRef<(() => void) | null>(null);
   const retryCountRef = useRef<number>(0);
@@ -75,8 +65,42 @@ export function useStellarChart({
   const mountedRef = useRef<boolean>(true);
   const streamingRequestedRef = useRef<boolean>(false);
 
+  useEffect(() => {
+    const config = currentStellarConfig;
+    const actualNetwork: NetworkType = config.network === 'PUBLIC' ? 'mainnet' : 'testnet';
+
+    try {
+      const chartService = new StellarChartService(
+        config.horizonUrl,
+        config.networkPassphrase,
+        config.chainId
+      );
+      setService(chartService);
+      setCurrentNetwork(actualNetwork);
+
+      if (!assetPair) {
+        if (actualNetwork === 'mainnet') {
+          setCurrentAssetPair({
+            base: 'XLM',
+            counter: 'USDC',
+            counterIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+          });
+        } else {
+          setCurrentAssetPair({
+            base: 'XLM',
+            counter: 'USDC',
+            counterIssuer: 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to initialize chart service:', err);
+      setError('Failed to connect to Stellar network');
+    }
+  }, [currentStellarConfig, assetPair]);
+
   const fetchData = useCallback(async () => {
-    if (!currentAssetPair?.base || !currentAssetPair?.counter) {
+    if (!service || !currentAssetPair?.base || !currentAssetPair?.counter) {
       setError('Invalid asset pair configuration');
       return;
     }
@@ -113,7 +137,7 @@ export function useStellarChart({
     setIsPolling(true);
     pollingIntervalRef.current = setInterval(() => {
       fetchData();
-    }, 30000);
+    }, POLLING_INTERVAL);
   }, [fetchData]);
 
   const stopPolling = useCallback(() => {
@@ -125,8 +149,6 @@ export function useStellarChart({
   }, []);
 
   const stopStreaming = useCallback(() => {
-    console.log('Stopping stream...');
-
     if (streamCloseRef.current) {
       streamCloseRef.current();
       streamCloseRef.current = null;
@@ -144,24 +166,16 @@ export function useStellarChart({
   }, []);
 
   const startStreaming = useCallback(async () => {
-    if (!currentAssetPair?.base || !currentAssetPair?.counter) {
+    if (!service || !currentAssetPair?.base || !currentAssetPair?.counter) {
       setError('Invalid asset pair configuration');
       return;
     }
 
-    if (isReconnectingRef.current) {
-      console.warn('Already reconnecting, skipping start');
+    if (isReconnectingRef.current || streamCloseRef.current) {
       return;
     }
 
-    if (streamCloseRef.current) {
-      console.warn('Stream already active, skipping start');
-      return;
-    }
-
-    console.log('Starting streaming for:', currentAssetPair);
-
-    // Check for recent trades BEFORE attempting to stream
+    // Check for recent trades before streaming
     try {
       const recentData = await service.fetchTradeAggregations(
         currentAssetPair,
@@ -170,7 +184,6 @@ export function useStellarChart({
       );
 
       if (recentData.length === 0) {
-        console.warn('No recent trades found, using polling instead');
         setError(
           `No recent trades for ${currentAssetPair.base}/${currentAssetPair.counter}. Using polling.`
         );
@@ -206,36 +219,15 @@ export function useStellarChart({
     };
 
     const handleStreamError = async (err: Error) => {
-      if (!mountedRef.current || !streamingRequestedRef.current) return;
-
-      console.error('Stream error:', err);
-
-      if (isReconnectingRef.current) {
-        console.warn('Already reconnecting');
+      if (!mountedRef.current || !streamingRequestedRef.current || isReconnectingRef.current) {
         return;
       }
 
-      // Check for 406 or no recent trades
-      let hasRecentTrades = true;
-      try {
-        const recentData = await service.fetchTradeAggregations(
-          currentAssetPair,
-          { startTime: Date.now() - 3600000, endTime: Date.now() },
-          { resolution: currentResolution, limit: 1 }
-        );
-        hasRecentTrades = recentData.length > 0;
-      } catch (fetchErr) {
-        console.error('Failed to check recent trades:', fetchErr);
-        hasRecentTrades = false;
-      }
+      console.error('Stream error:', err);
 
-      if (
-        err.message.includes('406') ||
-        err.message.includes('Not Acceptable') ||
-        !hasRecentTrades
-      ) {
+      if (err.message.includes('406') || err.message.includes('No recent trades')) {
         setError(
-          `Streaming not supported for ${currentAssetPair.base}/${currentAssetPair.counter}. Using polling instead.`
+          `Streaming not available for ${currentAssetPair.base}/${currentAssetPair.counter}. Using polling.`
         );
         stopStreaming();
         startPolling();
@@ -244,10 +236,9 @@ export function useStellarChart({
 
       if (retryCountRef.current < STREAM_MAX_RETRIES) {
         retryCountRef.current++;
+        // Exponential backoff delay
         const delay = STREAM_RECONNECT_DELAY * Math.pow(2, retryCountRef.current - 1);
-        setError(
-          `Connection lost. Retrying (${retryCountRef.current}/${STREAM_MAX_RETRIES}) in ${delay}ms...`
-        );
+        setError(`Connection lost. Retrying (${retryCountRef.current}/${STREAM_MAX_RETRIES})...`);
 
         isReconnectingRef.current = true;
 
@@ -258,7 +249,6 @@ export function useStellarChart({
 
         retryTimeoutRef.current = setTimeout(() => {
           if (mountedRef.current && streamingRequestedRef.current) {
-            console.log(`Reconnect attempt ${retryCountRef.current}/${STREAM_MAX_RETRIES}`);
             isReconnectingRef.current = false;
             startStreamingInternal();
           }
@@ -279,7 +269,6 @@ export function useStellarChart({
           if (mountedRef.current && streamingRequestedRef.current) {
             streamCloseRef.current = closer;
             retryCountRef.current = 0;
-            console.log('Stream connected successfully');
           } else {
             closer();
           }
@@ -315,84 +304,70 @@ export function useStellarChart({
       setError('Invalid asset pair: base and counter are required');
       return;
     }
-    if (pair.base !== 'XLM' && pair.base !== NATIVE_ASSET && !pair.baseIssuer) {
+    // Stellar specific validation logic: only 'XLM' or 'native' are allowed without an issuer
+    const isBaseNative = pair.base.toLowerCase() === 'xlm' || pair.base.toLowerCase() === 'native';
+    const isCounterNative =
+      pair.counter.toLowerCase() === 'xlm' || pair.counter.toLowerCase() === 'native';
+
+    if (!isBaseNative && !pair.baseIssuer) {
       setError(`Issuer required for non-native base asset: ${pair.base}`);
       return;
     }
-    if (pair.counter !== 'XLM' && pair.counter !== NATIVE_ASSET && !pair.counterIssuer) {
+    if (!isCounterNative && !pair.counterIssuer) {
       setError(`Issuer required for non-native counter asset: ${pair.counter}`);
       return;
     }
     setCurrentAssetPair(pair);
   }, []);
 
-  // Sync prop changes
   useEffect(() => {
-    if (assetPair?.base && assetPair?.counter) {
-      const isDifferent =
-        assetPair.base !== currentAssetPair.base ||
-        assetPair.counter !== currentAssetPair.counter ||
-        assetPair.baseIssuer !== currentAssetPair.baseIssuer ||
-        assetPair.counterIssuer !== currentAssetPair.counterIssuer;
-
-      if (isDifferent) {
-        setAssetPair(assetPair);
-      }
+    // 1. Fetch historical data on parameter change
+    if (currentAssetPair) {
+      fetchData();
     }
-  }, [assetPair, currentAssetPair, setAssetPair]);
+    // 2. Stop streaming if parameters change
+    stopStreaming();
+  }, [currentAssetPair, currentTimeRange, currentResolution, fetchData, stopStreaming]);
 
-  // Initial data fetch
   useEffect(() => {
-    fetchData();
-  }, [currentAssetPair, currentTimeRange, currentResolution]);
-
-  // Handle streaming restart when config changes
-  useEffect(() => {
-    let timeout: NodeJS.Timeout | null = null;
-
+    // Restart streaming if streaming was previously requested and parameters change
     if (streamingRequestedRef.current && !isReconnectingRef.current) {
-      console.log('Config changed, restarting stream');
       stopStreaming();
-
-      timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (mountedRef.current && streamingRequestedRef.current) {
           startStreaming();
         }
       }, 500);
+      return () => clearTimeout(timeout);
     }
-
-    return () => {
-      if (timeout) clearTimeout(timeout);
-    };
   }, [currentAssetPair, currentResolution, stopStreaming, startStreaming]);
 
-  // Auto-start streaming
   useEffect(() => {
-    let timeout: NodeJS.Timeout | null = null;
-
-    if (autoStream && !isStreaming && !isPolling && !isReconnectingRef.current) {
-      timeout = setTimeout(() => {
+    // Auto-stream start logic
+    if (
+      autoStream &&
+      !isStreaming &&
+      !isPolling &&
+      !isReconnectingRef.current &&
+      currentAssetPair
+    ) {
+      const timeout = setTimeout(() => {
         if (mountedRef.current) {
           startStreaming();
         }
       }, 1000);
+      return () => clearTimeout(timeout);
     }
+  }, [autoStream, isStreaming, isPolling, currentAssetPair, startStreaming]);
 
-    return () => {
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [autoStream, isStreaming, isPolling, startStreaming]);
-
-  // Cleanup on unmount
   useEffect(() => {
     mountedRef.current = true;
-
     return () => {
       mountedRef.current = false;
       stopStreaming();
       stopPolling();
     };
-  }, []);
+  }, [stopStreaming, stopPolling]);
 
   return {
     data,
@@ -400,6 +375,8 @@ export function useStellarChart({
     error,
     isStreaming,
     lastUpdate,
+    currentNetwork,
+    currentAssetPair,
     startStreaming,
     stopStreaming,
     refreshData,

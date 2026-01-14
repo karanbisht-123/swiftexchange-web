@@ -1,170 +1,222 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import type { WebSocketMessage } from '../utils/WebSocketManager';
+import { getSocketClient } from '../client/clients';
+import { useWebSocketStore } from '../store/websocketStore';
 
-export interface Trade {
+interface Trade {
   id: string;
   side: 'BUY' | 'SELL';
   size: string;
   price: string;
-  type: string;
   createdAt: string;
-  createdAtHeight: string;
 }
 
-interface UseTradesReturn {
-  trades: Trade[];
-  latestTrade: Trade | null;
-  error: string | null;
-  isLoading: boolean;
-  isConnected: boolean;
-  stats: {
-    totalVolume: number;
-    buyVolume: number;
-    sellVolume: number;
-    tradeCount: number;
-  };
+const tradesState = new Map<
+  string,
+  {
+    trades: Trade[];
+    listeners: Set<(trades: Trade[]) => void>;
+    unsubscribe: (() => void) | null;
+    rafId: number | undefined;
+    isSubscribed: boolean;
+    limit: number;
+    hasLoadedSnapshot: boolean;
+  }
+>();
+
+function getOrCreateState(market: string, limit: number) {
+  if (!tradesState.has(market)) {
+    tradesState.set(market, {
+      trades: [],
+      listeners: new Set(),
+      unsubscribe: null,
+      rafId: undefined,
+      isSubscribed: false,
+      limit,
+      hasLoadedSnapshot: false,
+    });
+  }
+  return tradesState.get(market)!;
 }
 
-export function useTrades(market: string = 'BTC-USD', maxTrades: number = 50): UseTradesReturn {
+function scheduleUpdate(market: string) {
+  const state = getOrCreateState(market, 50);
+
+  if (state.rafId !== undefined) return;
+
+  state.rafId = requestAnimationFrame(() => {
+    state.rafId = undefined;
+    state.listeners.forEach(listener => listener([...state.trades]));
+  });
+}
+
+function handleTradeUpdate(market: string, data: any) {
+  const state = getOrCreateState(market, 50);
+  const contents = data?.contents;
+
+  if (!contents?.trades || !Array.isArray(contents.trades)) return;
+
+  const existingIds = new Set(state.trades.map(t => t.id));
+
+  const newTrades: Trade[] = contents.trades
+    .filter((t: any) => t?.id && !existingIds.has(t.id))
+    .map((t: any) => ({
+      id: t.id,
+      side: t.side as 'BUY' | 'SELL',
+      size: t.size,
+      price: t.price,
+      createdAt: t.createdAt,
+    }));
+
+  if (newTrades.length > 0) {
+    state.trades = [...newTrades, ...state.trades].slice(0, state.limit);
+    scheduleUpdate(market);
+  }
+}
+
+function subscribeToMarket(market: string, isConnected: boolean) {
+  const state = getOrCreateState(market, 50);
+  if (state.isSubscribed || !isConnected) return;
+
+  try {
+    const socketClient = getSocketClient();
+    state.unsubscribe = socketClient.subscribeToTrades(market, data =>
+      handleTradeUpdate(market, data)
+    );
+    state.isSubscribed = true;
+    console.log(`[Trades] Subscribed to ${market}`);
+  } catch (err) {
+    console.error('[Trades] Subscribe error:', err);
+  }
+}
+
+function unsubscribeFromMarket(market: string) {
+  const state = tradesState.get(market);
+  if (!state) return;
+
+  if (state.listeners.size === 0 && state.unsubscribe) {
+    state.unsubscribe();
+    state.unsubscribe = null;
+    state.isSubscribed = false;
+
+    if (state.rafId !== undefined) {
+      cancelAnimationFrame(state.rafId);
+      state.rafId = undefined;
+    }
+
+    state.trades = [];
+    state.hasLoadedSnapshot = false;
+    tradesState.delete(market);
+    console.log(`[Trades] Unsubscribed from ${market}`);
+  }
+}
+
+async function loadSnapshot(market: string, limit: number) {
+  const state = getOrCreateState(market, limit);
+
+  // If already loaded, skip
+  if (state.hasLoadedSnapshot) {
+    scheduleUpdate(market);
+    return;
+  }
+
+  try {
+    const { getIndexerClient } = await import('../client/clients');
+    const client = getIndexerClient();
+
+    let response;
+    try {
+      response = await client.markets.getPerpetualMarketTrades(market, undefined, undefined, limit);
+    } catch {
+      response = await client.markets.getPerpetualMarketTrades(market);
+    }
+
+    const mappedTrades: Trade[] = (response?.trades || [])
+      .filter((trade: { id?: string }) => trade?.id)
+      .map(
+        (trade: {
+          id: string;
+          side: 'BUY' | 'SELL';
+          size: string;
+          price: string;
+          createdAt: string;
+        }) => ({
+          id: trade.id,
+          side: trade.side,
+          size: trade.size,
+          price: trade.price,
+          createdAt: trade.createdAt,
+        })
+      );
+
+    state.trades = mappedTrades.slice(0, limit);
+    state.hasLoadedSnapshot = true;
+    scheduleUpdate(market);
+  } catch (err) {
+    console.error('[Trades] Snapshot error:', err);
+  }
+}
+
+export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [latestTrade, setLatestTrade] = useState<Trade | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<'api' | 'websocket' | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
-
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const isMountedRef = useRef(true);
-
-  const stats = {
-    totalVolume: trades.reduce((sum, t) => sum + parseFloat(t.price) * parseFloat(t.size), 0),
-    buyVolume: trades
-      .filter(t => t.side === 'BUY')
-      .reduce((sum, t) => sum + parseFloat(t.price) * parseFloat(t.size), 0),
-    sellVolume: trades
-      .filter(t => t.side === 'SELL')
-      .reduce((sum, t) => sum + parseFloat(t.price) * parseFloat(t.size), 0),
-    tradeCount: trades.length,
-  };
+  const isConnected = useWebSocketStore(state => state.isConnected);
 
   useEffect(() => {
-    isMountedRef.current = true;
-    let socketClient: any = null;
-    let indexerClient: any = null;
+    const state = getOrCreateState(market, limit);
+    state.limit = limit;
 
-    const initializeConnection = async () => {
-      try {
-        const { getSocketClient, getIndexerClient } = await import('../client/clients');
+    // If we already have data from a previous mount, use it immediately
+    if (state.trades.length > 0) {
+      setTrades([...state.trades]);
+      setDataSource(state.isSubscribed ? 'websocket' : 'api');
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
 
-        socketClient = getSocketClient();
-        indexerClient = getIndexerClient();
+    const listener = (updatedTrades: Trade[]) => {
+      setTrades(updatedTrades);
+      setDataSource('websocket');
+      setIsLoading(false);
+    };
 
-        console.log(`[useTrades] Initializing for ${market}`);
+    state.listeners.add(listener);
 
-        await socketClient.connect();
-        if (!isMountedRef.current) return;
-        setIsConnected(true);
-
-        // Fetch initial trades from REST API
-        setIsLoading(true);
-        setError(null);
-
-        const data = await indexerClient.markets.getPerpetualMarketTrades(market, maxTrades);
-
-        if (!isMountedRef.current) return;
-
-        const initialTrades = data.trades || [];
-        setTrades(initialTrades);
-        if (initialTrades.length > 0) {
-          setLatestTrade(initialTrades[0]);
+    // Load snapshot only if not already loaded
+    if (!state.hasLoadedSnapshot) {
+      loadSnapshot(market, limit).then(() => {
+        if (state.trades.length > 0) {
+          setTrades([...state.trades]);
+          setDataSource('api');
         }
         setIsLoading(false);
-        console.log(`[useTrades] Loaded ${initialTrades.length} initial trades`);
+      });
+    }
 
-        // Subscribe to real-time trade updates
-        const handleMessage = (msg: WebSocketMessage) => {
-          if (!isMountedRef.current) return;
-
-          console.log('[useTrades] WS message:', {
-            type: msg.type,
-            channel: msg.channel,
-            id: msg.id,
-            hasContents: !!msg.contents,
-          });
-
-          if (msg.type !== 'channel_data' || !msg.contents) {
-            return;
-          }
-
-          // dYdX sends trades in a 'trades' array in contents
-          const newTrades = msg.contents.trades || [];
-
-          if (newTrades.length > 0) {
-            setTrades(prev => {
-              // Add new trades and keep only maxTrades
-              const updated = [...newTrades, ...prev];
-              return updated.slice(0, maxTrades);
-            });
-
-            setLatestTrade(newTrades[0]);
-          }
-        };
-
-        unsubscribeRef.current = socketClient.subscribeToTrades(market, handleMessage);
-        console.log(`[useTrades] Subscribed to trades for ${market}`);
-
-        const onConnectCleanup = socketClient.onConnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useTrades] Connection established');
-            setIsConnected(true);
-            setError(null);
-          }
-        });
-
-        const onDisconnectCleanup = socketClient.onDisconnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useTrades] Connection lost');
-            setIsConnected(false);
-          }
-        });
-
-        return () => {
-          onConnectCleanup();
-          onDisconnectCleanup();
-        };
-      } catch (err: any) {
-        console.error('[useTrades] Error:', err);
-        if (isMountedRef.current) {
-          setError(err.message || 'Failed to load trades');
-          setIsConnected(false);
-          setIsLoading(false);
-        }
-      }
-    };
-
-    const cleanupPromise = initializeConnection();
+    subscribeToMarket(market, isConnected);
 
     return () => {
-      isMountedRef.current = false;
-      console.log(`[useTrades] Cleaning up ${market}`);
-
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-
-      cleanupPromise.then(cleanup => {
-        if (cleanup) cleanup();
-      });
+      state.listeners.delete(listener);
+      unsubscribeFromMarket(market);
     };
-  }, [market, maxTrades]);
+  }, [market, limit, isConnected]);
+
+  const livePrice = useMemo(() => {
+    return trades.length > 0 ? parseFloat(trades[0].price) : null;
+  }, [trades]);
+
+  const livePriceSide = useMemo(() => {
+    return trades.length > 0 ? trades[0].side : null;
+  }, [trades]);
 
   return {
     trades,
-    latestTrade,
-    error,
     isLoading,
     isConnected,
-    stats,
+    dataSource,
+    livePrice,
+    livePriceSide,
   };
 }

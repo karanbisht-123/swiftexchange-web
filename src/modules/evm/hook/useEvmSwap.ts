@@ -1,21 +1,26 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
-import { type NetworkKey } from '../../../config/swapConfigs';
-import type { Asset, SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
-import { AssetUtils } from '../utils/assetUtils';
-import { fetchEvmQuote, handleEvmSwap } from '../utils/evmSwapUtils';
+import { ethers } from 'ethers';
 
-// determineSwapType,
+import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import {
+  type TokenInfo,
+  fetchSingleTokenBalance,
+  getTokensForChain,
+} from '../service/tokenListService';
+import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
+
 interface UseEvmSwapProps {
-  networkKey: NetworkKey;
+  chainId: number;
   senderAddress: string;
-  getPrivateKey: (chain: 'evm' | 'stellar') => Promise<string | null>;
+  getProvider: (type: WalletType) => any;
 }
 
 interface UseEvmSwapState {
   quote: SwapQuote | null;
   txHash: string | null;
-  assets: Asset[];
+  assets: TokenInfo[];
   loading: boolean;
   error: string | null;
   isFetchingAssets: boolean;
@@ -23,23 +28,27 @@ interface UseEvmSwapState {
 }
 
 interface UseEvmSwapActions {
-  fetchAssets: () => Promise<void>;
-  fetchQuote: (request: SwapQuoteRequest, sellAsset: Asset, buyAsset: Asset) => Promise<SwapQuote>;
+  fetchTokenList: () => void;
+  updateTokenBalances: (sellToken?: TokenInfo, buyToken?: TokenInfo) => Promise<void>;
+  fetchQuote: (
+    request: SwapQuoteRequest,
+    sellAsset: TokenInfo,
+    buyAsset: TokenInfo
+  ) => Promise<SwapQuote>;
   performSwap: (
     quote: SwapQuote,
-    sellAsset: Asset,
-    buyAsset: Asset,
+    sellAsset: TokenInfo,
+    buyAsset: TokenInfo,
     sellAmount: string,
     slippageTolerance: number
   ) => Promise<string>;
   reset: () => void;
-  clearCache: () => void;
 }
 
 export const useEvmSwap = ({
-  networkKey,
+  chainId,
   senderAddress,
-  getPrivateKey,
+  getProvider,
 }: UseEvmSwapProps): UseEvmSwapState & UseEvmSwapActions => {
   const [state, setState] = useState<UseEvmSwapState>({
     quote: null,
@@ -51,46 +60,94 @@ export const useEvmSwap = ({
     quoteLoading: false,
   });
 
-  const updateState = (updates: Partial<UseEvmSwapState>) => {
-    setState(prev => ({ ...prev, ...updates }));
-  };
+  const quoteAbortController = useRef<AbortController | null>(null);
 
-  const validateSenderAddress = (): boolean => {
+  const updateState = useCallback((updates: Partial<UseEvmSwapState>) => {
+    setState(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const validateSenderAddress = useCallback((): boolean => {
     if (!senderAddress) {
       updateState({ error: 'No wallet address provided' });
       return false;
     }
-    if (!AssetUtils.isValidAddress(senderAddress)) {
+    if (!ethers.isAddress(senderAddress)) {
       updateState({ error: 'Invalid wallet address format' });
       return false;
     }
     return true;
-  };
+  }, [senderAddress, updateState]);
 
-  const fetchAssets = useCallback(async () => {
-    if (!validateSenderAddress()) {
-      updateState({ assets: [] });
-      return;
-    }
+  const fetchTokenList = useCallback(() => {
+    if (!chainId) return;
 
     updateState({ isFetchingAssets: true, error: null });
 
     try {
-      const fetchedAssets = await AssetUtils.fetchAssets(networkKey, senderAddress);
-      updateState({ assets: fetchedAssets, isFetchingAssets: false });
+      const tokens = getTokensForChain(chainId);
+      updateState({ assets: tokens, isFetchingAssets: false });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch assets';
-      console.error('Asset fetch error:', err);
+      console.error('Failed to load token list:', err);
       updateState({
-        error: errorMessage,
+        error: 'Failed to load token list',
         assets: [],
         isFetchingAssets: false,
       });
     }
-  }, [networkKey, senderAddress]);
+  }, [chainId, updateState]);
+
+  const updateTokenBalances = useCallback(
+    async (sellToken?: TokenInfo, buyToken?: TokenInfo) => {
+      if (!senderAddress || !chainId) return;
+
+      const provider = getProvider(WalletType.EVM);
+      if (!provider) return;
+
+      const ethersProvider = new ethers.BrowserProvider(provider);
+
+      const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
+      if (tokensToFetch.length === 0) return;
+      const updates = await Promise.all(
+        tokensToFetch.map(async token => {
+          const bal = await fetchSingleTokenBalance(
+            senderAddress,
+            ethersProvider,
+            token.address,
+            !!token.isNative,
+            token.decimals
+          );
+          return { address: token.address, balance: bal };
+        })
+      );
+      setState(prev => {
+        const newAssets = [...prev.assets];
+        let hasChanges = false;
+
+        updates.forEach(({ address, balance }) => {
+          const index = newAssets.findIndex(a => a.address === address);
+          if (index !== -1 && newAssets[index].balance !== balance) {
+            newAssets[index] = { ...newAssets[index], balance };
+            hasChanges = true;
+          }
+        });
+
+        return hasChanges ? { ...prev, assets: newAssets } : prev;
+      });
+    },
+    [chainId, senderAddress, getProvider]
+  );
 
   const fetchQuote = useCallback(
-    async (request: SwapQuoteRequest, sellAsset: Asset, buyAsset: Asset): Promise<SwapQuote> => {
+    async (
+      request: SwapQuoteRequest,
+      sellAsset: TokenInfo,
+      buyAsset: TokenInfo
+    ): Promise<SwapQuote> => {
+      if (quoteAbortController.current) {
+        quoteAbortController.current.abort();
+      }
+
+      quoteAbortController.current = new AbortController();
       updateState({ quoteLoading: true, error: null, quote: null });
 
       try {
@@ -103,29 +160,36 @@ export const useEvmSwap = ({
         if (sellAsset.address === buyAsset.address) {
           throw new Error('Cannot swap same token');
         }
-        if (parseFloat(request.amount) > sellAsset.balance) {
-          throw new Error(`Insufficient ${sellAsset.code} balance`);
+        const currentSellBalance = sellAsset.balance || '0';
+        if (parseFloat(request.amount) > parseFloat(currentSellBalance)) {
+          throw new Error(`Insufficient ${sellAsset.symbol} balance`);
         }
 
-        const quoteResponse = await fetchEvmQuote(networkKey, request, sellAsset, buyAsset);
+        const quoteResponse = await fetchEvmQuote(chainId, request, sellAsset, buyAsset);
 
-        updateState({ quote: quoteResponse, quoteLoading: false });
+        if (!quoteAbortController.current.signal.aborted) {
+          updateState({ quote: quoteResponse, quoteLoading: false });
+        }
         return quoteResponse;
-      } catch (err) {
+      } catch (err: any) {
+        if (err.name === 'AbortError' || quoteAbortController.current?.signal.aborted) {
+          return Promise.reject(new Error('Quote request cancelled'));
+        }
+
         const errorMsg = err instanceof Error ? err.message : 'Failed to fetch quote';
         console.error('Quote fetch error:', err);
         updateState({ error: errorMsg, quoteLoading: false, quote: null });
         throw new Error(errorMsg);
       }
     },
-    [networkKey]
+    [chainId, updateState]
   );
 
   const performSwap = useCallback(
     async (
       quote: SwapQuote,
-      sellAsset: Asset,
-      buyAsset: Asset,
+      sellAsset: TokenInfo,
+      buyAsset: TokenInfo,
       sellAmount: string,
       slippageTolerance: number
     ): Promise<string> => {
@@ -136,51 +200,39 @@ export const useEvmSwap = ({
       updateState({ loading: true, error: null, txHash: null });
 
       try {
-        if (!quote) {
-          throw new Error('No quote available for swap');
-        }
-        if (!sellAsset || !buyAsset) {
-          throw new Error('Invalid assets for swap');
-        }
-        if (!sellAmount || parseFloat(sellAmount) <= 0) {
-          throw new Error('Invalid sell amount');
-        }
-        if (slippageTolerance < 0 || slippageTolerance > 50) {
-          throw new Error('Invalid slippage tolerance (must be 0-50%)');
-        }
-        if (parseFloat(sellAmount) > sellAsset.balance) {
-          throw new Error(`Insufficient ${sellAsset.code} balance`);
-        }
+        if (!quote) throw new Error('No quote available');
 
-        const hash = await handleEvmSwap(
-          networkKey,
+        const hash = await executeSwap(
+          chainId,
           quote,
           sellAsset,
           buyAsset,
           senderAddress,
           sellAmount,
           slippageTolerance,
-          getPrivateKey
+          getProvider
         );
 
         updateState({ txHash: hash, loading: false });
-
         setTimeout(() => {
-          fetchAssets();
-        }, 3000);
+          updateTokenBalances(sellAsset, buyAsset);
+        }, 8000);
 
         return hash;
-      } catch (err) {
+      } catch (err: any) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to perform swap';
         console.error('Swap execution error:', err);
         updateState({ error: errorMsg, loading: false, txHash: null });
         throw new Error(errorMsg);
       }
     },
-    [networkKey, senderAddress, getPrivateKey, fetchAssets]
+    [chainId, senderAddress, getProvider, updateTokenBalances, validateSenderAddress, updateState]
   );
 
   const reset = useCallback(() => {
+    if (quoteAbortController.current) {
+      quoteAbortController.current.abort();
+    }
     updateState({
       quote: null,
       txHash: null,
@@ -188,24 +240,14 @@ export const useEvmSwap = ({
       loading: false,
       quoteLoading: false,
     });
-  }, []);
-
-  const clearCache = useCallback(() => {
-    AssetUtils.clearMetadataCache();
-  }, []);
+  }, [updateState]);
 
   return {
-    quote: state.quote,
-    txHash: state.txHash,
-    assets: state.assets,
-    loading: state.loading,
-    error: state.error,
-    isFetchingAssets: state.isFetchingAssets,
-    quoteLoading: state.quoteLoading,
-    fetchAssets,
+    ...state,
+    fetchTokenList,
+    updateTokenBalances,
     fetchQuote,
     performSwap,
     reset,
-    clearCache,
   };
 };

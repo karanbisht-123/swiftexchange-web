@@ -1,4 +1,4 @@
-import type * as StellarSDK from 'stellar-sdk';
+import type * as StellarSDK from '@stellar/stellar-sdk';
 
 export interface LargeOrderOffer {
   id: string;
@@ -49,7 +49,7 @@ export interface TokenInfo {
   issuer?: string;
   name?: string;
   icon?: string;
-  balance?: string;
+  balance: string;
   price?: number;
   isPopular?: boolean;
 }

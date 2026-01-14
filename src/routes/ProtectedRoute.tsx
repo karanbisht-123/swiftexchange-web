@@ -1,12 +1,11 @@
 import { Navigate, Outlet } from 'react-router-dom';
 
 import { ROUTES } from '../constants/routes';
-import { useWalletStore } from '../modules/wallet/store.ts/walletStore';
-
-// import { useWalletConnectStore } from '../modules/walletconnect/store/walletConnectStore';
+import { useWalletConnect } from '../modules/walletconnect/hooks/useWalletConnect';
 
 const ProtectedRoute = () => {
-  const { isConnected } = useWalletStore();
+  const { connectedWallets } = useWalletConnect();
+  const isConnected = Object.keys(connectedWallets).length > 0;
 
   if (!isConnected) {
     return <Navigate to={ROUTES.HOME} replace />;

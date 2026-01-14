@@ -80,4 +80,6 @@ export interface UseChartReturn extends ChartState {
   setResolution: (resolution: ChartResolution) => void;
   setTimeRange: (range: ChartTimeRange) => void;
   setAssetPair: (pair: ChartAssetPair) => void;
+  currentNetwork: any;
+  currentAssetPair: any;
 }

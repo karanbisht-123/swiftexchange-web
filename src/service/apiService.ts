@@ -1,9 +1,33 @@
+import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 import type { ApiResponse } from '../types/evm/apiResponse.type';
 
-const BASE_URL = import.meta.env.VITE_BASE_URL as string;
+const SERVER_URL_DEV = import.meta.env.VITE_BASE_SERVER_URL_DEV as string;
+const PROXY_URL_DEV = import.meta.env.VITE_BASE_PROXY_URL_DEV as string;
+const DEVICE_AUTH_DEV = import.meta.env.VITE_API_DEVICE_AUTH_DEV as string;
+
+const SERVER_URL_PROD = import.meta.env.VITE_BASE_SERVER_URL_PROD as string;
+const PROXY_URL_PROD = import.meta.env.VITE_BASE_PROXY_URL_PROD as string;
+const DEVICE_AUTH_PROD = import.meta.env.VITE_API_DEVICE_AUTH_PROD as string;
+
 const USER_API_TOKEN = import.meta.env.VITE_API_USER_AUTH as string;
-const DEVICE_API_TOKEN = import.meta.env.VITE_API_DEVICE_AUTH as string;
-const SERVER_BASE_URL = import.meta.env.VITE_BASE_SERVER_URL as string;
+
+function getApiConfig() {
+  const network = useWalletStore.getState().network;
+
+  if (network === 'testnet') {
+    return {
+      serverUrl: SERVER_URL_DEV,
+      proxyUrl: PROXY_URL_DEV,
+      deviceAuth: DEVICE_AUTH_DEV,
+    };
+  }
+
+  return {
+    serverUrl: SERVER_URL_PROD,
+    proxyUrl: PROXY_URL_PROD,
+    deviceAuth: DEVICE_AUTH_PROD,
+  };
+}
 
 async function fetchWithRetry(
   url: string,
@@ -30,14 +54,19 @@ export async function fetchApiResponseFromProxy<T>(
   body?: unknown,
   retries?: number
 ): Promise<ApiResponse<T>> {
+  const config = getApiConfig();
+
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    'x-auth-device-token': DEVICE_API_TOKEN,
+    'x-auth-device-token': config.deviceAuth,
     Authorization: `Bearer ${USER_API_TOKEN}`,
   };
 
+  const url = `${config.proxyUrl}${endpoint}`;
+  console.log('[API] Proxy request:', url);
+
   const response = await fetchWithRetry(
-    `${BASE_URL}${endpoint}`,
+    url,
     {
       method,
       headers,
@@ -66,14 +95,19 @@ export async function fetchApiResponseFromServer<T>(
   body?: unknown,
   retries?: number
 ): Promise<ApiResponse<T>> {
+  const config = getApiConfig();
+
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    'x-auth-device-token': DEVICE_API_TOKEN,
+    'x-auth-device-token': config.deviceAuth,
     Authorization: `Bearer ${USER_API_TOKEN}`,
   };
 
+  const url = `${config.serverUrl}${endpoint}`;
+  console.log('[API] Server request:', url);
+
   const response = await fetchWithRetry(
-    `${SERVER_BASE_URL}${endpoint}`,
+    url,
     {
       method,
       headers,

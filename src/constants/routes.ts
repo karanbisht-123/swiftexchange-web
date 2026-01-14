@@ -1,15 +1,18 @@
 export const ROUTES = {
   HOME: '/',
   DASHBOARD: '/dashboard',
-  MY_ASSETS: '/my-assets', // SEO-friendly
-  SEND: '/send', // SEO-friendly
-  RECEIVE: '/receive', // SEO-friendly
-  TRADING_STEALLR: '/trading/steallr', // AMM + Orderbook
-  TRANSACTIONS: '/transactions', // All transactions
-  TRADING_EVM_SWAP: '/trading/evm/swap', // EVM swap
-  TRADING_EVM_FIAT: '/trading/evm/fiat', // SEO-friendly fiat
-  TRADING_DYDX_FUTURES: '/trading/dydx/futures', // dYdX futures
-  MARKETS: '/markets', // SEO-friendly
+  MY_ASSETS: '/my-assets',
+  SEND: '/send',
+  RECEIVE: '/receive',
+  TRADING_STEALLR: '/trading/steallr',
+  TRANSACTIONS: '/transactions',
+  TRADING_EVM_SWAP: '/trading/evm/swap',
+  TRADING_EVM_FIAT: '/trading/evm/fiat',
+  TRADING_DYDX_FUTURES: '/trading/dydx/futures',
+  MARKETS: '/markets',
   PROFILE: '/profile',
   SETTINGS: '/settings',
-};
+} as const;
+
+export type RouteKey = keyof typeof ROUTES;
+export type RouteValue = (typeof ROUTES)[RouteKey];

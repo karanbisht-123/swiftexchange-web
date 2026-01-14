@@ -1,4 +1,4 @@
-import type * as StellarSDK from 'stellar-sdk';
+import type * as StellarSDK from '@stellar/stellar-sdk';
 
 export interface LiquidityPoolReserve {
   asset: StellarSDK.Asset;
@@ -67,6 +67,10 @@ export interface TokenInfo {
   isPopular?: boolean;
 }
 
+export type TokenPlaceholder = {
+  code: string;
+  balance?: string;
+};
 export interface SwapState {
   fromToken: any | null;
   toToken: TokenInfo | null;

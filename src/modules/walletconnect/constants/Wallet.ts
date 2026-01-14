@@ -93,7 +93,7 @@ export const CHAIN_METHODS = {
     'eth_signTypedData',
     'eth_signTypedData_v4',
   ],
-  cosmos: ['cosmos_getAccounts', 'cosmos_signDirect', 'cosmos_signAmino'],
+  cosmos: ['cosmos_getAccounts', 'cosmos_signDirect', 'cosmos_signAmino', 'cosmos_sendTransaction'],
   stellar: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
 };
 

@@ -120,9 +120,8 @@ const AlchemyCryptoSell = () => {
             onChange={e => setCryptoAmount(e.target.value)}
             onWheel={e => e.currentTarget.blur()}
             className={`input flex-1 ${quoteError ? 'input-danger' : ''}`}
-            placeholder={`Enter amount (Min: ${
-              selectedCryptoOption?.minSellAmount || MIN_AMOUNT
-            } ${selectedCryptoOption?.crypto || ''})`}
+            placeholder={`Enter amount (Min: ${selectedCryptoOption?.minSellAmount || MIN_AMOUNT
+              } ${selectedCryptoOption?.crypto || ''})`}
             min={selectedCryptoOption?.minSellAmount || MIN_AMOUNT}
           />
           <div className="w-full sm:w-1/3">
@@ -134,6 +133,21 @@ const AlchemyCryptoSell = () => {
               styles={getSelectStyles()}
               classNamePrefix="select"
               placeholder="Select Asset"
+              formatOptionLabel={(option: any) => (
+                <div className="flex items-center gap-2">
+                  {option.icon && (
+                    <img
+                      src={option.icon}
+                      alt={option.crypto}
+                      className="w-5 h-5 rounded-full"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <span>{option.label}</span>
+                </div>
+              )}
             />
           </div>
         </div>
@@ -175,6 +189,21 @@ const AlchemyCryptoSell = () => {
               styles={getSelectStyles()}
               classNamePrefix="select"
               placeholder="Select Currency"
+              formatOptionLabel={(option: any) => (
+                <div className="flex items-center gap-2">
+                  {option.flag && (
+                    <img
+                      src={option.flag}
+                      alt={option.countryName}
+                      className="w-6 h-4 object-cover rounded-sm"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <span>{option.label}</span>
+                </div>
+              )}
             />
           </div>
         </div>

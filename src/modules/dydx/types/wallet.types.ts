@@ -1,5 +1,3 @@
-// import { Network } from "@dydxprotocol/v4-client-js";
-
 export type DydxNetwork = 'mainnet' | 'testnet';
 
 export interface DydxAddress {
@@ -22,24 +20,20 @@ export interface DydxNetworkConfig {
   wsUrl: string;
 }
 
-/**
- * Network configurations for dYdX
- * Uses lazy initialization to avoid module-level async calls
- */
-export const DYDX_NETWORKS: Record<DydxNetwork, DydxNetworkConfig> = {
-  mainnet: {
-    indexerUrl: 'https://indexer.dydx.trade',
-    validatorUrl: 'https://dydx-ops-rpc.kingnodes.com',
-    chainId: 'dydx-mainnet-1',
-    wsUrl: 'wss://indexer.dydx.trade/v4/ws',
-  },
-  testnet: {
-    indexerUrl: 'https://indexer.v4testnet.dydx.exchange',
-    validatorUrl: 'https://dydx-testnet-rpc.kingnodes.com',
-    chainId: 'dydx-testnet-4',
-    wsUrl: 'wss://indexer.v4testnet.dydx.exchange/v4/ws',
-  },
-};
+// export const DYDX_NETWORKS: Record<DydxNetwork, DydxNetworkConfig> = {
+//   mainnet: {
+//     indexerUrl: 'https://indexer.dydx.trade',
+//     validatorUrl: 'https://dydx-ops-rpc.kingnodes.com',
+//     chainId: 'dydx-mainnet-1',
+//     wsUrl: 'wss://indexer.dydx.trade/v4/ws',
+//   },
+//   testnet: {
+//     indexerUrl: 'https://indexer.v4testnet.dydx.exchange',
+//     validatorUrl: 'https://dydx-testnet-rpc.kingnodes.com',
+//     chainId: 'dydx-testnet-4',
+//     wsUrl: 'wss://indexer.v4testnet.dydx.exchange/v4/ws',
+//   },
+// };
 
 export interface DydxPosition {
   market: string;

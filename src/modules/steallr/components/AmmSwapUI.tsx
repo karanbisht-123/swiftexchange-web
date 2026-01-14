@@ -1,7 +1,8 @@
 import { AlertCircle, ArrowDownUp, CheckCircle, Clock, RefreshCw, Settings } from 'lucide-react';
 import { useState } from 'react';
 
-import { useWalletStore } from '../../wallet/store.ts/walletStore';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES, UI_STRINGS } from '../constants/ammSwapConstants';
 import { useAmmSwap } from '../hook/useAmmSwap';
 import { useAmmSwapStore } from '../store/ammSwapStore';
@@ -11,8 +12,9 @@ const AmmSwapUI = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [swapStatus, setSwapStatus] = useState<'pending' | 'success' | null>(null);
 
-  const { walletAddresses, getPrivateKey } = useWalletStore();
-  const stellarAddress = walletAddresses[1] || '';
+  const { connectedWallets, getProvider } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const stellarAddress = stellarWallet?.address || '';
 
   const {
     fromToken,
@@ -23,7 +25,7 @@ const AmmSwapUI = () => {
     isLoading,
     error,
     slippageTolerance,
-    popularTokens,
+    availableTokens, // Changed from popularTokens
     setFromToken,
     setToToken,
     setFromAmount,
@@ -31,16 +33,14 @@ const AmmSwapUI = () => {
     swapTokens,
     refreshQuote,
     buildTransaction,
-    executeSwap,
+    executeSwapWithWalletConnect,
     reset,
   } = useAmmSwap({
-    networkKey: 'testnet',
     userAddress: stellarAddress,
   });
 
-  const { addTransaction, defaultSlippage, setDefaultSlippage } = useAmmSwapStore();
+  const { addTransaction, setDefaultSlippage } = useAmmSwapStore();
 
-  console.log(defaultSlippage);
   const handleSlippageChange = (slippage: number) => {
     setSlippageTolerance(slippage);
     setDefaultSlippage(slippage);
@@ -52,20 +52,29 @@ const AmmSwapUI = () => {
       return;
     }
 
+    if (!stellarWallet) {
+      alert('Please connect your Stellar wallet first');
+      return;
+    }
+
     setSwapStatus('pending');
     try {
       const tx = await buildTransaction();
-      const privateKey = (await getPrivateKey('stellar')) || '';
-      if (!privateKey) {
-        throw new Error('No private key available');
+      const provider = getProvider(WalletType.STELLAR);
+
+      if (!provider) {
+        throw new Error('Stellar wallet provider not available');
       }
-      const txHash = await executeSwap(privateKey);
+
+      const txHash = await executeSwapWithWalletConnect(tx, provider);
+
       addTransaction({
         ...tx,
         status: 'success',
         txHash,
         timestamp: Date.now(),
       });
+
       setSwapStatus('success');
       setTimeout(() => {
         setSwapStatus(null);
@@ -73,8 +82,6 @@ const AmmSwapUI = () => {
       }, 3000);
     } catch (err) {
       setSwapStatus(null);
-      // const message =
-      //   err instanceof Error ? err.message : ERROR_MESSAGES.SWAP_FAILED;
       addTransaction({
         id: Date.now().toString(),
         fromToken,
@@ -84,14 +91,40 @@ const AmmSwapUI = () => {
         status: 'failed',
         timestamp: Date.now(),
       });
+      console.error('Swap failed:', err);
     }
   };
 
-  const canSwap = fromAmount && parseFloat(fromAmount) > 0 && !isLoading && quote;
+  const canSwap = fromAmount && parseFloat(fromAmount) > 0 && !isLoading && quote && stellarWallet;
+
+  if (!stellarWallet) {
+    return (
+      <div className="bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
+        <div className="w-full max-w-lg text-center space-y-4">
+          <AlertCircle className="w-16 h-16 text-warning mx-auto" />
+          <h4 className="heading-4">Stellar Wallet Not Connected</h4>
+          <p className="text-muted">Please connect your Stellar wallet to start swapping tokens</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while fetching tokens
+  if (availableTokens.length === 0 && !error) {
+    return (
+      <div className="bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
+        <div className="w-full max-w-lg text-center space-y-4">
+          <RefreshCw className="w-16 h-16 text-brand animate-spin mx-auto" />
+          <h4 className="heading-4">Loading Your Tokens...</h4>
+          <p className="text-muted">Fetching your token balances from the network</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className=" bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
-      <div className=" w-full max-w-lg">
+    <div className="bg-secondary h-full border lg:border-none p-4 lg:p-6 rounded-xl flex items-center justify-center">
+      <div className="w-full max-w-lg">
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h4 className="heading-4">Swap</h4>
@@ -124,7 +157,8 @@ const AmmSwapUI = () => {
             <div className="flex items-center justify-between text-small text-muted">
               <span>From</span>
               <span>
-                Balance: {fromToken?.balance ? parseFloat(fromToken.balance).toFixed(2) : '0.00'}
+                Balance:{' '}
+                {fromToken?.balance ? parseFloat(fromToken.balance).toFixed(7) : '0.0000000'}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -134,17 +168,23 @@ const AmmSwapUI = () => {
                 onChange={e => setFromAmount(e.target.value)}
                 placeholder="0.0"
                 className="input input-primary flex-1 text-2xl font-semibold"
+                disabled={isLoading}
               />
               <TokenSelector
                 selectedToken={fromToken || { code: 'Select', balance: '0' }}
                 onSelect={setFromToken}
-                tokens={popularTokens}
+                tokens={availableTokens}
                 label="From"
               />
             </div>
             {fromToken?.balance && (
               <button
-                onClick={() => setFromAmount(fromToken.balance)}
+                onClick={() => {
+                  const balance = parseFloat(fromToken.balance || '0');
+                  const reserve = fromToken.code === 'XLM' ? 2 : 0;
+                  const maxAmount = Math.max(0, balance - reserve);
+                  setFromAmount(maxAmount.toFixed(7));
+                }}
                 className="text-xs text-brand-accent hover:text-brand-primary transition-colors"
               >
                 MAX
@@ -152,10 +192,11 @@ const AmmSwapUI = () => {
             )}
           </div>
 
-          <div className="flex justify-center  relative z-10">
+          <div className="flex justify-center relative z-10">
             <button
               onClick={swapTokens}
               className="btn btn-glass p-3 rounded-xl hover:scale-110 transition-all duration-300 border-2 border-border-accent"
+              disabled={isLoading}
             >
               <ArrowDownUp className="w-5 h-5 text-text-inverse" />
             </button>
@@ -165,7 +206,7 @@ const AmmSwapUI = () => {
             <div className="flex items-center justify-between text-small text-muted">
               <span>To</span>
               <span>
-                Balance: {toToken?.balance ? parseFloat(toToken.balance).toFixed(2) : '0.00'}
+                Balance: {toToken?.balance ? parseFloat(toToken.balance).toFixed(7) : '0.0000000'}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -174,12 +215,12 @@ const AmmSwapUI = () => {
                 value={toAmount}
                 readOnly
                 placeholder="0.0"
-                className="input input-primary flex-1 text-2xl font-semibold"
+                className="input input-primary flex-1 text-2xl font-semibold cursor-not-allowed"
               />
               <TokenSelector
                 selectedToken={toToken || { code: 'Select', balance: '0' }}
                 onSelect={setToToken}
-                tokens={popularTokens}
+                tokens={availableTokens}
                 label="To"
               />
             </div>
@@ -203,7 +244,7 @@ const AmmSwapUI = () => {
           <button
             onClick={handleSwap}
             disabled={!canSwap || swapStatus === 'pending'}
-            className={`btn btn-gradient btn-lg w-full font-semibold ${
+            className={`btn btn-gradient border btn-lg w-full font-semibold ${
               canSwap && swapStatus !== 'pending'
                 ? 'animate-scale-in'
                 : 'opacity-50 cursor-not-allowed'

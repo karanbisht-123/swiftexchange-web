@@ -3,7 +3,6 @@ import { persist } from 'zustand/middleware';
 
 import type { TokenInfo } from '../types/ammSwap.types';
 
-// AmmSwapTransaction
 interface SwapHistory {
   transactions: any[];
   favorites: TokenInfo[];

@@ -8,7 +8,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
-import { useWalletStore } from '../../wallet/store.ts/walletStore';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES, UI_STRINGS } from '../constants/orderBookSwapConstants';
 import { useLargeOrder } from '../hook/useOrderBookSwap';
 import { useLargeOrderStore } from '../store/orderBookSwapStore';
@@ -17,9 +18,11 @@ import OrderBook from './OrderBook';
 const OrderBookSwapUI = () => {
   const [orderStatus, setOrderStatus] = useState<'pending' | 'success' | 'error' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'trade' | 'orderBook'>('trade');
 
-  const { walletAddresses, getPrivateKey } = useWalletStore();
-  const stellarAddress = walletAddresses[1] || '';
+  const { connectedWallets, getProvider } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const stellarAddress = stellarWallet?.address || '';
 
   const {
     isBuy,
@@ -32,25 +35,32 @@ const OrderBookSwapUI = () => {
     isLoading,
     error,
     orderBook,
+    availableTokens,
     setIsBuy,
+    setFromToken,
+    setToToken,
     setAmount,
     setPrice,
-    // setAmountPercentage,
     setMaxAmount,
     buildTransaction,
-    executeOrder,
+    executeOrderWithWalletConnect,
     refreshOrderBook,
     reset,
   } = useLargeOrder({
-    networkKey: 'testnet',
     userAddress: stellarAddress,
   });
 
   const { addTransaction } = useLargeOrderStore();
 
   const handlePlaceOrder = useCallback(async () => {
-    if (!fromToken || !toToken || !amount || !price || !stellarAddress) {
-      setErrorMessage('Please fill in all required fields and connect a wallet');
+    if (!fromToken || !toToken || !amount || !price) {
+      setErrorMessage('Please fill in all required fields');
+      setOrderStatus('error');
+      return;
+    }
+
+    if (!stellarWallet) {
+      setErrorMessage('Please connect your Stellar wallet first');
       setOrderStatus('error');
       return;
     }
@@ -65,15 +75,14 @@ const OrderBookSwapUI = () => {
     setErrorMessage(null);
 
     try {
-      const privateKey = (await getPrivateKey('stellar')) || '';
-      if (!privateKey) {
-        setErrorMessage('Failed to retrieve Stellar private key');
-        setOrderStatus('error');
-        return;
+      const tx = await buildTransaction();
+      const provider = getProvider(WalletType.STELLAR);
+
+      if (!provider) {
+        throw new Error('Stellar wallet provider not available');
       }
 
-      const tx = await buildTransaction();
-      const txHash = await executeOrder(privateKey);
+      const txHash = await executeOrderWithWalletConnect(tx, provider);
 
       addTransaction({
         ...tx,
@@ -103,10 +112,10 @@ const OrderBookSwapUI = () => {
     toToken,
     amount,
     price,
-    stellarAddress,
-    getPrivateKey,
+    stellarWallet,
     buildTransaction,
-    executeOrder,
+    getProvider,
+    executeOrderWithWalletConnect,
     addTransaction,
     refreshOrderBook,
     reset,
@@ -119,16 +128,25 @@ const OrderBookSwapUI = () => {
     parseFloat(price) > 0 &&
     !isLoading &&
     quote &&
-    stellarAddress;
+    stellarWallet;
 
   const fromBalance = fromToken?.balance ? parseFloat(fromToken.balance).toFixed(4) : '0.00';
   const toBalance = toToken?.balance ? parseFloat(toToken.balance).toFixed(4) : '0.00';
 
-  // 🔹 For mobile: tab management
-  const [activeTab, setActiveTab] = useState<'trade' | 'orderBook'>('trade');
+  if (!stellarWallet) {
+    return (
+      <div className="bg-secondary rounded-xl border lg:border-none p-6 h-full flex items-center justify-center">
+        <div className="w-full max-w-lg text-center space-y-4">
+          <AlertCircle className="w-16 h-16 text-warning mx-auto" />
+          <h4 className="heading-4">Stellar Wallet Not Connected</h4>
+          <p className="text-muted">Please connect your Stellar wallet to start trading</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-secondary rounded-xl border lg:border-none   p-2 sm:p-6">
+    <div className="bg-secondary rounded-xl border lg:border-none p-2 sm:p-6">
       {/* --------- MOBILE TABS --------- */}
       <div className="flex sm:hidden mb-4 border-b border-border">
         <button
@@ -157,7 +175,7 @@ const OrderBookSwapUI = () => {
           }`}
         >
           {/* --- Header --- */}
-          <div className=" items-center hidden lg:flex justify-between mb-4">
+          <div className="items-center hidden lg:flex justify-between mb-4">
             <h2 className="heading-4">{UI_STRINGS.TITLE || 'Order Book Trading'}</h2>
             <button
               onClick={refreshOrderBook}
@@ -187,43 +205,88 @@ const OrderBookSwapUI = () => {
             </button>
           </div>
 
-          {/* --- Token Pair --- */}
+          {/* --- Token Pair with Selectors --- */}
           <div className="card flex items-center justify-center gap-4 p-4">
             <div className="text-center flex-1">
-              <div className="text-lg font-bold">{fromToken?.code || 'Select'}</div>
+              <select
+                value={fromToken?.code || ''}
+                onChange={e => {
+                  const selected = availableTokens.find(t => t.code === e.target.value);
+                  if (selected && selected.code !== toToken?.code) {
+                    setFromToken(selected);
+                  }
+                }}
+                className="input input-primary w-full text-sm font-semibold mb-2"
+                disabled={isLoading}
+              >
+                <option value="">Select Token</option>
+                {availableTokens.map(token => (
+                  <option
+                    key={`${token.code}-${token.issuer || 'native'}`}
+                    value={token.code}
+                    disabled={token.code === toToken?.code}
+                  >
+                    {token.code}
+                  </option>
+                ))}
+              </select>
               <div className="text-xs text-muted truncate max-w-[120px] mx-auto">
-                {fromToken?.issuer?.slice(0, 8) || ''}...
+                {fromToken?.issuer?.slice(0, 8) || 'Native'}...
               </div>
               <div className="text-sm text-muted mt-1">Balance: {fromBalance}</div>
             </div>
-            <ArrowDownUp className="w-6 h-6 text-muted" />
+
+            <button
+              onClick={() => {
+                const temp = fromToken;
+                setFromToken(toToken);
+                setToToken(temp);
+              }}
+              className="btn btn-ghost p-2"
+              disabled={isLoading || !fromToken || !toToken}
+            >
+              <ArrowDownUp className="w-6 h-6 text-muted" />
+            </button>
+
             <div className="text-center flex-1">
-              <div className="text-lg font-bold">{toToken?.code || 'Select'}</div>
+              <select
+                value={toToken?.code || ''}
+                onChange={e => {
+                  const selected = availableTokens.find(t => t.code === e.target.value);
+                  if (selected && selected.code !== fromToken?.code) {
+                    setToToken(selected);
+                  }
+                }}
+                className="input input-primary w-full text-sm font-semibold mb-2"
+                disabled={isLoading}
+              >
+                <option value="">Select Token</option>
+                {availableTokens.map(token => (
+                  <option
+                    key={`${token.code}-${token.issuer || 'native'}`}
+                    value={token.code}
+                    disabled={token.code === fromToken?.code}
+                  >
+                    {token.code}
+                  </option>
+                ))}
+              </select>
               <div className="text-xs text-muted truncate max-w-[120px] mx-auto">
-                {toToken?.issuer?.slice(0, 8) || ''}...
+                {toToken?.issuer?.slice(0, 8) || 'Native'}...
               </div>
               <div className="text-sm text-muted mt-1">Balance: {toBalance}</div>
             </div>
           </div>
 
-          {/* --- Wallet Info / Error --- */}
-          {stellarAddress ? (
-            <div className="card mt-4">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">Connected Account:</span>
-                <span className="text-text-accent text-mono">
-                  {stellarAddress.slice(0, 8)}...{stellarAddress.slice(-6)}
-                </span>
-              </div>
+          {/* --- Wallet Info --- */}
+          <div className="card mt-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted">Connected Account:</span>
+              <span className="text-text-accent text-mono">
+                {stellarAddress.slice(0, 8)}...{stellarAddress.slice(-6)}
+              </span>
             </div>
-          ) : (
-            <div className="card bg-danger-light border-danger p-4 animate-fade-in mt-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-danger mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-danger">Please connect a Stellar wallet</p>
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* --- Inputs --- */}
           <div className="card p-4 space-y-4 mt-4">
@@ -231,8 +294,8 @@ const OrderBookSwapUI = () => {
             <div>
               <label className="block text-sm font-medium text-muted mb-2">
                 {isBuy
-                  ? `Amount to Buy (${toToken?.code || ''})`
-                  : `Amount to Sell (${fromToken?.code || ''})`}
+                  ? `Amount to Buy (${toToken?.code || 'Token'})`
+                  : `Amount to Sell (${fromToken?.code || 'Token'})`}
               </label>
               <div className="flex gap-2">
                 <input
@@ -257,7 +320,7 @@ const OrderBookSwapUI = () => {
             {/* Price */}
             <div>
               <label className="block text-sm font-medium text-muted mb-2">
-                Price ({fromToken?.code || ''} per {toToken?.code || ''})
+                Price ({fromToken?.code || 'From'} per {toToken?.code || 'To'})
               </label>
               <input
                 type="number"
@@ -273,7 +336,7 @@ const OrderBookSwapUI = () => {
             {/* Total */}
             <div>
               <label className="block text-sm font-medium text-muted mb-2">
-                Total ({fromToken?.code || ''})
+                Total ({fromToken?.code || 'From'})
               </label>
               <input
                 type="number"
@@ -308,7 +371,7 @@ const OrderBookSwapUI = () => {
           >
             {orderStatus === 'pending' ? (
               <span className="flex items-center justify-center gap-2">
-                <div className="w-5 h-5 border-2 border-text-inverse border-t-transparent rounded-full animate-spin" />
+                <RefreshCw className="w-5 h-5 animate-spin" />
                 Placing Order...
               </span>
             ) : orderStatus === 'success' ? (

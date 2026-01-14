@@ -1,4 +1,4 @@
-import { ChevronDown, Download, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
+import { ChevronDown, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -13,19 +13,35 @@ import {
   createChart,
 } from 'lightweight-charts';
 
-import { CHART_RESOLUTIONS, TIME_RANGES } from '../../constants/steallrChartConstant';
 import { useStellarChart } from '../../hook/useStallerChart';
-import type {
-  // ChartAssetPair,
-  ChartResolution,
-} from '../../types/stellarChart.types';
+import type { ChartAssetPair, ChartResolution } from '../../types/stellarChart.types';
 
 type ChartType = 'candlestick' | 'line' | 'area';
 
+const CHART_RESOLUTIONS = {
+  '1m': 60000,
+  '5m': 300000,
+  '15m': 900000,
+  '1h': 3600000,
+  '1d': 86400000,
+  '1w': 604800000,
+} as const;
+
+const TIME_RANGES = {
+  '1H': 3600000,
+  '4H': 14400000,
+  '1D': 86400000,
+  '1W': 604800000,
+  '1M': 2592000000,
+  '3M': 7776000000,
+  '1Y': 31536000000,
+  ALL: 31536000000,
+};
+
 interface StellarTradingChartProps {
-  // assetPair: ChartAssetPair;
-  networkKey?: string;
+  initialAssetPair?: ChartAssetPair;
   autoStream?: boolean;
+  onAssetPairChange?: (pair: ChartAssetPair) => void;
 }
 
 const useTheme = () => {
@@ -48,10 +64,11 @@ const useTheme = () => {
 };
 
 export default function StellarTradingChart({
-  // assetPair,
-  networkKey = 'mainnet',
+  initialAssetPair,
   autoStream = true,
+  onAssetPairChange,
 }: StellarTradingChartProps) {
+  console.log(onAssetPairChange);
   const isDark = useTheme();
   const [resolution, setResolution] = useState<ChartResolution>(CHART_RESOLUTIONS['15m']);
   const [timeRangeKey, setTimeRangeKey] = useState<keyof typeof TIME_RANGES>('1D');
@@ -70,7 +87,6 @@ export default function StellarTradingChart({
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<any>(null);
 
-  // Calculate time range
   const timeRange = {
     startTime:
       timeRangeKey === 'ALL'
@@ -85,78 +101,49 @@ export default function StellarTradingChart({
     error,
     isStreaming,
     lastUpdate,
+    currentNetwork,
+    currentAssetPair,
     startStreaming,
     stopStreaming,
     refreshData,
     setResolution: updateResolution,
     setTimeRange: updateTimeRange,
+    setAssetPair: updateAssetPair,
   } = useStellarChart({
-    networkKey,
-    // assetPair,
+    assetPair: initialAssetPair,
     resolution,
     timeRange,
     autoStream,
   });
 
+  console.log(error);
+  console.log(updateAssetPair);
+
   const getThemeColors = () => {
     if (isDark) {
       return {
-        background:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-bg-primary')
-            .trim() || '#0a0e1a',
-        textColor:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-text-primary')
-            .trim() || '#f8f9fa',
-        gridColor:
-          getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() ||
-          '#2d3241',
-        borderColor:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-border-dark')
-            .trim() || '#3a3f4f',
-        upColor:
-          getComputedStyle(document.documentElement).getPropertyValue('--color-success').trim() ||
-          '#10b981',
-        downColor:
-          getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim() ||
-          '#ef4444',
+        background: '#0a0e1a',
+        textColor: '#f8f9fa',
+        gridColor: '#2d3241',
+        borderColor: '#3a3f4f',
+        upColor: '#10b981',
+        downColor: '#ef4444',
         volumeColor: 'rgba(128, 128, 128, 0.3)',
-        crosshairColor:
-          getComputedStyle(document.documentElement)
-            .getPropertyValue('--color-text-muted')
-            .trim() || '#8b95a5',
+        crosshairColor: '#8b95a5',
       };
     }
     return {
-      background:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-bg-primary').trim() ||
-        '#f5f7fb',
-      textColor:
-        getComputedStyle(document.documentElement)
-          .getPropertyValue('--color-text-primary')
-          .trim() || '#1a1d29',
-      gridColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() ||
-        '#e2e8f0',
-      borderColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-border-dark').trim() ||
-        '#cbd5e0',
-      upColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-success').trim() ||
-        '#10b981',
-      downColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim() ||
-        '#ef4444',
+      background: '#f5f7fb',
+      textColor: '#1a1d29',
+      gridColor: '#e2e8f0',
+      borderColor: '#cbd5e0',
+      upColor: '#10b981',
+      downColor: '#ef4444',
       volumeColor: 'rgba(107, 114, 128, 0.3)',
-      crosshairColor:
-        getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() ||
-        '#718096',
+      crosshairColor: '#718096',
     };
   };
 
-  // Initialize and update chart
   useEffect(() => {
     if (!chartContainerRef.current || chartData.length === 0) return;
 
@@ -264,24 +251,19 @@ export default function StellarTradingChart({
       volumeSeriesRef.current = null;
     }
 
-    // Transform Stellar chart data
+    // Transform data
     const candleData = chartData
       .filter(point => {
-        const isValid =
+        return (
           point.open != null &&
           point.high != null &&
           point.low != null &&
           point.close != null &&
-          point.volume != null &&
           !isNaN(parseFloat(point.open)) &&
           !isNaN(parseFloat(point.high)) &&
           !isNaN(parseFloat(point.low)) &&
-          !isNaN(parseFloat(point.close)) &&
-          !isNaN(parseFloat(point.volume));
-        if (!isValid) {
-          console.warn('Invalid chart data point:', point);
-        }
-        return isValid;
+          !isNaN(parseFloat(point.close))
+        );
       })
       .map(point => ({
         time: Math.floor(point.timestamp / 1000) as any,
@@ -306,12 +288,8 @@ export default function StellarTradingChart({
       candlestickSeries.setData(candleData);
       seriesRef.current = candlestickSeries;
     } else if (chartType === 'line') {
-      const brandColor =
-        getComputedStyle(document.documentElement)
-          .getPropertyValue('--color-brand-primary')
-          .trim() || '#3b82f6';
       const lineSeries = chartRef.current.addSeries(LineSeries, {
-        color: brandColor,
+        color: '#3b82f6',
         lineWidth: 2,
         crosshairMarkerVisible: true,
         crosshairMarkerRadius: 4,
@@ -323,14 +301,10 @@ export default function StellarTradingChart({
       lineSeries.setData(lineData);
       seriesRef.current = lineSeries;
     } else if (chartType === 'area') {
-      const brandColor =
-        getComputedStyle(document.documentElement)
-          .getPropertyValue('--color-brand-primary')
-          .trim() || '#3b82f6';
       const areaSeries = chartRef.current.addSeries(AreaSeries, {
-        topColor: isDark ? `${brandColor}66` : `${brandColor}4D`,
-        bottomColor: `${brandColor}00`,
-        lineColor: brandColor,
+        topColor: isDark ? '#3b82f666' : '#3b82f64D',
+        bottomColor: '#3b82f600',
+        lineColor: '#3b82f6',
         lineWidth: 2,
       });
       const areaData = candleData.map(c => ({
@@ -376,13 +350,11 @@ export default function StellarTradingChart({
     };
   }, [chartData, chartType, showVolume, showGrid, showCrosshair, isDark]);
 
-  // Update chart with latest data point from streaming
   useEffect(() => {
     if (!seriesRef.current || chartData.length === 0 || !isStreaming) return;
 
     const latestPoint = chartData[chartData.length - 1];
     if (latestPoint.close == null || isNaN(parseFloat(latestPoint.close))) {
-      console.warn('Skipping invalid streaming data point:', latestPoint);
       return;
     }
 
@@ -397,23 +369,14 @@ export default function StellarTradingChart({
         low: parseFloat(latestPoint.low),
         close,
       };
-      if (isNaN(candlePoint.open) || isNaN(candlePoint.high) || isNaN(candlePoint.low)) {
-        console.warn('Invalid candlestick data point:', candlePoint);
-        return;
-      }
       seriesRef.current.update(candlePoint);
     } else {
-      const linePoint = { time, value: close };
-      seriesRef.current.update(linePoint);
+      seriesRef.current.update({ time, value: close });
     }
 
     if (showVolume && volumeSeriesRef.current) {
       const colors = getThemeColors();
       const volume = parseFloat(latestPoint.volume);
-      if (isNaN(volume)) {
-        console.warn('Invalid volume data:', latestPoint.volume);
-        return;
-      }
       volumeSeriesRef.current.update({
         time,
         value: volume,
@@ -423,7 +386,7 @@ export default function StellarTradingChart({
     }
   }, [chartData, showVolume, isStreaming, chartType]);
 
-  // Cleanup on unmount
+  // Cleanup
   useEffect(() => {
     return () => {
       if (chartRef.current) {
@@ -432,24 +395,6 @@ export default function StellarTradingChart({
       }
     };
   }, []);
-
-  const downloadChart = () => {
-    if (!chartContainerRef.current) return;
-
-    // const canvas = chartContainerRef.current.querySelector("canvas");
-    // if (canvas) {
-    //   const link = document.createElement("a");
-    //   link.download = `${assetPair.base}-${
-    //     assetPair.counter
-    //   }-${timeRangeKey}-${Date.now()}.png`;
-    //   link.href = canvas.toDataURL();
-    //   link.click();
-    // }
-  };
-
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
 
   const handleResolutionChange = (newResolution: ChartResolution) => {
     setResolution(newResolution);
@@ -468,38 +413,9 @@ export default function StellarTradingChart({
     updateTimeRange(newTimeRange);
   };
 
-  const resolutionOptions = [
-    { value: CHART_RESOLUTIONS['1m'], label: '1m' },
-    { value: CHART_RESOLUTIONS['5m'], label: '5m' },
-    { value: CHART_RESOLUTIONS['15m'], label: '15m' },
-    { value: CHART_RESOLUTIONS['1h'], label: '1h' },
-    { value: CHART_RESOLUTIONS['1d'], label: '1d' },
-    { value: CHART_RESOLUTIONS['1w'], label: '1w' },
-  ];
-
-  const timeRangeOptions = [
-    { value: '1H', label: '1H' },
-    { value: '4H', label: '4H' },
-    { value: '1D', label: '1D' },
-    { value: '1W', label: '1W' },
-    { value: '1M', label: '1M' },
-    { value: '3M', label: '3M' },
-    { value: '1Y', label: '1Y' },
-    { value: 'ALL', label: 'ALL' },
-  ];
-
-  const chartTypes: { value: ChartType; label: string }[] = [
-    { value: 'candlestick', label: 'Candlestick' },
-    { value: 'line', label: 'Line' },
-    { value: 'area', label: 'Area' },
-  ];
-
   const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: any) => {
     const buttonRef = useRef<HTMLButtonElement | null>(null);
-    const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
-      top: 0,
-      left: 0,
-    });
+    const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
     useLayoutEffect(() => {
       if (isOpen && buttonRef.current) {
@@ -522,16 +438,10 @@ export default function StellarTradingChart({
         {isOpen &&
           createPortal(
             <>
-              {/* Backdrop */}
               <div className="fixed inset-0 z-[9998]" onClick={onToggle} />
-              {/* Dropdown Menu */}
               <div
                 className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[140px] z-[9999]"
-                style={{
-                  position: 'absolute',
-                  top: menuPos.top,
-                  left: menuPos.left,
-                }}
+                style={{ position: 'absolute', top: menuPos.top, left: menuPos.left }}
               >
                 {options.map((opt: any) => (
                   <button
@@ -555,24 +465,9 @@ export default function StellarTradingChart({
     );
   };
 
-  // --------------------
-  // Settings Dropdown
-  // --------------------
-  const SettingsDropdown = ({
-    showSettingsMenu,
-    setShowSettingsMenu,
-    showVolume,
-    setShowVolume,
-    showGrid,
-    setShowGrid,
-    showCrosshair,
-    setShowCrosshair,
-  }: any) => {
+  const SettingsDropdown = ({ showSettingsMenu, setShowSettingsMenu }: any) => {
     const buttonRef = useRef<HTMLButtonElement | null>(null);
-    const [menuPos, setMenuPos] = useState<{ top: number; right: number }>({
-      top: 0,
-      right: 0,
-    });
+    const [menuPos, setMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
 
     useLayoutEffect(() => {
       if (showSettingsMenu && buttonRef.current) {
@@ -603,27 +498,44 @@ export default function StellarTradingChart({
               <div className="fixed inset-0 z-[9998]" onClick={() => setShowSettingsMenu(false)} />
               <div
                 className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[160px] z-[9999]"
-                style={{
-                  position: 'absolute',
-                  top: menuPos.top,
-                  right: menuPos.right,
-                }}
+                style={{ position: 'absolute', top: menuPos.top, right: menuPos.right }}
               >
-                <DropdownItem
-                  label="Volume"
-                  checked={showVolume}
-                  onToggle={() => setShowVolume(!showVolume)}
-                />
-                <DropdownItem
-                  label="Grid"
-                  checked={showGrid}
-                  onToggle={() => setShowGrid(!showGrid)}
-                />
-                <DropdownItem
-                  label="Crosshair"
-                  checked={showCrosshair}
-                  onToggle={() => setShowCrosshair(!showCrosshair)}
-                />
+                <button
+                  onClick={() => setShowVolume(!showVolume)}
+                  className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+                >
+                  Volume
+                  <input
+                    type="checkbox"
+                    checked={showVolume}
+                    readOnly
+                    className="w-3 h-3 pointer-events-none"
+                  />
+                </button>
+                <button
+                  onClick={() => setShowGrid(!showGrid)}
+                  className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+                >
+                  Grid
+                  <input
+                    type="checkbox"
+                    checked={showGrid}
+                    readOnly
+                    className="w-3 h-3 pointer-events-none"
+                  />
+                </button>
+                <button
+                  onClick={() => setShowCrosshair(!showCrosshair)}
+                  className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+                >
+                  Crosshair
+                  <input
+                    type="checkbox"
+                    checked={showCrosshair}
+                    readOnly
+                    className="w-3 h-3 pointer-events-none"
+                  />
+                </button>
               </div>
             </>,
             document.body
@@ -632,27 +544,23 @@ export default function StellarTradingChart({
     );
   };
 
-  const DropdownItem = ({ label, checked, onToggle }: any) => (
-    <button
-      onClick={onToggle}
-      className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
-    >
-      {label}
-      <input type="checkbox" checked={checked} readOnly className="w-3 h-3 pointer-events-none" />
-    </button>
-  );
-
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50' : ''} bg-primary  rounded-xl`}>
-      <div className={`h-full flex flex-col ${!isFullscreen ? '' : ''}`}>
-        {/* Header Controls */}
-        <div className="bg-secondary border-b border-color px-2 py-2 rounded-t-xl overflow-x-auto ">
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50' : ''} bg-primary rounded-xl`}>
+      <div className="h-full flex flex-col">
+        <div className="bg-secondary border-b border-color px-2 py-2 rounded-t-xl overflow-x-auto">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 ">
+            <div className="flex items-center gap-3">
+              <div className="text-sm font-medium text-primary">
+                {currentAssetPair?.base}/{currentAssetPair?.counter}
+                {currentNetwork !== 'mainnet' && (
+                  <span className="ml-2 text-xs text-warning">({currentNetwork})</span>
+                )}
+              </div>
+
               <Dropdown
                 label="Range"
                 value={timeRangeKey}
-                options={timeRangeOptions}
+                options={Object.keys(TIME_RANGES).map(k => ({ value: k, label: k }))}
                 onChange={handleTimeRangeChange}
                 isOpen={showTimeRangeMenu}
                 onToggle={() => setShowTimeRangeMenu(!showTimeRangeMenu)}
@@ -660,8 +568,13 @@ export default function StellarTradingChart({
 
               <Dropdown
                 label="Resolution"
-                value={resolutionOptions.find(r => r.value === resolution)?.label}
-                options={resolutionOptions}
+                value={
+                  Object.entries(CHART_RESOLUTIONS).find(([, v]) => v === resolution)?.[0] || '15m'
+                }
+                options={Object.entries(CHART_RESOLUTIONS).map(([k, v]) => ({
+                  value: v,
+                  label: k,
+                }))}
                 onChange={handleResolutionChange}
                 isOpen={showTimeframeMenu}
                 onToggle={() => setShowTimeframeMenu(!showTimeframeMenu)}
@@ -669,8 +582,12 @@ export default function StellarTradingChart({
 
               <Dropdown
                 label="Type"
-                value={chartTypes.find(t => t.value === chartType)?.label}
-                options={chartTypes}
+                value={chartType.charAt(0).toUpperCase() + chartType.slice(1)}
+                options={[
+                  { value: 'candlestick', label: 'Candlestick' },
+                  { value: 'line', label: 'Line' },
+                  { value: 'area', label: 'Area' },
+                ]}
                 onChange={setChartType}
                 isOpen={showChartTypeMenu}
                 onToggle={() => setShowChartTypeMenu(!showChartTypeMenu)}
@@ -679,12 +596,6 @@ export default function StellarTradingChart({
               <SettingsDropdown
                 showSettingsMenu={showSettingsMenu}
                 setShowSettingsMenu={setShowSettingsMenu}
-                showVolume={showVolume}
-                setShowVolume={setShowVolume}
-                showGrid={showGrid}
-                setShowGrid={setShowGrid}
-                showCrosshair={showCrosshair}
-                setShowCrosshair={setShowCrosshair}
               />
             </div>
 
@@ -700,18 +611,10 @@ export default function StellarTradingChart({
               <button
                 onClick={isStreaming ? stopStreaming : startStreaming}
                 className={`btn-sm ${isStreaming ? 'btn-success' : 'btn-secondary'}`}
-                title={isStreaming ? 'Stop Streaming' : 'Start Streaming'}
               >
                 {isStreaming ? 'Live' : 'Start Live'}
               </button>
-              <button onClick={downloadChart} className="btn-ghost p-2" title="Download Chart">
-                <Download className="w-4 h-4" />
-              </button>
-              <button
-                onClick={toggleFullscreen}
-                className="btn-ghost p-2"
-                title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-              >
+              <button onClick={() => setIsFullscreen(!isFullscreen)} className="btn-ghost p-2">
                 {isFullscreen ? (
                   <Minimize2 className="w-4 h-4" />
                 ) : (
@@ -722,22 +625,27 @@ export default function StellarTradingChart({
           </div>
         </div>
 
-        {/* Chart */}
-        <div className="flex-1 bg-secondary p-1  rounded-b-xl">
-          {error && (
-            <div className="mx-4 mt-4 card bg-danger-bg border-2 border-red-300">
-              <p className="text-sm text-red-700">Error: {error}</p>
+        <div className="flex-1 bg-secondary p-1 rounded-b-xl">
+          {/* {error && (
+            <div className="mx-4 mt-4 p-3 bg-danger-light border border-danger rounded-lg">
+              <p className="text-sm text-danger font-medium">{error}</p>
+              {error.includes('Too much data') && (
+                <p className="text-xs text-danger mt-1">
+                  Tip: Select a shorter time range or use a larger resolution (1h, 1d, 1w)
+                </p>
+              )}
             </div>
-          )}
+          )} */}
           {isLoading && chartData.length === 0 ? (
             <div
-              className={`flex items-center justify-center ${
-                isFullscreen ? 'h-full' : 'h-[500px]'
-              }`}
+              className={`flex items-center justify-center ${isFullscreen ? 'h-full' : 'h-[500px]'}`}
             >
               <div className="text-center">
                 <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-secondary text-sm">Loading Stellar chart data...</p>
+                <p className="text-secondary text-sm">Loading chart data...</p>
+                {timeRangeKey === 'ALL' || timeRangeKey === '1Y' ? (
+                  <p className="text-xs text-muted mt-1">Large time range may take longer...</p>
+                ) : null}
               </div>
             </div>
           ) : (
@@ -748,16 +656,11 @@ export default function StellarTradingChart({
           )}
         </div>
 
-        {/* Connection Status */}
-        {isStreaming && (
+        {isStreaming && lastUpdate && (
           <div className="absolute top-16 right-4 flex items-center gap-2 bg-secondary/90 backdrop-blur border border-color px-3 py-1.5 rounded-lg text-xs">
             <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-            <span className="text-primary">Stellar Live</span>
-            {lastUpdate && (
-              <span className="text-secondary text-xs">
-                {new Date(lastUpdate).toLocaleTimeString()}
-              </span>
-            )}
+            <span className="text-primary">Live</span>
+            <span className="text-secondary">{new Date(lastUpdate).toLocaleTimeString()}</span>
           </div>
         )}
       </div>

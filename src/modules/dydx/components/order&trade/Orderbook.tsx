@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 
 import { useOrderbook } from '../../hooks/useOrderbook';
 import useMarketStore from '../../store/marketStore';
+import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 
 interface OrderbookRow {
   price: number;
@@ -9,202 +10,194 @@ interface OrderbookRow {
   total: number;
 }
 
-interface OrderbookProps {
-  maxRows?: number;
-}
-
-const Orderbook: React.FC<OrderbookProps> = ({ maxRows = 10 }) => {
+const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
   const { selectedMarket } = useMarketStore();
-  const { orderbook, error, isLoading, isConnected } = useOrderbook(selectedMarket);
+  const { onPriceClick } = useOrderbookClickStore();
+  const { orderbook, isConnected, dataSource } = useOrderbook(selectedMarket);
 
-  const { bids, asks, spread, midPrice } = useMemo(() => {
-    if (!orderbook || !orderbook.bids?.length || !orderbook.asks?.length) {
-      return { bids: [], asks: [], spread: null, midPrice: null };
+  const { bids, asks, spread, spreadPct, maxTotal } = useMemo(() => {
+    if (!orderbook?.bids?.length || !orderbook?.asks?.length) {
+      return {
+        bids: [],
+        asks: [],
+        spread: null,
+        spreadPct: null,
+        maxTotal: 1,
+      };
     }
 
-    let bidTotal = 0;
-    const formattedBids: OrderbookRow[] = orderbook.bids.slice(0, maxRows).map(order => {
-      const price = parseFloat(order.price);
-      const size = parseFloat(order.size);
-      bidTotal += size;
-      return { price, size, total: bidTotal };
+    const formattedBids: OrderbookRow[] = [];
+    const formattedAsks: OrderbookRow[] = [];
+
+    let bidCum = 0;
+    let askCum = 0;
+
+    orderbook.bids.slice(0, maxRows).forEach(o => {
+      const price = parseFloat(o.price);
+      const size = parseFloat(o.size) || 0;
+
+      if (size > 0 && !isNaN(price)) {
+        bidCum += size;
+        formattedBids.push({ price, size, total: bidCum });
+      }
     });
 
-    let askTotal = 0;
-    const formattedAsks: OrderbookRow[] = orderbook.asks
-      .slice(0, maxRows)
-      .map(order => {
-        const price = parseFloat(order.price);
-        const size = parseFloat(order.size);
-        askTotal += size;
-        return { price, size, total: askTotal };
-      })
-      .reverse();
+    orderbook.asks.slice(0, maxRows).forEach(o => {
+      const price = parseFloat(o.price);
+      const size = parseFloat(o.size) || 0;
 
-    const bestBid = formattedBids[0]?.price || 0;
-    const bestAsk = formattedAsks[formattedAsks.length - 1]?.price || 0;
-    const calculatedSpread = bestAsk - bestBid;
-    const calculatedMidPrice = (bestBid + bestAsk) / 2;
+      if (size > 0 && !isNaN(price)) {
+        askCum += size;
+        formattedAsks.push({ price, size, total: askCum });
+      }
+    });
+
+    formattedAsks.reverse();
+
+    // Fixed spread calculation
+    const bestBid = formattedBids.length > 0 ? formattedBids[0].price : 0;
+    const bestAsk = formattedAsks.length > 0 ? formattedAsks[formattedAsks.length - 1].price : 0;
+
+    const spr = bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0;
+    const mid = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : 0;
+    const sprPct = mid > 0 && spr > 0 ? (spr / mid) * 100 : 0;
+
+    const maxTotal = Math.max(bidCum, askCum) || 1;
 
     return {
       bids: formattedBids,
       asks: formattedAsks,
-      spread: calculatedSpread,
-      midPrice: calculatedMidPrice,
+      spread: spr,
+      spreadPct: sprPct,
+      maxTotal,
     };
   }, [orderbook, maxRows]);
 
-  if (isLoading) {
-    return (
-      <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-        <div className="flex items-center justify-center p-8">
-          <div className="text-muted">Loading orderbook...</div>
-        </div>
-      </div>
-    );
-  }
+  const base = selectedMarket.split('-')[0] || 'BTC';
+  const quote = selectedMarket.split('-')[1] || 'USD';
 
-  if (error && !orderbook) {
-    // Only show error if we have no data at all
-    return (
-      <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-        <div className="p-4 bg-danger-bg border border-danger rounded">
-          <div className="text-danger font-semibold">Error</div>
-          <div className="text-danger text-sm">{error}</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!orderbook) {
-    return (
-      <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-        <div className="flex items-center justify-center p-8">
-          <div className="text-muted">No orderbook data available</div>
-        </div>
-      </div>
-    );
-  }
-
-  const baseCurrency = selectedMarket.split('-')[0] || 'BTC';
-  const quoteCurrency = selectedMarket.split('-')[1] || 'USD';
+  const handlePriceClick = (price: string) => {
+    if (onPriceClick) {
+      onPriceClick(price);
+    }
+  };
 
   return (
-    <div className="card w-64" style={{ borderRadius: 0, padding: 0 }}>
-      {/* Controls */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-color">
-        <div className="flex items-center gap-2">
-          <button className="btn btn-sm btn-secondary">−</button>
-          <button className="btn btn-sm btn-secondary">+</button>
-          <span className="text-muted text-sm ml-1">$1</span>
+    <div className="w-full max-w-md bg-secondary text-white font-medium text-sm select-none">
+      <div className="flex items-center justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
+        <div className=" items-center gap-3 hidden lg:flex">
+          <span className="text-[#aaaaaa] text-xs font-semibold ">Orderbook</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-primary text-sm font-medium">{baseCurrency}</span>
-          <span className="text-secondary text-sm">{quoteCurrency}</span>
-          {/* Connection Status Indicator */}
+        <div className="flex items-center gap-2">
+          <span className="text-white font-semibold">{base}</span>
+          <span className="text-[#aaaaaa]">/</span>
+          <span className="text-[#aaaaaa]">{quote}</span>
           <div
-            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}
-            title={isConnected ? 'Live updates active' : 'Using cached data'}
+            className={`w-2 h-2 rounded-full ${
+              isConnected && dataSource === 'websocket' ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
+            } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
 
-      {/* Table Header */}
-      <div className="grid grid-cols-3 px-4 py-2 border-b border-color text-xs text-secondary">
-        <div className="text-left">
-          Price <span className="text-muted">{quoteCurrency}</span>
-        </div>
-        <div className="text-right">
-          Size <span className="text-muted">{baseCurrency}</span>
-        </div>
-        <div className="text-right">
-          Total <span className="text-muted">{baseCurrency}</span>
-        </div>
+      <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
+        <div>Price ({quote})</div>
+        <div className="text-right">Size ({base})</div>
+        <div className="text-right">Total ({base})</div>
       </div>
 
-      {/* Asks (Sell Orders) */}
-      <div className="px-4 h-[200px] overflow-scroll">
-        {asks.length > 0 ? (
-          asks.map((ask, index) => (
+      <div className="relative max-h-[200px] overflow-auto hide-scrollbar">
+        {asks.map(ask => {
+          const priceKey = ask.price.toString();
+          const depthPct = (ask.total / maxTotal) * 100;
+
+          return (
             <div
-              key={`ask-${index}`}
-              className="grid grid-cols-3 py-1.5 text-sm hover:bg-hover transition-colors relative"
+              key={`ask-${priceKey}`}
+              onClick={() => handlePriceClick(ask.price.toString())}
+              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 cursor-pointer"
             >
               <div
-                className="absolute right-0 top-0 bottom-0 bg-danger-bg"
-                style={{ width: `${(ask.total / asks[0]?.total) * 100}%` }}
+                className="absolute inset-y-0 right-0 bg-[#ff3b6915] origin-right will-change-transform transition-transform duration-500 ease-out"
+                style={{
+                  width: '100%',
+                  transform: `scaleX(${depthPct / 100})`,
+                }}
               />
-              <div className="relative z-10 price-down">
+
+              <div className="relative text-[#ff3b69] font-semibold tabular-nums text-xs lg:text-[14px]">
                 {ask.price.toLocaleString(undefined, {
-                  minimumFractionDigits: 3,
-                  maximumFractionDigits: 3,
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative z-10 text-right text-primary">{ask.size.toFixed(4)}</div>
-              <div className="relative z-10 text-right text-secondary text-xs">
+              <div className="relative text-right text-[#e8e8e8] tabular-nums text-xs lg:text-[14px] ">
+                {ask.size.toFixed(4)}
+              </div>
+              <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[14px] ">
                 {ask.total.toFixed(4)}
               </div>
             </div>
-          ))
-        ) : (
-          <div className="py-4 text-center text-muted text-sm">No asks available</div>
-        )}
+          );
+        })}
       </div>
 
-      {/* Spread Info */}
-      <div className="px-4 py-3 border-y border-color bg-tertiary">
-        <div className="grid grid-cols-3 text-sm">
-          <div className="text-primary">Spread</div>
-          <div className="text-right text-primary">
-            {spread !== null ? spread.toFixed(0) : 'N/A'}
-          </div>
-          <div className="text-right text-secondary">
-            {spread !== null && midPrice !== null
-              ? `${((spread / midPrice) * 100).toFixed(2)}%`
-              : 'N/A'}
-          </div>
+      <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2.5 bg-[#1a1620] border-y border-[#232027] text-xs lg:text-[14px]">
+        <div className="text-[#6b6b76] font-medium">Spread</div>
+        <div className="text-right font-semibold text-white tabular-nums">
+          {spread !== null && spread > 0 ? spread.toFixed(2) : '-'}
+        </div>
+        <div className="text-right text-[#6b6b76] font-medium tabular-nums">
+          {spreadPct !== null && spreadPct > 0 ? `${spreadPct.toFixed(3)}%` : '-'}
         </div>
       </div>
 
-      {/* Bids (Buy Orders) */}
-      <div className="px-4 h-[200px] overflow-scroll">
-        {bids.length > 0 ? (
-          bids.map((bid, index) => (
+      <div className="relative max-h-[200px] overflow-auto hide-scrollbar">
+        {bids.map(bid => {
+          const priceKey = bid.price.toString();
+          const depthPct = (bid.total / maxTotal) * 100;
+
+          return (
             <div
-              key={`bid-${index}`}
-              className="grid grid-cols-3 py-1.5 text-sm hover:bg-hover transition-colors relative"
+              key={`bid-${priceKey}`}
+              onClick={() => handlePriceClick(bid.price.toString())}
+              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 cursor-pointer"
             >
               <div
-                className="absolute right-0 top-0 bottom-0 bg-success-bg"
+                className="absolute inset-y-0 right-0 bg-[#00ff9d15] origin-right will-change-transform transition-transform duration-500 ease-out"
                 style={{
-                  width: `${(bid.total / bids[bids.length - 1]?.total) * 100}%`,
+                  width: '100%',
+                  transform: `scaleX(${depthPct / 100})`,
                 }}
               />
-              <div className="relative z-10 price-up">
+
+              <div className="relative text-[#00ff9d] font-semibold tabular-nums text-xs lg:text-[14px]">
                 {bid.price.toLocaleString(undefined, {
-                  minimumFractionDigits: 3,
-                  maximumFractionDigits: 3,
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative z-10 text-right text-primary">{bid.size.toFixed(4)}</div>
-              <div className="relative z-10 text-right text-secondary text-xs">
+              <div className="relative text-right text-[#e8e8e8] tabular-nums text-xs lg:text-[14px]">
+                {bid.size.toFixed(4)}
+              </div>
+              <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[14px]">
                 {bid.total.toFixed(4)}
               </div>
             </div>
-          ))
-        ) : (
-          <div className="py-4 text-center text-muted text-sm">No bids available</div>
-        )}
+          );
+        })}
       </div>
 
-      {/* Optional: Show warning banner if not connected but have data */}
-      {!isConnected && orderbook && (
-        <div className="px-4 py-2 bg-yellow-500 bg-opacity-10 border-t border-yellow-500 border-opacity-30">
-          <div className="text-xs text-yellow-600 dark:text-yellow-400 text-center">
-            Showing cached data - Reconnecting...
-          </div>
-        </div>
-      )}
+      <style>{`
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+
+        .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </div>
   );
 };

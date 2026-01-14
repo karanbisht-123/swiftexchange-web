@@ -1,44 +1,87 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
-import type { MarketData } from '../hooks/useMarkets';
+import type { MarketData } from '../types/trading.types';
 
 interface MarketState {
-  selectedMarket: string; // Ticker of the selected market
-  selectedMarketData: MarketData | null; // Full market data for the selected market
+  selectedMarket: string;
+  selectedMarketData: MarketData | null;
+  marketCache: Record<string, MarketData>;
+  lastUpdate: number;
   setSelectedMarket: (ticker: string, marketData?: MarketData) => void;
-  updateMarketData: (marketData: MarketData) => void; // Update only market data
+  updateMarketData: (marketData: MarketData) => void;
+  updateMarketCache: (markets: Record<string, MarketData>) => void;
+  clearCache: () => void;
 }
 
-// Get saved market from memory (you can also use a custom storage solution)
-const getSavedMarket = (): string => {
-  // For now, using in-memory storage
-  // You can implement your own storage solution here
-  return 'BTC-USD'; // Default fallback
-};
+const DEFAULT_MARKET = 'BTC-USD';
 
-const useMarketStore = create<MarketState>(set => ({
-  selectedMarket: getSavedMarket(), // Load saved or default market
-  selectedMarketData: null, // Will be populated when market data loads
+const useMarketStore = create<MarketState>()(
+  persist(
+    (set, get) => ({
+      selectedMarket: DEFAULT_MARKET,
+      selectedMarketData: null,
+      marketCache: {},
+      lastUpdate: 0,
 
-  setSelectedMarket: (ticker: string, marketData?: MarketData) => {
-    // Optional: Save to your custom storage here
-    // saveMarketToStorage(ticker);
+      setSelectedMarket: (ticker: string, marketData?: MarketData) => {
+        console.log(`[MarketStore] Setting selected market to ${ticker}`);
+        set({
+          selectedMarket: ticker,
+          selectedMarketData: marketData || get().marketCache[ticker] || null,
+        });
+      },
 
-    set({
-      selectedMarket: ticker,
-      selectedMarketData: marketData || null,
-    });
-  },
+      updateMarketData: (marketData: MarketData) => {
+        const state = get();
 
-  updateMarketData: (marketData: MarketData) => {
-    set(state => {
-      // Only update if this is the currently selected market
-      if (state.selectedMarket === marketData.ticker) {
-        return { selectedMarketData: marketData };
-      }
-      return state;
-    });
-  },
-}));
+        const updatedCache = {
+          ...state.marketCache,
+          [marketData.ticker]: marketData,
+        };
+        const updates: Partial<MarketState> = {
+          marketCache: updatedCache,
+          lastUpdate: Date.now(),
+        };
+
+        if (state.selectedMarket === marketData.ticker) {
+          updates.selectedMarketData = marketData;
+        }
+
+        set(updates);
+      },
+
+      updateMarketCache: (markets: Record<string, MarketData>) => {
+        const state = get();
+        const updatedCache = { ...state.marketCache, ...markets };
+
+        const updates: Partial<MarketState> = {
+          marketCache: updatedCache,
+          lastUpdate: Date.now(),
+        };
+
+        if (state.selectedMarket && markets[state.selectedMarket]) {
+          updates.selectedMarketData = markets[state.selectedMarket];
+        }
+
+        set(updates);
+      },
+
+      clearCache: () => {
+        console.log('[MarketStore] Clearing market cache');
+        set({
+          marketCache: {},
+          lastUpdate: 0,
+        });
+      },
+    }),
+    {
+      name: 'market-store',
+      partialize: state => ({
+        selectedMarket: state.selectedMarket,
+      }),
+    }
+  )
+);
 
 export default useMarketStore;

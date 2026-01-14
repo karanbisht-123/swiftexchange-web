@@ -28,7 +28,7 @@ export interface SwapQuoteRequest {
     logoUri: string | null;
   };
   amount: string;
-  swapType: SwapType;
+  swapType: any;
 }
 
 export interface SwapQuote {

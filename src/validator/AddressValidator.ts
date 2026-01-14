@@ -1,32 +1,40 @@
+import { StrKey } from '@stellar/stellar-sdk';
 import { isAddress } from 'ethers';
-import { Keypair, StrKey } from 'stellar-sdk';
 
-export const validateAddress = (address: string, network: string): boolean => {
+export const validateAddress = (
+  address: string,
+  asset?: { addressType: 'evm' | 'cosmos' | 'stellar'; network?: string }
+): boolean => {
+  if (!address || typeof address !== 'string') return false;
+
   try {
-    switch (network) {
-      case 'Stellar':
-        if (address.length !== 56 || address[0] !== 'G') {
-          return false;
-        }
-        if (!StrKey.isValidEd25519PublicKey(address)) {
-          return false;
-        }
-        Keypair.fromPublicKey(address);
-        return true;
+    let type = asset?.addressType;
 
-      case 'Ethereum Mainnet':
-      case 'Ethereum (ERC-20)':
-      case 'Ethereum Sepolia':
-      case 'BNB Smart Chain':
-      case 'BSC Testnet':
-        return isAddress(address);
-
-      default:
-        console.warn(`Unsupported network for validation: ${network}`);
+    if (!type) {
+      if (address.startsWith('0x') && address.length === 42) {
+        type = 'evm';
+      } else if (address.length === 56 && address.startsWith('G')) {
+        type = 'stellar';
+      } else if (/^(cosmos|osmo|dydx)1[a-z0-9]{38,58}$/.test(address)) {
+        type = 'cosmos';
+      } else {
         return false;
+      }
     }
-  } catch (error) {
-    console.error(`Address validation failed for ${network}:`, error);
+    if (type === 'evm') {
+      return isAddress(address);
+    }
+    if (type === 'stellar') {
+      return StrKey.isValidEd25519PublicKey(address);
+    }
+
+    if (type === 'cosmos') {
+      return /^(cosmos|osmo|dydx)1[a-z0-9]{38,58}$/.test(address);
+    }
+
+    return false;
+  } catch (e) {
+    console.error('Validation error:', e);
     return false;
   }
 };

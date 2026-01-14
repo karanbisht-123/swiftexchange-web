@@ -1,7 +1,8 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
 
-import { NETWORK_CONFIGS } from '../../../config';
-import { generateTransactionId, isStellarNetwork } from '../../../utils/transactionUtils';
+import { generateTransactionId } from '../../../utils/transactionUtils';
+import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type StellarSendTransaction,
   type StellarTransactionOptions,
@@ -9,17 +10,20 @@ import {
 
 const getByteLength = (str: string): number => new TextEncoder().encode(str).length;
 
-export async function getStellarBalance(networkKey: string, from: string): Promise<string> {
-  const config = NETWORK_CONFIGS[networkKey];
-  if (!config || !isStellarNetwork(config)) {
-    throw new Error(`Unsupported Stellar network: ${networkKey}`);
-  }
+export async function getStellarBalance(assetType: string, from: string): Promise<string> {
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+
+  console.log(config, 'stellar config');
+  console.log(from, 'hii i am from ');
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   try {
     const account = await server.loadAccount(from);
-    const xlmBalance = account.balances.find(b => b.asset_type === 'native')?.balance ?? '0';
-    return xlmBalance;
+    console.log(account);
+    const balance = account.balances.find(b => b.asset_type === assetType)?.balance ?? '0';
+    console.log(balance, 'stellar balance');
+    return balance;
   } catch (error) {
     console.error('Failed to fetch Stellar balance:', error);
     return '0';
@@ -27,20 +31,17 @@ export async function getStellarBalance(networkKey: string, from: string): Promi
 }
 
 export async function sendCryptoStellarBuild(
-  networkKey: string,
   from: string,
   to: string,
   amount: string,
   options: StellarTransactionOptions = {}
 ): Promise<StellarSendTransaction> {
-  const config = NETWORK_CONFIGS[networkKey];
-  if (!config || !isStellarNetwork(config)) {
-    throw new Error(`Unsupported Stellar network: ${networkKey}`);
-  }
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   const networkPassphrase =
-    networkKey === 'stellarMainnet' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+    config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
 
   if (!StellarSDK.StrKey.isValidEd25519PublicKey(from)) {
     throw new Error('Invalid sender Stellar address');
@@ -91,7 +92,7 @@ export async function sendCryptoStellarBuild(
     amount: stellarAmount,
     asset: 'XLM',
     network: config.network,
-    chainId: `stellar:${config.network}`,
+    chainId: `stellar:${config.chainId}`,
     sequence: sourceAccount.sequenceNumber(),
     operations: [
       {
@@ -111,21 +112,13 @@ export async function sendCryptoStellarBuild(
   return transaction;
 }
 
-export async function estimateStellarFees(
-  networkKey: string
-  // from: string,
-  // to: string,
-  // amount: string,
-  // memo?: string
-): Promise<{
+export async function estimateStellarFees(): Promise<{
   baseFee?: string;
   totalFee: string;
   totalCost: string;
 }> {
-  const config = NETWORK_CONFIGS[networkKey];
-  if (!config || !isStellarNetwork(config)) {
-    throw new Error(`Unsupported Stellar network: ${networkKey}`);
-  }
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   try {
@@ -143,10 +136,13 @@ export async function estimateStellarFees(
 
 export async function signStellarTransaction(
   transaction: StellarSendTransaction,
-  privateKey: string,
-  isMainnet: boolean = false
+  privateKey: string
 ): Promise<string> {
-  const networkPassphrase = isMainnet ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+
+  const networkPassphrase =
+    config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
 
   if (!privateKey.startsWith('S') || privateKey.length !== 56) {
     throw new Error('Invalid Stellar private key format');
@@ -161,11 +157,7 @@ export async function signStellarTransaction(
       return tx.toXDR();
     }
 
-    // Fallback to rebuild transaction
-    const horizonUrl = isMainnet
-      ? 'https://horizon.stellar.org'
-      : 'https://horizon-testnet.stellar.org';
-    const server = new StellarSDK.Horizon.Server(horizonUrl);
+    const server = new StellarSDK.Horizon.Server(config.horizonUrl);
     const account = await server.loadAccount(transaction.from);
     const txBuilder = new StellarSDK.TransactionBuilder(account, {
       fee: transaction.fee || StellarSDK.BASE_FEE,
@@ -200,18 +192,14 @@ export async function signStellarTransaction(
   }
 }
 
-export async function sendCryptoStellarBroadcast(
-  signedXDR: string,
-  networkKey: string
-): Promise<string> {
-  const config = NETWORK_CONFIGS[networkKey];
-  if (!config || !isStellarNetwork(config)) {
-    throw new Error(`Unsupported Stellar network: ${networkKey}`);
-  }
+export async function sendCryptoStellarBroadcast(signedXDR: string): Promise<string> {
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   const networkPassphrase =
-    networkKey === 'stellarMainnet' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+    config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+
   const tx = new StellarSDK.Transaction(signedXDR, networkPassphrase);
   const response = await server.submitTransaction(tx);
   return response.hash || 'unknown';

@@ -1,205 +1,213 @@
 import { ethers } from 'ethers';
+import type { SwapQuote, SwapQuoteRequest, SwapType } from '../../../types/evm/swap.types';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { prepareSwapTransaction, getSwapQuote } from '../service/evmSwapService';
+import type { TokenInfo } from '../service/tokenListService';
 
-import { SWAP_ROUTER_ABI } from '../../../abi/SwapRouterABI';
-import EVM_NETWORKS, { type EVMNetworkConfig } from '../../../config/evmNetworks';
-import { type NetworkKey, SWAP_CONFIGS } from '../../../config/swapConfigs';
-import type {
-  Asset,
-  PrepareRequest,
-  SwapQuote,
-  SwapQuoteRequest,
-  SwapType,
-} from '../../../types/evm/swap.types';
-import {
-  executeSwapTransaction,
-  getSwapQuote,
-  prepareSwapTransaction,
-} from '../service/evmSwapService';
-import { signEVMTransaction } from './evmUtils';
-
-export function getEVMNetworkConfig(networkKey: NetworkKey): EVMNetworkConfig {
-  return (
-    EVM_NETWORKS.mainnet[networkKey as keyof typeof EVM_NETWORKS.mainnet] ||
-    EVM_NETWORKS.testnet[networkKey as keyof typeof EVM_NETWORKS.testnet]
-  );
+function isMainnet(): boolean {
+  return useWalletStore.getState().network === 'mainnet';
 }
 
-export function generateApproveData(
-  tokenAddress: string,
-  spender: string,
-  amount: string,
-  decimals: number
-): string {
-  const normalizedTokenAddress = ethers.getAddress(tokenAddress);
-  const normalizedSpender = ethers.getAddress(spender);
-  if (!ethers.isAddress(normalizedTokenAddress) || !ethers.isAddress(normalizedSpender)) {
-    throw new Error(
-      `Invalid token or spender address: token=${normalizedTokenAddress}, spender=${normalizedSpender}`
-    );
-  }
-  if (parseFloat(amount) <= 0) {
-    throw new Error('Invalid approval amount');
-  }
-  const iface = new ethers.Interface([
-    'function approve(address spender, uint256 amount) public returns (bool)',
-  ]);
-  return iface.encodeFunctionData('approve', [
-    normalizedSpender,
-    ethers.parseUnits(amount, decimals),
-  ]);
-}
+export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
+  const isSellNative = sellAsset.isNative;
+  const isBuyNative = buyAsset.isNative;
+  const isSellUsdc = sellAsset.symbol.toUpperCase() === 'USDC';
+  const isBuyUsdc = buyAsset.symbol.toUpperCase() === 'USDC';
 
-export function determineSwapType(sellAsset: Asset, buyAsset: Asset, wNative: string): SwapType {
-  const isSellWNative = sellAsset.address.toLowerCase() === wNative.toLowerCase();
-  const isBuyWNative = buyAsset.address.toLowerCase() === wNative.toLowerCase();
-  const isSellUsdc = sellAsset.code.toUpperCase() === 'USDC';
-  const isBuyUsdc = buyAsset.code.toUpperCase() === 'USDC';
-
-  if (isSellWNative && isBuyUsdc) return 'EthToUsdc';
-  if (isSellUsdc && isBuyWNative) return 'UsdcToWeth';
-  if (isSellWNative && !isBuyUsdc) return 'EthToToken';
-  if (!isSellWNative && isBuyWNative) return 'TokenToEth';
+  if (isSellNative && isBuyUsdc) return 'EthToUsdc';
+  if (isSellUsdc && isBuyNative) return 'UsdcToWeth';
+  if (isSellNative && !isBuyUsdc) return 'EthToToken';
+  if (!isSellNative && isBuyNative) return 'TokenToEth';
   return 'TokenToToken';
 }
 
 export async function fetchEvmQuote(
-  networkKey: NetworkKey,
+  chainId: number,
   request: SwapQuoteRequest,
-  selectedSellAsset: Asset,
-  selectedBuyAsset: Asset
+  selectedSellAsset: TokenInfo,
+  selectedBuyAsset: TokenInfo
 ): Promise<SwapQuote> {
-  const config = SWAP_CONFIGS[networkKey];
-  const tokenInAddress = ethers.getAddress(selectedSellAsset.address);
-  const tokenOutAddress = ethers.getAddress(selectedBuyAsset.address);
+  try {
+    if (!selectedSellAsset.isNative && !ethers.isAddress(selectedSellAsset.address)) {
+      throw new Error(`Invalid sell token address: ${selectedSellAsset.address}`);
+    }
+    if (!selectedBuyAsset.isNative && !ethers.isAddress(selectedBuyAsset.address)) {
+      throw new Error(`Invalid buy token address: ${selectedBuyAsset.address}`);
+    }
 
-  if (!ethers.isAddress(tokenInAddress) || !ethers.isAddress(tokenOutAddress)) {
-    throw new Error(
-      `Invalid token addresses: tokenIn=${tokenInAddress}, tokenOut=${tokenOutAddress}`
-    );
+    const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset);
+
+    const adjustedRequest: SwapQuoteRequest = {
+      ...request,
+      tokenIn: {
+        symbol: selectedSellAsset.symbol,
+        name: selectedSellAsset.name,
+        decimals: selectedSellAsset.decimals,
+        address: selectedSellAsset.address,
+        balance: selectedSellAsset.balance || '0',
+        logoUri: selectedSellAsset.logoURI || null,
+      },
+      tokenOut: {
+        symbol: selectedBuyAsset.symbol,
+        name: selectedBuyAsset.name,
+        decimals: selectedBuyAsset.decimals,
+        address: selectedBuyAsset.address,
+        balance: selectedBuyAsset.balance || '0',
+        logoUri: selectedBuyAsset.logoURI || null,
+      },
+      swapType,
+    };
+
+    const quote = await getSwapQuote(chainId, adjustedRequest);
+
+    return {
+      ...quote,
+      inputToken: selectedSellAsset.symbol,
+      outputToken: selectedBuyAsset.symbol,
+    };
+  } catch (error: any) {
+    console.error('Error fetching quote:', error);
+    if (error.message?.includes('No liquidity')) {
+      throw new Error('Insufficient liquidity for this token pair');
+    }
+    if (error.message?.includes('network')) {
+      throw new Error('Network error. Please check your connection');
+    }
+    if (error.message?.includes('timeout')) {
+      throw new Error('Request timeout. Please try again');
+    }
+    throw new Error(error.message || 'Failed to fetch swap quote');
   }
-
-  const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset, config.wNative);
-
-  const adjustedRequest: SwapQuoteRequest = {
-    ...request,
-    tokenIn: {
-      ...request.tokenIn,
-      address: tokenInAddress,
-      symbol: selectedSellAsset.code,
-    },
-    tokenOut: {
-      ...request.tokenOut,
-      address: tokenOutAddress,
-      symbol: selectedBuyAsset.code,
-    },
-    swapType,
-  };
-
-  const quote = await getSwapQuote(networkKey, adjustedRequest);
-  return {
-    ...quote,
-    inputToken: selectedSellAsset.code,
-    outputToken: selectedBuyAsset.code,
-  };
 }
 
-export async function handleEvmSwap(
-  networkKey: NetworkKey,
-  quote: any,
-  selectedSellAsset: Asset,
-  selectedBuyAsset: Asset,
+export async function executeSwap(
+  chainId: number,
+  quote: SwapQuote,
+  selectedSellAsset: TokenInfo,
+  selectedBuyAsset: TokenInfo,
   senderAddress: string,
   sellAmount: string,
   slippageTolerance: number,
-  getPrivateKey: (chain: 'evm' | 'stellar') => Promise<string | null>
+  getProvider: (type: WalletType) => any
 ): Promise<string> {
-  const privateKey = await getPrivateKey('evm');
-  if (!privateKey) {
-    throw new Error('EVM private key not found');
+  try {
+    const provider = getProvider(WalletType.EVM);
+    if (!provider) {
+      throw new Error('EVM wallet not connected');
+    }
+
+    const swapRequest = {
+      chainId,
+      quote,
+      tokenIn: {
+        address: selectedSellAsset.address,
+        symbol: selectedSellAsset.symbol,
+        decimals: selectedSellAsset.decimals,
+        isNative: selectedSellAsset.isNative,
+      },
+      tokenOut: {
+        address: selectedBuyAsset.address,
+        symbol: selectedBuyAsset.symbol,
+        decimals: selectedBuyAsset.decimals,
+        isNative: selectedBuyAsset.isNative,
+      },
+      senderAddress,
+      amount: sellAmount,
+      slippageTolerance,
+    };
+
+    const transactions = await prepareSwapTransaction(swapRequest);
+
+    if (!transactions || transactions.length === 0) {
+      throw new Error('No transactions received from API');
+    }
+
+    let lastTxHash = '';
+
+    if (isMainnet()) {
+      for (const tx of transactions) {
+        const txParams: Record<string, any> = {
+          from: tx.from || senderAddress,
+          to: tx.to,
+          data: tx.data,
+          value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : '0x0',
+        };
+
+        if (tx.gasLimit || tx.gas) {
+          txParams.gas = tx.gasLimit || tx.gas;
+        }
+        if (tx.maxFeePerGas) {
+          txParams.maxFeePerGas = `0x${BigInt(tx.maxFeePerGas).toString(16)}`;
+        }
+        if (tx.maxPriorityFeePerGas) {
+          txParams.maxPriorityFeePerGas = `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}`;
+        }
+
+        const txHash = await provider.request({
+          method: 'eth_sendTransaction',
+          params: [txParams],
+        });
+
+        lastTxHash = txHash;
+      }
+    } else {
+      const ethersProvider = new ethers.BrowserProvider(provider);
+      const signer = await ethersProvider.getSigner();
+      const txData = transactions[0];
+
+      if (!selectedSellAsset.isNative && (txData as any).requiresApproval) {
+        const erc20Abi = [
+          'function approve(address spender, uint256 amount) public returns (bool)',
+          'function allowance(address owner, address spender) public view returns (uint256)',
+        ];
+        const tokenContract = new ethers.Contract(selectedSellAsset.address, erc20Abi, signer);
+        const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
+        const currentAllowance = await tokenContract.allowance(senderAddress, (txData as any).spenderAddress);
+
+        if (currentAllowance < amountIn) {
+          const approveTx = await tokenContract.approve((txData as any).spenderAddress, amountIn);
+          await approveTx.wait();
+        }
+      }
+
+      const tx = {
+        to: txData.to,
+        data: txData.data,
+        value: txData.value ? BigInt(txData.value) : 0n,
+        from: senderAddress,
+      };
+
+      const txResponse = await signer.sendTransaction(tx);
+      const receipt = await txResponse.wait();
+
+      if (!receipt || receipt.status === 0) {
+        throw new Error('Transaction failed');
+      }
+
+      lastTxHash = txResponse.hash;
+    }
+
+    return lastTxHash;
+  } catch (error: any) {
+    console.error('Swap execution error:', error);
+
+    if (error.code === 'ACTION_REJECTED' || error.code === 4001) {
+      throw new Error('Transaction rejected by user');
+    }
+    if (error.message?.includes('insufficient funds')) {
+      throw new Error('Insufficient funds for gas fees');
+    }
+    if (error.message?.includes('gas')) {
+      throw new Error('Transaction failed due to gas estimation error');
+    }
+    if (error.message?.includes('user rejected') || error.message?.includes('rejected by user')) {
+      throw new Error('Transaction rejected by user');
+    }
+    if (error.message?.includes('insufficient')) {
+      throw new Error('Insufficient balance or gas fees');
+    }
+
+    throw new Error(error.message || 'Failed to execute swap');
   }
-
-  const config = {
-    ...getEVMNetworkConfig(networkKey),
-    ...SWAP_CONFIGS[networkKey],
-  };
-
-  const swapRouter = ethers.getAddress(config.swapRouter);
-  const wNative = ethers.getAddress(config.wNative);
-
-  if (!ethers.isAddress(swapRouter) || !ethers.isAddress(wNative)) {
-    throw new Error(`Invalid swap configuration: swapRouter=${swapRouter}, wNative=${wNative}`);
-  }
-
-  const tokenInAddress = ethers.getAddress(selectedSellAsset.address);
-  const tokenOutAddress = ethers.getAddress(selectedBuyAsset.address);
-
-  if (!ethers.isAddress(tokenInAddress) || !ethers.isAddress(tokenOutAddress)) {
-    throw new Error(`Invalid swap tokens: tokenIn=${tokenInAddress}, tokenOut=${tokenOutAddress}`);
-  }
-
-  const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
-  const amountOutMinimum = ethers.parseUnits(
-    (parseFloat(quote.outputAmount) * (1 - slippageTolerance / 100)).toFixed(
-      selectedBuyAsset.decimals
-    ),
-    selectedBuyAsset.decimals
-  );
-
-  const iface = new ethers.Interface(SWAP_ROUTER_ABI);
-
-  const swapRecipient = senderAddress;
-
-  // const calls: string[] = [];
-  const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset, config.wNative);
-
-  const params = {
-    tokenIn: tokenInAddress,
-    tokenOut: tokenOutAddress,
-    fee: quote.fee,
-    recipient: swapRecipient,
-    deadline: Math.floor(Date.now() / 1000) + 600,
-    amountIn,
-    amountOutMinimum,
-    sqrtPriceLimitX96: 0,
-  };
-
-  const swapData = iface.encodeFunctionData('exactInputSingle', [params]);
-
-  let approveData = '';
-  if (selectedSellAsset.address) {
-    approveData = generateApproveData(
-      selectedSellAsset.address,
-      swapRouter,
-      sellAmount,
-      selectedSellAsset.decimals
-    );
-  }
-
-  const prepareRequest: PrepareRequest = {
-    address: senderAddress,
-    swapType,
-    swapData,
-    approveData,
-    // value: selectedSellAsset.address === wNative ? amountIn.toString() : '0',
-    value: amountIn.toString(),
-  };
-
-  const preparedTxs = await prepareSwapTransaction(networkKey, prepareRequest);
-
-  const signedTxs = await Promise.all(
-    preparedTxs.map((tx: any) => signEVMTransaction(tx, privateKey))
-  );
-
-  const executeRequest: any = { txs: signedTxs };
-  const executeRes = await executeSwapTransaction(networkKey, executeRequest);
-  if (!executeRes || executeRes.length === 0) {
-    throw new Error('Swap execution failed');
-  }
-
-  const txHash = executeRes[executeRes.length - 1].hash;
-  if (!txHash) {
-    throw new Error('Transaction hash not found');
-  }
-
-  return txHash;
 }

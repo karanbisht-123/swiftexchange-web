@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import type { WebSocketMessage } from '../utils/WebSocketManager';
+import { getIndexerClient } from '../client/clients';
+import { useWebSocketStore } from '../store/websocketStore';
 
 export type CandleResolution = '1MIN' | '5MINS' | '15MINS' | '30MINS' | '1HOUR' | '4HOURS' | '1DAY';
 
@@ -19,7 +20,7 @@ export interface Candle {
   id: string;
 }
 
-interface UseCandlesReturn {
+interface UseRealtimeChartReturn {
   candles: Candle[];
   latestCandle: Candle | null;
   error: string | null;
@@ -27,172 +28,118 @@ interface UseCandlesReturn {
   isConnected: boolean;
 }
 
-export function useCandles(
+export function useRealtimeChart(
   market: string = 'BTC-USD',
   resolution: CandleResolution = '1MIN',
-  limit: number = 100,
-  pollInterval: number = 30000
-): UseCandlesReturn {
-  const [candles, setCandles] = useState<Candle[]>([]);
-  const [latestCandle, setLatestCandle] = useState<Candle | null>(null);
+  limit: number = 100
+): UseRealtimeChartReturn {
+  const [snapshotCandles, setSnapshotCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
 
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const isMountedRef = useRef(true);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastResolutionRef = useRef(resolution); // Track last resolution to detect changes
+  const subscribeToCandles = useWebSocketStore(state => state.subscribeToCandles);
+  const unsubscribeFromCandles = useWebSocketStore(state => state.unsubscribeFromCandles);
+  const isConnected = useWebSocketStore(state => state.isConnected);
 
-  // Function to fetch candles from REST API
-  const fetchCandles = async () => {
-    try {
-      const { getIndexerClient } = await import('../client/clients');
-      const indexerClient = getIndexerClient();
-
-      const data = await indexerClient.markets.getPerpetualMarketCandles(
-        market,
-        resolution,
-        undefined,
-        undefined,
-        limit
-      );
-
-      if (!isMountedRef.current) return;
-
-      const fetchedCandles = data.candles || [];
-      // Only update state if resolution hasn't changed during fetch
-      if (resolution === lastResolutionRef.current) {
-        setCandles(fetchedCandles);
-        setLatestCandle(fetchedCandles.length > 0 ? fetchedCandles[0] : null);
-        setError(null);
-        console.log(`[useCandles] Fetched ${fetchedCandles.length} candles via REST API`);
-      }
-    } catch (err: any) {
-      console.error('[useCandles] REST API fetch error:', err);
-      if (isMountedRef.current && resolution === lastResolutionRef.current) {
-        setError(err.message || 'Failed to fetch candles from API');
-      }
-    }
-  };
+  const candleKey = `candles_${market}_${resolution}`;
+  const storeCandlesData = useWebSocketStore(state => state.candles.get(candleKey));
 
   useEffect(() => {
-    isMountedRef.current = true;
-    lastResolutionRef.current = resolution; // Update resolution tracking
-    let socketClient: any = null;
+    let mounted = true;
 
-    const initializeConnection = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    const loadCandles = async () => {
       try {
-        const { getSocketClient } = await import('../client/clients');
-        socketClient = getSocketClient();
+        const indexerClient = getIndexerClient();
+        const data = await indexerClient.markets.getPerpetualMarketCandles(
+          market,
+          resolution,
+          undefined,
+          undefined,
+          limit
+        );
 
-        console.log(`[useCandles] Initializing for ${market} - ${resolution}`);
+        if (!mounted) return;
 
-        // Fetch initial candles
-        setIsLoading(true);
-        await fetchCandles();
-        setIsLoading(false);
+        const fetchedCandles = data.candles || [];
 
-        // Attempt WebSocket connection
-        await socketClient.connect();
-        if (!isMountedRef.current) return;
-        setIsConnected(true);
+        if (fetchedCandles.length > 0) {
+          const sortedCandles = [...fetchedCandles].sort(
+            (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+          );
 
-        // Subscribe to real-time candle updates
-        const handleMessage = (msg: WebSocketMessage) => {
-          if (!isMountedRef.current || resolution !== lastResolutionRef.current) return;
-
-          console.log('[useCandles] WS message:', {
-            type: msg.type,
-            channel: msg.channel,
-            id: msg.id,
-          });
-
-          if (msg.type !== 'channel_data' || !msg.contents) return;
-
-          const newCandle = msg.contents as Candle;
-
-          setCandles(prev => {
-            const existingIndex = prev.findIndex(c => c.startedAt === newCandle.startedAt);
-
-            if (existingIndex !== -1) {
-              const updated = [...prev];
-              updated[existingIndex] = newCandle;
-              return updated;
-            } else {
-              return [newCandle, ...prev].slice(0, limit);
-            }
-          });
-
-          setLatestCandle(newCandle);
-        };
-
-        const candleId = `${market}/${resolution}`;
-        unsubscribeRef.current = socketClient.subscribeToCandles(market, resolution, handleMessage);
-        console.log(`[useCandles] Subscribed to ${candleId}`);
-
-        const onConnectCleanup = socketClient.onConnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useCandles] WebSocket connected');
-            setIsConnected(true);
-            setError(null);
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-          }
-        });
-
-        const onDisconnectCleanup = socketClient.onDisconnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useCandles] WebSocket disconnected');
-            setIsConnected(false);
-            if (!pollIntervalRef.current) {
-              pollIntervalRef.current = setInterval(fetchCandles, pollInterval);
-              console.log('[useCandles] Started polling due to WebSocket disconnect');
-            }
-          }
-        });
-
-        return () => {
-          onConnectCleanup();
-          onDisconnectCleanup();
-        };
-      } catch (err: any) {
-        console.error('[useCandles] Initialization error:', err);
-        if (isMountedRef.current) {
-          setError(err.message || 'Failed to initialize WebSocket');
-          setIsConnected(false);
-          setIsLoading(false);
-          if (!pollIntervalRef.current) {
-            pollIntervalRef.current = setInterval(fetchCandles, pollInterval);
-            console.log('[useCandles] Started polling due to initialization error');
-          }
+          setSnapshotCandles(sortedCandles);
+        } else {
+          setSnapshotCandles([]);
         }
+
+        setIsLoading(false);
+      } catch (err) {
+        if (!mounted) return;
+        console.error('[Candles] Load error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load candles');
+        setIsLoading(false);
       }
     };
 
-    const cleanupPromise = initializeConnection();
+    loadCandles();
 
     return () => {
-      isMountedRef.current = false;
-      console.log(`[useCandles] Cleaning up ${market} - ${resolution}`);
-
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-
-      cleanupPromise.then(cleanup => {
-        if (cleanup) cleanup();
-      });
+      mounted = false;
     };
-  }, [market, resolution, limit, pollInterval]);
+  }, [market, resolution, limit]);
+
+  useEffect(() => {
+    console.log(`[Candles] Subscribing to ${market} ${resolution}`);
+    subscribeToCandles(market, resolution);
+
+    return () => {
+      console.log(`[Candles] Unsubscribing from ${market} ${resolution}`);
+      unsubscribeFromCandles(market, resolution);
+    };
+  }, [market, resolution, subscribeToCandles, unsubscribeFromCandles]);
+
+  const candles = useMemo(() => {
+    const liveCandles = storeCandlesData?.candles || [];
+
+    if (liveCandles.length === 0) {
+      return snapshotCandles;
+    }
+
+    const candleMap = new Map<string, Candle>();
+
+    snapshotCandles.forEach(c => {
+      candleMap.set(c.startedAt, c);
+    });
+
+    liveCandles.forEach((c: any) => {
+      candleMap.set(c.startedAt, {
+        startedAt: c.startedAt,
+        ticker: c.ticker || market,
+        resolution: c.resolution || resolution,
+        low: c.low || '0',
+        high: c.high || '0',
+        open: c.open || '0',
+        close: c.close || '0',
+        baseTokenVolume: c.baseTokenVolume || '0',
+        usdVolume: c.usdVolume || '0',
+        trades: Number(c.trades) || 0,
+        startingOpenInterest: c.startingOpenInterest || '0',
+        id: c.startedAt,
+      });
+    });
+
+    const merged = Array.from(candleMap.values());
+    merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+
+    return merged.slice(-limit);
+  }, [snapshotCandles, storeCandlesData, limit, market, resolution]);
+
+  const latestCandle = useMemo(() => {
+    return candles.length > 0 ? candles[candles.length - 1] : null;
+  }, [candles]);
 
   return {
     candles,

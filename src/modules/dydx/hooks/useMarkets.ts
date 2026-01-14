@@ -1,28 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { WebSocketMessage } from '../utils/WebSocketManager';
-import { useCoinGeckoMetadata } from './useCoinGeckoMetadata';
+import { getIndexerClient } from '../client/clients';
+import useMarketStore from '../store/marketStore';
+import { useWebSocketStore } from '../store/websocketStore';
+import type { MarketData } from '../types/trading.types';
+import { metadataService } from './useCoinGeckoMetadata';
 
-export interface MarketData {
-  ticker: string;
-  oraclePrice: string;
-  priceChange24H: string;
-  volume24H: string;
-  trades24H: number;
-  nextFundingRate: string;
-  nextFundingAt: string;
-  openInterest: string;
-  marketCaps?: string;
-  baseAsset?: string;
-  quoteAsset?: string;
-  status?: string;
-  marketId?: number;
-  // Metadata fields
-  coinIcon?: string;
-  coinName?: string;
-}
+export type { MarketData };
 
-interface UseMarketsReturn {
+export interface UseMarketsReturn {
   markets: Record<string, MarketData>;
   marketsList: MarketData[];
   getMarket: (ticker: string) => MarketData | undefined;
@@ -30,238 +16,230 @@ interface UseMarketsReturn {
   isLoading: boolean;
   isConnected: boolean;
   totalMarkets: number;
-  // Metadata utilities
-  getCoinIcon: (ticker: string) => string;
-  metadataLoading: { [symbol: string]: boolean };
-  cacheStats: { valid: number; total: number; expired: number };
+  refreshMarkets: () => Promise<void>;
+  cacheStats: ReturnType<typeof metadataService.getCacheStats>;
 }
+
+const METADATA_UPDATE_DEBOUNCE = 500;
 
 export function useMarkets(): UseMarketsReturn {
   const [markets, setMarkets] = useState<Record<string, MarketData>>({});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
+  const [cacheStats, setCacheStats] = useState(metadataService.getCacheStats());
 
-  const unsubscribeRef = useRef<(() => void) | null>(null);
   const isMountedRef = useRef(true);
   const hasInitialDataRef = useRef(false);
+  const metadataUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const metadataUpdateCounterRef = useRef(0);
 
-  const {
-    getCoinMetadata,
-    getCoinIcon,
-    preloadCoins,
-    loading: metadataLoading,
-    getCacheStats,
-  } = useCoinGeckoMetadata();
+  // Get store methods and state
+  const subscribeToAllMarkets = useWebSocketStore(state => state.subscribeToAllMarkets);
+  const unsubscribeFromAllMarkets = useWebSocketStore(state => state.unsubscribeFromAllMarkets);
+  const isConnected = useWebSocketStore(state => state.isConnected);
+  const storeMarkets = useWebSocketStore(state => state.markets);
 
+  // Subscribe to metadata updates
   useEffect(() => {
-    isMountedRef.current = true;
-    let socketClient: any = null;
-    let indexerClient: any = null;
+    const unsubscribe = metadataService.subscribe(() => {
+      setCacheStats(metadataService.getCacheStats());
 
-    const fetchInitialMarketData = async () => {
-      try {
-        const { getIndexerClient } = await import('../client/clients');
-        indexerClient = getIndexerClient();
+      if (metadataUpdateTimerRef.current) clearTimeout(metadataUpdateTimerRef.current);
 
-        console.log(`[useMarkets] Fetching initial market data from API`);
+      metadataUpdateCounterRef.current++;
+      const currentCount = metadataUpdateCounterRef.current;
 
-        const data = await indexerClient.markets.getPerpetualMarkets();
-
-        if (!isMountedRef.current) return;
-
-        const marketsMap: Record<string, MarketData> = {};
-        const tickers: string[] = [];
-
-        if (data.markets) {
-          Object.entries(data.markets).forEach(([ticker, marketData]: [string, any]) => {
-            tickers.push(ticker);
-
-            // Get metadata
-            const metadata = getCoinMetadata(ticker);
-
-            marketsMap[ticker] = {
-              ticker,
-              oraclePrice: marketData.oraclePrice || '0',
-              priceChange24H: marketData.priceChange24H || '0',
-              volume24H: marketData.volume24H || '0',
-              trades24H: marketData.trades24H || 0,
-              nextFundingRate: marketData.nextFundingRate || '0',
-              nextFundingAt: marketData.nextFundingAt || '',
-              openInterest: marketData.openInterest || '0',
-              marketCaps: marketData.marketCaps,
-              baseAsset: marketData.baseAsset,
-              quoteAsset: marketData.quoteAsset,
-              status: marketData.status,
-              marketId: marketData.marketId,
-              // Add metadata
-              coinIcon: metadata?.image || getCoinIcon(ticker),
-              coinName: metadata?.name,
-            };
-          });
-        }
-
-        setMarkets(marketsMap);
-        setIsLoading(false);
-        hasInitialDataRef.current = true;
-        console.log(`[useMarkets] Loaded ${Object.keys(marketsMap).length} markets from API`);
-
-        // Preload metadata for all coins (with rate limiting)
-        if (tickers.length > 0) {
-          console.log(`[useMarkets] Preloading metadata for ${tickers.length} coins`);
-          preloadCoins(tickers);
-        }
-
-        return marketsMap;
-      } catch (err: any) {
-        console.error('[useMarkets] Error fetching initial data:', err);
-        if (isMountedRef.current) {
-          setError(err.message || 'Failed to load markets');
-          setIsLoading(false);
-        }
-        return null;
-      }
-    };
-
-    const initializeWebSocket = async () => {
-      try {
-        const { getSocketClient } = await import('../client/clients');
-        socketClient = getSocketClient();
-
-        console.log(`[useMarkets] Connecting to WebSocket`);
-
-        await socketClient.connect();
-
-        if (!isMountedRef.current) return;
-
-        setIsConnected(true);
-        setError(null); // Clear any previous errors
-        console.log('[useMarkets] WebSocket connected successfully');
-
-        // Subscribe to real-time markets updates
-        const handleMessage = (msg: WebSocketMessage) => {
-          if (!isMountedRef.current) return;
-
-          console.log('[useMarkets] WS message:', {
-            type: msg.type,
-            channel: msg.channel,
-            hasContents: !!msg.contents,
-          });
-
-          if (msg.type !== 'channel_data' || !msg.contents) {
-            return;
-          }
-
-          // dYdX sends market updates with trading data
-          const updatedMarkets = msg.contents.trading || msg.contents;
+      metadataUpdateTimerRef.current = setTimeout(async () => {
+        if (currentCount === metadataUpdateCounterRef.current && isMountedRef.current) {
+          // Fetch all metadata asynchronously
+          const tickers = Object.keys(markets);
+          const metadataPromises = tickers.map(ticker => metadataService.getMetadata(ticker));
+          const metadataResults = await Promise.all(metadataPromises);
 
           setMarkets(prev => {
             const updated = { ...prev };
+            let hasChanges = false;
 
-            // Update markets with new data
-            Object.entries(updatedMarkets).forEach(([ticker, marketData]: [string, any]) => {
-              const metadata = getCoinMetadata(ticker);
-
-              if (updated[ticker]) {
-                // Merge with existing data
+            tickers.forEach((ticker, index) => {
+              const metadata = metadataResults[index];
+              if (metadata && metadata.image !== updated[ticker]?.coinIcon) {
                 updated[ticker] = {
                   ...updated[ticker],
-                  oraclePrice: marketData.oraclePrice || updated[ticker].oraclePrice,
-                  priceChange24H: marketData.priceChange24H || updated[ticker].priceChange24H,
-                  volume24H: marketData.volume24H || updated[ticker].volume24H,
-                  trades24H: marketData.trades24H || updated[ticker].trades24H,
-                  nextFundingRate: marketData.nextFundingRate || updated[ticker].nextFundingRate,
-                  nextFundingAt: marketData.nextFundingAt || updated[ticker].nextFundingAt,
-                  openInterest: marketData.openInterest || updated[ticker].openInterest,
-                  // Update metadata if available
-                  coinIcon: metadata?.image || updated[ticker].coinIcon || getCoinIcon(ticker),
-                  coinName: metadata?.name || updated[ticker].coinName,
+                  coinIcon: metadata.image,
+                  coinName: metadata.name,
                 };
-              } else {
-                // Add new market
-                updated[ticker] = {
-                  ticker,
-                  oraclePrice: marketData.oraclePrice || '0',
-                  priceChange24H: marketData.priceChange24H || '0',
-                  volume24H: marketData.volume24H || '0',
-                  trades24H: marketData.trades24H || 0,
-                  nextFundingRate: marketData.nextFundingRate || '0',
-                  nextFundingAt: marketData.nextFundingAt || '',
-                  openInterest: marketData.openInterest || '0',
-                  coinIcon: metadata?.image || getCoinIcon(ticker),
-                  coinName: metadata?.name,
-                };
+                hasChanges = true;
               }
             });
 
-            return updated;
+            return hasChanges ? updated : prev;
           });
-        };
-
-        unsubscribeRef.current = socketClient.subscribeToMarkets(handleMessage);
-        console.log(`[useMarkets] Subscribed to markets channel`);
-
-        const onConnectCleanup = socketClient.onConnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useMarkets] WebSocket reconnected');
-            setIsConnected(true);
-            setError(null);
-          }
-        });
-
-        const onDisconnectCleanup = socketClient.onDisconnect(() => {
-          if (isMountedRef.current) {
-            console.log('[useMarkets] WebSocket disconnected');
-            setIsConnected(false);
-          }
-        });
-
-        return () => {
-          onConnectCleanup();
-          onDisconnectCleanup();
-        };
-      } catch (err: any) {
-        console.error('[useMarkets] WebSocket error:', err);
-        if (isMountedRef.current) {
-          setIsConnected(false);
-          if (!hasInitialDataRef.current) {
-            setError(err.message || 'Failed to connect to WebSocket');
-          } else {
-            console.log('[useMarkets] WebSocket failed but initial data is available');
-          }
         }
-      }
-    };
-
-    const initialize = async () => {
-      const initialMarkets = await fetchInitialMarketData();
-      console.log(initialMarkets, 'hii i am intial markets ---');
-      if (isMountedRef.current) {
-        const wsCleanup = await initializeWebSocket();
-        return wsCleanup;
-      }
-    };
-
-    const cleanupPromise = initialize();
+      }, METADATA_UPDATE_DEBOUNCE);
+    });
 
     return () => {
-      isMountedRef.current = false;
-      console.log(`[useMarkets] Cleaning up`);
-
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-
-      cleanupPromise.then(cleanup => {
-        if (cleanup) cleanup();
-      });
+      unsubscribe();
+      if (metadataUpdateTimerRef.current) clearTimeout(metadataUpdateTimerRef.current);
     };
   }, []);
 
-  const marketsList = Object.values(markets);
+  // Update local markets with store data
+  useEffect(() => {
+    if (storeMarkets.size === 0) return;
 
-  const getMarket = (ticker: string) => markets[ticker];
+    setMarkets(prev => {
+      const updated = { ...prev };
+      let hasChanges = false;
+
+      storeMarkets.forEach((marketData, ticker) => {
+        const existing = updated[ticker];
+        if (existing) {
+          const needsUpdate =
+            existing.oraclePrice !== marketData.oraclePrice ||
+            existing.volume24H !== marketData.volume24H ||
+            existing.nextFundingRate !== marketData.nextFundingRate ||
+            existing.openInterest !== marketData.openInterest ||
+            existing.priceChange24H !== marketData.priceChange24H;
+
+          if (needsUpdate) {
+            updated[ticker] = {
+              ...existing,
+              oraclePrice: marketData.oraclePrice ?? existing.oraclePrice,
+              priceChange24H: marketData.priceChange24H ?? existing.priceChange24H,
+              volume24H: marketData.volume24H ?? existing.volume24H,
+              nextFundingRate: marketData.nextFundingRate ?? existing.nextFundingRate,
+              openInterest: marketData.openInterest ?? existing.openInterest,
+            };
+            hasChanges = true;
+          }
+        }
+      });
+
+      return hasChanges ? updated : prev;
+    });
+  }, [storeMarkets]);
+
+  const enrichMarketData = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (ticker: string, rawData: any): Promise<MarketData> => {
+      const metadata = await metadataService.getMetadata(ticker);
+      const baseAsset = ticker.split('-')[0];
+      const quoteAsset = ticker.split('-')[1] || 'USD';
+
+      return {
+        ticker,
+        baseAsset,
+        quoteAsset,
+        oraclePrice: rawData.oraclePrice ?? '0',
+        priceChange24H: rawData.priceChange24H ?? '0',
+        priceChange24HPercent: rawData.priceChange24HPercent ?? '0',
+        volume24H: rawData.volume24H ?? '0',
+        trades24H: Number(rawData.trades24H) || 0,
+        nextFundingRate: rawData.nextFundingRate ?? '0',
+        nextFundingAt: rawData.nextFundingAt ?? '',
+        openInterest: rawData.openInterest ?? '0',
+        marketCaps: rawData.marketCaps,
+        status: rawData.status || 'ACTIVE',
+        marketId: rawData.marketId,
+        clobPairId: rawData.clobPairId,
+        coinIcon: metadata?.image || metadataService.getCoinIcon(ticker),
+        coinName: metadata?.name,
+        initialMarginFraction: rawData.initialMarginFraction,
+        maintenanceMarginFraction: rawData.maintenanceMarginFraction,
+        tickSize: rawData.tickSize,
+        stepSize: rawData.stepSize,
+        atomicResolution: rawData.atomicResolution,
+        quantumConversionExponent: rawData.quantumConversionExponent,
+        stepBaseQuantums: rawData.stepBaseQuantums,
+        subticksPerTick: rawData.subticksPerTick,
+        marketType: rawData.marketType,
+        openInterestLowerCap: rawData.openInterestLowerCap,
+        openInterestUpperCap: rawData.openInterestUpperCap,
+        baseOpenInterest: rawData.baseOpenInterest,
+        defaultFundingRate1H: rawData.defaultFundingRate1H,
+        spotVolume: rawData.spotVolume,
+        marketCap: rawData.marketCaps, // Use market caps from API response if available
+      };
+    },
+    []
+  );
+
+  const fetchInitialMarketData = useCallback(async () => {
+    try {
+      const indexerClient = getIndexerClient();
+      const response = await indexerClient.markets.getPerpetualMarkets();
+
+      if (!isMountedRef.current) return;
+
+      const marketsMap: Record<string, MarketData> = {};
+      const tickers: string[] = [];
+
+      if (response?.markets) {
+        for (const [ticker, rawData] of Object.entries(response.markets)) {
+          tickers.push(ticker);
+          marketsMap[ticker] = await enrichMarketData(ticker, rawData);
+        }
+      }
+
+      setMarkets(marketsMap);
+      setIsLoading(false);
+      hasInitialDataRef.current = true;
+
+      // Sync to global store
+      useMarketStore.getState().updateMarketCache(marketsMap);
+
+      // Preload metadata for all markets
+      if (tickers.length > 0) {
+        metadataService.preloadBatch(tickers);
+      }
+
+      // Subscribe to WebSocket updates for all markets (single handler)
+      subscribeToAllMarkets();
+    } catch (err: unknown) {
+      console.error('[useMarkets] Failed to fetch initial markets:', err);
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load markets');
+        setIsLoading(false);
+      }
+    }
+  }, [enrichMarketData, subscribeToAllMarkets]);
+
+  const refreshMarkets = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    await fetchInitialMarketData();
+  }, [fetchInitialMarketData]);
+
+  // Main initialization effect
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    fetchInitialMarketData();
+
+    return () => {
+      isMountedRef.current = false;
+
+      if (metadataUpdateTimerRef.current) {
+        clearTimeout(metadataUpdateTimerRef.current);
+        metadataUpdateTimerRef.current = null;
+      }
+
+      // Unsubscribe from all markets
+      unsubscribeFromAllMarkets();
+    };
+  }, [fetchInitialMarketData, unsubscribeFromAllMarkets]);
+
+  // Memoized sorted markets list
+  const marketsList = useMemo(() => {
+    return Object.values(markets).sort((a, b) => {
+      const volA = parseFloat(a.volume24H) || 0;
+      const volB = parseFloat(b.volume24H) || 0;
+      return volB - volA;
+    });
+  }, [markets]);
+
+  const getMarket = useCallback((ticker: string) => markets[ticker], [markets]);
 
   return {
     markets,
@@ -271,8 +249,7 @@ export function useMarkets(): UseMarketsReturn {
     isLoading,
     isConnected,
     totalMarkets: marketsList.length,
-    getCoinIcon,
-    metadataLoading,
-    cacheStats: getCacheStats(),
+    refreshMarkets,
+    cacheStats,
   };
 }

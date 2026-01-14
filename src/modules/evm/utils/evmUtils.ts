@@ -1,26 +1,40 @@
 import { ethers } from 'ethers';
 
-import EVM_NETWORKS, { type EVMNetworkConfig } from '../../../config/evmNetworks';
+import { getEVMChains } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
-export type NetworkKey = keyof typeof EVM_NETWORKS.mainnet | keyof typeof EVM_NETWORKS.testnet;
+export type EVMNetworkConfig = {
+  chainId: number;
+  name: string;
+  rpcUrl: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
+  blockExplorerUrl: string;
+};
 
-export function isValidEVMNetwork(networkKey: string): networkKey is NetworkKey {
-  return networkKey in EVM_NETWORKS.mainnet || networkKey in EVM_NETWORKS.testnet;
-}
+export type NetworkKey = number;
 
-export function getEVMNetworkConfig(networkKey: NetworkKey): EVMNetworkConfig {
+export function isValidEVMNetwork(networkKey: unknown): networkKey is NetworkKey {
+  const currentNetwork = useWalletStore.getState().network;
   return (
-    EVM_NETWORKS.mainnet[networkKey as keyof typeof EVM_NETWORKS.mainnet] ||
-    EVM_NETWORKS.testnet[networkKey as keyof typeof EVM_NETWORKS.testnet]
+    typeof networkKey === 'number' &&
+    getEVMChains(currentNetwork).some(c => c.chainId === networkKey)
   );
 }
 
-export async function getNativeBalance(networkKey: NetworkKey, address: string): Promise<string> {
-  const config = getEVMNetworkConfig(networkKey);
-  if (!config) {
+export function getEVMNetworkConfig(networkKey: NetworkKey): EVMNetworkConfig {
+  const currentNetwork = useWalletStore.getState().network;
+  const cfg = getEVMChains(currentNetwork).find(c => c.chainId === networkKey);
+
+  if (!cfg) {
     throw new Error(`Unsupported EVM network: ${networkKey}`);
   }
-  const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+  return cfg;
+}
+
+export async function getNativeBalance(networkKey: any, address: any): Promise<string> {
+  const { rpcUrl } = getEVMNetworkConfig(networkKey);
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+
   try {
     const bal = await provider.getBalance(address);
     return ethers.formatEther(bal);
@@ -35,8 +49,9 @@ export async function getERC20Balances(
   senderAddress: string,
   evmAssets: any[]
 ): Promise<any[]> {
-  const config = getEVMNetworkConfig(networkKey);
-  const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+  const { rpcUrl } = getEVMNetworkConfig(networkKey);
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+
   const updatedAssets = await Promise.all(
     evmAssets.map(async asset => {
       try {
@@ -77,18 +92,13 @@ export async function estimateEVMFees(
   totalFee: string;
   totalCost: string;
 }> {
-  const config = getEVMNetworkConfig(networkKey);
-  if (!config) {
-    throw new Error(`Unsupported EVM network: ${networkKey}`);
-  }
-
-  const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+  const { rpcUrl } = getEVMNetworkConfig(networkKey);
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
   const defaultGasLimit = BigInt(21000);
   const defaultGasPrice = BigInt(20000000000);
 
   try {
     const amountInWei = ethers.parseEther(amount);
-
     const gasLimit = BigInt(
       await provider.estimateGas({
         from,

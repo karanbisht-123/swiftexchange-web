@@ -1,44 +1,107 @@
-import { X } from 'lucide-react';
-import { type FC, useEffect, useRef, useState } from 'react';
+import { ShoppingCart, X } from 'lucide-react';
+import { type FC, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-import * as StellarSdk from 'stellar-sdk';
+import * as StellarSdk from '@stellar/stellar-sdk';
 
+import { ROUTES } from '../../../../constants/routes';
+import { getStellarConfig } from '../../../walletconnect/config/chains';
+import { WalletType } from '../../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import ActivateTrustStep from './ActivateTrustStep';
-// import SwapFlowAnimation from "./SwapFlowAnimation";
 import AmountQuoteStep from './AmountQuoteStep';
 
-const STELLAR_PUBLIC_KEY = import.meta.env.VITE_DEMO_WALLET_STELLAR_PUBLIC_KEY as string;
-const STELLAR_BASE_URL = 'https://horizon-testnet.stellar.org';
+interface Asset {
+  id: string;
+  symbol: string;
+  name: string;
+  image: string;
+  balance: number;
+  current_price: number;
+  contractAddress?: string;
+}
 
 interface TradeAssetModalProps {
   isOpen: boolean;
   onClose: () => void;
   assetName: string;
+  selectedAsset?: Asset;
 }
 
-const TradeAssetModal: FC<TradeAssetModalProps> = ({
-  isOpen,
-  onClose,
-  // assetName,
-}) => {
-  const [step, setStep] = useState<'activate' | 'trade'>('activate');
+const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAsset }) => {
+  const navigate = useNavigate();
+  const { connectedWallets } = useWalletConnect();
+  const currentNetwork = useWalletStore(state => state.network);
+
+  const [step, setStep] = useState<'activate' | 'trade' | 'no-assets'>('activate');
   const [isActivated, setIsActivated] = useState(false);
-  console.log(isActivated);
   const [isWalletActive, setIsWalletActive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasAssets, setHasAssets] = useState(true);
+
   const modalRef = useRef<HTMLDivElement>(null);
+
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const stellarAddress = stellarWallet?.address;
+  const evmWallet = connectedWallets[WalletType.EVM];
+  const evmAddress = evmWallet?.address;
+
+  const stellarConfig = useMemo(() => getStellarConfig(currentNetwork), [currentNetwork]);
+  const server = useMemo(() => {
+    if (!stellarConfig) return null;
+    return new StellarSdk.Horizon.Server(stellarConfig.horizonUrl, {
+      allowHttp: stellarConfig.horizonUrl.startsWith('http://'),
+    });
+  }, [stellarConfig]);
 
   useEffect(() => {
     const checkWalletActivation = async () => {
+      if (!stellarAddress && !evmAddress) {
+        setIsLoading(false);
+        setStep('no-assets');
+        setHasAssets(false);
+        return;
+      }
+
       try {
-        const server = new StellarSdk.Horizon.Server(STELLAR_BASE_URL);
-        await server.loadAccount(STELLAR_PUBLIC_KEY);
-        setIsWalletActive(true);
-        setIsActivated(true);
-        setStep('trade');
+        if (stellarAddress && server) {
+          try {
+            await server.loadAccount(stellarAddress);
+            setIsWalletActive(true);
+            setIsActivated(true);
+          } catch (error: any) {
+            setIsWalletActive(false);
+            if (evmAddress) {
+              setIsActivated(true);
+            }
+          }
+        } else if (evmAddress) {
+          setIsActivated(true);
+          setIsWalletActive(true);
+        }
+
+        let userHasTradableBalance = false;
+        if (evmAddress) userHasTradableBalance = true;
+        if (stellarAddress && selectedAsset && selectedAsset.balance > 0)
+          userHasTradableBalance = true;
+
+        setHasAssets(userHasTradableBalance);
+
+        if (userHasTradableBalance) {
+          setStep('trade');
+        } else if (!isActivated && stellarAddress) {
+          setStep('activate');
+        } else {
+          setStep('no-assets');
+        }
       } catch (error) {
-        console.error('Wallet check failed:', error);
-        setIsWalletActive(false);
+        if (evmAddress) {
+          setStep('trade');
+          setHasAssets(true);
+        } else {
+          setStep('activate');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -47,7 +110,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({
     if (isOpen) {
       checkWalletActivation();
     }
-  }, [isOpen]);
+  }, [isOpen, selectedAsset, stellarAddress, evmAddress, server, isActivated]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -55,7 +118,6 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({
         onClose();
       }
     };
-
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -85,24 +147,28 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({
   };
 
   const handleActivationSkip = () => {
-    setStep('trade');
+    if (evmAddress || hasAssets) {
+      setStep('trade');
+    } else {
+      setStep('no-assets');
+    }
   };
 
-  // Define the onComplete handler for AmountQuoteStep
-  const handleQuoteComplete = (data: {
-    amount: number;
-    quoteDetails: any; // Replace 'any' with the actual QuoteDetails type if available
-    transactionHash: string;
-    bridgeTransactionHash?: string;
-  }) => {
-    // Handle the completion of the swap
-    alert(`Swap completed: ${data.amount} swapped, tx: ${data.transactionHash}`);
+  const handleQuoteComplete = () => {
     onClose();
   };
 
-  // Define the onBack handler for AmountQuoteStep
   const handleQuoteBack = () => {
-    setStep('activate');
+    if (stellarAddress && !isWalletActive) {
+      setStep('activate');
+    } else {
+      onClose();
+    }
+  };
+
+  const handleBuyAssets = () => {
+    onClose();
+    navigate(ROUTES.TRADING_EVM_FIAT);
   };
 
   return (
@@ -111,25 +177,48 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({
         ref={modalRef}
         className="bg-secondary rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] overflow-y-auto scrollbar-hide relative animate-neon-pulse"
       >
-        {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-800 transition-colors duration-200 animate-float"
+          className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-800 transition-colors duration-200 z-10"
           aria-label="Close modal"
         >
-          <X size={20} className="" />
+          <X size={20} />
         </button>
-
-        {/* Modal Content */}
         <div className="p-6 flex flex-col gap-6">
-          {step === 'activate' ? (
+          {step === 'no-assets' ? (
+            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center mb-6">
+                <ShoppingCart size={40} className="text-blue-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-primary mb-3">No Wallets Connected</h2>
+              <p className="text-secondary text-sm mb-6 max-w-xs">
+                Please connect an EVM wallet or Stellar wallet to start trading.
+              </p>
+              <button
+                onClick={handleBuyAssets}
+                className="btn-primary px-8 py-3 rounded-xl font-semibold text-base flex items-center gap-2"
+              >
+                <ShoppingCart size={20} />
+                Buy Crypto & Connect
+              </button>
+              <button onClick={onClose} className="mt-4 text-sm text-gray-400 hover:text-gray-300">
+                Maybe Later
+              </button>
+            </div>
+          ) : step === 'activate' ? (
             <ActivateTrustStep
               onComplete={handleActivationComplete}
               onSkip={handleActivationSkip}
               isWalletActive={isWalletActive}
+              stellarAddress={stellarAddress}
             />
           ) : (
-            <AmountQuoteStep onComplete={handleQuoteComplete} onBack={handleQuoteBack} />
+            <AmountQuoteStep
+              onComplete={handleQuoteComplete}
+              onBack={handleQuoteBack}
+              selectedAsset={selectedAsset}
+              stellarAddress={stellarAddress}
+            />
           )}
         </div>
       </div>

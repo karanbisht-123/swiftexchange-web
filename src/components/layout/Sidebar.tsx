@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../constants/routes';
 
@@ -23,12 +23,14 @@ interface NavItem {
   href: string;
   label: string;
   icon: JSX.Element;
+  queryParam?: string;
 }
 
 const Sidebar: FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isCompressed, setIsCompressed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const activeItem = location.pathname;
 
   useEffect(() => {
@@ -84,13 +86,11 @@ const Sidebar: FC = () => {
       label: 'Receive',
       icon: <Download className="w-5 h-5" />,
     },
-
     {
       href: ROUTES.TRADING_EVM_SWAP,
       label: 'Swap',
       icon: <ArrowLeftRight className="w-5 h-5" />,
     },
-
     {
       href: ROUTES.TRADING_EVM_FIAT,
       label: 'Fiat On/Off Ramp',
@@ -100,31 +100,29 @@ const Sidebar: FC = () => {
       href: ROUTES.MARKETS,
       label: 'Markets',
       icon: <LineChart className="w-5 h-5" />,
+      queryParam: '?view=markets',
     },
     {
       href: ROUTES.MY_ASSETS,
       label: 'My Assets',
       icon: <Wallet className="w-5 h-5" />,
     },
-
     {
       href: ROUTES.TRANSACTIONS,
       label: 'Transactions',
       icon: <LineChart className="w-5 h-5" />,
     },
-
     {
       href: ROUTES.TRADING_STEALLR,
       label: 'Trading',
       icon: <TrendingUp className="w-5 h-5" />,
     },
-
     {
       href: ROUTES.TRADING_DYDX_FUTURES,
       label: 'Futures',
       icon: <TrendingUp className="w-5 h-5" />,
+      queryParam: '?view=trade',
     },
-
     {
       href: ROUTES.PROFILE,
       label: 'Profile',
@@ -137,8 +135,11 @@ const Sidebar: FC = () => {
     },
   ];
 
-  const handleNavClick = () => {
+  const handleNavClick = (item: NavItem) => {
     setIsOpen(false);
+    if (item.queryParam) {
+      navigate(`${item.href}${item.queryParam}`);
+    }
   };
 
   const toggleSidebarCompression = () => {
@@ -151,7 +152,7 @@ const Sidebar: FC = () => {
       <button
         id="hamburger-btn"
         onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 btn-secondary p-2.5 rounded-lg"
+        className="lg:hidden fixed top-3 left-4 z-50 btn-secondary p-2.5 rounded-lg"
       >
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
@@ -175,27 +176,20 @@ const Sidebar: FC = () => {
           ${isCompressed ? 'w-16' : 'w-64'}
         `}
       >
-        {/* Logo Header */}
         <div className="h-16 px-4 border-b border-color flex items-center justify-between">
           {!isCompressed ? (
             <div className="flex items-center gap-3">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold"
-                style={{ backgroundColor: 'var(--color-brand-primary)' }}
-              >
-                S
+              <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold">
+                <img src="/logo.avif" alt="swiftEx-logo" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-brand">SwiftEx</h1>
+                <h1 className="text-lg font-bold text-white">SwiftEx</h1>
                 <p className="text-xs text-muted">Trading Platform</p>
               </div>
             </div>
           ) : (
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold mx-auto"
-              style={{ backgroundColor: 'var(--color-brand-primary)' }}
-            >
-              S
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold">
+              <img src="/logo.avif" alt="swiftEx-logo" />
             </div>
           )}
 
@@ -223,11 +217,29 @@ const Sidebar: FC = () => {
             {navItems.map(item => {
               const isActive = activeItem === item.href;
 
-              return (
+              return item.queryParam ? (
+                <button
+                  key={item.href}
+                  onClick={() => handleNavClick(item)}
+                  className={`
+                    w-full flex items-center gap-3 px-3 py-2.5 rounded-lg
+                    transition-colors duration-150
+                    ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
+                    ${isCompressed ? 'justify-center' : ''}
+                  `}
+                  style={{
+                    backgroundColor: isActive ? 'var(--color-brand-primary)' : 'transparent',
+                  }}
+                  title={isCompressed ? item.label : undefined}
+                >
+                  <span className="flex-shrink-0">{item.icon}</span>
+                  {!isCompressed && <span className="text-sm font-medium">{item.label}</span>}
+                </button>
+              ) : (
                 <Link
                   key={item.href}
                   to={item.href}
-                  onClick={handleNavClick}
+                  onClick={() => handleNavClick(item)}
                   className={`
                     flex items-center gap-3 px-3 py-2.5 rounded-lg
                     transition-colors duration-150
