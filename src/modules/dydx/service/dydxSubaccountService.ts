@@ -19,7 +19,7 @@ class DydxSubaccountService {
       }
 
       const localWallet = await this.getSigningWallet();
-      const amountInQuantums = Math.floor(parseFloat('3') * 1e6);
+      const amountInQuantums = Math.floor(parseFloat(amount) * 1e6);
 
       if (amountInQuantums <= 0) {
         throw new Error('Transfer amount must be greater than 0');
@@ -140,15 +140,24 @@ class DydxSubaccountService {
   }
 
   calculateRequiredCollateral(
-    orderSizeUsd: number,
-    leverage: number,
-    initialMarginFraction: number
+    size: number,        // Position size (S)
+    oraclePrice: number, // Oracle Price (P)
+    leverage: number     // Desired Leverage (L)
   ): number {
-    console.log(leverage, 'hii i am leverage ');
-    const marginRequired = orderSizeUsd * initialMarginFraction;
-    console.log(marginRequired, 'margin requried -------');
-    const withBuffer = marginRequired * 1.1;
-    return Math.max(withBuffer, SUBACCOUNT_CONSTANTS.MIN_ISOLATED_EQUITY);
+    // Formula: IM = (S × P) / L
+    const notionalValue = size * oraclePrice;
+    const initialMargin = notionalValue / leverage;
+    // Add 5% buffer for price movement
+    const withBuffer = initialMargin * 1.05;
+    console.log('[dydxSubaccountService] Collateral calculation:', {
+      size,
+      oraclePrice,
+      leverage,
+      notionalValue,
+      initialMargin,
+      withBuffer,
+    });
+    return withBuffer;
   }
 
   getMarginMode(subaccountNumber: number): MarginMode {
@@ -223,16 +232,32 @@ class DydxSubaccountService {
       }
 
       const shortfall = requiredAmount - currentEquity;
-      console.log(
-        `[dydxSubaccountService] Isolated equity shortfall: ${shortfall}. Initiating auto-deposit.`
-      );
+      console.log('[dydxSubaccountService] Isolated equity shortfall calculation:', {
+        targetSubaccount,
+        requiredAmount,
+        currentEquity,
+        shortfall,
+      });
 
+      // Skip transfer if shortfall is negligible (less than $0.01)
+      if (shortfall <= 0.01) {
+        console.log('[dydxSubaccountService] Shortfall negligible, skipping transfer');
+        return { success: true, transferredAmount: 0 };
+      }
+
+      let crossFreeCollateral = 0;
       try {
         const crossSubResponse = await indexerClient.account.getSubaccount(
           address,
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
-        const crossFreeCollateral = parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
+        crossFreeCollateral = parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
+
+        console.log('[dydxSubaccountService] Cross margin check:', {
+          crossFreeCollateral,
+          shortfall,
+          hasEnough: crossFreeCollateral >= shortfall,
+        });
 
         if (crossFreeCollateral < shortfall) {
           return {
@@ -249,6 +274,14 @@ class DydxSubaccountService {
           error: `Failed to verify cross margin balance: ${err.message}`,
         };
       }
+
+      // Transfer the shortfall amount
+      console.log('[dydxSubaccountService] Initiating transfer:', {
+        from: SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT,
+        to: targetSubaccount,
+        amount: shortfall.toFixed(6),
+      });
+
       const transferResult = await this.transfer(
         SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT,
         targetSubaccount,

@@ -26,7 +26,7 @@ class DydxWalletService {
   private address = '';
   private chainId = '';
   private subaccountNumber = 0;
-  private activeSubaccountNumber = 0; // For trading operations (can differ from connection subaccount)
+  private activeSubaccountNumber = 0;
   private status: DydxStatus = 'disconnected';
   private listeners: StatusCallback[] = [];
   private balanceCache: { data: AccountBalance; timestamp: number } | null = null;

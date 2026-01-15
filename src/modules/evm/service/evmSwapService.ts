@@ -144,14 +144,88 @@ export async function prepareSwapTransaction(
   return transactions;
 }
 
-export async function getBridgeQuote(amount: string, chainType: string): Promise<any> {
+export async function getBridgeQuote(
+  amount: string,
+  chainType: string,
+  sourceToken: string = 'usdt'
+): Promise<any> {
   const endpoint = '/bridge/swap-quotes';
 
   const request = {
     amount,
     chainType,
+    sourceToken,
   };
 
   const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', request);
+  return res.data;
+}
+
+export interface BridgeTransactionRequest {
+  amount: string;
+  feePayType: 'stablecoin' | 'native';
+  fromAddress: string;
+  destinationAddress: string;
+  sourceToken: string;
+  destinationToken: string;
+  walletType: 'ETH' | 'BNB';
+}
+
+export interface BridgeTxData {
+  from: string;
+  to: string;
+  value: string;
+  data: string;
+}
+
+export interface BridgeTxMeta {
+  nonce: number;
+  gasLimit: string;
+  feeData: {
+    _type: string;
+    gasPrice: string;
+    maxFeePerGas: string | null;
+    maxPriorityFeePerGas: string | null;
+  };
+  network: {
+    name: string;
+    chainId: string;
+  };
+}
+
+export interface BridgeTransaction {
+  transaction: BridgeTxData;
+  txMeta: BridgeTxMeta;
+  type: 'approve' | 'transfer';
+}
+
+export interface BridgeTransactionResponse {
+  needsApproval: boolean;
+  transactions: BridgeTransaction[];
+}
+
+export async function prepareBridgeTransaction(
+  request: BridgeTransactionRequest
+): Promise<BridgeTransactionResponse> {
+  console.log('[BridgeService] Preparing bridge transaction:', JSON.stringify(request, null, 2));
+  const endpoint = `/bridge/swap-transaction/prepare`;
+
+  const payload = {
+    fromAddress: request.fromAddress,
+    toAddress: request.destinationAddress,
+    amount: request.amount,
+    sourceToken: request.sourceToken,
+    destinationToken: request.destinationToken,
+    walletType: request.walletType,
+    feePayType: request.feePayType,
+  };
+
+  console.log('[BridgeService] Endpoint:', endpoint);
+  console.log('[BridgeService] Prepare payload:', JSON.stringify(payload, null, 2));
+
+  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
+
+  console.log('[BridgeService] Bridge transaction response:', res.data);
+
   return res.data;
 }

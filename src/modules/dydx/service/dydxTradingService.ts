@@ -61,8 +61,10 @@ class DydxTradingService {
 
       // Auto-Deposit for Isolated Margin
       if (subaccount.subaccountNumber >= 128 && params.leverage) {
-        const orderValue = size * price;
-        const requiredMargin = orderValue / params.leverage;
+        // Use oracle price for accurate collateral calculation (not slippage price)
+        const oraclePrice = parseFloat(marketInfo.oraclePrice);
+        const notionalValue = size * oraclePrice;
+        const requiredMargin = notionalValue / params.leverage;
 
         // $20 equity tier minimum only applies to long-term/conditional orders, NOT market orders
         const isLongTermOrder = !orderCategory.isMarket;
@@ -70,10 +72,34 @@ class DydxTradingService {
           ? Math.max(requiredMargin, 20.1) // Long-term orders require min $20
           : requiredMargin; // Market orders just need the calculated margin
 
+        // Add 5% buffer for price slippage
+        const targetEquityWithBuffer = targetEquity * 1.05;
+
+        console.log('[dydxTradingService] Auto-deposit calculation:', {
+          size,
+          oraclePrice,
+          leverage: params.leverage,
+          notionalValue,
+          requiredMargin,
+          targetEquity,
+          targetEquityWithBuffer,
+          isLongTermOrder,
+          subaccountNumber: subaccount.subaccountNumber,
+        });
+
         // Ensure sufficient equity on the isolated subaccount
-        const equityResult = await dydxSubaccountService.ensureIsolatedEquity(subaccount.subaccountNumber, targetEquity);
+        const equityResult = await dydxSubaccountService.ensureIsolatedEquity(
+          subaccount.subaccountNumber,
+          targetEquityWithBuffer
+        );
         if (!equityResult.success) {
           throw new Error(equityResult.error || 'Failed to ensure isolated equity');
+        }
+
+        // If a transfer was made, wait for blockchain confirmation
+        if (equityResult.transferredAmount > 0) {
+          console.log('[dydxTradingService] Transfer made, waiting 3s for confirmation...');
+          await new Promise(resolve => setTimeout(resolve, 3000));
         }
       }
 

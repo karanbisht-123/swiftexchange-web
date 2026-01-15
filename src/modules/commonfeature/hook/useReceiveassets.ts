@@ -53,8 +53,6 @@ export const useReceiveAssets = () => {
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     if (walletAddress && qrCanvasRef.current && isAddressValid) {
-      // It's good practice to clear the canvas on update, though QRCode.toCanvas overwrites it.
-      // We explicitly clear the ref to ensure no stale data if the address changes.
       const canvas = qrCanvasRef.current;
       const context = canvas.getContext('2d');
       if (context) {
@@ -97,7 +95,6 @@ Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
       try {
         await navigator.share({ title: `My ${currentAsset?.value} address`, text });
       } catch {
-        // User cancelled or share failed
       }
     } else {
       try {

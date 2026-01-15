@@ -53,7 +53,6 @@ const paymentOptions: PaymentOption[] = fiatSupportData.map(fiat => ({
   countryName: fiat.countryName,
   payMin: fiat.payMin,
   payMax: fiat.payMax,
-  // Using flagcdn.com for free country flag images
   flag: `https://flagcdn.com/24x18/${fiat.country.toLowerCase()}.png`,
 }));
 
@@ -77,16 +76,12 @@ export const useAlchemyBuy = () => {
 
   const connectedWallets = useWalletStore(state => state.connectedWallets);
   const evmWallet = connectedWallets[WalletType.EVM];
-  const evmAddress = evmWallet?.address || '0x1f2fee51c15f6be9ff65833516358e6a55736092';
-
-  // Geolocation for auto-selecting user's country
+  const evmAddress = evmWallet?.address || '';
   const { country, isLoading: isLoadingCountry } = useUserCountry();
   const [hasAutoSelectedCountry, setHasAutoSelectedCountry] = useState(false);
 
-  // Auto-select payment option based on detected country
   useEffect(() => {
     if (!hasAutoSelectedCountry && country && !isLoadingCountry) {
-      // Find a payment option matching the user's country
       const matchingOption = paymentOptions.find(
         option => option.country === country
       );
@@ -177,7 +172,6 @@ export const useAlchemyBuy = () => {
 
         const quoteData = JSON.parse(response.data);
         if (!quoteData.success || !quoteData.data) {
-          // Show the API's error message if available
           if (quoteData.returnMsg) {
             throw new Error(quoteData.returnMsg);
           }

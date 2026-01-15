@@ -68,11 +68,11 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
   const renderFeedback = (error?: string, warning?: string) => {
     if (error) {
-      return <p className="text-xs text-red-400 mt-1 flex items-start gap-1">{error}</p>;
+      return <p className="text-xs text-red-500 mt-1 flex items-start gap-1 font-medium">{error}</p>;
     }
     if (warning) {
       return (
-        <p className="text-xs text-yellow-400 mt-1 flex items-start gap-1">
+        <p className="text-xs text-amber-500 mt-1 flex items-start gap-1 font-medium">
           <span>⚠</span>
           <span>{warning}</span>
         </p>
@@ -82,19 +82,19 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
   };
 
   const getInputClasses = (hasError?: string, hasWarning?: string) => {
-    let borderClass = 'border-gray-700';
-    if (hasError) borderClass = 'border-red-500';
-    else if (hasWarning) borderClass = 'border-yellow-500';
+    let borderClass = 'border-color';
+    if (hasError) borderClass = 'border-red-500/50';
+    else if (hasWarning) borderClass = 'border-amber-500/50';
 
-    return `w-full bg-gray-900/50 border ${borderClass} rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all`;
+    return `w-full bg-primary border ${borderClass} rounded-xl px-4 py-3 text-sm text-primary placeholder-muted focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 transition-all shadow-sm`;
   };
 
   return (
-    <div className="space-y-3 px-4">
+    <div className="space-y-4 px-4">
       {/* LIMIT PRICE INPUT */}
       {showPrice && (
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Limit Price (USD)</label>
+        <div className="animate-fade-in">
+          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">Limit Price (USD)</label>
           <input
             type="text"
             value={price}
@@ -111,8 +111,8 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
       {/* TRIGGER PRICE INPUT */}
       {showTriggerPrice && (
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Trigger Price (USD)</label>
+        <div className="animate-fade-in">
+          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">Trigger Price (USD)</label>
           <input
             type="text"
             value={triggerPrice}
@@ -128,20 +128,20 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
       )}
 
       {/* SIZE INPUT */}
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="text-xs text-gray-400">Amount</label>
+      <div className="animate-fade-in">
+        <div className="flex items-center justify-between mb-2 ml-1">
+          <label className="text-xs font-semibold text-muted uppercase tracking-wider">Amount</label>
           <button
             type="button"
             onClick={handleToggleCurrency}
-            className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-300 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-tertiary hover:bg-hover border border-color rounded-lg text-secondary transition-all font-medium shadow-sm"
             title={`Switch to ${currencyMode === 'USD' ? baseAsset : 'USD'} input mode`}
           >
-            <ArrowLeftRight size={12} />
+            <ArrowLeftRight size={12} className="text-brand-primary" />
             {currencyMode === 'USD' ? 'USD' : baseAsset}
           </button>
         </div>
-        <div className="relative">
+        <div className="relative group">
           <input
             type="text"
             value={size}
@@ -154,14 +154,19 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
           />
           {maxBuyingPower && maxBuyingPower > 0 && (
             <div
-              className="absolute right-3 top-2.5 text-[10px] text-gray-400 cursor-pointer hover:text-blue-400 transition-colors bg-gray-900/80 px-1.5 rounded z-10"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted cursor-pointer hover:text-brand-primary hover:bg-tertiary transition-all bg-tertiary/80 border border-color px-2 py-1 rounded-md z-10 font-bold"
               onClick={onSetMax}
               title="Click to fill max size"
             >
-              Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x
+              MAX
             </div>
           )}
         </div>
+        {maxBuyingPower && maxBuyingPower > 0 && (
+          <div className="mt-1.5 ml-1 flex justify-between items-center text-[10px]">
+            <span className="text-muted italic">Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x</span>
+          </div>
+        )}
         <div id="size-error">{renderFeedback(sizeError, sizeWarning)}</div>
       </div>
     </div>

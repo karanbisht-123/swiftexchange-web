@@ -96,9 +96,8 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
                 return (
                   <div
                     key={`ask-${idx}-${ask.price}`}
-                    className={`relative grid grid-cols-3 text-xs py-1.5 px-2 cursor-pointer transition-all duration-200 ${
-                      isHighlighted ? 'animate-pulse-once' : ''
-                    }`}
+                    className={`relative grid grid-cols-3 text-xs py-1.5 px-2 cursor-pointer transition-all duration-200 ${isHighlighted ? 'animate-pulse-once' : ''
+                      }`}
                     onClick={() => handlePriceClick(ask.price)}
                     style={{
                       backgroundColor: isHighlighted ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
@@ -130,12 +129,12 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
 
           {/* Spread Indicator */}
           {hasAsks && hasBids && (
-            <div className="my-3 py-2 px-3 bg-tertiary rounded-lg border border-color">
+            <div className="my-3 py-2 px-3 bg-secondary rounded-lg border border-color">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div
                     className="w-2 h-2 rounded-full animate-pulse"
-                    style={{ backgroundColor: 'var(--color-brand-accent)' }}
+                  // style={{ backgroundColor: 'var(--color-brand-accent)' }}
                   />
                   <span className="text-[10px] text-muted uppercase tracking-wide font-semibold">
                     Spread
@@ -169,9 +168,8 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
                 return (
                   <div
                     key={`bid-${idx}-${bid.price}`}
-                    className={`relative grid grid-cols-3 text-xs py-1.5 px-2 cursor-pointer transition-all duration-200 ${
-                      isHighlighted ? 'animate-pulse-once' : ''
-                    }`}
+                    className={`relative grid grid-cols-3 text-xs py-1.5 px-2 cursor-pointer transition-all duration-200 ${isHighlighted ? 'animate-pulse-once' : ''
+                      }`}
                     onClick={() => handlePriceClick(bid.price)}
                     style={{
                       backgroundColor: isHighlighted ? 'rgba(16, 185, 129, 0.2)' : 'transparent',

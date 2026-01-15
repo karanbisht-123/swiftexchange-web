@@ -161,15 +161,12 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const clearNotifications = useCallback(() => setNotifications([]), []);
 
-  //  Balance fetching
   useEffect(() => {
     const fetchBalance = async () => {
       if (!currentAsset || !senderAddress) {
         setBalance(0);
         return;
       }
-
-      // Reset balance on asset/network change
       setBalance(0);
       setIsFetchingBalance(true);
 
@@ -226,7 +223,6 @@ export const useSendAsset = (onBack?: () => void) => {
         } else if (currentAsset.type === 'stellar' && typeof currentAsset.networkKey === 'string') {
           fees = await estimateStellarFees();
         } else {
-          // Placeholder for Cosmos/Generic fee
           fees = {
             totalCost: currentAsset.baseFee.toFixed(
               currentAsset.decimals > 10 ? 8 : currentAsset.decimals
@@ -241,7 +237,6 @@ export const useSendAsset = (onBack?: () => void) => {
       } catch (e: any) {
         console.error('Fee estimation error:', e);
 
-        // Fallback to base fee if estimation fails
         const baseFeeData = {
           totalCost: currentAsset.baseFee.toFixed(
             currentAsset.decimals > 10 ? 8 : currentAsset.decimals
@@ -263,10 +258,8 @@ export const useSendAsset = (onBack?: () => void) => {
 
     const timer = setTimeout(estimate, 500);
     return () => clearTimeout(timer);
-    // Re-run fee estimation on asset, address, amount, or memo change (which includes network change)
   }, [currentAsset, senderAddress, recipientAddress, amount, memo]);
 
-  //  Input validation
   const validateInputs = useCallback(() => {
     if (!currentAsset) return 'Please select an asset.';
     if (!isWalletConnected) return `Please connect your ${currentAsset.walletType} wallet first.`;
@@ -318,8 +311,6 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const handleMaxClick = useCallback(() => {
     if (!currentAsset || isFetchingBalance) return;
-
-    // Use estimated fee if available, otherwise use base fee.
     const fee =
       estimatedFees && estimatedFees.totalCost
         ? parseFloat(estimatedFees.totalCost)
@@ -355,22 +346,16 @@ export const useSendAsset = (onBack?: () => void) => {
       } else if (currentAsset.type === 'stellar') {
         const options: StellarTransactionOptions = {};
         if (memo.trim()) options.memo = memo.trim();
-
-        // Stellar build is async and requires Horizon network context
         const stellarTx = await sendCryptoStellarBuild(
           senderAddress,
           recipientAddress,
           amount,
           options
         );
-
-        // Determine network passphrase based on current network state (LOWERCASE)
         const networkPassphrase =
           currentNetwork === 'testnet'
             ? 'Test SDF Network ; September 2015'
             : 'Public Global Stellar Network ; September 2015';
-
-        // FIX: The comparison here must be consistent with the NetworkType (lowercase)
         const networkString = currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC';
 
         transactionRequest = {
@@ -387,7 +372,6 @@ export const useSendAsset = (onBack?: () => void) => {
           },
         };
       } else {
-        // This should never happen since we only support evm and stellar now
         throw new Error(`Unsupported asset type: ${currentAsset.type}`);
       }
 
@@ -399,7 +383,6 @@ export const useSendAsset = (onBack?: () => void) => {
           txHash: response.hash || null,
           step: 'success',
         }));
-        // Reset form after a successful transaction
         setTimeout(() => {
           setRecipientAddress('');
           setAmount('');
@@ -418,7 +401,6 @@ export const useSendAsset = (onBack?: () => void) => {
       console.error('Transaction error:', error);
 
       if (isUserRejection(error)) {
-        // Go back to review step if user cancels signing
         setTransactionState(p => ({ ...p, step: 'review', error: null }));
         return;
       }
@@ -471,7 +453,6 @@ export const useSendAsset = (onBack?: () => void) => {
 
   useEffect(() => {
     if (currentAsset) {
-      // Session info used for debugging - can be enabled when needed
       getSessionInfo(currentAsset.walletType);
     }
   }, [currentAsset, getSessionInfo]);

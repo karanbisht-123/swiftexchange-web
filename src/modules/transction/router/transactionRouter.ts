@@ -1,4 +1,3 @@
-// import { getEVMChains } from '../../walletconnect/config/chains';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 
 export interface TransactionRequest {
@@ -213,26 +212,22 @@ class TransactionRouter {
         to: request.to,
         value: '0x' + amountInWei.toString(16),
       };
-
-      // Only add data if it's actually transaction data (not a memo)
       if (request.data && typeof request.data === 'string' && request.data.startsWith('0x') && request.data.length > 2) {
         txParams.data = request.data;
       }
 
       console.log('Transaction params:', txParams);
-
-      // Check if this is a WalletConnect provider (has session property)
       const isWalletConnect = !!provider.session;
 
       let hash: string;
 
       if (isWalletConnect) {
-        // For WalletConnect Universal Provider, we need to specify the chain
         const chainId = typeof request.networkKey === 'number'
           ? request.networkKey
           : parseInt(String(session.chainId));
 
         const chainIdCAIP = `eip155:${chainId}`;
+
         console.log('Using WalletConnect with chain:', chainIdCAIP);
 
         hash = await provider.request({
@@ -240,7 +235,6 @@ class TransactionRouter {
           params: [txParams],
         }, chainIdCAIP);
       } else {
-        // For browser extension providers (MetaMask, etc.)
         hash = await provider.request({
           method: 'eth_sendTransaction',
           params: [txParams],
@@ -378,69 +372,3 @@ class TransactionRouter {
 }
 
 export const transactionRouter = new TransactionRouter();
-
-// private async ensureCorrectNetwork(
-//   provider: any,
-//   requiredChainId: number,
-//   networkName: string
-// ): Promise<void> {
-//   try {
-//     const currentChainIdHex = await provider.request({ method: 'eth_chainId' });
-//     const currentChainId = parseInt(currentChainIdHex, 16);
-//     const requiredChainIdHex = '0x' + requiredChainId.toString(16);
-//     console.log('[Router] Network check:', {
-//       current: currentChainId,
-//       required: requiredChainId,
-//       currentHex: currentChainIdHex,
-//       requiredHex: requiredChainIdHex,
-//     });
-//     if (currentChainId === requiredChainId) {
-//       console.log('[Router] Already on correct network');
-//       return;
-//     }
-//     console.log(`[Router] Switching to ${networkName} (${requiredChainId})`);
-//     try {
-//       await provider.request({
-//         method: 'wallet_switchEthereumChain',
-//         params: [{ chainId: requiredChainIdHex }],
-//       });
-//       console.log('[Router] Network switched successfully');
-//     } catch (switchError: any) {
-//       if (switchError.code === 4902) {
-//         console.log('[Router] Network not found, adding it...');
-//         await this.addNetwork(provider, requiredChainId);
-//         console.log('[Router] Network added and switched successfully');
-//       } else {
-//         throw switchError;
-//       }
-//     }
-//     const newChainIdHex = await provider.request({ method: 'eth_chainId' });
-//     const newChainId = parseInt(newChainIdHex, 16);
-//     if (newChainId !== requiredChainId) {
-//       throw new Error(`Network switch failed. Expected ${requiredChainId}, got ${newChainId}`);
-//     }
-//   } catch (error: any) {
-//     if (error.code === 4001) {
-//       throw new Error('Network switch cancelled by user.');
-//     }
-//     console.error('[Router] Network switch error:', error);
-//     throw new Error(`Failed to switch to ${networkName}: ${error.message}`);
-//   }
-// }
-// private async addNetwork(provider: any, chainId: number): Promise<void> {
-//   const networkConfig = getEVMChains().find(c => c.chainId === chainId);
-//   if (!networkConfig) {
-//     throw new Error(`Network configuration not found for chain ID: ${chainId}`);
-//   }
-//   const params = {
-//     chainId: '0x' + chainId.toString(16),
-//     chainName: networkConfig.name,
-//     nativeCurrency: networkConfig.nativeCurrency,
-//     rpcUrls: [networkConfig.rpcUrl],
-//     blockExplorerUrls: [networkConfig.blockExplorerUrl],
-//   };
-//   await provider.request({
-//     method: 'wallet_addEthereumChain',
-//     params: [params],
-//   });
-// }

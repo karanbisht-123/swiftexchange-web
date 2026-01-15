@@ -165,21 +165,19 @@ const TradeTransactionUI = () => {
       <div className="flex bg-muted rounded-full p-1 mb-6">
         <button
           onClick={() => setActiveTab('active')}
-          className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-            activeTab === 'active'
+          className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-all ${activeTab === 'active'
               ? 'bg-primary text-text-inverse shadow-md'
               : 'text-muted hover:bg-muted/50'
-          }`}
+            }`}
         >
           Active Offers
         </button>
         <button
           onClick={() => setActiveTab('completed')}
-          className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-            activeTab === 'completed'
+          className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-all ${activeTab === 'completed'
               ? 'bg-primary text-text-inverse shadow-md'
               : 'text-muted hover:bg-muted/50'
-          }`}
+            }`}
         >
           Completed Trades
         </button>

@@ -525,7 +525,6 @@ export const useWebSocketStore = create<WebSocketState>()(
           // Add/update with new fills
           data.fills.forEach(fill => {
             const existingFill = fillMap.get(fill.id);
-            // Only update if new fill is more recent or doesn't exist
             if (
               !existingFill ||
               (fill.createdAt &&
@@ -555,16 +554,19 @@ export const useWebSocketStore = create<WebSocketState>()(
 
         // Always increment updateTrigger when we receive new data to force UI refresh
         // This ensures real-time updates are reflected immediately
-        const positionsChanged = data.childSubaccounts !== undefined;
-        const ordersChanged = data.orders !== undefined && data.orders.length > 0;
-        const fillsChanged = data.fills !== undefined && data.fills.length > 0;
+        const hasChildSubaccountChanges = data.childSubaccounts !== undefined;
+        const hasOrderChanges = data.orders !== undefined && data.orders.length > 0;
+        const hasFillChanges = data.fills !== undefined && data.fills.length > 0;
+        const hasEquityChange = data.equity !== existing.equity || data.freeCollateral !== existing.freeCollateral;
 
-        const hasChanges = positionsChanged || ordersChanged || fillsChanged ||
+        // Always increment on any meaningful change
+        const hasChanges = hasChildSubaccountChanges || hasOrderChanges || hasFillChanges || hasEquityChange ||
           merged.orders.length !== existing.orders.length ||
           merged.fills.length !== existing.fills.length;
 
         return {
           parentSubaccounts: newMap,
+          // Always increment to ensure UI reactivity
           updateTrigger: hasChanges ? state.updateTrigger + 1 : state.updateTrigger,
         };
       });

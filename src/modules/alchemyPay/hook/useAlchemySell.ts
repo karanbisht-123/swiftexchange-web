@@ -228,8 +228,6 @@ export const useAlchemySell = () => {
           ...parsedResponse.data,
           networkFee: parsedResponse.data.networkFee || '0',
         };
-
-        // Validate that fiat amount meets payment method minimum
         const fiatValue = parseFloat(quoteData.fiatQuantity || '0');
         if (fiatValue < selectedPaymentOption.payMin) {
           throw new Error(
@@ -284,7 +282,6 @@ export const useAlchemySell = () => {
       return;
     }
 
-    // Validate fiat amount meets payment method minimum
     const fiatValue = parseFloat(fiatAmount);
     if (fiatValue < selectedPaymentOption.payMin) {
       setOrderError(

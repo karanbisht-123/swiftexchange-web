@@ -44,8 +44,6 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
             </button>
           </div>
         )}
-
-        {/* Toast notification for copy feedback */}
         {copyFeedback && (
           <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg animate-fade-in">
             {copyFeedback}

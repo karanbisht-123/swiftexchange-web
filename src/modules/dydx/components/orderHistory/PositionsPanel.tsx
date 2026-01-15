@@ -282,7 +282,6 @@ const PositionsPanel: React.FC = () => {
               if (absSize === 0) return null;
 
               const entryPrice = parseFloat(position.entryPrice);
-              const oraclePrice = position.market || entryPrice;
               const unrealizedPnl = parseFloat(position.unrealizedPnl);
               const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
               const isShort = position.side === 'SHORT';
@@ -319,7 +318,7 @@ const PositionsPanel: React.FC = () => {
                   </td>
 
                   <td className="p-3 text-right text-blue-400 font-mono">
-                    ${formatPrice(oraclePrice)}
+                    ${formatPrice(entryPrice)}
                   </td>
 
                   <td className="p-3 text-right text-orange-400 font-mono">
@@ -381,7 +380,6 @@ const PositionsPanel: React.FC = () => {
           if (absSize === 0) return null;
 
           const entryPrice = parseFloat(position.entryPrice);
-          const oraclePrice = position.market || entryPrice;
           const unrealizedPnl = parseFloat(position.unrealizedPnl);
           const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
           const isShort = position.side === 'SHORT';
@@ -439,7 +437,7 @@ const PositionsPanel: React.FC = () => {
 
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Oracle</span>
-                  <span className="text-blue-400 font-medium font-mono">${formatPrice(oraclePrice)}</span>
+                  <span className="text-blue-400 font-medium font-mono">${formatPrice(entryPrice)}</span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
