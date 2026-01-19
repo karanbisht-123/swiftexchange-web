@@ -106,7 +106,7 @@ async function deriveDydxAddress(evmAddress: string, provider: any): Promise<Dyd
   return { address: wallet.address || '', mnemonic: derived.mnemonic };
 }
 
-let UniversalProvider: typeof UniversalProviderType | null = null;
+let UniversalProviderClass: typeof UniversalProviderType | null = null;
 
 class WalletService {
   private sessions = new Map<WalletType, WalletSession>();
@@ -120,6 +120,43 @@ class WalletService {
 
   constructor() {
     this.loadNetwork();
+  }
+
+  // Creates or returns a dedicated provider instance for the given wallet type.
+  // with a unique customStoragePrefix to prevent session conflicts.
+
+  private async getOrCreateProvider(type: WalletType): Promise<any> {
+    const existingProvider = this.providers.get(type);
+    if (existingProvider?.session) {
+      console.log(`[WalletService] Reusing existing provider for ${type}`);
+      return existingProvider;
+    }
+
+    const { Core } = await import('@walletconnect/core');
+    if (!UniversalProviderClass) {
+      const module = await import('@walletconnect/universal-provider');
+      UniversalProviderClass = module.default;
+    }
+
+    console.log(`[WalletService] Creating isolated Core for ${type}`);
+
+    //isolated Core instance with customStoragePrefix
+    const core = new Core({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      customStoragePrefix: `swiftex_${type}`,
+    });
+    console.log(`[WalletService] Creating UniversalProvider for ${type}`);
+    const provider = await UniversalProviderClass.init({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      metadata: {
+        ...WALLETCONNECT_METADATA,
+        name: `${WALLETCONNECT_METADATA.name} (${type.toUpperCase()})`,
+      },
+      core,
+    });
+    this.providers.set(type, provider);
+
+    return provider;
   }
 
   private loadNetwork(): void {
@@ -195,7 +232,7 @@ class WalletService {
       const dydxChainId = getDydxChainId(this.currentNetwork);
 
       if (evmAddress && autoDeriveWallet) {
-        // console.log('[WalletService] Auto-deriving dYdX wallet...');
+        // console.log('[WalletService] deriving dYdX wallet...');
         this.emitState(type, 'signing');
 
         try {
@@ -397,16 +434,9 @@ class WalletService {
     cosmosAddress?: string;
     cosmosChainId?: string;
   }> {
-    if (!UniversalProvider) {
-      const module = await import('@walletconnect/universal-provider');
-      UniversalProvider = module.default;
-    }
-
     console.log('[WalletService] Initializing WalletConnect...');
-    const provider = await UniversalProvider.init({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      metadata: WALLETCONNECT_METADATA,
-    });
+    // Use dedicated provider instance for this wallet type
+    const provider = await this.getOrCreateProvider(preferredType);
 
     const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
     const cosmosChains = getCosmosChains(this.currentNetwork);
@@ -434,19 +464,19 @@ class WalletService {
       const namespaces =
         preferredType === 'evm'
           ? {
-              eip155: {
-                methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
-                chains: evmChains,
-                events: ['chainChanged', 'accountsChanged'],
-              },
-            }
+            eip155: {
+              methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+              chains: evmChains,
+              events: ['chainChanged', 'accountsChanged'],
+            },
+          }
           : {
-              cosmos: {
-                methods: ['cosmos_signDirect', 'cosmos_signAmino'],
-                chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
-                events: ['accountsChanged'],
-              },
-            };
+            cosmos: {
+              methods: ['cosmos_signDirect', 'cosmos_signAmino'],
+              chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
+              events: ['accountsChanged'],
+            },
+          };
 
       console.log('[WalletService] Requesting connection...');
       provider
@@ -502,8 +532,6 @@ class WalletService {
     provider.on('session_ping', ({ id, topic }: { id: number; topic: string }) => {
       console.log('[WalletService] Session ping:', { id, topic, type });
     });
-
-    // Session event - this is where chainChanged and accountsChanged come through
     provider.on(
       'session_event',
       ({ event, chainId }: { event: { name: string; data: any }; chainId: string }) => {
@@ -563,12 +591,9 @@ class WalletService {
     if (!session) return;
 
     const oldEvmAddress = session.evmAddress?.toLowerCase();
-
-    // Handle different account formats
     const firstAccount = Array.isArray(accounts) ? accounts[0] : accounts;
 
     if (type === 'evm') {
-      // Could be just address or full CAIP-10 format (eip155:1:0x...)
       if (typeof firstAccount === 'string') {
         if (firstAccount.includes(':')) {
           const [, chainIdStr, address] = firstAccount.split(':');
@@ -578,7 +603,6 @@ class WalletService {
           session.evmAddress = firstAccount;
         }
 
-        // Clear dYdX data on account change
         const newEvmAddress = session.evmAddress.toLowerCase();
         if (oldEvmAddress && oldEvmAddress !== newEvmAddress) {
           delete session.dydxAddress;
@@ -611,8 +635,6 @@ class WalletService {
 
     if (type === 'evm') {
       let parsedChainId: number;
-
-      // chainData could be hex string, decimal string, or number
       if (typeof chainData === 'string') {
         parsedChainId = chainData.startsWith('0x')
           ? parseInt(chainData, 16)
@@ -704,16 +726,8 @@ class WalletService {
   }
 
   private async connectStellarWalletConnect(walletId: string): Promise<WalletSession> {
-    if (!UniversalProvider) {
-      const module = await import('@walletconnect/universal-provider');
-      UniversalProvider = module.default;
-    }
-
     console.log('[WalletService] Stellar WalletConnect init...');
-    const provider = await UniversalProvider.init({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      metadata: WALLETCONNECT_METADATA,
-    });
+    const provider = await this.getOrCreateProvider('stellar');
 
     const config = getStellarConfig(this.currentNetwork);
     const stellarChain = `stellar:${config.chainId}`;
@@ -770,8 +784,6 @@ class WalletService {
 
           this.sessions.set('stellar', walletSession);
           this.providers.set('stellar', provider);
-
-          // Setup WalletConnect event listeners for Stellar
           this.setupWalletConnectListeners(provider, 'stellar');
 
           this.emitState('stellar', 'connected');
@@ -801,7 +813,7 @@ class WalletService {
       }
     }
 
-    // Clear in-memory mnemonic
+    // Clear mnemonic
     if (session?.evmAddress) {
       this.inMemoryMnemonics.delete(session.evmAddress.toLowerCase());
     }
@@ -817,7 +829,6 @@ class WalletService {
 
     if (type === 'evm') {
       this.derivationInProgress = false;
-      // Clear encrypted mnemonic from storage on disconnect
       localStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
     }
 
@@ -873,7 +884,6 @@ class WalletService {
           }
 
           if (provider.session) {
-            // Setup event listeners for restored sessions
             this.setupWalletConnectListeners(provider, type);
 
             const refreshed = await this.refreshSessionFromProvider(provider, savedSession);
@@ -893,15 +903,8 @@ class WalletService {
     return restored;
   }
 
-  private async initProvider(_type: WalletType) {
-    if (!UniversalProvider) {
-      const module = await import('@walletconnect/universal-provider');
-      UniversalProvider = module.default;
-    }
-    return await UniversalProvider.init({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      metadata: WALLETCONNECT_METADATA,
-    });
+  private async initProvider(type: WalletType) {
+    return await this.getOrCreateProvider(type);
   }
 
   private async refreshSessionFromProvider(
@@ -997,8 +1000,6 @@ class WalletService {
         if (session) {
           const oldAddress = session.evmAddress?.toLowerCase();
           session.evmAddress = accounts[0];
-
-          // Clear dYdX data on account change
           const newAddress = session.evmAddress.toLowerCase();
           if (oldAddress && oldAddress !== newAddress) {
             delete session.dydxAddress;

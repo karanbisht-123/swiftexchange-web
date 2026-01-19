@@ -12,22 +12,20 @@
   },
   "dependencies": {
     "@dydxprotocol/v4-client-js": "^3.1.1",
-    "@reown/walletkit": "^1.4.1",
     "@stellar/stellar-sdk": "^14.4.3",
+    "@walletconnect/core": "^2.20.0",
     "@walletconnect/modal": "^2.7.0",
     "@walletconnect/types": "^2.21.6",
     "@walletconnect/universal-provider": "^2.23.1",
     "@walletconnect/utils": "^2.21.6",
     "ethers": "^6.15.0",
     "lightweight-charts": "^5.0.8",
-    "lodash": "^4.17.21",
     "lucide-react": "^0.525.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.8.2",
     "react-select": "^5.10.2",
-    "reconnecting-websocket": "^4.4.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {

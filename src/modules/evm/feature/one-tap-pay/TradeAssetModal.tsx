@@ -75,7 +75,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const evmAddress = evmWallet?.address || FALLBACK_EVM_ADDRESS;
   const stellarAddress = stellarWallet?.address || FALLBACK_STELLAR_ADDRESS;
-  const hasConnectedWallet = !!evmWallet?.address;
+  // const hasConnectedWallet = !!evmWallet?.address;
 
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
   const provider = getProvider(WalletType.EVM);

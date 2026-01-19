@@ -12,7 +12,7 @@ import EvmTransactionHistory from '../modules/evm/components/EvmTransactionHisto
 // import WebSocketDebugger from '../modules/dydx/utils/WebSocketDebugger';
 import SwapAssets from '../modules/evm/feature/swap/SwapAssets';
 import CryptoMarket from '../modules/market/CryptoMarket';
-import TradeTransactionUI from '../modules/steallr/components/TradeTransactionUI';
+// import TradeTransactionUI from '../modules/steallr/components/TradeTransactionUI';
 import AssetManager from '../modules/steallr/components/stellarassets/AssetManager';
 import StallerTradescreen from '../modules/steallr/components/tradescreen/StallerTradescreen';
 import Dashboard from '../pages/Dashboard';

@@ -204,6 +204,12 @@ class TransactionRouter {
 
     try {
       console.log('Preparing EVM transaction...');
+      console.log('Session info:', {
+        hasProvider: !!provider,
+        hasSession: !!provider?.session,
+        chainId: session.chainId,
+        requestNetworkKey: request.networkKey,
+      });
 
       const amountInWei = BigInt(Math.floor(parseFloat(request.amount) * 1e18));
 
@@ -217,29 +223,19 @@ class TransactionRouter {
       }
 
       console.log('Transaction params:', txParams);
-      const isWalletConnect = !!provider.session;
+      const chainId = typeof request.networkKey === 'number'
+        ? request.networkKey
+        : parseInt(String(session.chainId)) || 1;
 
-      let hash: string;
-
-      if (isWalletConnect) {
-        const chainId = typeof request.networkKey === 'number'
-          ? request.networkKey
-          : parseInt(String(session.chainId));
-
-        const chainIdCAIP = `eip155:${chainId}`;
-
-        console.log('Using WalletConnect with chain:', chainIdCAIP);
-
-        hash = await provider.request({
+      const chainIdCAIP = `eip155:${chainId}`;
+      console.log('Using chain:', chainIdCAIP);
+      const hash = await provider.request(
+        {
           method: 'eth_sendTransaction',
           params: [txParams],
-        }, chainIdCAIP);
-      } else {
-        hash = await provider.request({
-          method: 'eth_sendTransaction',
-          params: [txParams],
-        });
-      }
+        },
+        chainIdCAIP
+      );
 
       console.log('Transaction sent successfully!');
       console.log('Transaction hash:', hash);
@@ -250,6 +246,7 @@ class TransactionRouter {
       console.error('EVM transaction failed:', {
         message: error.message,
         code: error.code,
+        data: error.data,
       });
       console.groupEnd();
       throw error;
@@ -266,6 +263,12 @@ class TransactionRouter {
 
     try {
       console.log('Preparing Stellar transaction...');
+      console.log('Session info:', {
+        hasProvider: !!provider,
+        hasSession: !!provider?.session,
+        chainId: session.chainId,
+        requestNetworkKey: request.networkKey,
+      });
 
       if (!request.data?.xdr) {
         console.error('Missing XDR data');
@@ -283,26 +286,38 @@ class TransactionRouter {
         networkPassphrase: request.data.networkPassphrase || 'Test SDF Network ; September 2015',
         network: request.data.network || 'TESTNET',
       };
+      const stellarChainId = typeof request.networkKey === 'string'
+        ? request.networkKey
+        : String(session.chainId) || 'pubnet';
+      const chainCAIP = `stellar:${stellarChainId}`;
 
+      console.log('Using Stellar chain:', chainCAIP);
       console.log('Calling provider.request with stellar_signAndSubmitXDR...');
-
-      const result = await provider.request({
-        method: 'stellar_signAndSubmitXDR',
-        params: signParams,
-      });
+      const result = await provider.request(
+        {
+          method: 'stellar_signAndSubmitXDR',
+          params: signParams,
+        },
+        chainCAIP
+      );
 
       console.log('Provider response:', result);
 
-      if (result.status === 'success') {
+      if (result?.status === 'success' || result?.hash || result?.signedXDR) {
         console.log('Stellar transaction successful!');
         console.groupEnd();
-        return { status: 'success', hash: 'stellar_submitted' };
+        return { status: 'success', hash: result.hash || 'stellar_submitted' };
+      }
+      if (typeof result === 'string') {
+        console.log('Stellar transaction returned string result');
+        console.groupEnd();
+        return { status: 'success', hash: result };
       }
 
-      console.error('Stellar transaction failed - status not success');
+      console.error('Stellar transaction failed - unexpected response:', result);
       throw new Error('Stellar transaction failed');
     } catch (error: any) {
-      console.error(' Stellar transaction failed:', {
+      console.error('Stellar transaction failed:', {
         message: error.message,
         code: error.code,
         fullError: error,
