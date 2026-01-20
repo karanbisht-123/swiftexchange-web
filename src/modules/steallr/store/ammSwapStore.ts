@@ -3,6 +3,13 @@ import { persist } from 'zustand/middleware';
 
 import type { TokenInfo } from '../types/ammSwap.types';
 
+interface ChartPair {
+  base: string;
+  counter: string;
+  baseIssuer?: string;
+  counterIssuer?: string;
+}
+
 interface SwapHistory {
   transactions: any[];
   favorites: TokenInfo[];
@@ -11,6 +18,7 @@ interface SwapHistory {
 interface AmmSwapStore extends SwapHistory {
   defaultSlippage: number;
   expertMode: boolean;
+  selectedChartPair: ChartPair | null;
 
   addTransaction: (tx: any) => void;
   updateTransaction: (id: string, updates: Partial<any>) => void;
@@ -18,6 +26,7 @@ interface AmmSwapStore extends SwapHistory {
   removeFavorite: (tokenCode: string) => void;
   setDefaultSlippage: (slippage: number) => void;
   setExpertMode: (enabled: boolean) => void;
+  setSelectedChartPair: (pair: ChartPair | null) => void;
   clearHistory: () => void;
 }
 
@@ -28,6 +37,7 @@ export const useAmmSwapStore = create<AmmSwapStore>()(
       favorites: [],
       defaultSlippage: 1,
       expertMode: false,
+      selectedChartPair: null,
 
       addTransaction: tx =>
         set(state => ({
@@ -56,6 +66,8 @@ export const useAmmSwapStore = create<AmmSwapStore>()(
       setDefaultSlippage: slippage => set({ defaultSlippage: slippage }),
 
       setExpertMode: enabled => set({ expertMode: enabled }),
+
+      setSelectedChartPair: pair => set({ selectedChartPair: pair }),
 
       clearHistory: () => set({ transactions: [] }),
     }),

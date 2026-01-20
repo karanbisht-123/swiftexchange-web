@@ -140,9 +140,9 @@ class DydxSubaccountService {
   }
 
   calculateRequiredCollateral(
-    size: number,        // Position size (S)
+    size: number, // Position size (S)
     oraclePrice: number, // Oracle Price (P)
-    leverage: number     // Desired Leverage (L)
+    leverage: number // Desired Leverage (L)
   ): number {
     // Formula: IM = (S × P) / L
     const notionalValue = size * oraclePrice;

@@ -47,11 +47,10 @@ const StellarTradeScreen = () => {
         <div className="inline-flex rounded-lg border border-color bg-secondary p-1 shadow-sm">
           <button
             onClick={() => setActiveTab('amm')}
-            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'amm'
+            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'amm'
                 ? 'text-white shadow-sm'
                 : 'text-secondary hover:text-primary hover:bg-tertiary'
-            }`}
+              }`}
             style={{
               backgroundColor: activeTab === 'amm' ? 'var(--color-brand-primary)' : 'transparent',
             }}
@@ -60,11 +59,10 @@ const StellarTradeScreen = () => {
           </button>
           <button
             onClick={() => setActiveTab('orderbook')}
-            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'orderbook'
+            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'orderbook'
                 ? 'text-white shadow-sm'
                 : 'text-secondary hover:text-primary hover:bg-tertiary'
-            }`}
+              }`}
             style={{
               backgroundColor:
                 activeTab === 'orderbook' ? 'var(--color-brand-primary)' : 'transparent',
@@ -79,7 +77,7 @@ const StellarTradeScreen = () => {
         <div className="space-y-4 animate-fade-in">
           <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
             {/* Chart (70%) */}
-            <div className="lg:col-span-6 border lg:border-none rounded-xl">
+            <div className="lg:col-span-6  rounded-xl">
               <StellarTradingChart />
             </div>
 

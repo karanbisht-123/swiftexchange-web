@@ -1,6 +1,8 @@
 import { ArrowRightLeft, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
+import { ROUTES } from '../../../constants/routes';
 import TradeAssetModal from '../../evm/feature/one-tap-pay/TradeAssetModal';
 import { type Asset, useWalletAssets } from '../hooks/useWalletAssets';
 
@@ -29,9 +31,13 @@ const Shimmer = ({ className = 'h-4 w-16' }: { className?: string }) => (
 );
 
 const canTradeAsset = (asset: Asset): boolean => {
-  if (asset.chainType !== 'evm') return false;
-  const symbol = asset.symbol.toUpperCase();
-  return ['USDT', 'USDC'].includes(symbol);
+  if (asset.chainType === 'stellar') return true;
+  if (asset.chainType === 'evm') {
+    const symbol = asset.symbol.toUpperCase();
+    return ['USDT', 'USDC'].includes(symbol);
+  }
+
+  return false;
 };
 
 const calculatePortfolioChange = (assets: Asset[]): number => {
@@ -135,6 +141,7 @@ const AssetRow = memo(({ asset, onTrade }: { asset: Asset; onTrade: (asset: Asse
 AssetRow.displayName = 'AssetRow';
 
 const WalletAssetsSection = () => {
+  const navigate = useNavigate();
   const { network } = useWalletStore();
   const { assets, loading, totalValue, refetch } = useWalletAssets(network);
 
@@ -147,6 +154,19 @@ const WalletAssetsSection = () => {
   const isPositive = portfolioChange >= 0;
 
   const handleTrade = (asset: Asset) => {
+
+    console.log(asset);
+    console.log(asset.chainType, "------")
+    if (asset.chainType === 'stellar') {
+      navigate(ROUTES.TRADING_STEALLR, {
+        state: {
+          selectedAsset: asset,
+          fromTradeButton: true,
+        },
+      });
+      return;
+    }
+
     setSelectedAsset(asset);
     setIsTradeModalOpen(true);
   };
@@ -235,7 +255,7 @@ const WalletAssetsSection = () => {
         </div>
       </section>
 
-      {selectedAsset && (
+      {selectedAsset && selectedAsset.chainType !== 'stellar' && (
         <TradeAssetModal
           isOpen={isTradeModalOpen}
           onClose={handleCloseModal}

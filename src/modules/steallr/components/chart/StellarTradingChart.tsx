@@ -14,6 +14,7 @@ import {
 } from 'lightweight-charts';
 
 import { useStellarChart } from '../../hook/useStallerChart';
+import { useAmmSwapStore } from '../../store/ammSwapStore';
 import type { ChartAssetPair, ChartResolution } from '../../types/stellarChart.types';
 
 type ChartType = 'candlestick' | 'line' | 'area';
@@ -98,7 +99,7 @@ export default function StellarTradingChart({
   const {
     data: chartData,
     isLoading,
-    error,
+    // error,
     isStreaming,
     lastUpdate,
     currentNetwork,
@@ -116,8 +117,13 @@ export default function StellarTradingChart({
     autoStream,
   });
 
-  console.log(error);
-  console.log(updateAssetPair);
+  const { selectedChartPair } = useAmmSwapStore();
+
+  useEffect(() => {
+    if (selectedChartPair) {
+      updateAssetPair(selectedChartPair);
+    }
+  }, [selectedChartPair, updateAssetPair]);
 
   const getThemeColors = () => {
     if (isDark) {
@@ -450,9 +456,8 @@ export default function StellarTradingChart({
                       onChange(opt.value);
                       onToggle();
                     }}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${
-                      value === opt.label ? 'bg-hover text-brand' : 'text-primary'
-                    }`}
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${value === opt.label ? 'bg-hover text-brand' : 'text-primary'
+                      }`}
                   >
                     {opt.label}
                   </button>
@@ -547,7 +552,7 @@ export default function StellarTradingChart({
   return (
     <div className={`${isFullscreen ? 'fixed inset-0 z-50' : ''} bg-primary rounded-xl`}>
       <div className="h-full flex flex-col">
-        <div className="bg-secondary border-b border-color px-2 py-2 rounded-t-xl overflow-x-auto">
+        <div className="bg-secondary px-2 py-2 rounded-t-xl overflow-x-auto">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="text-sm font-medium text-primary">
@@ -638,7 +643,7 @@ export default function StellarTradingChart({
           )} */}
           {isLoading && chartData.length === 0 ? (
             <div
-              className={`flex items-center justify-center ${isFullscreen ? 'h-full' : 'h-[500px]'}`}
+              className={`flex items-center justify-center ${isFullscreen ? 'h-full' : 'h-[300px] md:h-[500px]'}`}
             >
               <div className="text-center">
                 <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -651,7 +656,7 @@ export default function StellarTradingChart({
           ) : (
             <div
               ref={chartContainerRef}
-              className={`w-full ${isFullscreen ? 'h-full' : 'h-[500px]'}`}
+              className={`w-full ${isFullscreen ? 'h-full' : 'h-[300px] md:h-[500px]'}`}
             />
           )}
         </div>

@@ -3,8 +3,6 @@ import {
   ArrowDownUp,
   CheckCircle,
   RefreshCw,
-  TrendingDown,
-  TrendingUp,
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
@@ -14,6 +12,16 @@ import { ERROR_MESSAGES, SUCCESS_MESSAGES, UI_STRINGS } from '../constants/order
 import { useLargeOrder } from '../hook/useOrderBookSwap';
 import { useLargeOrderStore } from '../store/orderBookSwapStore';
 import OrderBook from './OrderBook';
+
+const TOKEN_ICONS: Record<string, string> = {
+  XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
+  USDC: 'https://coin-images.coingecko.com/coins/images/6319/small/usdc.png',
+  USDT: 'https://coin-images.coingecko.com/coins/images/325/small/Tether.png',
+};
+
+const getTokenIcon = (code: string): string | null => {
+  return TOKEN_ICONS[code?.toUpperCase()] || null;
+};
 
 const OrderBookSwapUI = () => {
   const [orderStatus, setOrderStatus] = useState<'pending' | 'success' | 'error' | null>(null);
@@ -135,181 +143,199 @@ const OrderBookSwapUI = () => {
 
   if (!stellarWallet) {
     return (
-      <div className="bg-secondary rounded-xl border lg:border-none p-6 h-full flex items-center justify-center">
+      <div className="bg-secondary rounded-xl p-6 h-full flex items-center justify-center">
         <div className="w-full max-w-lg text-center space-y-4">
           <AlertCircle className="w-16 h-16 text-warning mx-auto" />
-          <h4 className="heading-4">Stellar Wallet Not Connected</h4>
-          <p className="text-muted">Please connect your Stellar wallet to start trading</p>
+          <h4 className="text-lg font-semibold text-primary">Stellar Wallet Not Connected</h4>
+          <p className="text-muted text-sm">Please connect your Stellar wallet to start trading</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-secondary rounded-xl border lg:border-none p-2 sm:p-6">
-      {/* --------- MOBILE TABS --------- */}
-      <div className="flex sm:hidden mb-4 border-b border-border">
+    <div className="bg-secondary rounded-xl">
+      <div className="flex sm:hidden bg-primary rounded-t-xl">
         <button
           onClick={() => setActiveTab('trade')}
-          className={`flex-1 py-2 text-sm font-medium ${
-            activeTab === 'trade' ? 'border-b-2 border-brand text-brand' : 'text-muted'
-          }`}
+          className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'trade'
+            ? 'text-primary bg-secondary rounded-tl-xl'
+            : 'text-muted hover:text-primary'
+            }`}
         >
           Trade
         </button>
         <button
           onClick={() => setActiveTab('orderBook')}
-          className={`flex-1 py-2 text-sm font-medium ${
-            activeTab === 'orderBook' ? 'border-b-2 border-brand text-brand' : 'text-muted'
-          }`}
+          className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'orderBook'
+            ? 'text-primary bg-secondary rounded-tr-xl'
+            : 'text-muted hover:text-primary'
+            }`}
         >
           Order Book
         </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4">
-        {/* --------- TRADE PANEL --------- */}
+      <div className="flex flex-col lg:flex-row">
         <div
-          className={`flex-1 border-r p-2 sm:p-4 ${
-            activeTab === 'trade' ? 'block' : 'hidden sm:block'
-          }`}
+          className={`flex-1 p-4 lg:p-6 ${activeTab === 'trade' ? 'block' : 'hidden sm:block'
+            }`}
         >
-          {/* --- Header --- */}
-          <div className="items-center hidden lg:flex justify-between mb-4">
-            <h2 className="heading-4">{UI_STRINGS.TITLE || 'Order Book Trading'}</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold text-primary">
+              {UI_STRINGS.TITLE || 'Limit Order'}
+            </h2>
             <button
               onClick={refreshOrderBook}
-              className="btn btn-ghost p-2"
+              className="p-2 rounded-lg hover:bg-hover transition-colors"
               title="Refresh order book"
               disabled={isLoading}
             >
-              <RefreshCw className="w-5 h-5 text-muted" />
+              <RefreshCw className={`w-4 h-4 text-muted ${isLoading ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
-          {/* --- Buy / Sell Toggle --- */}
           <div className="flex gap-2 mb-6">
             <button
               onClick={() => !isBuy && setIsBuy()}
-              className={`btn flex-1 ${isBuy ? 'btn-success' : 'btn-ghost'}`}
+              className={`flex-1 py-3 rounded-lg font-medium text-sm transition-all ${isBuy
+                ? 'bg-green-500 text-white'
+                : 'bg-gray-600/20 text-muted hover:text-primary'
+                }`}
               disabled={isLoading}
             >
-              <TrendingUp className="w-5 h-5 inline mr-2" /> Buy
+              Buy
             </button>
             <button
               onClick={() => isBuy && setIsBuy()}
-              className={`btn flex-1 ${!isBuy ? 'btn-danger' : 'btn-ghost'}`}
+              className={`flex-1 py-3 rounded-lg font-medium text-sm transition-all ${!isBuy
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-600/20 text-muted hover:text-primary'
+                }`}
               disabled={isLoading}
             >
-              <TrendingDown className="w-5 h-5 inline mr-2" /> Sell
+              Sell
             </button>
           </div>
 
-          {/* --- Token Pair with Selectors --- */}
-          <div className="card flex items-center justify-center gap-4 p-4">
-            <div className="text-center flex-1">
-              <select
-                value={fromToken?.code || ''}
-                onChange={e => {
-                  const selected = availableTokens.find(t => t.code === e.target.value);
-                  if (selected && selected.code !== toToken?.code) {
-                    setFromToken(selected);
-                  }
-                }}
-                className="input input-primary w-full text-sm font-semibold mb-2"
-                disabled={isLoading}
-              >
-                <option value="">Select Token</option>
-                {availableTokens.map(token => (
-                  <option
-                    key={`${token.code}-${token.issuer || 'native'}`}
-                    value={token.code}
-                    disabled={token.code === toToken?.code}
+          <div className="space-y-3 mb-4">
+            <div className="card">
+              <label className="text-xs text-muted mb-3 block">From</label>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {getTokenIcon(fromToken?.code || '') ? (
+                    <img
+                      src={getTokenIcon(fromToken?.code || '')!}
+                      alt={fromToken?.code}
+                      className="w-10 h-10 rounded-full"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                      {fromToken?.code?.[0] || '?'}
+                    </div>
+                  )}
+                  <select
+                    value={fromToken?.code || ''}
+                    onChange={e => {
+                      const selected = availableTokens.find(t => t.code === e.target.value);
+                      if (selected && selected.code !== toToken?.code) {
+                        setFromToken(selected);
+                      }
+                    }}
+                    className="bg-transparent text-primary font-semibold text-base focus:outline-none cursor-pointer"
+                    disabled={isLoading}
                   >
-                    {token.code}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs text-muted truncate max-w-[120px] mx-auto">
-                {fromToken?.issuer?.slice(0, 8) || 'Native'}...
+                    <option value="">Select</option>
+                    {availableTokens.map(token => (
+                      <option
+                        key={`${token.code}-${token.issuer || 'native'}`}
+                        value={token.code}
+                        disabled={token.code === toToken?.code}
+                      >
+                        {token.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-sm text-muted">Balance: {fromBalance}</p>
               </div>
-              <div className="text-sm text-muted mt-1">Balance: {fromBalance}</div>
             </div>
 
-            <button
-              onClick={() => {
-                const temp = fromToken;
-                setFromToken(toToken);
-                setToToken(temp);
-              }}
-              className="btn btn-ghost p-2"
-              disabled={isLoading || !fromToken || !toToken}
-            >
-              <ArrowDownUp className="w-6 h-6 text-muted" />
-            </button>
-
-            <div className="text-center flex-1">
-              <select
-                value={toToken?.code || ''}
-                onChange={e => {
-                  const selected = availableTokens.find(t => t.code === e.target.value);
-                  if (selected && selected.code !== fromToken?.code) {
-                    setToToken(selected);
-                  }
+            <div className="flex justify-center -my-2 relative z-10">
+              <button
+                onClick={() => {
+                  const temp = fromToken;
+                  setFromToken(toToken);
+                  setToToken(temp);
                 }}
-                className="input input-primary w-full text-sm font-semibold mb-2"
-                disabled={isLoading}
+                className="p-2.5 rounded-lg bg-secondary hover:bg-hover transition-colors border-2 border-primary"
+                disabled={isLoading || !fromToken || !toToken}
               >
-                <option value="">Select Token</option>
-                {availableTokens.map(token => (
-                  <option
-                    key={`${token.code}-${token.issuer || 'native'}`}
-                    value={token.code}
-                    disabled={token.code === fromToken?.code}
+                <ArrowDownUp className="w-5 h-5 text-muted" />
+              </button>
+            </div>
+
+            <div className="card">
+              <label className="text-xs text-muted mb-3 block">To</label>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {getTokenIcon(toToken?.code || '') ? (
+                    <img
+                      src={getTokenIcon(toToken?.code || '')!}
+                      alt={toToken?.code}
+                      className="w-10 h-10 rounded-full"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                      {toToken?.code?.[0] || '?'}
+                    </div>
+                  )}
+                  <select
+                    value={toToken?.code || ''}
+                    onChange={e => {
+                      const selected = availableTokens.find(t => t.code === e.target.value);
+                      if (selected && selected.code !== fromToken?.code) {
+                        setToToken(selected);
+                      }
+                    }}
+                    className="bg-transparent text-primary font-semibold text-base focus:outline-none cursor-pointer"
+                    disabled={isLoading}
                   >
-                    {token.code}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs text-muted truncate max-w-[120px] mx-auto">
-                {toToken?.issuer?.slice(0, 8) || 'Native'}...
+                    <option value="">Select</option>
+                    {availableTokens.map(token => (
+                      <option
+                        key={`${token.code}-${token.issuer || 'native'}`}
+                        value={token.code}
+                        disabled={token.code === fromToken?.code}
+                      >
+                        {token.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-sm text-muted">Balance: {toBalance}</p>
               </div>
-              <div className="text-sm text-muted mt-1">Balance: {toBalance}</div>
             </div>
           </div>
 
-          {/* --- Wallet Info --- */}
-          <div className="card mt-4">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted">Connected Account:</span>
-              <span className="text-text-accent text-mono">
-                {stellarAddress.slice(0, 8)}...{stellarAddress.slice(-6)}
-              </span>
-            </div>
-          </div>
-
-          {/* --- Inputs --- */}
-          <div className="card p-4 space-y-4 mt-4">
-            {/* Amount */}
+          <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-muted mb-2">
-                {isBuy
-                  ? `Amount to Buy (${toToken?.code || 'Token'})`
-                  : `Amount to Sell (${fromToken?.code || 'Token'})`}
+              <label className="text-xs text-muted mb-2 block">
+                {isBuy ? `Amount (${toToken?.code || 'Token'})` : `Amount (${fromToken?.code || 'Token'})`}
               </label>
-              <div className="flex gap-2">
+              <div className="relative">
                 <input
                   type="number"
                   value={amount}
                   onChange={e => setAmount(e.target.value)}
-                  placeholder="0.0"
-                  className="input input-primary flex-1 py-4"
+                  placeholder="0.00"
+                  className="w-full bg-primary rounded-xl px-4 py-4 lg:py-6 pr-20 text-primary text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                   step="0.0000001"
                   disabled={isLoading}
                 />
                 <button
                   onClick={setMaxAmount}
-                  className="btn btn-primary"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 py-4 px-8  bg-secondary rounded-md text-xs font-semibold text-muted hover:text-primary transition-colors"
                   disabled={isLoading || !fromToken}
                 >
                   MAX
@@ -317,76 +343,74 @@ const OrderBookSwapUI = () => {
               </div>
             </div>
 
-            {/* Price */}
             <div>
-              <label className="block text-sm font-medium text-muted mb-2">
-                Price ({fromToken?.code || 'From'} per {toToken?.code || 'To'})
+              <label className="text-xs text-muted mb-2 block">
+                Price ({fromToken?.code || 'Token'} per {toToken?.code || 'Token'})
               </label>
               <input
                 type="number"
                 value={price}
                 onChange={e => setPrice(e.target.value)}
-                placeholder="0.0"
-                className="input input-primary w-full py-4"
+                placeholder="0.00"
+                className="w-full bg-primary rounded-md px-4 py-4 lg:py-6 text-primary text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 step="0.0000001"
                 disabled={isLoading}
               />
             </div>
 
-            {/* Total */}
             <div>
-              <label className="block text-sm font-medium text-muted mb-2">
-                Total ({fromToken?.code || 'From'})
+              <label className="text-xs text-muted mb-2 block">
+                Total ({fromToken?.code || 'Token'})
               </label>
               <input
-                type="number"
-                value={total}
+                type="text"
+                value={total || '0.00'}
                 readOnly
-                className="input w-full cursor-not-allowed py-4"
+                className="w-full bg-primary rounded-xl px-4 py-4 lg:py-6 text-muted text-base cursor-not-allowed"
               />
             </div>
           </div>
 
-          {/* --- Error --- */}
           {(error || errorMessage) && (
-            <div className="card bg-danger-light border-danger p-4 mt-4 animate-fade-in">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-danger mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-danger">{error || errorMessage}</p>
-              </div>
+            <div className="mt-4 p-3 bg-red-500/10 rounded-lg flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-500">{error || errorMessage}</p>
             </div>
           )}
 
-          {/* --- Place Order --- */}
           <button
             onClick={handlePlaceOrder}
             disabled={!canPlaceOrder || orderStatus === 'pending'}
-            className={`btn btn-lg w-full mt-4 ${
-              canPlaceOrder && orderStatus !== 'pending'
-                ? isBuy
-                  ? 'btn-success'
-                  : 'btn-danger'
-                : 'btn-ghost opacity-50'
-            }`}
+            className={`w-full mt-6 py-4 rounded-xl font-semibold text-base transition-all ${canPlaceOrder && orderStatus !== 'pending'
+              ? isBuy
+                ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg hover:shadow-xl'
+                : 'bg-red-500 hover:bg-red-600 text-white shadow-lg hover:shadow-xl'
+              : 'bg-gray-600/20 text-gray-500 cursor-not-allowed'
+              }`}
           >
             {orderStatus === 'pending' ? (
               <span className="flex items-center justify-center gap-2">
-                <RefreshCw className="w-5 h-5 animate-spin" />
+                <RefreshCw className="w-4 h-4 animate-spin" />
                 Placing Order...
               </span>
             ) : orderStatus === 'success' ? (
               <span className="flex items-center justify-center gap-2">
-                <CheckCircle className="w-6 h-6" />
+                <CheckCircle className="w-5 h-5" />
                 {SUCCESS_MESSAGES.ORDER_SUCCESS || 'Order Placed!'}
               </span>
             ) : (
-              UI_STRINGS.PLACE_TRADE || 'Place Order'
+              `${isBuy ? 'Buy' : 'Sell'} ${toToken?.code || 'Token'}`
             )}
           </button>
+
+          <div className="mt-4 text-center">
+            <p className="text-xs text-muted">
+              Connected: {stellarAddress.slice(0, 6)}...{stellarAddress.slice(-4)}
+            </p>
+          </div>
         </div>
 
-        {/* --------- ORDER BOOK PANEL --------- */}
-        <div className={`flex-1 ${activeTab === 'orderBook' ? 'block' : 'hidden sm:block'}`}>
+        <div className={`lg:w-80 lg:border-l border-color ${activeTab === 'orderBook' ? 'block' : 'hidden sm:block'}`}>
           <OrderBook orderBook={orderBook} isBuy={isBuy} setPrice={setPrice} />
         </div>
       </div>

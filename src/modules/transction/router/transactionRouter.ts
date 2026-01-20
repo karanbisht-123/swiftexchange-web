@@ -1,4 +1,10 @@
+import { ethers } from 'ethers';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+
+function isMainnet(): boolean {
+  return useWalletStore.getState().network === 'mainnet';
+}
 
 export interface TransactionRequest {
   type: 'evm' | 'stellar' | 'cosmos';
@@ -62,7 +68,7 @@ class TransactionRouter {
     console.log(`[Router] Unregistering ${type} session`);
     const deleted = this.sessions.delete(type);
     console.log(
-      `${deleted ? 'deltet session' : 'not delted'} Session ${deleted ? 'removed' : 'not found'}`
+      `${deleted ? 'deleted session' : 'not deleted'} Session ${deleted ? 'removed' : 'not found'}`
     );
     console.log('Remaining sessions:', Array.from(this.sessions.keys()));
   }
@@ -139,7 +145,7 @@ class TransactionRouter {
     });
 
     if (!session.provider) {
-      console.error(' Session provider is null/undefined');
+      console.error('Session provider is null/undefined');
       console.groupEnd();
       throw new Error(`Provider not available for ${request.type.toUpperCase()} wallet.`);
     }
@@ -148,8 +154,11 @@ class TransactionRouter {
       hasProvider: !!session.provider,
       providerType: typeof session.provider,
       hasRequest: typeof session.provider.request === 'function',
+      hasClient: !!session.provider.client,
+      hasSession: !!session.provider.session,
       providerKeys: session.provider ? Object.keys(session.provider).slice(0, 10) : [],
     });
+
     if (session.address.toLowerCase() !== request.from.toLowerCase()) {
       console.error('Address mismatch:', {
         sessionAddress: session.address,
@@ -194,54 +203,124 @@ class TransactionRouter {
     }
   }
 
+  private ensureProviderNamespaces(provider: any): void {
+    if (provider.session && (!provider.namespaces || Object.keys(provider.namespaces).length === 0)) {
+      console.log('[Router] Patching provider namespaces from session...');
+      provider.namespaces = provider.session.namespaces;
+    }
+  }
+
+  // Helper to detect if this is a WalletConnect provider that needs client.request()
+  private isWalletConnectProvider(provider: any): boolean {
+    return !!(provider.client && provider.session && typeof provider.client.request === 'function');
+  }
+
   private async handleEVMTransaction(
     session: WalletSession,
     request: TransactionRequest
   ): Promise<TransactionResponse> {
-    console.group('⚡ [Router] handleEVMTransaction');
+    console.group('[Router] handleEVMTransaction');
 
     const { provider } = session;
 
+    console.log('Provider:', provider);
+    console.log('Is WalletConnect provider:', this.isWalletConnectProvider(provider));
+
     try {
       console.log('Preparing EVM transaction...');
-      console.log('Session info:', {
-        hasProvider: !!provider,
-        hasSession: !!provider?.session,
-        chainId: session.chainId,
-        requestNetworkKey: request.networkKey,
-      });
-
       const amountInWei = BigInt(Math.floor(parseFloat(request.amount) * 1e18));
 
-      const txParams: any = {
-        from: request.from,
-        to: request.to,
-        value: '0x' + amountInWei.toString(16),
-      };
-      if (request.data && typeof request.data === 'string' && request.data.startsWith('0x') && request.data.length > 2) {
-        txParams.data = request.data;
-      }
+      this.ensureProviderNamespaces(provider);
 
-      console.log('Transaction params:', txParams);
       const chainId = typeof request.networkKey === 'number'
         ? request.networkKey
         : parseInt(String(session.chainId)) || 1;
-
       const chainIdCAIP = `eip155:${chainId}`;
-      console.log('Using chain:', chainIdCAIP);
-      const hash = await provider.request(
-        {
-          method: 'eth_sendTransaction',
-          params: [txParams],
-        },
-        chainIdCAIP
-      );
+
+      if (provider.setDefaultChain) {
+        try {
+          const availableChains = provider.namespaces?.eip155?.chains || [];
+          if (availableChains.includes(chainIdCAIP)) {
+            provider.setDefaultChain(chainIdCAIP);
+            console.log(`Set default chain to ${chainIdCAIP}`);
+          } else {
+            console.warn(`Chain ${chainIdCAIP} not in namespaces, skipping setDefaultChain`);
+          }
+        } catch (e) {
+          console.warn('Failed to set default chain:', e);
+        }
+      }
+
+      let lastTxHash: string;
+
+      if (isMainnet()) {
+        const txParams: any = {
+          from: request.from,
+          to: request.to,
+          value: '0x' + amountInWei.toString(16),
+        };
+        if (request.data && typeof request.data === 'string' && request.data.startsWith('0x') && request.data.length > 2) {
+          txParams.data = request.data;
+        }
+
+        console.log('Transaction params (Mainnet):', txParams);
+
+        // Check if this is a WalletConnect provider
+        if (this.isWalletConnectProvider(provider)) {
+          console.log('Using WalletConnect client.request() for EVM');
+          const topic = provider.session?.topic;
+          if (!topic) {
+            throw new Error('No WalletConnect session topic found');
+          }
+
+          lastTxHash = await provider.client.request({
+            topic,
+            chainId: chainIdCAIP,
+            request: {
+              method: 'eth_sendTransaction',
+              params: [txParams],
+            },
+          });
+        } else {
+          // Direct provider (MetaMask, injected, etc.)
+          console.log('Using direct provider.request() for EVM');
+          lastTxHash = await provider.request({
+            method: 'eth_sendTransaction',
+            params: [txParams],
+          });
+        }
+
+      } else {
+        // Testnet using ethers
+        console.log('Using ethers.BrowserProvider for Testnet transaction');
+        const ethersProvider = new ethers.BrowserProvider(provider);
+        const signer = await ethersProvider.getSigner();
+
+        const tx = {
+          to: request.to,
+          value: amountInWei,
+          from: request.from,
+          data: (request.data && typeof request.data === 'string' && request.data.startsWith('0x')) ? request.data : undefined
+        };
+
+        console.log('Transaction params (Testnet/Ethers):', tx);
+
+        const txResponse = await signer.sendTransaction(tx);
+        console.log('Transaction sent, waiting for receipt...');
+        const receipt = await txResponse.wait();
+
+        if (!receipt || receipt.status === 0) {
+          throw new Error('Transaction failed');
+        }
+
+        lastTxHash = txResponse.hash;
+      }
 
       console.log('Transaction sent successfully!');
-      console.log('Transaction hash:', hash);
+      console.log('Transaction hash:', lastTxHash);
       console.groupEnd();
 
-      return { hash, status: 'success' };
+      return { hash: lastTxHash, status: 'success' };
     } catch (error: any) {
       console.error('EVM transaction failed:', {
         message: error.message,
@@ -265,7 +344,9 @@ class TransactionRouter {
       console.log('Preparing Stellar transaction...');
       console.log('Session info:', {
         hasProvider: !!provider,
+        hasClient: !!provider?.client,
         hasSession: !!provider?.session,
+        sessionTopic: provider?.session?.topic,
         chainId: session.chainId,
         requestNetworkKey: request.networkKey,
       });
@@ -274,6 +355,8 @@ class TransactionRouter {
         console.error('Missing XDR data');
         throw new Error('Stellar transaction requires XDR data');
       }
+
+      this.ensureProviderNamespaces(provider);
 
       console.log('XDR data present:', {
         xdrLength: request.data.xdr.length,
@@ -286,28 +369,75 @@ class TransactionRouter {
         networkPassphrase: request.data.networkPassphrase || 'Test SDF Network ; September 2015',
         network: request.data.network || 'TESTNET',
       };
+
       const stellarChainId = typeof request.networkKey === 'string'
         ? request.networkKey
         : String(session.chainId) || 'pubnet';
-      const chainCAIP = `stellar:${stellarChainId}`;
+      const chainCAIP = `${stellarChainId}`;
 
       console.log('Using Stellar chain:', chainCAIP);
-      console.log('Calling provider.request with stellar_signAndSubmitXDR...');
-      const result = await provider.request(
-        {
+
+      if (provider.setDefaultChain) {
+        try {
+          const availableChains = provider.namespaces?.stellar?.chains || [];
+          if (availableChains.includes(chainCAIP)) {
+            provider.setDefaultChain(chainCAIP);
+            console.log(`Set default chain to ${chainCAIP}`);
+          } else {
+            console.warn(`Chain ${chainCAIP} not in namespaces`);
+          }
+        } catch (e) {
+          console.warn('Failed to set default chain (Stellar):', e);
+        }
+      }
+
+      console.log('Calling Stellar transaction method...');
+
+      let result: any;
+      if (this.isWalletConnectProvider(provider)) {
+        console.log('Using WalletConnect client.request() for Stellar');
+        const topic = provider.session?.topic;
+
+        if (!topic) {
+          console.error('No WalletConnect session topic found');
+          throw new Error('No active WalletConnect session for Stellar wallet');
+        }
+
+        console.log('WalletConnect request params:', {
+          topic,
+          chainId: chainCAIP,
           method: 'stellar_signAndSubmitXDR',
           params: signParams,
-        },
-        chainCAIP
-      );
+        });
+
+        result = await provider.client.request({
+          topic,
+          chainId: chainCAIP,
+          request: {
+            method: 'stellar_signAndSubmitXDR',
+            params: signParams,
+          },
+        });
+      } else {
+
+        console.log('Using direct provider.request() for Stellar');
+        result = await provider.request({
+          method: 'stellar_signAndSubmitXDR',
+          params: signParams,
+        });
+      }
 
       console.log('Provider response:', result);
 
       if (result?.status === 'success' || result?.hash || result?.signedXDR) {
         console.log('Stellar transaction successful!');
         console.groupEnd();
-        return { status: 'success', hash: result.hash || 'stellar_submitted' };
+        return {
+          status: 'success',
+          hash: result.hash || result.transactionHash || 'stellar_submitted'
+        };
       }
+
       if (typeof result === 'string') {
         console.log('Stellar transaction returned string result');
         console.groupEnd();
@@ -315,7 +445,7 @@ class TransactionRouter {
       }
 
       console.error('Stellar transaction failed - unexpected response:', result);
-      throw new Error('Stellar transaction failed');
+      throw new Error('Stellar transaction failed - unexpected response format');
     } catch (error: any) {
       console.error('Stellar transaction failed:', {
         message: error.message,
@@ -349,10 +479,33 @@ class TransactionRouter {
 
       console.log('Calling provider.request with cosmos_signDirect...');
 
-      const result = await provider.request({
-        method: 'cosmos_signDirect',
-        params: request.data,
-      });
+      let result: any;
+
+      if (this.isWalletConnectProvider(provider)) {
+        console.log('Using WalletConnect client.request() for Cosmos');
+        const topic = provider.session?.topic;
+
+        if (!topic) {
+          throw new Error('No active WalletConnect session for Cosmos wallet');
+        }
+
+        const cosmosChainId = String(request.networkKey);
+        const chainCAIP = `cosmos:${cosmosChainId}`;
+
+        result = await provider.client.request({
+          topic,
+          chainId: chainCAIP,
+          request: {
+            method: 'cosmos_signDirect',
+            params: request.data,
+          },
+        });
+      } else {
+        result = await provider.request({
+          method: 'cosmos_signDirect',
+          params: request.data,
+        });
+      }
 
       console.log('Provider response:', result);
       console.log('Cosmos transaction successful!');
@@ -360,7 +513,7 @@ class TransactionRouter {
 
       return {
         status: 'success',
-        hash: result.transactionHash || 'cosmos_submitted',
+        hash: result.transactionHash || result.hash || 'cosmos_submitted',
       };
     } catch (error: any) {
       console.error('Cosmos transaction failed:', {

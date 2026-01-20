@@ -3,6 +3,21 @@ import { useState } from 'react';
 
 import type { SwapQuote, TokenInfo, TokenPlaceholder } from '../types/ammSwap.types';
 
+// Token icon URL mapping for common tokens
+const TOKEN_ICONS: Record<string, string> = {
+  XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
+  USDC: 'https://coin-images.coingecko.com/coins/images/6319/small/usdc.png',
+  USDT: 'https://coin-images.coingecko.com/coins/images/325/small/Tether.png',
+  BTC: 'https://coin-images.coingecko.com/coins/images/1/small/bitcoin.png',
+  ETH: 'https://coin-images.coingecko.com/coins/images/279/small/ethereum.png',
+  AQUA: 'https://aqua.network/assets/img/aqua-logo.png',
+  yXLM: 'https://ultrastellar.com/static/images/yXLM.png',
+};
+
+const getTokenIcon = (code: string): string | null => {
+  return TOKEN_ICONS[code.toUpperCase()] || null;
+};
+
 interface TokenSelectorProps {
   selectedToken: TokenInfo | TokenPlaceholder;
   onSelect: (token: TokenInfo) => void;
@@ -14,35 +29,90 @@ export const TokenSelector = ({
   selectedToken,
   onSelect,
   tokens,
-}: // label,
-TokenSelectorProps) => {
+}: TokenSelectorProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const tokenIcon = getTokenIcon(selectedToken.code);
+
   return (
-    <div className="relative">
-      <div className="flex items-center gap-2">
-        {/* <div className="w-6 h-6 rounded-full bg-gradient-brand-secondary flex items-center justify-center text-xs font-bold text-text-inverse">
-          {selectedToken.code[0]}
-        </div> */}
-        <select
-          value={selectedToken.code}
-          onChange={e => {
-            const selected = tokens.find(token => token.code === e.target.value);
-            if (selected) onSelect(selected);
-          }}
-          className="input max-w-32 appearance-none input-primary text-sm font-semibold bg-gradient-glass border-border-accent focus:ring-brand-primary"
-        >
-          {tokens.map(token => (
-            <option
-              key={token.code}
-              value={token.code}
-              className="bg-bg-secondary text-text-primary "
-            >
-              {token.code}
-              {/* {token.code} {token.balance ? `(${parseFloat(token.balance).toFixed(2)})` : ''} */}
-              {/* {token.isPopular ? ' (Popular)' : ''} */}
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className="relative ">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-3 py-5 rounded-lg bg-primary hover:bg-hover transition-colors min-w-[120px]"
+      >
+        {/* Token Icon */}
+        {tokenIcon ? (
+          <img
+            src={tokenIcon}
+            alt={selectedToken.code}
+            className="w-5 h-5 rounded-full"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-[10px] font-bold text-white">
+            {selectedToken.code[0]}
+          </div>
+        )}
+        <span className="font-semibold text-sm text-primary">{selectedToken.code}</span>
+        <ChevronDown className={`w-4 h-4 text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Dropdown */}
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute right-0 top-full mt-2 z-50 bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[180px] max-h-[300px] overflow-y-auto">
+            {tokens.map(token => {
+              const icon = getTokenIcon(token.code);
+              const isSelected = selectedToken.code === token.code;
+
+              return (
+                <button
+                  key={`${token.code}-${token.issuer || 'native'}`}
+                  onClick={() => {
+                    onSelect(token);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-hover transition-colors ${isSelected ? 'bg-hover' : ''
+                    }`}
+                >
+                  {/* Token Icon */}
+                  {icon ? (
+                    <img
+                      src={icon}
+                      alt={token.code}
+                      className="w-6 h-6 rounded-full"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
+                      {token.code[0]}
+                    </div>
+                  )}
+
+                  {/* Token Info */}
+                  <div className="flex-1 text-left">
+                    <div className="font-semibold text-sm text-primary">{token.code}</div>
+                    {token.balance && (
+                      <div className="text-xs text-muted">
+                        {parseFloat(token.balance).toFixed(4)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Selected indicator */}
+                  {isSelected && (
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -68,7 +138,7 @@ export const SettingsPanel = ({
   return (
     <>
       <div className="fixed inset-0 bg-bg-overlay z-20" onClick={onClose} />
-      <div className="absolute card right-0 top-14 z-30 w-80 bg-gradient-glass rounded-xl shadow-premium border border-border-accent p-4 animate-slide-up">
+      <div className="absolute card right-0 top-14 z-30 w-80 bg-secondary rounded-xl shadow-premium border border-color p-4 animate-slide-up">
         <h3 className="heading-3 mb-4">Transaction Settings</h3>
 
         <div className="mb-4">
@@ -81,9 +151,8 @@ export const SettingsPanel = ({
                   onSlippageChange(preset);
                   setCustom('');
                 }}
-                className={`btn btn-secondary btn-sm ${
-                  slippage === preset ? 'bg-brand-primary text-text-inverse' : ''
-                }`}
+                className={`btn btn-secondary btn-sm ${slippage === preset ? 'bg-brand-primary text-text-inverse' : ''
+                  }`}
               >
                 {preset}%
               </button>
@@ -132,9 +201,9 @@ export const SwapDetails = ({ quote, slippage }: SwapDetailsProps) => {
     quote.path.path[0].code === quote.path.path[1].code
       ? '1'
       : (
-          parseFloat(quote.estimatedOutput) /
-          parseFloat(quote.path.path[0].code === 'XLM' ? '100' : '1')
-        ).toFixed(6);
+        parseFloat(quote.estimatedOutput) /
+        parseFloat(quote.path.path[0].code === 'XLM' ? '100' : '1')
+      ).toFixed(6);
   const priceImpactColor =
     quote.priceImpact > 5 ? 'price-down' : quote.priceImpact > 2 ? 'text-warning' : 'price-up';
 
@@ -151,7 +220,7 @@ export const SwapDetails = ({ quote, slippage }: SwapDetailsProps) => {
       </button>
 
       {showDetails && (
-        <div className="space-y-2 pt-2 border-t border-border-accent">
+        <div className="space-y-2 pt-2 border-t border-color">
           <div className="flex justify-between text-small">
             <span className="text-muted">Rate</span>
             <span className="text-text-primary font-medium">
