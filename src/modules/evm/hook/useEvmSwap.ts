@@ -9,6 +9,7 @@ import {
   fetchSingleTokenBalance,
   getTokensForChain,
 } from '../service/tokenListService';
+import { addLocalTransaction } from '../service/localTransactionService';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
 
 interface UseEvmSwapProps {
@@ -214,6 +215,16 @@ export const useEvmSwap = ({
         );
 
         updateState({ txHash: hash, loading: false });
+
+        // Store in localStorage for monitoring
+        addLocalTransaction({
+          hash,
+          chainId,
+          type: 'swap',
+          timestamp: Date.now(),
+          description: `Swap ${sellAsset.symbol} → ${buyAsset.symbol}`,
+        });
+
         setTimeout(() => {
           updateTokenBalances(sellAsset, buyAsset);
         }, 8000);

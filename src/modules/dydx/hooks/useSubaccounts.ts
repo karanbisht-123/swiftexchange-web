@@ -83,7 +83,7 @@ export const useSubaccounts = () => {
       setTransferError(null);
 
       try {
-        const result = await dydxSubaccountService.transfer(fromSubaccount, toSubaccount, '4');
+        const result = await dydxSubaccountService.transfer(fromSubaccount, toSubaccount, amount);
 
         if (!result.success) {
           setTransferError(result.error || 'Transfer failed');

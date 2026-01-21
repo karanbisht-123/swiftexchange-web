@@ -13,6 +13,7 @@ import type {
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { TRANSACTION_STEP } from '../constant/OnTapPay.constants';
+import { addLocalTransaction } from '../service/localTransactionService';
 import { getBridgeQuote, getSwapQuote } from '../service/evmSwapService';
 
 const QUOTE_DEBOUNCE_DELAY = 800;
@@ -518,6 +519,16 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       });
 
       // logger.success('Swap executed successfully', { txHash });
+
+      // Store in localStorage for monitoring
+      addLocalTransaction({
+        hash: txHash,
+        chainId,
+        type: 'swap',
+        timestamp: Date.now(),
+        description: `Swap ${assets.native?.code} → USDT`,
+      });
+
       return txHash;
     } catch (error) {
       // logger.error('Swap execution failed', error);
@@ -564,6 +575,16 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       });
 
       // logger.success('Bridge executed successfully', { txHash });
+
+      // Store in localStorage for monitoring
+      addLocalTransaction({
+        hash: txHash,
+        chainId,
+        type: 'bridge',
+        timestamp: Date.now(),
+        description: `Bridge USDT → USDC`,
+      });
+
       return txHash;
     } catch (error) {
       // logger.error('Bridge execution failed', error);

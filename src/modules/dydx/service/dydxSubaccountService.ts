@@ -1,4 +1,5 @@
-import { BECH32_PREFIX, LocalWallet } from '@dydxprotocol/v4-client-js';
+import { BECH32_PREFIX, LocalWallet, SubaccountInfo } from '@dydxprotocol/v4-client-js';
+import Long from 'long';
 
 import { walletService } from '../../walletconnect/services/walletService';
 import { type MarginMode, SUBACCOUNT_CONSTANTS, type TransferResult } from '../types/trading.types';
@@ -24,13 +25,7 @@ class DydxSubaccountService {
       if (amountInQuantums <= 0) {
         throw new Error('Transfer amount must be greater than 0');
       }
-      const senderSubaccount = {
-        address,
-        subaccountNumber: fromSubaccount,
-        signingWallet: localWallet,
-      };
-
-      console.log(senderSubaccount, '-------------------------');
+      const senderSubaccount = SubaccountInfo.forLocalWallet(localWallet, fromSubaccount);
 
       console.log('[dydxSubaccountService] Initiating transfer:', {
         from: fromSubaccount,
@@ -39,20 +34,13 @@ class DydxSubaccountService {
         quantums: amountInQuantums,
       });
 
-      const result = await client.transferToSubaccount(
-        senderSubaccount as any,
-        // "dydx1xkyyg323a8pl0wr5hetk692xavz2he2s6ntxln",
+      const result = await client.validatorClient.post.transfer(
+        senderSubaccount,
         address,
         toSubaccount,
-        amountInQuantums.toString()
+        0,
+        Long.fromString(amountInQuantums.toString())
       );
-
-      //    const result = await client.transferToSubaccount(
-      //     senderSubaccount as any,
-      //     "dydx1xkyyg323a8pl0wr5hetk692xavz2he2s6ntxln",
-      //     "128",
-      //     amountInQuantums.toString()
-      // );
       const txHash = this.extractHash(result.hash);
 
       console.log('[dydxSubaccountService] Transfer successful:', txHash);
@@ -140,14 +128,14 @@ class DydxSubaccountService {
   }
 
   calculateRequiredCollateral(
-    size: number, // Position size (S)
-    oraclePrice: number, // Oracle Price (P)
-    leverage: number // Desired Leverage (L)
+    size: number,
+    oraclePrice: number,
+    leverage: number
   ): number {
     // Formula: IM = (S × P) / L
     const notionalValue = size * oraclePrice;
     const initialMargin = notionalValue / leverage;
-    // Add 5% buffer for price movement
+    //  5% buffer for price movement
     const withBuffer = initialMargin * 1.05;
     console.log('[dydxSubaccountService] Collateral calculation:', {
       size,
@@ -238,8 +226,6 @@ class DydxSubaccountService {
         currentEquity,
         shortfall,
       });
-
-      // Skip transfer if shortfall is negligible (less than $0.01)
       if (shortfall <= 0.01) {
         console.log('[dydxSubaccountService] Shortfall negligible, skipping transfer');
         return { success: true, transferredAmount: 0 };
@@ -275,7 +261,6 @@ class DydxSubaccountService {
         };
       }
 
-      // Transfer the shortfall amount
       console.log('[dydxSubaccountService] Initiating transfer:', {
         from: SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT,
         to: targetSubaccount,
@@ -287,6 +272,7 @@ class DydxSubaccountService {
         targetSubaccount,
         shortfall.toFixed(6)
       );
+      console.log(transferResult, "i am transfer result ")
 
       if (transferResult.success) {
         return { success: true, transferredAmount: shortfall };

@@ -21,6 +21,7 @@ import {
   assetFromEVM,
   assetFromStellar,
 } from '../../walletconnect/utils/assetFromChain';
+import { addLocalTransaction } from '../../evm/service/localTransactionService';
 
 interface TransactionState {
   txHash: string | null;
@@ -378,6 +379,16 @@ export const useSendAsset = (onBack?: () => void) => {
       const response = await sendTransaction(transactionRequest);
 
       if (response.status === 'success') {
+        if (currentAsset.type === 'evm' && response.hash) {
+          addLocalTransaction({
+            hash: response.hash,
+            chainId: currentAsset.networkKey as number,
+            type: 'send',
+            timestamp: Date.now(),
+            description: `Send ${amount} ${currentAsset.value}`,
+          });
+        }
+
         setTransactionState(p => ({
           ...p,
           txHash: response.hash || null,

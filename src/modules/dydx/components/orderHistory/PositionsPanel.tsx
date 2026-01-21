@@ -248,8 +248,6 @@ const PositionsPanel: React.FC = () => {
           +{newPositionsCount} New Position{newPositionsCount > 1 ? 's' : ''}
         </div>
       )}
-
-      {/* Desktop Table */}
       <div className="hidden md:block">
         <table className="w-full text-left text-[11px] border-collapse">
           <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
@@ -371,8 +369,6 @@ const PositionsPanel: React.FC = () => {
           </tbody>
         </table>
       </div>
-
-      {/* Mobile Cards */}
       <div className="md:hidden space-y-1.5 p-2">
         {positions.map(position => {
           const rawSize = parseFloat(position.size);

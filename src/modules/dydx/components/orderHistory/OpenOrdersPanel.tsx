@@ -159,8 +159,6 @@ const OpenOrdersPanel: React.FC = () => {
         );
     }
   }, []);
-
-  // Render states
   if (!isConnected) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted">
@@ -206,7 +204,6 @@ const OpenOrdersPanel: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-primary overflow-auto">
-      {/* Desktop Table */}
       <div className="hidden md:block">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
@@ -261,8 +258,8 @@ const OpenOrdersPanel: React.FC = () => {
                   <td className="px-4 py-3 text-center">
                     <span
                       className={`px-2 py-1 rounded text-xs font-bold ${order.side === 'BUY'
-                          ? 'bg-green-500/20 text-green-400'
-                          : 'bg-red-500/20 text-red-400'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-red-500/20 text-red-400'
                         }`}
                     >
                       {order.side}
@@ -301,8 +298,8 @@ const OpenOrdersPanel: React.FC = () => {
                       onClick={() => handleCancel(order)}
                       disabled={isCancelling || order.status === 'BEST_EFFORT_CANCELED'}
                       className={`p-1.5 rounded transition-colors ${isCancelling || order.status === 'BEST_EFFORT_CANCELED'
-                          ? 'bg-secondary cursor-not-allowed'
-                          : 'bg-red-600 hover:bg-red-500 text-white'
+                        ? 'bg-secondary cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-500 text-white'
                         }`}
                       title="Cancel order"
                     >
@@ -320,7 +317,6 @@ const OpenOrdersPanel: React.FC = () => {
         </table>
       </div>
 
-      {/* Mobile Cards */}
       <div className="md:hidden space-y-1.5 p-2">
         {sortedOpenOrders.map(order => {
           const isCancelling = cancelling.has(order.id);
@@ -334,7 +330,6 @@ const OpenOrdersPanel: React.FC = () => {
               className={`bg-secondary border border-color rounded-lg p-2.5 text-xs ${isCancelling ? 'opacity-50' : ''
                 }`}
             >
-              {/* Row 1: Market, Type, Side, Cancel */}
               <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
@@ -350,8 +345,8 @@ const OpenOrdersPanel: React.FC = () => {
 
                   <span
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY'
-                        ? 'bg-green-500/20 text-green-400'
-                        : 'bg-red-500/20 text-red-400'
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-red-500/20 text-red-400'
                       }`}
                   >
                     {order.side}
@@ -361,8 +356,8 @@ const OpenOrdersPanel: React.FC = () => {
                     onClick={() => handleCancel(order)}
                     disabled={isCancelling || order.status === 'BEST_EFFORT_CANCELED'}
                     className={`p-1.5 rounded transition-colors ${isCancelling || order.status === 'BEST_EFFORT_CANCELED'
-                        ? 'bg-primary cursor-not-allowed'
-                        : 'bg-red-600 hover:bg-red-500 text-white'
+                      ? 'bg-primary cursor-not-allowed'
+                      : 'bg-red-600 hover:bg-red-500 text-white'
                       }`}
                   >
                     {isCancelling ? (
@@ -373,11 +368,7 @@ const OpenOrdersPanel: React.FC = () => {
                   </button>
                 </div>
               </div>
-
-              {/* Status Badge */}
               <div className="mb-2">{getStatusBadge(order.status)}</div>
-
-              {/* Row 2: Details Grid */}
               <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Amount</span>

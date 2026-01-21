@@ -59,20 +59,16 @@ class DydxTradingService {
       }
       price = this.roundPrice(price, marketInfo.tickSize!);
 
-      // Auto-Deposit for Isolated Margin
+
       if (subaccount.subaccountNumber >= 128 && params.leverage) {
-        // Use oracle price for accurate collateral calculation (not slippage price)
         const oraclePrice = parseFloat(marketInfo.oraclePrice);
         const notionalValue = size * oraclePrice;
         const requiredMargin = notionalValue / params.leverage;
 
-        // $20 equity tier minimum only applies to long-term/conditional orders, NOT market orders
         const isLongTermOrder = !orderCategory.isMarket;
         const targetEquity = isLongTermOrder
-          ? Math.max(requiredMargin, 20.1) // Long-term orders require min $20
-          : requiredMargin; // Market orders just need the calculated margin
-
-        // Add 5% buffer for price slippage
+          ? Math.max(requiredMargin, 20.1)
+          : requiredMargin;
         const targetEquityWithBuffer = targetEquity * 1.05;
 
         console.log('[dydxTradingService] Auto-deposit calculation:', {
@@ -87,7 +83,7 @@ class DydxTradingService {
           subaccountNumber: subaccount.subaccountNumber,
         });
 
-        // Ensure sufficient equity on the isolated subaccount
+
         const equityResult = await dydxSubaccountService.ensureIsolatedEquity(
           subaccount.subaccountNumber,
           targetEquityWithBuffer
@@ -96,10 +92,43 @@ class DydxTradingService {
           throw new Error(equityResult.error || 'Failed to ensure isolated equity');
         }
 
-        // If a transfer was made, wait for blockchain confirmation
+
         if (equityResult.transferredAmount > 0) {
-          console.log('[dydxTradingService] Transfer made, waiting 3s for confirmation...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          console.log('[dydxTradingService] Transfer made, verifying equity before order...');
+
+
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const indexer = dydxWalletService.getIndexerClient();
+          let verified = false;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              const subaccountResponse = await indexer.account.getSubaccount(
+                address,
+                subaccount.subaccountNumber
+              );
+              const currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
+              console.log(`[dydxTradingService] Equity verification attempt ${attempt + 1}:`, {
+                currentEquity,
+                requiredMargin: targetEquityWithBuffer,
+                verified: currentEquity >= targetEquityWithBuffer * 0.95,
+              });
+
+              if (currentEquity >= targetEquityWithBuffer * 0.95) {
+                verified = true;
+                break;
+              }
+            } catch (err) {
+              console.log(`[dydxTradingService] Equity check attempt ${attempt + 1} failed:`, err);
+            }
+
+
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
+          if (!verified) {
+            throw new Error('Transfer completed but equity not yet reflected. Please try again in a few seconds.');
+          }
         }
       }
 
