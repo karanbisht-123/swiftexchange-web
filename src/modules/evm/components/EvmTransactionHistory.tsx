@@ -8,7 +8,9 @@ import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
 import { useLocalTransactions, type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
 
-type ViewType = 'recent' | ChainType;
+import AllTransactionsUI from '../../steallr/components/AllTransactionsUI';
+
+type ViewType = 'recent' | ChainType | 'stellar';
 
 const EvmTransactionHistory: React.FC = () => {
     const connectedWallets = useWalletStore((state) => state.connectedWallets);
@@ -23,7 +25,6 @@ const EvmTransactionHistory: React.FC = () => {
     const [selectedLocalTx, setSelectedLocalTx] = useState<LocalTransactionWithStatus | null>(null);
     const [isSheetOpen, setIsSheetOpen] = useState(false);
 
-    // Local transactions hook
     const {
         transactions: localTransactions,
         isLoading: localLoading,
@@ -33,13 +34,13 @@ const EvmTransactionHistory: React.FC = () => {
     } = useLocalTransactions();
 
     useEffect(() => {
-        if (walletAddress && selectedView !== 'recent') {
+        if (walletAddress && selectedView !== 'recent' && selectedView !== 'stellar') {
             fetchHistory();
         }
     }, [walletAddress, selectedView]);
 
     const fetchHistory = async () => {
-        if (!walletAddress || selectedView === 'recent') return;
+        if (!walletAddress || selectedView === 'recent' || selectedView === 'stellar') return;
 
         setLoading(true);
         setError(null);
@@ -162,6 +163,19 @@ const EvmTransactionHistory: React.FC = () => {
                     }`}
             >
                 BNB
+            </button>
+            <button
+                onClick={() => {
+                    setSelectedView('stellar');
+                    setSelectedLocalTx(null);
+                    setSelectedTx(null);
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar'
+                    ? 'bg-primary text-secondary shadow-sm'
+                    : 'text-muted hover:text-primary'
+                    }`}
+            >
+                Stellar
             </button>
         </div>
     );
@@ -426,30 +440,32 @@ const EvmTransactionHistory: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
 
                 {/* Transaction List Panel */}
-                <div className="lg:col-span-7 xl:col-span-8 flex flex-col h-full overflow-hidden">
-                    {selectedView === 'recent' ? renderRecentTransactions() : renderHistoryTransactions()}
+                <div className={`${selectedView === 'stellar' ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'} flex flex-col h-full overflow-hidden`}>
+                    {selectedView === 'recent' ? renderRecentTransactions() : selectedView === 'stellar' ? <AllTransactionsUI embedded /> : renderHistoryTransactions()}
                 </div>
 
                 {/* Desktop Details Panel */}
-                <div className="hidden lg:block lg:col-span-5 xl:col-span-4 h-full sticky top-0">
-                    {selectedView === 'recent' && selectedLocalTx ? (
-                        <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-                            {renderLocalTxDetails()}
-                        </div>
-                    ) : selectedTx ? (
-                        <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-                            <TransactionDetailsView transaction={selectedTx} network={selectedView === 'bsc' ? 'BNB' : 'ETH'} />
-                        </div>
-                    ) : (
-                        <div className="h-full bg-secondary/30 border border-dashed border-color rounded-2xl flex flex-col items-center justify-center text-center p-8">
-                            <div className="w-16 h-16 bg-tertiary rounded-full flex items-center justify-center mb-4 text-muted/50">
-                                <SearchX size={32} />
+                {selectedView !== 'stellar' && (
+                    <div className="hidden lg:block lg:col-span-5 xl:col-span-4 h-full sticky top-0">
+                        {selectedView === 'recent' && selectedLocalTx ? (
+                            <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
+                                {renderLocalTxDetails()}
                             </div>
-                            <h3 className="text-lg font-bold text-muted mb-2">No Transaction Selected</h3>
-                            <p className="text-sm text-muted/70">Select a transaction from the list on the left to view its full details here.</p>
-                        </div>
-                    )}
-                </div>
+                        ) : selectedTx ? (
+                            <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
+                                <TransactionDetailsView transaction={selectedTx} network={selectedView === 'bsc' ? 'BNB' : 'ETH'} />
+                            </div>
+                        ) : (
+                            <div className="h-full bg-secondary/30 border border-dashed border-color rounded-2xl flex flex-col items-center justify-center text-center p-8">
+                                <div className="w-16 h-16 bg-tertiary rounded-full flex items-center justify-center mb-4 text-muted/50">
+                                    <SearchX size={32} />
+                                </div>
+                                <h3 className="text-lg font-bold text-muted mb-2">No Transaction Selected</h3>
+                                <p className="text-sm text-muted/70">Select a transaction from the list on the left to view its full details here.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
 
             </div>
 

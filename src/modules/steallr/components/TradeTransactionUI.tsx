@@ -32,7 +32,6 @@ const TradeTransactionUI = () => {
     cancelOffer,
     editOffer,
   } = useTradeTransaction({
-    networkKey: 'testnet',
     userAddress: stellarAddress,
   });
 

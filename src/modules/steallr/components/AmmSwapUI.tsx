@@ -13,7 +13,7 @@ const AmmSwapUI = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [swapStatus, setSwapStatus] = useState<'pending' | 'success' | null>(null);
 
-  const { connectedWallets, getProvider } = useWalletConnect();
+  const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
 
@@ -43,7 +43,6 @@ const AmmSwapUI = () => {
   const { addTransaction, setDefaultSlippage, setSelectedChartPair } = useAmmSwapStore();
   const trustlineCount = useTrustlineCount(availableTokens);
 
-  // Update chart pair when tokens change
   useEffect(() => {
     if (fromToken && toToken) {
       setSelectedChartPair({
@@ -55,7 +54,6 @@ const AmmSwapUI = () => {
     }
   }, [fromToken, toToken, setSelectedChartPair]);
 
-  // Get XLM balance for reserve display
   const xlmToken = availableTokens.find(t => t.code === 'XLM');
   const xlmBalance = xlmToken?.balance || '0';
 
@@ -124,12 +122,17 @@ const AmmSwapUI = () => {
           <AlertCircle className="w-16 h-16 text-warning mx-auto" />
           <h4 className="heading-4">Stellar Wallet Not Connected</h4>
           <p className="text-muted">Please connect your Stellar wallet to start swapping tokens</p>
+          <button
+            onClick={openModal}
+            className="btn btn-primary btn-lg w-full font-semibold mt-4"
+          >
+            Connect Wallet
+          </button>
         </div>
       </div>
     );
   }
 
-  // Show loading state while fetching tokens
   if (availableTokens.length === 0 && !error) {
     return (
       <div className="bg-secondary h-full p-4 lg:p-6 rounded-xl flex items-center justify-center">
@@ -146,11 +149,9 @@ const AmmSwapUI = () => {
     <div className="bg-secondary h-full p-4 lg:p-6 rounded-xl flex items-center justify-center">
       <div className="w-full max-w-lg">
         <div className="space-y-4">
-          {/* Header */}
           <div className="flex items-center justify-between">
             <h4 className="heading-4">Swap</h4>
             <div className="flex items-center gap-2 relative">
-              {/* XLM Reserve Info Button */}
               <XlmReserveButton xlmBalance={xlmBalance} trustlineCount={trustlineCount} />
 
               <button
@@ -177,7 +178,6 @@ const AmmSwapUI = () => {
             </div>
           </div>
 
-          {/* From Token */}
           <div className="card card-glass p-4 space-y-2">
             <div className="flex items-center justify-between text-small text-muted">
               <span>From</span>
@@ -228,7 +228,6 @@ const AmmSwapUI = () => {
             </button>
           </div>
 
-          {/* To Token */}
           <div className="card card-glass p-4 space-y-2">
             <div className="flex items-center justify-between text-small text-muted">
               <span>To</span>
@@ -258,8 +257,6 @@ const AmmSwapUI = () => {
               </div>
             )}
           </div>
-
-          {/* Error Display */}
           {error && (
             <div className="flex items-start gap-2 p-3 bg-danger-light rounded-lg animate-fade-in">
               <AlertCircle className="w-4 h-4 text-danger mt-0.5 flex-shrink-0" />
@@ -267,10 +264,8 @@ const AmmSwapUI = () => {
             </div>
           )}
 
-          {/* Swap Details */}
           <SwapDetails quote={quote} slippage={slippageTolerance} />
 
-          {/* Swap Button */}
           <button
             onClick={handleSwap}
             disabled={!canSwap || swapStatus === 'pending'}
@@ -298,7 +293,7 @@ const AmmSwapUI = () => {
             )}
           </button>
 
-          {/* Quote Expiry */}
+
           {quote && (
             <div className="flex items-center justify-center gap-2 text-xs text-muted animate-fade-in">
               <Clock className="w-3 h-3" />
@@ -306,7 +301,6 @@ const AmmSwapUI = () => {
             </div>
           )}
 
-          {/* Footer */}
           <div className="text-center text-muted text-sm">
             Powered by Stellar AMM |{' '}
             <a

@@ -26,8 +26,6 @@ type NetworkType = 'ETH' | 'BNB';
 type TokenType = 'USDT' | 'USDC';
 type FeeType = 'native' | 'stablecoin';
 
-const FALLBACK_EVM_ADDRESS = '0x05cBb7CbEEE7C8f1234567890abcdef123456789';
-const FALLBACK_STELLAR_ADDRESS = 'GCYNLQAXROO26U2ZBHUB5FDLFXMIISGOMVDBFFRK7Z3RGKA2VI5BVA6I';
 
 interface TradeAssetModalProps {
   isOpen: boolean;
@@ -69,12 +67,12 @@ interface QuoteData {
 
 const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAsset }) => {
   const navigate = useNavigate();
-  const { connectedWallets, getProvider } = useWalletConnect();
+  const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
-  const evmAddress = evmWallet?.address || FALLBACK_EVM_ADDRESS;
-  const stellarAddress = stellarWallet?.address || FALLBACK_STELLAR_ADDRESS;
+  const evmAddress = evmWallet?.address;
+  const stellarAddress = stellarWallet?.address;
   // const hasConnectedWallet = !!evmWallet?.address;
 
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
@@ -343,7 +341,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
   };
 
   const handleProceed = async () => {
-    if (!quoteData || !isValidAmount || !provider) return;
+    if (!quoteData || !isValidAmount || !provider || !stellarAddress || !evmAddress) return;
 
     setIsPreparingBridge(true);
     setTxStatus('preparing');
@@ -467,8 +465,6 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
     const minutes = Math.floor(ms / 60000);
     return minutes > 0 ? `~${minutes} min` : '< 1 min';
   };
-  const usingFallbackEVM = !evmWallet?.address;
-  const usingFallbackStellar = !stellarWallet?.address;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50 animate-fadeIn">
@@ -558,8 +554,27 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
             </div>
           </div>
 
-          {/* No Balance State */}
-          {!hasBalance && !isLoadingBalance && !isChainSwitching && (
+          {!evmAddress && (
+            <div className="card p-5 text-center border-warning bg-warning-bg">
+              <AlertCircle size={32} className="mx-auto mb-3 text-warning" />
+              <p className="font-semibold text-primary mb-1">Wallet Not Connected</p>
+              <p className="text-muted text-sm mb-4">
+                Please connect your EVM wallet to start trading.
+              </p>
+              <button
+                onClick={() => {
+                  onClose();
+                  openModal();
+                }}
+                className="btn btn-primary w-full gap-2"
+              >
+                <CreditCard size={16} />
+                Connect Wallet
+              </button>
+            </div>
+          )}
+
+          {!hasBalance && !isLoadingBalance && !isChainSwitching && evmAddress && (
             <div className="card p-5 text-center border-warning bg-warning-bg">
               <AlertCircle size={32} className="mx-auto mb-3 text-warning" />
               <p className="font-semibold text-primary mb-1">No {selectedToken} Balance</p>
@@ -693,57 +708,68 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
                   {error}
                 </div>
               )}
-              {(usingFallbackEVM || usingFallbackStellar) && (
-                <div className="card bg-warning-bg text-warning p-3 text-sm flex items-start gap-2">
-                  <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Using Test Addresses</p>
-                    <p className="text-xs mt-1 opacity-80">
-                      {usingFallbackEVM && 'EVM wallet not connected. '}
-                      {usingFallbackStellar && 'Stellar wallet not connected. '}
-                      Using fallback addresses for testing.
-                    </p>
-                  </div>
-                </div>
-              )}
 
-              <button
-                onClick={handleProceed}
-                disabled={!quoteData || !isValidAmount || isLoadingQuote || isChainSwitching || isPreparingBridge || txStatus === 'success'}
-                className={`btn w-full btn-lg gap-2 ${txStatus === 'success' ? 'btn-success' : 'btn-primary'}`}
-              >
-                {txStatus === 'success' ? (
-                  <>
-                    <CheckCircle size={18} />
-                    Bridge Complete!
-                  </>
-                ) : txStatus === 'approving' ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    Approving Token...
-                  </>
-                ) : txStatus === 'transferring' ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    Bridging to Stellar...
-                  </>
-                ) : txStatus === 'preparing' ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    Preparing...
-                  </>
-                ) : isLoadingQuote ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    Getting Quote...
-                  </>
-                ) : (
-                  <>
-                    <ArrowRight size={18} />
-                    Bridge to Stellar
-                  </>
-                )}
-              </button>
+              {!stellarAddress ? (
+                <div className="card bg-warning-bg p-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                    <div>
+                      <h3 className="font-semibold text-primary text-sm">Connect Stellar Wallet</h3>
+                      <p className="text-muted text-xs mt-1">
+                        You need to connect your Stellar wallet to use this feature. Please connect to continue.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      openModal();
+                    }}
+                    className="btn btn-primary w-full gap-2"
+                  >
+                    <CreditCard size={16} />
+                    Connect Wallet
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleProceed}
+                  disabled={!quoteData || !isValidAmount || isLoadingQuote || isChainSwitching || isPreparingBridge || txStatus === 'success'}
+                  className={`btn w-full btn-lg gap-2 ${txStatus === 'success' ? 'btn-success' : 'btn-primary'}`}
+                >
+                  {txStatus === 'success' ? (
+                    <>
+                      <CheckCircle size={18} />
+                      Bridge Complete!
+                    </>
+                  ) : txStatus === 'approving' ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Approving Token...
+                    </>
+                  ) : txStatus === 'transferring' ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Bridging to Stellar...
+                    </>
+                  ) : txStatus === 'preparing' ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Preparing...
+                    </>
+                  ) : isLoadingQuote ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Getting Quote...
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRight size={18} />
+                      Bridge to Stellar
+                    </>
+                  )}
+                </button>
+              )}
             </>
           )}
         </div>

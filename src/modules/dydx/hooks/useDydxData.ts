@@ -84,7 +84,7 @@ export const useDydxData = (): UseDydxDataReturn => {
 
     const filtered = raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
 
-    console.log('[useDydxData] 📊 Positions computed:', {
+    console.log('[useDydxData]  Positions computed:', {
       childSubaccountsCount: parentData?.childSubaccounts?.length ?? 0,
       rawPositions: raw.length,
       filteredPositions: filtered.length,

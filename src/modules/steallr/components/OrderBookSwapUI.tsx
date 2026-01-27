@@ -28,7 +28,7 @@ const OrderBookSwapUI = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'trade' | 'orderBook'>('trade');
 
-  const { connectedWallets, getProvider } = useWalletConnect();
+  const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
 
@@ -148,6 +148,12 @@ const OrderBookSwapUI = () => {
           <AlertCircle className="w-16 h-16 text-warning mx-auto" />
           <h4 className="text-lg font-semibold text-primary">Stellar Wallet Not Connected</h4>
           <p className="text-muted text-sm">Please connect your Stellar wallet to start trading</p>
+          <button
+            onClick={openModal}
+            className="btn btn-primary btn-lg w-full font-semibold mt-4"
+          >
+            Connect Wallet
+          </button>
         </div>
       </div>
     );
