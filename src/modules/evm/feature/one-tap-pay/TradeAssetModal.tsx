@@ -330,7 +330,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
 
   const handleSwapNow = () => {
     onClose();
-    navigate(ROUTES.TRADING_EVM_FIAT, {
+    navigate(ROUTES.TRADING_EVM_SWAP, {
       state: { selectedAsset, action: 'swap', network: selectedNetwork, token: selectedToken },
     });
   };
@@ -530,7 +530,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
             </div>
           </div>
           <div className="card p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <img src={ICONS[selectedToken]} alt={selectedToken} className="w-8 h-8 rounded-full" />
                 <div>
@@ -550,6 +550,24 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
                 className="p-2 hover:bg-hover rounded-lg transition-colors"
               >
                 <RefreshCw size={16} className={`text-muted ${isLoadingBalance ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSwapNow}
+                className="flex-1 btn btn-sm btn-secondary gap-1.5"
+                disabled={isChainSwitching}
+              >
+                <RefreshCw size={14} />
+                Swap
+              </button>
+              <button
+                onClick={handleBuyNow}
+                className="flex-1 btn btn-sm btn-success gap-1.5"
+                disabled={isChainSwitching}
+              >
+                <CreditCard size={14} />
+                Buy
               </button>
             </div>
           </div>

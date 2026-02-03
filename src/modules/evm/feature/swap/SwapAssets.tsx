@@ -10,6 +10,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
@@ -28,6 +29,8 @@ interface SwapAssetsProps {
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const isConnected = !!evmWallet;
@@ -42,6 +45,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [slippageTolerance, setSlippageTolerance] = useState<number>(0.5);
   const [showDetails, setShowDetails] = useState<boolean>(true);
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
+  const [preSelectedAsset, setPreSelectedAsset] = useState<{ symbol: string; chainId?: number } | null>(null);
 
   const [selectedChainId, setSelectedChainId] = useState<number>(1);
   const [assetModalOpen, setAssetModalOpen] = useState<'sell' | 'buy' | null>(null);
@@ -80,17 +84,33 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [currentChainId]);
 
   useEffect(() => {
+    if (location.state?.selectedAsset) {
+      const asset = location.state.selectedAsset;
+      setPreSelectedAsset({
+        symbol: asset.symbol?.toUpperCase(),
+        chainId: asset.chainId,
+      });
+      if (asset.chainId === 1 || asset.chainId === 56) {
+        setSelectedChainId(asset.chainId);
+      }
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
+
+  useEffect(() => {
     if (selectedChainId) {
       setIsChainSwitching(true);
       setSellAmount('');
-      setSellAssetSymbol('');
-      setBuyAssetSymbol('');
+      if (!preSelectedAsset) {
+        setSellAssetSymbol('');
+        setBuyAssetSymbol('');
+      }
       reset();
       fetchTokenList();
 
       setTimeout(() => setIsChainSwitching(false), 500);
     }
-  }, [selectedChainId, reset, fetchTokenList]);
+  }, [selectedChainId, reset, fetchTokenList, preSelectedAsset]);
 
   useEffect(() => {
     if (isConnected && senderAddress && !isChainSwitching) {
@@ -107,9 +127,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     updateTokenBalances,
   ]);
 
-  // Set default assets
   useEffect(() => {
     if (assets.length > 0 && !sellAssetSymbol && !buyAssetSymbol && !isChainSwitching) {
+      if (preSelectedAsset) {
+        const preSelected = assets.find(a => a.symbol === preSelectedAsset.symbol);
+        const nativeAsset = assets.find(a => a.isNative);
+        if (preSelected && nativeAsset) {
+          setSellAssetSymbol(nativeAsset.symbol);
+          setBuyAssetSymbol(preSelected.symbol);
+          setPreSelectedAsset(null);
+          return;
+        }
+      }
+
       const nativeAsset = assets.find(a => a.isNative);
       const usdcAsset = assets.find(a => a.symbol === 'USDC');
 
@@ -121,7 +151,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         setBuyAssetSymbol(assets[1].symbol);
       }
     }
-  }, [assets, sellAssetSymbol, buyAssetSymbol, isChainSwitching]);
+  }, [assets, sellAssetSymbol, buyAssetSymbol, isChainSwitching, preSelectedAsset]);
 
   const fetchSwapQuote = useCallback(async () => {
     if (
@@ -427,11 +457,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         onClick={() => handleChainSelect(chain.chainId)}
                         disabled={isChainSwitching}
                         title={`Switch to ${chain.name}`}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 border ${
-                          isSelected
-                            ? 'btn-primary border-transparent shadow-md'
-                            : 'btn-secondary hover:bg-tertiary border-color'
-                        }`}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 border ${isSelected
+                          ? 'btn-primary border-transparent shadow-md'
+                          : 'btn-secondary hover:bg-tertiary border-color'
+                          }`}
                       >
                         <img
                           src={chain.logoUrl}
@@ -527,11 +556,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     type="text"
                     inputMode="decimal"
                     pattern="^[0-9]*[.,]?[0-9]*$"
-                    className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${
-                      parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0')
-                        ? 'text-red-500'
-                        : ''
-                    }`}
+                    className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0')
+                      ? 'text-red-500'
+                      : ''
+                      }`}
                     placeholder="0.00"
                     value={sellAmount}
                     onChange={handleAmountChange}

@@ -79,7 +79,10 @@ export const useDydxData = (): UseDydxDataReturn => {
   const positions = useMemo(() => {
     const raw =
       parentData?.childSubaccounts?.flatMap(child =>
-        Object.values(child.openPerpetualPositions || {})
+        Object.values(child.openPerpetualPositions || {}).map(pos => ({
+          ...pos,
+          subaccountNumber: child.subaccountNumber,
+        }))
       ) || [];
 
     const filtered = raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);

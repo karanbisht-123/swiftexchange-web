@@ -60,11 +60,10 @@ const AssetSelectionModal: React.FC<AssetSelectionModalProps> = ({
                     rounded-t-3xl sm:rounded-none sm:rounded-r-2xl 
                     max-h-[85vh] sm:max-h-full h-full
                     transform transition-transform duration-300 ease-out
-                    ${
-                      isOpen
-                        ? 'translate-y-0 sm:translate-y-0 sm:translate-x-0'
-                        : 'translate-y-full sm:translate-y-0 sm:-translate-x-full'
-                    }
+                    ${isOpen
+            ? 'translate-y-0 sm:translate-y-0 sm:translate-x-0'
+            : 'translate-y-full sm:translate-y-0 sm:-translate-x-full'
+          }
                 `}
       >
         <div className="w-12 h-1.5 bg-tertiary rounded-full mx-auto mt-3 mb-1 sm:hidden shrink-0" />
@@ -114,11 +113,10 @@ const AssetSelectionModal: React.FC<AssetSelectionModalProps> = ({
                     onSelect(asset);
                     setSearchQuery('');
                   }}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl transition-all group ${
-                    selectedAssetSymbol === asset.symbol
+                  className={`w-full flex items-center justify-between p-3 rounded-xl transition-all group ${selectedAssetSymbol === asset.symbol
                       ? 'bg-brand/10 border border-brand/20'
                       : 'hover:bg-tertiary/50 border border-transparent'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative">

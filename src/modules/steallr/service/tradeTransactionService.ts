@@ -430,5 +430,70 @@ export class TradeTransactionService {
       throw new Error('Failed to fetch operations');
     }
   }
+
+  async getClaimableBalances(accountId: string): Promise<any[]> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
+      throw new Error('Invalid Stellar account ID');
+    }
+
+    try {
+      const response = await this.server
+        .claimableBalances()
+        .claimant(accountId)
+        .limit(50)
+        .call();
+
+      return response.records;
+    } catch (error) {
+      console.error('Failed to fetch claimable balances:', error);
+      throw new Error('Failed to fetch claimable balances');
+    }
+  }
+
+  async buildClaimBalanceTransaction(
+    accountId: string,
+    balanceId: string,
+    options: any = {}
+  ): Promise<any> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
+      throw new Error('Invalid Stellar account ID');
+    }
+
+    try {
+      const operation = StellarSDK.Operation.claimClaimableBalance({
+        balanceId: balanceId,
+      });
+
+      const { builtTx, sourceAccount } = await this.buildTransactionBase(
+        accountId,
+        operation,
+        options
+      );
+
+      return {
+        id: `claim-balance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'claim-balance',
+        from: accountId,
+        balanceId,
+        sequence: sourceAccount.sequence,
+        fee: options.fee || StellarSDK.BASE_FEE,
+        memo: options.memo,
+        timestamp: Date.now(),
+        status: 'pending',
+        xdr: builtTx.toXDR(),
+        networkPassphrase: this.networkPassphrase,
+      };
+    } catch (error: any) {
+      console.error('Failed to build claim balance transaction:', error);
+      throw new Error('Failed to build claim balance transaction');
+    }
+  }
+
+  async executeClaimBalanceWithWalletConnect(
+    transaction: any,
+    walletProvider: any
+  ): Promise<string> {
+    return this.executeTransactionWithWalletConnect(transaction, walletProvider, 'Claim Balance');
+  }
 }
 

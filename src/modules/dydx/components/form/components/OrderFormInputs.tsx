@@ -68,7 +68,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
   const renderFeedback = (error?: string, warning?: string) => {
     if (error) {
-      return <p className="text-xs text-red-500 mt-1 flex items-start gap-1 font-medium">{error}</p>;
+      return (
+        <p className="text-xs text-red-500 mt-1 flex items-start gap-1 font-medium">{error}</p>
+      );
     }
     if (warning) {
       return (
@@ -90,11 +92,13 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
   };
 
   return (
-    <div className="space-y-4 px-4">
+    <div className="space-y-4 px-1 lg:px-4">
       {/* LIMIT PRICE INPUT */}
       {showPrice && (
         <div className="animate-fade-in">
-          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">Limit Price (USD)</label>
+          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">
+            Limit Price (USD)
+          </label>
           <input
             type="text"
             value={price}
@@ -112,7 +116,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
       {/* TRIGGER PRICE INPUT */}
       {showTriggerPrice && (
         <div className="animate-fade-in">
-          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">Trigger Price (USD)</label>
+          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">
+            Trigger Price (USD)
+          </label>
           <input
             type="text"
             value={triggerPrice}
@@ -130,7 +136,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
       {/* SIZE INPUT */}
       <div className="animate-fade-in">
         <div className="flex items-center justify-between mb-2 ml-1">
-          <label className="text-xs font-semibold text-muted uppercase tracking-wider">Amount</label>
+          <label className="text-xs font-semibold text-muted uppercase tracking-wider">
+            Amount
+          </label>
           <button
             type="button"
             onClick={handleToggleCurrency}
@@ -164,7 +172,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
         </div>
         {maxBuyingPower && maxBuyingPower > 0 && (
           <div className="mt-1.5 ml-1 flex justify-between items-center text-[10px]">
-            <span className="text-muted italic">Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x</span>
+            <span className="text-muted italic">
+              Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x
+            </span>
           </div>
         )}
         <div id="size-error">{renderFeedback(sizeError, sizeWarning)}</div>

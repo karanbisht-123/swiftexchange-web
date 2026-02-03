@@ -269,6 +269,43 @@ export class OrderBookSwapService {
     }
   }
 
+  streamOrderBook(
+    selling: StellarSDK.Asset,
+    buying: StellarSDK.Asset,
+    onUpdate: (orderbook: any) => void,
+    onError?: (error: any) => void
+  ): () => void {
+    let closeStream: (() => void) | null = null;
+
+    try {
+      closeStream = this.server
+        .orderbook(selling, buying)
+        .limit(20)
+        .stream({
+          onmessage: (orderbook: any) => {
+            onUpdate(orderbook);
+          },
+          onerror: (error: any) => {
+            console.error('[StellarOrderbook] Stream error:', error);
+            if (onError) {
+              onError(error);
+            }
+          },
+        }) as unknown as () => void;
+    } catch (error) {
+      console.error('[StellarOrderbook] Failed to start stream:', error);
+      if (onError) {
+        onError(error);
+      }
+    }
+
+    return () => {
+      if (closeStream && typeof closeStream === 'function') {
+        closeStream();
+      }
+    };
+  }
+
   async getBestPrice(
     selling: StellarSDK.Asset,
     buying: StellarSDK.Asset,

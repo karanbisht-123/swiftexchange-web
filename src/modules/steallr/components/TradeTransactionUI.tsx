@@ -1,7 +1,6 @@
 import {
   AlertCircle,
   ArrowRight,
-  // CheckCircle,
   ExternalLink,
   Search,
   Timer,
@@ -117,7 +116,7 @@ const TradeTransactionUI = () => {
 
   if (!stellarWallet) {
     return (
-      <div className="bg-secondary rounded-xl border border-border/50 p-6 h-full flex flex-col items-center justify-center text-center">
+      <div className="bg-secondary lg:rounded-xl border border-border/50 p-6 h-full flex flex-col items-center justify-center text-center">
         <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mb-4">
           <AlertCircle className="w-8 h-8 text-warning" />
         </div>
@@ -130,15 +129,12 @@ const TradeTransactionUI = () => {
   }
 
   return (
-    <div className="bg-secondary min-h-screen p-4 sm:p-6 rounded-2xl border border-white/5">
-      {/* Header Section */}
+    <div className="bg-secondary min-h-screen p-4  lg:rounded-2xl border border-white/5">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h2 className="heading-4">Trade Transactions</h2>
           <p className="text-muted text-sm mt-1">Manage your offers and view history</p>
         </div>
-
-        {/* Custom Tab Switcher */}
         <div className="p-1 bg-muted/30 border border-white/5 rounded-full inline-flex">
           <button
             onClick={() => setActiveTab('active')}
@@ -161,20 +157,16 @@ const TradeTransactionUI = () => {
         </div>
       </div>
 
-      {/* Error Message */}
       {(error || errorMessage) && (
         <div className="mb-6 p-4 rounded-xl bg-danger/10 border border-danger/20 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
           <p className="text-sm text-danger">{error || errorMessage}</p>
         </div>
       )}
-
-      {/* Content Area */}
-      <div className="bg-muted/10 rounded-xl border border-white/5 overflow-hidden">
+      <div className="bg-muted/10 rounded-xl border border-white/5 overflow-hidden scrollbar-hide">
         {activeTab === 'active' ? (
           <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto scrollbar-hide">
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-white/5 bg-white/5">
@@ -261,8 +253,6 @@ const TradeTransactionUI = () => {
                 </tbody>
               </table>
             </div>
-
-            {/* Mobile Card View */}
             <div className="md:hidden space-y-3 p-3">
               {activeOffers.length === 0 && !isLoading ? (
                 <div className="text-center py-12 text-muted">
@@ -414,11 +404,9 @@ const TradeTransactionUI = () => {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <span
-                            title={trade.id} // Showing Trade ID if Link is not real hash
+                            title={trade.id}
                             className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary-light cursor-pointer"
                             onClick={() => {
-                              // Placeholder for future explorer link logic
-                              // In real app, we'd open a block explorer with trade ID or tx hash
                               window.open(
                                 `https://stellar.expert/explorer/testnet/trade/${trade.id}`,
                                 '_blank'
@@ -436,7 +424,6 @@ const TradeTransactionUI = () => {
               </table>
             </div>
 
-            {/* Mobile Card View */}
             <div className="md:hidden space-y-3 p-3">
               {completedTrades.length === 0 && !isLoading ? (
                 <div className="text-center py-12 text-muted">
@@ -519,8 +506,6 @@ const TradeTransactionUI = () => {
           </>
         )}
       </div>
-
-      {/* Edit Modal */}
       {editingOffer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-secondary border border-white/10 p-6 w-full max-w-md rounded-2xl shadow-xl">

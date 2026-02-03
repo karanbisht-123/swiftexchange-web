@@ -417,6 +417,7 @@
    UTILITIES
 -------------------------- */
 @layer utilities {
+
   /* Borders */
   .border-color {
     border-color: var(--color-border);

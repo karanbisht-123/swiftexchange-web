@@ -1,37 +1,37 @@
+import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Order, dydxDataService } from '../../service/dydxOrderService';
 import { getTimeAgo } from '../../utils/timeUtils';
-import { DataTable } from '../shared/DataTable';
 import { EmptyState } from '../shared/EmptyState';
 import { LoadingState } from '../shared/LoadingState';
 import { MarketBadge } from '../shared/MarketBadge';
+import { OrderDetailPanel } from '../shared/OrderDetailPanel';
 import { Pagination } from '../shared/Pagination';
 import { SideBadge, StatusIndicator } from '../shared/SideBadge';
+import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
 const ITEMS_PER_PAGE = 10;
 
 const OrderHistoryPanel: React.FC = () => {
-  const {
-    orders: storeOrders,
-    loadingOrders,
-    ordersError,
-    isConnected,
-    // refreshOrders,
-    // isReceivingUpdates,
-  } = useDydxData();
+  const { orders: storeOrders, loadingOrders, ordersError, isConnected } = useDydxData();
 
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreData, setHasMoreData] = useState(true);
 
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
+
   const initialLoadDoneRef = useRef(false);
+
   const getOrderTime = (order: Order): number => {
     return new Date(order.updatedAt || order.createdAtHeight || '0').getTime();
   };
+
   useEffect(() => {
     if (!isConnected) {
       setAllOrders([]);
@@ -59,6 +59,7 @@ const OrderHistoryPanel: React.FC = () => {
       ? currentPages
       : Math.max(currentPages, 1);
   }, [allOrders.length, hasMoreData]);
+
   const currentPageData = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
@@ -101,6 +102,7 @@ const OrderHistoryPanel: React.FC = () => {
       setLoadingMore(false);
     }
   }, [allOrders, isConnected, loadingMore, hasMoreData]);
+
   const handlePageChange = useCallback(
     (page: number) => {
       setCurrentPage(page);
@@ -112,6 +114,17 @@ const OrderHistoryPanel: React.FC = () => {
     },
     [allOrders.length, hasMoreData, loadingMore, loadMoreData]
   );
+
+  const handleOrderClick = useCallback((order: Order) => {
+    setSelectedOrder(order);
+    setShowDetail(true);
+  }, []);
+
+  const handleCloseDetail = useCallback(() => {
+    setShowDetail(false);
+    setTimeout(() => setSelectedOrder(null), 300);
+  }, []);
+
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view your order history" />;
   }
@@ -128,104 +141,108 @@ const OrderHistoryPanel: React.FC = () => {
     return <EmptyState title="No Orders" description="Place your first trade to see orders here" />;
   }
 
-  const columns = [
-    {
-      key: 'market',
-      header: 'Market',
-      align: 'left' as const,
-      render: (order: Order) => <MarketBadge market={order.ticker} />,
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      align: 'center' as const,
-      render: (order: Order) => <StatusIndicator status={order.status} />,
-    },
-    {
-      key: 'side',
-      header: 'Side',
-      align: 'center' as const,
-      render: (order: Order) => <SideBadge side={order.side as 'BUY' | 'SELL'} />,
-    },
-    {
-      key: 'type',
-      header: 'Type',
-      align: 'center' as const,
-      render: (order: Order) => (
-        <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">{order.type}</span>
-      ),
-    },
-    {
-      key: 'amount',
-      header: 'Amount',
-      align: 'right' as const,
-      render: (order: Order) => (
-        <span className="text-primary font-mono">{parseFloat(order.size).toFixed(4)}</span>
-      ),
-    },
-    {
-      key: 'filled',
-      header: 'Filled',
-      align: 'right' as const,
-      render: (order: Order) => {
-        const filled = parseFloat(order.totalFilled || '0');
-        const size = parseFloat(order.size);
-        const fillPercent = size > 0 ? (filled / size) * 100 : 0;
-        return (
-          <div className="text-right">
-            <div className="text-primary font-mono">{filled.toFixed(4)}</div>
-            {fillPercent > 0 && fillPercent < 100 && (
-              <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      key: 'orderValue',
-      header: 'Order Value',
-      align: 'right' as const,
-      render: (order: Order) => {
-        const filled = parseFloat(order.totalFilled || '0');
-        const price = parseFloat(order.price);
-        const value = (filled * price).toFixed(2);
-        return <span className="text-primary font-mono">${parseFloat(value).toLocaleString()}</span>;
-      },
-    },
-    {
-      key: 'price',
-      header: 'Price',
-      align: 'right' as const,
-      render: (order: Order) => (
-        <span className="text-primary font-mono">
-          {order.type === 'MARKET' ? 'Market' : `$${parseFloat(order.price).toLocaleString()}`}
-        </span>
-      ),
-    },
-    {
-      key: 'timeInForce',
-      header: 'TIF',
-      align: 'center' as const,
-      render: (order: Order) => (
-        <span className="text-gray-400 text-xs">{order.timeInForce || 'GTT'}</span>
-      ),
-    },
-    {
-      key: 'time',
-      header: 'Time',
-      align: 'right' as const,
-      render: (order: Order) => {
-        const timestamp = order.updatedAt || order.createdAtHeight;
-        return <span className="text-gray-400 text-xs">{getTimeAgo(timestamp)}</span>;
-      },
-    },
-  ];
-
   return (
     <div className="h-full flex flex-col bg-primary">
-      <div className="flex-1 overflow-auto">
-        <DataTable data={currentPageData} columns={columns} getRowKey={order => order.id} />
+      <div className="hidden md:block flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-secondary border-b border-color z-10">
+            <tr className="text-muted text-xs">
+              <th className="text-left px-4 py-3 font-medium">Market</th>
+              <th className="text-center px-4 py-3 font-medium">Status</th>
+              <th className="text-center px-4 py-3 font-medium">Side</th>
+              <th className="text-center px-4 py-3 font-medium">Type</th>
+              <th className="text-right px-4 py-3 font-medium">Amount</th>
+              <th className="text-right px-4 py-3 font-medium">Filled</th>
+              <th className="text-right px-4 py-3 font-medium">Price</th>
+              <th className="text-center px-4 py-3 font-medium">TIF</th>
+              <th className="text-right px-4 py-3 font-medium">Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {currentPageData.map(order => {
+              const filled = parseFloat(order.totalFilled || '0');
+              const size = parseFloat(order.size);
+              const fillPercent = size > 0 ? (filled / size) * 100 : 0;
+
+              return (
+                <tr
+                  key={order.id}
+                  onClick={() => handleOrderClick(order)}
+                  className="border-b border-color hover:bg-hover transition-colors cursor-pointer"
+                >
+                  <td className="px-4 py-3">
+                    <MarketBadge market={order.ticker} />
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <StatusIndicator status={order.status} />
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <SideBadge side={order.side as 'BUY' | 'SELL'} />
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
+                      {order.type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">
+                    {size.toFixed(4)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="text-primary font-mono">{filled.toFixed(4)}</div>
+                    {fillPercent > 0 && fillPercent < 100 && (
+                      <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">
+                    {order.type === 'MARKET' ? 'Market' : `$${parseFloat(order.price).toLocaleString()}`}
+                  </td>
+                  <td className="px-4 py-3 text-center text-gray-400 text-xs">
+                    {order.timeInForce || 'GTT'}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-400 text-xs">
+                    {getTimeAgo(order.updatedAt || order.createdAtHeight)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+
+      <div className="md:hidden flex-1 overflow-auto p-2 space-y-2">
+        {currentPageData.map(order => {
+          const size = parseFloat(order.size);
+          const price = parseFloat(order.price);
+
+          return (
+            <div
+              key={order.id}
+              onClick={() => handleOrderClick(order)}
+              className="bg-secondary border border-color rounded-lg p-3 flex items-center justify-between active:bg-hover transition-colors"
+            >
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <MarketBadge market={order.ticker} />
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-2">
+                    <SideBadge side={order.side as 'BUY' | 'SELL'} />
+                    <span className="text-primary font-mono text-xs">
+                      {order.type === 'MARKET' ? 'Market' : `$${price.toLocaleString()}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusIndicator status={order.status} />
+                    <span className="text-muted text-xs">
+                      {size.toFixed(4)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-muted flex-shrink-0" />
+            </div>
+          );
+        })}
+      </div>
+
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
@@ -235,6 +252,14 @@ const OrderHistoryPanel: React.FC = () => {
         itemsPerPage={ITEMS_PER_PAGE}
         hasMore={hasMoreData}
       />
+
+      <SidePanel
+        isOpen={showDetail}
+        onClose={handleCloseDetail}
+        title="Order Details"
+      >
+        {selectedOrder && <OrderDetailPanel order={selectedOrder} />}
+      </SidePanel>
     </div>
   );
 };
