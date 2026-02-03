@@ -14,9 +14,6 @@ interface UseUserCountryReturn {
     error: string | null;
 }
 
-/**
- * Custom hook to fetch and cache user's country based on IP geolocation
- */
 export const useUserCountry = (): UseUserCountryReturn => {
     const [geoData, setGeoData] = useState<GeoLocationData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -31,7 +28,6 @@ export const useUserCountry = (): UseUserCountryReturn => {
                 const data = await getUserGeoLocation();
 
                 if (data) {
-                    // If currency is not provided by API, try to get it from the map
                     if (!data.currency && data.country) {
                         const currencyMap = getCountryCurrencyMap();
                         data.currency = currencyMap[data.country];

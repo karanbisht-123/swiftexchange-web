@@ -13,15 +13,15 @@ import type {
 } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
-import { getCosmosChains, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type ReceiveAsset,
-  assetFromCosmos,
   assetFromEVM,
   assetFromStellar,
 } from '../../walletconnect/utils/assetFromChain';
+import { addLocalTransaction } from '../../evm/service/localTransactionService';
 
 interface TransactionState {
   txHash: string | null;
@@ -30,7 +30,7 @@ interface TransactionState {
   stellarTransaction?: StellarSendTransaction | null;
 }
 interface EnhancedReceiveAsset extends ReceiveAsset {
-  type: 'evm' | 'stellar' | 'cosmos';
+  type: 'evm' | 'stellar';
   networkKey: number | string;
   decimals: number;
   baseFee: number;
@@ -92,17 +92,11 @@ const formatErrorMessage = (error: any, context: string): string => {
 };
 
 const enhanceAsset = (asset: ReceiveAsset): EnhancedReceiveAsset => {
-  let type: 'evm' | 'stellar' | 'cosmos' = 'evm';
-  if (asset.addressType === 'stellar' || asset.walletType === 'stellar') {
-    type = 'stellar';
-  } else if (asset.addressType === 'cosmos' || asset.walletType === 'cosmos') {
-    type = 'cosmos';
-  }
+  const type: 'evm' | 'stellar' =
+    asset.addressType === 'stellar' || asset.walletType === 'stellar' ? 'stellar' : 'evm';
   const networkKey = asset.chainId || 0;
-
-  // Standardized decimals and base fees (approximation for generic display)
-  const decimals = type === 'stellar' ? 7 : type === 'cosmos' ? 6 : 18;
-  const baseFee = type === 'stellar' ? 0.00001 : type === 'cosmos' ? 0.0025 : 0.001;
+  const decimals = type === 'stellar' ? 7 : 18;
+  const baseFee = type === 'stellar' ? 0.00001 : 0.001;
 
   return {
     ...asset,
@@ -117,16 +111,12 @@ export const useSendAsset = (onBack?: () => void) => {
   const { connectedWallets } = useWalletConnect();
   const { sendTransaction, canHandleTransaction, getSessionInfo } = useTransactionRouter();
 
-  // Get network from the centralized store
   const currentNetwork = useWalletStore(state => state.network);
 
   const rawAssets: ReceiveAsset[] = useMemo(() => {
-    // Pass currentNetwork to chain configuration getters
     const evm = getEVMChains(currentNetwork).map(assetFromEVM);
-    const cosmos = getCosmosChains(currentNetwork).map(assetFromCosmos);
     const stellar = [assetFromStellar(getStellarConfig(currentNetwork))];
-    return [...evm, ...cosmos, ...stellar];
-    // Add currentNetwork as a dependency
+    return [...evm, ...stellar];
   }, [currentNetwork]);
 
   const assets: EnhancedReceiveAsset[] = useMemo(() => {
@@ -149,9 +139,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Select first asset
   useEffect(() => {
-    // If the selected asset doesn't exist in the new list (e.g., due to network change), select the first one.
     if (assets.length && !assets.some(a => a.value === selectedAssetValue)) {
       setSelectedAssetValue(assets[0].value);
     }
@@ -161,7 +149,6 @@ export const useSendAsset = (onBack?: () => void) => {
     () => assets.find(a => a.value === selectedAssetValue),
     [assets, selectedAssetValue]
   );
-  // Wallet address
   const senderAddress = useMemo(() => {
     if (!currentAsset) return null;
     const walletInfo = connectedWallets[currentAsset.walletType];
@@ -175,30 +162,23 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const clearNotifications = useCallback(() => setNotifications([]), []);
 
-  //  Balance fetching
   useEffect(() => {
     const fetchBalance = async () => {
       if (!currentAsset || !senderAddress) {
         setBalance(0);
         return;
       }
-
-      // Reset balance on asset/network change
       setBalance(0);
       setIsFetchingBalance(true);
 
       try {
         let balStr: string;
 
-        console.log(currentAsset, '------');
         if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
           balStr = await getNativeBalance(currentAsset.networkKey, senderAddress);
         } else if (currentAsset.type === 'stellar') {
-          console.log('Fetching stellar balance', currentAsset.addressType);
-          // Note: getStellarBalance uses 'native' for XLM balance implicitly
           balStr = await getStellarBalance('native', senderAddress);
         } else {
-          // Placeholder for Cosmos, pending implementation
           balStr = '0';
         }
 
@@ -211,10 +191,8 @@ export const useSendAsset = (onBack?: () => void) => {
       }
     };
     fetchBalance();
-    // Re-fetch when currentAsset or senderAddress changes (which happens on network change)
   }, [currentAsset, senderAddress]);
 
-  //  Fee estimation
   useEffect(() => {
     const estimate = async () => {
       if (
@@ -246,7 +224,6 @@ export const useSendAsset = (onBack?: () => void) => {
         } else if (currentAsset.type === 'stellar' && typeof currentAsset.networkKey === 'string') {
           fees = await estimateStellarFees();
         } else {
-          // Placeholder for Cosmos/Generic fee
           fees = {
             totalCost: currentAsset.baseFee.toFixed(
               currentAsset.decimals > 10 ? 8 : currentAsset.decimals
@@ -261,7 +238,6 @@ export const useSendAsset = (onBack?: () => void) => {
       } catch (e: any) {
         console.error('Fee estimation error:', e);
 
-        // Fallback to base fee if estimation fails
         const baseFeeData = {
           totalCost: currentAsset.baseFee.toFixed(
             currentAsset.decimals > 10 ? 8 : currentAsset.decimals
@@ -283,10 +259,8 @@ export const useSendAsset = (onBack?: () => void) => {
 
     const timer = setTimeout(estimate, 500);
     return () => clearTimeout(timer);
-    // Re-run fee estimation on asset, address, amount, or memo change (which includes network change)
   }, [currentAsset, senderAddress, recipientAddress, amount, memo]);
 
-  //  Input validation
   const validateInputs = useCallback(() => {
     if (!currentAsset) return 'Please select an asset.';
     if (!isWalletConnected) return `Please connect your ${currentAsset.walletType} wallet first.`;
@@ -338,8 +312,6 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const handleMaxClick = useCallback(() => {
     if (!currentAsset || isFetchingBalance) return;
-
-    // Use estimated fee if available, otherwise use base fee.
     const fee =
       estimatedFees && estimatedFees.totalCost
         ? parseFloat(estimatedFees.totalCost)
@@ -375,22 +347,16 @@ export const useSendAsset = (onBack?: () => void) => {
       } else if (currentAsset.type === 'stellar') {
         const options: StellarTransactionOptions = {};
         if (memo.trim()) options.memo = memo.trim();
-
-        // Stellar build is async and requires Horizon network context
         const stellarTx = await sendCryptoStellarBuild(
           senderAddress,
           recipientAddress,
           amount,
           options
         );
-
-        // Determine network passphrase based on current network state (LOWERCASE)
         const networkPassphrase =
           currentNetwork === 'testnet'
             ? 'Test SDF Network ; September 2015'
             : 'Public Global Stellar Network ; September 2015';
-
-        // FIX: The comparison here must be consistent with the NetworkType (lowercase)
         const networkString = currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC';
 
         transactionRequest = {
@@ -407,28 +373,27 @@ export const useSendAsset = (onBack?: () => void) => {
           },
         };
       } else {
-        // Cosmos transaction placeholder
-        transactionRequest = {
-          type: 'cosmos',
-          network: currentAsset.network,
-          networkKey: currentAsset.networkKey as string,
-          from: senderAddress,
-          to: recipientAddress,
-          amount,
-          memo: memo || undefined,
-        };
+        throw new Error(`Unsupported asset type: ${currentAsset.type}`);
       }
 
-      console.log('[useSendAsset] Sending via router:', transactionRequest);
       const response = await sendTransaction(transactionRequest);
 
       if (response.status === 'success') {
+        if (currentAsset.type === 'evm' && response.hash) {
+          addLocalTransaction({
+            hash: response.hash,
+            chainId: currentAsset.networkKey as number,
+            type: 'send',
+            timestamp: Date.now(),
+            description: `Send ${amount} ${currentAsset.value}`,
+          });
+        }
+
         setTransactionState(p => ({
           ...p,
           txHash: response.hash || null,
           step: 'success',
         }));
-        // Reset form after a successful transaction
         setTimeout(() => {
           setRecipientAddress('');
           setAmount('');
@@ -447,7 +412,6 @@ export const useSendAsset = (onBack?: () => void) => {
       console.error('Transaction error:', error);
 
       if (isUserRejection(error)) {
-        // Go back to review step if user cancels signing
         setTransactionState(p => ({ ...p, step: 'review', error: null }));
         return;
       }
@@ -495,13 +459,12 @@ export const useSendAsset = (onBack?: () => void) => {
     console.log(label);
     try {
       await navigator.clipboard.writeText(text);
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
     if (currentAsset) {
-      const info = getSessionInfo(currentAsset.walletType);
-      console.log(`[useSendAsset] Session for ${currentAsset.walletType}:`, info);
+      getSessionInfo(currentAsset.walletType);
     }
   }, [currentAsset, getSessionInfo]);
 

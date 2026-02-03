@@ -161,12 +161,21 @@ export class OrderBookSwapService {
     }
   }
 
+
+  private isWalletConnectProvider(provider: any): boolean {
+    return !!(
+      provider.client &&
+      provider.session &&
+      typeof provider.client.request === 'function'
+    );
+  }
+
   async executeOrderWithWalletConnect(
     transaction: LargeOrderTransaction,
     walletProvider: any
   ): Promise<string> {
     try {
-      console.log('Preparing Stellar transaction via WalletConnect...');
+      console.log('Preparing Stellar order transaction via WalletConnect...');
 
       if (!transaction.xdr) {
         console.error('Missing XDR data');
@@ -174,7 +183,7 @@ export class OrderBookSwapService {
       }
 
       const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-      const network = isMainnet ? 'MAINNET' : 'TESTNET';
+      const network = isMainnet ? 'pubnet' : 'TESTNET';
 
       const signParams = {
         xdr: transaction.xdr,
@@ -182,32 +191,68 @@ export class OrderBookSwapService {
         network,
       };
 
-      console.log('Calling walletProvider.request with stellar_signAndSubmitXDR...', signParams);
+      console.log('Stellar order sign params:', signParams);
 
-      const result = await walletProvider.request({
-        method: 'stellar_signAndSubmitXDR',
-        params: signParams,
-      });
+      let result: any;
+      if (this.isWalletConnectProvider(walletProvider)) {
+        console.log('Using WalletConnect client.request() for Stellar order');
+
+        const topic = walletProvider.session?.topic;
+        if (!topic) {
+          console.error('No WalletConnect session topic found');
+          throw new Error('No active WalletConnect session for Stellar wallet');
+        }
+
+        const chainCAIP = `stellar:${network}`;
+
+        console.log('WalletConnect request params:', {
+          topic,
+          chainId: chainCAIP,
+          method: 'stellar_signAndSubmitXDR',
+        });
+
+        result = await walletProvider.client.request({
+          topic,
+          chainId: chainCAIP,
+          request: {
+            method: 'stellar_signAndSubmitXDR',
+            params: signParams,
+          },
+        });
+      } else {
+        console.log('Using direct provider.request() for Stellar order');
+        result = await walletProvider.request({
+          method: 'stellar_signAndSubmitXDR',
+          params: signParams,
+        });
+      }
 
       console.log('WalletConnect provider response:', result);
 
-      if (result.status === 'success') {
-        console.log('Stellar transaction successful!');
+      if (result?.status === 'success' || result?.hash || result?.signedXDR) {
+        console.log('Stellar order transaction successful!');
         return result.hash || result.transactionHash || 'stellar_submitted';
       }
 
-      console.error('Stellar transaction failed - status not success');
-      throw new Error('Stellar transaction failed');
+      if (typeof result === 'string') {
+        console.log('Stellar order returned string hash');
+        return result;
+      }
+
+      console.error('Stellar order failed - unexpected response:', result);
+      throw new Error('Stellar transaction failed - unexpected response format');
     } catch (error: any) {
       console.error('Failed to execute order via WalletConnect:', {
         message: error.message,
         code: error.code,
         fullError: error,
       });
+
       if (error?.response?.data?.extras?.result_codes) {
         const codes = error.response.data.extras.result_codes;
         throw new Error(`Order failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
       }
+
       throw new Error(
         `Order execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -245,8 +290,6 @@ export class OrderBookSwapService {
 
   getPopularAssets(): StellarSDK.Asset[] {
     const popular = [StellarSDK.Asset.native()];
-
-    // Check if mainnet based on network passphrase
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
 
     if (isMainnet) {

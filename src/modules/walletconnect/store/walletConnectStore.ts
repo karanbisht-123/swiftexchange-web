@@ -283,7 +283,7 @@ export const initWalletListener = async () => {
 
     walletService.onStateChange((type, state) => {
       try {
-        const currentStatus = useWalletStore.getState().connectionStatus[type];
+        // const currentStatus = useWalletStore.getState().connectionStatus[type];
 
         console.log('[WalletStore] State change:', { type, state });
 
@@ -318,9 +318,12 @@ export const initWalletListener = async () => {
             const currentWallet = useWalletStore.getState().connectedWallets[type];
 
             // Check if chainId changed
-            const newChainId = type === 'evm' ? session.evmChainId :
-              type === 'cosmos' ? session.cosmosChainId :
-                session.stellarChainId;
+            const newChainId =
+              type === 'evm'
+                ? session.evmChainId
+                : type === 'cosmos'
+                  ? session.cosmosChainId
+                  : session.stellarChainId;
 
             if (currentWallet && currentWallet.chainId !== newChainId) {
               console.log('[WalletStore] Chain changed:', currentWallet.chainId, '->', newChainId);
@@ -329,9 +332,12 @@ export const initWalletListener = async () => {
             const updatedWallet = {
               type,
               walletId: session.walletId,
-              address: type === 'evm' ? session.evmAddress! :
-                type === 'cosmos' ? session.cosmosAddress! :
-                  session.stellarAddress!,
+              address:
+                type === 'evm'
+                  ? session.evmAddress!
+                  : type === 'cosmos'
+                    ? session.cosmosAddress!
+                    : session.stellarAddress!,
               chainId: newChainId,
               dydxAddress: session.dydxAddress,
             };

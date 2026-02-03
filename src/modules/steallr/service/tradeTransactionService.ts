@@ -19,12 +19,12 @@ export class TradeTransactionService {
   > = new Map();
   private static readonly SERVER_CACHE_TTL = 300_000;
 
-  constructor(networkKey: string) {
+  constructor() {
     this.currentNetwork = useWalletStore.getState().network;
     const config = getStellarConfig(this.currentNetwork);
 
     if (!config) {
-      throw new Error(`Unsupported Stellar network: ${networkKey}`);
+      throw new Error(`Unsupported Stellar network: ${this.currentNetwork}`);
     }
 
     const cacheKey = `${config.horizonUrl}_${config.networkPassphrase}`;
@@ -45,8 +45,6 @@ export class TradeTransactionService {
 
     this.networkPassphrase = config.networkPassphrase;
   }
-
-  // OPTIMIZATION 3: Optimize mapping functions with arrow functions
   private mapOfferRecordToActiveOffer = (offer: Horizon.ServerApi.OfferRecord): ActiveOffer => ({
     id: offer.id,
     selling: {
@@ -104,7 +102,6 @@ export class TradeTransactionService {
         .order('desc')
         .call();
 
-      // Use pre-bound mapping function
       const offers = response.records.map(this.mapOfferRecordToActiveOffer);
       const hasMore = response.records.length === limit;
       const nextCursor = hasMore
@@ -139,8 +136,6 @@ export class TradeTransactionService {
         .cursor(cursor || '')
         .order('desc')
         .call();
-
-      // Optimize mapping with pre-bound function
       const trades = response.records.map(trade =>
         this.mapTradeRecordToCompletedTrade(trade, accountId)
       );
@@ -155,8 +150,6 @@ export class TradeTransactionService {
       throw new Error('Failed to fetch completed trades');
     }
   }
-
-  // OPTIMIZATION 4: Cached account loading
   private async loadAccountWithCache(accountId: string): Promise<any> {
     const now = Date.now();
     const cached = this.accountCache.get(accountId);
@@ -169,13 +162,9 @@ export class TradeTransactionService {
     this.accountCache.set(accountId, { account, timestamp: now });
     return account;
   }
-
-  // OPTIMIZATION 5: Reusable asset creation
   private createAsset(code: string, issuer?: string): StellarSDK.Asset {
     return code === 'XLM' ? StellarSDK.Asset.native() : new StellarSDK.Asset(code, issuer!);
   }
-
-  // OPTIMIZATION 6: Shared transaction builder logic
   private async buildTransactionBase(
     accountId: string,
     operation: StellarSDK.xdr.Operation,
@@ -338,7 +327,6 @@ export class TradeTransactionService {
         code: error.code,
       });
 
-      // Extract detailed error information
       if (error?.response?.data?.extras?.result_codes) {
         const codes = error.response.data.extras.result_codes;
         throw new Error(
@@ -362,8 +350,6 @@ export class TradeTransactionService {
   async executeEditOfferWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
     return this.executeTransactionWithWalletConnect(transaction, walletProvider, 'Edit offer');
   }
-
-  // OPTIMIZATION 8: Batch operations for multiple offers
   async getActiveOffersAndTrades(
     accountId: string,
     offersLimit: number = 10,
@@ -377,8 +363,6 @@ export class TradeTransactionService {
     if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
       throw new Error('Invalid Stellar account ID');
     }
-
-    // Fetch offers and trades in parallel
     const [offersResult, tradesResult] = await Promise.allSettled([
       this.getActiveOffers(accountId, offersLimit),
       this.getCompletedTrades(accountId, tradesLimit),
@@ -393,8 +377,6 @@ export class TradeTransactionService {
         tradesResult.status === 'fulfilled' ? tradesResult.value.nextCursor : undefined,
     };
   }
-
-  // OPTIMIZATION 9: Clear cache when needed (e.g., after transaction)
   clearAccountCache(accountId?: string): void {
     if (accountId) {
       this.accountCache.delete(accountId);
@@ -414,4 +396,39 @@ export class TradeTransactionService {
       console.warn('Failed to prefetch account data:', error);
     }
   }
+  async getAllOperations(
+    accountId: string,
+    limit: number = 20,
+    cursor?: string
+  ): Promise<{
+    operations: any[];
+    nextCursor?: string;
+    hasMore: boolean;
+  }> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(accountId)) {
+      throw new Error('Invalid Stellar account ID');
+    }
+
+    try {
+      const response = await this.server
+        .operations()
+        .forAccount(accountId)
+        .limit(limit)
+        .cursor(cursor || '')
+        .order('desc')
+        .includeFailed(false)
+        .call();
+
+      const hasMore = response.records.length === limit;
+      const nextCursor = hasMore
+        ? response.records[response.records.length - 1].paging_token
+        : undefined;
+
+      return { operations: response.records, nextCursor, hasMore };
+    } catch (error) {
+      console.error('Failed to fetch operations:', error);
+      throw new Error('Failed to fetch operations');
+    }
+  }
 }
+

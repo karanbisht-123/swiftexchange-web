@@ -74,6 +74,7 @@ export const useDydxData = (): UseDydxDataReturn => {
   );
 
   const OPEN_ORDER_STATUSES = ['OPEN', 'PARTIALLY_FILLED', 'BEST_EFFORT_OPENED', 'UNTRIGGERED'];
+  const TERMINAL_ORDER_STATUSES = ['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED'];
 
   const positions = useMemo(() => {
     const raw =
@@ -81,8 +82,17 @@ export const useDydxData = (): UseDydxDataReturn => {
         Object.values(child.openPerpetualPositions || {})
       ) || [];
 
-    return raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
-  }, [parentData?.childSubaccounts, updateTrigger]);
+    const filtered = raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
+
+    console.log('[useDydxData]  Positions computed:', {
+      childSubaccountsCount: parentData?.childSubaccounts?.length ?? 0,
+      rawPositions: raw.length,
+      filteredPositions: filtered.length,
+      parentKey,
+    });
+
+    return filtered;
+  }, [parentData?.childSubaccounts, updateTrigger, parentKey]);
 
   const assetPositions = useMemo(() => {
     return (
@@ -101,7 +111,10 @@ export const useDydxData = (): UseDydxDataReturn => {
   }, [parentData?.orders, updateTrigger]);
 
   const openOrders = useMemo(() => {
-    return orders.filter(order => OPEN_ORDER_STATUSES.includes(order.status));
+    return orders.filter(order =>
+      OPEN_ORDER_STATUSES.includes(order.status) &&
+      !TERMINAL_ORDER_STATUSES.includes(order.status)
+    );
   }, [orders]);
 
   const fills = useMemo(() => {
@@ -160,15 +173,13 @@ export const useDydxData = (): UseDydxDataReturn => {
       });
 
       if (isMountedRef.current && parentKey) {
-        // Merge with existing WebSocket data
+
         const currentData = useWebSocketStore.getState().parentSubaccounts.get(parentKey);
 
-        // Deduplicate orders by ID
         const existingOrderIds = new Set((currentData?.orders || []).map(o => o.id));
         const newOrders = orderData.filter(o => !existingOrderIds.has(o.id));
         const mergedOrders = [...(currentData?.orders || []), ...newOrders];
 
-        // Deduplicate fills by ID
         const existingFillIds = new Set((currentData?.fills || []).map(f => f.id));
         const newFills = fillData.filter(f => !existingFillIds.has(f.id));
         const mergedFills = [...(currentData?.fills || []), ...newFills];
@@ -264,7 +275,7 @@ export const useDydxData = (): UseDydxDataReturn => {
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
       subscribeToParentSubaccount(dydxAddress, subaccountNumber);
-      console.log('[useDydxData] ✅ WebSocket subscribed');
+      console.log('[useDydxData] WebSocket subscribed');
 
       setTimeout(() => {
         if (!hasInitializedRef.current) {
@@ -331,7 +342,6 @@ export const useDydxData = (): UseDydxDataReturn => {
     fillsError,
     refreshFills,
 
-    // Computed counts for UI tabs
     openOrderCount,
     activePositionCount,
     fillCount,

@@ -404,11 +404,9 @@ class WebSocketManager {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
         this.serverSubscriptions.add(key);
         this.subscriptionInProgress.delete(key);
-        console.log('[WS] ✅ Subscribed to:', key);
-
-        // 🔥 FIX: Process the initial snapshot data from the subscribed message
+        console.log('[WS] Subscribed to:', key);
         if (data.contents) {
-          console.log('[WS] 📦 Processing initial subscription data for:', key);
+          console.log('[WS] Processing initial subscription data for:', key);
           const handlers = this.subscriptions.get(key);
           if (handlers && handlers.size > 0) {
             handlers.forEach(handler => {
@@ -748,7 +746,7 @@ class WebSocketManager {
   }
 
   private clearAllSubscriptions(): void {
-    // console.log('[WS] Clearing all subscriptions');
+
     this.subscriptions.clear();
     this.serverSubscriptions.clear();
     this.pendingSubscriptions.clear();

@@ -83,19 +83,18 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
   };
 
   return (
-    <div className="w-full max-w-md bg-secondary text-white font-medium text-sm select-none">
+    <div className="w-full max-w-md bg-secondary text-primary font-medium text-sm select-none">
       <div className="flex items-center justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
         <div className=" items-center gap-3 hidden lg:flex">
-          <span className="text-[#aaaaaa] text-xs font-semibold ">Orderbook</span>
+          <span className="text-secondary text-xs font-semibold ">Orderbook</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-white font-semibold">{base}</span>
-          <span className="text-[#aaaaaa]">/</span>
-          <span className="text-[#aaaaaa]">{quote}</span>
+          <span className="text-secondary font-semibold">{base}</span>
+          <span className="text-secondary">/</span>
+          <span className="text-secondary">{quote}</span>
           <div
-            className={`w-2 h-2 rounded-full ${
-              isConnected && dataSource === 'websocket' ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
-            } ${isConnected ? 'animate-pulse' : ''}`}
+            className={`w-2 h-2 rounded-full ${isConnected && dataSource === 'websocket' ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
+              } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
@@ -131,7 +130,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
                   maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative text-right text-[#e8e8e8] tabular-nums text-xs lg:text-[14px] ">
+              <div className="relative text-right text-primary tabular-nums text-xs lg:text-[14px] ">
                 {ask.size.toFixed(4)}
               </div>
               <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[14px] ">
@@ -142,12 +141,12 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
         })}
       </div>
 
-      <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2.5 bg-[#1a1620] border-y border-[#232027] text-xs lg:text-[14px]">
-        <div className="text-[#6b6b76] font-medium">Spread</div>
-        <div className="text-right font-semibold text-white tabular-nums">
+      <div className="grid grid-cols-3  text-primary px-1 md:px-2 lg:px-4 py-2.5 bg-primar shadow-sm text-xs lg:text-[14px]">
+        <div className="text-primary font-medium">Spread</div>
+        <div className="text-right text-primary font-semibold text-white tabular-nums">
           {spread !== null && spread > 0 ? spread.toFixed(2) : '-'}
         </div>
-        <div className="text-right text-[#6b6b76] font-medium tabular-nums">
+        <div className="text-right text-primary font-medium tabular-nums">
           {spreadPct !== null && spreadPct > 0 ? `${spreadPct.toFixed(3)}%` : '-'}
         </div>
       </div>
@@ -177,11 +176,11 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
                   maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative text-right text-[#e8e8e8] tabular-nums text-xs lg:text-[14px]">
+              <div className="relative text-right text-primary tabular-nums text-xs lg:text-[14px]">
                 {bid.size.toFixed(4)}
               </div>
               <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[14px]">
-                {bid.total.toFixed(4)}
+                {bid.total.toFixed(3)}
               </div>
             </div>
           );

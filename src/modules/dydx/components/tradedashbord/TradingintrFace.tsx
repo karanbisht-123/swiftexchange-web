@@ -259,8 +259,6 @@ const MobileLayout = () => {
       <div className="max-w-lvw shrink-0">
         <MarketSwitcher />
       </div>
-
-      {/* Main Content Area */}
       <div className="flex-1 overflow-hidden bg-secondary flex flex-col">
         <div className="flex-1 overflow-hidden">
           {activeTab === 'price' && (
@@ -280,7 +278,6 @@ const MobileLayout = () => {
           )}
           {activeTab === 'trade' && (
             <div className="h-full overflow-hidden flex">
-              {/* Split View: Orderbook + Trading Form */}
               <div className="w-2/4 overflow-auto border-r border-color">
                 <Orderbook />
               </div>
@@ -295,8 +292,6 @@ const MobileLayout = () => {
             </div>
           )}
         </div>
-
-        {/* Action Buttons Below Chart */}
         <div className="flex items-center justify-center gap-2 px-4 py-3 bg-secondary border-t border-color shrink-0">
           {tabs.map(tab => {
             const Icon = tab.icon;

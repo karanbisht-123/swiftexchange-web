@@ -14,7 +14,7 @@ const QuickActions: FC = () => {
     { name: 'Receive', icon: <ArrowDown className="w-8 h-8" />, to: '/receive' },
     { name: 'Swap', icon: <Repeat className="w-8 h-8" />, to: '/trading/evm/swap' },
     { name: 'Buy', icon: <CreditCard className="w-8 h-8" />, to: '/trading/evm/fiat' },
-    { name: 'Activty', icon: <ClockArrowDown className="w-8 h-8" />, to: '/trading/evm/fiat' },
+    { name: 'Activty', icon: <ClockArrowDown className="w-8 h-8" />, to: '/transactions' },
   ];
 
   return (
@@ -29,14 +29,14 @@ const QuickActions: FC = () => {
                       transition-all duration-200 hover:scale-105"
           >
             <div
-              className="w-14 h-14 rounded-lg flex items-center justify-center mb-2
+              className="w-14 h-14 lg:w-16 lg:h-16 rounded-lg flex items-center justify-center mb-2
                          backdrop-blur-sm bg-primary
                         transition-transform duration-200 group-hover:scale-110"
             >
-              <div className="text-white">{action.icon}</div>
+              <div className="text-primary">{action.icon}</div>
             </div>
 
-            <span className="text-xs sm:text-sm font-medium text-white">{action.name}</span>
+            <span className="text-xs sm:text-sm font-medium text-primary">{action.name}</span>
           </Link>
         ))}
       </div>

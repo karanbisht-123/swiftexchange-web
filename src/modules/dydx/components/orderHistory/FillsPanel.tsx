@@ -137,7 +137,7 @@ const FillsPanel: React.FC = () => {
       align: 'right' as const,
       render: (f: Fill) => (
         <div className="text-right">
-          <div className="text-white text-xs">{formatTime(f.createdAt)}</div>
+          <div className="text-primary text-xs">{formatTime(f.createdAt)}</div>
           <div className="text-gray-500 text-xs">{getTimeAgo(f.createdAt)}</div>
         </div>
       ),
@@ -161,7 +161,7 @@ const FillsPanel: React.FC = () => {
       header: 'Amount',
       align: 'right' as const,
       render: (f: Fill) => (
-        <span className="text-white font-mono">{parseFloat(f.size).toFixed(4)}</span>
+        <span className="text-primary font-mono">{parseFloat(f.size).toFixed(4)}</span>
       ),
     },
     {
@@ -169,7 +169,7 @@ const FillsPanel: React.FC = () => {
       header: 'Price',
       align: 'right' as const,
       render: (f: Fill) => (
-        <span className="text-white font-mono">${parseFloat(f.price).toLocaleString()}</span>
+        <span className="text-primary font-mono">${parseFloat(f.price).toLocaleString()}</span>
       ),
     },
     {
@@ -178,7 +178,7 @@ const FillsPanel: React.FC = () => {
       align: 'right' as const,
       render: (f: Fill) => {
         const total = (parseFloat(f.size) * parseFloat(f.price)).toFixed(2);
-        return <span className="text-white font-mono">${parseFloat(total).toLocaleString()}</span>;
+        return <span className="text-primary font-mono">${parseFloat(total).toLocaleString()}</span>;
       },
     },
     {
@@ -197,8 +197,8 @@ const FillsPanel: React.FC = () => {
       render: (f: Fill) => (
         <span
           className={`px-2 py-0.5 rounded text-xs font-medium ${f.liquidity === 'MAKER'
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'bg-purple-500/20 text-purple-400'
+            ? 'bg-blue-500/20 text-blue-400'
+            : 'bg-purple-500/20 text-purple-400'
             }`}
         >
           {f.liquidity}
@@ -211,7 +211,7 @@ const FillsPanel: React.FC = () => {
     <div className="h-full flex flex-col bg-primary">
       {/* <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between bg-secondary">
         <div className="flex items-center gap-3">
-          <h3 className="text-sm font-medium text-white">Trade Fills</h3>
+          <h3 className="text-sm font-medium text-primary">Trade Fills</h3>
           <span className="text-xs text-gray-500">
             {allFills.length} fill{allFills.length !== 1 ? 's' : ''}
           </span>

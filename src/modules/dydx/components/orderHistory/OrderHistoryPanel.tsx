@@ -160,7 +160,7 @@ const OrderHistoryPanel: React.FC = () => {
       header: 'Amount',
       align: 'right' as const,
       render: (order: Order) => (
-        <span className="text-white font-mono">{parseFloat(order.size).toFixed(4)}</span>
+        <span className="text-primary font-mono">{parseFloat(order.size).toFixed(4)}</span>
       ),
     },
     {
@@ -173,7 +173,7 @@ const OrderHistoryPanel: React.FC = () => {
         const fillPercent = size > 0 ? (filled / size) * 100 : 0;
         return (
           <div className="text-right">
-            <div className="text-white font-mono">{filled.toFixed(4)}</div>
+            <div className="text-primary font-mono">{filled.toFixed(4)}</div>
             {fillPercent > 0 && fillPercent < 100 && (
               <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
             )}
@@ -189,7 +189,7 @@ const OrderHistoryPanel: React.FC = () => {
         const filled = parseFloat(order.totalFilled || '0');
         const price = parseFloat(order.price);
         const value = (filled * price).toFixed(2);
-        return <span className="text-white font-mono">${parseFloat(value).toLocaleString()}</span>;
+        return <span className="text-primary font-mono">${parseFloat(value).toLocaleString()}</span>;
       },
     },
     {
@@ -197,7 +197,7 @@ const OrderHistoryPanel: React.FC = () => {
       header: 'Price',
       align: 'right' as const,
       render: (order: Order) => (
-        <span className="text-white font-mono">
+        <span className="text-primary font-mono">
           {order.type === 'MARKET' ? 'Market' : `$${parseFloat(order.price).toLocaleString()}`}
         </span>
       ),

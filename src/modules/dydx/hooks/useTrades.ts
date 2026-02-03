@@ -113,8 +113,6 @@ function unsubscribeFromMarket(market: string) {
 
 async function loadSnapshot(market: string, limit: number) {
   const state = getOrCreateState(market, limit);
-
-  // If already loaded, skip
   if (state.hasLoadedSnapshot) {
     scheduleUpdate(market);
     return;
@@ -184,7 +182,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
 
     state.listeners.add(listener);
 
-    // Load snapshot only if not already loaded
     if (!state.hasLoadedSnapshot) {
       loadSnapshot(market, limit).then(() => {
         if (state.trades.length > 0) {

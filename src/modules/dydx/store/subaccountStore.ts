@@ -31,7 +31,7 @@ const initialState = {
 };
 
 export const useSubaccountStore = create<SubaccountState>()(
-    subscribeWithSelector((set, get) => ({
+    subscribeWithSelector((set, _get) => ({
         ...initialState,
 
         setMarginMode: (mode: MarginMode, market?: string) => {

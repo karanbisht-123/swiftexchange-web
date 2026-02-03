@@ -248,8 +248,6 @@ const PositionsPanel: React.FC = () => {
           +{newPositionsCount} New Position{newPositionsCount > 1 ? 's' : ''}
         </div>
       )}
-
-      {/* Desktop Table */}
       <div className="hidden md:block">
         <table className="w-full text-left text-[11px] border-collapse">
           <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
@@ -282,7 +280,6 @@ const PositionsPanel: React.FC = () => {
               if (absSize === 0) return null;
 
               const entryPrice = parseFloat(position.entryPrice);
-              const oraclePrice = position.market || entryPrice;
               const unrealizedPnl = parseFloat(position.unrealizedPnl);
               const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
               const isShort = position.side === 'SHORT';
@@ -319,7 +316,7 @@ const PositionsPanel: React.FC = () => {
                   </td>
 
                   <td className="p-3 text-right text-blue-400 font-mono">
-                    ${formatPrice(oraclePrice)}
+                    ${formatPrice(entryPrice)}
                   </td>
 
                   <td className="p-3 text-right text-orange-400 font-mono">
@@ -372,8 +369,6 @@ const PositionsPanel: React.FC = () => {
           </tbody>
         </table>
       </div>
-
-      {/* Mobile Cards */}
       <div className="md:hidden space-y-1.5 p-2">
         {positions.map(position => {
           const rawSize = parseFloat(position.size);
@@ -381,7 +376,6 @@ const PositionsPanel: React.FC = () => {
           if (absSize === 0) return null;
 
           const entryPrice = parseFloat(position.entryPrice);
-          const oraclePrice = position.market || entryPrice;
           const unrealizedPnl = parseFloat(position.unrealizedPnl);
           const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
           const isShort = position.side === 'SHORT';
@@ -439,7 +433,7 @@ const PositionsPanel: React.FC = () => {
 
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Oracle</span>
-                  <span className="text-blue-400 font-medium font-mono">${formatPrice(oraclePrice)}</span>
+                  <span className="text-blue-400 font-medium font-mono">${formatPrice(entryPrice)}</span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">

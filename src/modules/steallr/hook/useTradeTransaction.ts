@@ -4,14 +4,19 @@ import { ERROR_MESSAGES } from '../constants/tradeTransactionConstants';
 import { TradeTransactionService } from '../service/tradeTransactionService';
 import type { ActiveOffer, CompletedTrade, Pagination } from '../types/tradeTransaction.types';
 
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+
 interface UseTradeTransactionProps {
-  networkKey: string;
   userAddress?: string;
 }
 
-export function useTradeTransaction({ networkKey, userAddress }: UseTradeTransactionProps) {
-  console.log(networkKey, 'jhsdfkjsdhfkjdhfjkdfjkdfhdjskh');
-  const [service] = useState(() => new TradeTransactionService(networkKey));
+export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
+  const currentNetwork = useWalletStore(state => state.network);
+  const [service, setService] = useState(() => new TradeTransactionService());
+
+  useEffect(() => {
+    setService(new TradeTransactionService());
+  }, [currentNetwork]);
 
   const [activeOffers, setActiveOffers] = useState<ActiveOffer[]>([]);
   const [completedTrades, setCompletedTrades] = useState<CompletedTrade[]>([]);
@@ -96,7 +101,6 @@ export function useTradeTransaction({ networkKey, userAddress }: UseTradeTransac
       try {
         const tx = await service.buildCancelOfferTransaction(userAddress, offer);
         const txHash = await service.executeCancelOfferWithWalletConnect(tx, walletProvider);
-        // Refresh active offers after cancel
         await fetchActiveOffers();
         return txHash;
       } catch (err) {
@@ -130,7 +134,6 @@ export function useTradeTransaction({ networkKey, userAddress }: UseTradeTransac
       try {
         const tx = await service.buildEditOfferTransaction(userAddress, offer, newAmount, newPrice);
         const txHash = await service.executeEditOfferWithWalletConnect(tx, walletProvider);
-        // Refresh active offers after edit
         await fetchActiveOffers();
         return txHash;
       } catch (err) {
@@ -144,7 +147,6 @@ export function useTradeTransaction({ networkKey, userAddress }: UseTradeTransac
     [userAddress, service, fetchActiveOffers]
   );
 
-  // Initial fetch
   useEffect(() => {
     if (userAddress) {
       fetchActiveOffers();

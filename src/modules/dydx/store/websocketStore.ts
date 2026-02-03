@@ -164,10 +164,201 @@ export const useWebSocketStore = create<WebSocketState>()(
               return;
             }
 
+            const messageType = data.type;
             const contents = data.contents;
             const updates: Partial<ParentSubaccountData> = {
               lastUpdate: Date.now(),
             };
+
+            // Handle initial 'subscribed' message - full snapshot
+            if (messageType === 'subscribed' && contents.subaccount) {
+              const subaccount = contents.subaccount;
+
+              updates.address = subaccount.address;
+              updates.parentSubaccountNumber = subaccount.parentSubaccountNumber;
+              updates.equity = subaccount.equity || '0';
+              updates.freeCollateral = subaccount.freeCollateral || '0';
+
+              if (subaccount.childSubaccounts && Array.isArray(subaccount.childSubaccounts)) {
+                updates.childSubaccounts = subaccount.childSubaccounts.map((child: any) => ({
+                  address: child.address,
+                  subaccountNumber: child.subaccountNumber,
+                  equity: child.equity || '0',
+                  freeCollateral: child.freeCollateral || '0',
+                  openPerpetualPositions: child.openPerpetualPositions || {},
+                  assetPositions: child.assetPositions || {},
+                  marginEnabled: child.marginEnabled ?? true,
+                  updatedAtHeight: child.updatedAtHeight || '0',
+                  latestProcessedBlockHeight: child.latestProcessedBlockHeight || '0',
+                }));
+              }
+
+              if (contents.orders !== undefined) {
+                updates.orders = Array.isArray(contents.orders) ? contents.orders : [];
+              }
+              if (contents.fills !== undefined) {
+                updates.fills = Array.isArray(contents.fills) ? contents.fills : [];
+              }
+              if (contents.transfers !== undefined) {
+                updates.transfers = Array.isArray(contents.transfers) ? contents.transfers : [];
+              }
+              if (contents.blockHeight) {
+                updates.blockHeight = contents.blockHeight;
+              }
+
+              get().updateParentSubaccount(key, updates);
+              return;
+            }
+
+            // Handle 'channel_batch_data' or 'channel_data' - incremental updates
+            if (messageType === 'channel_batch_data' || messageType === 'channel_data') {
+              console.log('[WSStore] 📥 Processing channel_batch_data:', {
+                subaccountNumber: data.subaccountNumber,
+                contentsLength: Array.isArray(contents) ? contents.length : 1
+              });
+
+              const batchContents = Array.isArray(contents) ? contents : [contents];
+              const batchSubaccountNumber = data.subaccountNumber ?? 0;
+
+              // Get current state to merge updates
+              const currentData = get().parentSubaccounts.get(key);
+              if (!currentData) {
+                console.warn('[WSStore] ⚠️ No existing data to merge batch into, key:', key);
+                return;
+              }
+
+              console.log('[WSStore] Current childSubaccounts:', currentData.childSubaccounts.length);
+
+              // Clone childSubaccounts for mutation
+              let updatedChildSubaccounts = currentData.childSubaccounts.map(child => ({
+                ...child,
+                openPerpetualPositions: { ...child.openPerpetualPositions },
+                assetPositions: { ...child.assetPositions },
+              }));
+
+              const newOrders: any[] = [];
+              const newFills: any[] = [];
+
+              batchContents.forEach((batch: any) => {
+                // Process perpetual positions updates
+                if (batch.perpetualPositions && Array.isArray(batch.perpetualPositions)) {
+                  batch.perpetualPositions.forEach((pos: any) => {
+                    const subNum = pos.subaccountNumber ?? batchSubaccountNumber;
+                    let childIndex = updatedChildSubaccounts.findIndex(c => c.subaccountNumber === subNum);
+
+                    // Create child subaccount if it doesn't exist (for isolated margin)
+                    if (childIndex === -1) {
+                      updatedChildSubaccounts.push({
+                        address: pos.address || currentData.address,
+                        subaccountNumber: subNum,
+                        equity: '0',
+                        freeCollateral: '0',
+                        openPerpetualPositions: {},
+                        assetPositions: {},
+                        marginEnabled: true,
+                        updatedAtHeight: batch.blockHeight || '0',
+                        latestProcessedBlockHeight: batch.blockHeight || '0',
+                      });
+                      childIndex = updatedChildSubaccounts.length - 1;
+                    }
+
+                    const child = updatedChildSubaccounts[childIndex];
+
+                    // Update or remove position based on status
+                    if (pos.status === 'CLOSED' || parseFloat(pos.size || '0') === 0) {
+                      // Remove closed position
+                      delete child.openPerpetualPositions[pos.market];
+                      console.log(`[WSStore] Position closed: ${pos.market}`);
+                    } else {
+                      // Update/add position
+                      child.openPerpetualPositions[pos.market] = {
+                        market: pos.market,
+                        status: pos.status,
+                        side: pos.side,
+                        size: pos.size,
+                        maxSize: pos.maxSize,
+                        entryPrice: pos.entryPrice,
+                        exitPrice: pos.exitPrice,
+                        realizedPnl: pos.realizedPnl,
+                        unrealizedPnl: pos.unrealizedPnl,
+                        createdAt: pos.createdAt,
+                        createdAtHeight: pos.createdAtHeight,
+                        closedAt: pos.closedAt,
+                        sumOpen: pos.sumOpen,
+                        sumClose: pos.sumClose,
+                        netFunding: pos.netFunding,
+                        subaccountNumber: subNum,
+                      };
+                      console.log(`[WSStore] Position updated: ${pos.market} ${pos.side} ${pos.size}`);
+                    }
+
+                    child.updatedAtHeight = batch.blockHeight || child.updatedAtHeight;
+                    child.latestProcessedBlockHeight = batch.blockHeight || child.latestProcessedBlockHeight;
+                  });
+                }
+
+                // Process asset positions updates
+                if (batch.assetPositions && Array.isArray(batch.assetPositions)) {
+                  batch.assetPositions.forEach((asset: any) => {
+                    const subNum = asset.subaccountNumber ?? batchSubaccountNumber;
+                    let childIndex = updatedChildSubaccounts.findIndex(c => c.subaccountNumber === subNum);
+
+                    if (childIndex === -1) {
+                      updatedChildSubaccounts.push({
+                        address: asset.address || currentData.address,
+                        subaccountNumber: subNum,
+                        equity: '0',
+                        freeCollateral: '0',
+                        openPerpetualPositions: {},
+                        assetPositions: {},
+                        marginEnabled: true,
+                        updatedAtHeight: batch.blockHeight || '0',
+                        latestProcessedBlockHeight: batch.blockHeight || '0',
+                      });
+                      childIndex = updatedChildSubaccounts.length - 1;
+                    }
+
+                    const child = updatedChildSubaccounts[childIndex];
+                    child.assetPositions[asset.symbol] = {
+                      size: asset.size,
+                      symbol: asset.symbol,
+                      side: asset.side,
+                      assetId: asset.assetId,
+                      subaccountNumber: subNum,
+                    };
+                  });
+                }
+
+                // Collect orders from batch
+                if (batch.orders && Array.isArray(batch.orders)) {
+                  newOrders.push(...batch.orders);
+                }
+
+                // Collect fills from batch
+                if (batch.fills && Array.isArray(batch.fills)) {
+                  newFills.push(...batch.fills);
+                }
+
+                if (batch.blockHeight) {
+                  updates.blockHeight = batch.blockHeight;
+                }
+              });
+
+              updates.childSubaccounts = updatedChildSubaccounts;
+
+              if (newOrders.length > 0) {
+                updates.orders = newOrders;
+              }
+
+              if (newFills.length > 0) {
+                updates.fills = newFills;
+              }
+
+              get().updateParentSubaccount(key, updates);
+              return;
+            }
+
+            // Fallback: handle any other message with subaccount data
             if (contents.subaccount) {
               const subaccount = contents.subaccount;
 
@@ -190,6 +381,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                 }));
               }
             }
+
             if (contents.orders !== undefined) {
               updates.orders = Array.isArray(contents.orders) ? contents.orders : [];
             }
@@ -525,7 +717,6 @@ export const useWebSocketStore = create<WebSocketState>()(
           // Add/update with new fills
           data.fills.forEach(fill => {
             const existingFill = fillMap.get(fill.id);
-            // Only update if new fill is more recent or doesn't exist
             if (
               !existingFill ||
               (fill.createdAt &&
@@ -555,16 +746,19 @@ export const useWebSocketStore = create<WebSocketState>()(
 
         // Always increment updateTrigger when we receive new data to force UI refresh
         // This ensures real-time updates are reflected immediately
-        const positionsChanged = data.childSubaccounts !== undefined;
-        const ordersChanged = data.orders !== undefined && data.orders.length > 0;
-        const fillsChanged = data.fills !== undefined && data.fills.length > 0;
+        const hasChildSubaccountChanges = data.childSubaccounts !== undefined;
+        const hasOrderChanges = data.orders !== undefined && data.orders.length > 0;
+        const hasFillChanges = data.fills !== undefined && data.fills.length > 0;
+        const hasEquityChange = data.equity !== existing.equity || data.freeCollateral !== existing.freeCollateral;
 
-        const hasChanges = positionsChanged || ordersChanged || fillsChanged ||
+        // Always increment on any meaningful change
+        const hasChanges = hasChildSubaccountChanges || hasOrderChanges || hasFillChanges || hasEquityChange ||
           merged.orders.length !== existing.orders.length ||
           merged.fills.length !== existing.fills.length;
 
         return {
           parentSubaccounts: newMap,
+          // Always increment to ensure UI reactivity
           updateTrigger: hasChanges ? state.updateTrigger + 1 : state.updateTrigger,
         };
       });

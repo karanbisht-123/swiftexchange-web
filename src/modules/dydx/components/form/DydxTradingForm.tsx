@@ -316,16 +316,21 @@ export const DydxTradingForm: React.FC = () => {
     }
 
     // Isolated margin: Auto-deposit handles collateral transfer
-    // $20 minimum only applies to long-term/conditional orders (checked in trading service)
+    // $20 minimum only applies to long-term/conditional orders
     if (marginMode === 'ISOLATED') {
       const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
-      // Use freeCollateral (not equity) - this is what can actually be transferred
+
       const crossFreeCollateral = crossSub ? parseFloat(crossSub.freeCollateral || '0') : 0;
-      const requiredMargin = conversion.usdAmount / leverage;
+      const oraclePrice = parseFloat(marketData?.oraclePrice || '0');
+      const notionalValue = conversion.baseAmount * oraclePrice;
+      const requiredMargin = notionalValue / leverage;
+      const requiredMarginWithBuffer = requiredMargin * 1.05;
 
       // For conditional/limit orders, enforce $20 minimum
       const isLongTermOrder = orderType !== 'MARKET';
-      const minRequired = isLongTermOrder ? Math.max(requiredMargin, 20) : requiredMargin;
+      const minRequired = isLongTermOrder
+        ? Math.max(requiredMarginWithBuffer, 20)
+        : requiredMarginWithBuffer;
 
       if (crossFreeCollateral + isolatedEquity < minRequired) {
         const orderTypeLabel = isLongTermOrder ? 'long-term/conditional' : 'market';
@@ -407,8 +412,6 @@ export const DydxTradingForm: React.FC = () => {
           autoCloseDuration={5000}
         />
       ))}
-
-      {/* Wallet Connect - Desktop only */}
       <div className="hidden lg:block flex-shrink-0">
         <DydxWalletConnect />
       </div>

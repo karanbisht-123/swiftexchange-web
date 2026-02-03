@@ -30,7 +30,6 @@ const AlchemyCryptoSell = () => {
     SUCCESS_MESSAGES,
   } = useAlchemySell();
 
-  // Get theme-aware styles for react-select
   const getSelectStyles = () => {
     const bgColor = getComputedStyle(document.documentElement)
       .getPropertyValue('--color-bg-secondary')
@@ -101,7 +100,6 @@ const AlchemyCryptoSell = () => {
 
   return (
     <div className="space-y-4">
-      {/* Payment Provider */}
       <div className="card">
         <label className="block text-sm font-semibold text-primary mb-3">Payment Provider</label>
         <div className="bg-tertiary border border-color rounded-lg px-4 py-3">
@@ -293,7 +291,6 @@ const AlchemyCryptoSell = () => {
         </div>
       )}
 
-      {/* Order Success */}
       {orderSuccess && (
         <div className="card bg-success-bg border-2 border-green-300">
           <div className="flex items-center gap-3 mb-4">

@@ -5,13 +5,10 @@ import { Notification } from './common/Notification';
 export const NetworkMonitor: React.FC = () => {
   const [latency, setLatency] = useState<number | null>(null);
   const [isSlow, setIsSlow] = useState(false);
-
-  // Check latency every 10 seconds
   useEffect(() => {
     const checkLatency = async () => {
       const start = Date.now();
       try {
-        // Fetch current origin with cache busting to measure RTT
         await fetch(window.location.origin + '/?_t=' + start, {
           method: 'HEAD',
           cache: 'no-store',
@@ -19,18 +16,14 @@ export const NetworkMonitor: React.FC = () => {
         const end = Date.now();
         const rtt = end - start;
         setLatency(rtt);
-
-        // Consider slow if RTT > 1500ms
         setIsSlow(rtt > 1500);
       } catch (error) {
         setIsSlow(true);
       }
     };
-
-    // Initial check
     checkLatency();
 
-    const interval = setInterval(checkLatency, 10000);
+    const interval = setInterval(checkLatency, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -43,8 +36,6 @@ export const NetworkMonitor: React.FC = () => {
         title="Slow Network Detected"
         message={`Your connection seems unstable (${latency ? latency + 'ms' : 'Offline'}). Trade updates may be delayed.`}
         className="shadow-2xl border-yellow-500"
-        // No onClose so it persists until network improves?
-        // Or allow close but it might reappear. Let's allow close for UX.
         onClose={() => setIsSlow(false)}
         autoClose={false}
       />

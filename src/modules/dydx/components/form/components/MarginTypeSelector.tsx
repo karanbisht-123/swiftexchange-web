@@ -19,7 +19,6 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
   isolatedEquity,
   showEquityWarning = true,
 }) => {
-  // Use store if no props provided (controlled vs uncontrolled)
   const storeMarginMode = useSubaccountStore(state => state.selectedMarginMode);
   const setStoreMarginMode = useSubaccountStore(state => state.setMarginMode);
 
@@ -33,7 +32,6 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
     }
   }, [onChange, setStoreMarginMode]);
 
-  // Check if isolated has insufficient equity
   const hasInsufficientIsolatedEquity = useMemo(() => {
     if (isolatedEquity === undefined) return false;
     return isolatedEquity < 20;
@@ -48,15 +46,18 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
           </label>
           <div className="relative group">
             <Info className="w-3 h-3 text-gray-500 cursor-help" />
-            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-56">
+            <div className="absolute -left-12 bottom-full mb-2 hidden group-hover:block z-50 w-56">
               <div className="bg-gray-800 text-gray-200 text-xs rounded-lg p-3 shadow-xl border border-gray-700">
                 <p className="font-semibold mb-1.5">Cross Margin</p>
                 <p className="text-gray-400 mb-2">Collateral shared across all positions. Higher capital efficiency.</p>
                 <p className="font-semibold mb-1.5">Isolated Margin</p>
                 <p className="text-gray-400">Collateral locked per position. Limits risk to that position only.</p>
                 {hasInsufficientIsolatedEquity && showEquityWarning && (
+                  // <p className="text-yellow-400 mt-2 pt-2 border-t border-gray-700">
+                  //   ℹ️ Equity will be auto-deposited from Cross Margin if needed (min $20 required).
+                  // </p>
                   <p className="text-yellow-400 mt-2 pt-2 border-t border-gray-700">
-                    ℹ️ Equity will be auto-deposited from Cross Margin if needed (min $20 required).
+                    ℹ️ Equity will be auto-deposited from Cross Margin.
                   </p>
                 )}
               </div>
@@ -87,7 +88,6 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
         </div>
       </div>
 
-      {/* Equity display when in isolated mode */}
       {marginMode === 'ISOLATED' && isolatedEquity !== undefined && (
         <div className={`flex justify-between text-xs px-1 ${hasInsufficientIsolatedEquity ? 'text-yellow-400' : 'text-gray-500'
           }`}>

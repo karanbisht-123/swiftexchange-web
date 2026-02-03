@@ -1,3 +1,5 @@
+import React, { useState, useMemo, useEffect } from 'react';
+
 interface LeverageSliderProps {
   leverage: number;
   maxLeverage: number;
@@ -9,82 +11,115 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
   maxLeverage,
   onChange,
 }) => {
-  const percentage = maxLeverage > 1 ? ((leverage - 1) / (maxLeverage - 1)) * 100 : 0;
+  const [isDragging, setIsDragging] = useState(false);
+  const [localValue, setLocalValue] = useState(leverage.toString());
+  useEffect(() => {
+    if (!isDragging) {
+      setLocalValue(leverage.toString());
+    }
+  }, [leverage, isDragging]);
+  const safeLeverage = Math.min(Math.max(leverage, 1), maxLeverage);
+  const percentage = ((safeLeverage - 1) / (maxLeverage - 1)) * 100;
+
+  const ticks = useMemo(() => Array.from({ length: 45 }), []);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+
+    // 1. Allow empty string so user can delete and type new numbers
+    if (val === '') {
+      setLocalValue('');
+      return;
+    }
+
+    const numericVal = parseFloat(val);
+    if (numericVal > maxLeverage) {
+      setLocalValue(maxLeverage.toString());
+      onChange(maxLeverage);
+      return;
+    }
+
+    setLocalValue(val);
+    if (!isNaN(numericVal) && numericVal >= 0) {
+      onChange(Math.max(numericVal, 1));
+    }
+  };
+
+  const handleBlur = () => {
+    let numericVal = parseFloat(localValue);
+    if (isNaN(numericVal) || numericVal < 1) numericVal = 1;
+    if (numericVal > maxLeverage) numericVal = maxLeverage;
+    const finalVal = Math.round(numericVal * 10) / 10;
+    setLocalValue(finalVal.toString());
+    onChange(finalVal);
+  };
 
   return (
-    <div className="px-5 py-4 bg-gray-900/40 border-y border-gray-800/50">
-      <div className="flex items-center justify-between mb-3">
-        <label className="text-[11px] uppercase tracking-wider text-gray-500 font-bold">
-          Leverage
-        </label>
-        <span className="text-[10px] text-gray-600 font-medium">Max {maxLeverage}x</span>
+    <div className="w-full max-w-md p-4 bg-primary ">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] font-bold rounded border border-indigo-500/20 uppercase tracking-tighter">
+          Max {maxLeverage}x
+        </span>
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Slider Container */}
-        <div className="relative h-5 flex-1 group cursor-pointer">
-          {/* Track Background */}
-          <div className="absolute top-1/2 -translate-y-1/2 w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
-            {/* Progress Fill */}
-            <div
-              className="h-full bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)] transition-all duration-75 ease-out"
-              style={{ width: `${percentage}%` }}
-            />
+        <div className="relative flex-1 h-10 flex items-center group">
+
+
+          <div className="absolute inset-0 flex items-center justify-between px-1 pointer-events-none">
+            {ticks.map((_, i) => {
+              const tickPos = (i / (ticks.length - 1)) * 100;
+              const isActive = tickPos <= percentage;
+              return (
+                <div
+                  key={i}
+                  className={`w-[2px] transition-all duration-300 ease-out ${isActive
+                    ? 'h-4 bg-green-800'
+                    : 'h-3 bg-secondary'
+                    }`}
+                />
+              );
+            })}
           </div>
 
-          {/* Native Range Input (Hidden but Functional) */}
+          <div
+            className="absolute z-10 w-9 h-9 bg-secondary border border-green-400 rounded-full blur-[1px] flex items-center justify-center pointer-events-none transition-transform duration-75 ease-out"
+            style={{
+              left: `${percentage}%`,
+              transform: `translateX(-50%)`,
+              willChange: 'transform'
+            }}
+          >
+            <div className="w-2 h-2 bg-white rounded-full shadow-[0_0_12px_#fff]" />
+          </div>
+
           <input
             type="range"
             min="1"
             max={maxLeverage}
             step="0.1"
-            value={leverage}
-            onChange={e => onChange(parseFloat(e.target.value))}
-            className="absolute top-1/2 -translate-y-1/2 w-full h-full opacity-0 cursor-pointer z-10"
-          />
-
-          {/* Custom Thumb Visual (Positioned absolutely) */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-blue-500 rounded-full shadow-lg pointer-events-none transition-all duration-75 group-hover:scale-110 ease-out"
-            style={{ left: `calc(${percentage}% - 8px)` }}
+            value={safeLeverage}
+            onMouseDown={() => setIsDragging(true)}
+            onMouseUp={() => setIsDragging(false)}
+            onTouchStart={() => setIsDragging(true)}
+            onTouchEnd={() => setIsDragging(false)}
+            onChange={(e) => onChange(parseFloat(e.target.value))}
+            className="absolute  inset-0 w-full h-full opacity-0 cursor-pointer z-20"
           />
         </div>
 
-        {/* Value Input */}
-        <div className="relative group">
-          <div className="flex items-center bg-gray-900 border border-gray-700 rounded-md overflow-hidden transition-colors focus-within:border-blue-500/50 focus-within:ring-1 focus-within:ring-blue-500/20">
-            <input
-              type="number"
-              value={leverage}
-              onChange={e => onChange(parseFloat(e.target.value))}
-              onBlur={e => {
-                let val = parseFloat(e.target.value);
-                if (isNaN(val) || val < 1) val = 1;
-                if (val > maxLeverage) val = maxLeverage;
-                onChange(val);
-              }}
-              className="w-12 bg-transparent py-1.5 pl-2 pr-1 text-right text-xs font-mono text-white focus:outline-none no-spinner"
-              step="0.1"
-              min="1"
-              max={maxLeverage}
-            />
-            <div className="bg-gray-800 border-l border-gray-700 px-1.5 py-1.5">
-              <span className="text-xs font-bold text-gray-500">x</span>
-            </div>
-          </div>
+        {/* Input Box */}
+        <div className="relative rounded-lg flex items-center bg-secondary rounded border border-gray-700 focus-within:border-indigo-500 transition-colors">
+          <input
+            type="number"
+            value={localValue}
+            onChange={handleInputChange}
+            onBlur={handleBlur}
+            className="w-12 h-9 rounded-lg bg-transparent text-right text-primary font-mono text-sm font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <span className="text-secondary  pr-2 pl-1 text-xs font-bold">x</span>
         </div>
       </div>
-
-      <style>{`
-         .no-spinner::-webkit-outer-spin-button,
-         .no-spinner::-webkit-inner-spin-button {
-           -webkit-appearance: none;
-           margin: 0;
-         }
-         .no-spinner {
-           -moz-appearance: textfield;
-         }
-       `}</style>
     </div>
   );
 };

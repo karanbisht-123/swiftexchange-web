@@ -5,6 +5,7 @@ import {
   OrderSide,
   OrderTimeInForce,
   OrderType,
+  SubaccountInfo,
 } from '@dydxprotocol/v4-client-js';
 
 import { walletService } from '../../walletconnect/services/walletService';
@@ -41,11 +42,10 @@ class DydxTradingService {
         throw new Error('Market information is required');
       }
 
-      const subaccount = {
-        address,
-        subaccountNumber: params.subaccountNumber ?? dydxWalletService.getActiveSubaccountNumber(),
-        signingWallet: localWallet,
-      };
+      const subaccountNumber =
+        params.subaccountNumber ?? dydxWalletService.getActiveSubaccountNumber();
+      console.log('[dydxTradingService] Placing order with subaccount number:', subaccountNumber);
+      const subaccount = SubaccountInfo.forLocalWallet(localWallet, subaccountNumber);
 
       const clientId = params.clientId ?? this.generateClientId();
       const size = typeof params.size === 'string' ? parseFloat(params.size) : params.size;
@@ -59,21 +59,71 @@ class DydxTradingService {
       }
       price = this.roundPrice(price, marketInfo.tickSize!);
 
-      // Auto-Deposit for Isolated Margin
-      if (subaccount.subaccountNumber >= 128 && params.leverage) {
-        const orderValue = size * price;
-        const requiredMargin = orderValue / params.leverage;
+      if (subaccountNumber >= 128 && params.leverage) {
+        const oraclePrice = parseFloat(marketInfo.oraclePrice);
+        const notionalValue = size * oraclePrice;
+        const requiredMargin = notionalValue / params.leverage;
 
-        // $20 equity tier minimum only applies to long-term/conditional orders, NOT market orders
         const isLongTermOrder = !orderCategory.isMarket;
-        const targetEquity = isLongTermOrder
-          ? Math.max(requiredMargin, 20.1) // Long-term orders require min $20
-          : requiredMargin; // Market orders just need the calculated margin
+        const targetEquity = isLongTermOrder ? Math.max(requiredMargin, 20.1) : requiredMargin;
+        const targetEquityWithBuffer = targetEquity * 1.05;
 
-        // Ensure sufficient equity on the isolated subaccount
-        const equityResult = await dydxSubaccountService.ensureIsolatedEquity(subaccount.subaccountNumber, targetEquity);
+        console.log('[dydxTradingService] Auto-deposit calculation:', {
+          size,
+          oraclePrice,
+          leverage: params.leverage,
+          notionalValue,
+          requiredMargin,
+          targetEquity,
+          targetEquityWithBuffer,
+          isLongTermOrder,
+          subaccountNumber,
+        });
+
+        const equityResult = await dydxSubaccountService.ensureIsolatedEquity(
+          subaccountNumber,
+          targetEquityWithBuffer
+        );
         if (!equityResult.success) {
           throw new Error(equityResult.error || 'Failed to ensure isolated equity');
+        }
+
+        if (equityResult.transferredAmount > 0) {
+          console.log('[dydxTradingService] Transfer made, verifying equity before order...');
+
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const indexer = dydxWalletService.getIndexerClient();
+          let verified = false;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              const subaccountResponse = await indexer.account.getSubaccount(
+                address,
+                subaccount.subaccountNumber
+              );
+              const currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
+              console.log(`[dydxTradingService] Equity verification attempt ${attempt + 1}:`, {
+                currentEquity,
+                requiredMargin: targetEquityWithBuffer,
+                verified: currentEquity >= targetEquityWithBuffer * 0.95,
+              });
+
+              if (currentEquity >= targetEquityWithBuffer * 0.95) {
+                verified = true;
+                break;
+              }
+            } catch (err) {
+              console.log(`[dydxTradingService] Equity check attempt ${attempt + 1} failed:`, err);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
+          if (!verified) {
+            throw new Error(
+              'Transfer completed but equity not yet reflected. Please try again in a few seconds.'
+            );
+          }
         }
       }
 
