@@ -10,7 +10,7 @@ import {
   Settings,
   TrendingUp,
   User,
-  Wallet,
+  // Wallet,
   X,
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
@@ -102,11 +102,11 @@ const Sidebar: FC = () => {
       icon: <LineChart className="w-5 h-5" />,
       queryParam: '?view=markets',
     },
-    {
-      href: ROUTES.MY_ASSETS,
-      label: 'My Assets',
-      icon: <Wallet className="w-5 h-5" />,
-    },
+    // {
+    //   href: ROUTES.MY_ASSETS,
+    //   label: 'My Assets',
+    //   icon: <Wallet className="w-5 h-5" />,
+    // },
     {
       href: ROUTES.TRANSACTIONS,
       label: 'Transactions',
@@ -262,9 +262,8 @@ const Sidebar: FC = () => {
 
       {/* Spacer for Desktop Layout */}
       <div
-        className={`hidden lg:block flex-shrink-0 transition-all duration-200 ${
-          isCompressed ? 'w-16' : 'w-64'
-        }`}
+        className={`hidden lg:block flex-shrink-0 transition-all duration-200 ${isCompressed ? 'w-16' : 'w-64'
+          }`}
       />
     </>
   );

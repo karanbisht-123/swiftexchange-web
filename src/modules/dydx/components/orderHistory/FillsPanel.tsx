@@ -1,13 +1,15 @@
+import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Fill, dydxDataService } from '../../service/dydxOrderService';
-import { formatTime, getTimeAgo } from '../../utils/timeUtils';
-import { DataTable } from '../shared/DataTable';
+import { getTimeAgo } from '../../utils/timeUtils';
+import { FillDetailPanel } from '../shared/FillDetailPanel';
 import { EmptyState } from '../shared/EmptyState';
 import { LoadingState } from '../shared/LoadingState';
 import { MarketBadge } from '../shared/MarketBadge';
 import { Pagination } from '../shared/Pagination';
+import { SidePanel } from '../shared/SidePanel';
 import { SideBadge } from '../shared/SideBadge';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
@@ -21,6 +23,9 @@ const FillsPanel: React.FC = () => {
   const [hasMoreData, setHasMoreData] = useState(true);
   const initialLoadDoneRef = useRef(false);
 
+  const [selectedFill, setSelectedFill] = useState<Fill | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
+
   useEffect(() => {
     if (!isConnected) {
       setAllFills([]);
@@ -29,6 +34,7 @@ const FillsPanel: React.FC = () => {
       initialLoadDoneRef.current = false;
     }
   }, [isConnected]);
+
   useEffect(() => {
     if (storeFills.length > 0) {
       setAllFills(prevFills => {
@@ -93,6 +99,7 @@ const FillsPanel: React.FC = () => {
       setLoadingMore(false);
     }
   }, [allFills, isConnected, loadingMore, hasMoreData]);
+
   const handlePageChange = useCallback(
     (page: number) => {
       setCurrentPage(page);
@@ -103,6 +110,17 @@ const FillsPanel: React.FC = () => {
     },
     [allFills.length, hasMoreData, loadingMore, loadMoreData]
   );
+
+  const handleFillClick = useCallback((fill: Fill) => {
+    setSelectedFill(fill);
+    setShowDetail(true);
+  }, []);
+
+  const handleCloseDetail = useCallback(() => {
+    setShowDetail(false);
+    setTimeout(() => setSelectedFill(null), 300);
+  }, []);
+
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view your trade fills" />;
   }
@@ -124,129 +142,107 @@ const FillsPanel: React.FC = () => {
     );
   }
 
-  const columns = [
-    {
-      key: 'market',
-      header: 'Market',
-      align: 'left' as const,
-      render: (f: Fill) => <MarketBadge market={f.market || (f as any).ticker} />,
-    },
-    {
-      key: 'time',
-      header: 'Time',
-      align: 'right' as const,
-      render: (f: Fill) => (
-        <div className="text-right">
-          <div className="text-primary text-xs">{formatTime(f.createdAt)}</div>
-          <div className="text-gray-500 text-xs">{getTimeAgo(f.createdAt)}</div>
-        </div>
-      ),
-    },
-    {
-      key: 'type',
-      header: 'Type',
-      align: 'center' as const,
-      render: (f: Fill) => (
-        <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">{f.type}</span>
-      ),
-    },
-    {
-      key: 'side',
-      header: 'Side',
-      align: 'center' as const,
-      render: (f: Fill) => <SideBadge side={f.side as 'BUY' | 'SELL'} />,
-    },
-    {
-      key: 'amount',
-      header: 'Amount',
-      align: 'right' as const,
-      render: (f: Fill) => (
-        <span className="text-primary font-mono">{parseFloat(f.size).toFixed(4)}</span>
-      ),
-    },
-    {
-      key: 'price',
-      header: 'Price',
-      align: 'right' as const,
-      render: (f: Fill) => (
-        <span className="text-primary font-mono">${parseFloat(f.price).toLocaleString()}</span>
-      ),
-    },
-    {
-      key: 'total',
-      header: 'Total',
-      align: 'right' as const,
-      render: (f: Fill) => {
-        const total = (parseFloat(f.size) * parseFloat(f.price)).toFixed(2);
-        return <span className="text-primary font-mono">${parseFloat(total).toLocaleString()}</span>;
-      },
-    },
-    {
-      key: 'fee',
-      header: 'Fee',
-      align: 'right' as const,
-      render: (f: Fill) => {
-        const fee = Math.abs(parseFloat(f.fee));
-        return <span className="text-red-400 font-mono">${fee.toFixed(4)}</span>;
-      },
-    },
-    {
-      key: 'liquidity',
-      header: 'Liquidity',
-      align: 'center' as const,
-      render: (f: Fill) => (
-        <span
-          className={`px-2 py-0.5 rounded text-xs font-medium ${f.liquidity === 'MAKER'
-            ? 'bg-blue-500/20 text-blue-400'
-            : 'bg-purple-500/20 text-purple-400'
-            }`}
-        >
-          {f.liquidity}
-        </span>
-      ),
-    },
-  ];
-
   return (
     <div className="h-full flex flex-col bg-primary">
-      {/* <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between bg-secondary">
-        <div className="flex items-center gap-3">
-          <h3 className="text-sm font-medium text-primary">Trade Fills</h3>
-          <span className="text-xs text-gray-500">
-            {allFills.length} fill{allFills.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-xs text-gray-400">Live</span>
-          </div>
+      <div className="hidden md:block flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-secondary border-b border-color z-10">
+            <tr className="text-muted text-xs">
+              <th className="text-left px-4 py-3 font-medium">Market</th>
+              <th className="text-right px-4 py-3 font-medium">Time</th>
+              <th className="text-center px-4 py-3 font-medium">Type</th>
+              <th className="text-center px-4 py-3 font-medium">Side</th>
+              <th className="text-right px-4 py-3 font-medium">Amount</th>
+              <th className="text-right px-4 py-3 font-medium">Price</th>
+              <th className="text-right px-4 py-3 font-medium">Total</th>
+              <th className="text-right px-4 py-3 font-medium">Fee</th>
+              <th className="text-center px-4 py-3 font-medium">Liquidity</th>
+            </tr>
+          </thead>
+          <tbody>
+            {currentPageData.map(fill => {
+              const total = (parseFloat(fill.size) * parseFloat(fill.price)).toFixed(2);
+              const fee = Math.abs(parseFloat(fill.fee));
 
-          <button
-            onClick={() => refreshFills()}
-            disabled={loadingFills}
-            className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors disabled:opacity-50"
-            title="Refresh fills"
-          >
-            <svg
-              className={`w-4 h-4 ${loadingFills ? 'animate-spin' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-          </button>
-        </div>
-      </div> */}
-      <div className="flex-1 overflow-auto">
-        <DataTable data={currentPageData} columns={columns} getRowKey={f => f.id} />
+              return (
+                <tr
+                  key={fill.id}
+                  onClick={() => handleFillClick(fill)}
+                  className="border-b border-color hover:bg-hover transition-colors cursor-pointer"
+                >
+                  <td className="px-4 py-3">
+                    <MarketBadge market={fill.market || (fill as any).ticker} />
+                  </td>
+                  <td className="px-4 py-3 text-right text-muted text-xs">
+                    {getTimeAgo(fill.createdAt)}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
+                      {fill.type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <SideBadge side={fill.side as 'BUY' | 'SELL'} />
+                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">
+                    {parseFloat(fill.size).toFixed(4)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">
+                    ${parseFloat(fill.price).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">
+                    ${parseFloat(total).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right text-red-400 font-mono">
+                    ${fee.toFixed(4)}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${fill.liquidity === 'MAKER'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'bg-purple-500/20 text-purple-400'
+                        }`}
+                    >
+                      {fill.liquidity}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+
+      <div className="md:hidden flex-1 overflow-auto p-2 space-y-2">
+        {currentPageData.map(fill => {
+          const total = parseFloat(fill.size) * parseFloat(fill.price);
+
+          return (
+            <div
+              key={fill.id}
+              onClick={() => handleFillClick(fill)}
+              className="bg-secondary border border-color rounded-lg p-3 flex items-center justify-between active:bg-hover transition-colors"
+            >
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <MarketBadge market={fill.market || (fill as any).ticker} />
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-2">
+                    <SideBadge side={fill.side as 'BUY' | 'SELL'} />
+                    <span className="text-primary font-mono text-xs">
+                      ${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <span className="text-muted text-xs truncate">
+                    {getTimeAgo(fill.createdAt)}
+                  </span>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-muted flex-shrink-0" />
+            </div>
+          );
+        })}
+      </div>
+
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
@@ -256,6 +252,14 @@ const FillsPanel: React.FC = () => {
         itemsPerPage={ITEMS_PER_PAGE}
         hasMore={hasMoreData}
       />
+
+      <SidePanel
+        isOpen={showDetail}
+        onClose={handleCloseDetail}
+        title="Fill Details"
+      >
+        {selectedFill && <FillDetailPanel fill={selectedFill} />}
+      </SidePanel>
     </div>
   );
 };

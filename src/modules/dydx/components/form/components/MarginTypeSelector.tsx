@@ -24,13 +24,16 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
 
   const marginMode = selected ?? storeMarginMode;
 
-  const handleChange = useCallback((mode: MarginMode) => {
-    if (onChange) {
-      onChange(mode);
-    } else {
-      setStoreMarginMode(mode);
-    }
-  }, [onChange, setStoreMarginMode]);
+  const handleChange = useCallback(
+    (mode: MarginMode) => {
+      if (onChange) {
+        onChange(mode);
+      } else {
+        setStoreMarginMode(mode);
+      }
+    },
+    [onChange, setStoreMarginMode]
+  );
 
   const hasInsufficientIsolatedEquity = useMemo(() => {
     if (isolatedEquity === undefined) return false;
@@ -49,13 +52,14 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
             <div className="absolute -left-12 bottom-full mb-2 hidden group-hover:block z-50 w-56">
               <div className="bg-gray-800 text-gray-200 text-xs rounded-lg p-3 shadow-xl border border-gray-700">
                 <p className="font-semibold mb-1.5">Cross Margin</p>
-                <p className="text-gray-400 mb-2">Collateral shared across all positions. Higher capital efficiency.</p>
+                <p className="text-gray-400 mb-2">
+                  Collateral shared across all positions. Higher capital efficiency.
+                </p>
                 <p className="font-semibold mb-1.5">Isolated Margin</p>
-                <p className="text-gray-400">Collateral locked per position. Limits risk to that position only.</p>
+                <p className="text-gray-400">
+                  Collateral locked per position. Limits risk to that position only.
+                </p>
                 {hasInsufficientIsolatedEquity && showEquityWarning && (
-                  // <p className="text-yellow-400 mt-2 pt-2 border-t border-gray-700">
-                  //   ℹ️ Equity will be auto-deposited from Cross Margin if needed (min $20 required).
-                  // </p>
                   <p className="text-yellow-400 mt-2 pt-2 border-t border-gray-700">
                     ℹ️ Equity will be auto-deposited from Cross Margin.
                   </p>
@@ -65,36 +69,57 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
           </div>
         </div>
 
-        <div className="flex rounded-lg overflow-hidden border border-gray-700">
-          <button
-            onClick={() => handleChange('CROSS')}
-            className={`px-3 py-1 text-xs font-medium transition-all ${marginMode === 'CROSS'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-300'
+        <div className="flex items-center gap-3">
+          <button onClick={() => handleChange('CROSS')} className="relative group/cross">
+            <span
+              className={`text-sm font-medium transition-colors ${
+                marginMode === 'CROSS' ? 'text-white' : 'text-gray-500 hover:text-gray-400'
               }`}
-          >
-            Cross
+            >
+              Cross
+            </span>
+            <div
+              className={`absolute -bottom-1 left-0 right-0 h-0.5 border-b-2 transition-all ${
+                marginMode === 'CROSS' ? 'border border-color border-dotted' : 'border-transparent'
+              }`}
+            />
           </button>
+
+          <div className="h-4 w-px bg-gray-700" />
+
           <button
             onClick={() => handleChange('ISOLATED')}
-            className={`px-3 py-1 text-xs font-medium transition-all ${marginMode === 'ISOLATED'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-300'
-              }`}
+            className="relative group/isolated"
             title="Auto-deposit enables starting with $0"
           >
-            Isolated
+            <span
+              className={`text-sm font-medium transition-colors ${
+                marginMode === 'ISOLATED' ? 'text-white' : 'text-gray-500 hover:text-gray-400'
+              }`}
+            >
+              Isolated
+            </span>
+            <div
+              className={`absolute -bottom-1 left-0 right-0 h-0.5 border-b-2 transition-all ${
+                marginMode === 'ISOLATED'
+                  ? 'border border-color  border-dotted'
+                  : 'border-transparent'
+              }`}
+            />
           </button>
         </div>
       </div>
 
-      {marginMode === 'ISOLATED' && isolatedEquity !== undefined && (
-        <div className={`flex justify-between text-xs px-1 ${hasInsufficientIsolatedEquity ? 'text-yellow-400' : 'text-gray-500'
-          }`}>
+      {/* {marginMode === 'ISOLATED' && isolatedEquity !== undefined && (
+        <div
+          className={`flex justify-between text-xs px-1 ${
+            hasInsufficientIsolatedEquity ? 'text-yellow-400' : 'text-gray-500'
+          }`}
+        >
           <span>Isolated Equity:</span>
           <span className="font-medium">${isolatedEquity.toFixed(2)}</span>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

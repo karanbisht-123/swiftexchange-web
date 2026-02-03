@@ -412,12 +412,11 @@ export const DydxTradingForm: React.FC = () => {
           autoCloseDuration={5000}
         />
       ))}
-      <div className="hidden lg:block flex-shrink-0">
+      <div className="hidden lg:block shrink-0">
         <DydxWalletConnect />
       </div>
 
-      {/* Mobile Balance Display - Premium glassmorphism card */}
-      <div className="lg:hidden flex-shrink-0   py-3 px-2 bg-primary">
+      <div className="lg:hidden shrink-0   py-3 px-2 bg-primary">
         {balance ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-5">
@@ -582,7 +581,7 @@ export const DydxTradingForm: React.FC = () => {
       </div>
 
       {/* Fixed button at bottom with shadow */}
-      <div className="flex-shrink-0 p-4 mb-6 border-t border-gray-700   bg-secondary shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
+      <div className="shrink-0 p-4 mb-6 border-t border-gray-700   bg-secondary shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
         <button
           onClick={handlePlaceOrder}
           disabled={isPlacingOrder || !isFormValid}

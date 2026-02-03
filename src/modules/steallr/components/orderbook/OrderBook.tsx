@@ -1,3 +1,4 @@
+import { Radio } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface OrderBookProps {
@@ -9,18 +10,18 @@ interface OrderBookProps {
 
 const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookProps) => {
   const [highlightedPrice, setHighlightedPrice] = useState<string | null>(null);
-  const [previousAsks, setPreviousAsks] = useState<any[]>([]);
-  const [previousBids, setPreviousBids] = useState<any[]>([]);
-
-  console.log(previousAsks, previousBids);
+  const [isLive, setIsLive] = useState(false);
 
   const hasAsks = orderBook?.asks && orderBook.asks.length > 0;
   const hasBids = orderBook?.bids && orderBook.bids.length > 0;
   const isEmpty = !hasAsks && !hasBids;
 
   useEffect(() => {
-    if (hasAsks) setPreviousAsks(orderBook.asks);
-    if (hasBids) setPreviousBids(orderBook.bids);
+    if (orderBook) {
+      setIsLive(true);
+      const timer = setTimeout(() => setIsLive(false), 1000);
+      return () => clearTimeout(timer);
+    }
   }, [orderBook]);
 
   const handlePriceClick = (price: string) => {
@@ -40,14 +41,12 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
     ? Math.max(...orderBook.bids.slice(0, 10).map((b: any) => parseFloat(b.amount)))
     : 0;
 
-  // Format price for display
   const formatPrice = (price: number) => {
     if (price < 0.0001) return price.toFixed(8);
     if (price < 1) return price.toFixed(6);
     return price.toFixed(4);
   };
 
-  // Format amount for display
   const formatAmount = (amount: number) => {
     if (amount >= 1000000) return (amount / 1000000).toFixed(2) + 'M';
     if (amount >= 1000) return (amount / 1000).toFixed(2) + 'K';
@@ -55,10 +54,13 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
   };
 
   return (
-    <div className="h-full bg-secondary">
-      {/* Header */}
-      <div className="px-4 py-3 ">
+    <div className="h-full bg-transparent">
+      <div className="px-4 py-3  items-center justify-between hidden lg:flex">
         <h3 className="text-sm font-semibold text-primary">Order Book</h3>
+        <div className="flex items-center gap-1.5">
+          <Radio className={`w-3 h-3 ${isLive ? 'text-green-500 animate-pulse' : 'text-muted'}`} />
+          <span className="text-[10px] text-muted">{isLive ? 'Live' : 'Ready'}</span>
+        </div>
       </div>
 
       {isEmpty ? (
@@ -85,15 +87,13 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
         </div>
       ) : (
         <div className="p-3">
-          {/* Column Headers */}
-          <div className="grid grid-cols-3 text-[10px] font-medium text-muted uppercase tracking-wider mb-2 px-2">
+          <div className="grid grid-cols-3 text-[10px] font-bold text-muted uppercase tracking-wider mb-2 px-3 opacity-70">
             <span>Price</span>
             <span className="text-center">Amount</span>
             <span className="text-right">Total</span>
           </div>
 
-          {/* Asks (Sell Orders) */}
-          <div className="max-h-[180px] overflow-y-auto scrollbar-thin mb-2">
+          <div className="max-h-[180px] overflow-y-auto scrollbar-hide mb-2">
             {hasAsks ? (
               [...orderBook.asks].slice(0, 10).reverse().map((ask: any, idx: number) => {
                 const amount = parseFloat(ask.amount);
@@ -105,16 +105,13 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
                 return (
                   <div
                     key={`ask-${idx}-${ask.price}`}
-                    className={`relative grid grid-cols-3 text-xs py-1.5 px-2 cursor-pointer transition-all duration-150 hover:bg-red-500/10 ${isHighlighted ? 'bg-red-500/20' : ''
-                      }`}
+                    className={`relative grid grid-cols-3 text-xs py-2 px-3 cursor-pointer transition-all duration-150 hover:bg-red-500/5 ${isHighlighted ? 'bg-red-500/20' : ''}`}
                     onClick={() => handlePriceClick(ask.price)}
                   >
-                    {/* Depth Visualization */}
                     <div
                       className="absolute right-0 top-0 bottom-0 bg-red-500/10 transition-all duration-300"
                       style={{ width: `${depthPercent}%` }}
                     />
-
                     <span className="relative z-10 text-red-500 font-mono font-medium">
                       {formatPrice(price)}
                     </span>
@@ -132,25 +129,18 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
             )}
           </div>
 
-          {/* Spread */}
           {hasAsks && hasBids && (
-            <div className="py-2 px-3 border-t border-b border-color/10  my-2">
+            <div className="py-3 px-3 my-1 border-y border-white/5 bg-white/5 backdrop-blur-sm">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-muted uppercase font-medium">Spread</span>
+                <span className="text-[10px] text-muted uppercase font-bold tracking-wider">Spread</span>
                 <span className="text-sm font-bold text-primary font-mono">
                   {formatPrice(parseFloat(orderBook.asks[0].price) - parseFloat(orderBook.bids[0].price))}
-                </span>
-              </div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-[10px] text-muted">Mid Price</span>
-                <span className="text-xs font-medium text-blue-500 font-mono">
-                  {formatPrice((parseFloat(orderBook.asks[0].price) + parseFloat(orderBook.bids[0].price)) / 2)}
                 </span>
               </div>
             </div>
           )}
 
-          <div className="max-h-[180px] overflow-y-auto scrollbar-thin">
+          <div className="max-h-[180px] overflow-y-auto scrollbar-hide ">
             {hasBids ? (
               orderBook.bids.slice(0, 10).map((bid: any, idx: number) => {
                 const amount = parseFloat(bid.amount);
@@ -162,16 +152,13 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
                 return (
                   <div
                     key={`bid-${idx}-${bid.price}`}
-                    className={`relative grid grid-cols-3 text-xs py-1.5 px-2 cursor-pointer transition-all duration-150 hover:bg-green-500/10 ${isHighlighted ? 'bg-green-500/20' : ''
-                      }`}
+                    className={`relative grid grid-cols-3 text-xs py-2 px-3 cursor-pointer transition-all duration-150 hover:bg-green-500/5 ${isHighlighted ? 'bg-green-500/20' : ''}`}
                     onClick={() => handlePriceClick(bid.price)}
                   >
-                    {/* Depth Visualization */}
                     <div
                       className="absolute right-0 top-0 bottom-0 bg-green-500/10 transition-all duration-300"
                       style={{ width: `${depthPercent}%` }}
                     />
-
                     <span className="relative z-10 text-green-500 font-mono font-medium">
                       {formatPrice(price)}
                     </span>
@@ -189,7 +176,6 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
             )}
           </div>
 
-          {/* Legend */}
           <div className="flex justify-between items-center pt-3 mt-2 border-t border-color/30">
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm bg-green-500" />

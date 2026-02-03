@@ -1,9 +1,8 @@
 import { AlertCircle, ChevronDown, Info } from 'lucide-react';
 import { useState } from 'react';
 
-import type { SwapQuote, TokenInfo, TokenPlaceholder } from '../types/ammSwap.types';
+import type { SwapQuote, TokenInfo, TokenPlaceholder } from '../../types/ammSwap.types';
 
-// Token icon URL mapping for common tokens
 const TOKEN_ICONS: Record<string, string> = {
   XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
   USDC: 'https://coin-images.coingecko.com/coins/images/6319/small/usdc.png',
@@ -39,7 +38,6 @@ export const TokenSelector = ({
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-5 rounded-lg bg-primary hover:bg-hover transition-colors min-w-[120px]"
       >
-        {/* Token Icon */}
         {tokenIcon ? (
           <img
             src={tokenIcon}
@@ -58,7 +56,6 @@ export const TokenSelector = ({
         <ChevronDown className={`w-4 h-4 text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown */}
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
@@ -77,7 +74,6 @@ export const TokenSelector = ({
                   className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-hover transition-colors ${isSelected ? 'bg-hover' : ''
                     }`}
                 >
-                  {/* Token Icon */}
                   {icon ? (
                     <img
                       src={icon}
@@ -93,7 +89,6 @@ export const TokenSelector = ({
                     </div>
                   )}
 
-                  {/* Token Info */}
                   <div className="flex-1 text-left">
                     <div className="font-semibold text-sm text-primary">{token.code}</div>
                     {token.balance && (
@@ -103,7 +98,6 @@ export const TokenSelector = ({
                     )}
                   </div>
 
-                  {/* Selected indicator */}
                   {isSelected && (
                     <div className="w-2 h-2 rounded-full bg-green-500" />
                   )}
@@ -188,11 +182,9 @@ export const SettingsPanel = ({
 
 interface SwapDetailsProps {
   quote: SwapQuote | null;
-  slippage: number;
 }
 
-export const SwapDetails = ({ quote, slippage }: SwapDetailsProps) => {
-  console.log(slippage);
+export const SwapDetails = ({ quote }: SwapDetailsProps) => {
   const [showDetails, setShowDetails] = useState(false);
 
   if (!quote) return null;

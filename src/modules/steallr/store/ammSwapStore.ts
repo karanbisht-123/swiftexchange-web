@@ -10,6 +10,11 @@ interface ChartPair {
   counterIssuer?: string;
 }
 
+interface PreSelectedToken {
+  code: string;
+  issuer?: string;
+}
+
 interface SwapHistory {
   transactions: any[];
   favorites: TokenInfo[];
@@ -19,6 +24,7 @@ interface AmmSwapStore extends SwapHistory {
   defaultSlippage: number;
   expertMode: boolean;
   selectedChartPair: ChartPair | null;
+  preSelectedToken: PreSelectedToken | null;
 
   addTransaction: (tx: any) => void;
   updateTransaction: (id: string, updates: Partial<any>) => void;
@@ -27,6 +33,7 @@ interface AmmSwapStore extends SwapHistory {
   setDefaultSlippage: (slippage: number) => void;
   setExpertMode: (enabled: boolean) => void;
   setSelectedChartPair: (pair: ChartPair | null) => void;
+  setPreSelectedToken: (token: PreSelectedToken | null) => void;
   clearHistory: () => void;
 }
 
@@ -38,6 +45,7 @@ export const useAmmSwapStore = create<AmmSwapStore>()(
       defaultSlippage: 1,
       expertMode: false,
       selectedChartPair: null,
+      preSelectedToken: null,
 
       addTransaction: tx =>
         set(state => ({
@@ -68,6 +76,8 @@ export const useAmmSwapStore = create<AmmSwapStore>()(
       setExpertMode: enabled => set({ expertMode: enabled }),
 
       setSelectedChartPair: pair => set({ selectedChartPair: pair }),
+
+      setPreSelectedToken: token => set({ preSelectedToken: token }),
 
       clearHistory: () => set({ transactions: [] }),
     }),

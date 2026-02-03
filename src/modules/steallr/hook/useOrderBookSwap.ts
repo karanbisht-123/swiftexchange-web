@@ -102,32 +102,59 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     fetchBalances();
   }, [userAddress, service]);
 
-  // Fetch order book when tokens change
   useEffect(() => {
     if (!service || !fromToken?.asset || !toToken?.asset) return;
 
-    const fetchOrderBook = async () => {
+    let closeStream: (() => void) | null = null;
+    let isMounted = true;
+
+    const initOrderBook = async () => {
       setIsLoading(true);
       try {
         const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
-        setOrderBook(book);
+        if (isMounted) {
+          setOrderBook(book);
+        }
 
-        // Auto-fill price with best available price if not set
         if (!price) {
           const bestPrice = await service.getBestPrice(fromToken.asset, toToken.asset, isBuy);
-          if (bestPrice) {
+          if (bestPrice && isMounted) {
             setPrice(bestPrice);
           }
         }
+
+        closeStream = service.streamOrderBook(
+          fromToken.asset,
+          toToken.asset,
+          (updatedBook: any) => {
+            if (isMounted) {
+              setOrderBook(updatedBook);
+            }
+          },
+          (err: any) => {
+            console.error('[useOrderBookSwap] Stream error:', err);
+          }
+        );
       } catch (err) {
         console.error('Failed to fetch order book:', err);
-        setError('No liquidity available for this trading pair');
+        if (isMounted) {
+          setError('No liquidity available for this trading pair');
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
-    fetchOrderBook();
+    initOrderBook();
+
+    return () => {
+      isMounted = false;
+      if (closeStream) {
+        closeStream();
+      }
+    };
   }, [fromToken, toToken, isBuy, service]);
 
   // Calculate quote

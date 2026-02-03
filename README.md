@@ -9,7 +9,7 @@
 [![Vite](https://img.shields.io/badge/Vite-5.0-646CFF.svg)](https://vitejs.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[Live Demo](#) | [Documentation](#) | [Report Bug](#) | [Request Feature](#)
+[Live Demo](https://swfitexclient-vercel.vercel.app/) | [Documentation](#) | [Report Bug](#) | [Request Feature](#)
 
 </div>
 
@@ -121,7 +121,7 @@ Powered by `@dydxprotocol/v4-client-js`:
 ### dYdX Trading Flow
 
 ```
-1. User Connects EVM/Stellar Wallet
+1. User Connects EVM Wallet
          ↓
 2. Onboarding Signature Request
          ↓
@@ -544,10 +544,8 @@ Need help? We're here for you:
 - **Discord**: [Join our community](#)
 - **Twitter**: [@SwiftexExchange](#)
 - **Email**: support@swiftex.exchange
-- **GitHub Issues**: [Report a bug](https://github.com/your-org/swiftex-wallet-exchange/issues)
-
----
-
+- **GitHub Repository**: [swiftexchange-web](https://github.com/karanbisht-123/swiftexchange-web)
+- **GitHub Issues**: [Report a bug](https://github.com/karanbisht-123/swiftexchange-web/issues)
 ## 🙏 Acknowledgments
 
 Built with amazing tools and protocols:
@@ -594,7 +592,7 @@ This software is provided "as is" without warranty of any kind.
 
 **Built with ❤️ by the Swiftex Team**
 
-[Website](#) • [Twitter](#) • [Discord](#) • [GitHub](#)
+[Website](https://swiftexchange.io/) • [Twitter](https://x.com/SwiftExwallet) • [Discord](https://discord.com/invite/gCevdzbC) • [GitHub](#)
 
 ⭐ Star us on GitHub if you find this project useful!
 

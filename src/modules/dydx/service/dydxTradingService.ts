@@ -289,6 +289,7 @@ class DydxTradingService {
         positionSide,
         closingSide,
         size,
+        subaccountNumber: position.subaccountNumber,
       });
 
       const result = await this.placeOrder(
@@ -299,6 +300,7 @@ class DydxTradingService {
           size,
           reduceOnly: false,
           slippageTolerance: TRADING_CONFIG.CLOSE_POSITION_SLIPPAGE,
+          subaccountNumber: position.subaccountNumber,
         },
         marketInfo
       );
@@ -336,6 +338,7 @@ class DydxTradingService {
             price: triggers.takeProfit.price,
             triggerPrice: triggers.takeProfit.price,
             reduceOnly: false,
+            subaccountNumber: position.subaccountNumber,
           },
           marketInfo
         );
@@ -353,6 +356,7 @@ class DydxTradingService {
             price: triggers.stopLoss.price,
             triggerPrice: triggers.stopLoss.price,
             reduceOnly: false,
+            subaccountNumber: position.subaccountNumber,
           },
           marketInfo
         );

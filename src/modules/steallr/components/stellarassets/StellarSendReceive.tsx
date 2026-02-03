@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, Copy, CreditCard, Send } from 'lucide-react';
+import { ArrowLeft, Check, Copy, CreditCard } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Asset, BASE_FEE, Horizon, Memo, Networks, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
@@ -126,7 +126,7 @@ const StellarSendReceive: React.FC<StellarSendReceiveProps> = ({
     };
 
     return (
-        <div className="bg-secondary max-w-[90vw] w-full rounded-xl shadow-sm flex flex-col h-full min-h-[500px]">
+        <div className="bg-secondary w-full flex flex-col h-full min-h-[400px]">
             <div className="p-4 border-b border-color flex items-center gap-4 bg-tertiary">
                 <button onClick={onBack} className="p-2 hover:bg-hover rounded-full transition-colors">
                     <ArrowLeft size={20} className="text-muted" />
@@ -163,7 +163,7 @@ const StellarSendReceive: React.FC<StellarSendReceiveProps> = ({
                 </button>
             </div>
 
-            <div className="p-6 flex-1 bg-secondary">
+            <div className="p-2 pt-6 flex-1 bg-secondary">
                 {activeTab === 'send' ? (
                     <div className="max-w-md mx-auto space-y-6">
                         <div className="text-center mb-6">
@@ -224,13 +224,13 @@ const StellarSendReceive: React.FC<StellarSendReceiveProps> = ({
                             <button
                                 onClick={handleSend}
                                 disabled={!destination || !amount || isSending}
-                                className="btn btn-primary w-full py-3 mt-4 flex items-center justify-center gap-2"
+                                className="btn btn-primary w-full py-4 mt-4 flex items-center justify-center gap-2"
                             >
                                 {isSending ? (
                                     <span>Sending...</span>
                                 ) : (
                                     <>
-                                        <Send size={18} /> Send {asset.ticker}
+                                        Send {asset.ticker}
                                     </>
                                 )}
                             </button>

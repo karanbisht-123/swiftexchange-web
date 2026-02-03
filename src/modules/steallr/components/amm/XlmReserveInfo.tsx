@@ -8,9 +8,8 @@ interface XlmReserveInfoProps {
     onClose: () => void;
 }
 
-// Constants for Stellar reserve calculations
-const BASE_RESERVE = 1; // 1 XLM base reserve (2 * 0.5 XLM)
-const SUBENTRY_RESERVE = 0.5; // 0.5 XLM per subentry (trustline, offer, signer, data)
+const BASE_RESERVE = 1;
+const SUBENTRY_RESERVE = 0.5;
 
 export const calculateReserve = (trustlineCount: number): number => {
     return BASE_RESERVE + trustlineCount * SUBENTRY_RESERVE;
@@ -35,12 +34,9 @@ export const XlmReserveInfoModal = ({
 
     return (
         <>
-            {/* Backdrop */}
             <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
-            {/* Modal */}
             <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[400px] bg-secondary rounded-xl shadow-2xl z-50 animate-fade-in">
-                {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-color">
                     <div className="flex items-center gap-2">
                         <Info className="w-5 h-5 text-blue-500" />
@@ -54,9 +50,7 @@ export const XlmReserveInfoModal = ({
                     </button>
                 </div>
 
-                {/* Content */}
                 <div className="p-4 space-y-4">
-                    {/* Base Reserve */}
                     <div className="flex items-start gap-3 p-3 bg-primary rounded-lg">
                         <Lock className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
                         <div>
@@ -70,7 +64,6 @@ export const XlmReserveInfoModal = ({
                         </div>
                     </div>
 
-                    {/* Subentry Reserve */}
                     <div className="flex items-start gap-3 p-3 bg-primary rounded-lg">
                         <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
                         <div>
@@ -84,15 +77,12 @@ export const XlmReserveInfoModal = ({
                         </div>
                     </div>
 
-                    {/* Divider */}
                     <div className="border-t border-color" />
 
-                    {/* Your Account Section */}
                     <div className="space-y-3">
                         <h4 className="text-sm font-semibold text-muted uppercase tracking-wide">Your Account</h4>
 
                         <div className="space-y-2">
-                            {/* Total Balance */}
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-secondary">Total Balance</span>
                                 <span className="text-sm font-medium text-primary">
@@ -100,7 +90,6 @@ export const XlmReserveInfoModal = ({
                                 </span>
                             </div>
 
-                            {/* Reserved */}
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-1">
                                     <span className="text-sm text-secondary">Reserved</span>
@@ -113,7 +102,6 @@ export const XlmReserveInfoModal = ({
                                 </span>
                             </div>
 
-                            {/* Available */}
                             <div className="flex justify-between items-center pt-2 border-t border-color">
                                 <span className="text-sm font-semibold text-primary">Available to Spend</span>
                                 <span className="text-sm font-bold text-green-500">
@@ -123,7 +111,6 @@ export const XlmReserveInfoModal = ({
                         </div>
                     </div>
 
-                    {/* Warning if low balance */}
                     {availableBalance < 1 && (
                         <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
                             <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
@@ -134,7 +121,6 @@ export const XlmReserveInfoModal = ({
                     )}
                 </div>
 
-                {/* Footer */}
                 <div className="p-4 border-t border-color">
                     <a
                         href="https://developers.stellar.org/docs/learn/fundamentals/lumens#minimum-balance"
@@ -151,7 +137,6 @@ export const XlmReserveInfoModal = ({
     );
 };
 
-// Compact inline component for displaying in swap UI
 interface XlmReserveButtonProps {
     xlmBalance: string;
     trustlineCount: number;
@@ -181,12 +166,10 @@ export const XlmReserveButton = ({ xlmBalance, trustlineCount }: XlmReserveButto
     );
 };
 
-// Hook to calculate trustline count from available tokens
 export const useTrustlineCount = (availableTokens: any[]): number => {
     const [trustlineCount, setTrustlineCount] = useState(0);
 
     useEffect(() => {
-        // Count non-native assets (trustlines)
         const count = availableTokens.filter(token => token.code !== 'XLM').length;
         setTrustlineCount(count);
     }, [availableTokens]);

@@ -32,6 +32,7 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
                 isSuccess: op.transaction_successful,
                 hash: op.transaction_hash,
             };
+
             if (op.type === 'payment') {
                 const from = op.from || op.source_account;
                 const to = op.to || op.into;
@@ -63,6 +64,7 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
                         assetCode: 'XLM',
                         amount: op.starting_balance,
                         from: op.source_account,
+                        details: 'Account Created'
                     };
                 }
             }
@@ -81,15 +83,22 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
             }
 
             if (op.type === 'invoke_host_function') {
+                let details = 'Contract Interaction';
+                let amount = '';
+                let assetCode = '';
+
+                if (op.function === 'HostFunctionTypeHostFunctionTypeInvokeContract') {
+                    details = 'Smart Contract Call';
+                }
+
                 return {
                     ...base,
                     type: 'BRIDGE',
                     fromAsset: 'Contract',
                     toAsset: 'Interaction',
-                    fromAmount: '',
-                    toAmount: '',
-                    path: [],
-                    details: 'Contract Interaction'
+                    amount,
+                    assetCode,
+                    details
                 };
             }
 
@@ -101,13 +110,48 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
                 return {
                     ...base,
                     type: 'TRADE',
-                    sellAsset: op.selling_asset_type === 'native' ? 'XLM' : op.selling_asset_code || 'XLM', // fallback
+                    sellAsset: op.selling_asset_type === 'native' ? 'XLM' : op.selling_asset_code || 'XLM',
                     buyAsset: op.buying_asset_type === 'native' ? 'XLM' : op.buying_asset_code || 'XLM',
                     sellAmount: op.amount || '0',
                     buyAmount: '0',
                     price: op.price,
                     offerId: op.offer_id,
                     details: 'Order Book'
+                };
+            }
+
+            if (op.type === 'change_trust') {
+                return {
+                    ...base,
+                    type: 'TRUST',
+                    assetCode: op.asset_type === 'native' ? 'XLM' : op.asset_code,
+                    limit: op.limit,
+                    trustee: op.trustee,
+                    trustor: op.trustor,
+                    details: `Trustline ${parseFloat(op.limit) > 0 ? 'Set' : 'Removed'}`
+                };
+            }
+
+            if (op.type === 'create_claimable_balance') {
+                const assetParts = op.asset.split(':');
+                const assetCode = assetParts.length > 1 ? assetParts[0] : 'Unknown';
+
+                return {
+                    ...base,
+                    type: 'CLAIMABLE',
+                    assetCode: assetCode,
+                    amount: op.amount,
+                    sponsor: op.sponsor,
+                    claimants: op.claimants,
+                    details: 'Claimable Balance Created'
+                };
+            }
+
+            if (op.type === 'claim_claimable_balance') {
+                return {
+                    ...base,
+                    type: 'CLAIMABLE',
+                    details: 'Claimable Balance Claimed',
                 };
             }
 

@@ -154,9 +154,6 @@ const WalletAssetsSection = () => {
   const isPositive = portfolioChange >= 0;
 
   const handleTrade = (asset: Asset) => {
-
-    console.log(asset);
-    console.log(asset.chainType, "------")
     if (asset.chainType === 'stellar') {
       navigate(ROUTES.TRADING_STEALLR, {
         state: {
@@ -179,7 +176,6 @@ const WalletAssetsSection = () => {
   return (
     <>
       <section className="card mt-1 lg:mt-3 rounded-none border-none lg:rounded-lg overflow-hidden">
-        {/* Header */}
         <div className="card-header flex justify-between items-center">
           <div>
             <div className="flex items-center gap-2 text-muted mb-2">

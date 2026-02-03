@@ -37,6 +37,7 @@ export interface Position {
   liquidationPrice?: string;
   netFunding?: string;
   leverage?: string;
+  subaccountNumber?: number;
 }
 
 export interface OpenOrder {

@@ -1,15 +1,19 @@
-export type TransactionType = 'SEND' | 'RECEIVE' | 'TRADE' | 'BRIDGE' | 'OTHER';
+export type TransactionType = 'SEND' | 'RECEIVE' | 'TRADE' | 'BRIDGE' | 'TRUST' | 'CLAIMABLE' | 'OTHER';
 
 export interface UnifiedTransaction {
     id: string;
     date: string;
     isSuccess: boolean;
     hash: string;
-    type: 'SEND' | 'RECEIVE' | 'TRADE' | 'BRIDGE' | 'OTHER';
+    type: TransactionType;
+
+    // Payment specific
     assetCode?: string;
     amount?: string;
     from?: string;
     to?: string;
+
+    // Trade specific
     sellAsset?: string;
     buyAsset?: string;
     sellAmount?: string;
@@ -21,6 +25,15 @@ export interface UnifiedTransaction {
     fromAmount?: string;
     toAmount?: string;
     path?: any[];
+
+    // Trustline specific
+    limit?: string;
+    trustee?: string;
+    trustor?: string;
+
+    // Claimable Balance specific
+    sponsor?: string;
+    claimants?: any[];
 
     details?: string;
 }
