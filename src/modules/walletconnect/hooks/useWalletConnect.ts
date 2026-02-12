@@ -25,12 +25,12 @@ export const useWalletConnect = () => {
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
   const deriveDydx = useWalletStore(state => state.deriveDydx);
+  const checkSessionHealth = useWalletStore(state => state.checkSessionHealth);
 
   useEffect(() => {
     restoreSessions();
   }, [restoreSessions]);
 
-  // FIXED: Memoize computed values
   const isAnyWalletConnected = useMemo(
     () => Object.keys(connectedWallets).length > 0,
     [connectedWallets]
@@ -84,6 +84,7 @@ export const useWalletConnect = () => {
     disconnectAll,
     restoreSessions,
     deriveDydx,
+    checkSessionHealth,
 
     setNetwork,
 
@@ -101,7 +102,7 @@ export const useWalletConnect = () => {
 };
 
 export const useEVMWallet = () => {
-  // FIXED: Use selector functions
+
   const wallet = useWalletStore(selectConnectedWallet('evm'));
   const status = useWalletStore(selectConnectionStatus('evm'));
 

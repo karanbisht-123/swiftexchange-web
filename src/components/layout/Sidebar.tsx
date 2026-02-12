@@ -10,7 +10,6 @@ import {
   Settings,
   TrendingUp,
   User,
-  // Wallet,
   X,
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
