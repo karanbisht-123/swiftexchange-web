@@ -17,7 +17,6 @@ interface AnimatedValueProps {
   className?: string;
 }
 
-// REMOVED FLASH ANIMATIONS - Only color changes now
 const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, className = '' }) => {
   const [displayPrice, setDisplayPrice] = useState(price);
   const prevPriceRef = useRef(price);
@@ -44,7 +43,7 @@ const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, classNa
   );
 };
 
-// REMOVED FLASH ANIMATIONS - Only color changes now
+
 const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) => {
   const [displayValue, setDisplayValue] = useState(value);
   const prevValueRef = useRef(value);
@@ -72,6 +71,7 @@ interface MarketStatsProps {
     nextFundingRate: string;
     nextFundingAt: string;
     openInterest: string;
+    initialMarginFraction?: string;
   };
 }
 
@@ -113,15 +113,15 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
         <AnimatedValue
           value={`${parseFloat(marketData.openInterest || '0').toLocaleString(undefined, {
             maximumFractionDigits: 0,
-          })} ${marketData.ticker?.split('-')[0] || ''}`}
+          })} USD`}
           className="font-medium text-primary text-sm"
         />
       </div>
 
       <div className="flex flex-col p-3 border-r border-color">
-        <span className="text-muted text-xs mb-1">Funding Rate</span>
+        <span className="text-muted text-xs mb-1">1h Funding</span>
         <AnimatedValue
-          value={`${marketData.nextFundingRate || '0'}%`}
+          value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
           className={`font-medium text-sm ${parseFloat(marketData.nextFundingRate || '0') >= 0 ? 'price-up' : 'price-down'
             }`}
         />
@@ -129,10 +129,18 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
 
       <div className="flex flex-col p-3">
         <span className="text-muted text-xs mb-1">Next Funding</span>
-        <AnimatedValue
-          value={marketData.nextFundingAt || '-'}
-          className="font-medium text-primary text-sm"
-        />
+        <div className="font-medium text-primary text-sm">
+          {(() => {
+            if (!marketData.nextFundingAt) return '-';
+            const funding = new Date(marketData.nextFundingAt).getTime();
+            const now = Date.now();
+            const diff = funding - now;
+            if (diff <= 0) return '00:00';
+            const minutes = Math.floor((diff % 3600000) / 60000);
+            const seconds = Math.floor((diff % 60000) / 1000);
+            return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+          })()}
+        </div>
       </div>
     </div>
   );
@@ -140,6 +148,7 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
 
 const MarketSwitcher: React.FC = () => {
   const { selectedMarket } = useMarketStore();
+
   const { getMarket, isLoading } = useMarkets();
   const { livePrice, livePriceSide } = useTrades(selectedMarket, 50);
 
@@ -155,6 +164,7 @@ const MarketSwitcher: React.FC = () => {
     nextFundingAt: '',
     openInterest: '0',
     coinIcon: '',
+    initialMarginFraction: '0.05',
   };
 
   const currentPrice =
@@ -201,7 +211,6 @@ const MarketSwitcher: React.FC = () => {
           <ChevronDown className="w-4 h-4 text-muted" />
         </button>
 
-        {/* Right: Oracle Price and 24H Change */}
         <div className="flex flex-col items-end">
           <AnimatedPrice
             price={currentPrice}
@@ -215,10 +224,7 @@ const MarketSwitcher: React.FC = () => {
           />
         </div>
       </div>
-
-      {/* DESKTOP: Full layout with all stats */}
       <div className="hidden lg:flex bg-secondary items-center w-full text-sm text-primary border-b border-color">
-        {/* Market Selector Button */}
         <button
           onClick={() => setIsModalOpen(true)}
           disabled={isLoading}
@@ -248,7 +254,7 @@ const MarketSwitcher: React.FC = () => {
           <ChevronDown className="w-4 h-4 text-muted ml-1" />
         </button>
 
-        {/* Live Price Display */}
+
         <div className="px-3 flex flex-col items-start min-w-[120px]">
           <AnimatedPrice
             price={currentPrice}
@@ -257,27 +263,33 @@ const MarketSwitcher: React.FC = () => {
           />
         </div>
 
-        {/* Market Stats */}
+
         <div className="hide-scrollbar flex items-center overflow-x-auto px-2 flex-1">
-          <div className="flex space-x-4 whitespace-nowrap">
-            <div className="flex flex-col">
-              <span className="text-muted text-xs">Oracle</span>
+          <div className="flex divide-x divide-color whitespace-nowrap">
+            <div className="flex flex-col px-4">
+              <span className="text-muted text-xs">Oracle Price</span>
               <AnimatedValue
-                value={parseFloat(marketData.oraclePrice).toFixed(2)}
+                value={`$${parseFloat(marketData.oraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
                 className="font-medium text-primary"
               />
             </div>
 
-            <div className="flex flex-col">
-              <span className="text-muted text-xs">24H Change</span>
-              <AnimatedValue
-                value={`${formattedPercentage}%`}
-                className={`${changePercentage >= 0 ? 'price-up' : 'price-down'} font-medium`}
-              />
+            <div className="flex flex-col px-4">
+              <span className="text-muted text-xs">24h Change</span>
+              <div className={`flex ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}>
+                <AnimatedValue
+                  value={`$${priceChange.toFixed(1)}`}
+                  className="font-medium text-xs"
+                />
+                <AnimatedValue
+                  value={`${formattedPercentage}%`}
+                  className="font-medium text-xs"
+                />
+              </div>
             </div>
 
-            <div className="flex flex-col">
-              <span className="text-muted text-xs">24H Volume</span>
+            <div className="flex flex-col px-4">
+              <span className="text-muted text-xs">24h Volume</span>
               <AnimatedValue
                 value={`$${parseFloat(marketData.volume24H).toLocaleString(undefined, {
                   maximumFractionDigits: 0,
@@ -286,37 +298,52 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            <div className="flex flex-col">
-              <span className="text-muted text-xs">24H Trades</span>
+            <div className="flex flex-col px-4">
+              <span className="text-muted text-xs">24h Trades</span>
               <AnimatedValue
                 value={marketData.trades24H.toLocaleString()}
                 className="font-medium text-primary"
               />
             </div>
 
-            <div className="flex flex-col">
+            <div className="flex flex-col px-4">
               <span className="text-muted text-xs">Open Interest</span>
               <AnimatedValue
                 value={`${parseFloat(marketData.openInterest).toLocaleString(undefined, {
                   maximumFractionDigits: 0,
-                })} ${marketData.ticker.split('-')[0]}`}
+                })} USD`}
                 className="font-medium text-primary"
               />
             </div>
 
-            <div className="flex flex-col">
-              <span className="text-muted text-xs">Funding Rate</span>
+            <div className="flex flex-col px-4">
+              <span className="text-muted text-xs">1h Funding</span>
               <AnimatedValue
-                value={`${marketData.nextFundingRate}%`}
+                value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
                 className={`font-medium ${parseFloat(marketData.nextFundingRate) >= 0 ? 'price-up' : 'price-down'
                   }`}
               />
             </div>
 
-            <div className="flex flex-col">
+            <div className="flex flex-col px-4">
               <span className="text-muted text-xs">Next Funding</span>
+              <div className="font-medium text-primary">
+                {(() => {
+                  const funding = new Date(marketData.nextFundingAt).getTime();
+                  const now = Date.now();
+                  const diff = funding - now;
+                  if (diff <= 0) return '00:00';
+                  const minutes = Math.floor((diff % 3600000) / 60000);
+                  const seconds = Math.floor((diff % 60000) / 1000);
+                  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                })()}
+              </div>
+            </div>
+
+            <div className="flex flex-col px-4">
+              <span className="text-muted text-xs">Maximum Leverage</span>
               <AnimatedValue
-                value={marketData.nextFundingAt}
+                value={marketData.initialMarginFraction ? `${(1 / Number(marketData.initialMarginFraction)).toFixed(2)}×` : '-'}
                 className="font-medium text-primary"
               />
             </div>

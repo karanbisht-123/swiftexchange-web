@@ -45,7 +45,7 @@ const PageLayout: React.FC<PageLayoutProps> = ({
           ${className}
         `}
       >
-        <div className="shrink-0 overflow-x-auto w-screen p-3 md:pt-6 md:px-6 pb-2 md:pb-4 border-b border-color">
+        <div className="shrink-0 overflow-x-auto max-w-screen p-3 md:pt-6 md:px-6 pb-2 md:pb-4 border-b border-color">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               {showBackButton && onBack && (

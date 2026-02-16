@@ -1,4 +1,5 @@
 import { getIndexerClient } from '../client/clients';
+import coinsList from '../data/coins.json';
 
 export interface CoinMetadata {
   id: string;
@@ -51,6 +52,9 @@ class MetadataService {
   private assetMapping: Record<string, string> | null = null;
   private mappingPromise: Promise<void> | null = null;
   private mappingInitialized = false;
+
+  // Faster lookup map for icons directly from static data
+  private staticIconMap = new Map<string, string>();
 
   private readonly PRIORITY_MAPPINGS: Record<string, string> = {
     BTC: 'bitcoin',
@@ -125,37 +129,35 @@ class MetadataService {
     );
   }
 
-  // ==================== DYNAMIC MAPPING WITH PRIORITY ====================
-
   private async initializeAssetMapping(): Promise<void> {
     if (this.mappingPromise) return this.mappingPromise;
 
     this.mappingPromise = (async () => {
       try {
-        const response = await fetch('https://api.coingecko.com/api/v3/coins/list');
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch CoinGecko list: ${response.status}`);
-        }
-
-        const coinsList = (await response.json()) as Array<{
+        const coins = coinsList as Array<{
           id: string;
           symbol: string;
           name: string;
+          image: string;
         }>;
 
-        // Create symbol to ID mapping
         const symbolToId = new Map<string, string>();
-        coinsList.forEach(coin => {
+
+        coins.forEach(coin => {
           const symbol = coin.symbol.toUpperCase();
           if (!symbolToId.has(symbol)) {
             symbolToId.set(symbol, coin.id);
+            this.staticIconMap.set(symbol, coin.image);
           }
         });
 
-        // Get our markets
         const indexerClient = getIndexerClient();
-        const markets = await indexerClient.markets.getPerpetualMarkets();
+        let markets;
+        try {
+          markets = await indexerClient.markets.getPerpetualMarkets();
+        } catch (e) {
+          console.warn('Failed to fetch markets for mapping, using default map');
+        }
 
         this.assetMapping = {};
 
@@ -171,10 +173,19 @@ class MetadataService {
             if (coingeckoId) {
               this.assetMapping![baseAsset] = coingeckoId;
             } else {
-              console.warn(` No CoinGecko ID found for ${baseAsset}`);
+              // Silence warning for now or keep it verbose only in dev
+              // console.warn(` No CoinGecko ID found for ${baseAsset}`);
             }
           });
         }
+
+        // Fallback: Populate mapping for all known coins even if not in market list yet
+        // This ensures getMetadata works for things we might not have fetched markets for yet
+        symbolToId.forEach((id, symbol) => {
+          if (this.assetMapping && !this.assetMapping[symbol]) {
+            this.assetMapping[symbol] = id;
+          }
+        });
 
         this.mappingInitialized = true;
       } catch (error) {
@@ -215,7 +226,6 @@ class MetadataService {
       });
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
-      console.log(error, 'faild to save locally ');
     }
   }
 
@@ -231,7 +241,7 @@ class MetadataService {
     this.saveToStorage();
   }
 
-  // ==================== QUEUE MANAGEMENT ====================
+
 
   private async processQueue(): Promise<void> {
     if (
@@ -283,6 +293,10 @@ class MetadataService {
       }
 
       if (!response.ok) {
+        if (response.status === 404) {
+          this.pendingSymbols.delete(item.symbol);
+          return;
+        }
         throw new Error(`HTTP ${response.status}`);
       }
 
@@ -308,9 +322,9 @@ class MetadataService {
       this.notifyListeners();
     } catch (error: any) {
       this.consecutiveErrors++;
-      console.error(`Failed to fetch ${item.symbol}:`, error.message);
+      console.warn(`Failed to fetch ${item.symbol}:`, error.message);
 
-      if (this.consecutiveErrors >= 2) {
+      if (this.consecutiveErrors >= 5) {
         this.openCircuitBreaker(`${this.consecutiveErrors} consecutive errors`);
         this.pendingSymbols.delete(item.symbol);
         return;
@@ -335,7 +349,6 @@ class MetadataService {
     }
   }
 
-  // ==================== PUBLIC API ====================
 
   async getMetadata(ticker: string): Promise<CoinMetadata | null> {
     if (!this.mappingInitialized) {
@@ -347,6 +360,9 @@ class MetadataService {
 
     if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
       return cached.data;
+    }
+
+    if (this.staticIconMap.has(symbol) && !cached) {
     }
 
     if (
@@ -373,13 +389,17 @@ class MetadataService {
 
   getCoinIcon(ticker: string): string {
     const symbol = ticker.split('-')[0].toUpperCase();
-    const cached = this.cache.get(symbol);
 
+    const cached = this.cache.get(symbol);
     if (cached?.data?.image) {
       return cached.data.image;
     }
 
-    console.error(`No icon found for ${symbol}`);
+
+    if (this.staticIconMap.has(symbol)) {
+      return this.staticIconMap.get(symbol)!;
+    }
+
     return `https://cryptoicons.org/api/icon/${symbol.toLowerCase()}/200`;
   }
 
@@ -430,7 +450,7 @@ class MetadataService {
     this.listeners.forEach(listener => {
       try {
         listener();
-      } catch (error) {}
+      } catch (error) { }
     });
   }
 
@@ -449,22 +469,23 @@ class MetadataService {
 
     const cooldownRemaining = this.circuitBreakerOpen
       ? Math.max(
-          0,
-          this.CIRCUIT_BREAKER_TIMEOUTS[this.circuitBreakerLevel] -
-            (now - this.circuitBreakerOpenedAt)
-        )
+        0,
+        this.CIRCUIT_BREAKER_TIMEOUTS[this.circuitBreakerLevel] -
+        (now - this.circuitBreakerOpenedAt)
+      )
       : 0;
 
     return {
       valid,
       total: this.cache.size,
+      staticIcons: this.staticIconMap.size,
       expired,
       pending: this.pendingSymbols.size,
       queueLength: this.queue.length,
       circuitBreakerOpen: this.circuitBreakerOpen,
       circuitBreakerLevel: this.circuitBreakerLevel,
       cooldownRemainingMs: cooldownRemaining,
-      cooldownRemainingMin: Math.ceil(cooldownRemaining / 60000),
+
     };
   }
 

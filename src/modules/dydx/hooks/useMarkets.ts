@@ -5,6 +5,7 @@ import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
 import type { MarketData } from '../types/trading.types';
 import { metadataService } from './useCoinGeckoMetadata';
+import coinsList from '../data/coins.json';
 
 export type { MarketData };
 
@@ -33,13 +34,11 @@ export function useMarkets(): UseMarketsReturn {
   const metadataUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const metadataUpdateCounterRef = useRef(0);
 
-  // Get store methods and state
   const subscribeToAllMarkets = useWebSocketStore(state => state.subscribeToAllMarkets);
   const unsubscribeFromAllMarkets = useWebSocketStore(state => state.unsubscribeFromAllMarkets);
   const isConnected = useWebSocketStore(state => state.isConnected);
   const storeMarkets = useWebSocketStore(state => state.markets);
 
-  // Subscribe to metadata updates
   useEffect(() => {
     const unsubscribe = metadataService.subscribe(() => {
       setCacheStats(metadataService.getCacheStats());
@@ -51,7 +50,6 @@ export function useMarkets(): UseMarketsReturn {
 
       metadataUpdateTimerRef.current = setTimeout(async () => {
         if (currentCount === metadataUpdateCounterRef.current && isMountedRef.current) {
-          // Fetch all metadata asynchronously
           const tickers = Object.keys(markets);
           const metadataPromises = tickers.map(ticker => metadataService.getMetadata(ticker));
           const metadataResults = await Promise.all(metadataPromises);
@@ -84,7 +82,6 @@ export function useMarkets(): UseMarketsReturn {
     };
   }, []);
 
-  // Update local markets with store data
   useEffect(() => {
     if (storeMarkets.size === 0) return;
 
@@ -121,11 +118,12 @@ export function useMarkets(): UseMarketsReturn {
   }, [storeMarkets]);
 
   const enrichMarketData = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (ticker: string, rawData: any): Promise<MarketData> => {
       const metadata = await metadataService.getMetadata(ticker);
       const baseAsset = ticker.split('-')[0];
       const quoteAsset = ticker.split('-')[1] || 'USD';
+      const staticCoin = (coinsList as any[]).find(c => c.symbol.toUpperCase() === baseAsset);
+      const marketCap = staticCoin?.market_cap ? staticCoin.market_cap.toString() : '0';
 
       return {
         ticker,
@@ -144,7 +142,7 @@ export function useMarkets(): UseMarketsReturn {
         marketId: rawData.marketId,
         clobPairId: rawData.clobPairId,
         coinIcon: metadata?.image || metadataService.getCoinIcon(ticker),
-        coinName: metadata?.name,
+        coinName: metadata?.name ?? staticCoin?.name,
         initialMarginFraction: rawData.initialMarginFraction,
         maintenanceMarginFraction: rawData.maintenanceMarginFraction,
         tickSize: rawData.tickSize,
@@ -159,7 +157,8 @@ export function useMarkets(): UseMarketsReturn {
         baseOpenInterest: rawData.baseOpenInterest,
         defaultFundingRate1H: rawData.defaultFundingRate1H,
         spotVolume: rawData.spotVolume,
-        marketCap: rawData.marketCaps, // Use market caps from API response if available
+        marketCap: marketCap,
+        // zeroFees: rawData.zeroFees
       };
     },
     []
@@ -185,16 +184,12 @@ export function useMarkets(): UseMarketsReturn {
       setMarkets(marketsMap);
       setIsLoading(false);
       hasInitialDataRef.current = true;
-
-      // Sync to global store
       useMarketStore.getState().updateMarketCache(marketsMap);
 
-      // Preload metadata for all markets
       if (tickers.length > 0) {
         metadataService.preloadBatch(tickers);
       }
 
-      // Subscribe to WebSocket updates for all markets (single handler)
       subscribeToAllMarkets();
     } catch (err: unknown) {
       console.error('[useMarkets] Failed to fetch initial markets:', err);
@@ -211,7 +206,7 @@ export function useMarkets(): UseMarketsReturn {
     await fetchInitialMarketData();
   }, [fetchInitialMarketData]);
 
-  // Main initialization effect
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -224,13 +219,10 @@ export function useMarkets(): UseMarketsReturn {
         clearTimeout(metadataUpdateTimerRef.current);
         metadataUpdateTimerRef.current = null;
       }
-
-      // Unsubscribe from all markets
       unsubscribeFromAllMarkets();
     };
   }, [fetchInitialMarketData, unsubscribeFromAllMarkets]);
 
-  // Memoized sorted markets list
   const marketsList = useMemo(() => {
     return Object.values(markets).sort((a, b) => {
       const volA = parseFloat(a.volume24H) || 0;
