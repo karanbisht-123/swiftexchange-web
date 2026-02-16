@@ -259,16 +259,12 @@ export const useAlchemyBuy = () => {
 
     try {
       const result = await createAlchemyBuyOrder(orderRequest);
-      if (!result.success?.status || !result.success.data) {
+
+      if (!result.success) {
         throw new Error(ERROR_MESSAGES.ORDER_FAILED);
       }
 
-      const orderData = JSON.parse(result.success.data);
-      if (!orderData.success || !orderData.data?.payUrl) {
-        throw new Error(ERROR_MESSAGES.NO_PAYMENT_URL);
-      }
-
-      const payUrl = orderData.data.payUrl;
+      const payUrl = result.success;
       setPaymentUrl(payUrl);
       setOrderSuccess(true);
 

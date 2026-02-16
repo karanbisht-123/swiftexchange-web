@@ -9,7 +9,7 @@ const SERVER_URL_PROD = import.meta.env.VITE_BASE_SERVER_URL_PROD as string;
 const PROXY_URL_PROD = import.meta.env.VITE_BASE_PROXY_URL_PROD as string;
 const DEVICE_AUTH_PROD = import.meta.env.VITE_API_DEVICE_AUTH_PROD as string;
 
-const USER_API_TOKEN = import.meta.env.VITE_API_USER_AUTH as string;
+const USER_API_TOKEN = import.meta.env.VITE_API_USER_AUTH;
 
 function getApiConfig() {
   const network = useWalletStore.getState().network;
@@ -56,14 +56,16 @@ export async function fetchApiResponseFromProxy<T>(
 ): Promise<ApiResponse<T>> {
   const config = getApiConfig();
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-auth-device-token': config.deviceAuth,
-    Authorization: `Bearer ${USER_API_TOKEN}`,
   };
 
+  if (USER_API_TOKEN) {
+    headers['Authorization'] = `Bearer ${USER_API_TOKEN}`;
+  }
+
   const url = `${config.proxyUrl}${endpoint}`;
-  console.log('[API] Proxy request:', url);
 
   const response = await fetchWithRetry(
     url,
@@ -97,14 +99,16 @@ export async function fetchApiResponseFromServer<T>(
 ): Promise<ApiResponse<T>> {
   const config = getApiConfig();
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-auth-device-token': config.deviceAuth,
-    Authorization: `Bearer ${USER_API_TOKEN}`,
   };
 
+  if (USER_API_TOKEN) {
+    headers['Authorization'] = `Bearer ${USER_API_TOKEN}`;
+  }
+
   const url = `${config.serverUrl}${endpoint}`;
-  console.log('[API] Server request:', url);
 
   const response = await fetchWithRetry(
     url,
