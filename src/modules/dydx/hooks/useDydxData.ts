@@ -107,8 +107,8 @@ export const useDydxData = (): UseDydxDataReturn => {
   const orders = useMemo(() => {
     const allOrders = parentData?.orders || [];
     return [...allOrders].sort((a, b) => {
-      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : Number(a.createdAtHeight || 0);
-      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : Number(b.createdAtHeight || 0);
+      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return timeB - timeA;
     });
   }, [parentData?.orders, updateTrigger]);

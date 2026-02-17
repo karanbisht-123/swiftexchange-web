@@ -85,8 +85,7 @@ interface CacheEntry<T> {
 
 class DydxDataService {
   private cache = new Map<string, CacheEntry<any>>();
-  private readonly CACHE_TTL = 8000;
-
+  private readonly CACHE_TTL = 5000;
   private stats = {
     restCalls: 0,
     cacheHits: 0,
@@ -120,17 +119,17 @@ class DydxDataService {
     this.cache.set(key, { data, timestamp: Date.now() });
   }
 
-  private invalidateCache(keys: string | string[]): void {
-    if (typeof keys === 'string') {
-      keys = [keys];
-    }
-    keys.forEach(pattern => {
-      for (const key of this.cache.keys()) {
-        if (key.includes(pattern)) {
-          this.cache.delete(key);
-        }
+  invalidateCache(keys: string | string[]): void {
+    const patterns = Array.isArray(keys) ? keys : [keys];
+    const keysToDelete: string[] = [];
+
+    this.cache.forEach((_, key) => {
+      if (patterns.some(pattern => key.startsWith(pattern))) {
+        keysToDelete.push(key);
       }
     });
+
+    keysToDelete.forEach(key => this.cache.delete(key));
   }
 
   async getPositions(
@@ -236,12 +235,8 @@ class DydxDataService {
       const orders = (response || []) as Order[];
 
       const sorted = orders.sort((a, b) => {
-        const timeA = a.updatedAt
-          ? new Date(a.updatedAt).getTime()
-          : Number(a.createdAtHeight || 0);
-        const timeB = b.updatedAt
-          ? new Date(b.updatedAt).getTime()
-          : Number(b.createdAtHeight || 0);
+        const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         return timeB - timeA;
       });
 

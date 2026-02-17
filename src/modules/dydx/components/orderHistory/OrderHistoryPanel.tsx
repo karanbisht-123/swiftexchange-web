@@ -29,7 +29,7 @@ const OrderHistoryPanel: React.FC = () => {
   const initialLoadDoneRef = useRef(false);
 
   const getOrderTime = (order: Order): number => {
-    return new Date(order.updatedAt || order.createdAtHeight || '0').getTime();
+    return order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
   };
 
   useEffect(() => {
@@ -45,8 +45,12 @@ const OrderHistoryPanel: React.FC = () => {
     if (storeOrders.length > 0) {
       setAllOrders(prevOrders => {
         const ordersMap = new Map<string, Order>();
-        prevOrders.forEach(o => ordersMap.set(o.id, o));
         storeOrders.forEach(o => ordersMap.set(o.id, o));
+        prevOrders.forEach(o => {
+          if (!ordersMap.has(o.id)) {
+            ordersMap.set(o.id, o);
+          }
+        });
         return Array.from(ordersMap.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
       });
       initialLoadDoneRef.current = true;
@@ -200,7 +204,7 @@ const OrderHistoryPanel: React.FC = () => {
                     {order.timeInForce || 'GTT'}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs">
-                    {getTimeAgo(order.updatedAt || order.createdAtHeight)}
+                    {getTimeAgo(order.updatedAt || '')}
                   </td>
                 </tr>
               );
