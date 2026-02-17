@@ -27,7 +27,6 @@ export interface ConnectedWallet {
   address: string;
   chainId?: string | number;
   dydxAddress?: string;
-  dydxMnemonic?: string;
 }
 
 interface WalletConnectionStatus {
@@ -118,7 +117,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
                 ? session.cosmosChainId
                 : session.stellarChainId,
           dydxAddress: session.dydxAddress,
-          dydxMnemonic: session.dydxMnemonic,
         };
 
         const keepModalOpen = type === 'evm' && !session.dydxAddress;
@@ -170,7 +168,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             evm: {
               ...state.connectedWallets.evm!,
               dydxAddress: dydx.address,
-              dydxMnemonic: dydx.mnemonic,
             },
           },
           connectionStatus: {
@@ -384,7 +381,6 @@ export const selectDydxWallet = (state: WalletState) => {
   if (evm?.dydxAddress) {
     return {
       address: evm.dydxAddress,
-      mnemonic: evm.dydxMnemonic || null,
       ethAddress: evm.address,
     };
   }
@@ -392,7 +388,6 @@ export const selectDydxWallet = (state: WalletState) => {
   if (cosmos?.dydxAddress) {
     return {
       address: cosmos.dydxAddress,
-      mnemonic: cosmos.dydxMnemonic || null,
       cosmosAddress: cosmos.address,
     };
   }

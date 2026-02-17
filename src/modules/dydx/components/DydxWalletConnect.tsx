@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, AlertCircle, ArrowUpDown } from 'lucide-react';
-
+import { RefreshCw, AlertCircle } from 'lucide-react';
+// ArrowUpDown
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
@@ -442,13 +442,13 @@ export const DydxWalletConnect: React.FC = () => {
 
           {/* Action Buttons */}
           <div className="flex gap-2 mt-3">
-            <button
+            {/* <button
               onClick={() => setShowTransferModal(true)}
               className="flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors bg-gray-700 hover:bg-gray-600 text-white"
             >
               <ArrowUpDown className="w-3.5 h-3.5" />
               Transfer
-            </button>
+            </button> */}
             <a
               href="https://trade.dydx.exchange/portfolio/deposit"
               target="_blank"

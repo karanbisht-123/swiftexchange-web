@@ -54,7 +54,6 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
 
     formattedAsks.reverse();
 
-    // Fixed spread calculation
     const bestBid = formattedBids.length > 0 ? formattedBids[0].price : 0;
     const bestAsk = formattedAsks.length > 0 ? formattedAsks[formattedAsks.length - 1].price : 0;
 

@@ -130,7 +130,6 @@ export const useEVMWallet = () => {
   return {
     wallet,
     dydxAddress: wallet?.dydxAddress,
-    dydxMnemonic: wallet?.dydxMnemonic,
     status: status || { state: 'idle' as const },
     isConnected: connected,
     isConnecting: connecting,
@@ -168,7 +167,6 @@ export const useCosmosWallet = () => {
   return {
     wallet,
     dydxAddress: wallet?.dydxAddress,
-    dydxMnemonic: wallet?.dydxMnemonic,
     status: status || { state: 'idle' as const },
     isConnected: connected,
     isConnecting: connecting,

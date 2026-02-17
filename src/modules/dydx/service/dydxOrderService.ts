@@ -1,4 +1,4 @@
-import { PositionStatus } from '@dydxprotocol/v4-client-js';
+import { PositionStatus, TickerType } from '@dydxprotocol/v4-client-js';
 
 import { dydxWalletService } from './dydxWalletService';
 
@@ -69,7 +69,7 @@ export interface Fill {
 
 export interface HistoricalPnl {
   id: string;
-  subaccountId: string;
+  subaccountId?: string;
   equity: string;
   totalPnl: string;
   netTransfers: string;
@@ -133,7 +133,6 @@ class DydxDataService {
     });
   }
 
-  // REST API methods (fallback / manual refresh only)
   async getPositions(
     status: 'OPEN' | 'CLOSED' = 'OPEN',
     limit = 100,
@@ -218,14 +217,13 @@ class DydxDataService {
     }
 
     this.stats.restCalls++;
-    const { indexer, address, subaccountNumber } = this.getContext();
+    const { indexer, address } = this.getContext();
 
     try {
-      const response = await indexer.account.getSubaccountOrders(
+      const response = await indexer.account.getParentSubaccountNumberOrders(
         address,
-        subaccountNumber,
+        0,
         ticker,
-        undefined,
         undefined,
         undefined,
         undefined,
@@ -269,14 +267,14 @@ class DydxDataService {
     }
 
     this.stats.restCalls++;
-    const { indexer, address, subaccountNumber } = this.getContext();
+    const { indexer, address } = this.getContext();
 
     try {
-      const response = await indexer.account.getSubaccountFills(
+      const response = await indexer.account.getParentSubaccountNumberFills(
         address,
-        subaccountNumber,
+        0,
         ticker,
-        undefined,
+        TickerType.PERPETUAL,
         limit,
         undefined,
         createdBeforeOrAtHeight
@@ -310,12 +308,12 @@ class DydxDataService {
     }
 
     this.stats.restCalls++;
-    const { indexer, address, subaccountNumber } = this.getContext();
+    const { indexer, address } = this.getContext();
 
     try {
-      const response = await indexer.account.getSubaccountHistoricalPNLs(
+      const response = await indexer.account.getParentSubaccountNumberHistoricalPNLs(
         address,
-        subaccountNumber,
+        0,
         undefined,
         effectiveBeforeOrAt,
         undefined,

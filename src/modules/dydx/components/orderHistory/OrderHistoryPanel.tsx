@@ -209,7 +209,7 @@ const OrderHistoryPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto p-2 space-y-2">
+      <div className="md:hidden flex-1 overflow-auto  space-y-0.5">
         {currentPageData.map(order => {
           const size = parseFloat(order.size);
           const price = parseFloat(order.price);
@@ -218,24 +218,25 @@ const OrderHistoryPanel: React.FC = () => {
             <div
               key={order.id}
               onClick={() => handleOrderClick(order)}
-              className="bg-secondary border border-color rounded-lg p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color  p-3 flex items-center justify-between active:bg-hover transition-colors"
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <MarketBadge market={order.ticker} />
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-2">
+                <div className="flex  min-w-0">
+                  <div className="flex items-center gap-4">
                     <SideBadge side={order.side as 'BUY' | 'SELL'} />
                     <span className="text-primary font-mono text-xs">
                       {order.type === 'MARKET' ? 'Market' : `$${price.toLocaleString()}`}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <StatusIndicator status={order.status} />
-                    <span className="text-muted text-xs">
-                      {size.toFixed(4)}
-                    </span>
-                  </div>
+
                 </div>
+              </div>
+              <div className="flex items-start flex-col mr-2  ">
+                <StatusIndicator status={order.status} />
+                <span className="text-muted text-xs">
+                  {size.toFixed(4)}
+                </span>
               </div>
               <ChevronRight size={16} className="text-muted flex-shrink-0" />
             </div>

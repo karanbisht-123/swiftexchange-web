@@ -88,8 +88,11 @@ const MarketRow = memo(function MarketRow({
             </div>
           </div>
           <div className="min-w-0 flex-1">
-            <div className="font-semibold text-primary text-base">
-              {market.ticker.split('-')[0]}
+            <div className="font-semibold text-primary text-base relative max-w-[150px] group/ticker">
+              <div className="overflow-x-auto whitespace-nowrap [&::-webkit-scrollbar]:hidden pr-8">
+                {market.ticker.split('-')[0]}
+              </div>
+              <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-hover via-hover/60 to-transparent pointer-events-none group-hover:from-hover" />
             </div>
             <div className="text-xs text-muted">
               Volume {formatVolume(market.volume24H)}
@@ -151,13 +154,18 @@ const MarketRow = memo(function MarketRow({
           </div>
           <div className="min-w-0">
             <div className="font-medium text-primary text-sm leading-tight flex items-center gap-1">
-              <span>{market.ticker.split('-')[0]}</span>
+              <div className="relative max-w-[100px] lg:max-w-[140px] group/ticker">
+                <div className="overflow-x-auto whitespace-nowrap [&::-webkit-scrollbar]:hidden pr-6">
+                  <span>{market.ticker.split('-')[0]}</span>
+                </div>
+                <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-secondary group-hover:from-hover to-transparent pointer-events-none" />
+              </div>
               {market.initialMarginFraction && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] bg-tertiary text-muted ml-1">
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-tertiary text-muted ml-1 flex-shrink-0">
                   {Math.round(1 / Number(market.initialMarginFraction))}×
                 </span>
               )}
-              {market.zeroFees && <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 ml-1">No Fees</span>}
+              {market.zeroFees && <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 ml-1 flex-shrink-0">No Fees</span>}
             </div>
             <div className="text-[11px] text-muted truncate">
               {market.coinName || 'Perpetual'}

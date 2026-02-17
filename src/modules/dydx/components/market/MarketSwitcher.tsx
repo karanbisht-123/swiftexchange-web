@@ -183,9 +183,9 @@ const MarketSwitcher: React.FC = () => {
 
   return (
     <>
-      {/* MOBILE: Simplified layout - only coin, oracle price, 24h change */}
+
       <div className="lg:hidden flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color px-3 py-2">
-        {/* Left: Coin Logo and Name */}
+
         <button
           onClick={() => setIsModalOpen(true)}
           disabled={isLoading}
@@ -247,7 +247,7 @@ const MarketSwitcher: React.FC = () => {
 
           <div className="flex flex-col items-start">
             <span className="font-semibold text-primary text-base">
-              {selectedMarket.split('-')[0]}
+              {selectedMarket}
             </span>
           </div>
 
