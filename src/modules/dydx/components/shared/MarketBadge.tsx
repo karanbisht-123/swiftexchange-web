@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import { metadataService } from '../../hooks/useCoinGeckoMetadata';
+import { metadataService } from '../../hooks/useMetadata';
 
 interface MarketBadgeProps {
   market: string;

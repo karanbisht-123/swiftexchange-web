@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle, Clock, Loader2, RefreshCw, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { metadataService } from '../../hooks/useCoinGeckoMetadata';
+import { metadataService } from '../../hooks/useMetadata';
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Order } from '../../service/dydxOrderService';
 import { dydxTradingService } from '../../service/dydxTradingService';

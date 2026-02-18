@@ -2,7 +2,7 @@ import { Edit2, Loader2, TrendingDown, TrendingUp, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Notification } from '../../../../components/common/Notification';
-import { metadataService } from '../../hooks/useCoinGeckoMetadata';
+import { metadataService } from '../../hooks/useMetadata';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { type Position } from '../../types/trading.types';

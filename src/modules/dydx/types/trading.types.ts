@@ -117,6 +117,7 @@ export interface MarketData {
   defaultFundingRate1H?: string;
   spotVolume?: string;
   marketCap?: string;
+  zeroFees?: boolean;
 }
 
 export interface OrderbookLevel {

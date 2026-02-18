@@ -142,6 +142,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     activeSubscriptions: new Set(),
     subscriptionRefs: new Map(),
 
+    // PARENT SUBACCOUNT SUBSCRIPTION
     subscribeToParentSubaccount: (address: string, subaccountNumber: number) => {
       const key = `parent_subaccount_${address}_${subaccountNumber}`;
       const { activeSubscriptions } = get();
@@ -169,6 +170,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               lastUpdate: Date.now(),
             };
 
+            // Handle initial 'subscribed' message - full snapshot
             if (messageType === 'subscribed' && contents.subaccount) {
               const subaccount = contents.subaccount;
 
@@ -208,6 +210,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               return;
             }
 
+            // Handle 'channel_batch_data' or 'channel_data' - incremental updates
             if (messageType === 'channel_batch_data' || messageType === 'channel_data') {
               console.log('[WSStore] 📥 Processing channel_batch_data:', {
                 subaccountNumber: data.subaccountNumber,
@@ -217,6 +220,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               const batchContents = Array.isArray(contents) ? contents : [contents];
               const batchSubaccountNumber = data.subaccountNumber ?? 0;
 
+              // Get current state to merge updates
               const currentData = get().parentSubaccounts.get(key);
               if (!currentData) {
                 console.warn('[WSStore] ⚠️ No existing data to merge batch into, key:', key);
@@ -225,6 +229,7 @@ export const useWebSocketStore = create<WebSocketState>()(
 
               console.log('[WSStore] Current childSubaccounts:', currentData.childSubaccounts.length);
 
+              // Clone childSubaccounts for mutation
               let updatedChildSubaccounts = currentData.childSubaccounts.map(child => ({
                 ...child,
                 openPerpetualPositions: { ...child.openPerpetualPositions },
@@ -235,11 +240,13 @@ export const useWebSocketStore = create<WebSocketState>()(
               const newFills: any[] = [];
 
               batchContents.forEach((batch: any) => {
+                // Process perpetual positions updates
                 if (batch.perpetualPositions && Array.isArray(batch.perpetualPositions)) {
                   batch.perpetualPositions.forEach((pos: any) => {
                     const subNum = pos.subaccountNumber ?? batchSubaccountNumber;
                     let childIndex = updatedChildSubaccounts.findIndex(c => c.subaccountNumber === subNum);
 
+                    // Create child subaccount if it doesn't exist (for isolated margin)
                     if (childIndex === -1) {
                       updatedChildSubaccounts.push({
                         address: pos.address || currentData.address,
@@ -257,10 +264,13 @@ export const useWebSocketStore = create<WebSocketState>()(
 
                     const child = updatedChildSubaccounts[childIndex];
 
+                    // Update or remove position based on status
                     if (pos.status === 'CLOSED' || parseFloat(pos.size || '0') === 0) {
+                      // Remove closed position
                       delete child.openPerpetualPositions[pos.market];
                       console.log(`[WSStore] Position closed: ${pos.market}`);
                     } else {
+                      // Update/add position
                       child.openPerpetualPositions[pos.market] = {
                         market: pos.market,
                         status: pos.status,
@@ -287,6 +297,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                   });
                 }
 
+                // Process asset positions updates
                 if (batch.assetPositions && Array.isArray(batch.assetPositions)) {
                   batch.assetPositions.forEach((asset: any) => {
                     const subNum = asset.subaccountNumber ?? batchSubaccountNumber;
@@ -318,10 +329,12 @@ export const useWebSocketStore = create<WebSocketState>()(
                   });
                 }
 
+                // Collect orders from batch
                 if (batch.orders && Array.isArray(batch.orders)) {
                   newOrders.push(...batch.orders);
                 }
 
+                // Collect fills from batch
                 if (batch.fills && Array.isArray(batch.fills)) {
                   newFills.push(...batch.fills);
                 }
@@ -345,6 +358,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               return;
             }
 
+            // Fallback: handle any other message with subaccount data
             if (contents.subaccount) {
               const subaccount = contents.subaccount;
 
@@ -418,6 +432,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         console.log(`[WSStore] Unsubscribed from parent subaccount: ${key}`);
       }
     },
+    // MARKET SUBSCRIPTIONS
     subscribeToMarket: (ticker: string) => {
       const key = `market_${ticker}`;
       const { activeSubscriptions } = get();
@@ -538,6 +553,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         console.log('[WSStore] Unsubscribed from all markets');
       }
     },
+    // TRADES SUBSCRIPTIONS
     subscribeToTrades: (market: string) => {
       const key = `trades_${market}`;
       const { activeSubscriptions } = get();
@@ -646,6 +662,10 @@ export const useWebSocketStore = create<WebSocketState>()(
         console.log(`[WSStore] Unsubscribed from candles: ${market}/${resolution}`);
       }
     },
+    // UPDATE METHODS
+    // Add this method to your websocketStore.ts
+
+    // OPTIMIZED updateParentSubaccount method - replace the existing one
     updateParentSubaccount: (key: string, data: Partial<ParentSubaccountData>) => {
       set(state => {
         const newMap = new Map(state.parentSubaccounts);
@@ -662,26 +682,23 @@ export const useWebSocketStore = create<WebSocketState>()(
           lastUpdate: 0,
         };
 
+        // Smart merge for orders (dedupe by ID, keep newest)
         let mergedOrders = existing.orders;
-        let orderContentChanged = false;
         if (data.orders !== undefined) {
           const orderMap = new Map<string, any>();
 
+          // Add existing orders
           existing.orders.forEach(order => orderMap.set(order.id, order));
 
+          // Add/update with new orders
           data.orders.forEach(order => {
             const existingOrder = orderMap.get(order.id);
+            // Only update if new order is more recent or doesn't exist
             if (
               !existingOrder ||
               (order.updatedAt &&
                 (!existingOrder.updatedAt || order.updatedAt > existingOrder.updatedAt))
             ) {
-              if (existingOrder && existingOrder.status !== order.status) {
-                orderContentChanged = true;
-              }
-              if (!existingOrder) {
-                orderContentChanged = true;
-              }
               orderMap.set(order.id, order);
             }
           });
@@ -689,13 +706,15 @@ export const useWebSocketStore = create<WebSocketState>()(
           mergedOrders = Array.from(orderMap.values());
         }
 
+        // Smart merge for fills (dedupe by ID, keep newest)
         let mergedFills = existing.fills;
-        let fillContentChanged = false;
         if (data.fills !== undefined) {
           const fillMap = new Map<string, any>();
 
+          // Add existing fills
           existing.fills.forEach(fill => fillMap.set(fill.id, fill));
 
+          // Add/update with new fills
           data.fills.forEach(fill => {
             const existingFill = fillMap.get(fill.id);
             if (
@@ -703,7 +722,6 @@ export const useWebSocketStore = create<WebSocketState>()(
               (fill.createdAt &&
                 (!existingFill.createdAt || fill.createdAt > existingFill.createdAt))
             ) {
-              if (!existingFill) fillContentChanged = true;
               fillMap.set(fill.id, fill);
             }
           });
@@ -726,30 +744,21 @@ export const useWebSocketStore = create<WebSocketState>()(
 
         newMap.set(key, merged);
 
+        // Always increment updateTrigger when we receive new data to force UI refresh
+        // This ensures real-time updates are reflected immediately
         const hasChildSubaccountChanges = data.childSubaccounts !== undefined;
         const hasOrderChanges = data.orders !== undefined && data.orders.length > 0;
         const hasFillChanges = data.fills !== undefined && data.fills.length > 0;
         const hasEquityChange = data.equity !== existing.equity || data.freeCollateral !== existing.freeCollateral;
 
+        // Always increment on any meaningful change
         const hasChanges = hasChildSubaccountChanges || hasOrderChanges || hasFillChanges || hasEquityChange ||
-          orderContentChanged || fillContentChanged ||
           merged.orders.length !== existing.orders.length ||
           merged.fills.length !== existing.fills.length;
 
-        if (hasOrderChanges || orderContentChanged) {
-          import('../service/dydxOrderService').then(({ dydxDataService }) => {
-            dydxDataService.invalidateCache(['orders_']);
-          });
-        }
-
-        if (hasFillChanges || fillContentChanged) {
-          import('../service/dydxOrderService').then(({ dydxDataService }) => {
-            dydxDataService.invalidateCache(['fills_', 'pnl_']);
-          });
-        }
-
         return {
           parentSubaccounts: newMap,
+          // Always increment to ensure UI reactivity
           updateTrigger: hasChanges ? state.updateTrigger + 1 : state.updateTrigger,
         };
       });
@@ -791,6 +800,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       });
     },
 
+    // CLEANUP
     cleanup: () => {
       const { subscriptionRefs } = get();
 
@@ -818,7 +828,7 @@ export const useWebSocketStore = create<WebSocketState>()(
   }))
 );
 
-
+// CONNECTION STATUS LISTENERS
 
 webSocketManager.onConnect(() => {
   useWebSocketStore.setState({ isConnected: true });

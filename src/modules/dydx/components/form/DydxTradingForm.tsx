@@ -10,6 +10,8 @@ import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
 import {
   getMaxBuyingPower,
+  getPriceDecimals,
+  roundToTickSize,
   validateOrderPrice,
   validateOrderSize,
   validateTriggerPrice,
@@ -25,6 +27,7 @@ import { BuySellSelector } from './components/BuySellSelector';
 import { LeverageSlider } from './components/LeverageSlider';
 import { MarginTypeSelector } from './components/MarginTypeSelector';
 import { OrderFormInputs } from './components/OrderFormInputs';
+import { OrderReceipt } from './components/OrderReceipt';
 import { OrderTypeSelector } from './components/OrderTypeSelector';
 import { TpSlInputs } from './components/TpSlInputs';
 
@@ -157,9 +160,15 @@ export const DydxTradingForm: React.FC = () => {
 
   useEffect(() => {
     if (marketData?.oraclePrice && !price) {
-      setPrice(marketData.oraclePrice);
+      const oracle = parseFloat(marketData.oraclePrice);
+      const tick = marketData.tickSize ? parseFloat(marketData.tickSize) : 0;
+      if (tick > 0) {
+        setPrice(roundToTickSize(oracle, tick).toFixed(getPriceDecimals(tick)));
+      } else {
+        setPrice(marketData.oraclePrice);
+      }
     }
-  }, [marketData?.oraclePrice, price]);
+  }, [marketData?.oraclePrice, price, marketData?.tickSize]);
 
   useEffect(() => {
     if (orderError) {
@@ -574,6 +583,16 @@ export const DydxTradingForm: React.FC = () => {
           )}
 
           {goodTilError && <div className="text-xs text-red-500">{goodTilError}</div>}
+
+          <OrderReceipt
+            marketData={marketData}
+            side={side}
+            size={size}
+            price={price}
+            triggerPrice={triggerPrice}
+            leverage={leverage}
+            orderType={orderType}
+          />
 
           {/* Bottom padding for smooth scroll */}
           <div className="h-2" />

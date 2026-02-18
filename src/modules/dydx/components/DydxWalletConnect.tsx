@@ -229,7 +229,7 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (needsDydxDerivation) {
     return (
-      <div className="bg-secondary rounded-lg lg:rounded-none p-3 sm:p-4 border border-color">
+      <div className="bg-secondary  p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-xs text-muted">dYdX Trading Account</p>

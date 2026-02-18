@@ -274,11 +274,11 @@ function createError(message: string): OrderValidationResult {
     error: message,
   };
 }
-function roundToTickSize(price: number, tickSize: number): number {
+export function roundToTickSize(price: number, tickSize: number): number {
   return Math.round(price / tickSize) * tickSize;
 }
 
-function getPriceDecimals(tickSize: string | number): number {
+export function getPriceDecimals(tickSize: string | number): number {
   const tickStr = typeof tickSize === 'number' ? tickSize.toString() : tickSize;
   const parts = tickStr.split('.');
   return parts.length > 1 ? parts[1].length : 0;
