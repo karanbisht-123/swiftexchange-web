@@ -11,14 +11,13 @@ import {
   type TriggerParams,
 } from '../types/trading.types';
 
-// Create a global event emitter for trade actions
+
 const TRADE_EVENT = 'dydx-trade-action';
 
 export const triggerTradeRefresh = (action: 'order' | 'cancel' | 'close' | 'trigger') => {
   window.dispatchEvent(new CustomEvent(TRADE_EVENT, { detail: { action, timestamp: Date.now() } }));
 };
 
-// Helper hook to listen for trade events in useDydxData
 export const useTradeEvents = (callback: (action: string) => void) => {
   useEffect(() => {
     const handler = (e: any) => callback(e.detail?.action);
@@ -56,7 +55,7 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.placeOrder(params, marketInfo);
 
         if (result.success) {
-          console.log('[useDydxTrading] ✅ Order placed successfully, triggering refresh');
+          console.log('[useDydxTrading] Order placed successfully, triggering refresh');
           triggerTradeRefresh('order');
         }
 

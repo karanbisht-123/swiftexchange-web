@@ -258,5 +258,5 @@ export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',
   description: 'Trade Swiftly, Trade Securely',
   url: 'https://SwiftExchange.com',
-  icons: ['https://SwiftExchange.com/icon.png'],
+  icons: ['/logo.png'],
 };

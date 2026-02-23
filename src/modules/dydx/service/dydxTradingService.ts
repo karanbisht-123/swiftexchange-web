@@ -1,5 +1,4 @@
 import {
-  BECH32_PREFIX,
   LocalWallet,
   OrderExecution,
   OrderSide,
@@ -534,19 +533,18 @@ class DydxTradingService {
     return 'unknown';
   }
 
-  private async getSigningWallet(): Promise<LocalWallet> {
+  private getSigningWallet(): LocalWallet {
     const evmSession = walletService.getSession('evm');
     if (!evmSession?.evmAddress) {
       throw new Error('EVM wallet not connected');
     }
 
-    const mnemonic = await walletService.getMnemonic();
-
-    if (!mnemonic) {
-      throw new Error('Mnemonic not found - please derive dYdX wallet first');
+    const wallet = walletService.getSigningWallet();
+    if (!wallet) {
+      throw new Error('Signing wallet not available - please derive dYdX wallet first');
     }
 
-    return await LocalWallet.fromMnemonic(mnemonic, BECH32_PREFIX);
+    return wallet;
   }
 
   private getUserFriendlyError(error: any): string {

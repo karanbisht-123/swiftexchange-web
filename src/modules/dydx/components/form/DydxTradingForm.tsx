@@ -24,7 +24,7 @@ import {
   type TimeInForceOption,
 } from './components/AdvancedOptions';
 import { BuySellSelector } from './components/BuySellSelector';
-import { LeverageSlider } from './components/LeverageSlider';
+
 import { MarginTypeSelector } from './components/MarginTypeSelector';
 import { OrderFormInputs } from './components/OrderFormInputs';
 import { OrderReceipt } from './components/OrderReceipt';
@@ -150,7 +150,7 @@ export const DydxTradingForm: React.FC = () => {
   }, [marginMode, targetSubaccount, childSubaccounts]);
 
   const hasValidationErrors = !!(sizeError || priceError || triggerError || goodTilError);
-  const isFormValid = !hasValidationErrors && size && canTrade;
+  const isFormValid = !hasValidationErrors && !!size && canTrade;
 
   useEffect(() => {
     if (leverage > maxLeverage) {
@@ -481,6 +481,10 @@ export const DydxTradingForm: React.FC = () => {
           selected={marginMode}
           onChange={setMarginMode}
           isolatedEquity={isolatedEquity}
+          leverage={leverage}
+          maxLeverage={maxLeverage}
+          onLeverageChange={setLeverage}
+          marketTicker={selectedMarket}
         />
         <OrderTypeSelector selected={orderType} onChange={setOrderType} />
       </div>
@@ -532,7 +536,51 @@ export const DydxTradingForm: React.FC = () => {
             }}
           />
 
-          <LeverageSlider leverage={leverage} maxLeverage={maxLeverage} onChange={setLeverage} />
+          <div className="px-1 lg:px-4">
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={(() => {
+                  if (!maxBuyingPower || maxBuyingPower <= 0 || !size) return 0;
+                  const sizeNum = parseFloat(size);
+                  if (isNaN(sizeNum) || sizeNum <= 0) return 0;
+                  let usdVal = sizeNum;
+                  if (currencyMode === 'BASE' && marketData?.oraclePrice) {
+                    usdVal = sizeNum * parseFloat(marketData.oraclePrice);
+                  }
+                  return Math.min(Math.round((usdVal / maxBuyingPower) * 100), 100);
+                })()}
+                onChange={e => {
+                  const pct = parseInt(e.target.value);
+                  if (!maxBuyingPower || maxBuyingPower <= 0) return;
+                  const usdVal = (pct / 100) * maxBuyingPower;
+                  if (currencyMode === 'USD') {
+                    setSize(usdVal.toFixed(2));
+                  } else if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
+                    const baseAmount = usdVal / parseFloat(marketData.oraclePrice);
+                    const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
+                    setSize(baseAmount.toFixed(decimals));
+                  }
+                }}
+                className="flex-1 h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-500 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer"
+              />
+              <span className="text-xs font-bold text-gray-400 bg-gray-800 border border-gray-700 rounded-md px-2 py-1 min-w-[40px] text-center">
+                {(() => {
+                  if (!maxBuyingPower || maxBuyingPower <= 0 || !size) return '0%';
+                  const sizeNum = parseFloat(size);
+                  if (isNaN(sizeNum) || sizeNum <= 0) return '0%';
+                  let usdVal = sizeNum;
+                  if (currencyMode === 'BASE' && marketData?.oraclePrice) {
+                    usdVal = sizeNum * parseFloat(marketData.oraclePrice);
+                  }
+                  return `${Math.min(Math.round((usdVal / maxBuyingPower) * 100), 100)}%`;
+                })()}
+              </span>
+            </div>
+          </div>
 
           {orderType !== 'MARKET' && (
             <AdvancedOptions
@@ -592,26 +640,16 @@ export const DydxTradingForm: React.FC = () => {
             triggerPrice={triggerPrice}
             leverage={leverage}
             orderType={orderType}
+            currencyMode={currencyMode}
+            onPlaceOrder={handlePlaceOrder}
+            isPlacingOrder={isPlacingOrder}
+            isFormValid={isFormValid}
+            selectedMarket={selectedMarket}
           />
 
-          {/* Bottom padding for smooth scroll */}
+
           <div className="h-2" />
         </div>
-      </div>
-
-      {/* Fixed button at bottom with shadow */}
-      <div className="shrink-0 p-4 mb-6 border-t border-gray-700   bg-secondary shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
-        <button
-          onClick={handlePlaceOrder}
-          disabled={isPlacingOrder || !isFormValid}
-          className={`w-full py-3 rounded-lg font-bold text-sm transition-all
-          ${side === 'BUY'
-              ? 'bg-green-600 hover:bg-green-700 active:bg-green-800'
-              : 'bg-red-600 hover:bg-red-700 active:bg-red-800'
-            } disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg`}
-        >
-          {isPlacingOrder ? 'Placing Order...' : `${side} ${selectedMarket}`}
-        </button>
       </div>
     </div>
   );

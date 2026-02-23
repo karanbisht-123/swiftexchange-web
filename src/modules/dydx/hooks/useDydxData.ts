@@ -166,8 +166,8 @@ export const useDydxData = (): UseDydxDataReturn => {
 
     try {
       const [orderData, fillData] = await Promise.all([
-        dydxDataService.getOrders(undefined, 100, true, false),
-        dydxDataService.getFills(undefined, 100, undefined, false),
+        dydxDataService.getOrders(undefined, undefined, true, false),
+        dydxDataService.getFills(undefined, undefined, false),
       ]);
 
       console.log('[useDydxData] Historical data fetched:', {
@@ -217,7 +217,7 @@ export const useDydxData = (): UseDydxDataReturn => {
     setOrdersError(null);
 
     try {
-      const data = await dydxDataService.refreshOrders(undefined, 100);
+      const data = await dydxDataService.refreshOrders(undefined, undefined);
       console.log('[useDydxData] Orders manually refreshed:', data.length);
 
       if (isMountedRef.current && parentKey) {
@@ -243,7 +243,7 @@ export const useDydxData = (): UseDydxDataReturn => {
     setFillsError(null);
 
     try {
-      const data = await dydxDataService.refreshFills(undefined, 100);
+      const data = await dydxDataService.refreshFills(undefined, undefined);
       console.log('[useDydxData] Fills manually refreshed:', data.length);
 
       if (isMountedRef.current && parentKey) {

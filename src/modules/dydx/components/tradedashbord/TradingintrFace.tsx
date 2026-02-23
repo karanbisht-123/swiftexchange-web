@@ -1,4 +1,4 @@
-import { BookOpen, ArrowRightLeft, CandlestickChart, Wallet, BarChart2 } from 'lucide-react';
+import { BookOpen, ArrowRightLeft, CandlestickChart, Wallet, BarChart2, LineChart } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -16,14 +16,18 @@ import FillsPanel from '../orderHistory/FillsPanel';
 import OpenOrdersPanel from '../orderHistory/OpenOrdersPanel';
 import OrderHistoryPanel from '../orderHistory/OrderHistoryPanel';
 import PositionsPanel from '../orderHistory/PositionsPanel';
+import FundingPaymentsPanel from '../orderHistory/FundingPaymentsPanel';
+import TransferHistoryPanel from '../orderHistory/TransferHistoryPanel';
+import FundingChart from './FundingChart';
 import ResizablePanel from './ResizablePanel';
 import { useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
 import Orderbook from '../order&trade/Orderbook';
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
-  const [activeChartTab, setActiveChartTab] = useState<'price' | 'depth'>('price');
+  const [activeChartTab, setActiveChartTab] = useState<'price' | 'depth' | 'funding'>('price');
   const view = searchParams.get('view') || 'trade';
+  const { selectedMarket } = useMarketStore();
 
   const [activeBottomTab, setActiveBottomTab] = useState('positions');
 
@@ -38,7 +42,7 @@ const TradingintrFace = () => {
               <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
                 <MarketSwitcher />
                 <div className="flex border-b border-color bg-secondary">
-                  {(['price', 'depth'] as const).map(tab => (
+                  {(['price', 'depth', 'funding'] as const).map(tab => (
                     <button
                       key={tab}
                       onClick={() => setActiveChartTab(tab)}
@@ -51,7 +55,7 @@ const TradingintrFace = () => {
                             : 'text-muted hover:text-primary'
                         }
                       >
-                        {tab === 'price' ? 'Price Chart' : 'Depth'}
+                        {tab === 'price' ? 'Price Chart' : tab === 'depth' ? 'Depth' : 'Funding'}
                       </span>
                       {activeChartTab === tab && (
                         <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-all duration-300" />
@@ -61,16 +65,21 @@ const TradingintrFace = () => {
                 </div>
 
                 <div className="flex-1 relative">
-                  <div
-                    className={`absolute inset-0 ${activeChartTab === 'price' ? 'block' : 'hidden'}`}
-                  >
-                    <DyDxTradingChart />
-                  </div>
-                  <div
-                    className={`absolute inset-0 ${activeChartTab === 'depth' ? 'block' : 'hidden'}`}
-                  >
-                    <DepthChart />
-                  </div>
+                  {activeChartTab === 'price' && (
+                    <div className="absolute inset-0">
+                      <DyDxTradingChart />
+                    </div>
+                  )}
+                  {activeChartTab === 'depth' && (
+                    <div className="absolute inset-0">
+                      <DepthChart />
+                    </div>
+                  )}
+                  {activeChartTab === 'funding' && selectedMarket && (
+                    <div className="absolute inset-0">
+                      <FundingChart market={selectedMarket} />
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="w-[250px] flex-shrink-0 bg-secondary overflow-hidden">
@@ -92,7 +101,7 @@ const TradingintrFace = () => {
         </div>
 
         <MobileLayout />
-      </div>
+      </div >
     );
   }
 
@@ -137,13 +146,15 @@ const PortfolioView = ({
     loadingFills
   } = useDydxData();
 
-  const tabs = ['wallet', 'positions', 'orders', 'fills', 'history'];
+  const tabs = ['wallet', 'positions', 'orders', 'fills', 'history', 'funding', 'transfers'];
   const labels: Record<string, string> = {
     wallet: 'Wallet',
     positions: 'Positions',
     orders: 'Open Orders',
     fills: 'Fills',
     history: 'Order History',
+    funding: 'Funding Payments',
+    transfers: 'Transfer History',
   };
 
   const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
@@ -234,6 +245,8 @@ const PortfolioView = ({
         {activeTab === 'orders' && <OpenOrdersPanel />}
         {activeTab === 'fills' && <FillsPanel />}
         {activeTab === 'history' && <OrderHistoryPanel />}
+        {activeTab === 'funding' && <FundingPaymentsPanel />}
+        {activeTab === 'transfers' && <TransferHistoryPanel />}
       </div>
     </div>
   );
@@ -249,6 +262,7 @@ const MobileLayout = () => {
   const tabs = [
     { id: 'price', label: 'Price', icon: CandlestickChart },
     { id: 'depth', label: 'Depth', icon: BarChart2 },
+    { id: 'funding', label: 'Funding', icon: LineChart },
     { id: 'orderbook', label: 'Orderbook', icon: BookOpen },
     { id: 'trade', label: 'Trade', icon: ArrowRightLeft },
     { id: 'portfolio', label: 'Portfolio', icon: Wallet },
@@ -269,6 +283,11 @@ const MobileLayout = () => {
           {activeTab === 'depth' && (
             <div className="h-full">
               <DepthChart />
+            </div>
+          )}
+          {activeTab === 'funding' && (
+            <div className="h-full">
+              <FundingChart market={selectedMarket} />
             </div>
           )}
           {activeTab === 'orderbook' && (
@@ -331,13 +350,14 @@ const MobilePortfolio = () => {
     loadingFills
   } = useDydxData();
 
-  const tabs = ['wallet', 'positions', 'orders', 'fills', 'history'];
+  const tabs = ['wallet', 'positions', 'orders', 'fills', 'history', 'funding'];
   const labels: Record<string, string> = {
     wallet: 'Wallet',
     positions: 'Positions',
     orders: 'Open Orders',
     fills: 'Fills',
     history: 'Order History',
+    funding: 'Funding Payments',
   };
 
   const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
@@ -428,6 +448,7 @@ const MobilePortfolio = () => {
         {activeTab === 'orders' && <OpenOrdersPanel />}
         {activeTab === 'fills' && <FillsPanel />}
         {activeTab === 'history' && <OrderHistoryPanel />}
+        {activeTab === 'funding' && <FundingPaymentsPanel />}
       </div>
     </div>
   );
@@ -449,13 +470,14 @@ const BottomTabsSection = ({
     loadingFills
   } = useDydxData();
 
-  const tabs = ['positions', 'orders', 'fills', 'history', 'funding'];
+  const tabs = ['positions', 'orders', 'fills', 'history', 'funding', 'transfer'];
   const labels: Record<string, string> = {
     positions: 'Positions',
     orders: 'Open Orders',
     fills: 'Fills',
     history: 'Order History',
     funding: 'Funding Payments',
+    transfer: 'Transfer History',
   };
 
   const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
@@ -541,17 +563,11 @@ const BottomTabsSection = ({
         {activeBottomTab === 'orders' && <OpenOrdersPanel />}
         {activeBottomTab === 'fills' && <FillsPanel />}
         {activeBottomTab === 'history' && <OrderHistoryPanel />}
-        {activeBottomTab === 'funding' && <FundingPlaceholder />}
+        {activeBottomTab === 'funding' && <FundingPaymentsPanel />}
+        {activeBottomTab === 'transfer' && <TransferHistoryPanel />}
       </div>
     </>
   );
 };
-
-const FundingPlaceholder = () => (
-  <div className="flex flex-col items-center justify-center h-full text-center p-4">
-    <h3 className="text-base sm:text-lg font-semibold text-primary mb-2">Funding Payments</h3>
-    <p className="text-muted text-xs sm:text-sm">This feature is coming soon</p>
-  </div>
-);
 
 export default TradingintrFace;

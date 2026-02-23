@@ -75,7 +75,7 @@ const OrderHistoryPanel: React.FC = () => {
 
     setLoadingMore(true);
     try {
-      const moreOrders = await dydxDataService.getOrders(undefined, ITEMS_PER_PAGE, true, false);
+      const moreOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
 
       if (moreOrders.length === 0) {
         setHasMoreData(false);

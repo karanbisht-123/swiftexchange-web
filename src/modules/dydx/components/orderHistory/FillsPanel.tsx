@@ -72,8 +72,7 @@ const FillsPanel: React.FC = () => {
     try {
       const moreFills = await dydxDataService.getFills(
         undefined,
-        ITEMS_PER_PAGE,
-        lastFill.createdAtHeight,
+        undefined,
         false
       );
 

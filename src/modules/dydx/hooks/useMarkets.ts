@@ -7,10 +7,6 @@ import type { MarketData } from '../types/trading.types';
 import { metadataService } from './useMetadata';
 import coinsList from '../data/coins.json';
 
-// ... (imports)
-
-
-
 export type { MarketData };
 
 export interface UseMarketsReturn {

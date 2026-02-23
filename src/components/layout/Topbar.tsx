@@ -14,20 +14,15 @@ const Topbar: React.FC = () => {
   const hasRedirected = useRef(false);
 
   const isAnyWalletConnected = Object.keys(connectedWallets).length > 0;
-  const evmWallet = connectedWallets.evm;
-  const hasDydxDerived = !!evmWallet?.dydxAddress;
-  const isReadyForDashboard =
-    isAnyWalletConnected && (!evmWallet || hasDydxDerived);
 
   useEffect(() => {
     if (isRestoringSession) return;
-    // Only redirect to dashboard on fresh connect from the home page.
-    // If user is already on /markets, /send, etc., stay on their current page.
-    if (isReadyForDashboard && !hasRedirected.current && location.pathname === ROUTES.HOME) {
+
+    if (isAnyWalletConnected && !hasRedirected.current && location.pathname === ROUTES.HOME) {
       hasRedirected.current = true;
       navigate(ROUTES.DASHBOARD);
     }
-  }, [isReadyForDashboard, isRestoringSession, navigate, location.pathname]);
+  }, [isAnyWalletConnected, isRestoringSession, navigate, location.pathname]);
 
   const handleDisconnectAll = useCallback(async () => {
     await disconnectAll();

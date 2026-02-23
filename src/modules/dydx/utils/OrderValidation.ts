@@ -1,13 +1,11 @@
 import { type MarginMode, type MarketData, SUBACCOUNT_CONSTANTS } from '../types/trading.types';
 import { type CurrencyMode, currencyService } from './currencyService';
 
-
 export interface OrderValidationResult {
   isValid: boolean;
   error?: string;
   warning?: string;
 }
-
 
 const TRADING_CONSTRAINTS = {
   MIN_CONDITIONAL_ORDER_EQUITY: 20,
@@ -17,7 +15,6 @@ const TRADING_CONSTRAINTS = {
   PRECISION_TOLERANCE: 0.0000001,
 } as const;
 
-
 const CONDITIONAL_ORDER_TYPES = [
   'LIMIT',
   'STOP_LIMIT',
@@ -25,7 +22,6 @@ const CONDITIONAL_ORDER_TYPES = [
   'TAKE_PROFIT_LIMIT',
   'TAKE_PROFIT_MARKET',
 ] as const;
-
 
 export function validateOrderSize(
   marketData: MarketData | null,
@@ -139,7 +135,6 @@ function validateAccountBalance(
   return { isValid: true };
 }
 
-
 function calculateMaxOrderSize(
   freeCollateral: number,
   leverage: number,
@@ -194,7 +189,6 @@ export function validateOrderPrice(
   return { isValid: true };
 }
 
-
 export function validateTriggerPrice(
   marketData: MarketData | null,
   triggerPrice: string,
@@ -227,7 +221,6 @@ export function validateTriggerPrice(
       }
     }
 
-    // Take Profit validation
     if (isTakeProfitOrder) {
       if (orderSide === 'SELL' && trigger <= currentPrice) {
         return {
@@ -284,7 +277,6 @@ export function getPriceDecimals(tickSize: string | number): number {
   return parts.length > 1 ? parts[1].length : 0;
 }
 
-
 export function validateIsolatedPosition(
   marginMode: MarginMode,
   subaccountEquity: number,
@@ -315,7 +307,6 @@ export function validateIsolatedPosition(
   return { isValid: true };
 }
 
-
 export function calculateIsolatedCollateralRequired(
   orderSizeUsd: number,
   initialMarginFraction: number
@@ -323,5 +314,24 @@ export function calculateIsolatedCollateralRequired(
   const marginRequired = orderSizeUsd * initialMarginFraction;
   const withBuffer = marginRequired * TRADING_CONSTRAINTS.SAFETY_MARGIN_MULTIPLIER;
   return Math.max(withBuffer, TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY);
+}
+
+export function calculateLiquidationPrice(
+  size: number,
+  price: number,
+  equity: number,
+  mmf: number,
+  side: 'BUY' | 'SELL'
+): number {
+  // Formula: p' = (e - s * p) / (|s| * MMF - s)
+  // s: signed size (positive for long, negative for short)
+  const signedSize = side === 'BUY' ? size : -size;
+  const numerator = equity - signedSize * price;
+  const denominator = Math.abs(signedSize) * mmf - signedSize;
+
+  if (denominator === 0) return 0;
+
+  const liqPrice = numerator / denominator;
+  return Math.max(0, liqPrice);
 }
 

@@ -5,7 +5,10 @@ import { Notification } from '../../../../components/common/Notification';
 import { metadataService } from '../../hooks/useMetadata';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
+import { useSubaccounts } from '../../hooks/useSubaccounts';
+import useMarketStore from '../../store/marketStore';
 import { type Position } from '../../types/trading.types';
+import { calculateLiquidationPrice } from '../../utils/OrderValidation';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
 
 const PositionsPanel: React.FC = () => {
@@ -21,6 +24,9 @@ const PositionsPanel: React.FC = () => {
   const positions = rawPositions as Position[];
   const { closePosition, setTriggers, isSettingTriggers, orderError, clearOrderError } =
     useDydxTrading();
+  const { childSubaccounts } = useSubaccounts();
+
+  const marketCache = useMarketStore(state => state.marketCache);
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
@@ -162,6 +168,77 @@ const PositionsPanel: React.FC = () => {
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }, []);
 
+  // Helper to calculate Liquidation Price with Cross Margin logic
+  const getLiquidationPrice = useCallback((position: Position) => {
+    // 1. Get Subaccount Equity
+    const subaccount = childSubaccounts.find(
+      (sub) => sub.subaccountNumber === position.subaccountNumber
+    );
+    const equity = parseFloat(subaccount?.equity || '0');
+
+    // 2. Get Market Data (Oracle Price, MMF)
+    const mktData = marketCache[position.market];
+    const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : parseFloat(position.entryPrice);
+    const mmf = mktData?.maintenanceMarginFraction
+      ? parseFloat(mktData.maintenanceMarginFraction)
+      : 0.03;
+
+    // 3. Calculate Maintenance Margin of OTHER positions in the same subaccount
+    // MMR_o = Sum(|s| * p * MMF) for other positions
+    const otherPositions = positions.filter(
+      (p) => p.subaccountNumber === position.subaccountNumber && p.market !== position.market
+    );
+
+    const otherMargin = otherPositions.reduce((sum, p) => {
+      const pMkt = marketCache[p.market];
+      const pPrice = pMkt ? parseFloat(pMkt.oraclePrice) : parseFloat(p.entryPrice);
+      const pMmf = pMkt?.maintenanceMarginFraction ? parseFloat(pMkt.maintenanceMarginFraction) : 0.03;
+      return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
+    }, 0);
+
+    // 4. Calculate Liquidation Price using the formula
+    // Effective Equity for this position = Total Equity - MarginRequiredByOthers
+    return calculateLiquidationPrice(
+      Math.abs(parseFloat(position.size)),
+      oraclePrice,
+      equity - otherMargin,
+      mmf,
+      position.side === 'LONG' ? 'BUY' : 'SELL'
+    );
+  }, [childSubaccounts, marketCache, positions]);
+
+
+  const getPositionMetrics = useCallback(
+    (position: Position) => {
+      const rawSize = parseFloat(position.size);
+      const absSize = Math.abs(rawSize);
+      const entryPrice = parseFloat(position.entryPrice);
+      const mktData = marketCache[position.market];
+      const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : entryPrice;
+      const imf = mktData?.initialMarginFraction ? parseFloat(mktData.initialMarginFraction) : 0;
+
+      const notional = absSize * oraclePrice;
+      const maxLeverage = imf > 0 ? Math.floor(1 / imf) : 20;
+      const leverageVal = position.leverage ? parseFloat(position.leverage) : maxLeverage;
+      const effectiveLeverage = leverageVal > 0 ? leverageVal : maxLeverage;
+      const margin = imf > 0 ? notional * imf : notional / effectiveLeverage;
+      const marginType = (position.subaccountNumber ?? 0) >= 128 ? 'Isolated' : 'Cross';
+      const liquidationPrice = getLiquidationPrice(position);
+
+      return {
+        absSize,
+        entryPrice,
+        oraclePrice,
+        notional,
+        leverage: effectiveLeverage,
+        margin,
+        marginType,
+        liquidationPrice
+      };
+    },
+    [marketCache, getLiquidationPrice]
+  );
+
   const getMarketIcon = useCallback(
     (market: string) => {
       const icon = icons[market];
@@ -249,11 +326,11 @@ const PositionsPanel: React.FC = () => {
         </div>
       )}
       <div className="hidden md:block">
-        <table className="w-full text-left text-[11px] border-collapse">
+        <table className="w-full text-left text-xs border-collapse">
           <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
             <tr>
               <th className="p-3 border-b border-color">
-                <div className="flex items-center gap-2">
+                <div className="flex text-[10px] items-center gap-2">
                   Market
                   {!isReceivingUpdates && (
                     <div
@@ -263,26 +340,28 @@ const PositionsPanel: React.FC = () => {
                   )}
                 </div>
               </th>
-              <th className="p-3 border-b border-color">Side</th>
-              <th className="p-3 border-b border-color text-right">Size</th>
-              <th className="p-3 border-b border-color text-right">Avg. Open</th>
-              <th className="p-3 border-b border-color text-right">Oracle</th>
-              <th className="p-3 border-b border-color text-right">Liq. Price</th>
-              <th className="p-3 border-b border-color text-right">Unrealized P&L</th>
-              <th className="p-3 border-b border-color text-right">Funding</th>
-              <th className="p-3 border-b border-color text-center">Actions</th>
+              <th className="p-2 border-b border-color text-[10px]">Leverage</th>
+              <th className="p-2 border-b border-color text-[10px]">Type</th>
+              {/* <th className="p-2 border-b border-color text-[10px]">Side</th> */}
+              <th className="p-2 border-b border-color text-right text-[10px]">Size</th>
+              <th className="p-2 border-b border-color text-right text-[10px]">Value</th>
+              <th className="p-2 border-b border-color text-right text-[10px]">P&L</th>
+              <th className="p-2 border-b border-color text-right text-[10px]">Margin</th>
+              <th className="p-2 border-b border-color text-right text-[10px] ">Avg. Open</th>
+              <th className="p-2 border-b border-color text-right text-[10px]">Oracle</th>
+              <th className="p-2 border-b border-color text-right text-[10px]">Liquidation</th>
+              <th className="p-2 border-b border-color text-right text-[10px]">Funding</th>
+              <th className="p-2 border-b border-color text-center text-[10px]">Actions</th>
             </tr>
           </thead>
           <tbody>
             {positions.map(position => {
-              const rawSize = parseFloat(position.size);
-              const absSize = Math.abs(rawSize);
-              if (absSize === 0) return null;
+              const metrics = getPositionMetrics(position);
+              if (metrics.absSize === 0) return null;
 
-              const entryPrice = parseFloat(position.entryPrice);
               const unrealizedPnl = parseFloat(position.unrealizedPnl);
-              const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
-              const isShort = position.side === 'SHORT';
+              const pnlPercentage = (unrealizedPnl / (metrics.absSize * metrics.entryPrice)) * 100;
+              // const isShort = position.side === 'SHORT';
               const isClosing = closingMarket === position.market;
 
               return (
@@ -292,7 +371,7 @@ const PositionsPanel: React.FC = () => {
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-secondary flex items-center justify-center overflow-hidden">
+                      <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center overflow-hidden">
                         {getMarketIcon(position.market)}
                       </div>
                       <span className="font-bold text-primary">{position.market}</span>
@@ -300,27 +379,33 @@ const PositionsPanel: React.FC = () => {
                   </td>
 
                   <td className="p-3">
+                    <span className="px-1.5 py-1 rounded text-[10px] font-bold bg-secondary text-primar">
+                      {metrics.leverage.toFixed(1)}×
+                    </span>
+                  </td>
+
+                  <td className="p-3">
+                    <span className={`px-1.5 py-1 rounded text-[10px] font-medium ${metrics.marginType === 'Cross'
+                      ? 'bg-secondary text-primary'
+                      : 'bg-secondary text-primary'
+                      }`}>
+                      {metrics.marginType}
+                    </span>
+                  </td>
+
+                  {/* <td className="p-3">
                     <div
                       className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
                         }`}
                     >
-                      {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
                       {position.side}
                     </div>
-                  </td>
+                  </td> */}
 
-                  <td className="p-3 text-right text-primary font-mono">{absSize.toFixed(4)}</td>
+                  <td className="p-3 text-right text-primary font-mono">{metrics.absSize.toFixed(4)}</td>
 
-                  <td className="p-3 text-right text-muted font-mono">
-                    ${formatPrice(entryPrice)}
-                  </td>
-
-                  <td className="p-3 text-right text-blue-400 font-mono">
-                    ${formatPrice(entryPrice)}
-                  </td>
-
-                  <td className="p-3 text-right text-orange-400 font-mono">
-                    ${position.liquidationPrice ? formatPrice(position.liquidationPrice) : '—'}
+                  <td className="p-3 text-right text-primary font-mono">
+                    ${formatPrice(metrics.notional)}
                   </td>
 
                   <td className="p-3 text-right">
@@ -333,6 +418,22 @@ const PositionsPanel: React.FC = () => {
                       </span>
                       <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
                     </div>
+                  </td>
+
+                  <td className="p-3 text-right text-primary font-mono">
+                    ${formatPrice(metrics.margin)}
+                  </td>
+
+                  <td className="p-3 text-right text-muted font-mono">
+                    ${formatPrice(metrics.entryPrice)}
+                  </td>
+
+                  <td className="p-3 text-right text-blue-400 font-mono">
+                    ${formatPrice(metrics.oraclePrice)}
+                  </td>
+
+                  <td className="p-3 text-right text-orange-400 font-mono">
+                    ${metrics.liquidationPrice ? formatPrice(metrics.liquidationPrice) : '—'}
                   </td>
 
                   <td className="p-3 text-right text-muted font-mono">
@@ -371,13 +472,11 @@ const PositionsPanel: React.FC = () => {
       </div>
       <div className="md:hidden space-y-1.5 p-2">
         {positions.map(position => {
-          const rawSize = parseFloat(position.size);
-          const absSize = Math.abs(rawSize);
-          if (absSize === 0) return null;
+          const metrics = getPositionMetrics(position);
+          if (metrics.absSize === 0) return null;
 
-          const entryPrice = parseFloat(position.entryPrice);
           const unrealizedPnl = parseFloat(position.unrealizedPnl);
-          const pnlPercentage = (unrealizedPnl / (absSize * entryPrice)) * 100;
+          const pnlPercentage = (unrealizedPnl / (metrics.absSize * metrics.entryPrice)) * 100;
           const isShort = position.side === 'SHORT';
           const isClosing = closingMarket === position.market;
 
@@ -389,6 +488,15 @@ const PositionsPanel: React.FC = () => {
                     {getMarketIcon(position.market)}
                   </div>
                   <span className="font-bold text-primary">{position.market}</span>
+                  <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-yellow-500/10 text-yellow-400">
+                    {metrics.leverage.toFixed(1)}×
+                  </span>
+                  <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${metrics.marginType === 'Cross'
+                    ? 'bg-secondary text-primary'
+                    : 'bg-secondary text-primary'
+                    }`}>
+                    {metrics.marginType}
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -423,23 +531,33 @@ const PositionsPanel: React.FC = () => {
               <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Size</span>
-                  <span className="text-primary font-medium font-mono">{absSize.toFixed(4)}</span>
+                  <span className="text-primary font-medium font-mono">{metrics.absSize.toFixed(4)}</span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Value</span>
+                  <span className="text-primary font-medium font-mono">${formatPrice(metrics.notional)}</span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Avg Open</span>
-                  <span className="text-primary font-medium font-mono">${formatPrice(entryPrice)}</span>
+                  <span className="text-primary font-medium font-mono">${formatPrice(metrics.entryPrice)}</span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Oracle</span>
-                  <span className="text-blue-400 font-medium font-mono">${formatPrice(entryPrice)}</span>
+                  <span className="text-blue-400 font-medium font-mono">${formatPrice(metrics.oraclePrice)}</span>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Margin</span>
+                  <span className="text-primary font-medium font-mono">${formatPrice(metrics.margin)}</span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Liq Price</span>
                   <span className="text-orange-400 font-medium font-mono">
-                    ${position.liquidationPrice ? formatPrice(position.liquidationPrice) : '—'}
+                    ${metrics.liquidationPrice ? formatPrice(metrics.liquidationPrice) : '—'}
                   </span>
                 </div>
 

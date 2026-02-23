@@ -1,5 +1,6 @@
 import { WalletConnectModal } from '@walletconnect/modal';
 import type UniversalProviderType from '@walletconnect/universal-provider';
+import type { LocalWallet } from '@dydxprotocol/v4-client-js';
 
 import {
   type NetworkType,
@@ -9,11 +10,16 @@ import {
   getEVMChains,
   getStellarConfig,
 } from '../config/chains';
-import { decryptMnemonic, encryptMnemonic } from '../utils/encryptionUtils';
+import {
+  decryptAndRestore,
+  encryptAndStore,
+  hasEncryptedBlob,
+  purge,
+} from './dydxKeyManager';
+import { sessionVault } from './sessionVault';
 
 const CONNECTION_TIMEOUT = 120000;
 const SESSION_KEY = 'wallet_sessions';
-const ENCRYPTED_MNEMONIC_KEY = 'swiftex_encrypted_dydx_mnemonic';
 
 type WalletType = 'evm' | 'cosmos' | 'stellar';
 type ConnectionState =
@@ -87,15 +93,13 @@ async function signDydxMessage(evmAddress: string, provider: any): Promise<strin
 }
 
 async function deriveDydxAddress(evmAddress: string, provider: any): Promise<DydxDerivation> {
-  const { onboarding, LocalWallet, BECH32_PREFIX } = await import('@dydxprotocol/v4-client-js');
+  const { onboarding, LocalWallet: LW, BECH32_PREFIX } = await import('@dydxprotocol/v4-client-js');
 
   const signature = await signDydxMessage(evmAddress, provider);
   const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
   if (!derived.mnemonic) throw new Error('Failed to derive mnemonic');
-  const wallet = await LocalWallet.fromMnemonic(derived.mnemonic, BECH32_PREFIX);
+  const wallet = await LW.fromMnemonic(derived.mnemonic, BECH32_PREFIX);
 
-
-  // console.log('[WalletService] Wallet derived:', wallet.address);
   return { address: wallet.address || '', mnemonic: derived.mnemonic };
 }
 
@@ -113,13 +117,9 @@ class WalletService {
     this.loadNetwork();
   }
 
-  // Creates or returns a dedicated provider instance for the given wallet type.
-  // with a unique customStoragePrefix to prevent session conflicts.
-
   private async getOrCreateProvider(type: WalletType): Promise<any> {
     const existingProvider = this.providers.get(type);
     if (existingProvider?.session) {
-      console.log(`[WalletService] Reusing existing provider for ${type}`);
       return existingProvider;
     }
 
@@ -129,14 +129,10 @@ class WalletService {
       UniversalProviderClass = module.default;
     }
 
-    console.log(`[WalletService] Creating isolated Core for ${type}`);
-
-    //isolated Core instance with customStoragePrefix
     const core = new Core({
       projectId: WALLETCONNECT_PROJECT_ID,
       customStoragePrefix: `swiftex_${type}`,
     });
-    console.log(`[WalletService] Creating UniversalProvider for ${type}`);
     const provider = await UniversalProviderClass.init({
       projectId: WALLETCONNECT_PROJECT_ID,
       metadata: {
@@ -231,11 +227,13 @@ class WalletService {
           }
 
           const derived = await deriveDydxAddress(evmAddress, provider);
-          session.dydxAddress = derived.address;
 
-          const encryptedMnemonic = await encryptMnemonic(derived.mnemonic);
-          sessionStorage.setItem(ENCRYPTED_MNEMONIC_KEY, encryptedMnemonic);
+          const address = await encryptAndStore(derived.mnemonic);
+          let mnemonicRef = derived.mnemonic;
+          mnemonicRef = '';
+          void mnemonicRef;
 
+          session.dydxAddress = address;
           this.sessions.set(type, session);
           this.emitState(type, 'connected');
           this.saveSession();
@@ -265,7 +263,6 @@ class WalletService {
 
       return session;
     } catch (error: any) {
-      console.error(`[WalletService] Connection failed:`, error);
       this.emitState(type, 'failed');
       throw error;
     }
@@ -275,12 +272,8 @@ class WalletService {
     const session = this.sessions.get('evm') || this.sessions.get('cosmos');
     if (!session) throw new Error('Wallet not connected');
 
-    if (session.dydxAddress) {
-      const encryptedMnemonic = sessionStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
-      if (encryptedMnemonic) {
-        const mnemonic = await decryptMnemonic(encryptedMnemonic);
-        return { address: session.dydxAddress, mnemonic };
-      }
+    if (session.dydxAddress && sessionVault.has()) {
+      return { address: session.dydxAddress, mnemonic: '' };
     }
 
     const evmProvider = this.providers.get('evm');
@@ -297,17 +290,19 @@ class WalletService {
       this.emitState(session.type, 'signing');
 
       const derived = await deriveDydxAddress(session.evmAddress, evmProvider);
-      session.dydxAddress = derived.address;
 
-      const encryptedMnemonic = await encryptMnemonic(derived.mnemonic);
-      sessionStorage.setItem(ENCRYPTED_MNEMONIC_KEY, encryptedMnemonic);
+      const address = await encryptAndStore(derived.mnemonic);
+      let mnemonicRef = derived.mnemonic;
+      mnemonicRef = '';
+      void mnemonicRef;
 
+      session.dydxAddress = address;
       this.sessions.set(session.type, session);
       this.derivationInProgress = false;
       this.emitState(session.type, 'connected');
       this.saveSession();
 
-      return derived;
+      return { address, mnemonic: '' };
     } catch (error: any) {
       this.derivationInProgress = false;
       this.emitState(session.type, 'connected');
@@ -319,20 +314,9 @@ class WalletService {
     }
   }
 
-  async getMnemonic(): Promise<string | undefined> {
-    const encryptedMnemonic = sessionStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
-    if (!encryptedMnemonic) {
-      return undefined;
-    }
-
-    try {
-      return await decryptMnemonic(encryptedMnemonic);
-    } catch (error) {
-      return undefined;
-    }
+  getSigningWallet(): LocalWallet | null {
+    return sessionVault.get();
   }
-
-
 
   private async connectExtension(
     walletId: string,
@@ -388,8 +372,8 @@ class WalletService {
         cosmosAddress = account.bech32Address;
         cosmosChainId = targetChainId;
         this.providers.set('cosmos', cosmosProvider);
-      } catch (e) {
-        console.warn('[WalletService] Cosmos error:', e);
+      } catch {
+        // cosmos extension connection failed silently
       }
     }
 
@@ -407,7 +391,6 @@ class WalletService {
     cosmosAddress?: string;
     cosmosChainId?: string;
   }> {
-    console.log('[WalletService] Initializing WalletConnect...');
     const provider = await this.getOrCreateProvider(preferredType);
 
     const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
@@ -428,7 +411,6 @@ class WalletService {
       }, CONNECTION_TIMEOUT);
 
       provider.on('display_uri', (uri: string) => {
-        // console.log('[WalletService] WalletConnect URI ready');
         this.openMobileDeepLink(walletId, uri);
         modal.openModal({ uri });
       });
@@ -450,13 +432,11 @@ class WalletService {
             },
           };
 
-      console.log('[WalletService] Requesting connection...');
       provider
         .connect({ namespaces: namespaces as any })
         .then((session: any) => {
           clearTimeout(timeout);
           modal.closeModal();
-          console.log('[WalletService] Connected');
 
           let evmAccount =
             preferredType === 'evm' ? session.namespaces.eip155?.accounts[0] : undefined;
@@ -492,60 +472,39 @@ class WalletService {
         .catch((error: any) => {
           clearTimeout(timeout);
           modal.closeModal();
-          console.error('[WalletService] Connection error:', error);
           reject(error);
         });
     });
   }
 
   private setupWalletConnectListeners(provider: any, type: WalletType): void {
-    console.log('[WalletService] Setting up WalletConnect listeners for:', type);
+    provider.on('session_ping', (_data: { id: number; topic: string }) => { });
 
-    provider.on('session_ping', ({ id, topic }: { id: number; topic: string }) => {
-      console.log('[WalletService] Session ping:', { id, topic, type });
-    });
     provider.on(
       'session_event',
-      ({ event, chainId }: { event: { name: string; data: any }; chainId: string }) => {
-        console.log('[WalletService] Session event received:', { event, chainId, type });
-
-        // Handle accountsChanged event
+      ({ event, chainId: _chainId }: { event: { name: string; data: any }; chainId: string }) => {
         if (event.name === 'accountsChanged') {
-          console.log('[WalletService] Accounts changed:', event.data);
           this.handleAccountsChanged(type, event.data);
         }
-
-        // Handle chainChanged event
         if (event.name === 'chainChanged') {
-          console.log('[WalletService] Chain changed:', event.data);
           this.handleChainChanged(type, event.data);
         }
       }
     );
 
-    // Session update - namespace changes
-    provider.on('session_update', ({ topic, params }: { topic: string; params: any }) => {
-      console.log('[WalletService] Session update:', { topic, params, type });
-
+    provider.on('session_update', ({ topic: _topic, params }: { topic: string; params: any }) => {
       if (params.namespaces) {
         this.handleSessionUpdate(type, params.namespaces);
       }
     });
 
-    // Session extend - session lifetime extended
-    provider.on('session_extend', ({ topic }: { topic: string }) => {
-      console.log('[WalletService] Session extended:', { topic, type });
-    });
+    provider.on('session_extend', (_data: { topic: string }) => { });
 
-    // Session expire - session expired
-    provider.on('session_expire', ({ topic }: { topic: string }) => {
-      console.log('[WalletService] Session expired:', { topic, type });
+    provider.on('session_expire', (_data: { topic: string }) => {
       this.handleDisconnect(type);
     });
 
-    // Session delete
-    provider.on('session_delete', ({ id, topic }: { id: number; topic: string }) => {
-      console.log('[WalletService] Session deleted:', { id, topic, type });
+    provider.on('session_delete', (_data: { id: number; topic: string }) => {
       this.handleDisconnect(type);
     });
   }
@@ -575,7 +534,7 @@ class WalletService {
         const newEvmAddress = session.evmAddress.toLowerCase();
         if (oldEvmAddress && oldEvmAddress !== newEvmAddress) {
           delete session.dydxAddress;
-          sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
+          purge();
         }
       }
     } else if (type === 'cosmos') {
@@ -595,10 +554,7 @@ class WalletService {
     this.emitState(type, 'connected');
   }
 
-  // Handle chain changes from session_event
   private handleChainChanged(type: WalletType, chainData: any): void {
-    console.log('[WalletService] Handling chain changed:', { type, chainData });
-
     const session = this.sessions.get(type);
     if (!session) return;
 
@@ -611,7 +567,6 @@ class WalletService {
       } else if (typeof chainData === 'number') {
         parsedChainId = chainData;
       } else {
-        console.warn('[WalletService] Unknown chain data format:', chainData);
         return;
       }
 
@@ -623,8 +578,6 @@ class WalletService {
   }
 
   private handleSessionUpdate(type: WalletType, namespaces: any): void {
-    console.log('[WalletService] Handling session update:', { type, namespaces });
-
     const session = this.sessions.get(type);
     if (!session) return;
 
@@ -657,7 +610,6 @@ class WalletService {
   }
 
   async connectStellar(walletId: string): Promise<WalletSession> {
-    console.log('[WalletService] Connecting Stellar:', walletId);
     this.emitState('stellar', 'connecting');
 
     try {
@@ -668,7 +620,6 @@ class WalletService {
         return await this.connectStellarWalletConnect(walletId);
       }
     } catch (error: any) {
-      console.error('[WalletService] Stellar failed:', error);
       this.emitState('stellar', 'failed');
       throw error;
     }
@@ -695,12 +646,10 @@ class WalletService {
   }
 
   private async connectStellarWalletConnect(walletId: string): Promise<WalletSession> {
-    console.log('[WalletService] Stellar WalletConnect init...');
     const provider = await this.getOrCreateProvider('stellar');
 
     const config = getStellarConfig(this.currentNetwork);
     const stellarChain = `stellar:${config.chainId}`;
-    console.log('[WalletService] Stellar chain:', stellarChain);
 
     const modal = new WalletConnectModal({
       projectId: WALLETCONNECT_PROJECT_ID,
@@ -717,11 +666,9 @@ class WalletService {
       }, CONNECTION_TIMEOUT);
 
       provider.on('display_uri', (uri: string) => {
-        console.log('[WalletService] Stellar URI ready');
         modal.openModal({ uri });
       });
 
-      console.log('[WalletService] Stellar connection request...');
       provider
         .connect({
           namespaces: {
@@ -735,7 +682,6 @@ class WalletService {
         .then((session: any) => {
           clearTimeout(timeout);
           modal.closeModal();
-          console.log('[WalletService] Stellar connected');
 
           const account = session.namespaces.stellar?.accounts[0];
           if (!account) {
@@ -762,7 +708,6 @@ class WalletService {
         .catch((error: any) => {
           clearTimeout(timeout);
           modal.closeModal();
-          console.error('[WalletService] Stellar error:', error);
           reject(error);
         });
     });
@@ -774,12 +719,14 @@ class WalletService {
     if (provider?.session) {
       try {
         await provider.disconnect();
-      } catch (e) {
-        console.error('[WalletService] Disconnect error:', e);
+      } catch {
+        // disconnect error handled silently
       }
     }
 
-    sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
+    if (type === 'evm' || type === 'cosmos') {
+      await purge();
+    }
 
     if (type === 'evm' || type === 'cosmos') {
       this.providers.delete('cosmos');
@@ -820,8 +767,8 @@ class WalletService {
         data[type] = safeSession;
       });
       localStorage.setItem(SESSION_KEY, JSON.stringify(data));
-    } catch (e) {
-      console.error('[WalletService] Save error:', e);
+    } catch {
+      // save error handled silently
     }
   }
 
@@ -833,7 +780,7 @@ class WalletService {
       if (!stored) return [];
 
       const data = JSON.parse(stored);
-      const hasEncryptedMnemonic = !!sessionStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
+      const hasDydxBlob = hasEncryptedBlob();
 
       for (const [typeStr, savedSession] of Object.entries(data) as [string, WalletSession][]) {
         const type = typeStr as WalletType;
@@ -849,23 +796,143 @@ class WalletService {
 
             const refreshed = await this.refreshSessionFromProvider(provider, savedSession);
 
-            if (hasEncryptedMnemonic && savedSession.dydxAddress) {
-              refreshed.dydxAddress = savedSession.dydxAddress;
+            if (hasDydxBlob && savedSession.dydxAddress) {
+              const restored = await decryptAndRestore();
+              if (restored) {
+                refreshed.dydxAddress = savedSession.dydxAddress;
+              }
             }
 
             this.sessions.set(type, refreshed);
             restored.push(refreshed);
             this.emitState(type, 'connected');
+          } else if (savedSession.walletId !== 'walletconnect' && this.isExtensionInstalled(savedSession.walletId)) {
+            const restoredSession = await this.restoreExtensionSession(type, savedSession, hasDydxBlob);
+            if (restoredSession) {
+              restored.push(restoredSession);
+            }
           }
-        } catch (error) {
-          console.error(`[WalletService] Restore ${type} failed:`, error);
+        } catch {
+          // restore for this type failed silently
         }
       }
-    } catch (error) {
-      console.error('[WalletService] Restore error:', error);
+    } catch {
+      // restore error handled silently
     }
 
     return restored;
+  }
+
+  private async restoreExtensionSession(
+    type: WalletType,
+    savedSession: WalletSession,
+    hasDydxBlob: boolean
+  ): Promise<WalletSession | null> {
+    const win = window as any;
+
+    if (type === 'stellar' && savedSession.walletId === 'freighter' && win.freighter) {
+      try {
+        const isConnected = await win.freighter.isConnected();
+        if (!isConnected) return null;
+        const publicKey = await win.freighter.getPublicKey();
+        const config = getStellarConfig(this.currentNetwork);
+
+        const session: WalletSession = {
+          type: 'stellar',
+          walletId: 'freighter',
+          stellarAddress: publicKey,
+          stellarChainId: config.chainId,
+        };
+
+        this.sessions.set('stellar', session);
+        this.providers.set('stellar', win.freighter);
+        this.emitState('stellar', 'connected');
+        return session;
+      } catch {
+        return null;
+      }
+    }
+
+    if (type === 'evm') {
+      try {
+        const evmProviders: Record<string, any> = {
+          metamask: win.ethereum?.isMetaMask ? win.ethereum : null,
+          trust: win.ethereum?.isTrust ? win.ethereum : null,
+          coinbase: win.ethereum?.isCoinbaseWallet ? win.ethereum : null,
+          phantom: win.phantom?.ethereum || null,
+          rabby: win.ethereum?.isRabby ? win.ethereum : null,
+        };
+
+        const evmProvider = evmProviders[savedSession.walletId] || win.ethereum;
+        if (!evmProvider) return null;
+
+        const accounts = await evmProvider.request({ method: 'eth_accounts' });
+        if (!accounts || accounts.length === 0) return null;
+
+        const chainIdHex = await evmProvider.request({ method: 'eth_chainId' });
+
+        const session: WalletSession = {
+          type: 'evm',
+          walletId: savedSession.walletId,
+          evmAddress: accounts[0],
+          evmChainId: parseInt(chainIdHex, 16),
+        };
+
+        if (hasDydxBlob && savedSession.dydxAddress) {
+          const didRestore = await decryptAndRestore();
+          if (didRestore) {
+            session.dydxAddress = savedSession.dydxAddress;
+          }
+        }
+
+        this.sessions.set('evm', session);
+        this.providers.set('evm', evmProvider);
+        this.setupEVMListeners(evmProvider);
+        this.emitState('evm', 'connected');
+        return session;
+      } catch {
+        return null;
+      }
+    }
+
+    if (type === 'cosmos') {
+      try {
+        const cosmosProviders: Record<string, any> = {
+          keplr: win.keplr,
+          leap: win.leap,
+        };
+
+        const cosmosProvider = cosmosProviders[savedSession.walletId];
+        if (!cosmosProvider) return null;
+
+        const dydxChainId = getDydxChainId(this.currentNetwork);
+        const chains = getCosmosChains(this.currentNetwork);
+        const targetChainId = dydxChainId || chains[0].chainId;
+
+        await cosmosProvider.enable(targetChainId);
+        const account = await cosmosProvider.getKey(targetChainId);
+
+        const session: WalletSession = {
+          type: 'cosmos',
+          walletId: savedSession.walletId,
+          cosmosAddress: account.bech32Address,
+          cosmosChainId: targetChainId,
+        };
+
+        if (targetChainId === dydxChainId) {
+          session.dydxAddress = account.bech32Address;
+        }
+
+        this.sessions.set('cosmos', session);
+        this.providers.set('cosmos', cosmosProvider);
+        this.emitState('cosmos', 'connected');
+        return session;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
   }
 
   private async initProvider(type: WalletType) {
@@ -928,9 +995,9 @@ class WalletService {
   private clearSessionStorage(): void {
     try {
       localStorage.removeItem(SESSION_KEY);
-      sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
-    } catch (e) {
-      console.error('[WalletService] Clear error:', e);
+      purge();
+    } catch {
+      // clear error handled silently
     }
   }
 
@@ -966,7 +1033,7 @@ class WalletService {
           const newAddress = session.evmAddress.toLowerCase();
           if (oldAddress && oldAddress !== newAddress) {
             delete session.dydxAddress;
-            sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
+            purge();
           }
 
           this.sessions.set('evm', session);
@@ -1025,7 +1092,6 @@ class WalletService {
       results.push({ type, valid });
 
       if (!valid) {
-        console.warn(`[WalletService] Session expired for ${type}, cleaning up`);
         this.handleDisconnect(type);
       }
     }
@@ -1076,8 +1142,8 @@ class WalletService {
     this.listeners.forEach(cb => {
       try {
         cb(type, state);
-      } catch (e) {
-        console.error('[WalletService] Event error:', e);
+      } catch {
+        // event error handled silently
       }
     });
   }
