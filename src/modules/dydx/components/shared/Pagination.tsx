@@ -58,30 +58,31 @@ export const Pagination: React.FC<PaginationProps> = ({
     return pages;
   };
 
-  // Mobile version: show only current page and adjacent pages
   const getMobilePageNumbers = () => {
     const pages: (number | string)[] = [];
 
-    // Show current, previous (if exists), and next (if exists)
     if (currentPage > 1) {
       pages.push(currentPage - 1);
     }
     pages.push(currentPage);
-    if (currentPage < totalPages || hasMore) {
+    if (currentPage < totalPages) {
       pages.push(currentPage + 1);
     }
 
     return pages;
   };
 
+  const isFirstPage = currentPage === 1;
+  const isLastPage = currentPage === totalPages;
+
   const handlePrevious = () => {
-    if (currentPage > 1 && !loading) {
+    if (!isFirstPage && !loading) {
       onPageChange(currentPage - 1);
     }
   };
 
   const handleNext = () => {
-    if ((currentPage < totalPages || hasMore) && !loading) {
+    if (!isLastPage && !loading) {
       onPageChange(currentPage + 1);
     }
   };
@@ -92,15 +93,12 @@ export const Pagination: React.FC<PaginationProps> = ({
     }
   };
 
-  // Calculate display range
   const startItem = totalItems ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const endItem = totalItems ? Math.min(currentPage * itemsPerPage, totalItems) : 0;
 
   return (
     <div className="border-t border-color bg-secondary">
-      {/* Desktop Layout */}
       <div className="hidden md:flex items-center justify-between gap-4 px-4 py-3">
-        {/* Items info */}
         <div className="flex items-center gap-2 min-w-[140px]">
           {totalItems !== undefined && (
             <span className="text-xs text-muted">
@@ -111,19 +109,16 @@ export const Pagination: React.FC<PaginationProps> = ({
           {loading && <Loader2 className="w-3 h-3 text-muted animate-spin" />}
         </div>
 
-        {/* Page navigation */}
         <div className="flex items-center gap-2">
-          {/* Previous Button */}
           <button
             onClick={handlePrevious}
-            disabled={currentPage === 1 || loading}
+            disabled={isFirstPage || loading}
             className="p-1.5 rounded hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             aria-label="Previous page"
           >
             <ChevronLeft className="w-4 h-4 text-muted" />
           </button>
 
-          {/* Page Numbers */}
           <div className="flex items-center gap-1">
             {getPageNumbers().map((page, index) => {
               if (page === '...') {
@@ -141,9 +136,9 @@ export const Pagination: React.FC<PaginationProps> = ({
                   key={page}
                   onClick={() => handlePageClick(page)}
                   disabled={loading}
-                  className={`min-w-[28px] px-2 py-1 rounded text-xs font-medium transition-colors ${isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'text-muted hover:bg-hover hover:text-primary'
+                  className={`min-w-[32px] px-2 py-2 rounded  text-xs font-medium transition-colors ${isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-muted bg-primary hover:bg-hover hover:text-primary'
                     } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   {page}
@@ -152,10 +147,9 @@ export const Pagination: React.FC<PaginationProps> = ({
             })}
           </div>
 
-          {/* Next Button */}
           <button
             onClick={handleNext}
-            disabled={(currentPage === totalPages && !hasMore) || loading}
+            disabled={isLastPage || loading}
             className="p-1.5 rounded hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             aria-label="Next page"
           >
@@ -163,7 +157,6 @@ export const Pagination: React.FC<PaginationProps> = ({
           </button>
         </div>
 
-        {/* Page info */}
         <div className="min-w-[100px] text-right">
           <span className="text-xs text-muted">
             Page {currentPage} of {totalPages}
@@ -172,20 +165,19 @@ export const Pagination: React.FC<PaginationProps> = ({
         </div>
       </div>
 
-      {/* Mobile Layout */}
       <div className="md:hidden flex items-center justify-between px-3 py-2.5">
-        {/* Previous Button */}
-        <button
-          onClick={handlePrevious}
-          disabled={currentPage === 1 || loading}
-          className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium text-primary"
-          aria-label="Previous page"
-        >
-          <ChevronLeft className="w-3.5 h-3.5" />
-          Prev
-        </button>
+        <div>
+          <button
+            onClick={handlePrevious}
+            disabled={isFirstPage || loading}
+            className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium text-primary"
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            Prev
+          </button>
+        </div>
 
-        {/* Current Page Info with adjacent pages */}
         <div className="flex items-center gap-1.5">
           {getMobilePageNumbers().map((page, index) => {
             const isActive = page === currentPage;
@@ -196,8 +188,8 @@ export const Pagination: React.FC<PaginationProps> = ({
                 onClick={() => handlePageClick(page)}
                 disabled={loading}
                 className={`min-w-[32px] px-2.5 py-1 rounded text-xs font-medium transition-colors ${isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-primary text-muted hover:bg-hover hover:text-primary'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-primary text-muted hover:bg-hover hover:text-primary'
                   } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
               >
                 {page}
@@ -207,16 +199,17 @@ export const Pagination: React.FC<PaginationProps> = ({
           {loading && <Loader2 className="w-3 h-3 text-muted animate-spin ml-1" />}
         </div>
 
-        {/* Next Button */}
-        <button
-          onClick={handleNext}
-          disabled={(currentPage === totalPages && !hasMore) || loading}
-          className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium text-primary"
-          aria-label="Next page"
-        >
-          Next
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
+        <div>
+          <button
+            onClick={handleNext}
+            disabled={isLastPage || loading}
+            className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium text-primary"
+            aria-label="Next page"
+          >
+            Next
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );

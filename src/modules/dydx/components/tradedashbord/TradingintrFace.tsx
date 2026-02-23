@@ -536,7 +536,7 @@ const BottomTabsSection = ({
         })}
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0 pb-6 relative">
         {activeBottomTab === 'positions' && <PositionsPanel />}
         {activeBottomTab === 'orders' && <OpenOrdersPanel />}
         {activeBottomTab === 'fills' && <FillsPanel />}

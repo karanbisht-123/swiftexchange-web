@@ -26,7 +26,6 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
 
-    // 1. Allow empty string so user can delete and type new numbers
     if (val === '') {
       setLocalValue('');
       return;

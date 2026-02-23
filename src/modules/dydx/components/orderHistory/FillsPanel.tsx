@@ -199,8 +199,8 @@ const FillsPanel: React.FC = () => {
                   <td className="px-4 py-3 text-center">
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-medium ${fill.liquidity === 'MAKER'
-                          ? 'bg-blue-500/20 text-blue-400'
-                          : 'bg-purple-500/20 text-purple-400'
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'bg-purple-500/20 text-purple-400'
                         }`}
                     >
                       {fill.liquidity}
@@ -213,7 +213,7 @@ const FillsPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto p-2 space-y-2">
+      <div className="md:hidden flex-1 overflow-auto  space-y-0.5">
         {currentPageData.map(fill => {
           const total = parseFloat(fill.size) * parseFloat(fill.price);
 
@@ -221,21 +221,22 @@ const FillsPanel: React.FC = () => {
             <div
               key={fill.id}
               onClick={() => handleFillClick(fill)}
-              className="bg-secondary border border-color rounded-lg p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color  p-3 flex items-center justify-between active:bg-hover transition-colors"
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <MarketBadge market={fill.market || (fill as any).ticker} />
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-2">
-                    <SideBadge side={fill.side as 'BUY' | 'SELL'} />
-                    <span className="text-primary font-mono text-xs">
-                      ${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <span className="text-muted text-xs truncate">
-                    {getTimeAgo(fill.createdAt)}
+
+              </div>
+              <div className="flex itme-center">
+                <div className="flex items-center gap-4">
+                  <SideBadge side={fill.side as 'BUY' | 'SELL'} />
+                  <span className="text-primary font-mono text-xs">
+                    ${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </span>
                 </div>
+                <span className="text-muted text-xs mx-2 truncate">
+                  {getTimeAgo(fill.createdAt)}
+                </span>
               </div>
               <ChevronRight size={16} className="text-muted flex-shrink-0" />
             </div>

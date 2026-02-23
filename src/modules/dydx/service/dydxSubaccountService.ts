@@ -291,12 +291,10 @@ class DydxSubaccountService {
       throw new Error('EVM wallet not connected');
     }
 
-    const mnemonic =
-      walletService.getMnemonic(evmSession.evmAddress) ||
-      (await walletService.restoreMnemonicFromStorage());
+    const mnemonic = walletService.getMnemonic(evmSession.evmAddress);
 
     if (!mnemonic) {
-      throw new Error('Mnemonic not found - please reconnect wallet');
+      throw new Error('Mnemonic not found - please derive dYdX wallet first');
     }
 
     return await LocalWallet.fromMnemonic(mnemonic, BECH32_PREFIX);

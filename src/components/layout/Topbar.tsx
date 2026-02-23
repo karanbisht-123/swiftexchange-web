@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../constants/routes';
 import { ConnectWalletButton } from '../../modules/walletconnect/components/ConnectWalletButton';
@@ -7,21 +7,27 @@ import NetworkSwitch from '../../modules/walletconnect/components/NetworkSwitch'
 import { useWalletConnect } from '../../modules/walletconnect/hooks/useWalletConnect';
 import ThemeToggle from '../../utils/ThemeToggle';
 
-interface TopbarProps {}
-
-const Topbar: React.FC<TopbarProps> = () => {
-  const { isAnyWalletConnected, isRestoringSession, disconnectAll } = useWalletConnect();
-
-  console.log(isRestoringSession, 'restore seeion ');
+const Topbar: React.FC = () => {
+  const { connectedWallets, isRestoringSession, disconnectAll } = useWalletConnect();
   const navigate = useNavigate();
+  const location = useLocation();
   const hasRedirected = useRef(false);
 
+  const isAnyWalletConnected = Object.keys(connectedWallets).length > 0;
+  const evmWallet = connectedWallets.evm;
+  const hasDydxDerived = !!evmWallet?.dydxAddress;
+  const isReadyForDashboard =
+    isAnyWalletConnected && (!evmWallet || hasDydxDerived);
+
   useEffect(() => {
-    if (isAnyWalletConnected && !hasRedirected.current) {
+    if (isRestoringSession) return;
+    // Only redirect to dashboard on fresh connect from the home page.
+    // If user is already on /markets, /send, etc., stay on their current page.
+    if (isReadyForDashboard && !hasRedirected.current && location.pathname === ROUTES.HOME) {
       hasRedirected.current = true;
       navigate(ROUTES.DASHBOARD);
     }
-  }, [isAnyWalletConnected, navigate]);
+  }, [isReadyForDashboard, isRestoringSession, navigate, location.pathname]);
 
   const handleDisconnectAll = useCallback(async () => {
     await disconnectAll();

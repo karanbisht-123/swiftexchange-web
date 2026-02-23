@@ -9,11 +9,11 @@ import {
   getEVMChains,
   getStellarConfig,
 } from '../config/chains';
-import { encryptionService } from './encryptionService';
+import { decryptMnemonic, encryptMnemonic } from '../utils/encryptionUtils';
 
 const CONNECTION_TIMEOUT = 120000;
 const SESSION_KEY = 'wallet_sessions';
-const ENCRYPTED_MNEMONIC_KEY = 'dydx_encrypted_mnemonic';
+const ENCRYPTED_MNEMONIC_KEY = 'swiftex_encrypted_dydx_mnemonic';
 
 type WalletType = 'evm' | 'cosmos' | 'stellar';
 type ConnectionState =
@@ -33,7 +33,6 @@ interface WalletSession {
   cosmosAddress?: string;
   cosmosChainId?: string;
   dydxAddress?: string;
-  dydxMnemonic?: string;
   stellarAddress?: string;
   stellarChainId?: string;
 }
@@ -94,13 +93,7 @@ async function deriveDydxAddress(evmAddress: string, provider: any): Promise<Dyd
   const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
   if (!derived.mnemonic) throw new Error('Failed to derive mnemonic');
   const wallet = await LocalWallet.fromMnemonic(derived.mnemonic, BECH32_PREFIX);
-  try {
-    const encryptedMnemonic = await encryptionService.encrypt(derived.mnemonic);
-    localStorage.setItem(ENCRYPTED_MNEMONIC_KEY, encryptedMnemonic);
-    // console.log('[WalletService] Mnemonic encrypted and stored securely');
-  } catch (error) {
-    console.error('[WalletService] Failed to encrypt mnemonic:', error);
-  }
+
 
   // console.log('[WalletService] Wallet derived:', wallet.address);
   return { address: wallet.address || '', mnemonic: derived.mnemonic };
@@ -115,8 +108,6 @@ class WalletService {
   private listeners = new Set<(type: WalletType, state: ConnectionState) => void>();
   private currentNetwork: NetworkType = 'mainnet';
   private derivationInProgress = false;
-
-  private inMemoryMnemonics = new Map<string, string>();
 
   constructor() {
     this.loadNetwork();
@@ -188,9 +179,8 @@ class WalletService {
     walletId: string,
     preferredType: 'evm' | 'cosmos' = 'evm',
     autoDeriveWallet: boolean = true
-  ): Promise<WalletSession & { dydxMnemonic?: string; derivationSkipped?: boolean }> {
+  ): Promise<WalletSession & { derivationSkipped?: boolean }> {
     const type: WalletType = preferredType;
-    console.log(`[WalletService] Connecting ${type}:`, walletId);
     this.emitState(type, 'connecting');
 
     try {
@@ -232,7 +222,6 @@ class WalletService {
       const dydxChainId = getDydxChainId(this.currentNetwork);
 
       if (evmAddress && autoDeriveWallet) {
-        // console.log('[WalletService] deriving dYdX wallet...');
         this.emitState(type, 'signing');
 
         try {
@@ -243,31 +232,24 @@ class WalletService {
 
           const derived = await deriveDydxAddress(evmAddress, provider);
           session.dydxAddress = derived.address;
-          this.inMemoryMnemonics.set(evmAddress.toLowerCase(), derived.mnemonic);
+
+          const encryptedMnemonic = await encryptMnemonic(derived.mnemonic);
+          sessionStorage.setItem(ENCRYPTED_MNEMONIC_KEY, encryptedMnemonic);
 
           this.sessions.set(type, session);
-          // console.log('[WalletService] dYdX wallet derived:', derived.address);
-
           this.emitState(type, 'connected');
           this.saveSession();
 
-          const mnemonic = this.inMemoryMnemonics.get(evmAddress.toLowerCase());
-          return {
-            ...session,
-            dydxMnemonic: mnemonic,
-          };
+          return session;
         } catch (error: any) {
-          console.warn('[WalletService] dYdX derivation failed:', error);
           this.emitState(type, 'connected');
           this.saveSession();
           if (error.message === 'USER_REJECTED') {
-            console.log('[WalletService] User rejected signature - can derive later');
             return {
               ...session,
               derivationSkipped: true,
             };
           }
-          console.log('[WalletService] Derivation skipped due to error - can derive later');
           return {
             ...session,
             derivationSkipped: true,
@@ -281,14 +263,7 @@ class WalletService {
       this.emitState(type, 'connected');
       this.saveSession();
 
-      const mnemonic = evmAddress
-        ? this.inMemoryMnemonics.get(evmAddress.toLowerCase())
-        : undefined;
-
-      return {
-        ...session,
-        dydxMnemonic: mnemonic,
-      };
+      return session;
     } catch (error: any) {
       console.error(`[WalletService] Connection failed:`, error);
       this.emitState(type, 'failed');
@@ -300,9 +275,10 @@ class WalletService {
     const session = this.sessions.get('evm') || this.sessions.get('cosmos');
     if (!session) throw new Error('Wallet not connected');
 
-    if (session.dydxAddress && session.evmAddress) {
-      const mnemonic = this.inMemoryMnemonics.get(session.evmAddress.toLowerCase());
-      if (mnemonic) {
+    if (session.dydxAddress) {
+      const encryptedMnemonic = sessionStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
+      if (encryptedMnemonic) {
+        const mnemonic = await decryptMnemonic(encryptedMnemonic);
         return { address: session.dydxAddress, mnemonic };
       }
     }
@@ -318,20 +294,19 @@ class WalletService {
 
     try {
       this.derivationInProgress = true;
-      console.log('[WalletService] Deriving dYdX wallet...');
       this.emitState(session.type, 'signing');
 
       const derived = await deriveDydxAddress(session.evmAddress, evmProvider);
-
       session.dydxAddress = derived.address;
-      this.inMemoryMnemonics.set(session.evmAddress.toLowerCase(), derived.mnemonic);
+
+      const encryptedMnemonic = await encryptMnemonic(derived.mnemonic);
+      sessionStorage.setItem(ENCRYPTED_MNEMONIC_KEY, encryptedMnemonic);
 
       this.sessions.set(session.type, session);
       this.derivationInProgress = false;
       this.emitState(session.type, 'connected');
       this.saveSession();
 
-      console.log('[WalletService] dYdX wallet derived:', derived.address);
       return derived;
     } catch (error: any) {
       this.derivationInProgress = false;
@@ -344,22 +319,20 @@ class WalletService {
     }
   }
 
-  getMnemonic(evmAddress: string): string | undefined {
-    return this.inMemoryMnemonics.get(evmAddress.toLowerCase());
-  }
+  async getMnemonic(): Promise<string | undefined> {
+    const encryptedMnemonic = sessionStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
+    if (!encryptedMnemonic) {
+      return undefined;
+    }
 
-  async restoreMnemonicFromStorage(): Promise<string | null> {
     try {
-      const encrypted = localStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
-      if (!encrypted) return null;
-
-      const decrypted = await encryptionService.decrypt(encrypted);
-      return decrypted;
+      return await decryptMnemonic(encryptedMnemonic);
     } catch (error) {
-      console.error('[WalletService] Failed to restore mnemonic:', error);
-      return null;
+      return undefined;
     }
   }
+
+
 
   private async connectExtension(
     walletId: string,
@@ -435,7 +408,6 @@ class WalletService {
     cosmosChainId?: string;
   }> {
     console.log('[WalletService] Initializing WalletConnect...');
-    // Use dedicated provider instance for this wallet type
     const provider = await this.getOrCreateProvider(preferredType);
 
     const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
@@ -540,7 +512,7 @@ class WalletService {
         // Handle accountsChanged event
         if (event.name === 'accountsChanged') {
           console.log('[WalletService] Accounts changed:', event.data);
-          this.handleAccountsChanged(type, event.data, chainId);
+          this.handleAccountsChanged(type, event.data);
         }
 
         // Handle chainChanged event
@@ -578,11 +550,8 @@ class WalletService {
     });
   }
 
-  private handleAccountsChanged(type: WalletType, accounts: any, chainId?: string): void {
-    console.log('[WalletService] Handling accounts changed:', { type, accounts, chainId });
-
+  private handleAccountsChanged(type: WalletType, accounts: any): void {
     if (!accounts || (Array.isArray(accounts) && accounts.length === 0)) {
-      // console.log('[WalletService] No accounts, disconnecting');
       this.handleDisconnect(type);
       return;
     }
@@ -606,7 +575,7 @@ class WalletService {
         const newEvmAddress = session.evmAddress.toLowerCase();
         if (oldEvmAddress && oldEvmAddress !== newEvmAddress) {
           delete session.dydxAddress;
-          this.inMemoryMnemonics.delete(oldEvmAddress);
+          sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
         }
       }
     } else if (type === 'cosmos') {
@@ -799,11 +768,8 @@ class WalletService {
     });
   }
 
-  // Disconnect wallet
   async disconnect(type: WalletType): Promise<void> {
-    console.log('[WalletService] Disconnecting:', type);
     const provider = this.providers.get(type);
-    const session = this.sessions.get(type);
 
     if (provider?.session) {
       try {
@@ -813,10 +779,7 @@ class WalletService {
       }
     }
 
-    // Clear mnemonic
-    if (session?.evmAddress) {
-      this.inMemoryMnemonics.delete(session.evmAddress.toLowerCase());
-    }
+    sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
 
     if (type === 'evm' || type === 'cosmos') {
       this.providers.delete('cosmos');
@@ -829,7 +792,6 @@ class WalletService {
 
     if (type === 'evm') {
       this.derivationInProgress = false;
-      localStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
     }
 
     this.saveSession();
@@ -858,14 +820,12 @@ class WalletService {
         data[type] = safeSession;
       });
       localStorage.setItem(SESSION_KEY, JSON.stringify(data));
-      console.log('[WalletService] Session saved (no sensitive data)');
     } catch (e) {
       console.error('[WalletService] Save error:', e);
     }
   }
 
   async restoreSessions(): Promise<WalletSession[]> {
-    console.log('[WalletService] Restoring...');
     const restored: WalletSession[] = [];
 
     try {
@@ -873,6 +833,7 @@ class WalletService {
       if (!stored) return [];
 
       const data = JSON.parse(stored);
+      const hasEncryptedMnemonic = !!sessionStorage.getItem(ENCRYPTED_MNEMONIC_KEY);
 
       for (const [typeStr, savedSession] of Object.entries(data) as [string, WalletSession][]) {
         const type = typeStr as WalletType;
@@ -887,6 +848,11 @@ class WalletService {
             this.setupWalletConnectListeners(provider, type);
 
             const refreshed = await this.refreshSessionFromProvider(provider, savedSession);
+
+            if (hasEncryptedMnemonic && savedSession.dydxAddress) {
+              refreshed.dydxAddress = savedSession.dydxAddress;
+            }
+
             this.sessions.set(type, refreshed);
             restored.push(refreshed);
             this.emitState(type, 'connected');
@@ -899,7 +865,6 @@ class WalletService {
       console.error('[WalletService] Restore error:', error);
     }
 
-    console.log(`[WalletService] Restored ${restored.length} sessions`);
     return restored;
   }
 
@@ -948,7 +913,6 @@ class WalletService {
       evmChainId,
       cosmosAddress,
       cosmosChainId,
-      dydxAddress: saved.dydxAddress,
       stellarAddress,
       stellarChainId,
     };
@@ -964,8 +928,7 @@ class WalletService {
   private clearSessionStorage(): void {
     try {
       localStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
-      this.inMemoryMnemonics.clear();
+      sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
     } catch (e) {
       console.error('[WalletService] Clear error:', e);
     }
@@ -1003,7 +966,7 @@ class WalletService {
           const newAddress = session.evmAddress.toLowerCase();
           if (oldAddress && oldAddress !== newAddress) {
             delete session.dydxAddress;
-            this.inMemoryMnemonics.delete(oldAddress);
+            sessionStorage.removeItem(ENCRYPTED_MNEMONIC_KEY);
           }
 
           this.sessions.set('evm', session);
@@ -1038,6 +1001,36 @@ class WalletService {
 
   isConnected(type: WalletType): boolean {
     return this.sessions.has(type);
+  }
+
+  private isSessionExpired(provider: any): boolean {
+    try {
+      const session = provider?.session;
+      if (!session) return true;
+      if (session.expiry) {
+        return Date.now() / 1000 > session.expiry;
+      }
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  async checkSessionHealth(): Promise<{ type: WalletType; valid: boolean }[]> {
+    const results: { type: WalletType; valid: boolean }[] = [];
+
+    for (const [type] of this.sessions.entries()) {
+      const provider = this.providers.get(type);
+      const valid = !!(provider?.session && !this.isSessionExpired(provider));
+      results.push({ type, valid });
+
+      if (!valid) {
+        console.warn(`[WalletService] Session expired for ${type}, cleaning up`);
+        this.handleDisconnect(type);
+      }
+    }
+
+    return results;
   }
 
   hasDydxWallet(): boolean {

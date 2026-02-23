@@ -58,7 +58,6 @@ const CryptoMarket = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Handle Sheet Animation
   useEffect(() => {
     if (selectedCrypto) {
       requestAnimationFrame(() => setIsSheetOpen(true));
@@ -133,10 +132,13 @@ const CryptoMarket = () => {
     fetchMarketData();
   };
 
-  const formatPrice = (num: number) =>
-    `$${num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  const formatPrice = (num: number | undefined | null) => {
+    if (num === null || num === undefined) return '$0.00';
+    return `$${num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  };
 
-  const formatLargeNumber = (num: number) => {
+  const formatLargeNumber = (num: number | undefined | null) => {
+    if (num === null || num === undefined) return '$0.00';
     if (num >= 1_000_000_000) return `$${(num / 1_000_000_000).toFixed(2)}B`;
     if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(2)}M`;
     return `$${num.toLocaleString()}`;

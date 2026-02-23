@@ -9,11 +9,12 @@ interface MarketRowProps {
   formatVolume: (volume: string) => string;
   formatPercent: (percent: string) => string;
   formatFundingRate: (rate: string) => string;
+  formatTrades?: (trades: number) => string;
   getTimeUntilFunding: (fundingAt: string) => string;
   isMobile: boolean;
 }
 
-type SortField = 'ticker' | 'price' | 'change' | 'volume' | 'trades' | 'openInterest';
+type SortField = 'ticker' | 'price' | 'change' | 'volume' | 'trades' | 'openInterest' | 'marketCap';
 type SortDirection = 'asc' | 'desc';
 
 const ROWS_PER_PAGE = 50;
@@ -49,6 +50,7 @@ const MarketRow = memo(function MarketRow({
   formatVolume,
   formatPercent,
   formatFundingRate,
+  formatTrades,
   getTimeUntilFunding,
   isMobile,
 }: MarketRowProps) {
@@ -60,7 +62,6 @@ const MarketRow = memo(function MarketRow({
   if (isMobile) {
     return (
       <div className="flex items-center justify-between py-3 px-4 border-b border-color hover:bg-hover transition-colors">
-        {/* Left: Icon + Name + Volume */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="relative w-10 h-10 flex-shrink-0">
             {market.coinIcon ? (
@@ -87,8 +88,11 @@ const MarketRow = memo(function MarketRow({
             </div>
           </div>
           <div className="min-w-0 flex-1">
-            <div className="font-semibold text-primary text-base">
-              {market.ticker.split('-')[0]}
+            <div className="font-semibold text-primary text-base relative max-w-[150px] group/ticker">
+              <div className="overflow-x-auto whitespace-nowrap [&::-webkit-scrollbar]:hidden pr-8">
+                {market.ticker.split('-')[0]}
+              </div>
+              <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-hover via-hover/60 to-transparent pointer-events-none group-hover:from-hover" />
             </div>
             <div className="text-xs text-muted">
               Volume {formatVolume(market.volume24H)}
@@ -96,7 +100,6 @@ const MarketRow = memo(function MarketRow({
           </div>
         </div>
 
-        {/* Right: Price + Change */}
         <div className="text-right flex-shrink-0">
           <div className="text-primary font-semibold text-base">
             ${formatPrice(market.oraclePrice)}
@@ -150,13 +153,19 @@ const MarketRow = memo(function MarketRow({
             </div>
           </div>
           <div className="min-w-0">
-            <div className="font-medium text-primary text-sm leading-tight flex items-center gap-2">
-              {market.ticker.split('-')[0]}
-              {market.clobPairId && (
-                <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
-                  {market.clobPairId}×
+            <div className="font-medium text-primary text-sm leading-tight flex items-center gap-1">
+              <div className="relative max-w-[100px] lg:max-w-[140px] group/ticker">
+                <div className="overflow-x-auto whitespace-nowrap [&::-webkit-scrollbar]:hidden pr-6">
+                  <span>{market.ticker.split('-')[0]}</span>
+                </div>
+                <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-secondary group-hover:from-hover to-transparent pointer-events-none" />
+              </div>
+              {market.initialMarginFraction && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-tertiary text-muted ml-1 flex-shrink-0">
+                  {Math.round(1 / Number(market.initialMarginFraction))}×
                 </span>
               )}
+              {market.zeroFees && <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 ml-1 flex-shrink-0">No Fees</span>}
             </div>
             <div className="text-[11px] text-muted truncate">
               {market.coinName || 'Perpetual'}
@@ -183,10 +192,15 @@ const MarketRow = memo(function MarketRow({
         <span className="text-secondary text-sm">{formatVolume(market.volume24H)}</span>
       </td>
       <td className="py-3 px-4 text-right">
-        <span className="text-secondary text-sm">${formatVolume(market.openInterest)}</span>
+        <span className="text-secondary text-sm">
+          {market.marketCap ? formatVolume(market.marketCap) : '-'}
+        </span>
       </td>
       <td className="py-3 px-4 text-right">
-        <span className="text-muted text-sm">{market.trades24H.toLocaleString()}</span>
+        <span className="text-secondary text-sm">{formatTrades ? formatTrades(market.trades24H || 0) : (market.trades24H || 0).toLocaleString()}</span>
+      </td>
+      <td className="py-3 px-4 text-right">
+        <span className="text-secondary text-sm">${formatVolume(market.openInterest)}</span>
       </td>
       <td className="py-3 px-4 text-right">
         <div
@@ -250,6 +264,13 @@ export default function MarketsDisplay() {
     return isNaN(num) ? '0.0000' : num.toFixed(4);
   }, []);
 
+  const formatTrades = useCallback((trades: number): string => {
+    if (trades >= 1000) {
+      return (trades / 1000).toFixed(1) + 'k';
+    }
+    return trades.toLocaleString();
+  }, []);
+
   const getTimeUntilFunding = useCallback((fundingAt: string): string => {
     if (!fundingAt) return 'N/A';
     const now = Date.now();
@@ -296,6 +317,10 @@ export default function MarketsDisplay() {
         case 'openInterest':
           aVal = parseFloat(a.openInterest);
           bVal = parseFloat(b.openInterest);
+          break;
+        case 'marketCap':
+          aVal = parseFloat(a.marketCap || '0');
+          bVal = parseFloat(b.marketCap || '0');
           break;
       }
 
@@ -470,6 +495,13 @@ export default function MarketsDisplay() {
                         <SortIcon field="volume" />
                       </th>
                       <th
+                        onClick={() => handleSort('marketCap')}
+                        className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
+                      >
+                        Market Cap
+                        <SortIcon field="marketCap" />
+                      </th>
+                      <th
                         onClick={() => handleSort('openInterest')}
                         className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
                       >
@@ -480,7 +512,7 @@ export default function MarketsDisplay() {
                         onClick={() => handleSort('trades')}
                         className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
                       >
-                        Trades
+                        24h Trades
                         <SortIcon field="trades" />
                       </th>
                       <th className="py-3 px-4 text-right text-xs font-medium text-muted">
@@ -497,6 +529,7 @@ export default function MarketsDisplay() {
                         formatVolume={formatVolume}
                         formatPercent={formatPercent}
                         formatFundingRate={formatFundingRate}
+                        formatTrades={formatTrades}
                         getTimeUntilFunding={getTimeUntilFunding}
                         isMobile={false}
                       />
@@ -528,8 +561,8 @@ export default function MarketsDisplay() {
                         key={page}
                         onClick={() => handlePageChange(page as number)}
                         className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${currentPage === page
-                            ? 'text-white font-medium shadow-lg'
-                            : 'hover:bg-hover text-muted'
+                          ? 'text-white font-medium shadow-lg'
+                          : 'hover:bg-hover text-muted'
                           }`}
                         style={currentPage === page ? { backgroundColor: 'var(--color-brand-accent)' } : {}}
                       >

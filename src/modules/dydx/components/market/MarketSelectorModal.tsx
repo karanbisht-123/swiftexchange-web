@@ -17,7 +17,6 @@ interface MarketRowProps {
   onToggleFavorite: (ticker: string) => void;
 }
 
-// Memoized market row for performance
 const MarketRow = memo(function MarketRow({
   market,
   isSelected,
@@ -52,7 +51,6 @@ const MarketRow = memo(function MarketRow({
       className={`w-full flex items-center gap-3 px-4 sm:px-4 py-4 sm:py-3 hover:bg-[#1e293b]/60 active:bg-[#1e293b]/80 transition-colors border-b border-[#1e293b]/30 ${isSelected ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
         }`}
     >
-      {/* Favorite button - larger touch target on mobile */}
       <button
         onClick={e => {
           e.stopPropagation();
@@ -66,7 +64,6 @@ const MarketRow = memo(function MarketRow({
         />
       </button>
 
-      {/* Market Icon - slightly larger on mobile */}
       <div className="relative w-10 h-10 sm:w-8 sm:h-8 flex-shrink-0">
         {market.coinIcon ? (
           <img
@@ -88,8 +85,6 @@ const MarketRow = memo(function MarketRow({
           {market.ticker.split('-')[0].slice(0, 2)}
         </div>
       </div>
-
-      {/* Market Info */}
       <div className="flex-1 min-w-0 text-left">
         <div className="font-medium text-white text-base sm:text-sm flex items-center gap-1.5">
           <span>{market.ticker.split('-')[0]}</span>
@@ -98,7 +93,6 @@ const MarketRow = memo(function MarketRow({
         <div className="text-xs sm:text-[11px] text-slate-500 truncate">{market.coinName || 'Perpetual'}</div>
       </div>
 
-      {/* Price */}
       <div className="text-right flex-shrink-0">
         <div className="text-base sm:text-sm font-medium text-white font-mono">
           ${formatPrice(market.oraclePrice)}
@@ -113,7 +107,6 @@ const MarketRow = memo(function MarketRow({
         </div>
       </div>
 
-      {/* Volume */}
       <div className="text-right flex-shrink-0 hidden sm:block min-w-[70px]">
         <div className="text-[10px] text-slate-500">Vol</div>
         <div className="text-xs text-slate-300 font-medium">{formatVolume(market.volume24H)}</div>
@@ -142,7 +135,17 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
   const panelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Prevent body scroll when modal is open on mobile
+  const [isMobile, setIsMobile] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -202,7 +205,7 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
       );
     }
 
-    // Filter by tab
+
     if (activeTab === 'favorites') {
       filtered = filtered.filter(m => favorites.has(m.ticker));
     }
@@ -210,22 +213,39 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
     return filtered;
   }, [marketsList, searchTerm, activeTab, favorites]);
 
+  const itemHeight = isMobile ? 88 : 76;
+  const containerHeight = typeof window !== 'undefined' ? window.innerHeight - 220 : 600;
+  const totalHeight = filteredMarkets.length * itemHeight;
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  };
+
+  const visibleItems = useMemo(() => {
+    const startNode = Math.floor(scrollTop / itemHeight);
+    const visibleCount = Math.ceil(containerHeight / itemHeight);
+    const startIndex = Math.max(0, startNode - 2);
+    const endIndex = Math.min(filteredMarkets.length, startNode + visibleCount + 2);
+
+    return filteredMarkets.slice(startIndex, endIndex).map((market, index) => ({
+      market,
+      index: startIndex + index,
+      top: (startIndex + index) * itemHeight,
+    }));
+  }, [scrollTop, itemHeight, containerHeight, filteredMarkets]);
+
   return (
     <>
-      {/* Backdrop */}
       <div
         className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         onClick={onClose}
       />
-
-      {/* Slide Panel - Full screen on mobile, sidebar on desktop */}
       <div
         ref={panelRef}
         className={`fixed top-0 left-0 z-50 h-full w-full sm:max-w-sm bg-secondary border-r border-[#334155] shadow-2xl transition-transform duration-300 ease-out ${isOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
       >
-        {/* Header - Added safe area padding for mobile notches */}
         <div className="flex items-center justify-between px-4 sm:px-4 py-4 sm:py-3 border-b border-[#334155] pt-safe">
           <h2 className="text-xl sm:text-lg font-semibold text-white">Markets</h2>
           <button
@@ -236,7 +256,6 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
           </button>
         </div>
 
-        {/* Search - Improved mobile sizing */}
         <div className="px-4 py-4 sm:py-3 border-b border-[#334155]/50">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-4 sm:h-4 text-slate-500" />
@@ -258,14 +277,12 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
             )}
           </div>
         </div>
-
-        {/* Tabs - Better mobile touch targets */}
         <div className="flex border-b border-[#334155]/50">
           <button
             onClick={() => setActiveTab('all')}
             className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors ${activeTab === 'all'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
               }`}
           >
             All Markets
@@ -273,8 +290,8 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
           <button
             onClick={() => setActiveTab('favorites')}
             className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors flex items-center justify-center gap-2 sm:gap-1.5 ${activeTab === 'favorites'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
               }`}
           >
             <Star className="w-5 h-5 sm:w-4 sm:h-4" />
@@ -287,13 +304,14 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
           </button>
         </div>
 
-        {/* Market List - Dynamic height with safe area for mobile */}
         <div
-          className="overflow-y-auto overscroll-contain"
+          ref={listRef}
+          className="overflow-y-auto overscroll-contain relative"
           style={{
             height: 'calc(100vh - 220px)',
             WebkitOverflowScrolling: 'touch'
           }}
+          onScroll={handleScroll}
         >
           {isLoading ? (
             <div className="py-16 sm:py-12 text-center">
@@ -301,16 +319,28 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
               <p className="text-base sm:text-sm text-slate-500">Loading markets...</p>
             </div>
           ) : filteredMarkets.length > 0 ? (
-            filteredMarkets.map(market => (
-              <MarketRow
-                key={market.ticker}
-                market={market}
-                isSelected={selectedMarket === market.ticker}
-                isFavorite={favorites.has(market.ticker)}
-                onSelect={handleSelect}
-                onToggleFavorite={toggleFavorite}
-              />
-            ))
+            <div style={{ height: totalHeight, position: 'relative' }}>
+              {visibleItems.map(({ market, top }) => (
+                <div
+                  key={market.ticker}
+                  style={{
+                    position: 'absolute',
+                    top,
+                    left: 0,
+                    right: 0,
+                    height: itemHeight,
+                  }}
+                >
+                  <MarketRow
+                    market={market}
+                    isSelected={selectedMarket === market.ticker}
+                    isFavorite={favorites.has(market.ticker)}
+                    onSelect={handleSelect}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="py-16 sm:py-12 text-center px-4">
               <Search className="w-12 h-12 sm:w-10 sm:h-10 mx-auto mb-4 sm:mb-3 text-slate-700" />
@@ -323,8 +353,6 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
             </div>
           )}
         </div>
-
-        {/* Footer - Added safe area padding for mobile home indicators */}
         <div className="absolute bottom-0 left-0 right-0 px-4 py-3 sm:py-2.5 border-t border-[#334155]/50 bg-secondary pb-safe">
           <p className="text-sm sm:text-xs text-slate-500 text-center">
             {filteredMarkets.length} of {marketsList.length} markets

@@ -7,10 +7,9 @@ import {
   LineChart,
   Menu,
   Send,
-  Settings,
+  // Settings,
   TrendingUp,
-  User,
-  // Wallet,
+  // User,
   X,
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
@@ -123,16 +122,16 @@ const Sidebar: FC = () => {
       icon: <TrendingUp className="w-5 h-5" />,
       queryParam: '?view=trade',
     },
-    {
-      href: ROUTES.PROFILE,
-      label: 'Profile',
-      icon: <User className="w-5 h-5" />,
-    },
-    {
-      href: ROUTES.SETTINGS,
-      label: 'Settings',
-      icon: <Settings className="w-5 h-5" />,
-    },
+    // {
+    //   href: ROUTES.PROFILE,
+    //   label: 'Profile',
+    //   icon: <User className="w-5 h-5" />,
+    // },
+    // {
+    //   href: ROUTES.SETTINGS,
+    //   label: 'Settings',
+    //   icon: <Settings className="w-5 h-5" />,
+    // },
   ];
 
   const handleNavClick = (item: NavItem) => {
@@ -148,7 +147,6 @@ const Sidebar: FC = () => {
 
   return (
     <>
-      {/* Mobile Hamburger Button */}
       <button
         id="hamburger-btn"
         onClick={() => setIsOpen(!isOpen)}
@@ -156,8 +154,6 @@ const Sidebar: FC = () => {
       >
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
-
-      {/* Mobile Backdrop */}
       {isOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/30 z-40 transition-opacity"
@@ -165,7 +161,6 @@ const Sidebar: FC = () => {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         id="sidebar"
         className={`
@@ -210,9 +205,7 @@ const Sidebar: FC = () => {
             <X className="w-4 h-4" />
           </button>
         </div>
-
-        {/* Navigation Items */}
-        <nav className="flex-1 p-3 overflow-y-auto scrollbar-thin">
+        <nav className="flex-1 p-2 overflow-y-auto scrollbar-thin">
           <div className="space-y-1">
             {navItems.map(item => {
               const isActive = activeItem === item.href;
@@ -222,7 +215,7 @@ const Sidebar: FC = () => {
                   key={item.href}
                   onClick={() => handleNavClick(item)}
                   className={`
-                    w-full flex items-center gap-3 px-3 py-2.5 rounded-lg
+                    w-full flex items-center gap-4 px-3 py-3 rounded-md
                     transition-colors duration-150
                     ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
                     ${isCompressed ? 'justify-center' : ''}
@@ -259,8 +252,6 @@ const Sidebar: FC = () => {
           </div>
         </nav>
       </aside>
-
-      {/* Spacer for Desktop Layout */}
       <div
         className={`hidden lg:block flex-shrink-0 transition-all duration-200 ${isCompressed ? 'w-16' : 'w-64'
           }`}

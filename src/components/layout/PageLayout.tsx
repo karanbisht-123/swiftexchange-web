@@ -36,7 +36,7 @@ const PageLayout: React.FC<PageLayoutProps> = ({
   };
 
   return (
-    <div className="flex flex-col items-center h-[calc(100vh-4rem)] md:h-[calc(100dvh-4rem)] lg:p-6 bg-primary overflow-hidden">
+    <div className="flex  flex-col items-center h-[calc(100vh-4rem)] md:h-[calc(100dvh-4rem)] lg:p-6 bg-primary overflow-hidden">
       <div
         className={`
           w-full ${maxWidthClasses[maxWidth]} 
@@ -45,7 +45,7 @@ const PageLayout: React.FC<PageLayoutProps> = ({
           ${className}
         `}
       >
-        <div className="shrink-0 p-3 md:pt-6 md:px-6 pb-2 md:pb-4 border-b border-color">
+        <div className="shrink-0 overflow-x-auto max-w-screen p-3 md:pt-6 md:px-6 pb-2 md:pb-4 border-b border-color">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               {showBackButton && onBack && (
