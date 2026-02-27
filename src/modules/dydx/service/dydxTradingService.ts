@@ -92,7 +92,7 @@ class DydxTradingService {
                 break;
               }
             } catch {
-              // ignore attempt failure, retry
+
             }
 
             await new Promise(resolve => setTimeout(resolve, 1000));

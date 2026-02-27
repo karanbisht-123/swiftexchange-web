@@ -498,7 +498,7 @@ export const DydxTradingForm: React.FC = () => {
       </div>
 
       {/* Fixed Selectors */}
-      <div className="flex-shrink-0 space-y-4 pb-2 bg-secondary">
+      <div className="flex-shrink-0 space-y-2 pb-2 bg-secondary">
         <BuySellSelector selected={side} onChange={setSide} />
         <MarginTypeSelector
           selected={marginMode}

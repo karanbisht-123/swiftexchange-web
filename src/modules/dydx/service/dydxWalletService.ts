@@ -1,3 +1,6 @@
+import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
+import Long from 'long';
+import { walletService } from '../../walletconnect/services/walletService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getCompositeClient, getIndexerClient } from '../client/clients';
 import { type MarginMode, SUBACCOUNT_CONSTANTS } from '../types/trading.types';
@@ -131,6 +134,63 @@ class DydxWalletService {
       return balance;
     } catch (error: any) {
       throw new Error(`Failed to fetch balance: ${error.message}`);
+    }
+  }
+
+  async withdraw(amount: string, toAddress?: string): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    try {
+      const client = await this.getCompositeClient();
+      const address = this.getAddress();
+      if (!client || !address) {
+        throw new Error('Wallet not connected');
+      }
+
+      const evmSession = walletService.getSession('evm');
+      if (!evmSession?.evmAddress) {
+        throw new Error('EVM wallet not connected');
+      }
+
+      const localWallet = walletService.getSigningWallet();
+      if (!localWallet) {
+        throw new Error('Signing wallet not available - please derive dYdX wallet first');
+      }
+
+      const subaccount = SubaccountInfo.forLocalWallet(localWallet, this.subaccountNumber);
+      const amountInQuantums = Math.floor(parseFloat(amount) * 1e6);
+
+      if (amountInQuantums <= 0) {
+        throw new Error('Withdraw amount must be greater than 0');
+      }
+
+      const recipient = toAddress || address; // Send to self if no address is provided
+
+      const result = await client.validatorClient.post.withdraw(
+        subaccount,
+        0, // Asset ID 0 for USDC
+        Long.fromString(amountInQuantums.toString()),
+        recipient
+      );
+
+      let txHash = typeof result.hash === 'string' ? result.hash : 'unknown';
+      if (result.hash && typeof result.hash !== 'string') {
+        const data = (result.hash as any).data || result.hash;
+        if (Array.isArray(data) || data instanceof Uint8Array) {
+          txHash = Array.from(data)
+            .map((b: any) => b.toString(16).padStart(2, '0'))
+            .join('');
+        }
+      }
+
+      return {
+        success: true,
+        transactionHash: txHash
+      };
+    } catch (error: any) {
+      console.error('[dydxWalletService] Withdraw failed:', error);
+      return {
+        success: false,
+        error: error.message || 'Withdraw failed'
+      };
     }
   }
 

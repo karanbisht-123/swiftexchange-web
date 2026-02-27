@@ -60,9 +60,9 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
 
   return (
     <>
-      <div className="flex items-center justify-between px-2 md:px-4 mt-2 mb-1">
+      <div className="flex items-center justify-between px-2 py-2 border-b border-color md:px-4 ">
         <div className="relative flex items-center gap-1.5 md:gap-2">
-          {/* Info Icon (Absolute on Mobile and Desktop) */}
+
           <div className="group absolute -top-2.5 left-1/2 -translate-x-1/2 flex items-center z-10 w-4 h-4 justify-center rounded-full bg-(--color-bg-secondary) border border-(--color-border) shadow-sm cursor-help hover:border-indigo-500/50 transition-colors">
             <Info size={10} className="text-(--color-text-muted) group-hover:text-indigo-400" />
             <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 w-[240px] sm:w-[300px] p-2.5 md:p-3 bg-(--color-bg-secondary) border border-(--color-border) rounded-lg shadow-xl z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none transform origin-bottom">
