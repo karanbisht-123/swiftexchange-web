@@ -13,7 +13,7 @@ interface OrderbookRow {
 const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
   const { selectedMarket } = useMarketStore();
   const { onPriceClick } = useOrderbookClickStore();
-  const { orderbook, isConnected, dataSource } = useOrderbook(selectedMarket);
+  const { orderbook, isConnected, isLoading } = useOrderbook(selectedMarket);
 
   const { bids, asks, spread, spreadPct, maxTotal } = useMemo(() => {
     if (!orderbook?.bids?.length || !orderbook?.asks?.length) {
@@ -92,7 +92,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
           <span className="text-secondary">/</span>
           <span className="text-secondary">{quote}</span>
           <div
-            className={`w-2 h-2 rounded-full ${isConnected && dataSource === 'websocket' ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
+            className={`w-2 h-2 rounded-full ${isConnected && !isLoading ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
               } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>

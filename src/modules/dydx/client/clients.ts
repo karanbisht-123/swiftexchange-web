@@ -20,8 +20,6 @@ const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
 };
 
 export const resetAllClients = (isLogout = false): void => {
-  console.log(`[dYdX Clients] Resetting clients (logout: ${isLogout})`);
-
   indexerClient = null;
   validatorClient = null;
   compositeClient = null;
@@ -29,17 +27,11 @@ export const resetAllClients = (isLogout = false): void => {
   if (isLogout) {
     currentNetwork = null;
     webSocketManager.shutdown();
-    console.log('[dYdX Clients] All clients fully shut down (logout)');
-  } else {
-    console.log('[dYdX Clients] Clients reset due to network change');
   }
 };
 
 const checkNetworkChange = (network: 'mainnet' | 'testnet'): boolean => {
   if (currentNetwork && currentNetwork !== network) {
-    console.log(
-      `[dYdX Client] Network changed from ${currentNetwork} to ${network}, resetting clients...`
-    );
     resetAllClients(false);
     return true;
   }
@@ -58,7 +50,6 @@ export const getIndexerClient = (): IndexerClient => {
 
   indexerClient = new IndexerClient(networkConfig.indexerConfig);
   currentNetwork = network;
-  console.log(`[IndexerClient] Initialized for ${network}`);
 
   return indexerClient;
 };
@@ -75,7 +66,6 @@ export const getValidatorClient = async (): Promise<ValidatorClient> => {
 
   validatorClient = await ValidatorClient.connect(networkConfig.validatorConfig);
   currentNetwork = network;
-  console.log(`[ValidatorClient] Connected to ${network}`);
 
   return validatorClient;
 };
@@ -92,7 +82,6 @@ export const getCompositeClient = async (): Promise<CompositeClient> => {
 
   compositeClient = await CompositeClient.connect(networkConfig);
   currentNetwork = network;
-  console.log(`[CompositeClient] Connected to ${network}`);
 
   return compositeClient;
 };
@@ -158,7 +147,6 @@ export const getSocketClient = () => {
   if (currentNetwork !== network) {
     checkNetworkChange(network);
     currentNetwork = network;
-    console.log(`[SocketClient] Created for ${network}`);
   }
 
   return createSocketClient();
@@ -171,7 +159,6 @@ export const useIndexerClient = (): IndexerClient => {
   const [client, setClient] = useState<IndexerClient>(getIndexerClient());
 
   useEffect(() => {
-    console.log('[useIndexerClient] Network changed:', network);
     setClient(getIndexerClient());
   }, [network]);
 
@@ -185,14 +172,11 @@ export const useValidatorClient = (): ValidatorClient | null => {
 
   useEffect(() => {
     mountedRef.current = true;
-    console.log('[useValidatorClient] Initializing for network:', network);
 
     getValidatorClient()
       .then(validatorClient => {
         if (mountedRef.current) {
           setClient(validatorClient);
-        } else {
-          console.log('[useValidatorClient] Component unmounted, ignoring result');
         }
       })
       .catch(error => {
@@ -203,7 +187,6 @@ export const useValidatorClient = (): ValidatorClient | null => {
       });
 
     return () => {
-      console.log('[useValidatorClient] Cleanup on unmount');
       mountedRef.current = false;
     };
   }, [network]);
@@ -218,14 +201,11 @@ export const useCompositeClient = (): CompositeClient | null => {
 
   useEffect(() => {
     mountedRef.current = true;
-    console.log('[useCompositeClient] Initializing for network:', network);
 
     getCompositeClient()
       .then(compositeClient => {
         if (mountedRef.current) {
           setClient(compositeClient);
-        } else {
-          console.log('[useCompositeClient] Component unmounted, ignoring result');
         }
       })
       .catch(error => {
@@ -236,7 +216,6 @@ export const useCompositeClient = (): CompositeClient | null => {
       });
 
     return () => {
-      console.log('[useCompositeClient] Cleanup on unmount');
       mountedRef.current = false;
     };
   }, [network]);
@@ -251,7 +230,6 @@ export const useSocketClient = (): SocketClient => {
 
   useEffect(() => {
     if (networkRef.current !== network) {
-      console.log('[useSocketClient] Network changed from', networkRef.current, 'to', network);
       networkRef.current = network;
       setClient(getSocketClient());
     }
@@ -274,6 +252,5 @@ export const getConnectionHealth = () => {
 };
 
 export const logoutAndShutdown = () => {
-  console.log('[Clients] Logout initiated');
   resetAllClients(true);
 };

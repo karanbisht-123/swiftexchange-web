@@ -6,12 +6,10 @@ import { dydxWalletService } from '../service/dydxWalletService';
 import { getSubaccountBalance, useSubaccountStore } from '../store/subaccountStore';
 import {
   type ChildSubaccount,
-  // type ParentSubaccountData,
   useWebSocketStore,
 } from '../store/websocketStore';
 import {
   SUBACCOUNT_CONSTANTS,
-  // type MarginMode,
   type SubaccountBalance,
   type TransferResult,
 } from '../types/trading.types';
@@ -53,7 +51,6 @@ export const useSubaccounts = () => {
     return childSubaccounts.filter(c => c.subaccountNumber >= SUBACCOUNT_CONSTANTS.ISOLATED_START);
   }, [childSubaccounts]);
 
-  // Get subaccount for a specific market
   const getSubaccountForMarket = useCallback(
     (market: string): ChildSubaccount | null => {
       return (

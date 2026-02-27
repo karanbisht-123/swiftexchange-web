@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getIndexerClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
@@ -41,14 +41,28 @@ export function useRealtimeChart(
   const unsubscribeFromCandles = useWebSocketStore(state => state.unsubscribeFromCandles);
   const isConnected = useWebSocketStore(state => state.isConnected);
 
+  const prevConnectedRef = useRef<boolean>(false);
+  const mountedRef = useRef(true);
+
   const candleKey = `candles_${market}_${resolution}`;
   const storeCandlesData = useWebSocketStore(state => state.candles.get(candleKey));
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
-    setIsLoading(true);
-    setError(null);
+    const isReconnect = !prevConnectedRef.current && isConnected;
+    prevConnectedRef.current = isConnected;
+
+    if (isReconnect) {
+      setSnapshotCandles([]);
+      setIsLoading(true);
+      setError(null);
+    }
 
     const loadCandles = async () => {
       try {
@@ -63,19 +77,19 @@ export function useRealtimeChart(
 
         if (!mounted) return;
 
-        const fetchedCandles = data.candles || [];
+        const fetched = data.candles || [];
 
-        if (fetchedCandles.length > 0) {
-          const sortedCandles = [...fetchedCandles].sort(
+        if (fetched.length > 0) {
+          const sorted = [...fetched].sort(
             (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
           );
-
-          setSnapshotCandles(sortedCandles);
+          setSnapshotCandles(sorted);
         } else {
           setSnapshotCandles([]);
         }
 
         setIsLoading(false);
+        setError(null);
       } catch (err) {
         if (!mounted) return;
         console.error('[Candles] Load error:', err);
@@ -89,14 +103,12 @@ export function useRealtimeChart(
     return () => {
       mounted = false;
     };
-  }, [market, resolution, limit]);
+  }, [market, resolution, limit, isConnected]);
 
   useEffect(() => {
-    console.log(`[Candles] Subscribing to ${market} ${resolution}`);
     subscribeToCandles(market, resolution);
 
     return () => {
-      console.log(`[Candles] Unsubscribing from ${market} ${resolution}`);
       unsubscribeFromCandles(market, resolution);
     };
   }, [market, resolution, subscribeToCandles, unsubscribeFromCandles]);

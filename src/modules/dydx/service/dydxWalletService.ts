@@ -7,8 +7,6 @@ type NetworkType = 'mainnet' | 'testnet';
 export interface AccountBalance {
   equity: string;
   freeCollateral: string;
-  // totalTradingRewards: string;
-  // marginUsage: string;
 }
 
 export interface DydxConnection {
@@ -34,7 +32,6 @@ class DydxWalletService {
   private isConnecting = false;
 
   async connect(networkType: NetworkType, subaccountNumber: number = 0): Promise<DydxConnection> {
-    // console.log(networkType);
     if (this.isConnecting) {
       throw new Error('Connection already in progress');
     }
@@ -53,21 +50,17 @@ class DydxWalletService {
       const compositeClient = await getCompositeClient();
       const indexerClient = getIndexerClient();
 
-      // Verify indexer connection
       try {
         await indexerClient.utility.getHeight();
-        console.log('[dydxWalletService] IndexerClient verified');
       } catch (err) {
         console.error('[dydxWalletService] IndexerClient verification failed:', err);
         throw new Error('Failed to connect to Indexer');
       }
 
-      // Set service state
       this.address = address;
       this.subaccountNumber = subaccountNumber;
       this.chainId = compositeClient.validatorClient.config.chainId;
 
-      // Check subaccount and fetch balance
       const hasSubaccount = await this.checkSubaccountExists();
       const balance = hasSubaccount ? await this.fetchBalance(true) : undefined;
 
@@ -90,12 +83,10 @@ class DydxWalletService {
   }
 
   disconnect(): void {
-    console.log('[dydxWalletService] Disconnecting');
     this.address = '';
     this.chainId = '';
     this.subaccountNumber = 0;
     this.balanceCache = null;
-
     this.setStatus('disconnected');
   }
 
@@ -111,11 +102,9 @@ class DydxWalletService {
     if (!forceRefresh && this.balanceCache) {
       const age = Date.now() - this.balanceCache.timestamp;
       if (age < this.BALANCE_CACHE_TTL) {
-        console.log('[dydxWalletService] Returning cached balance');
         return this.balanceCache.data;
       }
     }
-
     return this.fetchBalance(forceRefresh);
   }
 
@@ -126,8 +115,6 @@ class DydxWalletService {
     }
 
     try {
-      console.log('[dydxWalletService] Fetching balance for:', address);
-
       const indexerClient = getIndexerClient();
       const resp = await indexerClient.account.getSubaccount(address, this.subaccountNumber);
 
@@ -138,16 +125,11 @@ class DydxWalletService {
       const balance: AccountBalance = {
         equity: resp.subaccount.equity ?? '0',
         freeCollateral: resp.subaccount.freeCollateral ?? '0',
-        // totalTradingRewards: resp.subaccount.totalTradingRewards ?? '0',
-        // marginUsage: resp.subaccount.marginUsage ?? '0',
       };
 
       this.balanceCache = { data: balance, timestamp: Date.now() };
-      console.log('[dydxWalletService] Balance fetched successfully');
-
       return balance;
     } catch (error: any) {
-      console.error('[dydxWalletService] Balance fetch error:', error);
       throw new Error(`Failed to fetch balance: ${error.message}`);
     }
   }
@@ -163,10 +145,8 @@ class DydxWalletService {
 
   setActiveSubaccount(subaccountNumber: number): void {
     if (subaccountNumber < 0 || subaccountNumber > SUBACCOUNT_CONSTANTS.ISOLATED_END) {
-      console.warn('[dydxWalletService] Invalid subaccount number:', subaccountNumber);
       return;
     }
-    console.log('[dydxWalletService] Active subaccount changed:', this.activeSubaccountNumber, '->', subaccountNumber);
     this.activeSubaccountNumber = subaccountNumber;
   }
 
@@ -188,18 +168,13 @@ class DydxWalletService {
 
   private async checkSubaccountExists(): Promise<boolean> {
     const address = this.address || this.getAddressFromStore();
-    if (!address) {
-      return false;
-    }
+    if (!address) return false;
 
     try {
       const indexerClient = getIndexerClient();
       const resp = await indexerClient.account.getSubaccount(address, this.subaccountNumber);
-
-      console.log('[dydxWalletService] Subaccount check:', !!resp.subaccount);
       return !!resp.subaccount;
-    } catch (error) {
-      console.error('[dydxWalletService] Check subaccount error:', error);
+    } catch {
       return false;
     }
   }
@@ -212,7 +187,6 @@ class DydxWalletService {
   }
 
   private setStatus(status: DydxStatus, payload?: any): void {
-    console.log('[dydxWalletService] Status change:', status);
     this.status = status;
     this.listeners.forEach(cb => cb(status, payload));
   }

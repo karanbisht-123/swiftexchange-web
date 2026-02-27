@@ -84,6 +84,15 @@ class WebSocketManager {
     v4_parent_subaccounts: 0,
   };
 
+  private readonly CHANNEL_STALE_THRESHOLDS: Record<string, number> = {
+    v4_trades: 45000,
+    v4_orderbook: 45000,
+    v4_markets: 90000,
+    v4_candles: 90000,
+    v4_parent_subaccounts: 60000,
+    v4_block_height: 60000,
+  };
+
   // messages received
   private totalMessagesReceived = 0;
   private messagesByChannel = new Map<string, number>();
@@ -103,33 +112,39 @@ class WebSocketManager {
 
   private setupVisibilityHandling(): void {
     if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
-          console.log('[WS] Page hidden, reducing activity');
-          this.stopPing();
-        } else {
-          console.log('[WS] Page visible, resuming activity');
-          if (this.isConnected()) {
-            this.startPing();
-            this.verifyConnectionHealth();
-          }
-        }
-      });
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
     }
   }
 
+  private readonly handleVisibilityChange = (): void => {
+    if (document.hidden) {
+      this.stopPing();
+      return;
+    }
+
+    if (!this.currentWsUrl) return;
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.startPing();
+      try {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      } catch {
+        this.connect(this.currentWsUrl).catch(console.error);
+      }
+    } else if (!this.isConnecting && !this.isReconnecting) {
+      this.connect(this.currentWsUrl).catch(console.error);
+    }
+  };
+
   async connect(wsUrl: string): Promise<void> {
     if (this.currentWsUrl !== wsUrl && this.ws?.readyState === WebSocket.OPEN) {
-      // console.log('[WS] Network change detected, reconnecting to:', wsUrl);
       await this.disconnect();
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     if (this.currentWsUrl === wsUrl && this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[WS] Already connected to same URL');
       return;
     }
     if (this.isConnecting) {
-      console.log('[WS] Connection already in progress');
       return;
     }
 
@@ -141,7 +156,6 @@ class WebSocketManager {
         this.ws = new WebSocket(wsUrl);
 
         const connectionTimeout = setTimeout(() => {
-          // console.error('[WS] Connection timeout');
           this.cleanup();
           reject(new Error('Connection timeout'));
         }, 10000);
@@ -158,9 +172,10 @@ class WebSocketManager {
           this.subscriptionInProgress.clear();
           this.messageCache.clear();
           this.resubscribeAll();
-          this.startPing();
+          if (!document.hidden) {
+            this.startPing();
+          }
           this.notifyConnectionHandlers();
-          // console.log('[WS] Connection established to:', wsUrl);
           resolve();
         };
 
@@ -180,7 +195,6 @@ class WebSocketManager {
         };
 
         this.ws.onclose = (event: CloseEvent) => {
-          // console.log(`[WS] Connection closed: code=${event.code}, reason=${event.reason}`);
           clearTimeout(connectionTimeout);
           this.connectionId = null;
           this.isConnecting = false;
@@ -189,12 +203,13 @@ class WebSocketManager {
           this.subscriptionInProgress.clear();
           this.notifyDisconnectionHandlers();
 
-          if (
+          const shouldReconnect =
             !this.isReconnecting &&
             event.code !== 1000 &&
             this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS &&
-            this.currentWsUrl !== null
-          ) {
+            this.currentWsUrl !== null;
+
+          if (shouldReconnect) {
             this.attemptReconnect();
           }
         };
@@ -207,7 +222,7 @@ class WebSocketManager {
   }
 
   private async disconnect(): Promise<void> {
-    // console.log('[WS] Disconnecting gracefully...');
+    this.stopPing();
     this.isReconnecting = false;
     this.reconnectAttempts = this.MAX_RECONNECT_ATTEMPTS;
 
@@ -223,8 +238,8 @@ class WebSocketManager {
                 ...(subscription.id && { id: subscription.id }),
               })
             );
-          } catch (e) {
-            console.warn('[WS] Failed to send unsubscribe:', e);
+          } catch {
+            // ignore
           }
         }
       });
@@ -250,19 +265,13 @@ class WebSocketManager {
       this.BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1),
       this.MAX_RECONNECT_DELAY
     );
-    const jitter = Math.random() * 1000;
-    const delay = exponentialDelay + jitter;
-
-    // console.log(
-    //   `[WS] Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})`
-    // );
+    const delay = exponentialDelay + Math.random() * 1000;
 
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
       await this.connect(this.currentWsUrl);
       this.isReconnecting = false;
-      // console.log('[WS] Reconnection successful');
     } catch (error) {
       console.error('[WS] Reconnection failed:', error);
       this.isReconnecting = false;
@@ -287,10 +296,6 @@ class WebSocketManager {
     }
     this.subscriptions.get(subscriptionKey)!.add(handler);
 
-    // console.log(
-    //   `[WS] Subscribing to: ${subscriptionKey}, handlers: ${this.subscriptions.get(subscriptionKey)!.size}`
-    // );
-
     if (
       !this.serverSubscriptions.has(subscriptionKey) &&
       !this.subscriptionInProgress.has(subscriptionKey)
@@ -311,9 +316,6 @@ class WebSocketManager {
       const handlers = this.subscriptions.get(subscriptionKey);
       if (handlers) {
         handlers.delete(handler);
-        // console.log(
-        //   `[WS] Unsubscribing handler from: ${subscriptionKey}, remaining: ${handlers.size}`
-        // );
 
         if (handlers.size === 0) {
           this.subscriptions.delete(subscriptionKey);
@@ -329,7 +331,6 @@ class WebSocketManager {
             ...(id && { id }),
           };
 
-          // console.log(`[WS] Sending unsubscribe for: ${subscriptionKey}`);
           this.queueMessage(unsubMsg);
         }
       }
@@ -337,10 +338,6 @@ class WebSocketManager {
   }
 
   private resubscribeAll(): void {
-    // console.log(
-    //   '[WS] Resubscribing to all active channels:',
-    //   Array.from(this.pendingSubscriptions.keys())
-    // );
     this.subscriptionInProgress.clear();
     this.pendingSubscriptions.forEach((subscription, key) => {
       this.subscriptionInProgress.add(key);
@@ -380,9 +377,6 @@ class WebSocketManager {
     messages.forEach(message => {
       try {
         this.ws!.send(JSON.stringify(message));
-        // console.log(
-        //   `[WS] Sent ${message.type} for ${message.channel}${message.id ? `/${message.id}` : ''}`
-        // );
       } catch (error) {
         console.error('[WS] Send error:', error);
         this.messageQueue.push(message);
@@ -406,7 +400,6 @@ class WebSocketManager {
         this.subscriptionInProgress.delete(key);
         console.log('[WS] Subscribed to:', key);
         if (data.contents) {
-          console.log('[WS] Processing initial subscription data for:', key);
           const handlers = this.subscriptions.get(key);
           if (handlers && handlers.size > 0) {
             handlers.forEach(handler => {
@@ -549,10 +542,7 @@ class WebSocketManager {
 
       if (!this.pongReceived) {
         this.missedPongs++;
-        // console.warn(`[WS] Missed pong (${this.missedPongs}/${this.MAX_MISSED_PONGS})`);
-
         if (this.missedPongs >= this.MAX_MISSED_PONGS) {
-          // console.error('[WS] Too many missed pongs, forcing reconnect');
           this.ws?.close();
           return;
         }
@@ -579,25 +569,36 @@ class WebSocketManager {
     if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
 
     this.healthCheckInterval = setInterval(() => {
-      if (this.isConnected()) {
-        const timeSinceLastMessage = Date.now() - this.lastMessageTime;
-        if (timeSinceLastMessage > this.CONNECTION_TIMEOUT) {
-          // console.warn('[WS] Stale connection detected, reconnecting');
-          this.ws?.close();
-        }
-      }
-    }, this.HEALTH_CHECK_INTERVAL);
-  }
+      if (!this.isConnected()) return;
 
-  private verifyConnectionHealth(): void {
-    if (this.isConnected()) {
-      try {
-        this.ws!.send(JSON.stringify({ type: 'ping' }));
-      } catch (error) {
-        console.error('[WS] Health check ping failed:', error);
+      const now = Date.now();
+
+      const timeSinceLastMessage = now - this.lastMessageTime;
+      if (timeSinceLastMessage > this.CONNECTION_TIMEOUT) {
         this.ws?.close();
+        return;
       }
-    }
+
+      this.subscriptionStats.forEach((stats, key) => {
+        if (!this.serverSubscriptions.has(key)) return;
+        if (stats.lastMessageTime === 0) return;
+
+        const channel = key.split('_').slice(0, 2).join('_');
+        const threshold = this.CHANNEL_STALE_THRESHOLDS[channel];
+        if (!threshold) return;
+
+        const staleDuration = now - stats.lastMessageTime;
+        if (staleDuration > threshold) {
+          this.serverSubscriptions.delete(key);
+          this.subscriptionInProgress.delete(key);
+          const pending = this.pendingSubscriptions.get(key);
+          if (pending) {
+            this.subscriptionInProgress.add(key);
+            this.queueMessage(pending);
+          }
+        }
+      });
+    }, this.HEALTH_CHECK_INTERVAL);
   }
 
   private startCacheCleanup(): void {
@@ -706,7 +707,10 @@ class WebSocketManager {
   }
 
   shutdown(): void {
-    // console.log('[WS] Full shutdown initiated (e.g., user logout)');
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    }
+
     this.isReconnecting = false;
     this.reconnectAttempts = this.MAX_RECONNECT_ATTEMPTS;
     this.currentWsUrl = null;
@@ -725,6 +729,10 @@ class WebSocketManager {
       this.ws.close();
       this.ws = null;
     }
+
+    this.serverSubscriptions.clear();
+    this.subscriptionInProgress.clear();
+    this.notifyDisconnectionHandlers();
 
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);

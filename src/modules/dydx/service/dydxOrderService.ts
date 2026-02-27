@@ -450,8 +450,6 @@ class DydxDataService {
         undefined,
         limit
       );
-      // console.log(response, "funding chart response ===============")
-
       return response.historicalFunding || [];
     } catch (err) {
       console.error('[DydxDataService] getHistoricalFunding failed:', err);
@@ -490,7 +488,4 @@ class DydxDataService {
     }
   }
 }
-
-
-
 export const dydxDataService = new DydxDataService();

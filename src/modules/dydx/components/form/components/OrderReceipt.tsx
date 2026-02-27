@@ -34,7 +34,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     selectedMarket,
 }) => {
     const [isExpanded, setIsExpanded] = useState(true);
-    const { livePrice } = useTrades(marketData?.ticker || '', 50);
+    const { livePrice } = useTrades(selectedMarket, 50);
 
     const calculations = useMemo(() => {
         if (!marketData || !size) return null;

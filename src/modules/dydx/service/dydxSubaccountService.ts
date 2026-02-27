@@ -27,13 +27,6 @@ class DydxSubaccountService {
       }
       const senderSubaccount = SubaccountInfo.forLocalWallet(localWallet, fromSubaccount);
 
-      console.log('[dydxSubaccountService] Initiating transfer:', {
-        from: fromSubaccount,
-        to: toSubaccount,
-        amount,
-        quantums: amountInQuantums,
-      });
-
       const result = await client.validatorClient.post.transfer(
         senderSubaccount,
         address,
@@ -42,8 +35,6 @@ class DydxSubaccountService {
         Long.fromString(amountInQuantums.toString())
       );
       const txHash = this.extractHash(result.hash);
-
-      console.log('[dydxSubaccountService] Transfer successful:', txHash);
 
       return {
         success: true,
@@ -90,9 +81,6 @@ class DydxSubaccountService {
     });
 
     if (emptySubaccount) {
-      console.log(
-        `[dydxSubaccountService] Reusing empty isolated subaccount: ${emptySubaccount.subaccountNumber}`
-      );
       return emptySubaccount.subaccountNumber;
     }
 
@@ -132,19 +120,9 @@ class DydxSubaccountService {
     oraclePrice: number,
     leverage: number
   ): number {
-    // Formula: IM = (S × P) / L
     const notionalValue = size * oraclePrice;
     const initialMargin = notionalValue / leverage;
-    //  5% buffer for price movement
     const withBuffer = initialMargin * 1.05;
-    console.log('[dydxSubaccountService] Collateral calculation:', {
-      size,
-      oraclePrice,
-      leverage,
-      notionalValue,
-      initialMargin,
-      withBuffer,
-    });
     return withBuffer;
   }
 
@@ -211,7 +189,6 @@ class DydxSubaccountService {
         );
         currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
       } catch (err: any) {
-        console.log('[dydxSubaccountService] Subaccount lookup failed (likely new):', err.message);
         currentEquity = 0;
       }
 
@@ -220,14 +197,7 @@ class DydxSubaccountService {
       }
 
       const shortfall = requiredAmount - currentEquity;
-      console.log('[dydxSubaccountService] Isolated equity shortfall calculation:', {
-        targetSubaccount,
-        requiredAmount,
-        currentEquity,
-        shortfall,
-      });
       if (shortfall <= 0.01) {
-        console.log('[dydxSubaccountService] Shortfall negligible, skipping transfer');
         return { success: true, transferredAmount: 0 };
       }
 
@@ -238,12 +208,6 @@ class DydxSubaccountService {
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
         crossFreeCollateral = parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
-
-        console.log('[dydxSubaccountService] Cross margin check:', {
-          crossFreeCollateral,
-          shortfall,
-          hasEnough: crossFreeCollateral >= shortfall,
-        });
 
         if (crossFreeCollateral < shortfall) {
           return {
@@ -261,18 +225,11 @@ class DydxSubaccountService {
         };
       }
 
-      console.log('[dydxSubaccountService] Initiating transfer:', {
-        from: SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT,
-        to: targetSubaccount,
-        amount: shortfall.toFixed(6),
-      });
-
       const transferResult = await this.transfer(
         SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT,
         targetSubaccount,
         shortfall.toFixed(6)
       );
-      console.log(transferResult, "i am transfer result ")
 
       if (transferResult.success) {
         return { success: true, transferredAmount: shortfall };

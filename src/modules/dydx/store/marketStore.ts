@@ -25,7 +25,6 @@ const useMarketStore = create<MarketState>()(
       lastUpdate: 0,
 
       setSelectedMarket: (ticker: string, marketData?: MarketData) => {
-        console.log(`[MarketStore] Setting selected market to ${ticker}`);
         set({
           selectedMarket: ticker,
           selectedMarketData: marketData || get().marketCache[ticker] || null,
@@ -68,7 +67,6 @@ const useMarketStore = create<MarketState>()(
       },
 
       clearCache: () => {
-        console.log('[MarketStore] Clearing market cache');
         set({
           marketCache: {},
           lastUpdate: 0,

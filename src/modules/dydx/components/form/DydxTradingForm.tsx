@@ -70,7 +70,6 @@ const validateGoodTil = (
   _isConditional: boolean
 ): string | null => {
   const seconds = convertToSeconds(value, unit);
-  // dYdX StatefulOrderTimeWindow is 95 days
   const maxSeconds = 95 * 86400;
 
   if (seconds > maxSeconds) {
@@ -354,14 +353,11 @@ export const DydxTradingForm: React.FC = () => {
       ? parseFloat(triggerPrice)
       : undefined;
 
-    // dYdX StatefulOrderTimeWindow expects a duration in seconds, not an absolute timestamp.
     let goodTilTimeInSeconds: number | undefined;
     if ((isLimit && timeInForce === 'GTT') || isConditional) {
       goodTilTimeInSeconds = convertToSeconds(goodTilValue, goodTilUnit);
     }
 
-    // Isolated margin handles collateral transfer via auto-deposit.
-    // A $20 minimum applies to long-term/conditional orders on dYdX.
     if (marginMode === 'ISOLATED') {
       const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
 
@@ -398,7 +394,6 @@ export const DydxTradingForm: React.FC = () => {
       }
     }
 
-    console.log('[DydxTradingForm] Placing order:', { side, marginMode, targetSubaccount });
     const result = await placeOrder({
       market: selectedMarket,
       side,
@@ -542,7 +537,6 @@ export const DydxTradingForm: React.FC = () => {
             maxBuyingPower={maxBuyingPower}
             leverage={leverage}
             onSetMax={() => {
-              // maxBuyingPower is always returned in USD
               if (maxBuyingPower) {
                 if (currencyMode === 'USD') {
                   setSize(maxBuyingPower.toFixed(2));

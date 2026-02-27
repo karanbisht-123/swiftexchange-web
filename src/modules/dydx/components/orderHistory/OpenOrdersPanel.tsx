@@ -61,7 +61,6 @@ const OpenOrdersPanel: React.FC = () => {
         });
 
         if (result.success) {
-          console.log('[OpenOrdersPanel] Order cancelled:', result);
           setTimeout(() => refreshOrders(), 1500);
         } else {
           throw new Error(result.userMessage || result.error || 'Failed to cancel order');
