@@ -19,7 +19,6 @@ interface AdvancedOptionsProps {
   onReduceOnlyChange: (checked: boolean) => void;
 }
 
-// Define as constants for runtime checks
 const CONDITIONAL_TYPES = [
   'STOP_MARKET',
   'STOP_LIMIT',

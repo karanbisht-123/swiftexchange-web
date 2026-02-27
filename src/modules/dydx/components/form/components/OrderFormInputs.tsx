@@ -2,6 +2,7 @@ import { ArrowLeftRight } from 'lucide-react';
 
 import type { OrderTypeEnum } from '../../../types/trading.types';
 import type { CurrencyMode } from '../../../utils/currencyService';
+import { validateNumberInput } from '../../../utils/inputValidation';
 
 interface OrderFormInputsProps {
   orderType: OrderTypeEnum;
@@ -93,7 +94,6 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
   return (
     <div className="space-y-4 px-1 lg:px-4">
-      {/* LIMIT PRICE INPUT */}
       {showPrice && (
         <div className="animate-fade-in">
           <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">
@@ -101,8 +101,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
           </label>
           <input
             type="text"
+            inputMode="decimal"
             value={price}
-            onChange={e => onPriceChange(e.target.value)}
+            onChange={e => onPriceChange(validateNumberInput(e.target.value))}
             placeholder="0.00"
             className={getInputClasses(priceError, priceWarning)}
             aria-label="Limit Price"
@@ -113,7 +114,6 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
         </div>
       )}
 
-      {/* TRIGGER PRICE INPUT */}
       {showTriggerPrice && (
         <div className="animate-fade-in">
           <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">
@@ -121,8 +121,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
           </label>
           <input
             type="text"
+            inputMode="decimal"
             value={triggerPrice}
-            onChange={e => onTriggerPriceChange(e.target.value)}
+            onChange={e => onTriggerPriceChange(validateNumberInput(e.target.value))}
             placeholder="0.00"
             className={getInputClasses(triggerError, triggerWarning)}
             aria-label="Trigger Price"
@@ -133,7 +134,6 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
         </div>
       )}
 
-      {/* SIZE INPUT */}
       <div className="animate-fade-in">
         <div className="flex items-center justify-between mb-2 ml-1">
           <label className="text-xs font-semibold text-muted uppercase tracking-wider">
@@ -152,8 +152,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
         <div className="relative group">
           <input
             type="text"
+            inputMode="decimal"
             value={size}
-            onChange={e => onSizeChange(e.target.value)}
+            onChange={e => onSizeChange(validateNumberInput(e.target.value))}
             placeholder={currencyMode === 'USD' ? '0.00' : '0.00000000'}
             className={getInputClasses(sizeError, sizeWarning)}
             aria-label="Order Size"
@@ -171,8 +172,8 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
           )}
         </div>
         {maxBuyingPower && maxBuyingPower > 0 && (
-          <div className="mt-1.5 ml-1 flex justify-between items-center text-[10px]">
-            <span className="text-muted italic">
+          <div className="mt-1.5 ml-1 flex justify-between  text-[10px]">
+            <span className="text-muted text-xs">
               Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x
             </span>
           </div>

@@ -17,13 +17,13 @@ const ThemeToggle = () => {
     <div className="flex items-center gap-2">
       <button
         onClick={handleToggle}
-        className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-all duration-300 group border border-gray-300 dark:border-gray-600"
+        className="relative rounded-full p-2 text-(--color-text-secondary) hover:bg-(--color-bg-tertiary) hover:text-(--color-text-primary) transition-colors"
         aria-label="Toggle theme"
       >
         {theme === 'light' ? (
-          <Moon className="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:scale-110 transition-transform" />
+          <Moon size={20} />
         ) : (
-          <Sun className="w-5 h-5 text-yellow-500 group-hover:scale-110 transition-transform" />
+          <Sun size={20} />
         )}
       </button>
     </div>

@@ -177,7 +177,44 @@ export const DydxWalletConnect: React.FC = () => {
 
   const timeAgo = useMemo(() => formatTimeAgo(lastUpdateTime), [lastUpdateTime]);
 
-  if (connectionError || error) {
+  const isSubaccountNotFound = error?.toLowerCase().includes('404') || error?.toLowerCase().includes('subaccount');
+
+  if (isSubaccountNotFound) {
+    return (
+      <div className="bg-secondary  p-3 sm:p-4 ">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-xs text-muted">dYdX Trading Account</p>
+            <p className="text-xs font-mono text-secondary">
+              {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-1 rounded text-xs font-medium bg-warning text-white">
+              No Account
+            </span>
+          </div>
+        </div>
+        <div className="bg-warning-bg border border-color rounded p-2 mb-3">
+          <p className="text-xs text-warning">You need to deposit funds first to start trading</p>
+        </div>
+        <a
+          href="https://trade.dydx.exchange/portfolio/deposit"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block text-center py-2 rounded text-sm font-medium transition"
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)'
+          }}
+        >
+          Deposit Funds
+        </a>
+      </div>
+    );
+  }
+
+  if (connectionError || (error && !isSubaccountNotFound)) {
     return (
       <div className="bg-secondary rounded-lg lg:rounded-none p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
@@ -261,7 +298,7 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (isConnecting || (!isConnected && hasDydxAddress)) {
     return (
-      <div className="bg-secondary rounded-lg p-3 sm:p-4 border border-color">
+      <div className="bg-secondary p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-center py-4">
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-tertiary border-t-brand" />
         </div>
@@ -275,7 +312,7 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (!balance || hasZeroBalance) {
     return (
-      <div className="bg-secondary rounded-lg p-3 sm:p-4 border border-color">
+      <div className="bg-secondary p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-xs text-muted">dYdX Trading Account</p>
@@ -319,7 +356,7 @@ export const DydxWalletConnect: React.FC = () => {
   }
 
   return (
-    <div className="bg-secondary lg:rounded-none rounded-lg p-3 sm:p-4 ">
+    <div className="bg-secondary lg:rounded-none p-3 sm:p-4 ">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-color">
         <div className="flex items-center gap-2">
@@ -444,7 +481,7 @@ export const DydxWalletConnect: React.FC = () => {
           <div className="flex gap-2 mt-3">
             {/* <button
               onClick={() => setShowTransferModal(true)}
-              className="flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors bg-gray-700 hover:bg-gray-600 text-white"
+              className="flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors bg-gray-700 hover:bg-gray-600 text-white"
             >
               <ArrowUpDown className="w-3.5 h-3.5" />
               Transfer
@@ -453,7 +490,7 @@ export const DydxWalletConnect: React.FC = () => {
               href="https://trade.dydx.exchange/portfolio/deposit"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex-1 text-center text-sm font-medium py-2 rounded-lg transition-colors"
+              className="flex-1 text-center text-sm font-medium py-2 rounded-xl transition-colors"
               style={{
                 backgroundColor: 'var(--color-brand-accent)',
                 color: 'var(--color-text-inverse)'

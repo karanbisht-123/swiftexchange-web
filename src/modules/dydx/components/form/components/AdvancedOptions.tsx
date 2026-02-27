@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { OrderTypeEnum } from '../../../types/trading.types';
+import { validateNumberInput } from '../../../utils/inputValidation';
 
 export type TimeInForceOption = 'GTT' | 'IOC' | 'FOK';
 export type GoodTilUnit = 'minutes' | 'hours' | 'days' | 'weeks';
@@ -19,7 +20,6 @@ interface AdvancedOptionsProps {
   onReduceOnlyChange: (checked: boolean) => void;
 }
 
-// Define as constants for runtime checks
 const CONDITIONAL_TYPES = [
   'STOP_MARKET',
   'STOP_LIMIT',
@@ -59,17 +59,16 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
 
       {isExpanded && (
         <div className="mt-3 space-y-3 pb-2 px-1">
-          {/* Time In Force Selector */}
           {isLimit && (
-            <div className="space-y-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
+            <div className="space-y-1.5 animate-fade-in">
+              <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">
                 Time In Force
               </label>
               <div className="relative">
                 <select
                   value={timeInForce}
                   onChange={e => onTimeInForceChange(e.target.value as TimeInForceOption)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white appearance-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all cursor-pointer"
+                  className="w-full bg-primary border border-color rounded-xl px-4 py-3 text-sm text-primary placeholder-muted focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 transition-all shadow-sm appearance-none cursor-pointer"
                 >
                   <option value="GTT">Good Til Time (GTT)</option>
                   <option value="IOC">Immediate or Cancel (IOC)</option>
@@ -96,11 +95,10 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             </div>
           )}
 
-          {/* Good Til Time Input */}
           {((isLimit && timeInForce === 'GTT') || isConditional) && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
+            <div className="space-y-1.5 animate-fade-in">
+              <div className="flex justify-between items-center mb-2 ml-1">
+                <label className="block text-xs font-semibold text-muted uppercase tracking-wider">
                   Good Til Time
                 </label>
                 <span className="text-[10px] text-gray-600 font-medium">
@@ -110,11 +108,11 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
               <div className="grid grid-cols-[1fr_100px] gap-2">
                 <div className="relative group">
                   <input
-                    type="number"
-                    min="1"
+                    type="text"
+                    inputMode="numeric"
                     value={goodTilValue}
-                    onChange={e => onGoodTilValueChange(parseInt(e.target.value) || 1)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-3 pr-2 py-2 text-xs text-white focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all placeholder-gray-600"
+                    onChange={e => onGoodTilValueChange(parseInt(validateNumberInput(e.target.value)) || 1)}
+                    className="w-full bg-primary border border-color rounded-xl pl-4 pr-2 py-3 text-sm text-primary placeholder-muted focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 transition-all shadow-sm"
                     placeholder="Duration"
                   />
                 </div>
@@ -122,7 +120,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                   <select
                     value={goodTilUnit}
                     onChange={e => onGoodTilUnitChange(e.target.value as GoodTilUnit)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-3 pr-8 py-2 text-xs text-white appearance-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all cursor-pointer"
+                    className="w-full bg-primary border border-color rounded-xl pl-4 pr-8 py-3 text-sm text-primary placeholder-muted focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 transition-all shadow-sm appearance-none cursor-pointer"
                   >
                     <option value="minutes">Minutes</option>
                     <option value="hours">Hours</option>
@@ -151,14 +149,12 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             </div>
           )}
 
-          {/* Execution Options */}
           <div className="pt-1 space-y-2">
-            {/* Post-Only */}
             {isLimit && (
               <label
-                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${postOnly
-                    ? 'bg-blue-500/10 border-blue-500/30'
-                    : 'bg-gray-900/30 border-gray-800 hover:border-gray-700'
+                className={`flex items-center gap-2 p-3 rounded-xl border transition-all cursor-pointer ${postOnly
+                  ? 'bg-brand-primary/10 border-brand-primary/30'
+                  : 'bg-primary border-color hover:border-brand-primary/50 text-secondary'
                   } ${reduceOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <div className="relative flex items-center">
@@ -166,7 +162,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                     type="checkbox"
                     checked={postOnly}
                     onChange={e => onPostOnlyChange(e.target.checked)}
-                    className="peer appearance-none w-4 h-4 rounded border border-gray-600 bg-gray-800 checked:bg-blue-500 checked:border-blue-500 transition-colors"
+                    className="peer appearance-none w-4 h-4 rounded border border-color bg-tertiary checked:bg-brand-primary checked:border-brand-primary transition-colors"
                     disabled={reduceOnly}
                   />
                   <svg
@@ -185,7 +181,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                 </div>
                 <div className="flex flex-col">
                   <span
-                    className={`text-xs font-medium ${postOnly ? 'text-blue-200' : 'text-gray-300'}`}
+                    className={`text-sm font-medium ${postOnly ? 'text-brand-primary' : 'text-primary'}`}
                   >
                     Post-Only
                   </span>
@@ -196,12 +192,11 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
               </label>
             )}
 
-            {/* Reduce-Only - Hidden for Market Orders */}
             {orderType !== 'MARKET' && (
               <label
-                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${reduceOnly
-                    ? 'bg-blue-500/10 border-blue-500/30'
-                    : 'bg-gray-900/30 border-gray-800 hover:border-gray-700'
+                className={`flex items-center gap-2 p-3 rounded-xl border transition-all cursor-pointer ${reduceOnly
+                  ? 'bg-brand-primary/10 border-brand-primary/30'
+                  : 'bg-primary border-color hover:border-brand-primary/50 text-secondary'
                   }`}
               >
                 <div className="relative flex items-center">
@@ -209,7 +204,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                     type="checkbox"
                     checked={reduceOnly}
                     onChange={e => onReduceOnlyChange(e.target.checked)}
-                    className="peer appearance-none w-4 h-4 rounded border border-gray-600 bg-gray-800 checked:bg-blue-500 checked:border-blue-500 transition-colors"
+                    className="peer appearance-none w-4 h-4 rounded border border-color bg-tertiary checked:bg-brand-primary checked:border-brand-primary transition-colors"
                   />
                   <svg
                     className="absolute w-2.5 h-2.5 text-white left-[3px] top-[3.5px] opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"
@@ -226,7 +221,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                   </svg>
                 </div>
                 <span
-                  className={`text-xs font-medium ${reduceOnly ? 'text-blue-200' : 'text-gray-300'}`}
+                  className={`text-sm font-medium ${reduceOnly ? 'text-brand-primary' : 'text-primary'}`}
                 >
                   Reduce-Only
                 </span>
@@ -234,7 +229,6 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             )}
           </div>
 
-          {/* Info Text */}
           {reduceOnly && isLimit && timeInForce === 'GTT' && (
             <div className="flex items-center gap-2 text-[10px] text-yellow-400 bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2">
               <span>⚠</span>

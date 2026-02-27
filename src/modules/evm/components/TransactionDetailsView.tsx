@@ -4,7 +4,7 @@ import { type TransactionItem } from '../service/EvmTransactionService';
 
 interface TransactionDetailsViewProps {
     transaction: TransactionItem;
-    network?: string; // 'ETH' or 'BNB'
+    network?: string;
 }
 
 const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
@@ -33,7 +33,6 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
     return (
         <div className="flex flex-col h-full bg-secondary rounded-2xl overflow-hidden border border-color shadow-sm">
-            {/* Header / Status Banner */}
             <div className="bg-tertiary/30 p-6 flex flex-col items-center justify-center border-b border-color">
                 <div className="w-16 h-16 rounded-full bg-tertiary flex items-center justify-center mb-4 shadow-inner">
                     <img
@@ -58,15 +57,10 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                 </div>
             </div>
 
-            {/* Details List */}
             <div className="p-6 space-y-6 overflow-y-auto flex-1">
-
-                {/* Transaction Info Group */}
                 <div className="space-y-4">
                     <h4 className="text-xs font-bold text-muted uppercase tracking-wider">Transaction Info</h4>
-
                     <div className="space-y-3">
-                        {/* Hash */}
                         <div className="flex justify-between items-center group">
                             <span className="text-sm text-secondary">Tx Hash</span>
                             <div className="flex items-center gap-2">
@@ -90,7 +84,6 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                             </div>
                         </div>
 
-                        {/* Block */}
                         <div className="flex justify-between items-center">
                             <span className="text-sm text-secondary">Block</span>
                             <a
@@ -104,7 +97,6 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                             </a>
                         </div>
 
-                        {/* Time (Simulated/Placeholder if not timestamp) */}
                         <div className="flex justify-between items-center">
                             <span className="text-sm text-secondary">Status</span>
                             <div className="flex items-center gap-1.5 text-green-500 text-sm font-medium">
@@ -116,11 +108,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
                 <div className="h-px bg-color w-full" />
 
-                {/* Transfer Details Group */}
                 <div className="space-y-4">
                     <h4 className="text-xs font-bold text-muted uppercase tracking-wider">Transfer Details</h4>
 
-                    {/* From */}
                     <div className="bg-tertiary/50 p-3 rounded-xl space-y-2">
                         <div className="flex justify-between items-center">
                             <span className="text-xs text-muted font-semibold uppercase">From</span>
@@ -142,7 +132,6 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                         </div>
                     </div>
 
-                    {/* To */}
                     <div className="bg-tertiary/50 p-3 rounded-xl space-y-2">
                         <div className="flex justify-between items-center">
                             <span className="text-xs text-muted font-semibold uppercase">To</span>
@@ -161,7 +150,6 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
                 <div className="h-px bg-color w-full" />
 
-                {/* Technical Details */}
                 <div className="space-y-4">
                     <h4 className="text-xs font-bold text-muted uppercase tracking-wider">Gas & Protocol</h4>
                     <div className="grid grid-cols-2 gap-4">

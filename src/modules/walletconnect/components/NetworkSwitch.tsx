@@ -22,10 +22,10 @@ const NetworkSwitch: React.FC = () => {
       <select
         value={network}
         onChange={e => handleNetworkChange(e.target.value as NetworkType)}
-        className="input input-lg w-full appearance-none py-2"
+        className="bg-transparent text-sm font-medium text-(--color-text-secondary) hover:text-(--color-text-primary) cursor-pointer outline-none appearance-none pr-2"
       >
-        <option value="mainnet">Mainnet</option>
-        <option value="testnet">Testnet</option>
+        <option value="mainnet" className="bg-(--color-bg-primary) text-(--color-text-primary)">Mainnet</option>
+        <option value="testnet" className="bg-(--color-bg-primary) text-(--color-text-primary)">Testnet</option>
       </select>
     </div>
   );

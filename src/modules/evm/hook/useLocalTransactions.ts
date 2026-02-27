@@ -26,7 +26,7 @@ interface UseLocalTransactionsReturn {
     hasPendingTransactions: boolean;
 }
 
-const REFRESH_INTERVAL = 20000; // 20 seconds
+const REFRESH_INTERVAL = 20000;
 
 export const useLocalTransactions = (): UseLocalTransactionsReturn => {
     const { getProvider } = useWalletConnect();

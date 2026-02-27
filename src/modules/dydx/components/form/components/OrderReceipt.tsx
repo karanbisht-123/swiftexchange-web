@@ -90,7 +90,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     return (
         <div className="flex flex-col px-2">
             {calculations && (
-                <div className="border border-gray-800 rounded-lg rounded-b-none bg-primary  overflow-hidden">
+                <div className=" rounded-lg rounded-b-none bg-primary  overflow-hidden">
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
                         className="w-full flex items-center justify-between p-3 text-xs font-medium text-gray-400 hover:text-gray-300 transition-colors bg-gray-900/20"
@@ -100,7 +100,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
                     </button>
 
                     {isExpanded && (
-                        <div className="px-3 pb-3 space-y-3 bg-gray-900/20 pt-2">
+                        <div className="px-3 pb-3 space-y-3  pt-2">
                             <Row
                                 label="Expected Price"
                                 value={`$${calculations.expectedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}

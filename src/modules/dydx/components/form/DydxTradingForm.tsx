@@ -99,7 +99,10 @@ export const DydxTradingForm: React.FC = () => {
   const [size, setSize] = useState('');
   const [price, setPrice] = useState('');
   const [triggerPrice, setTriggerPrice] = useState('');
-  const [leverage, setLeverage] = useState(1.0);
+  const [leverage, setLeverage] = useState(() => {
+    const saved = localStorage.getItem('dydx_leverage');
+    return saved ? parseFloat(saved) : 1.0;
+  });
   const [currencyMode, setCurrencyMode] = useState<CurrencyMode>('USD');
 
   const [timeInForce, setTimeInForce] = useState<TimeInForceOption>('GTT');
@@ -149,6 +152,36 @@ export const DydxTradingForm: React.FC = () => {
     return subaccount ? parseFloat(subaccount.equity || '0') : 0;
   }, [marginMode, targetSubaccount, childSubaccounts]);
 
+  const currentPercentage = useMemo(() => {
+    if (!maxBuyingPower || maxBuyingPower <= 0 || !size) return 0;
+    const sizeNum = parseFloat(size);
+    if (isNaN(sizeNum) || sizeNum <= 0) return 0;
+    let usdVal = sizeNum;
+    if (currencyMode === 'BASE' && marketData?.oraclePrice) {
+      usdVal = sizeNum * parseFloat(marketData.oraclePrice);
+    }
+    return Math.min(Math.round((usdVal / maxBuyingPower) * 100), 100);
+  }, [maxBuyingPower, size, currencyMode, marketData?.oraclePrice]);
+
+  const handlePercentageChange = (pct: number | string) => {
+    if (!maxBuyingPower || maxBuyingPower <= 0) return;
+    if (pct === '') {
+      setSize('');
+      return;
+    }
+    const pctNum = typeof pct === 'string' ? parseFloat(pct) : pct;
+    if (isNaN(pctNum)) return;
+    const validPct = Math.min(Math.max(pctNum, 0), 100);
+    const usdVal = (validPct / 100) * maxBuyingPower;
+    if (currencyMode === 'USD') {
+      setSize(usdVal.toFixed(2));
+    } else if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
+      const baseAmount = usdVal / parseFloat(marketData.oraclePrice);
+      const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
+      setSize(baseAmount.toFixed(decimals));
+    }
+  };
+
   const hasValidationErrors = !!(sizeError || priceError || triggerError || goodTilError);
   const isFormValid = !hasValidationErrors && !!size && canTrade;
 
@@ -157,6 +190,10 @@ export const DydxTradingForm: React.FC = () => {
       setLeverage(maxLeverage);
     }
   }, [maxLeverage, leverage]);
+
+  useEffect(() => {
+    localStorage.setItem('dydx_leverage', leverage.toString());
+  }, [leverage]);
 
   useEffect(() => {
     if (marketData?.oraclePrice && !price) {
@@ -317,15 +354,14 @@ export const DydxTradingForm: React.FC = () => {
       ? parseFloat(triggerPrice)
       : undefined;
 
-    // dYdX expects goodTilTimeInSeconds as a DURATION in seconds, NOT absolute timestamp
-    // For example: 28 days = 28 * 24 * 60 * 60 = 2,419,200 seconds
+    // dYdX StatefulOrderTimeWindow expects a duration in seconds, not an absolute timestamp.
     let goodTilTimeInSeconds: number | undefined;
     if ((isLimit && timeInForce === 'GTT') || isConditional) {
       goodTilTimeInSeconds = convertToSeconds(goodTilValue, goodTilUnit);
     }
 
-    // Isolated margin: Auto-deposit handles collateral transfer
-    // $20 minimum only applies to long-term/conditional orders
+    // Isolated margin handles collateral transfer via auto-deposit.
+    // A $20 minimum applies to long-term/conditional orders on dYdX.
     if (marginMode === 'ISOLATED') {
       const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
 
@@ -425,32 +461,24 @@ export const DydxTradingForm: React.FC = () => {
         <DydxWalletConnect />
       </div>
 
-      <div className="lg:hidden shrink-0   py-3 px-2 bg-primary">
+      <div className="lg:hidden shrink-0   py-2 px-2 bg-primary">
         {balance ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-5">
               <div className="flex flex-col">
-                <span className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Portfolio</span>
-                <span className="text-base font-bold text-white">
+                <span className="text-[8px] uppercase tracking-wider text-gray-500 ">Portfolio</span>
+                <span className="text-base text-sm font-semibold text-white">
                   ${Number(balance.equity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="w-px h-8 bg-gray-700/50" />
               <div className="flex flex-col">
-                <span className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Available</span>
-                <span className="text-base font-bold text-emerald-400">
+                <span className="text-[8px] uppercase tracking-wider text-gray-500">Available</span>
+                <span className="text-base text-sm font-semibold text-emerald-400">
                   ${Number(balance.freeCollateral).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
-            {/* <div className="flex flex-col items-end gap-1">
-              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full ${canTrade ? 'bg-green-500/20' : 'bg-yellow-500/20'}`}>
-                <div className={`w-1.5 h-1.5 rounded-full ${canTrade ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
-                <span className={`text-[10px] font-semibold ${canTrade ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {canTrade ? '' : 'Connect'}
-                </span>
-              </div>
-            </div> */}
           </div>
         ) : (
           <div className="flex items-center justify-between py-1">
@@ -514,71 +542,73 @@ export const DydxTradingForm: React.FC = () => {
             maxBuyingPower={maxBuyingPower}
             leverage={leverage}
             onSetMax={() => {
+              // maxBuyingPower is always returned in USD
               if (maxBuyingPower) {
-                // If mode is USD, set directly. If Base, convert.
-                // Simplification: Assume maxBuyingPower is in USD?
-                // getMaxBuyingPower usually returns USD value based on margin.
-                // Let's verify getMaxBuyingPower return type/unit. Assuming USD for now.
                 if (currencyMode === 'USD') {
                   setSize(maxBuyingPower.toFixed(2));
-                } else {
-                  // Need oracle price to convert back to base asset if max is USD
-                  // Or use getMaxBuyingPower and divide by price
-                  if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
-                    const baseAmount = maxBuyingPower / parseFloat(marketData.oraclePrice);
-                    const decimals = currencyService.getStepSizeDecimals(
-                      marketData.stepSize || '0.00000001'
-                    );
-                    setSize(baseAmount.toFixed(decimals));
-                  }
+                } else if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
+                  const baseAmount = maxBuyingPower / parseFloat(marketData.oraclePrice);
+                  const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
+                  setSize(baseAmount.toFixed(decimals));
                 }
               }
             }}
           />
 
-          <div className="px-1 lg:px-4">
+          <div className="px-1 lg:px-4 space-y-3">
             <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={(() => {
-                  if (!maxBuyingPower || maxBuyingPower <= 0 || !size) return 0;
-                  const sizeNum = parseFloat(size);
-                  if (isNaN(sizeNum) || sizeNum <= 0) return 0;
-                  let usdVal = sizeNum;
-                  if (currencyMode === 'BASE' && marketData?.oraclePrice) {
-                    usdVal = sizeNum * parseFloat(marketData.oraclePrice);
-                  }
-                  return Math.min(Math.round((usdVal / maxBuyingPower) * 100), 100);
-                })()}
-                onChange={e => {
-                  const pct = parseInt(e.target.value);
-                  if (!maxBuyingPower || maxBuyingPower <= 0) return;
-                  const usdVal = (pct / 100) * maxBuyingPower;
-                  if (currencyMode === 'USD') {
-                    setSize(usdVal.toFixed(2));
-                  } else if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
-                    const baseAmount = usdVal / parseFloat(marketData.oraclePrice);
-                    const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
-                    setSize(baseAmount.toFixed(decimals));
-                  }
-                }}
-                className="flex-1 h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-500 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer"
-              />
-              <span className="text-xs font-bold text-gray-400 bg-gray-800 border border-gray-700 rounded-md px-2 py-1 min-w-[40px] text-center">
-                {(() => {
-                  if (!maxBuyingPower || maxBuyingPower <= 0 || !size) return '0%';
-                  const sizeNum = parseFloat(size);
-                  if (isNaN(sizeNum) || sizeNum <= 0) return '0%';
-                  let usdVal = sizeNum;
-                  if (currencyMode === 'BASE' && marketData?.oraclePrice) {
-                    usdVal = sizeNum * parseFloat(marketData.oraclePrice);
-                  }
-                  return `${Math.min(Math.round((usdVal / maxBuyingPower) * 100), 100)}%`;
-                })()}
-              </span>
+              <div className="relative flex-1 flex items-center h-5">
+
+                <div className="absolute left-0 right-0 h-1.5 bg-tertiary rounded-full pointer-events-none" />
+
+                <div
+                  className="absolute left-0 h-1.5 bg-blue-600 rounded-full pointer-events-none transition-all duration-150 ease-out"
+                  style={{ width: `${currentPercentage}%` }}
+                />
+
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={currentPercentage}
+                  onChange={e => handlePercentageChange(parseInt(e.target.value) || 0)}
+                  className="absolute z-10 inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-primary [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-(--color-bg-secondary) [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:mt-[-1px]"
+                />
+              </div>
+
+              <div className="relative w-16 group">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={(() => {
+                    if (!size || isNaN(parseFloat(size)) || parseFloat(size) === 0) return '';
+                    return currentPercentage;
+                  })()}
+                  onChange={e => handlePercentageChange(e.target.value)}
+                  placeholder="0"
+                  className="w-full bg-primary border border-color group-hover:border-brand-primary/50 text-(--color-text-primary) rounded-lg pl-2 pr-5 py-1 text-xs text-right focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted pointer-events-none">
+                  %
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 px-1">
+              {[25, 50, 75, 100].map(preset => (
+                <button
+                  key={preset}
+                  onClick={() => handlePercentageChange(preset)}
+                  className={`flex-1 py-1 text-[10px] font-semibold rounded transition-colors border ${currentPercentage === preset && parseFloat(size) > 0
+                    ? 'bg-brand-primary/10 text-brand-primary border-brand-primary/30'
+                    : 'bg-tertiary text-muted hover:text-secondary border-color hover:border-brand-primary/30'
+                    }`}
+                >
+                  {preset}%
+                </button>
+              ))}
             </div>
           </div>
 
@@ -599,20 +629,20 @@ export const DydxTradingForm: React.FC = () => {
           )}
 
           {orderType === 'MARKET' && (
-            <div className="px-5 py-3 border-b border-gray-800/50 bg-gray-900/20">
+            <div className="px-4 py-3 mt-4">
               <label className="flex items-center justify-between cursor-pointer group">
-                <span className="text-[11px] uppercase tracking-wider text-gray-500 font-bold group-hover:text-gray-400 transition-colors">
+                <span className="text-xs font-semibold text-muted uppercase tracking-wider group-hover:text-primary transition-colors">
                   Take Profit / Stop Loss
                 </span>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <input
                     type="checkbox"
                     checked={showTpSl}
                     onChange={e => setShowTpSl(e.target.checked)}
-                    className="appearance-none w-9 h-5 rounded-full bg-gray-700 checked:bg-blue-500 transition-colors cursor-pointer"
+                    className="peer appearance-none w-9 h-5 rounded-full bg-tertiary border border-color checked:bg-brand-primary checked:border-brand-primary transition-colors cursor-pointer"
                   />
                   <div
-                    className={`absolute top-1 left-1 w-3 h-3 rounded-full bg-white transition-transform pointer-events-none ${showTpSl ? 'translate-x-4' : 'translate-x-0'}`}
+                    className="absolute left-1 w-3 h-3 rounded-full bg-primary shadow-sm pointer-events-none transition-transform peer-checked:translate-x-4"
                   />
                 </div>
               </label>

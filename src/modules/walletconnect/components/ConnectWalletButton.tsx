@@ -128,7 +128,7 @@ export const ConnectWalletButton: React.FC = () => {
             {validConnectedWallets.slice(0, 2).map(([type, conn]) => (
               <div
                 key={type}
-                className="flex items-center gap-2 px-3 py-2 bg-primary rounded-lg min-w-0"
+                className="flex items-center gap-2 px-3 py-2  border border-color border-t-0 border-b-0 min-w-0"
               >
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shrink-0"></div>
                 {renderDesktopPreview(conn, type)}
@@ -146,7 +146,7 @@ export const ConnectWalletButton: React.FC = () => {
           </div>
           <button
             onClick={() => setShowDropdown(!showDropdown)}
-            className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-4 py-1.5 md:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md md:rounded-lg font-medium transition-colors shadow-lg text-xs md:text-sm"
+            className="flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-1.5 bg-(--color-bg-tertiary) hover:bg-(--color-bg-hover) text-(--color-text-primary) border border-transparent hover:border-(--color-border) rounded-full font-medium transition-colors text-xs md:text-sm"
           >
             Manage
             <span className={`transition-transform ${showDropdown ? 'rotate-180' : ''}`}>▼</span>
@@ -232,7 +232,7 @@ export const ConnectWalletButton: React.FC = () => {
       ) : (
         <button
           onClick={openModal}
-          className="flex items-center gap-1.5 md:gap-2 px-3 md:px-6 py-2 md:py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md md:rounded-lg font-medium transition-all shadow-lg hover:shadow-xl text-xs md:text-base"
+          className="flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-1.5 bg-(--color-bg-tertiary) hover:bg-(--color-bg-hover) text-(--color-text-primary) border border-transparent hover:border-(--color-border) rounded-full font-medium transition-all text-xs md:text-sm"
         >
           <span>Connect Wallet</span>
         </button>

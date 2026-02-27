@@ -20,16 +20,11 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex flex-col justify-end md:justify-center md:items-center">
-            {/* Backdrop */}
             <div
                 className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             />
-
-            {/* Sheet Content - Mobile Only (Visible via CSS logic or parent) */}
             <div className="relative w-full h-[85vh] md:max-w-lg bg-secondary rounded-t-2xl shadow-xl flex flex-col animate-in slide-in-from-bottom duration-300 md:hidden">
-
-                {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-color shrink-0">
                     <h2 className="text-lg font-bold text-primary">Transaction Details</h2>
                     <button
@@ -40,7 +35,6 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
                     </button>
                 </div>
 
-                {/* Content Wrapper */}
                 <div className="flex-1 overflow-hidden p-4 bg-primary/50">
                     <TransactionDetailsView transaction={transaction} network={network} />
                 </div>
