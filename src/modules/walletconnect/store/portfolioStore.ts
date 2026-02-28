@@ -8,6 +8,7 @@ import { ERC20_ABI, getTokenAddressesForChain } from '../../../config/tokenConfi
 import { type NetworkType, getEVMChains, getStellarConfig } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
 import { portfolioUtils } from '../utils/portfolioUtils';
+import { rpcManager } from '../../evm/utils/rpcProvider';
 
 export interface Asset {
     id: string;
@@ -171,10 +172,10 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                         fetchPromises.push(
                             (async () => {
                                 try {
-                                    const provider = new ethers.JsonRpcProvider(chain.rpcUrl);
+                                    const urls = [chain.rpcUrl, ...(chain.fallbackRpcUrls || [])];
 
                                     // Native Balance
-                                    const bal = await provider.getBalance(evmAddr);
+                                    const bal = await rpcManager.fetchWithFallback(chain.chainId, urls, p => p.getBalance(evmAddr));
                                     const balanceNum = parseFloat(ethers.formatEther(bal));
 
                                     if (balanceNum > 0) {
@@ -198,11 +199,13 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                                     const tokens = getTokenAddressesForChain(chain.chainId);
                                     const tokenPromises = Object.entries(tokens).map(async ([symbol, address]) => {
                                         try {
-                                            const contract = new ethers.Contract(address, ERC20_ABI, provider);
-                                            const [tokenBal, dec] = await Promise.all([
-                                                contract.balanceOf(evmAddr),
-                                                contract.decimals(),
-                                            ]);
+                                            const [tokenBal, dec] = await rpcManager.fetchWithFallback(chain.chainId, urls, async p => {
+                                                const contract = new ethers.Contract(address, ERC20_ABI, p);
+                                                return await Promise.all([
+                                                    contract.balanceOf(evmAddr),
+                                                    contract.decimals(),
+                                                ]);
+                                            });
                                             const tokenBalanceNum = parseFloat(ethers.formatUnits(tokenBal, dec));
 
                                             if (tokenBalanceNum > 0) {

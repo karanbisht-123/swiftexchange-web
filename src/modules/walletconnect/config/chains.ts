@@ -2,6 +2,7 @@ export interface EVMChainConfig {
   chainId: number;
   name: string;
   rpcUrl: string;
+  fallbackRpcUrls?: string[];
   nativeCurrency: {
     name: string;
     symbol: string;
@@ -42,6 +43,7 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     chainId: 1,
     name: 'Ethereum',
     rpcUrl: 'https://eth.llamarpc.com',
+    fallbackRpcUrls: ['https://cloudflare-eth.com', 'https://eth-mainnet.public.blastapi.io'],
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     logoUrl:
@@ -51,6 +53,7 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     chainId: 56,
     name: 'BNB Smart Chain',
     rpcUrl: 'https://bsc-dataseed.binance.org',
+    fallbackRpcUrls: ['https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'],
     blockExplorerUrl: 'https://bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
     logoUrl:
@@ -104,6 +107,7 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     chainId: 11155111,
     name: 'Sepolia',
     rpcUrl: 'https://ethereum-sepolia.publicnode.com',
+    fallbackRpcUrls: ['https://rpc.sepolia.org', 'https://rpc2.sepolia.org', 'https://sepolia.drpc.org'],
     blockExplorerUrl: 'https://sepolia.etherscan.io',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     logoUrl:
@@ -113,6 +117,7 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     chainId: 97,
     name: 'BNB Smart Chain Testnet',
     rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
+    fallbackRpcUrls: ['https://data-seed-prebsc-2-s1.binance.org:8545', 'https://data-seed-prebsc-1-s2.binance.org:8545'],
     blockExplorerUrl: 'https://testnet.bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'tBNB', decimals: 18 },
     logoUrl:

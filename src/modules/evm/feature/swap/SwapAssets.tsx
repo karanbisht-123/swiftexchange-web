@@ -272,7 +272,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       chainId: `0x${newChainId.toString(16)}`,
                       chainName: networkConfig.name,
                       nativeCurrency: networkConfig.nativeCurrency,
-                      rpcUrls: [networkConfig.rpcUrl],
+                      rpcUrls: [networkConfig.rpcUrl, ...(networkConfig.fallbackRpcUrls || [])],
                       blockExplorerUrls: [networkConfig.blockExplorerUrl],
                     },
                   ],
@@ -751,6 +751,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         {(quote.fee / 10000).toFixed(2)}%
                       </span>
                     </div>
+
+                    {quote.networkFee !== undefined && quote.networkFee > 0 && (
+                      <div className="flex items-center justify-between text-sm sm:text-base">
+                        <span
+                          className="text-secondary text-sm underline decoration-dotted cursor-help"
+                          title="Estimated network gas fee"
+                        >
+                          Network Fee
+                        </span>
+                        <span className="font-semibold text-primary text-sm sm:text-base">
+                          ~{quote.networkFee.toFixed(6)} {networkConfig.nativeCurrency.symbol}
+                        </span>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between text-sm sm:text-base">
                       <span

@@ -97,6 +97,7 @@ export async function getSwapQuote(chainId: number, request: SwapQuoteRequest): 
     outputToken: res.data.outputToken || request.tokenOut.symbol,
     pricePerToken: res.data.pricePerToken || '0',
     fee: typeof res.data.fee === 'string' ? parseInt(res.data.fee, 10) : res.data.fee || 0,
+    networkFee: res.data.networkFee || 0,
     poolAddress: res.data.poolAddress || '',
     priceImpact: res.data.priceImpact || '0',
     rawQuote: res.data,

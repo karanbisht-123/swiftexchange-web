@@ -102,7 +102,7 @@ export function getTokensForChain(chainId: number): TokenInfo[] {
 
 export async function fetchSingleTokenBalance(
   walletAddress: string,
-  provider: ethers.BrowserProvider | ethers.JsonRpcProvider,
+  provider: ethers.BrowserProvider | ethers.AbstractProvider,
   tokenAddress: string,
   isNative: boolean,
   decimals = 18

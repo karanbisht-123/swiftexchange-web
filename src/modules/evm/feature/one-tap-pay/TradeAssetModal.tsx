@@ -2,7 +2,6 @@ import { AlertCircle, ArrowRight, CheckCircle, Clock, CreditCard, Loader2, Refre
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
-import { ERC20_ABI } from '../../../../abi/Erc20AbI';
 import { ROUTES } from '../../../../constants/routes';
 import { getConfigByChainId } from '../../../../config/swapConfigs';
 import { getEVMChains } from '../../../walletconnect/config/chains';
@@ -10,6 +9,7 @@ import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { getBridgeQuote, prepareBridgeTransaction, type BridgeTransaction } from '../../service/evmSwapService';
+import { rpcManager } from '../../utils/rpcProvider';
 
 interface Asset {
   id: string;
@@ -169,7 +169,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
                 chainId: `0x${newChainId.toString(16)}`,
                 chainName: networkConfig.name,
                 nativeCurrency: networkConfig.nativeCurrency,
-                rpcUrls: [networkConfig.rpcUrl],
+                rpcUrls: [networkConfig.rpcUrl, ...(networkConfig.fallbackRpcUrls || [])],
                 blockExplorerUrls: [networkConfig.blockExplorerUrl],
               }],
             });
@@ -213,16 +213,24 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
         return;
       }
 
-      const ethersProvider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+      const urls = [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])];
       const tokenAddress = selectedToken === 'USDT' ? config.usdt : config.usdc;
 
       console.log('[TradeModal] Fetching balance for', selectedToken, 'on chain', selectedChainId, 'address:', tokenAddress);
 
-      const contract = new ethers.Contract(tokenAddress, ERC20_ABI, ethersProvider);
-      const [balance, decimals] = await Promise.all([
-        contract.balanceOf(evmAddress),
-        contract.decimals(),
-      ]);
+      const erc20Abi = [
+        'function balanceOf(address) view returns (uint256)',
+        'function decimals() view returns (uint8)',
+      ];
+
+      const { balance, decimals } = await rpcManager.fetchWithFallback(selectedChainId, urls, async p => {
+        const contract = new ethers.Contract(tokenAddress, erc20Abi, p);
+        const [b, d] = await Promise.all([
+          contract.balanceOf(evmAddress),
+          contract.decimals(),
+        ]);
+        return { balance: b, decimals: d };
+      });
 
       const formatted = ethers.formatUnits(balance, decimals);
       console.log('[TradeModal] Balance:', formatted, selectedToken);
@@ -442,17 +450,21 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
     const chainConfig = evmChains.find(c => c.chainId === selectedChainId);
     if (!chainConfig) throw new Error('Chain config not found');
 
-    const rpcProvider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+    const urls = [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])];
 
     let attempts = 0;
-    const maxAttempts = 60;
+    const maxAttempts = 60; // 5 minutes max
 
     while (attempts < maxAttempts) {
-      const receipt = await rpcProvider.getTransactionReceipt(txHash);
-      if (receipt) {
-        if (receipt.status === 0) throw new Error('Transaction reverted');
-        console.log('[TradeModal] Tx confirmed:', txHash);
-        return;
+      try {
+        const receipt = await rpcManager.fetchWithFallback(selectedChainId, urls, p => p.getTransactionReceipt(txHash));
+        if (receipt) {
+          if (receipt.status === 0) throw new Error('Transaction reverted');
+          console.log('[TradeModal] Tx confirmed:', txHash);
+          return;
+        }
+      } catch (err) {
+        console.warn('[TradeModal] Error fetching receipt', err);
       }
       await new Promise(r => setTimeout(r, 2000));
       attempts++;
@@ -683,9 +695,9 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
                     <div className="flex gap-2">
                       <button
                         onClick={() => setSelectedFeeType('native')}
-                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${selectedFeeType === 'native'
-                          ? 'bg-brand-primary text-white'
-                          : 'bg-tertiary text-secondary hover:bg-hover'
+                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all border ${selectedFeeType === 'native'
+                          ? 'btn-primary border-transparent'
+                          : 'bg-tertiary text-secondary border-color hover:border-brand'
                           }`}
                       >
                         <div className="flex items-center justify-center gap-2">
@@ -695,9 +707,9 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
                       </button>
                       <button
                         onClick={() => setSelectedFeeType('stablecoin')}
-                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${selectedFeeType === 'stablecoin'
-                          ? 'bg-brand-primary text-white'
-                          : 'bg-tertiary text-secondary hover:bg-hover'
+                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all border ${selectedFeeType === 'stablecoin'
+                          ? 'btn-primary border-transparent'
+                          : 'bg-tertiary text-secondary border-color hover:border-brand'
                           }`}
                       >
                         <div className="flex items-center justify-center gap-2">
