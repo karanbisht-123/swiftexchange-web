@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, RefreshCw, AlertCircle } from 'lucide-react';
-// ArrowUpDown
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
 import { SubaccountTransfer } from './SubaccountTransfer';
 import { DydxWithdrawModal } from './DydxWithdrawModal';
 import { DydxDepositModal } from './DydxDepositModal';
+import useOrderPreviewStore from '../store/orderPreviewStore';
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
@@ -177,6 +177,19 @@ export const DydxWalletConnect: React.FC = () => {
     if (!balance) return null;
     return calculateMarginUsage(balance.equity, balance.freeCollateral);
   }, [balance]);
+
+  const pendingMarginRequired = useOrderPreviewStore(s => s.pendingMarginRequired);
+
+  const projectedMarginUsagePercent = useMemo(() => {
+    if (!balance || pendingMarginRequired <= 0) return null;
+    const equity = Number(balance.equity);
+    const freeCollateral = Number(balance.freeCollateral);
+    if (equity <= 0) return null;
+    const currentMarginUsed = equity - freeCollateral;
+    const projectedMarginUsed = currentMarginUsed + pendingMarginRequired;
+    const pct = Math.min((projectedMarginUsed / equity) * 100, 100);
+    return Math.max(0, pct);
+  }, [balance, pendingMarginRequired]);
 
   const timeAgo = useMemo(() => formatTimeAgo(lastUpdateTime), [lastUpdateTime]);
 
@@ -415,7 +428,6 @@ export const DydxWalletConnect: React.FC = () => {
             </span>
           </div>
 
-          {/* Margin Usage */}
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted">Margin Used</span>
             <div className="flex items-center gap-2">
@@ -434,33 +446,39 @@ export const DydxWalletConnect: React.FC = () => {
                     cy="12"
                     r="10"
                     stroke={
-                      marginMetrics.marginUsagePercent > 85
+                      (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 85
                         ? 'var(--color-danger)'
-                        : marginMetrics.marginUsagePercent > 70
+                        : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 70
                           ? 'var(--color-warning)'
-                          : marginMetrics.marginUsagePercent > 50
+                          : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 50
                             ? 'var(--color-warning)'
                             : 'var(--color-success)'
                     }
                     strokeWidth="2"
                     fill="none"
                     strokeDasharray={`${2 * Math.PI * 10}`}
-                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - marginMetrics.marginUsagePercent / 100)}`}
+                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) / 100)}`}
                     strokeLinecap="round"
                   />
                 </svg>
               </div>
               <span
-                className={`text-sm font-semibold ${marginMetrics.marginUsagePercent > 85
-                  ? 'text-danger'
-                  : marginMetrics.marginUsagePercent > 70
-                    ? 'text-warning'
-                    : marginMetrics.marginUsagePercent > 50
+                className={`text-sm font-semibold ${(projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 85
+                    ? 'text-danger'
+                    : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 70
                       ? 'text-warning'
                       : 'text-success'
                   }`}
               >
-                {formatPercent(marginMetrics.marginUsagePercent)}%
+                {projectedMarginUsagePercent !== null && projectedMarginUsagePercent !== undefined ? (
+                  <>
+                    <span className="text-muted">{formatPercent(marginMetrics!.marginUsagePercent)}%</span>
+                    {' → '}
+                    {formatPercent(projectedMarginUsagePercent)}%
+                  </>
+                ) : (
+                  <>{formatPercent(marginMetrics!.marginUsagePercent)}%</>
+                )}
               </span>
             </div>
           </div>

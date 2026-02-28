@@ -8,7 +8,10 @@ import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
 import useMarketStore from '../../store/marketStore';
 import { type Position } from '../../types/trading.types';
-import { calculateLiquidationPrice } from '../../utils/OrderValidation';
+import {
+  calculateIsolatedLiquidationPrice,
+  calculateCrossLiquidationPrice,
+} from '../../utils/marginCalculator';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
 
 const PositionsPanel: React.FC = () => {
@@ -168,45 +171,40 @@ const PositionsPanel: React.FC = () => {
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }, []);
 
-  // Helper to calculate Liquidation Price with Cross Margin logic
   const getLiquidationPrice = useCallback((position: Position) => {
-    // 1. Get Subaccount Equity
     const subaccount = childSubaccounts.find(
       (sub) => sub.subaccountNumber === position.subaccountNumber
     );
     const equity = parseFloat(subaccount?.equity || '0');
 
-    // 2. Get Market Data (Oracle Price, MMF)
     const mktData = marketCache[position.market];
     const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : parseFloat(position.entryPrice);
     const mmf = mktData?.maintenanceMarginFraction
       ? parseFloat(mktData.maintenanceMarginFraction)
       : 0.03;
 
-    // 3. Calculate Maintenance Margin of OTHER positions in the same subaccount
-    // MMR_o = Sum(|s| * p * MMF) for other positions
-    const otherPositions = positions.filter(
-      (p) => p.subaccountNumber === position.subaccountNumber && p.market !== position.market
-    );
+    const absSize = Math.abs(parseFloat(position.size));
+    const side = position.side === 'LONG' ? 'BUY' : 'SELL';
+    const isIsolated = (position.subaccountNumber ?? 0) >= 128;
 
-    const otherMargin = otherPositions.reduce((sum, p) => {
-      const pMkt = marketCache[p.market];
-      const pPrice = pMkt ? parseFloat(pMkt.oraclePrice) : parseFloat(p.entryPrice);
-      const pMmf = pMkt?.maintenanceMarginFraction ? parseFloat(pMkt.maintenanceMarginFraction) : 0.03;
-      return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
-    }, 0);
+    if (isIsolated) {
+      // p' = (e − s × p) / (|s| × MMF − s)
+      return calculateIsolatedLiquidationPrice(absSize, oraclePrice, equity, mmf, side);
+    }
 
-    // 4. Calculate Liquidation Price using the formula
-    // Effective Equity for this position = Total Equity - MarginRequiredByOthers
-    return calculateLiquidationPrice(
-      Math.abs(parseFloat(position.size)),
-      oraclePrice,
-      equity - otherMargin,
-      mmf,
-      position.side === 'LONG' ? 'BUY' : 'SELL'
-    );
+    // Cross: p' = (e − s × p − MMR_o) / (|s| × MMF − s)
+    // MMR_o = Σ |Si × Pi × Mi| for all OTHER positions in the subaccount
+    const otherPositionsMMR = positions
+      .filter((p) => p.subaccountNumber === position.subaccountNumber && p.market !== position.market)
+      .reduce((sum, p) => {
+        const pMkt = marketCache[p.market];
+        const pPrice = pMkt ? parseFloat(pMkt.oraclePrice) : parseFloat(p.entryPrice);
+        const pMmf = pMkt?.maintenanceMarginFraction ? parseFloat(pMkt.maintenanceMarginFraction) : 0.03;
+        return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
+      }, 0);
+
+    return calculateCrossLiquidationPrice(absSize, oraclePrice, equity, mmf, otherPositionsMMR, side);
   }, [childSubaccounts, marketCache, positions]);
-
 
   const getPositionMetrics = useCallback(
     (position: Position) => {
@@ -215,14 +213,34 @@ const PositionsPanel: React.FC = () => {
       const entryPrice = parseFloat(position.entryPrice);
       const mktData = marketCache[position.market];
       const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : entryPrice;
-      const imf = mktData?.initialMarginFraction ? parseFloat(mktData.initialMarginFraction) : 0;
+      const imf = mktData?.initialMarginFraction ? parseFloat(mktData.initialMarginFraction) : 0.05;
+      const mmf = mktData?.maintenanceMarginFraction ? parseFloat(mktData.maintenanceMarginFraction) : 0.03;
 
       const notional = absSize * oraclePrice;
       const maxLeverage = imf > 0 ? Math.floor(1 / imf) : 20;
-      const leverageVal = position.leverage ? parseFloat(position.leverage) : maxLeverage;
-      const effectiveLeverage = leverageVal > 0 ? leverageVal : maxLeverage;
-      const margin = imf > 0 ? notional * imf : notional / effectiveLeverage;
-      const marginType = (position.subaccountNumber ?? 0) >= 128 ? 'Isolated' : 'Cross';
+
+      const isIsolated = (position.subaccountNumber ?? 0) >= 128;
+      const marginType = isIsolated ? 'Isolated' : 'Cross';
+
+      // Effective leverage from position data (what the user actually chose)
+      const positionLeverage = position.leverage ? parseFloat(position.leverage) : 0;
+      const effectiveLeverage = positionLeverage > 0
+        ? Math.min(positionLeverage, maxLeverage)
+        : maxLeverage;
+
+      let margin: number;
+      if (isIsolated) {
+        // Isolated: actual locked collateral = subaccount equity
+        const subaccount = childSubaccounts.find(
+          (sub) => sub.subaccountNumber === position.subaccountNumber
+        );
+        const subEquity = parseFloat(subaccount?.equity || '0');
+        margin = subEquity > 0 ? subEquity : notional / effectiveLeverage;
+      } else {
+        // Cross: position margin = notional / userLeverage (same as dYdX receipt)
+        margin = notional / effectiveLeverage;
+      }
+
       const liquidationPrice = getLiquidationPrice(position);
 
       return {
@@ -230,13 +248,15 @@ const PositionsPanel: React.FC = () => {
         entryPrice,
         oraclePrice,
         notional,
+        imf,
+        mmf,
         leverage: effectiveLeverage,
         margin,
         marginType,
-        liquidationPrice
+        liquidationPrice,
       };
     },
-    [marketCache, getLiquidationPrice]
+    [marketCache, getLiquidationPrice, childSubaccounts]
   );
 
   const getMarketIcon = useCallback(

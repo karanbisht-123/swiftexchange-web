@@ -1,9 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useTrades } from '../../../hooks/useTrades';
+import { useDydxWallet } from '../../../hooks/useDydxWallet';
 import type { MarketData, OrderSideEnum, OrderTypeEnum } from '../../../types/trading.types';
-import { calculateLiquidationPrice } from '../../../utils/OrderValidation';
+import { calculateIsolatedLiquidationPrice, calculateCrossLiquidationPrice } from '../../../utils/marginCalculator';
 import type { CurrencyMode } from '../../../utils/currencyService';
+import useOrderPreviewStore from '../../../store/orderPreviewStore';
+import { Tooltip } from '../../../../../components/common/Tooltip';
 
 interface OrderReceiptProps {
     marketData: MarketData | null;
@@ -14,6 +17,7 @@ interface OrderReceiptProps {
     leverage: number;
     orderType: OrderTypeEnum;
     currencyMode: CurrencyMode;
+    marginMode: 'CROSS' | 'ISOLATED';
     onPlaceOrder: () => void;
     isPlacingOrder: boolean;
     isFormValid: boolean;
@@ -28,6 +32,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     leverage,
     orderType,
     currencyMode,
+    marginMode,
     onPlaceOrder,
     isPlacingOrder,
     isFormValid,
@@ -35,6 +40,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
 }) => {
     const [isExpanded, setIsExpanded] = useState(true);
     const { livePrice } = useTrades(selectedMarket, 50);
+    const { balance } = useDydxWallet();
 
     const calculations = useMemo(() => {
         if (!marketData || !size) return null;
@@ -60,32 +66,66 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
 
         if (baseSize <= 0) return null;
 
-        const notional = baseSize * executionPrice;
-        const positionMargin = notional / leverage;
+        const notional = Math.abs(baseSize * executionPrice);
+
+        const imf = parseFloat(marketData.initialMarginFraction || '0.05');
+        const mmf = parseFloat(marketData.maintenanceMarginFraction || '0.03');
+        const maxLeverage = imf > 0 ? 1 / imf : 20;
+        const effectiveLeverage = Math.min(leverage, maxLeverage);
+
+        const initialMarginRequired = notional / effectiveLeverage;
 
         const isMaker = orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
         const feeRate = marketData.zeroFees ? 0 : (isMaker ? 0.0002 : 0.0005);
         const fee = notional * feeRate;
 
-        const mmf = parseFloat(marketData.maintenanceMarginFraction || '0.03');
-        const effectiveMargin = positionMargin - fee;
+        const accountEquity = balance ? parseFloat(balance.equity) : 0;
 
-        const liquidationPrice = calculateLiquidationPrice(
-            baseSize,
-            executionPrice,
-            effectiveMargin,
-            mmf,
-            side
-        );
+        let liquidationPrice = 0;
+        if (marginMode === 'ISOLATED') {
+            liquidationPrice = calculateIsolatedLiquidationPrice(
+                baseSize,
+                executionPrice,
+                initialMarginRequired,
+                mmf,
+                side
+            );
+        } else {
+            const equity = accountEquity > 0 ? accountEquity : initialMarginRequired;
+            liquidationPrice = calculateCrossLiquidationPrice(
+                baseSize,
+                executionPrice,
+                equity,
+                mmf,
+                0,
+                side
+            );
+        }
 
         return {
             expectedPrice: executionPrice,
-            positionMargin,
+            initialMarginRequired,
             liquidationPrice,
             fee,
             feeRate,
+            imf,
+            leverage: effectiveLeverage,
         };
-    }, [marketData, size, price, leverage, orderType, side, livePrice, currencyMode]);
+    }, [marketData, size, price, leverage, orderType, side, livePrice, currencyMode, marginMode, balance]);
+
+    useEffect(() => {
+        const { setPendingMargin, clearPendingMargin } = useOrderPreviewStore.getState();
+        if (calculations) {
+            setPendingMargin(calculations.initialMarginRequired);
+        } else {
+            clearPendingMargin();
+        }
+    }, [calculations]);
+
+    const marginLabel = marginMode === 'ISOLATED' ? 'Req. Collateral' : 'Position Margin';
+    const marginTooltip = marginMode === 'ISOLATED'
+        ? 'The exact amount of collateral locked for this position'
+        : 'The initial margin required to open this position';
 
     return (
         <div className="flex flex-col px-2">
@@ -104,24 +144,29 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
                             <Row
                                 label="Expected Price"
                                 value={`$${calculations.expectedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                tooltip="The price at which this order is expected to fill"
                             />
                             <Row
                                 label="Liquidation Price"
                                 value={`→ $${calculations.liquidationPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                tooltip="Price at which your position will be liquidated"
                             />
                             <Row
-                                label="Position Margin"
-                                value={`→ $${calculations.positionMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                label={marginLabel}
+                                value={`→ $${calculations.initialMarginRequired.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                tooltip={marginTooltip}
                             />
                             <Row
                                 label="Fee"
                                 value={marketData?.zeroFees ? 'No Fees' : `$${calculations.fee.toFixed(2)}`}
                                 isBadge={!!marketData?.zeroFees}
+                                tooltip="Estimated trading fee for this order"
                             />
                             <Row
                                 label="Rewards"
                                 value="DYDX"
                                 rightElement={<span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1 rounded ml-1 font-semibold">New</span>}
+                                tooltip="Estimated trading rewards"
                             />
                         </div>
                     )}
@@ -143,9 +188,11 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     );
 };
 
-const Row: React.FC<{ label: string; value: string; isBadge?: boolean; rightElement?: React.ReactNode }> = ({ label, value, isBadge, rightElement }) => (
+const Row: React.FC<{ label: string; value: string; isBadge?: boolean; rightElement?: React.ReactNode; tooltip?: string }> = ({ label, value, isBadge, rightElement, tooltip }) => (
     <div className="flex justify-between items-center text-xs">
-        <span className="text-gray-500 border-b border-dashed border-gray-700/50 pb-0.5 cursor-help">{label}</span>
+        <Tooltip content={tooltip || ''} position="top">
+            <span className="text-gray-500">{label}</span>
+        </Tooltip>
         <div className="flex items-center">
             {isBadge ? (
                 <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">{value}</span>

@@ -30,6 +30,7 @@ import { OrderFormInputs } from './components/OrderFormInputs';
 import { OrderReceipt } from './components/OrderReceipt';
 import { OrderTypeSelector } from './components/OrderTypeSelector';
 import { TpSlInputs } from './components/TpSlInputs';
+import { Tooltip } from '../../../../components/common/Tooltip';
 
 interface NotificationState {
   id: number;
@@ -514,7 +515,7 @@ export const DydxTradingForm: React.FC = () => {
 
       {/* Scrollable form content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
-        <div className="space-y-4 py-4">
+        <div className="space-y-4">
           <OrderFormInputs
             orderType={orderType}
             size={size}
@@ -549,14 +550,18 @@ export const DydxTradingForm: React.FC = () => {
             }}
           />
 
-          <div className="px-1 lg:px-4 space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="relative flex-1 flex items-center h-5">
-
-                <div className="absolute left-0 right-0 h-1.5 bg-tertiary rounded-full pointer-events-none" />
-
+          <div className="px-1 lg:px-4 space-y-3 mt-4">
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 flex items-center h-6">
+                {/* Custom dashed track */}
                 <div
-                  className="absolute left-0 h-1.5 bg-blue-600 rounded-full pointer-events-none transition-all duration-150 ease-out"
+                  className="absolute left-0 right-0 h-2 rounded-full pointer-events-none opacity-40"
+                  style={{ backgroundImage: 'repeating-linear-gradient(to right, var(--color-text-muted), var(--color-text-muted) 3px, transparent 3px, transparent 6px)' }}
+                />
+
+                {/* Filled track */}
+                <div
+                  className="absolute left-0 h-2 bg-brand-primary rounded-l-full pointer-events-none transition-all duration-150 ease-out"
                   style={{ width: `${currentPercentage}%` }}
                 />
 
@@ -567,11 +572,12 @@ export const DydxTradingForm: React.FC = () => {
                   step="1"
                   value={currentPercentage}
                   onChange={e => handlePercentageChange(parseInt(e.target.value) || 0)}
-                  className="absolute z-10 inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-primary [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-(--color-bg-secondary) [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:mt-[-1px]"
+                  className="absolute z-10 inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-secondary [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-brand-primary [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform"
                 />
               </div>
 
-              <div className="relative w-16 group">
+              <div className="relative w-16 group shrink-0">
+                <div className="absolute inset-0 bg-tertiary rounded-lg border border-color pointer-events-none" />
                 <input
                   type="number"
                   min="0"
@@ -582,27 +588,12 @@ export const DydxTradingForm: React.FC = () => {
                   })()}
                   onChange={e => handlePercentageChange(e.target.value)}
                   placeholder="0"
-                  className="w-full bg-primary border border-color group-hover:border-brand-primary/50 text-(--color-text-primary) rounded-lg pl-2 pr-5 py-1 text-xs text-right focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="relative w-full bg-transparent text-primary rounded-lg pl-2 pr-5 py-2 text-sm font-semibold text-right focus:outline-none focus:ring-1 focus:ring-brand-primary/50 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none z-10"
                 />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted pointer-events-none">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted pointer-events-none z-20">
                   %
                 </span>
               </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 px-1">
-              {[25, 50, 75, 100].map(preset => (
-                <button
-                  key={preset}
-                  onClick={() => handlePercentageChange(preset)}
-                  className={`flex-1 py-1 text-[10px] font-semibold rounded transition-colors border ${currentPercentage === preset && parseFloat(size) > 0
-                    ? 'bg-brand-primary/10 text-brand-primary border-brand-primary/30'
-                    : 'bg-tertiary text-muted hover:text-secondary border-color hover:border-brand-primary/30'
-                    }`}
-                >
-                  {preset}%
-                </button>
-              ))}
             </div>
           </div>
 
@@ -623,22 +614,35 @@ export const DydxTradingForm: React.FC = () => {
           )}
 
           {orderType === 'MARKET' && (
-            <div className="px-4 py-3 mt-4">
-              <label className="flex items-center justify-between cursor-pointer group">
-                <span className="text-xs font-semibold text-muted uppercase tracking-wider group-hover:text-primary transition-colors">
-                  Take Profit / Stop Loss
-                </span>
-                <div className="relative flex items-center">
+            <div className="px-1 lg:px-4 mt-6">
+              <label className="flex items-center gap-2 cursor-pointer group w-fit">
+                <div className="relative flex items-center justify-center w-4 h-4 rounded border border-color bg-primary group-hover:border-brand-primary transition-colors mt-[1px]">
                   <input
                     type="checkbox"
                     checked={showTpSl}
                     onChange={e => setShowTpSl(e.target.checked)}
-                    className="peer appearance-none w-9 h-5 rounded-full bg-tertiary border border-color checked:bg-brand-primary checked:border-brand-primary transition-colors cursor-pointer"
+                    className="peer absolute inset-0 opacity-0 cursor-pointer"
                   />
-                  <div
-                    className="absolute left-1 w-3 h-3 rounded-full bg-primary shadow-sm pointer-events-none transition-transform peer-checked:translate-x-4"
-                  />
+                  <div className="absolute inset-0 bg-brand-primary rounded opacity-0 peer-checked:opacity-100 transition-opacity" />
+                  <svg
+                    className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity z-10"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <path
+                      d="M10 3L4.5 8.5L2 6"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </div>
+                <Tooltip content="Automatically close your position when it reaches a specific price" position="top">
+                  <span className="text-[12px] font-medium text-primary group-hover:text-brand-primary transition-colors">
+                    Take Profit / Stop Loss
+                  </span>
+                </Tooltip>
               </label>
             </div>
           )}
@@ -665,6 +669,7 @@ export const DydxTradingForm: React.FC = () => {
             leverage={leverage}
             orderType={orderType}
             currencyMode={currencyMode}
+            marginMode={marginMode}
             onPlaceOrder={handlePlaceOrder}
             isPlacingOrder={isPlacingOrder}
             isFormValid={isFormValid}
@@ -678,3 +683,5 @@ export const DydxTradingForm: React.FC = () => {
     </div>
   );
 };
+
+
