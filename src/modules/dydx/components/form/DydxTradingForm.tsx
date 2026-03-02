@@ -192,6 +192,16 @@ export const DydxTradingForm: React.FC = () => {
   }, [maxLeverage, leverage]);
 
   useEffect(() => {
+    setSize('');
+    setPrice('');
+    setTriggerPrice('');
+    if (showTpSl) {
+      setTpPrice('');
+      setSlPrice('');
+    }
+  }, [selectedMarket]);
+
+  useEffect(() => {
     localStorage.setItem('dydx_leverage', leverage.toString());
   }, [leverage]);
 
@@ -346,13 +356,35 @@ export const DydxTradingForm: React.FC = () => {
       finalQuantity = currencyService.roundToStepSize(finalQuantity, marketData.stepSize);
     }
 
-    const finalPrice = PRICE_REQUIRED_TYPES.includes(orderType as any)
+    let finalPrice = PRICE_REQUIRED_TYPES.includes(orderType as any)
       ? parseFloat(price)
       : undefined;
 
-    const finalTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(orderType as any)
+    if (finalPrice !== undefined && marketData.tickSize) {
+      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      finalPrice = roundToTickSize(finalPrice, tickSize);
+    }
+
+    let finalTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(orderType as any)
       ? parseFloat(triggerPrice)
       : undefined;
+
+    if (finalTriggerPrice !== undefined && marketData.tickSize) {
+      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      finalTriggerPrice = roundToTickSize(finalTriggerPrice, tickSize);
+    }
+
+    let finalTpPrice = showTpSl && tpPrice ? parseFloat(tpPrice) : undefined;
+    if (finalTpPrice !== undefined && marketData.tickSize) {
+      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      finalTpPrice = roundToTickSize(finalTpPrice, tickSize);
+    }
+
+    let finalSlPrice = showTpSl && slPrice ? parseFloat(slPrice) : undefined;
+    if (finalSlPrice !== undefined && marketData.tickSize) {
+      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      finalSlPrice = roundToTickSize(finalSlPrice, tickSize);
+    }
 
     let goodTilTimeInSeconds: number | undefined;
     if ((isLimit && timeInForce === 'GTT') || isConditional) {
@@ -408,8 +440,8 @@ export const DydxTradingForm: React.FC = () => {
       goodTilTimeInSeconds,
       subaccountNumber: targetSubaccount,
       leverage,
-      takeProfitPrice: showTpSl && tpPrice ? parseFloat(tpPrice) : undefined,
-      stopLossPrice: showTpSl && slPrice ? parseFloat(slPrice) : undefined,
+      takeProfitPrice: finalTpPrice,
+      stopLossPrice: finalSlPrice,
     });
 
     if (result.success) {

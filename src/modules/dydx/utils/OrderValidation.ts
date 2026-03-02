@@ -157,23 +157,6 @@ export function validateOrderPrice(
   if (isNaN(priceValue) || priceValue <= 0) {
     return createError('Please enter a valid price greater than 0');
   }
-  if (marketData.tickSize) {
-    const tickSize =
-      typeof marketData.tickSize === 'string'
-        ? parseFloat(marketData.tickSize)
-        : marketData.tickSize;
-    const remainder = priceValue % tickSize;
-    const isValidTickSize =
-      remainder < TRADING_CONSTRAINTS.PRECISION_TOLERANCE ||
-      tickSize - remainder < TRADING_CONSTRAINTS.PRECISION_TOLERANCE;
-
-    if (!isValidTickSize) {
-      return createError(
-        `Price must be a multiple of ${marketData.tickSize}. Nearest valid: ${roundToTickSize(priceValue, tickSize).toFixed(getPriceDecimals(marketData.tickSize))}`
-      );
-    }
-  }
-
   if (marketData.oraclePrice) {
     const oraclePrice = parseFloat(marketData.oraclePrice);
     const deviation = Math.abs(priceValue - oraclePrice) / oraclePrice;

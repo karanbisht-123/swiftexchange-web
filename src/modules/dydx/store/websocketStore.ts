@@ -112,7 +112,9 @@ interface WebSocketState {
 
   activeSubscriptions: Set<string>;
   subscriptionRefs: Map<string, () => void>;
+  subscriptionCounts: Map<string, number>;
   subscribeToParentSubaccount: (address: string, subaccountNumber: number) => void;
+
   unsubscribeFromParentSubaccount: (address: string, subaccountNumber: number) => void;
 
   subscribeToMarket: (ticker: string) => void;
@@ -141,10 +143,14 @@ export const useWebSocketStore = create<WebSocketState>()(
     candles: new Map(),
     activeSubscriptions: new Set(),
     subscriptionRefs: new Map(),
+    subscriptionCounts: new Map(),
 
     subscribeToParentSubaccount: (address: string, subaccountNumber: number) => {
       const key = `parent_subaccount_${address}_${subaccountNumber}`;
-      const { activeSubscriptions } = get();
+      const { activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
 
       if (activeSubscriptions.has(key)) return;
 
@@ -386,7 +392,13 @@ export const useWebSocketStore = create<WebSocketState>()(
 
     unsubscribeFromParentSubaccount: (address: string, subaccountNumber: number) => {
       const key = `parent_subaccount_${address}_${subaccountNumber}`;
-      const { subscriptionRefs, activeSubscriptions } = get();
+      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      if (count > 1) {
+        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
+        return;
+      }
 
       const unsubscribe = subscriptionRefs.get(key);
       if (unsubscribe) {
@@ -398,16 +410,23 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newSubs = new Set(activeSubscriptions);
         newSubs.delete(key);
 
+        const newCounts = new Map(subscriptionCounts);
+        newCounts.delete(key);
+
         set({
           subscriptionRefs: newRefs,
           activeSubscriptions: newSubs,
+          subscriptionCounts: newCounts,
         });
       }
     },
 
     subscribeToMarket: (ticker: string) => {
       const key = `market_${ticker}`;
-      const { activeSubscriptions } = get();
+      const { activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
 
       if (activeSubscriptions.has(key)) {
         return;
@@ -443,7 +462,13 @@ export const useWebSocketStore = create<WebSocketState>()(
 
     unsubscribeFromMarket: (ticker: string) => {
       const key = `market_${ticker}`;
-      const { subscriptionRefs, activeSubscriptions } = get();
+      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      if (count > 1) {
+        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
+        return;
+      }
 
       const unsubscribe = subscriptionRefs.get(key);
       if (unsubscribe) {
@@ -455,16 +480,23 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newSubs = new Set(activeSubscriptions);
         newSubs.delete(key);
 
+        const newCounts = new Map(subscriptionCounts);
+        newCounts.delete(key);
+
         set({
           subscriptionRefs: newRefs,
           activeSubscriptions: newSubs,
+          subscriptionCounts: newCounts,
         });
       }
     },
 
     subscribeToAllMarkets: () => {
       const key = 'markets_all';
-      const { activeSubscriptions } = get();
+      const { activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
 
       if (activeSubscriptions.has(key)) {
         return;
@@ -500,7 +532,13 @@ export const useWebSocketStore = create<WebSocketState>()(
 
     unsubscribeFromAllMarkets: () => {
       const key = 'markets_all';
-      const { subscriptionRefs, activeSubscriptions } = get();
+      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      if (count > 1) {
+        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
+        return;
+      }
 
       const unsubscribe = subscriptionRefs.get(key);
       if (unsubscribe) {
@@ -512,15 +550,22 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newSubs = new Set(activeSubscriptions);
         newSubs.delete(key);
 
+        const newCounts = new Map(subscriptionCounts);
+        newCounts.delete(key);
+
         set({
           subscriptionRefs: newRefs,
           activeSubscriptions: newSubs,
+          subscriptionCounts: newCounts,
         });
       }
     },
     subscribeToTrades: (market: string) => {
       const key = `trades_${market}`;
-      const { activeSubscriptions } = get();
+      const { activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
 
       if (activeSubscriptions.has(key)) {
         return;
@@ -550,7 +595,13 @@ export const useWebSocketStore = create<WebSocketState>()(
 
     unsubscribeFromTrades: (market: string) => {
       const key = `trades_${market}`;
-      const { subscriptionRefs, activeSubscriptions } = get();
+      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      if (count > 1) {
+        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
+        return;
+      }
 
       const unsubscribe = subscriptionRefs.get(key);
       if (unsubscribe) {
@@ -562,16 +613,23 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newSubs = new Set(activeSubscriptions);
         newSubs.delete(key);
 
+        const newCounts = new Map(subscriptionCounts);
+        newCounts.delete(key);
+
         set({
           subscriptionRefs: newRefs,
           activeSubscriptions: newSubs,
+          subscriptionCounts: newCounts,
         });
       }
     },
 
     subscribeToCandles: (market: string, resolution: string) => {
       const key = `candles_${market}_${resolution}`;
-      const { activeSubscriptions } = get();
+      const { activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
 
       if (activeSubscriptions.has(key)) {
         return;
@@ -602,7 +660,13 @@ export const useWebSocketStore = create<WebSocketState>()(
 
     unsubscribeFromCandles: (market: string, resolution: string) => {
       const key = `candles_${market}_${resolution}`;
-      const { subscriptionRefs, activeSubscriptions } = get();
+      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
+
+      const count = subscriptionCounts.get(key) || 0;
+      if (count > 1) {
+        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
+        return;
+      }
 
       const unsubscribe = subscriptionRefs.get(key);
       if (unsubscribe) {
@@ -614,9 +678,13 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newSubs = new Set(activeSubscriptions);
         newSubs.delete(key);
 
+        const newCounts = new Map(subscriptionCounts);
+        newCounts.delete(key);
+
         set({
           subscriptionRefs: newRefs,
           activeSubscriptions: newSubs,
+          subscriptionCounts: newCounts,
         });
       }
     },
@@ -721,7 +789,6 @@ export const useWebSocketStore = create<WebSocketState>()(
         newMap.set(ticker, { ...existing, ...data, lastUpdate: Date.now() } as MarketData);
         return {
           markets: newMap,
-          updateTrigger: state.updateTrigger + 1,
         };
       });
     },
@@ -733,7 +800,6 @@ export const useWebSocketStore = create<WebSocketState>()(
         newMap.set(market, { ...existing, ...data } as TradeData);
         return {
           trades: newMap,
-          updateTrigger: state.updateTrigger + 1,
         };
       });
     },
@@ -745,7 +811,6 @@ export const useWebSocketStore = create<WebSocketState>()(
         newMap.set(key, { ...existing, ...data } as CandleData);
         return {
           candles: newMap,
-          updateTrigger: state.updateTrigger + 1,
         };
       });
     },
@@ -768,6 +833,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         candles: new Map(),
         activeSubscriptions: new Set(),
         subscriptionRefs: new Map(),
+        subscriptionCounts: new Map(),
         updateTrigger: 0,
       });
     },

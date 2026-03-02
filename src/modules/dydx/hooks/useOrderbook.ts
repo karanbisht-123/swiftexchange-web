@@ -50,11 +50,11 @@ function scheduleUpdate(market: string): void {
 
     const sortedBids = Array.from(state.bidsMap.entries())
       .sort(([a], [b]) => b - a)
-      .slice(0, 9);
+      .slice(0, 100);
 
     const sortedAsks = Array.from(state.asksMap.entries())
       .sort(([a], [b]) => a - b)
-      .slice(0, 9);
+      .slice(0, 100);
 
     const data: OrderbookData = {
       bids: sortedBids.map(([price, size]) => ({
@@ -138,7 +138,7 @@ function subscribeToMarket(market: string): void {
   }
 }
 
-function resetSubscription(market: string): void {
+function resetSubscription(market: string, clearData = false): void {
   const state = orderbookState.get(market);
   if (!state) return;
 
@@ -147,8 +147,10 @@ function resetSubscription(market: string): void {
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
-  state.bidsMap.clear();
-  state.asksMap.clear();
+  if (clearData) {
+    state.bidsMap.clear();
+    state.asksMap.clear();
+  }
   state.snapshotVersion++;
 
   if (state.rafId !== undefined) {
@@ -244,9 +246,16 @@ export function useOrderbook(market: string = 'BTC-USD') {
     prevMarketRef.current = market;
     prevConnectedRef.current = isConnected;
 
-    if (isMarketChange || isReconnect) {
-      resetSubscription(market);
-      setOrderbook(null);
+    if (isMarketChange) {
+      if (state.bidsMap.size === 0 && state.asksMap.size === 0) {
+        setOrderbook(null);
+        setIsLoading(true);
+      } else {
+        setIsLoading(false);
+      }
+      setError(null);
+    } else if (isReconnect) {
+      resetSubscription(market, false);
       setIsLoading(true);
       setError(null);
     }
@@ -261,14 +270,22 @@ export function useOrderbook(market: string = 'BTC-USD') {
     state.listeners.add(listener);
 
     const version = state.snapshotVersion;
+    const needsSnapshot = state.bidsMap.size === 0 || isReconnect;
 
-    loadSnapshot(market, version).then(success => {
-      if (!mountedRef.current) return;
-      if (!success && version === state.snapshotVersion) {
-        setError('Failed to load orderbook');
-        setIsLoading(false);
-      }
-    });
+    if (needsSnapshot) {
+      loadSnapshot(market, version).then(success => {
+        if (!mountedRef.current) return;
+        if (!success && version === state.snapshotVersion) {
+          setError('Failed to load orderbook');
+          setIsLoading(false);
+        } else if (success) {
+          setIsLoading(false);
+        }
+      });
+    } else {
+      scheduleUpdate(market);
+      setIsLoading(false);
+    }
 
     if (isConnected) {
       subscribeToMarket(market);

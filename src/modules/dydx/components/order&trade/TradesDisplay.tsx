@@ -55,16 +55,15 @@ export default function TradesDisplay() {
           <span className="text-[#aaaaaa]">/</span>
           <span className="text-[#aaaaaa]">{quoteCurrency}</span>
           <div
-            className={`w-2 h-2 rounded-full ${
-              isConnected ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
-            } ${isConnected ? 'animate-pulse' : ''}`}
+            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
+              } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
 
       <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
-        <div className="text-left">Price ({quoteCurrency})</div>
-        <div className="text-center">Size ({baseCurrency})</div>
+        <div className="text-left">Size ({baseCurrency})</div>
+        <div className="text-center">Price ({quoteCurrency})</div>
         <div className="text-right">Time</div>
       </div>
 
@@ -97,9 +96,8 @@ export default function TradesDisplay() {
                 className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150"
               >
                 <div
-                  className={`absolute inset-y-0 right-0 origin-right will-change-transform transition-transform duration-200 ease-out ${
-                    isBuy ? 'bg-[#00ff9d15]' : 'bg-[#ff3b6915]'
-                  }`}
+                  className={`absolute inset-y-0 right-0 origin-right will-change-transform transition-transform duration-200 ease-out ${isBuy ? 'bg-[#00ff9d15]' : 'bg-[#ff3b6915]'
+                    }`}
                   style={{
                     width: '100%',
                     transform: `scaleX(${depthPct})`,
@@ -107,16 +105,15 @@ export default function TradesDisplay() {
                 />
 
                 <div
-                  className={`relative  font-semibold text-xs lg:text-sm tabular-nums ${
-                    isBuy ? 'text-[#00ff9d]' : 'text-[#ff3b69]'
-                  }`}
+                  className={`relative font-medium text-xs lg:text-[13px] tabular-nums text-left ${isBuy ? 'text-[#00ff9d]' : 'text-[#ff3b69]'
+                    }`}
                 >
-                  {formatPrice(trade.price)}
-                </div>
-                <div className="relative text-xs lg:text-sm text-[#e8e8e8] tabular-nums text-center">
                   {formatSize(trade.size)}
                 </div>
-                <div className="relative text-xs lg:text-sm text-[#6b6b76] tabular-nums text-right">
+                <div className="relative text-xs lg:text-[13px] text-white tabular-nums text-center">
+                  ${formatPrice(trade.price)}
+                </div>
+                <div className="relative text-xs lg:text-[13px] text-[#6b6b76] tabular-nums text-right">
                   {formatTime(trade.createdAt)}
                 </div>
               </div>

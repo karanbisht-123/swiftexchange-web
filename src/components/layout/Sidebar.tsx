@@ -2,15 +2,17 @@ import {
   ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
-  Download,
-  LayoutDashboard,
-  LineChart,
   Menu,
-  Send,
-  // Settings,
-  TrendingUp,
-  // User,
   X,
+  LayoutDashboard,
+  SendHorizontal,
+  QrCode,
+  Repeat2,
+  Landmark,
+  BarChart2,
+  History,
+  CandlestickChart,
+  Infinity,
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
@@ -78,60 +80,45 @@ const Sidebar: FC = () => {
     {
       href: ROUTES.SEND,
       label: 'Send',
-      icon: <Send className="w-5 h-5" />,
+      icon: <SendHorizontal className="w-5 h-5" />,
     },
     {
       href: ROUTES.RECEIVE,
       label: 'Receive',
-      icon: <Download className="w-5 h-5" />,
+      icon: <QrCode className="w-5 h-5" />,
     },
     {
       href: ROUTES.TRADING_EVM_SWAP,
       label: 'Swap',
-      icon: <ArrowLeftRight className="w-5 h-5" />,
+      icon: <Repeat2 className="w-5 h-5" />,
     },
     {
       href: ROUTES.TRADING_EVM_FIAT,
       label: 'Fiat On/Off Ramp',
-      icon: <TrendingUp className="w-5 h-5" />,
+      icon: <Landmark className="w-5 h-5" />,
     },
     {
       href: ROUTES.MARKETS,
       label: 'Markets',
-      icon: <LineChart className="w-5 h-5" />,
+      icon: <BarChart2 className="w-5 h-5" />,
       queryParam: '?view=markets',
     },
-    // {
-    //   href: ROUTES.MY_ASSETS,
-    //   label: 'My Assets',
-    //   icon: <Wallet className="w-5 h-5" />,
-    // },
     {
       href: ROUTES.TRANSACTIONS,
       label: 'Transactions',
-      icon: <LineChart className="w-5 h-5" />,
+      icon: <History className="w-5 h-5" />,
     },
     {
       href: ROUTES.TRADING_STEALLR,
-      label: 'Trading',
-      icon: <TrendingUp className="w-5 h-5" />,
+      label: 'Spot Trade',
+      icon: <CandlestickChart className="w-5 h-5" />,
     },
     {
       href: ROUTES.TRADING_DYDX_FUTURES,
-      label: 'Futures',
-      icon: <TrendingUp className="w-5 h-5" />,
+      label: 'Perpetual Trade',
+      icon: <Infinity className="w-5 h-5" />,
       queryParam: '?view=trade',
     },
-    // {
-    //   href: ROUTES.PROFILE,
-    //   label: 'Profile',
-    //   icon: <User className="w-5 h-5" />,
-    // },
-    // {
-    //   href: ROUTES.SETTINGS,
-    //   label: 'Settings',
-    //   icon: <Settings className="w-5 h-5" />,
-    // },
   ];
 
   const handleNavClick = (item: NavItem) => {

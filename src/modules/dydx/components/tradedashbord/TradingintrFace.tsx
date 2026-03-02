@@ -23,6 +23,8 @@ import ResizablePanel from './ResizablePanel';
 import { useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
 import Orderbook from '../order&trade/Orderbook';
+import SubscriptionKeepAlive from './SubscriptionKeepAlive';
+
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
   const [activeChartTab, setActiveChartTab] = useState<'price' | 'depth' | 'funding'>('price');
@@ -31,103 +33,94 @@ const TradingintrFace = () => {
 
   const [activeBottomTab, setActiveBottomTab] = useState('positions');
 
-  if (view === 'trade') {
-    return (
-      <div className="bg-primary text-primary font-body flex flex-col max-h-screen">
-        <DydxTopBar />
+  return (
+    <div className="bg-primary text-primary font-body flex flex-col h-screen max-h-screen">
+      <DydxTopBar />
+      <SubscriptionKeepAlive />
 
-        <div className="hidden md:grid md:grid-cols-[1fr_auto] flex-1 overflow-hidden">
-          <div className="flex flex-col overflow-hidden min-w-0">
-            <div className="flex overflow-hidden flex-1">
-              <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
-                <MarketSwitcher />
-                <div className="flex border-b border-color bg-secondary">
-                  {(['price', 'depth', 'funding'] as const).map(tab => (
-                    <button
-                      key={tab}
-                      onClick={() => setActiveChartTab(tab)}
-                      className="relative px-4 py-2 text-sm font-medium transition-all duration-200 capitalize"
-                    >
-                      <span
-                        className={
-                          activeChartTab === tab
-                            ? 'text-primary'
-                            : 'text-muted hover:text-primary'
-                        }
+      {view === 'trade' && (
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <div className="hidden md:grid md:grid-cols-[1fr_auto] flex-1 overflow-hidden">
+            <div className="flex flex-col overflow-hidden min-w-0">
+              <div className="flex overflow-hidden flex-1">
+                <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
+                  <MarketSwitcher />
+                  <div className="flex border-b border-color bg-secondary">
+                    {(['price', 'depth', 'funding'] as const).map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveChartTab(tab)}
+                        className="relative px-4 py-2 text-sm font-medium transition-all duration-200 capitalize"
                       >
-                        {tab === 'price' ? 'Price Chart' : tab === 'depth' ? 'Depth' : 'Funding'}
-                      </span>
-                      {activeChartTab === tab && (
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-all duration-300" />
-                      )}
-                    </button>
-                  ))}
-                </div>
+                        <span
+                          className={
+                            activeChartTab === tab
+                              ? 'text-primary'
+                              : 'text-muted hover:text-primary'
+                          }
+                        >
+                          {tab === 'price' ? 'Price Chart' : tab === 'depth' ? 'Depth' : 'Funding'}
+                        </span>
+                        {activeChartTab === tab && (
+                          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-all duration-300" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
 
-                <div className="flex-1 relative">
-                  {activeChartTab === 'price' && (
-                    <div className="absolute inset-0">
-                      <DyDxTradingChart />
-                    </div>
-                  )}
-                  {activeChartTab === 'depth' && (
-                    <div className="absolute inset-0">
-                      <DepthChart />
-                    </div>
-                  )}
-                  {activeChartTab === 'funding' && selectedMarket && (
-                    <div className="absolute inset-0">
-                      <FundingChart market={selectedMarket} />
-                    </div>
-                  )}
+                  <div className="flex-1 relative">
+                    {activeChartTab === 'price' && (
+                      <div className="absolute inset-0">
+                        <DyDxTradingChart />
+                      </div>
+                    )}
+                    {activeChartTab === 'depth' && (
+                      <div className="absolute inset-0">
+                        <DepthChart />
+                      </div>
+                    )}
+                    {activeChartTab === 'funding' && selectedMarket && (
+                      <div className="absolute inset-0">
+                        <FundingChart market={selectedMarket} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="w-[250px] flex-shrink-0 bg-secondary overflow-hidden">
+                  <OrderAndTrades />
                 </div>
               </div>
-              <div className="w-[250px] flex-shrink-0 bg-secondary overflow-hidden">
-                <OrderAndTrades />
-              </div>
+
+              <ResizablePanel defaultHeight={40} minHeight={20} maxHeight={70}>
+                <BottomTabsSection
+                  activeBottomTab={activeBottomTab}
+                  setActiveBottomTab={setActiveBottomTab}
+                />
+              </ResizablePanel>
             </div>
 
-            <ResizablePanel defaultHeight={40} minHeight={20} maxHeight={70}>
-              <BottomTabsSection
-                activeBottomTab={activeBottomTab}
-                setActiveBottomTab={setActiveBottomTab}
-              />
-            </ResizablePanel>
+            <div className="bg-secondary flex-shrink-0">
+              <DydxTradingForm />
+            </div>
           </div>
 
-          <div className="bg-secondary flex-shrink-0">
-            <DydxTradingForm />
-          </div>
+          <MobileLayout />
         </div>
+      )}
 
-        <MobileLayout />
-      </div >
-    );
-  }
-
-  if (view === 'markets') {
-    return (
-      <div className="min-h-screen bg-primary text-primary font-body flex flex-col">
-        <DydxTopBar />
-        <div className="flex-1 overflow-auto">
+      {view === 'markets' && (
+        <div className="flex flex-col flex-1 overflow-auto">
           <MarketsDisplay />
         </div>
-      </div>
-    );
-  }
+      )}
 
-  if (view === 'portfolio') {
-    return (
-      <div className="min-h-screen bg-primary text-primary font-body flex flex-col">
-        <DydxTopBar />
-        <div className="flex-1 bg-secondary p-3 sm:p-6 overflow-auto">
+      {view === 'portfolio' && (
+        <div className="flex flex-col flex-1 bg-secondary p-3 sm:p-6 overflow-auto">
           <PortfolioView activeTab={activeBottomTab} setActiveTab={setActiveBottomTab} />
         </div>
-      </div>
-    );
-  }
-
-  return null;
+      )}
+    </div>
+  );
 };
 
 const PortfolioView = ({

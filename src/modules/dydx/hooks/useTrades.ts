@@ -87,7 +87,7 @@ function subscribeToMarket(market: string): void {
   }
 }
 
-function resetSubscription(market: string): void {
+function resetSubscription(market: string, clearData = false): void {
   const state = tradesState.get(market);
   if (!state) return;
 
@@ -96,7 +96,9 @@ function resetSubscription(market: string): void {
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
-  state.trades = [];
+  if (clearData) {
+    state.trades = [];
+  }
   state.snapshotVersion++;
 
   if (state.rafId !== undefined) {
@@ -195,9 +197,12 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     prevMarketRef.current = market;
     prevConnectedRef.current = isConnected;
 
-    if (isMarketChange || isReconnect) {
-      resetSubscription(market);
-      setTrades([]);
+    if (isMarketChange) {
+      setTrades([...state.trades]);
+      setIsLoading(state.trades.length === 0);
+      setError(null);
+    } else if (isReconnect) {
+      resetSubscription(market, false);
       setIsLoading(true);
       setError(null);
     } else if (state.trades.length > 0) {
@@ -215,20 +220,25 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     state.listeners.add(listener);
 
     const version = state.snapshotVersion;
+    const needsSnapshot = state.trades.length === 0 || isReconnect;
 
-    loadSnapshot(market, limit, version).then(success => {
-      if (!mountedRef.current) return;
-      if (success) {
-        const current = tradesState.get(market);
-        if (current && current.trades.length > 0) {
-          setTrades([...current.trades]);
+    if (needsSnapshot) {
+      loadSnapshot(market, limit, version).then(success => {
+        if (!mountedRef.current) return;
+        if (success) {
+          const current = tradesState.get(market);
+          if (current && current.trades.length > 0) {
+            setTrades([...current.trades]);
+          }
+          setIsLoading(false);
+        } else if (!success && version === state.snapshotVersion) {
+          setError('Failed to load trades');
+          setIsLoading(false);
         }
-        setIsLoading(false);
-      } else if (!success && version === state.snapshotVersion) {
-        setError('Failed to load trades');
-        setIsLoading(false);
-      }
-    });
+      });
+    } else {
+      setIsLoading(false);
+    }
 
     if (isConnected) {
       subscribeToMarket(market);

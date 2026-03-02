@@ -37,6 +37,7 @@ class WebSocketManager {
   private currentWsUrl: string | null = null;
   private isConnecting = false;
   private isReconnecting = false;
+  private connectPromise: Promise<void> | null = null;
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 10;
   private readonly BASE_RECONNECT_DELAY = 1000;
@@ -137,22 +138,25 @@ class WebSocketManager {
   };
 
   async connect(wsUrl: string): Promise<void> {
-    if (this.currentWsUrl !== wsUrl && this.ws?.readyState === WebSocket.OPEN) {
+    if (this.currentWsUrl === wsUrl && this.ws?.readyState === WebSocket.OPEN) {
+      return Promise.resolve();
+    }
+
+    if (this.isConnecting) {
+      return this.connectPromise || Promise.resolve();
+    }
+
+    if (this.currentWsUrl !== wsUrl && this.ws) {
+      this.isReconnecting = false;
       await this.disconnect();
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-    if (this.currentWsUrl === wsUrl && this.ws?.readyState === WebSocket.OPEN) {
-      return;
-    }
-    if (this.isConnecting) {
-      return;
-    }
 
-    return new Promise((resolve, reject) => {
+    this.connectPromise = new Promise((resolve, reject) => {
       this.isConnecting = true;
+      this.currentWsUrl = wsUrl;
 
       try {
-        this.currentWsUrl = wsUrl;
         this.ws = new WebSocket(wsUrl);
 
         const connectionTimeout = setTimeout(() => {
@@ -163,6 +167,7 @@ class WebSocketManager {
         this.ws.onopen = () => {
           clearTimeout(connectionTimeout);
           this.isConnecting = false;
+          this.connectPromise = null;
           this.reconnectAttempts = 0;
           this.isReconnecting = false;
           this.lastMessageTime = Date.now();
@@ -189,6 +194,7 @@ class WebSocketManager {
           console.error('[WS] Connection error:', error);
           clearTimeout(connectionTimeout);
           this.isConnecting = false;
+          this.connectPromise = null;
           if (!this.isReconnecting) {
             reject(error);
           }
@@ -198,6 +204,7 @@ class WebSocketManager {
           clearTimeout(connectionTimeout);
           this.connectionId = null;
           this.isConnecting = false;
+          this.connectPromise = null;
           this.stopPing();
           this.serverSubscriptions.clear();
           this.subscriptionInProgress.clear();
