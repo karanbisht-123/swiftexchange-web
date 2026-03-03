@@ -1,4 +1,4 @@
-import { Loader2, X, Copy, ChevronRight, } from 'lucide-react';
+import { Loader2, X, Copy, ChevronRight, AlertTriangle } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useDydxWithdraw } from '../hooks/useDydxWithdraw';
@@ -25,9 +25,9 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({
     const evmWallet = useWalletStore(state => state.connectedWallets.evm);
     const evmAddress = evmWallet?.address || '';
 
-    const { withdraw, isWithdrawing, withdrawError, clearWithdrawError } = useDydxWithdraw();
+    const { withdraw, isWithdrawing, withdrawError, clearWithdrawError, stepLabel } = useDydxWithdraw();
 
-    const [activeTab, setActiveTab] = useState<'perpetuals' | 'spot'>('perpetuals');
+
     const [fromSubaccount, setFromSubaccount] = useState<number>(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
     const [amount, setAmount] = useState('');
     const [success, setSuccess] = useState(false);
@@ -88,9 +88,11 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({
         clearWithdrawError();
         setSuccess(false);
 
-        const destAddress = evmAddress;
-
-        const result = await withdraw(amountValue.toString(), destAddress);
+        const result = await withdraw(
+            amountValue.toString(),
+            fromSubaccount,
+            evmAddress,
+        );
 
         if (result.success) {
             setSuccess(true);
@@ -98,7 +100,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({
                 onClose();
             }, 2000);
         }
-    }, [isValidAmount, withdraw, amountValue, evmAddress, clearWithdrawError, onClose]);
+    }, [isValidAmount, withdraw, amountValue, fromSubaccount, evmAddress, clearWithdrawError, onClose]);
 
     if (!isOpen) return null;
 
@@ -121,25 +123,11 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({
 
                 <div className="px-5 pb-5 space-y-4">
 
-                    <div className="flex p-1 bg-tertiary rounded-xl border border-color">
-                        <button
-                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'perpetuals'
-                                ? 'bg-secondary text-primary shadow-sm'
-                                : 'text-muted hover:text-primary'
-                                }`}
-                            onClick={() => setActiveTab('perpetuals')}
-                        >
-                            Perpetuals
-                        </button>
-                        <button
-                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'spot'
-                                ? 'bg-secondary text-primary shadow-sm'
-                                : 'text-muted hover:text-primary'
-                                }`}
-                            onClick={() => setActiveTab('spot')}
-                        >
-                            Spot
-                        </button>
+                    <div className="flex items-start gap-2 p-3 bg-brand/10 border border-brand/20 rounded-xl">
+                        <AlertTriangle className="w-4 h-4 text-brand shrink-0 mt-0.5" />
+                        <p className="text-xs text-brand leading-relaxed">
+                            Not recommended for use yet. This feature is currently in development mode.
+                        </p>
                     </div>
 
                     {/* Address Block */}
@@ -260,7 +248,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({
                         {isWithdrawing ? (
                             <>
                                 <Loader2 className="w-5 h-5 animate-spin" />
-                                Processing...
+                                {stepLabel}
                             </>
                         ) : !evmAddress ? (
                             'Connect EVM Wallet'

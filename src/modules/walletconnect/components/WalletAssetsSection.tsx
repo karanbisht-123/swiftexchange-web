@@ -1,4 +1,4 @@
-import { ArrowRightLeft, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -124,13 +124,20 @@ const AssetRow = memo(({ asset, onTrade }: { asset: Asset; onTrade: (asset: Asse
           </div>
 
           {canTrade && (
-            <button
-              onClick={() => onTrade(asset)}
-              className="btn btn-primary btn-sm gap-1.5"
-            >
-              <ArrowRightLeft size={14} />
-              Trade
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onTrade(asset)}
+                className="btn btn-primary btn-sm rounded-md"
+              >
+                Spot
+              </button>
+              <button
+                onClick={() => { }}
+                className="btn btn-primary btn-sm rounded-md"
+              >
+                Perp
+              </button>
+            </div>
           )}
         </div>
       </div>
