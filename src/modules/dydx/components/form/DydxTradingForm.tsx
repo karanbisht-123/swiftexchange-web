@@ -109,7 +109,6 @@ export const DydxTradingForm: React.FC = () => {
   const [goodTilValue, setGoodTilValue] = useState(28);
   const [goodTilUnit, setGoodTilUnit] = useState<GoodTilUnit>('days');
   const [reduceOnly, setReduceOnly] = useState(false);
-  const [postOnly, setPostOnly] = useState(false);
 
   // TP/SL State
   const [showTpSl, setShowTpSl] = useState(false);
@@ -225,20 +224,13 @@ export const DydxTradingForm: React.FC = () => {
   }, [orderError, clearOrderError]);
 
   useEffect(() => {
-    if (reduceOnly && isLimit && timeInForce === 'GTT') {
+    if (reduceOnly && (isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
       setTimeInForce('IOC');
-      addNotification('warning', 'Reduce-only orders must use IOC or FOK', 'Time-in-Force Changed');
+      addNotification('warning', 'Reduce-only orders must use IOC', 'Time-in-Force Changed');
     }
-  }, [reduceOnly, isLimit, timeInForce]);
+  }, [reduceOnly, isLimit, isConditional, timeInForce]);
 
-  useEffect(() => {
-    if (postOnly && (!isLimit || reduceOnly)) {
-      setPostOnly(false);
-      if (!isLimit) {
-        addNotification('warning', 'Post-only only works with limit orders', 'Post-Only Disabled');
-      }
-    }
-  }, [postOnly, isLimit, reduceOnly, orderType]);
+
 
   useEffect(() => {
     const handlePriceClick = (clickedPrice: string) => {
@@ -301,7 +293,7 @@ export const DydxTradingForm: React.FC = () => {
   }, [triggerPrice, orderType, marketData, side]);
 
   useEffect(() => {
-    if ((isLimit && timeInForce === 'GTT') || isConditional) {
+    if ((isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
       const error = validateGoodTil(goodTilValue, goodTilUnit, isConditional);
       setGoodTilError(error || '');
     } else {
@@ -387,7 +379,7 @@ export const DydxTradingForm: React.FC = () => {
     }
 
     let goodTilTimeInSeconds: number | undefined;
-    if ((isLimit && timeInForce === 'GTT') || isConditional) {
+    if ((isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
       goodTilTimeInSeconds = convertToSeconds(goodTilValue, goodTilUnit);
     }
 
@@ -434,9 +426,9 @@ export const DydxTradingForm: React.FC = () => {
       size: finalQuantity,
       price: finalPrice,
       triggerPrice: finalTriggerPrice,
-      timeInForce,
+      timeInForce: timeInForce === 'POST_ONLY' ? 'GTT' : timeInForce,
       reduceOnly,
-      postOnly: postOnly && orderType === 'LIMIT',
+      postOnly: (timeInForce === 'POST_ONLY' && (orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT')),
       goodTilTimeInSeconds,
       subaccountNumber: targetSubaccount,
       leverage,
@@ -635,12 +627,10 @@ export const DydxTradingForm: React.FC = () => {
               timeInForce={timeInForce}
               goodTilValue={goodTilValue}
               goodTilUnit={goodTilUnit}
-              postOnly={postOnly}
               reduceOnly={reduceOnly}
               onTimeInForceChange={setTimeInForce}
               onGoodTilValueChange={setGoodTilValue}
               onGoodTilUnitChange={setGoodTilUnit}
-              onPostOnlyChange={setPostOnly}
               onReduceOnlyChange={setReduceOnly}
             />
           )}

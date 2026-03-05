@@ -176,7 +176,7 @@ class DydxTradingService {
       clientId,
       goodTilBlock,
       OrderTimeInForce.IOC,
-      false
+      params.reduceOnly || false
     );
   }
 
@@ -203,6 +203,15 @@ class DydxTradingService {
     const isMarketConditional = params.type.toUpperCase() === 'STOP_MARKET' || params.type.toUpperCase() === 'TAKE_PROFIT_MARKET';
     const execution = isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT;
 
+    let timeInForce = OrderTimeInForce.GTT;
+    if (params.timeInForce === 'IOC') {
+      timeInForce = OrderTimeInForce.IOC;
+    }
+
+    if (params.reduceOnly || isMarketConditional) {
+      timeInForce = OrderTimeInForce.IOC;
+    }
+
     return await client.placeOrder(
       subaccount,
       params.market,
@@ -211,11 +220,11 @@ class DydxTradingService {
       price,
       size,
       clientId,
-      OrderTimeInForce.GTT,
+      timeInForce,
       safeDuration,
       execution,
       params.postOnly || false,
-      false,
+      params.reduceOnly || false,
       triggerPrice
     );
   }
@@ -235,11 +244,13 @@ class DydxTradingService {
     let timeInForce = OrderTimeInForce.GTT;
     if (params.timeInForce === 'IOC') {
       timeInForce = OrderTimeInForce.IOC;
-    } else if (params.timeInForce === 'FOK') {
-      timeInForce = OrderTimeInForce.FOK;
     }
 
     const side = this.normalizeToOrderSide(params.side);
+
+    if (params.reduceOnly) {
+      timeInForce = OrderTimeInForce.IOC;
+    }
 
     return await client.placeOrder(
       subaccount,
@@ -253,7 +264,7 @@ class DydxTradingService {
       safeDuration,
       OrderExecution.DEFAULT,
       params.postOnly || false,
-      false,
+      params.reduceOnly || false,
       undefined
     );
   }
@@ -402,9 +413,9 @@ class DydxTradingService {
 
   private validateReduceOnlyConstraints(params: PlaceOrderParams, _orderCategory: any) {
     if (!params.reduceOnly) return;
-    throw new Error(
-      'Reduce-only is currently disabled on dYdX. Use regular market orders to close positions instead.'
-    );
+    if (params.postOnly) {
+      throw new Error('Reduce-Only and Post-Only cannot be combined');
+    }
   }
 
   private categorizeOrder(type: string) {

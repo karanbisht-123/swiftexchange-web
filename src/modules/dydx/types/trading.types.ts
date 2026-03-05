@@ -8,7 +8,7 @@ export type OrderTypeEnum =
   | 'TAKE_PROFIT_MARKET'
   | 'TAKE_PROFIT_LIMIT';
 
-export type TimeInForceEnum = 'GTT' | 'IOC' | 'FOK';
+export type TimeInForceEnum = 'GTT' | 'IOC' | 'POST_ONLY';
 export interface PlaceOrderParams {
   market: string;
   side: OrderSideEnum;

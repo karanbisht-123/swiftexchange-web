@@ -17,6 +17,33 @@ export const FillDetailPanel: React.FC<FillDetailPanelProps> = ({ fill }) => {
     const total = size * price;
     const fee = Math.abs(parseFloat(fill.fee));
 
+    let closedPnlStr = '—';
+    let pnlClass = 'text-primary';
+
+    if (fill.positionSideBefore && fill.positionSizeBefore && fill.entryPriceBefore) {
+        const sizeBefore = parseFloat(fill.positionSizeBefore);
+        const entryPrice = parseFloat(fill.entryPriceBefore);
+        const fillPrice = parseFloat(fill.price);
+        const fillSize = parseFloat(fill.size);
+
+        let closedPnl: number | null = null;
+
+        if (fill.positionSideBefore === 'LONG' && fill.side === 'SELL') {
+            const sizeClosed = Math.min(sizeBefore, fillSize);
+            closedPnl = (fillPrice - entryPrice) * sizeClosed;
+        } else if (fill.positionSideBefore === 'SHORT' && fill.side === 'BUY') {
+            const sizeClosed = Math.min(sizeBefore, fillSize);
+            closedPnl = (entryPrice - fillPrice) * sizeClosed;
+        }
+
+        if (closedPnl !== null) {
+            const isNegative = closedPnl < 0;
+            const absValue = Math.abs(closedPnl);
+            closedPnlStr = isNegative ? `-$${absValue.toFixed(2)}` : `$${absValue.toFixed(2)}`;
+            pnlClass = isNegative ? 'text-red-400' : closedPnl > 0 ? 'text-green-400' : 'text-primary';
+        }
+    }
+
     const copyToClipboard = useCallback((text: string) => {
         navigator.clipboard.writeText(text);
         setCopied(true);
@@ -29,8 +56,8 @@ export const FillDetailPanel: React.FC<FillDetailPanelProps> = ({ fill }) => {
                 <MarketBadge market={fill.market || (fill as any).ticker} />
                 <span
                     className={`px-2 py-1 rounded text-xs font-bold ${fill.side === 'BUY'
-                            ? 'bg-green-500/20 text-green-400'
-                            : 'bg-red-500/20 text-red-400'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-red-500/20 text-red-400'
                         }`}
                 >
                     {fill.side}
@@ -48,8 +75,8 @@ export const FillDetailPanel: React.FC<FillDetailPanelProps> = ({ fill }) => {
                     <DetailItem label="Liquidity">
                         <span
                             className={`px-2 py-1 rounded text-xs font-medium ${fill.liquidity === 'MAKER'
-                                    ? 'bg-blue-500/20 text-blue-400'
-                                    : 'bg-purple-500/20 text-purple-400'
+                                ? 'bg-blue-500/20 text-blue-400'
+                                : 'bg-purple-500/20 text-purple-400'
                                 }`}
                         >
                             {fill.liquidity}
@@ -76,6 +103,10 @@ export const FillDetailPanel: React.FC<FillDetailPanelProps> = ({ fill }) => {
 
                     <DetailItem label="Fee">
                         <span className="text-red-400 font-mono">${fee.toFixed(4)}</span>
+                    </DetailItem>
+
+                    <DetailItem label="Closed PNL">
+                        <span className={`font-mono ${pnlClass}`}>{closedPnlStr}</span>
                     </DetailItem>
                 </div>
 

@@ -65,6 +65,9 @@ export interface Fill {
   createdAtHeight: string;
   orderId?: string;
   clientMetadata?: string;
+  positionSizeBefore?: string;
+  entryPriceBefore?: string;
+  positionSideBefore?: string;
 }
 
 export interface HistoricalPnl {
