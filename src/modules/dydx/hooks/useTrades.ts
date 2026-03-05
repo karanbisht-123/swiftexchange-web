@@ -66,7 +66,18 @@ function handleTradeUpdate(market: string, data: any): void {
     }));
 
   if (newTrades.length > 0) {
-    state.trades = [...newTrades, ...state.trades].slice(0, state.limit);
+    for (let i = newTrades.length - 1; i >= 0; i--) {
+      state.trades.unshift(newTrades[i]);
+    }
+    if (state.trades.length > state.limit) {
+      state.trades.length = state.limit;
+    }
+
+    const latestTrade = state.trades[0];
+    import('../store/useLivePriceStore').then(module => {
+      module.useLivePriceStore.getState().setLivePrice(market, parseFloat(latestTrade.price), latestTrade.side);
+    });
+
     scheduleUpdate(market);
   }
 }

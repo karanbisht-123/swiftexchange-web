@@ -107,6 +107,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
     const [modalStep, setModalStep] = useState<ModalStep>('form');
     const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
     const [amount, setAmount] = useState('');
+    const [goFast, setGoFast] = useState(false);
 
     const sortedAssets = useMemo(() => {
         return [...assets].sort((a, b) => {
@@ -135,6 +136,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
             setModalStep('form');
             setAmount('');
             setSelectedAsset(null);
+            setGoFast(false);
             reset();
         }
     }, [isOpen, reset]);
@@ -143,11 +145,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
         const parsed = parseFloat(amount);
         if (selectedAsset && parsed > 0) {
             const timer = setTimeout(() => {
-                getRoute(selectedAsset.symbol, parsed, evmChainId);
+                getRoute(selectedAsset.symbol, parsed, evmChainId, goFast);
             }, 400);
             return () => clearTimeout(timer);
         }
-    }, [amount, selectedAsset, getRoute]);
+    }, [amount, selectedAsset, getRoute, evmChainId, goFast]);
 
     const handleSelectAsset = useCallback((asset: Asset) => {
         setSelectedAsset(asset);
@@ -163,8 +165,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
 
     const handleDeposit = useCallback(async () => {
         if (!selectedAsset || !amount) return;
-        await deposit(selectedAsset.symbol, parseFloat(amount), evmChainId);
-    }, [selectedAsset, amount, deposit]);
+        await deposit(selectedAsset.symbol, parseFloat(amount), evmChainId, goFast);
+    }, [selectedAsset, amount, deposit, evmChainId, goFast]);
 
     const amountValue = parseFloat(amount) || 0;
     const walletBalance = selectedAsset?.balance || 0;
@@ -250,6 +252,17 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                             <span className="text-brand font-medium">Max</span>
                                         </button>
                                     </div>
+                                </div>
+                                <div className="flex items-center justify-between px-1">
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm text-primary">
+                                        <input
+                                            type="checkbox"
+                                            checked={goFast}
+                                            onChange={e => setGoFast(e.target.checked)}
+                                            className="w-4 h-4 rounded border-color text-brand focus:ring-brand focus:ring-offset-0 bg-transparent"
+                                        />
+                                        Go Fast (Skip routing)
+                                    </label>
                                 </div>
 
                                 {route && amountValue > 0 && (

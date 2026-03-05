@@ -131,6 +131,7 @@ export const useDydxDeposit = () => {
         assetSymbol: string,
         amountHuman: number,
         evmChainId?: number,
+        goFast: boolean = false
     ): Promise<DepositRoute | null> => {
         setStep('routing');
         setError(null);
@@ -139,7 +140,7 @@ export const useDydxDeposit = () => {
             const chainId = evmChainId
                 ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
 
-            const raw = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman);
+            const raw = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
             const receivedUsdc = parseInt(raw.amountOut || '0', 10) / 1e6;
 
             const result: DepositRoute = {
@@ -164,6 +165,7 @@ export const useDydxDeposit = () => {
         assetSymbol: string,
         amountHuman: number,
         evmChainId?: number,
+        goFast: boolean = false
     ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
         setError(null);
         setTxHash(null);
@@ -181,7 +183,7 @@ export const useDydxDeposit = () => {
             const chainId = evmChainId ?? Number(evmWallet?.chainId ?? 1);
 
             setStep('routing');
-            const skipRoute = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman);
+            const skipRoute = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
 
             setStep('signing_evm');
             const msgsResponse = await skipApiService.getDepositMsgs(skipRoute, evmAddress, dydxAddress);

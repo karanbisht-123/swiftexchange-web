@@ -91,7 +91,8 @@ export const skipApiService = {
     async getDepositRoute(
         assetSymbol: string,
         evmChainId: number,
-        amountHuman: number
+        amountHuman: number,
+        goFast: boolean = false
     ): Promise<SkipRoute> {
         const sourceDenom = getSourceDenom(assetSymbol, evmChainId);
         const amountIn = toAmountIn(amountHuman, assetSymbol);
@@ -108,13 +109,16 @@ export const skipApiService = {
             smart_swap_options: { split_routes: false, evm_swaps: true },
             bridges: BRIDGES,
             allow_multi_tx: true,
+            go_fast: goFast,
         });
 
+        console.log('raw', raw);
         const totalFeesUsd = (raw.estimated_fees || []).reduce(
             (sum: number, f: any) => sum + parseFloat(f.usd_amount || '0'),
             0
         );
 
+        console.log('totalFeesUsd', totalFeesUsd);
         return {
             amountIn,
             amountOut: raw.amount_out || '0',
@@ -174,6 +178,8 @@ export const skipApiService = {
             (sum: number, f: any) => sum + parseFloat(f.usd_amount || '0'),
             0
         );
+
+        console.log('raw withdrw', raw);
 
         return {
             amountIn,

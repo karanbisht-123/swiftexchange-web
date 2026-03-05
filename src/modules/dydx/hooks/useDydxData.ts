@@ -158,19 +158,9 @@ export const useDydxData = (): UseDydxDataReturn => {
       ]);
 
       if (isMountedRef.current && parentKey) {
-        const currentData = useWebSocketStore.getState().parentSubaccounts.get(parentKey);
-
-        const existingOrderIds = new Set((currentData?.orders || []).map(o => o.id));
-        const newOrders = orderData.filter(o => !existingOrderIds.has(o.id));
-        const mergedOrders = [...(currentData?.orders || []), ...newOrders];
-
-        const existingFillIds = new Set((currentData?.fills || []).map(f => f.id));
-        const newFills = fillData.filter(f => !existingFillIds.has(f.id));
-        const mergedFills = [...(currentData?.fills || []), ...newFills];
-
         useWebSocketStore.getState().updateParentSubaccount(parentKey, {
-          orders: mergedOrders,
-          fills: mergedFills,
+          orders: orderData,
+          fills: fillData,
           lastUpdate: Date.now(),
         });
       }

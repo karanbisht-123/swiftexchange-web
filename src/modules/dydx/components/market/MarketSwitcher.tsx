@@ -2,7 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { useMarkets } from '../../hooks/useMarkets';
-import { useTrades } from '../../hooks/useTrades';
+import { useLivePriceStore } from '../../store/useLivePriceStore';
 import useMarketStore from '../../store/marketStore';
 import MarketSelectorModal from './MarketSelectorModal';
 
@@ -150,7 +150,9 @@ const MarketSwitcher: React.FC = () => {
   const { selectedMarket } = useMarketStore();
 
   const { getMarket, isLoading } = useMarkets();
-  const { livePrice, livePriceSide } = useTrades(selectedMarket, 50);
+  const livePriceData = useLivePriceStore(state => state.prices[selectedMarket]);
+  const livePrice = livePriceData?.price || null;
+  const livePriceSide = livePriceData?.side || null;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
 

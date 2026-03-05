@@ -139,6 +139,32 @@ Powered by `@dydxprotocol/v4-client-js`:
 8. Submit to dYdX Chain for Execution
 ```
 
+### dYdX Deposit Flow (Skip API)
+
+```
+User triggers deposit
+        │
+        ▼
+[1] ROUTING        → Ask Skip API for best bridge route (EVM → dYdX)
+        │
+        ▼
+[2] SIGNING_EVM    → Get transaction calldata from Skip
+                   → Approve ERC-20 spending if needed (e.g. USDC allowance)
+                   → Send the bridge transaction via MetaMask
+        │
+        ▼
+[3] PENDING_BRIDGE → Poll Noble chain REST API every 4 seconds
+                   → Wait until USDC arrives at the Noble intermediary address
+                   → Timeout after ~3 minutes (45 attempts × 4s)
+        │
+        ▼
+[4] TRANSFERRING   → Use dYdX composite client to move funds from
+                   Noble → dYdX subaccount (the final deposit)
+        │
+        ▼
+[5] SUCCESS / ERROR
+```
+
 ### Key Design Principles
 
 - **No Private Key Storage**: All signing happens in-browser, keys stay in memory only

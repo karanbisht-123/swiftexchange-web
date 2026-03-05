@@ -719,7 +719,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             if (
               !existingOrder ||
               (order.updatedAt &&
-                (!existingOrder.updatedAt || order.updatedAt > existingOrder.updatedAt))
+                (!existingOrder.updatedAt || new Date(order.updatedAt).getTime() >= new Date(existingOrder.updatedAt).getTime()))
             ) {
               orderMap.set(order.id, order);
             }
@@ -742,7 +742,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             if (
               !existingFill ||
               (fill.createdAt &&
-                (!existingFill.createdAt || fill.createdAt > existingFill.createdAt))
+                (!existingFill.createdAt || new Date(fill.createdAt).getTime() >= new Date(existingFill.createdAt).getTime()))
             ) {
               fillMap.set(fill.id, fill);
             }

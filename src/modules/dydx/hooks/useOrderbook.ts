@@ -98,6 +98,9 @@ function handleOrderbookUpdate(market: string, data: any): void {
         } else {
           state.bidsMap.set(price, size);
           changed = true;
+          Array.from(state.asksMap.keys()).forEach(askPrice => {
+            if (askPrice <= price) state.asksMap.delete(askPrice);
+          });
         }
       });
     }
@@ -112,6 +115,9 @@ function handleOrderbookUpdate(market: string, data: any): void {
         } else {
           state.asksMap.set(price, size);
           changed = true;
+          Array.from(state.bidsMap.keys()).forEach(bidPrice => {
+            if (bidPrice >= price) state.bidsMap.delete(bidPrice);
+          });
         }
       });
     }
