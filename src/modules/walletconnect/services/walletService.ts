@@ -6,6 +6,7 @@ import {
   type NetworkType,
   WALLETCONNECT_METADATA,
   WALLETCONNECT_PROJECT_ID,
+  buildUnifiedNamespaces,
   getCosmosChains,
   getEVMChains,
   getStellarConfig,
@@ -18,10 +19,14 @@ import {
 } from './dydxKeyManager';
 import { sessionVault } from './sessionVault';
 
-const CONNECTION_TIMEOUT = 120000;
-const SESSION_KEY = 'wallet_sessions';
+// How long to wait for the user to complete wallet interaction
+const CONNECTION_TIMEOUT_MS = 120_000;
+
+// localStorage key for persisting session metadata (addresses, chain IDs — not keys)
+const SESSION_STORAGE_KEY = 'wallet_sessions';
 
 type WalletType = 'evm' | 'cosmos' | 'stellar';
+
 type ConnectionState =
   | 'idle'
   | 'connecting'
@@ -48,13 +53,29 @@ interface DydxDerivation {
   mnemonic: string;
 }
 
+// Result from connectUnified — contains whichever accounts the wallet approved
+export interface UnifiedConnectionResult {
+  evm?: WalletSession;
+  stellar?: WalletSession;
+}
+
+let UniversalProviderClass: typeof UniversalProviderType | null = null;
+
+async function loadUniversalProvider(): Promise<typeof UniversalProviderType> {
+  if (!UniversalProviderClass) {
+    const mod = await import('@walletconnect/universal-provider');
+    UniversalProviderClass = mod.default;
+  }
+  return UniversalProviderClass;
+}
+
 function getDydxChainId(network: NetworkType): string {
   const chains = getCosmosChains(network);
   const dydxChain = chains.find(c => c.chainName === 'dYdX' || c.chainId.includes('dydx'));
-  return dydxChain?.chainId || '';
+  return dydxChain?.chainId ?? '';
 }
 
-async function signDydxMessage(evmAddress: string, provider: any): Promise<string> {
+async function signDydxMessage(evmAddress: string, provider: unknown): Promise<string> {
   const typedData = {
     domain: { name: 'dYdX Chain', chainId: 1 },
     primaryType: 'dYdX',
@@ -68,47 +89,46 @@ async function signDydxMessage(evmAddress: string, provider: any): Promise<strin
     message: { action: 'dYdX Chain Onboarding' },
   };
 
-  const isWC = provider && provider.session;
-  const dataToSign = isWC ? typedData : JSON.stringify(typedData);
+  // WalletConnect providers expect a plain object; injected providers expect a JSON string
+  const isWalletConnect = !!(provider as any)?.session;
+  const dataToSign = isWalletConnect ? typedData : JSON.stringify(typedData);
 
   try {
-    const signaturePromise = provider.request({
+    const signaturePromise = (provider as any).request({
       method: 'eth_signTypedData_v4',
       params: [evmAddress, dataToSign],
     });
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), 120000);
-    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
+    );
 
     return await Promise.race([signaturePromise, timeoutPromise]);
   } catch (error: any) {
-    if (error.code === 4001 || error.code === 'ACTION_REJECTED') {
-      throw new Error('USER_REJECTED');
-    }
-    if (error.message === 'SIGNATURE_TIMEOUT') {
+    if (error.code === 4001 || error.code === 'ACTION_REJECTED' || error.message === 'SIGNATURE_TIMEOUT') {
       throw new Error('USER_REJECTED');
     }
     throw new Error('Wallet does not support eth_signTypedData_v4');
   }
 }
 
-async function deriveDydxAddress(evmAddress: string, provider: any): Promise<DydxDerivation> {
+async function deriveDydxAddress(evmAddress: string, provider: unknown): Promise<DydxDerivation> {
   const { onboarding, LocalWallet: LW, BECH32_PREFIX } = await import('@dydxprotocol/v4-client-js');
 
   const signature = await signDydxMessage(evmAddress, provider);
   const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
-  if (!derived.mnemonic) throw new Error('Failed to derive mnemonic');
+
+  if (!derived.mnemonic) {
+    throw new Error('Failed to derive mnemonic from signature');
+  }
+
   const wallet = await LW.fromMnemonic(derived.mnemonic, BECH32_PREFIX);
-
-  return { address: wallet.address || '', mnemonic: derived.mnemonic };
+  return { address: wallet.address ?? '', mnemonic: derived.mnemonic };
 }
-
-let UniversalProviderClass: typeof UniversalProviderType | null = null;
 
 class WalletService {
   private sessions = new Map<WalletType, WalletSession>();
   private providers = new Map<string, any>();
-  private modals = new Map<WalletType, WalletConnectModal>();
+  private modals = new Map<string, WalletConnectModal>();
   private listeners = new Set<(type: WalletType, state: ConnectionState) => void>();
   private currentNetwork: NetworkType = 'mainnet';
   private derivationInProgress = false;
@@ -117,34 +137,9 @@ class WalletService {
     this.loadNetwork();
   }
 
-  private async getOrCreateProvider(type: WalletType): Promise<any> {
-    const existingProvider = this.providers.get(type);
-    if (existingProvider?.session) {
-      return existingProvider;
-    }
-
-    const { Core } = await import('@walletconnect/core');
-    if (!UniversalProviderClass) {
-      const module = await import('@walletconnect/universal-provider');
-      UniversalProviderClass = module.default;
-    }
-
-    const core = new Core({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      customStoragePrefix: `swiftex_${type}`,
-    });
-    const provider = await UniversalProviderClass.init({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      metadata: {
-        ...WALLETCONNECT_METADATA,
-        name: `${WALLETCONNECT_METADATA.name} (${type.toUpperCase()})`,
-      },
-      core,
-    });
-    this.providers.set(type, provider);
-
-    return provider;
-  }
+  // ---------------------------------------------------------------------------
+  // Network
+  // ---------------------------------------------------------------------------
 
   private loadNetwork(): void {
     try {
@@ -171,10 +166,157 @@ class WalletService {
     this.clearSessionStorage();
   }
 
+  // ---------------------------------------------------------------------------
+  // Provider factory
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Creates or returns a cached WalletConnect UniversalProvider.
+   * Each provider key gets its own WalletConnect Core instance with an isolated
+   * storage prefix to avoid namespace conflicts between independent sessions.
+   */
+  private async getOrCreateProvider(key: string): Promise<any> {
+    const existing = this.providers.get(key);
+    if (existing?.session) return existing;
+
+    const { Core } = await import('@walletconnect/core');
+    const ProviderClass = await loadUniversalProvider();
+
+    const core = new Core({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      customStoragePrefix: `swiftex_${key}`,
+    });
+
+    const provider = await ProviderClass.init({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      metadata: {
+        ...WALLETCONNECT_METADATA,
+        name: `${WALLETCONNECT_METADATA.name} (${key})`,
+      },
+      core,
+    });
+
+    this.providers.set(key, provider);
+    return provider;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Unified multichain connect (WalletConnect QR / deep link)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Opens a single WalletConnect session requesting EVM (required) and Stellar
+   * (optional). Wallets that don't support Stellar simply don't return a Stellar
+   * account — no error, no user action needed. The caller receives whichever
+   * accounts were approved.
+   *
+   * This is the primary path for WalletConnect-based wallets.
+   */
+  async connectUnified(walletId: string): Promise<UnifiedConnectionResult> {
+    this.emitState('evm', 'connecting');
+
+    let provider: any;
+    let modal: WalletConnectModal | undefined;
+
+    try {
+      provider = await this.getOrCreateProvider('unified');
+      const namespaces = buildUnifiedNamespaces(this.currentNetwork);
+
+      const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
+      const stellarConfig = getStellarConfig(this.currentNetwork);
+      const stellarChain = `stellar:${stellarConfig.chainId}`;
+
+      modal = new WalletConnectModal({
+        projectId: WALLETCONNECT_PROJECT_ID,
+        chains: [...evmChains, stellarChain],
+        themeMode: 'dark',
+      });
+      this.modals.set('unified', modal);
+
+      const session = await new Promise<any>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          modal!.closeModal();
+          reject(new Error('Connection timeout'));
+        }, CONNECTION_TIMEOUT_MS);
+
+        provider.on('display_uri', (uri: string) => {
+          this.openMobileDeepLink(walletId, uri);
+          modal!.openModal({ uri });
+        });
+
+        provider
+          .connect({ ...namespaces })
+          .then((s: any) => {
+            clearTimeout(timeout);
+            modal!.closeModal();
+            resolve(s);
+          })
+          .catch((err: any) => {
+            clearTimeout(timeout);
+            modal!.closeModal();
+            reject(err);
+          });
+      });
+
+      const result: UnifiedConnectionResult = {};
+
+      // Parse EVM accounts
+      const evmAccounts: string[] = session.namespaces?.eip155?.accounts ?? [];
+      if (evmAccounts.length > 0) {
+        const [, chainIdStr, address] = evmAccounts[0].split(':');
+        const evmSession: WalletSession = {
+          type: 'evm',
+          walletId,
+          evmAddress: address,
+          evmChainId: parseInt(chainIdStr, 10),
+        };
+        this.sessions.set('evm', evmSession);
+        this.providers.set('evm', provider);
+        result.evm = evmSession;
+        this.emitState('evm', 'connected');
+      }
+
+      // Parse Stellar accounts — these are optional, no error if absent
+      const stellarAccounts: string[] = session.namespaces?.stellar?.accounts ?? [];
+      if (stellarAccounts.length > 0) {
+        const [, chainId, address] = stellarAccounts[0].split(':');
+        const stellarSession: WalletSession = {
+          type: 'stellar',
+          walletId,
+          stellarAddress: address,
+          stellarChainId: chainId,
+        };
+        this.sessions.set('stellar', stellarSession);
+        this.providers.set('stellar', provider);
+        result.stellar = stellarSession;
+        this.emitState('stellar', 'connected');
+      }
+
+      this.setupWalletConnectListeners(provider, 'evm');
+      if (result.stellar) {
+        this.setupWalletConnectListeners(provider, 'stellar');
+      }
+
+      this.saveSession();
+      return result;
+    } catch (error) {
+      modal?.closeModal();
+      if (provider && !provider.session) {
+        this.providers.delete('unified');
+      }
+      this.emitState('evm', 'failed');
+      throw error;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Individual chain connect (extension wallets + single-namespace WalletConnect)
+  // ---------------------------------------------------------------------------
+
   async connectChainWallet(
     walletId: string,
     preferredType: 'evm' | 'cosmos' = 'evm',
-    autoDeriveWallet: boolean = true
+    autoDeriveWallet = true
   ): Promise<WalletSession & { derivationSkipped?: boolean }> {
     const type: WalletType = preferredType;
     this.emitState(type, 'connecting');
@@ -194,7 +336,7 @@ class WalletService {
         cosmosAddress = result.cosmosAddress;
         cosmosChainId = result.cosmosChainId;
       } else {
-        const result = await this.connectWalletConnect(walletId, preferredType);
+        const result = await this.connectWalletConnectSingle(walletId, preferredType);
         provider = result.provider;
         evmAddress = result.evmAddress;
         evmChainId = result.evmChainId;
@@ -221,37 +363,25 @@ class WalletService {
         this.emitState(type, 'signing');
 
         try {
-          const isWC = provider && provider.session;
-          if (isWC) {
+          // Give WalletConnect sessions a moment to settle before signing
+          if (provider?.session) {
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
 
           const derived = await deriveDydxAddress(evmAddress, provider);
+          session.dydxAddress = await encryptAndStore(derived.mnemonic);
+          // Zero out the mnemonic reference immediately after handing it off
+          derived.mnemonic = '';
 
-          const address = await encryptAndStore(derived.mnemonic);
-          let mnemonicRef = derived.mnemonic;
-          mnemonicRef = '';
-          void mnemonicRef;
-
-          session.dydxAddress = address;
           this.sessions.set(type, session);
           this.emitState(type, 'connected');
           this.saveSession();
-
           return session;
         } catch (error: any) {
           this.emitState(type, 'connected');
           this.saveSession();
-          if (error.message === 'USER_REJECTED') {
-            return {
-              ...session,
-              derivationSkipped: true,
-            };
-          }
-          return {
-            ...session,
-            derivationSkipped: true,
-          };
+          // User rejected or timed out — not a hard failure. They can derive later.
+          return { ...session, derivationSkipped: true };
         }
       } else if (cosmosChainId === dydxChainId) {
         session.dydxAddress = cosmosAddress!;
@@ -260,16 +390,34 @@ class WalletService {
 
       this.emitState(type, 'connected');
       this.saveSession();
-
       return session;
-    } catch (error: any) {
+    } catch (error) {
       this.emitState(type, 'failed');
       throw error;
     }
   }
 
+  async connectStellar(walletId: string): Promise<WalletSession> {
+    this.emitState('stellar', 'connecting');
+
+    try {
+      const win = window as any;
+      if (walletId === 'freighter' && win.freighter) {
+        return await this.connectStellarExtension(win.freighter);
+      }
+      return await this.connectStellarWalletConnectSingle(walletId);
+    } catch (error) {
+      this.emitState('stellar', 'failed');
+      throw error;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // dYdX derivation
+  // ---------------------------------------------------------------------------
+
   async deriveDydx(): Promise<DydxDerivation> {
-    const session = this.sessions.get('evm') || this.sessions.get('cosmos');
+    const session = this.sessions.get('evm') ?? this.sessions.get('cosmos');
     if (!session) throw new Error('Wallet not connected');
 
     if (session.dydxAddress && sessionVault.has()) {
@@ -278,7 +426,7 @@ class WalletService {
 
     const evmProvider = this.providers.get('evm');
     if (!evmProvider || !session.evmAddress) {
-      throw new Error('EVM wallet required');
+      throw new Error('EVM wallet required for dYdX derivation');
     }
 
     if (this.derivationInProgress) {
@@ -290,19 +438,15 @@ class WalletService {
       this.emitState(session.type, 'signing');
 
       const derived = await deriveDydxAddress(session.evmAddress, evmProvider);
+      session.dydxAddress = await encryptAndStore(derived.mnemonic);
+      derived.mnemonic = '';
 
-      const address = await encryptAndStore(derived.mnemonic);
-      let mnemonicRef = derived.mnemonic;
-      mnemonicRef = '';
-      void mnemonicRef;
-
-      session.dydxAddress = address;
       this.sessions.set(session.type, session);
       this.derivationInProgress = false;
       this.emitState(session.type, 'connected');
       this.saveSession();
 
-      return { address, mnemonic: '' };
+      return { address: session.dydxAddress, mnemonic: '' };
     } catch (error: any) {
       this.derivationInProgress = false;
       this.emitState(session.type, 'connected');
@@ -318,6 +462,10 @@ class WalletService {
     return sessionVault.get();
   }
 
+  // ---------------------------------------------------------------------------
+  // Extension wallet helpers
+  // ---------------------------------------------------------------------------
+
   private async connectExtension(
     walletId: string,
     preferredType: 'evm' | 'cosmos'
@@ -329,34 +477,39 @@ class WalletService {
     cosmosChainId?: string;
   }> {
     const win = window as any;
+
     const evmProviders: Record<string, any> = {
       metamask: win.ethereum?.isMetaMask ? win.ethereum : null,
       trust: win.ethereum?.isTrust ? win.ethereum : null,
       coinbase: win.ethereum?.isCoinbaseWallet ? win.ethereum : null,
-      phantom: win.phantom?.ethereum || null,
+      phantom: win.phantom?.ethereum ?? null,
       rabby: win.ethereum?.isRabby ? win.ethereum : null,
-      leap: win.leap?.ethereum || null,
+      leap: win.leap?.ethereum ?? null,
+      rainbow: win.ethereum?.isRainbow ? win.ethereum : null,
     };
+
     const cosmosProviders: Record<string, any> = {
       keplr: win.keplr,
       leap: win.leap,
     };
 
-    let evmProvider = preferredType === 'evm' ? evmProviders[walletId] || win.ethereum : null;
+    let evmProvider = preferredType === 'evm' ? (evmProviders[walletId] ?? win.ethereum) : null;
     let cosmosProvider = preferredType === 'cosmos' ? cosmosProviders[walletId] : null;
 
     if (!evmProvider && preferredType === 'evm') cosmosProvider = cosmosProviders[walletId];
-    else if (!cosmosProvider && preferredType === 'cosmos')
-      evmProvider = evmProviders[walletId] || win.ethereum;
+    else if (!cosmosProvider && preferredType === 'cosmos') evmProvider = evmProviders[walletId] ?? win.ethereum;
 
-    if (!evmProvider && !cosmosProvider) throw new Error('Wallet not found');
+    if (!evmProvider && !cosmosProvider) throw new Error('Wallet extension not found');
 
-    let evmAddress, evmChainId, cosmosAddress, cosmosChainId;
-    const provider = evmProvider || cosmosProvider;
+    const provider = evmProvider ?? cosmosProvider;
+    let evmAddress: string | undefined;
+    let evmChainId: number | undefined;
+    let cosmosAddress: string | undefined;
+    let cosmosChainId: string | undefined;
 
     if (evmProvider) {
-      const accounts = await evmProvider.request({ method: 'eth_requestAccounts' });
-      const chainIdHex = await evmProvider.request({ method: 'eth_chainId' });
+      const accounts: string[] = await evmProvider.request({ method: 'eth_requestAccounts' });
+      const chainIdHex: string = await evmProvider.request({ method: 'eth_chainId' });
       evmAddress = accounts[0];
       evmChainId = parseInt(chainIdHex, 16);
       this.setupEVMListeners(evmProvider);
@@ -373,262 +526,19 @@ class WalletService {
         cosmosChainId = targetChainId;
         this.providers.set('cosmos', cosmosProvider);
       } catch {
-        // cosmos extension connection failed silently
+        // Cosmos extension failed — not fatal if EVM succeeded
       }
     }
 
-    if (!evmAddress && !cosmosAddress) throw new Error('No accounts found');
+    if (!evmAddress && !cosmosAddress) throw new Error('No accounts returned from extension');
     return { provider, evmAddress, evmChainId, cosmosAddress, cosmosChainId };
-  }
-
-  private async connectWalletConnect(
-    walletId: string,
-    preferredType: 'evm' | 'cosmos'
-  ): Promise<{
-    provider: any;
-    evmAddress?: string;
-    evmChainId?: number;
-    cosmosAddress?: string;
-    cosmosChainId?: string;
-  }> {
-    const provider = await this.getOrCreateProvider(preferredType);
-
-    const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
-    const cosmosChains = getCosmosChains(this.currentNetwork);
-
-    const modal = new WalletConnectModal({
-      projectId: WALLETCONNECT_PROJECT_ID,
-      chains: preferredType === 'evm' ? evmChains : cosmosChains.map(c => `cosmos:${c.chainId}`),
-      themeMode: 'dark',
-    });
-
-    this.modals.set(preferredType, modal);
-
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        modal.closeModal();
-        reject(new Error('Connection timeout'));
-      }, CONNECTION_TIMEOUT);
-
-      provider.on('display_uri', (uri: string) => {
-        this.openMobileDeepLink(walletId, uri);
-        modal.openModal({ uri });
-      });
-
-      const namespaces =
-        preferredType === 'evm'
-          ? {
-            eip155: {
-              methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
-              chains: evmChains,
-              events: ['chainChanged', 'accountsChanged'],
-            },
-          }
-          : {
-            cosmos: {
-              methods: ['cosmos_signDirect', 'cosmos_signAmino'],
-              chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
-              events: ['accountsChanged'],
-            },
-          };
-
-      provider
-        .connect({ namespaces: namespaces as any })
-        .then((session: any) => {
-          clearTimeout(timeout);
-          modal.closeModal();
-
-          let evmAccount =
-            preferredType === 'evm' ? session.namespaces.eip155?.accounts[0] : undefined;
-          let cosmosAccount =
-            preferredType === 'cosmos' ? session.namespaces.cosmos?.accounts[0] : undefined;
-
-          if (preferredType === 'evm' && !evmAccount) {
-            reject(new Error('EVM account required'));
-            return;
-          }
-          if (preferredType === 'cosmos' && !cosmosAccount) {
-            reject(new Error('Cosmos account required'));
-            return;
-          }
-
-          let evmAddress, evmChainId, cosmosAddress, cosmosChainId;
-
-          if (evmAccount) {
-            const [, chainIdStr, addr] = evmAccount.split(':');
-            evmAddress = addr;
-            evmChainId = parseInt(chainIdStr);
-          }
-
-          if (cosmosAccount) {
-            const [, chainId, addr] = cosmosAccount.split(':');
-            cosmosAddress = addr;
-            cosmosChainId = chainId;
-          }
-          this.setupWalletConnectListeners(provider, preferredType);
-
-          resolve({ provider, evmAddress, evmChainId, cosmosAddress, cosmosChainId });
-        })
-        .catch((error: any) => {
-          clearTimeout(timeout);
-          modal.closeModal();
-          reject(error);
-        });
-    });
-  }
-
-  private setupWalletConnectListeners(provider: any, type: WalletType): void {
-    provider.on('session_ping', (_data: { id: number; topic: string }) => { });
-
-    provider.on(
-      'session_event',
-      ({ event, chainId: _chainId }: { event: { name: string; data: any }; chainId: string }) => {
-        if (event.name === 'accountsChanged') {
-          this.handleAccountsChanged(type, event.data);
-        }
-        if (event.name === 'chainChanged') {
-          this.handleChainChanged(type, event.data);
-        }
-      }
-    );
-
-    provider.on('session_update', ({ topic: _topic, params }: { topic: string; params: any }) => {
-      if (params.namespaces) {
-        this.handleSessionUpdate(type, params.namespaces);
-      }
-    });
-
-    provider.on('session_extend', (_data: { topic: string }) => { });
-
-    provider.on('session_expire', (_data: { topic: string }) => {
-      this.handleDisconnect(type);
-    });
-
-    provider.on('session_delete', (_data: { id: number; topic: string }) => {
-      this.handleDisconnect(type);
-    });
-  }
-
-  private handleAccountsChanged(type: WalletType, accounts: any): void {
-    if (!accounts || (Array.isArray(accounts) && accounts.length === 0)) {
-      this.handleDisconnect(type);
-      return;
-    }
-
-    const session = this.sessions.get(type);
-    if (!session) return;
-
-    const oldEvmAddress = session.evmAddress?.toLowerCase();
-    const firstAccount = Array.isArray(accounts) ? accounts[0] : accounts;
-
-    if (type === 'evm') {
-      if (typeof firstAccount === 'string') {
-        if (firstAccount.includes(':')) {
-          const [, chainIdStr, address] = firstAccount.split(':');
-          session.evmAddress = address;
-          session.evmChainId = parseInt(chainIdStr);
-        } else {
-          session.evmAddress = firstAccount;
-        }
-
-        const newEvmAddress = session.evmAddress.toLowerCase();
-        if (oldEvmAddress && oldEvmAddress !== newEvmAddress) {
-          delete session.dydxAddress;
-          purge();
-        }
-      }
-    } else if (type === 'cosmos') {
-      if (typeof firstAccount === 'string') {
-        if (firstAccount.includes(':')) {
-          const [, chainId, address] = firstAccount.split(':');
-          session.cosmosAddress = address;
-          session.cosmosChainId = chainId;
-        } else {
-          session.cosmosAddress = firstAccount;
-        }
-      }
-    }
-
-    this.sessions.set(type, session);
-    this.saveSession();
-    this.emitState(type, 'connected');
-  }
-
-  private handleChainChanged(type: WalletType, chainData: any): void {
-    const session = this.sessions.get(type);
-    if (!session) return;
-
-    if (type === 'evm') {
-      let parsedChainId: number;
-      if (typeof chainData === 'string') {
-        parsedChainId = chainData.startsWith('0x')
-          ? parseInt(chainData, 16)
-          : parseInt(chainData, 10);
-      } else if (typeof chainData === 'number') {
-        parsedChainId = chainData;
-      } else {
-        return;
-      }
-
-      session.evmChainId = parsedChainId;
-      this.sessions.set(type, session);
-      this.saveSession();
-      this.emitState(type, 'connected');
-    }
-  }
-
-  private handleSessionUpdate(type: WalletType, namespaces: any): void {
-    const session = this.sessions.get(type);
-    if (!session) return;
-
-    if (type === 'evm' && namespaces.eip155) {
-      const account = namespaces.eip155.accounts[0];
-      if (account) {
-        const [, chainIdStr, address] = account.split(':');
-        session.evmAddress = address;
-        session.evmChainId = parseInt(chainIdStr);
-      }
-    } else if (type === 'cosmos' && namespaces.cosmos) {
-      const account = namespaces.cosmos.accounts[0];
-      if (account) {
-        const [, chainId, address] = account.split(':');
-        session.cosmosAddress = address;
-        session.cosmosChainId = chainId;
-      }
-    } else if (type === 'stellar' && namespaces.stellar) {
-      const account = namespaces.stellar.accounts[0];
-      if (account) {
-        const [, chainId, address] = account.split(':');
-        session.stellarAddress = address;
-        session.stellarChainId = chainId;
-      }
-    }
-
-    this.sessions.set(type, session);
-    this.saveSession();
-    this.emitState(type, 'connected');
-  }
-
-  async connectStellar(walletId: string): Promise<WalletSession> {
-    this.emitState('stellar', 'connecting');
-
-    try {
-      const win = window as any;
-      if (walletId === 'freighter' && win.freighter) {
-        return await this.connectStellarExtension(win.freighter);
-      } else {
-        return await this.connectStellarWalletConnect(walletId);
-      }
-    } catch (error: any) {
-      this.emitState('stellar', 'failed');
-      throw error;
-    }
   }
 
   private async connectStellarExtension(freighter: any): Promise<WalletSession> {
     const isConnected = await freighter.isConnected();
     if (!isConnected) await freighter.connect();
-    const publicKey = await freighter.getPublicKey();
+
+    const publicKey: string = await freighter.getPublicKey();
     const config = getStellarConfig(this.currentNetwork);
 
     const session: WalletSession = {
@@ -645,9 +555,106 @@ class WalletService {
     return session;
   }
 
-  private async connectStellarWalletConnect(walletId: string): Promise<WalletSession> {
-    const provider = await this.getOrCreateProvider('stellar');
+  // ---------------------------------------------------------------------------
+  // WalletConnect single-namespace helpers (for individual chain connect)
+  // ---------------------------------------------------------------------------
 
+  private async connectWalletConnectSingle(
+    walletId: string,
+    preferredType: 'evm' | 'cosmos'
+  ): Promise<{
+    provider: any;
+    evmAddress?: string;
+    evmChainId?: number;
+    cosmosAddress?: string;
+    cosmosChainId?: string;
+  }> {
+    const provider = await this.getOrCreateProvider(preferredType);
+    const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
+    const cosmosChains = getCosmosChains(this.currentNetwork);
+
+    const modal = new WalletConnectModal({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      chains: preferredType === 'evm' ? evmChains : cosmosChains.map(c => `cosmos:${c.chainId}`),
+      themeMode: 'dark',
+    });
+    this.modals.set(preferredType, modal);
+
+    const namespaces =
+      preferredType === 'evm'
+        ? {
+          eip155: {
+            methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+            chains: evmChains,
+            events: ['chainChanged', 'accountsChanged'],
+          },
+        }
+        : {
+          cosmos: {
+            methods: ['cosmos_signDirect', 'cosmos_signAmino'],
+            chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
+            events: ['accountsChanged'],
+          },
+        };
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        modal.closeModal();
+        reject(new Error('Connection timeout'));
+      }, CONNECTION_TIMEOUT_MS);
+
+      provider.on('display_uri', (uri: string) => {
+        this.openMobileDeepLink(walletId, uri);
+        modal.openModal({ uri });
+      });
+
+      provider
+        .connect({ namespaces: namespaces as any })
+        .then((session: any) => {
+          clearTimeout(timeout);
+          modal.closeModal();
+
+          const evmAccount: string | undefined = session.namespaces?.eip155?.accounts?.[0];
+          const cosmosAccount: string | undefined = session.namespaces?.cosmos?.accounts?.[0];
+
+          if (preferredType === 'evm' && !evmAccount) {
+            reject(new Error('EVM account not returned'));
+            return;
+          }
+          if (preferredType === 'cosmos' && !cosmosAccount) {
+            reject(new Error('Cosmos account not returned'));
+            return;
+          }
+
+          let evmAddress: string | undefined;
+          let evmChainId: number | undefined;
+          let cosmosAddress: string | undefined;
+          let cosmosChainId: string | undefined;
+
+          if (evmAccount) {
+            const [, chainIdStr, addr] = evmAccount.split(':');
+            evmAddress = addr;
+            evmChainId = parseInt(chainIdStr, 10);
+          }
+          if (cosmosAccount) {
+            const [, chainId, addr] = cosmosAccount.split(':');
+            cosmosAddress = addr;
+            cosmosChainId = chainId;
+          }
+
+          this.setupWalletConnectListeners(provider, preferredType);
+          resolve({ provider, evmAddress, evmChainId, cosmosAddress, cosmosChainId });
+        })
+        .catch((error: any) => {
+          clearTimeout(timeout);
+          modal.closeModal();
+          reject(error);
+        });
+    });
+  }
+
+  private async connectStellarWalletConnectSingle(walletId: string): Promise<WalletSession> {
+    const provider = await this.getOrCreateProvider('stellar');
     const config = getStellarConfig(this.currentNetwork);
     const stellarChain = `stellar:${config.chainId}`;
 
@@ -656,14 +663,13 @@ class WalletService {
       chains: [stellarChain],
       themeMode: 'dark',
     });
-
     this.modals.set('stellar', modal);
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         modal.closeModal();
         reject(new Error('Connection timeout'));
-      }, CONNECTION_TIMEOUT);
+      }, CONNECTION_TIMEOUT_MS);
 
       provider.on('display_uri', (uri: string) => {
         modal.openModal({ uri });
@@ -683,9 +689,9 @@ class WalletService {
           clearTimeout(timeout);
           modal.closeModal();
 
-          const account = session.namespaces.stellar?.accounts[0];
+          const account: string | undefined = session.namespaces?.stellar?.accounts?.[0];
           if (!account) {
-            reject(new Error('No Stellar account'));
+            reject(new Error('No Stellar account returned'));
             return;
           }
 
@@ -700,7 +706,6 @@ class WalletService {
           this.sessions.set('stellar', walletSession);
           this.providers.set('stellar', provider);
           this.setupWalletConnectListeners(provider, 'stellar');
-
           this.emitState('stellar', 'connected');
           this.saveSession();
           resolve(walletSession);
@@ -713,6 +718,10 @@ class WalletService {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Disconnect
+  // ---------------------------------------------------------------------------
+
   async disconnect(type: WalletType): Promise<void> {
     const provider = this.providers.get(type);
 
@@ -720,7 +729,7 @@ class WalletService {
       try {
         await provider.disconnect();
       } catch {
-        // disconnect error handled silently
+        // Disconnect errors are not actionable — clean up state regardless
       }
     }
 
@@ -728,18 +737,16 @@ class WalletService {
       await purge();
     }
 
-    if (type === 'evm' || type === 'cosmos') {
+    // If disconnecting EVM that shared a cosmos provider, also remove cosmos
+    if (type === 'evm') {
       this.providers.delete('cosmos');
+      this.derivationInProgress = false;
     }
 
     this.sessions.delete(type);
     this.providers.delete(type);
     this.modals.get(type)?.closeModal();
     this.modals.delete(type);
-
-    if (type === 'evm') {
-      this.derivationInProgress = false;
-    }
 
     this.saveSession();
     this.emitState(type, 'disconnected');
@@ -749,11 +756,16 @@ class WalletService {
     this.disconnect(type);
   }
 
+  // ---------------------------------------------------------------------------
+  // Session persistence
+  // ---------------------------------------------------------------------------
+
   private saveSession(): void {
     try {
       const data: Record<string, WalletSession> = {};
       this.sessions.forEach((session, type) => {
-        const safeSession = {
+        // Never persist sensitive key material — only public addresses and IDs
+        data[type] = {
           type: session.type,
           walletId: session.walletId,
           evmAddress: session.evmAddress,
@@ -764,11 +776,10 @@ class WalletService {
           stellarAddress: session.stellarAddress,
           stellarChainId: session.stellarChainId,
         };
-        data[type] = safeSession;
       });
-      localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
     } catch {
-      // save error handled silently
+      // Storage may be unavailable (private browsing, storage quota) — non-fatal
     }
   }
 
@@ -776,29 +787,33 @@ class WalletService {
     const restored: WalletSession[] = [];
 
     try {
-      const stored = localStorage.getItem(SESSION_KEY);
+      const stored = localStorage.getItem(SESSION_STORAGE_KEY);
       if (!stored) return [];
 
-      const data = JSON.parse(stored);
+      const data = JSON.parse(stored) as Record<string, WalletSession>;
       const hasDydxBlob = hasEncryptedBlob();
 
-      for (const [typeStr, savedSession] of Object.entries(data) as [string, WalletSession][]) {
+      for (const [typeStr, savedSession] of Object.entries(data)) {
         const type = typeStr as WalletType;
         try {
-          let provider = this.providers.get(type);
+          // Try to restore via WalletConnect active session first
+          let provider = this.providers.get(type) ?? this.providers.get('unified');
           if (!provider) {
-            provider = await this.initProvider(type);
-            this.providers.set(type, provider);
+            try {
+              provider = await this.getOrCreateProvider(type);
+              this.providers.set(type, provider);
+            } catch {
+              // Provider init failed — skip this type
+            }
           }
 
-          if (provider.session) {
+          if (provider?.session) {
             this.setupWalletConnectListeners(provider, type);
-
             const refreshed = await this.refreshSessionFromProvider(provider, savedSession);
 
             if (hasDydxBlob && savedSession.dydxAddress) {
-              const restored = await decryptAndRestore();
-              if (restored) {
+              const didRestore = await decryptAndRestore();
+              if (didRestore) {
                 refreshed.dydxAddress = savedSession.dydxAddress;
               }
             }
@@ -806,18 +821,21 @@ class WalletService {
             this.sessions.set(type, refreshed);
             restored.push(refreshed);
             this.emitState(type, 'connected');
-          } else if (savedSession.walletId !== 'walletconnect' && this.isExtensionInstalled(savedSession.walletId)) {
+          } else if (
+            savedSession.walletId !== 'walletconnect' &&
+            this.isExtensionInstalled(savedSession.walletId)
+          ) {
             const restoredSession = await this.restoreExtensionSession(type, savedSession, hasDydxBlob);
             if (restoredSession) {
               restored.push(restoredSession);
             }
           }
         } catch {
-          // restore for this type failed silently
+          // Failed to restore this wallet type — continue with others
         }
       }
     } catch {
-      // restore error handled silently
+      // Could not read stored sessions — start fresh
     }
 
     return restored;
@@ -834,7 +852,8 @@ class WalletService {
       try {
         const isConnected = await win.freighter.isConnected();
         if (!isConnected) return null;
-        const publicKey = await win.freighter.getPublicKey();
+
+        const publicKey: string = await win.freighter.getPublicKey();
         const config = getStellarConfig(this.currentNetwork);
 
         const session: WalletSession = {
@@ -859,18 +878,18 @@ class WalletService {
           metamask: win.ethereum?.isMetaMask ? win.ethereum : null,
           trust: win.ethereum?.isTrust ? win.ethereum : null,
           coinbase: win.ethereum?.isCoinbaseWallet ? win.ethereum : null,
-          phantom: win.phantom?.ethereum || null,
+          phantom: win.phantom?.ethereum ?? null,
           rabby: win.ethereum?.isRabby ? win.ethereum : null,
+          rainbow: win.ethereum?.isRainbow ? win.ethereum : null,
         };
 
-        const evmProvider = evmProviders[savedSession.walletId] || win.ethereum;
+        const evmProvider = evmProviders[savedSession.walletId] ?? win.ethereum;
         if (!evmProvider) return null;
 
-        const accounts = await evmProvider.request({ method: 'eth_accounts' });
-        if (!accounts || accounts.length === 0) return null;
+        const accounts: string[] = await evmProvider.request({ method: 'eth_accounts' });
+        if (!accounts?.length) return null;
 
-        const chainIdHex = await evmProvider.request({ method: 'eth_chainId' });
-
+        const chainIdHex: string = await evmProvider.request({ method: 'eth_chainId' });
         const session: WalletSession = {
           type: 'evm',
           walletId: savedSession.walletId,
@@ -880,9 +899,7 @@ class WalletService {
 
         if (hasDydxBlob && savedSession.dydxAddress) {
           const didRestore = await decryptAndRestore();
-          if (didRestore) {
-            session.dydxAddress = savedSession.dydxAddress;
-          }
+          if (didRestore) session.dydxAddress = savedSession.dydxAddress;
         }
 
         this.sessions.set('evm', session);
@@ -935,42 +952,37 @@ class WalletService {
     return null;
   }
 
-  private async initProvider(type: WalletType) {
-    return await this.getOrCreateProvider(type);
-  }
-
   private async refreshSessionFromProvider(
     provider: any,
     saved: WalletSession
   ): Promise<WalletSession> {
     const session = provider.session;
-    let evmAddress, evmChainId, cosmosAddress, cosmosChainId, stellarAddress, stellarChainId;
+    let evmAddress: string | undefined;
+    let evmChainId: number | undefined;
+    let cosmosAddress: string | undefined;
+    let cosmosChainId: string | undefined;
+    let stellarAddress: string | undefined;
+    let stellarChainId: string | undefined;
 
-    if (session.namespaces.eip155) {
-      const evmAccount = session.namespaces.eip155.accounts[0];
-      if (evmAccount) {
-        const [, chainIdStr, addr] = evmAccount.split(':');
-        evmAddress = addr;
-        evmChainId = parseInt(chainIdStr);
-      }
+    const evmAccount: string | undefined = session.namespaces?.eip155?.accounts?.[0];
+    if (evmAccount) {
+      const [, chainIdStr, addr] = evmAccount.split(':');
+      evmAddress = addr;
+      evmChainId = parseInt(chainIdStr, 10);
     }
 
-    if (session.namespaces.cosmos) {
-      const cosmosAccount = session.namespaces.cosmos.accounts[0];
-      if (cosmosAccount) {
-        const [, chainId, addr] = cosmosAccount.split(':');
-        cosmosAddress = addr;
-        cosmosChainId = chainId;
-      }
+    const cosmosAccount: string | undefined = session.namespaces?.cosmos?.accounts?.[0];
+    if (cosmosAccount) {
+      const [, chainId, addr] = cosmosAccount.split(':');
+      cosmosAddress = addr;
+      cosmosChainId = chainId;
     }
 
-    if (session.namespaces.stellar) {
-      const stellarAccount = session.namespaces.stellar.accounts[0];
-      if (stellarAccount) {
-        const [, chainId, addr] = stellarAccount.split(':');
-        stellarAddress = addr;
-        stellarChainId = chainId;
-      }
+    const stellarAccount: string | undefined = session.namespaces?.stellar?.accounts?.[0];
+    if (stellarAccount) {
+      const [, chainId, addr] = stellarAccount.split(':');
+      stellarAddress = addr;
+      stellarChainId = chainId;
     }
 
     const refreshed: WalletSession = {
@@ -985,8 +997,8 @@ class WalletService {
     };
 
     const dydxChainId = getDydxChainId(this.currentNetwork);
-    if (cosmosChainId === dydxChainId) {
-      refreshed.dydxAddress = cosmosAddress!;
+    if (cosmosChainId === dydxChainId && cosmosAddress) {
+      refreshed.dydxAddress = cosmosAddress;
     }
 
     return refreshed;
@@ -994,12 +1006,173 @@ class WalletService {
 
   private clearSessionStorage(): void {
     try {
-      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(SESSION_STORAGE_KEY);
       purge();
     } catch {
-      // clear error handled silently
+      // Non-fatal
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // EVM & WalletConnect event listeners
+  // ---------------------------------------------------------------------------
+
+  private setupEVMListeners(provider: any): void {
+    provider.on('accountsChanged', (accounts: string[]) => {
+      if (!accounts?.length) {
+        this.handleDisconnect('evm');
+        return;
+      }
+
+      const session = this.sessions.get('evm');
+      if (!session) return;
+
+      const oldAddress = session.evmAddress?.toLowerCase();
+      session.evmAddress = accounts[0];
+
+      if (oldAddress && oldAddress !== session.evmAddress.toLowerCase()) {
+        // Address changed — invalidate any derived dYdX wallet for security
+        delete session.dydxAddress;
+        purge();
+      }
+
+      this.sessions.set('evm', session);
+      this.saveSession();
+      this.emitState('evm', 'connected');
+    });
+
+    provider.on('chainChanged', (chainId: string) => {
+      const session = this.sessions.get('evm');
+      if (!session) return;
+      session.evmChainId = parseInt(chainId, 16);
+      this.sessions.set('evm', session);
+      this.saveSession();
+      this.emitState('evm', 'connected');
+    });
+
+    provider.on('disconnect', () => {
+      this.handleDisconnect('evm');
+    });
+  }
+
+  private setupWalletConnectListeners(provider: any, type: WalletType): void {
+    provider.on('session_event', ({ event, chainId: _chainId }: { event: { name: string; data: any }; chainId: string }) => {
+      if (event.name === 'accountsChanged') this.handleAccountsChanged(type, event.data);
+      if (event.name === 'chainChanged') this.handleChainChanged(type, event.data);
+    });
+
+    provider.on('session_update', ({ params }: { topic: string; params: any }) => {
+      if (params?.namespaces) this.handleSessionUpdate(type, params.namespaces);
+    });
+
+    provider.on('session_expire', () => this.handleDisconnect(type));
+    provider.on('session_delete', () => this.handleDisconnect(type));
+  }
+
+  private handleAccountsChanged(type: WalletType, accounts: unknown): void {
+    if (!accounts || (Array.isArray(accounts) && accounts.length === 0)) {
+      this.handleDisconnect(type);
+      return;
+    }
+
+    const session = this.sessions.get(type);
+    if (!session) return;
+
+    const firstAccount = Array.isArray(accounts) ? accounts[0] : accounts;
+    if (typeof firstAccount !== 'string') return;
+
+    const oldEvmAddress = session.evmAddress?.toLowerCase();
+
+    if (type === 'evm') {
+      if (firstAccount.includes(':')) {
+        const [, chainIdStr, address] = firstAccount.split(':');
+        session.evmAddress = address;
+        session.evmChainId = parseInt(chainIdStr, 10);
+      } else {
+        session.evmAddress = firstAccount;
+      }
+
+      if (oldEvmAddress && oldEvmAddress !== session.evmAddress?.toLowerCase()) {
+        delete session.dydxAddress;
+        purge();
+      }
+    } else if (type === 'cosmos') {
+      if (firstAccount.includes(':')) {
+        const [, chainId, address] = firstAccount.split(':');
+        session.cosmosAddress = address;
+        session.cosmosChainId = chainId;
+      } else {
+        session.cosmosAddress = firstAccount;
+      }
+    } else if (type === 'stellar') {
+      if (firstAccount.includes(':')) {
+        const [, chainId, address] = firstAccount.split(':');
+        session.stellarAddress = address;
+        session.stellarChainId = chainId;
+      } else {
+        session.stellarAddress = firstAccount;
+      }
+    }
+
+    this.sessions.set(type, session);
+    this.saveSession();
+    this.emitState(type, 'connected');
+  }
+
+  private handleChainChanged(type: WalletType, chainData: unknown): void {
+    const session = this.sessions.get(type);
+    if (!session || type !== 'evm') return;
+
+    if (typeof chainData === 'string') {
+      session.evmChainId = chainData.startsWith('0x')
+        ? parseInt(chainData, 16)
+        : parseInt(chainData, 10);
+    } else if (typeof chainData === 'number') {
+      session.evmChainId = chainData;
+    } else {
+      return;
+    }
+
+    this.sessions.set(type, session);
+    this.saveSession();
+    this.emitState(type, 'connected');
+  }
+
+  private handleSessionUpdate(type: WalletType, namespaces: any): void {
+    const session = this.sessions.get(type);
+    if (!session) return;
+
+    if (type === 'evm' && namespaces.eip155) {
+      const account: string | undefined = namespaces.eip155.accounts?.[0];
+      if (account) {
+        const [, chainIdStr, address] = account.split(':');
+        session.evmAddress = address;
+        session.evmChainId = parseInt(chainIdStr, 10);
+      }
+    } else if (type === 'cosmos' && namespaces.cosmos) {
+      const account: string | undefined = namespaces.cosmos.accounts?.[0];
+      if (account) {
+        const [, chainId, address] = account.split(':');
+        session.cosmosAddress = address;
+        session.cosmosChainId = chainId;
+      }
+    } else if (type === 'stellar' && namespaces.stellar) {
+      const account: string | undefined = namespaces.stellar.accounts?.[0];
+      if (account) {
+        const [, chainId, address] = account.split(':');
+        session.stellarAddress = address;
+        session.stellarChainId = chainId;
+      }
+    }
+
+    this.sessions.set(type, session);
+    this.saveSession();
+    this.emitState(type, 'connected');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mobile deep links
+  // ---------------------------------------------------------------------------
 
   private openMobileDeepLink(walletId: string, uri: string): void {
     if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
@@ -1011,6 +1184,7 @@ class WalletService {
       phantom: `https://phantom.app/ul/v1/connect?uri=${encodeURIComponent(uri)}`,
       keplr: `keplrwallet://wcV2?uri=${encodeURIComponent(uri)}`,
       leap: `leapcosmos://wcV2?uri=${encodeURIComponent(uri)}`,
+      rainbow: `https://rnbwapp.com/wc?uri=${encodeURIComponent(uri)}`,
     };
 
     const link = deepLinks[walletId];
@@ -1021,74 +1195,21 @@ class WalletService {
     }
   }
 
-  private setupEVMListeners(provider: any): void {
-    provider.on('accountsChanged', (accounts: string[]) => {
-      if (accounts.length === 0) {
-        this.handleDisconnect('evm');
-      } else {
-        const session = this.sessions.get('evm');
-        if (session) {
-          const oldAddress = session.evmAddress?.toLowerCase();
-          session.evmAddress = accounts[0];
-          const newAddress = session.evmAddress.toLowerCase();
-          if (oldAddress && oldAddress !== newAddress) {
-            delete session.dydxAddress;
-            purge();
-          }
-
-          this.sessions.set('evm', session);
-          this.saveSession();
-          this.emitState('evm', 'connected');
-        }
-      }
-    });
-
-    provider.on('chainChanged', (chainId: string) => {
-      const session = this.sessions.get('evm');
-      if (session) {
-        session.evmChainId = parseInt(chainId, 16);
-        this.sessions.set('evm', session);
-        this.saveSession();
-        this.emitState('evm', 'connected');
-      }
-    });
-
-    provider.on('disconnect', () => {
-      this.handleDisconnect('evm');
-    });
-  }
-
-  getSession(type: WalletType): WalletSession | null {
-    return this.sessions.get(type) || null;
-  }
-
-  getProvider(type: WalletType | 'cosmos' | 'evm' | 'stellar'): any {
-    return this.providers.get(type);
-  }
-
-  isConnected(type: WalletType): boolean {
-    return this.sessions.has(type);
-  }
-
-  private isSessionExpired(provider: any): boolean {
-    try {
-      const session = provider?.session;
-      if (!session) return true;
-      if (session.expiry) {
-        return Date.now() / 1000 > session.expiry;
-      }
-      return false;
-    } catch {
-      return true;
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Session health
+  // ---------------------------------------------------------------------------
 
   async checkSessionHealth(): Promise<{ type: WalletType; valid: boolean }[]> {
     const results: { type: WalletType; valid: boolean }[] = [];
 
     for (const [type] of this.sessions.entries()) {
       const provider = this.providers.get(type);
-      const valid = !!(provider?.session && !this.isSessionExpired(provider));
+      const hasSession = !!provider?.session;
+      const notExpired = hasSession
+        ? !provider.session.expiry || Date.now() / 1000 < provider.session.expiry
+        : false;
+
+      const valid = hasSession && notExpired;
       results.push({ type, valid });
 
       if (!valid) {
@@ -1099,9 +1220,26 @@ class WalletService {
     return results;
   }
 
+  // ---------------------------------------------------------------------------
+  // Public accessors
+  // ---------------------------------------------------------------------------
+
+  getSession(type: WalletType): WalletSession | null {
+    return this.sessions.get(type) ?? null;
+  }
+
+  getProvider(type: WalletType): any {
+    return this.providers.get(type) ?? null;
+  }
+
+  isConnected(type: WalletType): boolean {
+    return this.sessions.has(type);
+  }
+
   hasDydxWallet(): boolean {
-    const session = this.sessions.get('evm') || this.sessions.get('cosmos');
-    return !!session?.dydxAddress;
+    const evm = this.sessions.get('evm');
+    const cosmos = this.sessions.get('cosmos');
+    return !!(evm?.dydxAddress ?? cosmos?.dydxAddress);
   }
 
   private isExtensionInstalled(walletId: string): boolean {
@@ -1112,25 +1250,27 @@ class WalletService {
       coinbase: !!win.ethereum?.isCoinbaseWallet,
       phantom: !!win.phantom?.ethereum,
       rabby: !!win.ethereum?.isRabby,
+      rainbow: !!win.ethereum?.isRainbow,
       keplr: !!win.keplr,
       leap: !!win.leap,
       freighter: !!win.freighter,
     };
-    return checks[walletId] || false;
+    return checks[walletId] ?? false;
   }
 
   getInstalledWallets(): string[] {
     const win = window as any;
-    const wallets = [];
-    if (win.ethereum?.isMetaMask) wallets.push('metamask');
-    if (win.ethereum?.isTrust) wallets.push('trust');
-    if (win.ethereum?.isCoinbaseWallet) wallets.push('coinbase');
-    if (win.phantom?.ethereum) wallets.push('phantom');
-    if (win.ethereum?.isRabby) wallets.push('rabby');
-    if (win.keplr) wallets.push('keplr');
-    if (win.leap) wallets.push('leap');
-    if (win.freighter) wallets.push('freighter');
-    return wallets;
+    const installed: string[] = [];
+    if (win.ethereum?.isMetaMask) installed.push('metamask');
+    if (win.ethereum?.isTrust) installed.push('trust');
+    if (win.ethereum?.isCoinbaseWallet) installed.push('coinbase');
+    if (win.phantom?.ethereum) installed.push('phantom');
+    if (win.ethereum?.isRabby) installed.push('rabby');
+    if (win.ethereum?.isRainbow) installed.push('rainbow');
+    if (win.keplr) installed.push('keplr');
+    if (win.leap) installed.push('leap');
+    if (win.freighter) installed.push('freighter');
+    return installed;
   }
 
   onStateChange(callback: (type: WalletType, state: ConnectionState) => void): () => void {
@@ -1143,7 +1283,7 @@ class WalletService {
       try {
         cb(type, state);
       } catch {
-        // event error handled silently
+        // Listener errors must not propagate and disrupt connection flow
       }
     });
   }

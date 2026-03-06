@@ -1,4 +1,4 @@
-const SKIP_API_BASE = 'https://api.skip.build';
+const SKIP_API_BASE = 'https://skip-proxy-web-mainnet.infrastructure-34d.workers.dev';
 
 const DYDX_CHAIN_ID = 'dydx-mainnet-1';
 const NOBLE_CHAIN_ID = 'noble-1';

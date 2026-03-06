@@ -42,8 +42,8 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
   {
     chainId: 1,
     name: 'Ethereum',
-    rpcUrl: 'https://eth.llamarpc.com',
-    fallbackRpcUrls: ['https://cloudflare-eth.com', 'https://eth-mainnet.public.blastapi.io'],
+    rpcUrl: 'https://cloudflare-eth.com',
+    fallbackRpcUrls: ['https://eth-mainnet.public.blastapi.io', 'https://rpc.ankr.com/eth'],
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     logoUrl:
@@ -186,4 +186,39 @@ export const WALLETCONNECT_METADATA = {
   description: 'Trade Swiftly, Trade Securely',
   url: 'https://SwiftExchange.com',
   icons: ['/logo.png'],
+};
+
+/**
+ * Builds the WalletConnect namespace config for a unified multichain session.
+ *
+ * EVM is placed in requiredNamespaces so the session always succeeds with EVM.
+ * Stellar is placed in optionalNamespaces so wallets that don't support it
+ * (e.g. Trust Wallet, MetaMask Mobile) simply omit it without failing.
+ */
+export const buildUnifiedNamespaces = (
+  network: NetworkType
+): {
+  requiredNamespaces: Record<string, unknown>;
+  optionalNamespaces: Record<string, unknown>;
+} => {
+  const evmChains = getEVMChains(network).map(c => `eip155:${c.chainId}`);
+  const stellarConfig = getStellarConfig(network);
+  const stellarChain = `stellar:${stellarConfig.chainId}`;
+
+  return {
+    requiredNamespaces: {
+      eip155: {
+        methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+        chains: evmChains,
+        events: ['chainChanged', 'accountsChanged'],
+      },
+    },
+    optionalNamespaces: {
+      stellar: {
+        methods: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
+        chains: [stellarChain],
+        events: ['accountsChanged'],
+      },
+    },
+  };
 };

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 
 import { useOrderbook } from '../../hooks/useOrderbook';
 import useMarketStore from '../../store/marketStore';
@@ -13,7 +13,7 @@ interface OrderbookRow {
   usdTotal: number;
 }
 
-const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
+const Orderbook = () => {
   const { selectedMarket } = useMarketStore();
   const { onPriceClick } = useOrderbookClickStore();
   const { orderbook, isConnected, isLoading } = useOrderbook(selectedMarket);
@@ -24,6 +24,10 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
 
   const [displayMode, setDisplayMode] = useState<'base' | 'usd'>('base');
   const [groupIndex, setGroupIndex] = useState(0);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [maxRows, setMaxRows] = useState(10);
+  const ROW_HEIGHT = 20; // Exact height of each row in px
 
   const multipliers = [1, 5, 10, 50, 100];
   const currentTickSize = baseTickSize * multipliers[groupIndex];
@@ -120,6 +124,26 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
     };
   }, [orderbook, maxRows, currentTickSize]);
 
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        // Calculate max rows based on available container height
+        // Subtract header/spread sizes (approx 120px total vertical space used by non-row elements)
+        const availableHeight = entry.contentRect.height;
+        const listHeight = (availableHeight - 120) / 2;
+
+        // Calculate how many rows fit, ensure at least 2 rows show
+        const calculatedRows = Math.floor(listHeight / ROW_HEIGHT);
+        setMaxRows(Math.max(calculatedRows, 2));
+      }
+    });
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [ROW_HEIGHT]);
+
   const base = selectedMarket.split('-')[0] || 'BTC';
   const quote = selectedMarket.split('-')[1] || 'USD';
 
@@ -135,8 +159,8 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
   };
 
   return (
-    <div className="w-full max-w-md bg-secondary text-primary font-medium text-sm select-none">
-      <div className="flex items-center justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
+    <div ref={containerRef} className="w-full h-full flex flex-col bg-secondary text-primary font-medium text-sm select-none">
+      <div className="flex items-center justify-between shrink-0 px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
         <div className="flex items-center gap-1">
           <button
             className="text-primary hover:bg-[#2a2631] px-1.5 py-0.5 rounded transition-colors disabled:opacity-50"
@@ -181,7 +205,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
+      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
         <div>
           Price <span className="bg-[#1a1620] text-[#6b6b76] px-1 py-0.5 rounded text-[10px]">{quote}</span>
         </div>
@@ -193,7 +217,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
         </div>
       </div>
 
-      <div className="relative max-h-[200px] overflow-auto hide-scrollbar">
+      <div className="relative flex-1 overflow-auto hide-scrollbar flex flex-col justify-end">
         {asks.map(ask => {
           const priceKey = ask.price.toString();
           const depthPct = displayMode === 'base' ? (ask.total / maxBaseTotal) * 100 : (ask.usdTotal / maxUsdTotal) * 100;
@@ -231,7 +255,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
         })}
       </div>
 
-      <div className="grid grid-cols-3 text-primary px-1 md:px-2 lg:px-4 py-2.5 border-y border-[#232027] bg-secondary shadow-sm text-xs lg:text-[13px]">
+      <div className="grid grid-cols-3 shrink-0 text-primary px-1 md:px-2 lg:px-4 py-2.5 border-y border-[#232027] bg-secondary shadow-sm text-xs lg:text-[13px]">
         <div className="text-[#6b6b76] font-medium">Spread</div>
         <div className="text-right font-semibold text-white tabular-nums">
           {spread !== null && spread >= 0 ? spread.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
@@ -241,7 +265,7 @@ const Orderbook: React.FC<{ maxRows?: number }> = ({ maxRows = 9 }) => {
         </div>
       </div>
 
-      <div className="relative max-h-[200px] overflow-auto hide-scrollbar">
+      <div className="relative flex-1 overflow-auto hide-scrollbar">
         {bids.map(bid => {
           const priceKey = bid.price.toString();
           const depthPct = displayMode === 'base' ? (bid.total / maxBaseTotal) * 100 : (bid.usdTotal / maxUsdTotal) * 100;

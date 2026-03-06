@@ -137,6 +137,40 @@ class DydxWalletService {
     }
   }
 
+  async depositToSubaccount(
+    quantumsString: string,
+    subaccountNumber: number = 0
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    try {
+      const client = await this.getCompositeClient();
+      const address = this.getAddress();
+      if (!client || !address) throw new Error('Wallet not connected');
+
+      const localWallet = walletService.getSigningWallet();
+      if (!localWallet) throw new Error('Signing wallet not available - please derive dYdX wallet first');
+
+      const subaccount = SubaccountInfo.forLocalWallet(localWallet, subaccountNumber);
+      const quantums = Long.fromString(quantumsString);
+
+      const result = await client.validatorClient.post.deposit(subaccount, 0, quantums);
+
+      let txHash = typeof result.hash === 'string' ? result.hash : 'unknown';
+      if (result.hash && typeof result.hash !== 'string') {
+        const data = (result.hash as any).data || result.hash;
+        if (Array.isArray(data) || data instanceof Uint8Array) {
+          txHash = Array.from(data as any[])
+            .map((b: any) => b.toString(16).padStart(2, '0'))
+            .join('');
+        }
+      }
+
+      return { success: true, transactionHash: txHash };
+    } catch (error: any) {
+      console.error('[dydxWalletService] depositToSubaccount failed:', error);
+      return { success: false, error: error.message || 'Deposit failed' };
+    }
+  }
+
   async withdraw(amount: string, toAddress?: string): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
     try {
       const client = await this.getCompositeClient();

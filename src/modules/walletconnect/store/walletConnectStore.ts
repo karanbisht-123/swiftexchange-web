@@ -12,6 +12,7 @@ import {
 } from '../config/chains';
 
 export type WalletType = 'evm' | 'cosmos' | 'stellar';
+
 type ConnectionState =
   | 'idle'
   | 'connecting'
@@ -47,6 +48,7 @@ export interface WalletState {
 
 interface WalletActions {
   connectWallet: (type: WalletType, walletId: string) => Promise<void>;
+  connectUnified: (walletId: string) => Promise<void>;
   deriveDydx: () => Promise<void>;
   disconnect: (type: WalletType) => Promise<void>;
   restoreSessions: () => Promise<void>;
@@ -60,7 +62,6 @@ interface WalletActions {
 
 const getInitialNetwork = (): NetworkType => {
   if (typeof window === 'undefined') return 'mainnet';
-  console.log('try to catch network ');
   try {
     const stored = localStorage.getItem('network');
     return stored === 'testnet' ? 'testnet' : 'mainnet';
@@ -82,6 +83,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     currentStellarConfig: getStellarConfig(initialNetwork),
     isRestoringSession: false,
 
+    // Connect a single wallet type via extension or single-namespace WalletConnect
     connectWallet: async (type, walletId) => {
       if (get().connectedWallets[type]) return;
 
@@ -93,7 +95,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }));
 
       try {
-        console.log('try to catch walletService module ');
         const { walletService } = await import('../services/walletService');
 
         const session =
@@ -119,6 +120,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           dydxAddress: session.dydxAddress,
         };
 
+        // Keep modal open if EVM connected but dYdX not yet derived
         const keepModalOpen = type === 'evm' && !session.dydxAddress;
 
         set(state => ({
@@ -129,15 +131,71 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           },
           isModalOpen: keepModalOpen,
         }));
-
-        if ('derivationSkipped' in session && session.derivationSkipped && type === 'evm') {
-          console.log('[WalletStore] dYdX derivation was skipped - user can derive manually');
-        }
       } catch (error) {
         set(state => ({
           connectionStatus: {
             ...state.connectionStatus,
             [type]: {
+              state: 'failed',
+              error: error instanceof Error ? error.message : 'Connection failed',
+            },
+          },
+        }));
+        throw error;
+      }
+    },
+
+    // Connect EVM (required) + Stellar (optional) in a single WalletConnect session.
+    // Updates whichever wallet types were returned by the wallet.
+    connectUnified: async walletId => {
+      set(state => ({
+        connectionStatus: {
+          ...state.connectionStatus,
+          evm: { state: 'connecting' },
+        },
+      }));
+
+      try {
+        const { walletService } = await import('../services/walletService');
+        const result = await walletService.connectUnified(walletId);
+
+        const walletUpdates: Partial<Record<WalletType, ConnectedWallet>> = {};
+        const statusUpdates: Partial<Record<WalletType, WalletConnectionStatus>> = {};
+
+        if (result.evm) {
+          walletUpdates.evm = {
+            type: 'evm',
+            walletId,
+            address: result.evm.evmAddress!,
+            chainId: result.evm.evmChainId,
+            dydxAddress: result.evm.dydxAddress,
+          };
+          statusUpdates.evm = { state: 'connected' };
+        }
+
+        if (result.stellar) {
+          walletUpdates.stellar = {
+            type: 'stellar',
+            walletId,
+            address: result.stellar.stellarAddress!,
+            chainId: result.stellar.stellarChainId,
+          };
+          statusUpdates.stellar = { state: 'connected' };
+        }
+
+        // Keep modal open for dYdX derivation if EVM connected but not yet derived
+        const keepModalOpen = !!result.evm && !result.evm.dydxAddress;
+
+        set(state => ({
+          connectedWallets: { ...state.connectedWallets, ...walletUpdates },
+          connectionStatus: { ...state.connectionStatus, ...statusUpdates },
+          isModalOpen: keepModalOpen,
+        }));
+      } catch (error) {
+        set(state => ({
+          connectionStatus: {
+            ...state.connectionStatus,
+            evm: {
               state: 'failed',
               error: error instanceof Error ? error.message : 'Connection failed',
             },
@@ -165,10 +223,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         set(state => ({
           connectedWallets: {
             ...state.connectedWallets,
-            evm: {
-              ...state.connectedWallets.evm!,
-              dydxAddress: dydx.address,
-            },
+            evm: { ...state.connectedWallets.evm!, dydxAddress: dydx.address },
           },
           connectionStatus: {
             ...state.connectionStatus,
@@ -191,8 +246,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       const { walletService } = await import('../services/walletService');
       await walletService.disconnect(type);
       set(state => {
-        const { [type]: _, ...remainingWallets } = state.connectedWallets;
-        const { [type]: __, ...remainingStatus } = state.connectionStatus;
+        const { [type]: _wallet, ...remainingWallets } = state.connectedWallets;
+        const { [type]: _status, ...remainingStatus } = state.connectionStatus;
         return {
           connectedWallets: remainingWallets,
           connectionStatus: remainingStatus,
@@ -207,6 +262,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       try {
         const { walletService } = await import('../services/walletService');
         const sessions = await walletService.restoreSessions();
+
         if (!sessions.length) {
           set({ isRestoringSession: false });
           return;
@@ -236,13 +292,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           status[s.type] = { state: 'connected' };
         });
 
-        set({
-          connectedWallets: wallets,
-          connectionStatus: status,
-          isRestoringSession: false,
-        });
+        set({ connectedWallets: wallets, connectionStatus: status, isRestoringSession: false });
       } catch (error) {
-        console.error('[WalletStore] Restore sessions failed:', error);
+        console.error('[WalletStore] Failed to restore sessions:', error);
         set({ isRestoringSession: false });
       }
     },
@@ -266,7 +318,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
     isConnected: type => !!get().connectedWallets[type],
     isConnecting: type =>
-      ['connecting', 'signing', 'deriving'].includes(get().connectionStatus[type]?.state || ''),
+      ['connecting', 'signing', 'deriving'].includes(get().connectionStatus[type]?.state ?? ''),
 
     checkSessionHealth: async () => {
       const { walletService } = await import('../services/walletService');
@@ -278,26 +330,17 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 let listenerInitialized = false;
 
 export const initWalletListener = async () => {
-  if (listenerInitialized) {
-    console.log('[WalletStore] Listener already initialized');
-    return;
-  }
+  if (listenerInitialized) return;
 
   try {
-    console.log('[WalletStore] Initializing listener...');
     const { walletService } = await import('../services/walletService');
 
     walletService.onStateChange((type, state) => {
       try {
-        // const currentStatus = useWalletStore.getState().connectionStatus[type];
-
-        console.log('[WalletStore] State change:', { type, state });
-
-        // Handle disconnection and failures
         if (state === 'disconnected' || state === 'failed') {
           useWalletStore.setState(prev => {
-            const { [type]: _, ...remainingWallets } = prev.connectedWallets;
-            const { [type]: __, ...remainingStatus } = prev.connectionStatus;
+            const { [type]: _wallet, ...remainingWallets } = prev.connectedWallets;
+            const { [type]: _status, ...remainingStatus } = prev.connectionStatus;
             return {
               connectedWallets: remainingWallets,
               connectionStatus: remainingStatus,
@@ -306,52 +349,39 @@ export const initWalletListener = async () => {
           return;
         }
 
-        // Update intermediate states
         if (state === 'connecting' || state === 'signing' || state === 'deriving') {
           useWalletStore.setState(prev => ({
-            connectionStatus: {
-              ...prev.connectionStatus,
-              [type]: { state },
-            },
+            connectionStatus: { ...prev.connectionStatus, [type]: { state } },
           }));
           return;
         }
+
         if (state === 'connected') {
           const session = walletService.getSession(type);
-          if (session) {
-            const currentWallet = useWalletStore.getState().connectedWallets[type];
-            const newChainId =
+          if (!session) return;
+
+          const updatedWallet: ConnectedWallet = {
+            type,
+            walletId: session.walletId,
+            address:
+              type === 'evm'
+                ? session.evmAddress!
+                : type === 'cosmos'
+                  ? session.cosmosAddress!
+                  : session.stellarAddress!,
+            chainId:
               type === 'evm'
                 ? session.evmChainId
                 : type === 'cosmos'
                   ? session.cosmosChainId
-                  : session.stellarChainId;
+                  : session.stellarChainId,
+            dydxAddress: session.dydxAddress,
+          };
 
-            if (currentWallet && currentWallet.chainId !== newChainId) {
-              console.log('[WalletStore] Chain changed:', currentWallet.chainId, '->', newChainId);
-            }
-
-            const updatedWallet = {
-              type,
-              walletId: session.walletId,
-              address:
-                type === 'evm'
-                  ? session.evmAddress!
-                  : type === 'cosmos'
-                    ? session.cosmosAddress!
-                    : session.stellarAddress!,
-              chainId: newChainId,
-              dydxAddress: session.dydxAddress,
-            };
-
-            useWalletStore.setState(prev => ({
-              connectedWallets: { ...prev.connectedWallets, [type]: updatedWallet },
-              connectionStatus: {
-                ...prev.connectionStatus,
-                [type]: { state: 'connected' },
-              },
-            }));
-          }
+          useWalletStore.setState(prev => ({
+            connectedWallets: { ...prev.connectedWallets, [type]: updatedWallet },
+            connectionStatus: { ...prev.connectionStatus, [type]: { state: 'connected' } },
+          }));
         }
       } catch (error) {
         console.error('[WalletStore] State change handler error:', error);
@@ -359,11 +389,14 @@ export const initWalletListener = async () => {
     });
 
     listenerInitialized = true;
-    console.log('[WalletStore] Listener initialized successfully');
   } catch (error) {
-    console.error('[WalletStore] Listener init failed:', error);
+    console.error('[WalletStore] Failed to initialize wallet listener:', error);
   }
 };
+
+// ---------------------------------------------------------------------------
+// Selectors
+// ---------------------------------------------------------------------------
 
 export const selectConnectedWallet = (type: WalletType) => (state: WalletState) =>
   state.connectedWallets[type];
@@ -379,24 +412,16 @@ export const selectDydxWallet = (state: WalletState) => {
   const cosmos = state.connectedWallets.cosmos;
 
   if (evm?.dydxAddress) {
-    return {
-      address: evm.dydxAddress,
-      ethAddress: evm.address,
-    };
+    return { address: evm.dydxAddress, ethAddress: evm.address };
   }
-
   if (cosmos?.dydxAddress) {
-    return {
-      address: cosmos.dydxAddress,
-      cosmosAddress: cosmos.address,
-    };
+    return { address: cosmos.dydxAddress, cosmosAddress: cosmos.address };
   }
-
   return null;
 };
 
 export const selectHasDydxWallet = (state: WalletState) => {
   const evm = state.connectedWallets.evm;
   const cosmos = state.connectedWallets.cosmos;
-  return Boolean(evm?.dydxAddress || cosmos?.dydxAddress);
+  return Boolean(evm?.dydxAddress ?? cosmos?.dydxAddress);
 };

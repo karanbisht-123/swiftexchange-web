@@ -24,6 +24,7 @@ import { useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
 import Orderbook from '../order&trade/Orderbook';
 import SubscriptionKeepAlive from './SubscriptionKeepAlive';
+import ResizablePanelHorizontal from './ResizablePanelHorizontal';
 
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
@@ -86,9 +87,9 @@ const TradingintrFace = () => {
                     )}
                   </div>
                 </div>
-                <div className="w-[250px] flex-shrink-0 bg-secondary overflow-hidden">
+                <ResizablePanelHorizontal defaultWidth={300} minWidth={250} maxWidth={500} position="left" className="bg-secondary shrink-0 z-10">
                   <OrderAndTrades />
-                </div>
+                </ResizablePanelHorizontal>
               </div>
 
               <ResizablePanel defaultHeight={40} minHeight={20} maxHeight={70}>

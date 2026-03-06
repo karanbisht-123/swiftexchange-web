@@ -95,6 +95,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
         deposit,
         getRoute,
         reset,
+        recoverDeposit,
+        checkPendingDeposit,
+        pendingQuantums,
+        dydxNativeQuantums,
+        isCheckingPending,
         step: depositStep,
         stepLabel,
         error: depositError,
@@ -138,8 +143,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
             setSelectedAsset(null);
             setGoFast(false);
             reset();
+        } else {
+            checkPendingDeposit();
         }
-    }, [isOpen, reset]);
+    }, [isOpen, reset, checkPendingDeposit]);
 
     useEffect(() => {
         const parsed = parseFloat(amount);
@@ -185,7 +192,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                 {modalStep === 'form' ? (
                     <>
                         <div className="flex items-center justify-between p-5 pb-4">
-                            <h3 className="text-xl font-semibold text-primary">Deposit</h3>
+                            <h3 className="text-xl font-semibold text-primary flex items-center gap-2">
+                                Deposit
+                                {isCheckingPending && <Loader2 className="w-4 h-4 animate-spin text-muted" />}
+                            </h3>
                             <button
                                 onClick={onClose}
                                 className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
@@ -193,6 +203,54 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
+
+                        {pendingQuantums && (
+                            <div className="px-5 pb-4">
+                                <div className="p-4 bg-brand/10 border border-brand/30 rounded-xl relative overflow-hidden">
+                                    <div className="absolute top-0 left-0 w-1 h-full bg-brand" />
+                                    <div className="flex justify-between items-center gap-4">
+                                        <div>
+                                            <h4 className="text-sm font-semibold text-primary mb-1">Stuck Deposit Detected</h4>
+                                            <p className="text-xs text-muted leading-relaxed">
+                                                A previous bridge transaction was successful but waiting to be credited.
+                                                You have <strong className="text-primary">${(parseInt(pendingQuantums) / 1e6).toFixed(2)} USDC</strong> pending.
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => recoverDeposit(pendingQuantums, 0)}
+                                            disabled={isLoading}
+                                            className="px-4 py-2 bg-brand text-black rounded-lg text-sm font-semibold shadow-sm hover:brightness-110 active:brightness-90 transition-all disabled:opacity-50 whitespace-nowrap flex items-center gap-2"
+                                        >
+                                            {isLoading && depositStep === 'transferring' ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                            Crediting...
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {dydxNativeQuantums && !pendingQuantums && (
+                            <div className="px-5 pb-4">
+                                <div className="p-4 bg-tertiary border border-color rounded-xl">
+                                    <div className="flex justify-between items-center gap-4">
+                                        <div>
+                                            <h4 className="text-sm font-semibold text-primary mb-1">Native dYdX Balance</h4>
+                                            <p className="text-xs text-muted leading-relaxed">
+                                                You have <strong className="text-primary">${(parseInt(dydxNativeQuantums) / 1e6).toFixed(2)} USDC</strong> in your dYdX wallet.
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => recoverDeposit(dydxNativeQuantums, 0)}
+                                            disabled={isLoading}
+                                            className="px-4 py-2 bg-secondary border border-color text-primary rounded-lg text-sm font-semibold hover:bg-hover transition-all disabled:opacity-50 whitespace-nowrap flex items-center gap-2"
+                                        >
+                                            {isLoading && depositStep === 'transferring' ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                            Deposit All
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="px-5 pb-3">
                             <div className="flex items-start gap-2 p-3 bg-brand/10 border border-brand/20 rounded-xl">
@@ -306,7 +364,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
 
                                 <button
                                     onClick={handleDeposit}
-                                    disabled={isLoading || !isValidAmount || !evmAddress || isBelowMinimum}
+                                    disabled={isLoading || !isValidAmount || !evmAddress || isBelowMinimum || !!pendingQuantums}
                                     className="w-full py-3.5 btn btn-primary rounded-xl font-semibold text-[15px] transition-all disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     {isLoading ? (
@@ -318,11 +376,12 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                         'Connect EVM Wallet'
                                     ) : isBelowMinimum ? (
                                         `Min. deposit is $${MIN_DEPOSIT_USDC}`
+                                    ) : pendingQuantums ? (
+                                        'Please complete pending deposit first'
                                     ) : (
                                         'Deposit'
                                     )}
                                 </button>
-
 
                             </div>
                         ) : (

@@ -127,6 +127,56 @@ export const useDydxDeposit = () => {
     const [txHash, setTxHash] = useState<string | null>(null);
     const [route, setRoute] = useState<DepositRoute | null>(null);
 
+    const [pendingQuantums, setPendingQuantums] = useState<string | null>(null);
+    const [dydxNativeQuantums, setDydxNativeQuantums] = useState<string | null>(null);
+    const [isCheckingPending, setIsCheckingPending] = useState(false);
+
+    const checkPendingDeposit = useCallback(async () => {
+        setIsCheckingPending(true);
+        setPendingQuantums(null);
+        setDydxNativeQuantums(null);
+        try {
+            const dydxAddress = useWalletStore.getState().connectedWallets.evm?.dydxAddress
+                ?? useWalletStore.getState().connectedWallets.cosmos?.dydxAddress;
+
+            if (!dydxAddress) return;
+
+            const nobleAddress = dydxToNoble(dydxAddress);
+            const res = await fetch(`https://rest.cosmos.directory/noble/cosmos/bank/v1beta1/balances/${nobleAddress}`);
+            if (res.ok) {
+                const data = await res.json();
+                const balances: { denom: string; amount: string }[] = data.balances || [];
+                const uusdc = balances.find(b => b.denom === 'uusdc');
+                if (uusdc && BigInt(uusdc.amount) > 0) {
+                    setPendingQuantums(uusdc.amount);
+                }
+            }
+
+            try {
+                const dydxRes = await fetch(`https://dydx-rest.publicnode.com/cosmos/bank/v1beta1/balances/${dydxAddress}`);
+                if (dydxRes.ok) {
+                    const dydxData = await dydxRes.json();
+                    const dydxBalances: { denom: string; amount: string }[] = dydxData.balances || [];
+                    const dydxUsdc = dydxBalances.find(b => b.denom === 'ibc/8E27BA2D5493AF5636760E354E46004562C46AB7EC0CC4C1CA14E9E20E2545B5' || b.denom === 'uusdc');
+                    if (dydxUsdc) {
+                        const totalQuantums = BigInt(dydxUsdc.amount);
+                        const GAS_RESERVE = 10000n; // 0.01 USDC
+                        if (totalQuantums > GAS_RESERVE) {
+                            setDydxNativeQuantums((totalQuantums - GAS_RESERVE).toString());
+                        }
+                    }
+                }
+            } catch (e: any) {
+                console.error('Failed to native dydx balance:', e);
+            }
+
+        } catch (e: any) {
+            console.error('Failed to check pending deposit:', e);
+        } finally {
+            setIsCheckingPending(false);
+        }
+    }, []);
+
     const getRoute = useCallback(async (
         assetSymbol: string,
         amountHuman: number,
@@ -244,6 +294,32 @@ export const useDydxDeposit = () => {
         setRoute(null);
     }, []);
 
+    const recoverDeposit = useCallback(async (
+        amountQuantums: string,
+        subaccountNumber: number = 0
+    ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
+        setError(null);
+        setStep('transferring');
+        try {
+            const result = await dydxWalletService.depositToSubaccount(amountQuantums, subaccountNumber);
+            if (result.success) {
+                setTxHash(result.transactionHash ?? null);
+                setStep('success');
+                setPendingQuantums(null);
+                setDydxNativeQuantums(null);
+            } else {
+                setError(result.error ?? 'Recovery failed');
+                setStep('error');
+            }
+            return result;
+        } catch (err: any) {
+            const message = err.message || 'Recovery failed';
+            setError(message);
+            setStep('error');
+            return { success: false, error: message };
+        }
+    }, []);
+
     const stepLabel: Record<DepositStep, string> = {
         idle: '',
         routing: 'Finding best route...',
@@ -258,6 +334,11 @@ export const useDydxDeposit = () => {
         deposit,
         getRoute,
         reset,
+        recoverDeposit,
+        checkPendingDeposit,
+        pendingQuantums,
+        dydxNativeQuantums,
+        isCheckingPending,
         step,
         stepLabel: stepLabel[step],
         error,
