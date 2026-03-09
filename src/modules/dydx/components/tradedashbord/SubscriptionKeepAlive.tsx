@@ -11,7 +11,7 @@ const SubscriptionKeepAlive: React.FC = React.memo(() => {
 
     useOrderbook(selectedMarket);
     useTrades(selectedMarket, 50);
-    useRealtimeChart(selectedMarket, '15MINS', 2000);
+    useRealtimeChart(selectedMarket, '15MINS', 1000);
     useDydxData();
 
     return null;

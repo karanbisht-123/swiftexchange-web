@@ -32,6 +32,7 @@ export interface PerpetualPosition {
   sumOpen: string;
   sumClose: string;
   netFunding: string;
+  leverage?: string;
   subaccountNumber: number;
 }
 
@@ -113,8 +114,9 @@ interface WebSocketState {
   activeSubscriptions: Set<string>;
   subscriptionRefs: Map<string, () => void>;
   subscriptionCounts: Map<string, number>;
-  subscribeToParentSubaccount: (address: string, subaccountNumber: number) => void;
+  unsubTimers: Map<string, NodeJS.Timeout>;
 
+  subscribeToParentSubaccount: (address: string, subaccountNumber: number) => void;
   unsubscribeFromParentSubaccount: (address: string, subaccountNumber: number) => void;
 
   subscribeToMarket: (ticker: string) => void;
@@ -132,6 +134,84 @@ interface WebSocketState {
   cleanup: () => void;
 }
 
+const handleSubscribe = (key: string, set: any, subscribeFn: () => (() => void) | void) => {
+  set((state: WebSocketState) => {
+    const { activeSubscriptions, subscriptionCounts, unsubTimers, subscriptionRefs } = state;
+    const count = subscriptionCounts.get(key) || 0;
+    const newCounts = new Map(subscriptionCounts).set(key, count + 1);
+
+    const timer = unsubTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      const newTimers = new Map(unsubTimers);
+      newTimers.delete(key);
+      return { subscriptionCounts: newCounts, unsubTimers: newTimers };
+    }
+
+    if (activeSubscriptions.has(key)) {
+      return { subscriptionCounts: newCounts };
+    }
+
+    try {
+      const unsubscribe = subscribeFn();
+      if (unsubscribe) {
+        return {
+          activeSubscriptions: new Set(activeSubscriptions).add(key),
+          subscriptionRefs: new Map(subscriptionRefs).set(key, unsubscribe),
+          subscriptionCounts: newCounts,
+        };
+      }
+      return { subscriptionCounts: newCounts };
+    } catch (error) {
+      console.error(`[WSStore] Failed to subscribe to ${key}:`, error);
+      return { subscriptionCounts: newCounts };
+    }
+  });
+};
+
+const handleUnsubscribe = (key: string, set: any) => {
+  set((state: WebSocketState) => {
+    const { subscriptionCounts, unsubTimers } = state;
+    const count = subscriptionCounts.get(key) || 0;
+
+    if (count > 1) {
+      return { subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) };
+    }
+
+    const newCounts = new Map(subscriptionCounts);
+    newCounts.delete(key);
+
+    const timer = setTimeout(() => {
+      set((innerState: WebSocketState) => {
+        if (innerState.subscriptionCounts.has(key)) return innerState;
+
+        const innerRefs = new Map(innerState.subscriptionRefs);
+        const innerSubs = new Set(innerState.activeSubscriptions);
+        const innerTimers = new Map(innerState.unsubTimers);
+
+        const unsubscribe = innerRefs.get(key);
+        if (typeof unsubscribe === 'function') {
+          unsubscribe();
+        }
+        innerRefs.delete(key);
+        innerSubs.delete(key);
+        innerTimers.delete(key);
+
+        return {
+          subscriptionRefs: innerRefs,
+          activeSubscriptions: innerSubs,
+          unsubTimers: innerTimers,
+        };
+      });
+    }, 5000);
+
+    return {
+      subscriptionCounts: newCounts,
+      unsubTimers: new Map(unsubTimers).set(key, timer),
+    };
+  });
+};
+
 export const useWebSocketStore = create<WebSocketState>()(
   subscribeWithSelector((set, get) => ({
     isConnected: false,
@@ -144,24 +224,13 @@ export const useWebSocketStore = create<WebSocketState>()(
     activeSubscriptions: new Set(),
     subscriptionRefs: new Map(),
     subscriptionCounts: new Map(),
+    unsubTimers: new Map(),
 
     subscribeToParentSubaccount: (address: string, subaccountNumber: number) => {
       const key = `parent_subaccount_${address}_${subaccountNumber}`;
-      const { activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
-
-      if (activeSubscriptions.has(key)) return;
-
-      set(state => ({
-        activeSubscriptions: new Set(state.activeSubscriptions).add(key),
-      }));
-
-      try {
+      handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
-
-        const unsubscribe = socketClient.subscribeToParentSubaccounts(
+        return socketClient.subscribeToParentSubaccounts(
           address,
           subaccountNumber,
           (data: any) => {
@@ -254,24 +323,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                     if (pos.status === 'CLOSED' || parseFloat(pos.size || '0') === 0) {
                       delete child.openPerpetualPositions[pos.market];
                     } else {
-                      child.openPerpetualPositions[pos.market] = {
-                        market: pos.market,
-                        status: pos.status,
-                        side: pos.side,
-                        size: pos.size,
-                        maxSize: pos.maxSize,
-                        entryPrice: pos.entryPrice,
-                        exitPrice: pos.exitPrice,
-                        realizedPnl: pos.realizedPnl,
-                        unrealizedPnl: pos.unrealizedPnl,
-                        createdAt: pos.createdAt,
-                        createdAtHeight: pos.createdAtHeight,
-                        closedAt: pos.closedAt,
-                        sumOpen: pos.sumOpen,
-                        sumClose: pos.sumClose,
-                        netFunding: pos.netFunding,
-                        subaccountNumber: subNum,
-                      };
+                      child.openPerpetualPositions[pos.market] = { ...pos, subaccountNumber: subNum };
                     }
 
                     child.updatedAtHeight = batch.blockHeight || child.updatedAtHeight;
@@ -299,13 +351,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                     }
 
                     const child = updatedChildSubaccounts[childIndex];
-                    child.assetPositions[asset.symbol] = {
-                      size: asset.size,
-                      symbol: asset.symbol,
-                      side: asset.side,
-                      assetId: asset.assetId,
-                      subaccountNumber: subNum,
-                    };
+                    child.assetPositions[asset.symbol] = { ...asset, subaccountNumber: subNum };
                   });
                 }
 
@@ -335,6 +381,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               get().updateParentSubaccount(key, updates);
               return;
             }
+
 
             if (contents.subaccount) {
               const subaccount = contents.subaccount;
@@ -375,66 +422,18 @@ export const useWebSocketStore = create<WebSocketState>()(
             get().updateParentSubaccount(key, updates);
           }
         );
-
-        set(state => ({
-          subscriptionRefs: new Map(state.subscriptionRefs).set(key, unsubscribe),
-        }));
-
-      } catch (error) {
-        set(state => {
-          const newSubs = new Set(state.activeSubscriptions);
-          newSubs.delete(key);
-          return { activeSubscriptions: newSubs };
-        });
-        console.error(`[WSStore] Failed to subscribe to parent subaccount ${key}:`, error);
-      }
+      });
     },
 
     unsubscribeFromParentSubaccount: (address: string, subaccountNumber: number) => {
-      const key = `parent_subaccount_${address}_${subaccountNumber}`;
-      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      if (count > 1) {
-        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
-        return;
-      }
-
-      const unsubscribe = subscriptionRefs.get(key);
-      if (unsubscribe) {
-        unsubscribe();
-
-        const newRefs = new Map(subscriptionRefs);
-        newRefs.delete(key);
-
-        const newSubs = new Set(activeSubscriptions);
-        newSubs.delete(key);
-
-        const newCounts = new Map(subscriptionCounts);
-        newCounts.delete(key);
-
-        set({
-          subscriptionRefs: newRefs,
-          activeSubscriptions: newSubs,
-          subscriptionCounts: newCounts,
-        });
-      }
+      handleUnsubscribe(`parent_subaccount_${address}_${subaccountNumber}`, set);
     },
 
     subscribeToMarket: (ticker: string) => {
       const key = `market_${ticker}`;
-      const { activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
-
-      if (activeSubscriptions.has(key)) {
-        return;
-      }
-
-      try {
+      handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
-        const unsubscribe = socketClient.subscribeToMarkets(data => {
+        return socketClient.subscribeToMarkets(data => {
           if (data.contents?.markets && data.contents.markets[ticker]) {
             const mktData = data.contents.markets[ticker];
             get().updateMarket(ticker, {
@@ -449,62 +448,18 @@ export const useWebSocketStore = create<WebSocketState>()(
             });
           }
         });
-
-        set(state => ({
-          activeSubscriptions: new Set(state.activeSubscriptions).add(key),
-          subscriptionRefs: new Map(state.subscriptionRefs).set(key, unsubscribe),
-        }));
-
-      } catch (error) {
-        console.error(`[WSStore] Failed to subscribe to market ${ticker}:`, error);
-      }
+      });
     },
 
     unsubscribeFromMarket: (ticker: string) => {
-      const key = `market_${ticker}`;
-      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      if (count > 1) {
-        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
-        return;
-      }
-
-      const unsubscribe = subscriptionRefs.get(key);
-      if (unsubscribe) {
-        unsubscribe();
-
-        const newRefs = new Map(subscriptionRefs);
-        newRefs.delete(key);
-
-        const newSubs = new Set(activeSubscriptions);
-        newSubs.delete(key);
-
-        const newCounts = new Map(subscriptionCounts);
-        newCounts.delete(key);
-
-        set({
-          subscriptionRefs: newRefs,
-          activeSubscriptions: newSubs,
-          subscriptionCounts: newCounts,
-        });
-      }
+      handleUnsubscribe(`market_${ticker}`, set);
     },
 
     subscribeToAllMarkets: () => {
       const key = 'markets_all';
-      const { activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
-
-      if (activeSubscriptions.has(key)) {
-        return;
-      }
-
-      try {
+      handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
-        const unsubscribe = socketClient.subscribeToMarkets((data: any) => {
+        return socketClient.subscribeToMarkets((data: any) => {
           if (data.contents?.markets) {
             Object.entries(data.contents.markets).forEach(([ticker, mktData]: [string, any]) => {
               get().updateMarket(ticker, {
@@ -520,60 +475,18 @@ export const useWebSocketStore = create<WebSocketState>()(
             });
           }
         });
-
-        set(state => ({
-          activeSubscriptions: new Set(state.activeSubscriptions).add(key),
-          subscriptionRefs: new Map(state.subscriptionRefs).set(key, unsubscribe),
-        }));
-      } catch (error) {
-        console.error('[WSStore] Failed to subscribe to all markets:', error);
-      }
+      });
     },
 
     unsubscribeFromAllMarkets: () => {
-      const key = 'markets_all';
-      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      if (count > 1) {
-        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
-        return;
-      }
-
-      const unsubscribe = subscriptionRefs.get(key);
-      if (unsubscribe) {
-        unsubscribe();
-
-        const newRefs = new Map(subscriptionRefs);
-        newRefs.delete(key);
-
-        const newSubs = new Set(activeSubscriptions);
-        newSubs.delete(key);
-
-        const newCounts = new Map(subscriptionCounts);
-        newCounts.delete(key);
-
-        set({
-          subscriptionRefs: newRefs,
-          activeSubscriptions: newSubs,
-          subscriptionCounts: newCounts,
-        });
-      }
+      handleUnsubscribe('markets_all', set);
     },
+
     subscribeToTrades: (market: string) => {
       const key = `trades_${market}`;
-      const { activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
-
-      if (activeSubscriptions.has(key)) {
-        return;
-      }
-
-      try {
+      handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
-        const unsubscribe = socketClient.subscribeToTrades(market, data => {
+        return socketClient.subscribeToTrades(market, data => {
           if (data.contents?.trades) {
             get().updateTrades(market, {
               market,
@@ -582,62 +495,18 @@ export const useWebSocketStore = create<WebSocketState>()(
             });
           }
         });
-
-        set(state => ({
-          activeSubscriptions: new Set(state.activeSubscriptions).add(key),
-          subscriptionRefs: new Map(state.subscriptionRefs).set(key, unsubscribe),
-        }));
-
-      } catch (error) {
-        console.error(`[WSStore] Failed to subscribe to trades ${market}:`, error);
-      }
+      });
     },
 
     unsubscribeFromTrades: (market: string) => {
-      const key = `trades_${market}`;
-      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      if (count > 1) {
-        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
-        return;
-      }
-
-      const unsubscribe = subscriptionRefs.get(key);
-      if (unsubscribe) {
-        unsubscribe();
-
-        const newRefs = new Map(subscriptionRefs);
-        newRefs.delete(key);
-
-        const newSubs = new Set(activeSubscriptions);
-        newSubs.delete(key);
-
-        const newCounts = new Map(subscriptionCounts);
-        newCounts.delete(key);
-
-        set({
-          subscriptionRefs: newRefs,
-          activeSubscriptions: newSubs,
-          subscriptionCounts: newCounts,
-        });
-      }
+      handleUnsubscribe(`trades_${market}`, set);
     },
 
     subscribeToCandles: (market: string, resolution: string) => {
       const key = `candles_${market}_${resolution}`;
-      const { activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      set(state => ({ subscriptionCounts: new Map(state.subscriptionCounts).set(key, count + 1) }));
-
-      if (activeSubscriptions.has(key)) {
-        return;
-      }
-
-      try {
+      handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
-        const unsubscribe = socketClient.subscribeToCandles(market, resolution, data => {
+        return socketClient.subscribeToCandles(market, resolution, data => {
           if (data.contents?.candles) {
             get().updateCandles(key, {
               market,
@@ -647,47 +516,13 @@ export const useWebSocketStore = create<WebSocketState>()(
             });
           }
         });
-
-        set(state => ({
-          activeSubscriptions: new Set(state.activeSubscriptions).add(key),
-          subscriptionRefs: new Map(state.subscriptionRefs).set(key, unsubscribe),
-        }));
-
-      } catch (error) {
-        console.error(`[WSStore] Failed to subscribe to candles ${market}/${resolution}:`, error);
-      }
+      });
     },
 
     unsubscribeFromCandles: (market: string, resolution: string) => {
-      const key = `candles_${market}_${resolution}`;
-      const { subscriptionRefs, activeSubscriptions, subscriptionCounts } = get();
-
-      const count = subscriptionCounts.get(key) || 0;
-      if (count > 1) {
-        set({ subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) });
-        return;
-      }
-
-      const unsubscribe = subscriptionRefs.get(key);
-      if (unsubscribe) {
-        unsubscribe();
-
-        const newRefs = new Map(subscriptionRefs);
-        newRefs.delete(key);
-
-        const newSubs = new Set(activeSubscriptions);
-        newSubs.delete(key);
-
-        const newCounts = new Map(subscriptionCounts);
-        newCounts.delete(key);
-
-        set({
-          subscriptionRefs: newRefs,
-          activeSubscriptions: newSubs,
-          subscriptionCounts: newCounts,
-        });
-      }
+      handleUnsubscribe(`candles_${market}_${resolution}`, set);
     },
+
     updateParentSubaccount: (key: string, data: Partial<ParentSubaccountData>) => {
       set(state => {
         const newMap = new Map(state.parentSubaccounts);
@@ -704,18 +539,12 @@ export const useWebSocketStore = create<WebSocketState>()(
           lastUpdate: 0,
         };
 
-        // Smart merge for orders (dedupe by ID, keep newest)
         let mergedOrders = existing.orders;
         if (data.orders !== undefined) {
           const orderMap = new Map<string, any>();
-
-          // Add existing orders
           existing.orders.forEach(order => orderMap.set(order.id, order));
-
-          // Add/update with new orders
           data.orders.forEach(order => {
             const existingOrder = orderMap.get(order.id);
-            // Only update if new order is more recent or doesn't exist
             if (
               !existingOrder ||
               (order.updatedAt &&
@@ -724,19 +553,19 @@ export const useWebSocketStore = create<WebSocketState>()(
               orderMap.set(order.id, order);
             }
           });
-
-          mergedOrders = Array.from(orderMap.values());
+          mergedOrders = Array.from(orderMap.values())
+            .sort((a, b) => {
+              const tA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
+              const tB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
+              return tB - tA;
+            })
+            .slice(0, 150);
         }
 
-        // Smart merge for fills (dedupe by ID, keep newest)
         let mergedFills = existing.fills;
         if (data.fills !== undefined) {
           const fillMap = new Map<string, any>();
-
-          // Add existing fills
           existing.fills.forEach(fill => fillMap.set(fill.id, fill));
-
-          // Add/update with new fills
           data.fills.forEach(fill => {
             const existingFill = fillMap.get(fill.id);
             if (
@@ -747,8 +576,9 @@ export const useWebSocketStore = create<WebSocketState>()(
               fillMap.set(fill.id, fill);
             }
           });
-
-          mergedFills = Array.from(fillMap.values());
+          mergedFills = Array.from(fillMap.values())
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .slice(0, 150);
         }
 
         const merged: ParentSubaccountData = {
@@ -816,7 +646,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     },
 
     cleanup: () => {
-      const { subscriptionRefs } = get();
+      const { subscriptionRefs, unsubTimers } = get();
 
       subscriptionRefs.forEach((unsubscribe, key) => {
         try {
@@ -826,6 +656,8 @@ export const useWebSocketStore = create<WebSocketState>()(
         }
       });
 
+      unsubTimers.forEach(timer => clearTimeout(timer));
+
       set({
         parentSubaccounts: new Map(),
         markets: new Map(),
@@ -834,13 +666,12 @@ export const useWebSocketStore = create<WebSocketState>()(
         activeSubscriptions: new Set(),
         subscriptionRefs: new Map(),
         subscriptionCounts: new Map(),
+        unsubTimers: new Map(),
         updateTrigger: 0,
       });
     },
   }))
 );
-
-// CONNECTION STATUS LISTENERS
 
 webSocketManager.onConnect(() => {
   useWebSocketStore.setState({ isConnected: true });

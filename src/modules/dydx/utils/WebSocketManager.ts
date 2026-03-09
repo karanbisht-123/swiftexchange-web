@@ -427,14 +427,18 @@ class WebSocketManager {
 
       if (data.type === 'error' && data.message) {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
-        console.error('[WS] Subscription error:', data.message);
+
+        const isAlreadySubscribed = data.message.includes('already subscribed');
+        if (!isAlreadySubscribed) {
+          console.error('[WS] Subscription error:', data.message);
+        }
 
         const stats = this.subscriptionStats.get(key);
         if (stats) {
           stats.errorCount++;
         }
 
-        if (data.message.includes('already subscribed')) {
+        if (isAlreadySubscribed) {
           this.serverSubscriptions.add(key);
           this.subscriptionInProgress.delete(key);
         } else {

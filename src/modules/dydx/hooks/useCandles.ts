@@ -34,6 +34,8 @@ export function useRealtimeChart(
   resolution: CandleResolution = '1MIN',
   limit: number = 100
 ): UseRealtimeChartReturn {
+  // dYdX Indexer API enforces a maximum limit of 1000
+  const enforcedLimit = Math.min(limit, 1000);
   const [snapshotCandles, setSnapshotCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,7 +84,7 @@ export function useRealtimeChart(
           resolution,
           undefined,
           undefined,
-          limit
+          enforcedLimit
         );
 
         if (!mounted) return;
@@ -113,7 +115,7 @@ export function useRealtimeChart(
     return () => {
       mounted = false;
     };
-  }, [market, resolution, limit, isConnected]);
+  }, [market, resolution, enforcedLimit, isConnected]);
 
   useEffect(() => {
     subscribeToCandles(market, resolution);
@@ -158,14 +160,13 @@ export function useRealtimeChart(
     const merged = Array.from(candleMap.values());
     merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 
-    return merged.slice(-limit);
-  }, [snapshotCandles, storeCandlesData, limit, market, resolution]);
+    return merged.slice(-enforcedLimit);
+  }, [snapshotCandles, storeCandlesData, enforcedLimit, market, resolution]);
 
   const latestCandle = useMemo(() => {
     if (mergedCandles.length === 0) return null;
     const current = { ...mergedCandles[mergedCandles.length - 1] };
 
-    // Real-time tick injection from trades stream
     if (trades.length > 0) {
       const currentCandleTime = new Date(current.startedAt).getTime();
       let addedVolume = 0;
@@ -173,8 +174,6 @@ export function useRealtimeChart(
       let newHigh = parseFloat(current.high);
       let newLow = parseFloat(current.low);
       let hasValidTrade = false;
-
-      // Only apply trades that belong to the current active candle
       for (const trade of trades) {
         const tradeTime = new Date(trade.createdAt).getTime();
         if (tradeTime >= currentCandleTime) {

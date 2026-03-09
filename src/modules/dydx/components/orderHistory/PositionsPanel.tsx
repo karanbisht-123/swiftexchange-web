@@ -34,6 +34,7 @@ const PositionsPanel: React.FC = () => {
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
   const [closingMarket, setClosingMarket] = useState<string | null>(null);
+  const [hiddenPositions, setHiddenPositions] = useState<Set<string>>(new Set());
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [newPositionsCount, setNewPositionsCount] = useState(0);
 
@@ -152,8 +153,9 @@ const PositionsPanel: React.FC = () => {
         const result = await closePosition(position);
 
         if (result.success) {
+          setHiddenPositions(prev => new Set(prev).add(position.market));
           showNotification(`Position ${position.market} closed successfully!`, 'success');
-          setTimeout(refreshPositions, 2000);
+          setTimeout(refreshPositions, 1000);
         } else {
           showNotification(result.userMessage || 'Failed to close position', 'error');
         }
@@ -222,24 +224,28 @@ const PositionsPanel: React.FC = () => {
       const isIsolated = (position.subaccountNumber ?? 0) >= 128;
       const marginType = isIsolated ? 'Isolated' : 'Cross';
 
-      // Effective leverage from position data (what the user actually chose)
-      const positionLeverage = position.leverage ? parseFloat(position.leverage) : 0;
-      const effectiveLeverage = positionLeverage > 0
-        ? Math.min(positionLeverage, maxLeverage)
-        : maxLeverage;
+      const apiLeverage = position.leverage ? parseFloat(position.leverage) : 0;
+      const storedLeverage = (() => {
+        const raw = localStorage.getItem(`dydx_leverage_${position.market}`) ?? localStorage.getItem('dydx_leverage');
+        const parsed = raw ? parseFloat(raw) : 0;
+        return parsed > 0 ? parsed : 0;
+      })();
+      const effectiveLeverage = Math.min(
+        apiLeverage > 0 ? apiLeverage : storedLeverage > 0 ? storedLeverage : maxLeverage,
+        maxLeverage
+      );
 
       let margin: number;
       if (isIsolated) {
-        // Isolated: actual locked collateral = subaccount equity
         const subaccount = childSubaccounts.find(
           (sub) => sub.subaccountNumber === position.subaccountNumber
         );
         const subEquity = parseFloat(subaccount?.equity || '0');
         margin = subEquity > 0 ? subEquity : notional / effectiveLeverage;
       } else {
-        // Cross: position margin = notional / userLeverage (same as dYdX receipt)
         margin = notional / effectiveLeverage;
       }
+
 
       const liquidationPrice = getLiquidationPrice(position);
 
@@ -376,12 +382,13 @@ const PositionsPanel: React.FC = () => {
           </thead>
           <tbody>
             {positions.map(position => {
+              if (hiddenPositions.has(position.market)) return null;
+
               const metrics = getPositionMetrics(position);
               if (metrics.absSize === 0) return null;
 
-              const unrealizedPnl = parseFloat(position.unrealizedPnl);
-              const pnlPercentage = (unrealizedPnl / (metrics.absSize * metrics.entryPrice)) * 100;
-              // const isShort = position.side === 'SHORT';
+              const unrealizedPnl = parseFloat(position.unrealizedPnl || '0');
+              const pnlPercentage = metrics.margin > 0 ? (unrealizedPnl / metrics.margin) * 100 : 0;
               const isClosing = closingMarket === position.market;
 
               return (
@@ -492,11 +499,13 @@ const PositionsPanel: React.FC = () => {
       </div>
       <div className="md:hidden space-y-1.5 p-2">
         {positions.map(position => {
+          if (hiddenPositions.has(position.market)) return null;
+
           const metrics = getPositionMetrics(position);
           if (metrics.absSize === 0) return null;
 
-          const unrealizedPnl = parseFloat(position.unrealizedPnl);
-          const pnlPercentage = (unrealizedPnl / (metrics.absSize * metrics.entryPrice)) * 100;
+          const unrealizedPnl = parseFloat(position.unrealizedPnl || '0');
+          const pnlPercentage = metrics.margin > 0 ? (unrealizedPnl / metrics.margin) * 100 : 0;
           const isShort = position.side === 'SHORT';
           const isClosing = closingMarket === position.market;
 

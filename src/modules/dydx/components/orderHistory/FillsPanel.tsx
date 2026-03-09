@@ -16,9 +16,11 @@ import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
-  const { fills: storeFills, loadingFills, fillsError, isConnected } = useDydxData();
+  const { fills: storeFills, isConnected } = useDydxData();
   const [allFills, setAllFills] = useState<Fill[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [loadingFills, setLoadingFills] = useState(false);
+  const [fillsError, setFillsError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreData, setHasMoreData] = useState(true);
   const initialLoadDoneRef = useRef(false);
@@ -32,6 +34,31 @@ const FillsPanel: React.FC = () => {
       setCurrentPage(1);
       setHasMoreData(true);
       initialLoadDoneRef.current = false;
+      return;
+    }
+
+    if (!initialLoadDoneRef.current) {
+      let isMounted = true;
+      const fetchInitial = async () => {
+        setLoadingFills(true);
+        setFillsError(null);
+        try {
+          const initialFills = await dydxDataService.getFills(undefined, undefined, false);
+          if (isMounted) {
+            setAllFills(initialFills);
+            initialLoadDoneRef.current = true;
+          }
+        } catch (err: any) {
+          if (isMounted) setFillsError(err.message || 'Error loading fills');
+        } finally {
+          if (isMounted) setLoadingFills(false);
+        }
+      };
+      fetchInitial();
+
+      return () => {
+        isMounted = false;
+      };
     }
   }, [isConnected]);
 
@@ -45,7 +72,6 @@ const FillsPanel: React.FC = () => {
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
       });
-      initialLoadDoneRef.current = true;
     }
   }, [storeFills]);
 
@@ -205,7 +231,7 @@ const FillsPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
-                      {fill.type}
+                      {fill.clientMetadata === '1' && fill.type === 'LIMIT' ? 'MARKET' : fill.type}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center">

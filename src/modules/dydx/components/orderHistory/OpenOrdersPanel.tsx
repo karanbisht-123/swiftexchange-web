@@ -10,6 +10,7 @@ const OpenOrdersPanel: React.FC = () => {
   const { openOrders, loadingOrders, ordersError, refreshOrders, isConnected } = useDydxData();
 
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
+  const [hiddenOrders, setHiddenOrders] = useState<Set<string>>(new Set());
   const [icons, setIcons] = useState<Record<string, string>>({});
 
   const sortedOpenOrders = useMemo(() => {
@@ -61,7 +62,8 @@ const OpenOrdersPanel: React.FC = () => {
         });
 
         if (result.success) {
-          setTimeout(() => refreshOrders(), 1500);
+          setHiddenOrders(prev => new Set(prev).add(order.id));
+          setTimeout(() => refreshOrders(), 1000);
         } else {
           throw new Error(result.userMessage || result.error || 'Failed to cancel order');
         }
@@ -221,6 +223,8 @@ const OpenOrdersPanel: React.FC = () => {
           </thead>
           <tbody>
             {sortedOpenOrders.map(order => {
+              if (hiddenOrders.has(order.id)) return null;
+
               const isCancelling = cancelling.has(order.id);
               const filled = parseFloat(order.totalFilled || '0');
               const size = parseFloat(order.size);
@@ -250,7 +254,7 @@ const OpenOrdersPanel: React.FC = () => {
 
                   <td className="px-4 py-3 text-center">
                     <span className="px-2 py-0.5 bg-secondary text-primary rounded text-xs">
-                      {order.type}
+                      {order.clientMetadata === '1' && order.type === 'LIMIT' ? 'MARKET' : order.type}
                     </span>
                   </td>
 
@@ -275,7 +279,7 @@ const OpenOrdersPanel: React.FC = () => {
                   </td>
 
                   <td className="px-4 py-3 text-right text-primary font-mono">
-                    {order.type === 'MARKET'
+                    {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT')
                       ? 'Market'
                       : `$${parseFloat(order.price).toLocaleString()}`}
                   </td>
@@ -318,6 +322,8 @@ const OpenOrdersPanel: React.FC = () => {
 
       <div className="md:hidden space-y-1.5 p-2">
         {sortedOpenOrders.map(order => {
+          if (hiddenOrders.has(order.id)) return null;
+
           const isCancelling = cancelling.has(order.id);
           const filled = parseFloat(order.totalFilled || '0');
           const size = parseFloat(order.size);
@@ -339,7 +345,7 @@ const OpenOrdersPanel: React.FC = () => {
 
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 bg-primary text-primary rounded text-[10px]">
-                    {order.type}
+                    {order.clientMetadata === '1' && order.type === 'LIMIT' ? 'MARKET' : order.type}
                   </span>
 
                   <span

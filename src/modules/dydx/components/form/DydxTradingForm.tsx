@@ -100,7 +100,8 @@ export const DydxTradingForm: React.FC = () => {
   const [price, setPrice] = useState('');
   const [triggerPrice, setTriggerPrice] = useState('');
   const [leverage, setLeverage] = useState(() => {
-    const saved = localStorage.getItem('dydx_leverage');
+    const marketKey = selectedMarket ? `dydx_leverage_${selectedMarket}` : 'dydx_leverage';
+    const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
     return saved ? parseFloat(saved) : 1.0;
   });
   const [currencyMode, setCurrencyMode] = useState<CurrencyMode>('USD');
@@ -198,11 +199,20 @@ export const DydxTradingForm: React.FC = () => {
       setTpPrice('');
       setSlPrice('');
     }
+    const marketKey = selectedMarket ? `dydx_leverage_${selectedMarket}` : 'dydx_leverage';
+    const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
+    if (saved) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed)) setLeverage(parsed);
+    }
   }, [selectedMarket]);
 
   useEffect(() => {
+    if (selectedMarket) {
+      localStorage.setItem(`dydx_leverage_${selectedMarket}`, leverage.toString());
+    }
     localStorage.setItem('dydx_leverage', leverage.toString());
-  }, [leverage]);
+  }, [leverage, selectedMarket]);
 
   useEffect(() => {
     if (marketData?.oraclePrice && !price) {

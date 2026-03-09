@@ -71,15 +71,26 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
         const imf = parseFloat(marketData.initialMarginFraction || '0.05');
         const mmf = parseFloat(marketData.maintenanceMarginFraction || '0.03');
         const maxLeverage = imf > 0 ? 1 / imf : 20;
-        const effectiveLeverage = Math.min(leverage, maxLeverage);
+
+        const storedLeverage = (() => {
+            const raw = localStorage.getItem(`dydx_leverage_${selectedMarket}`) ?? localStorage.getItem('dydx_leverage');
+            const parsed = raw ? parseFloat(raw) : 0;
+            return parsed > 0 ? parsed : 0;
+        })();
+
+        const accountEquity = balance ? parseFloat(balance.equity) : 0;
+
+        const effectiveLeverage = Math.min(
+            leverage > 0 ? leverage : storedLeverage > 0 ? storedLeverage : maxLeverage,
+            maxLeverage
+        );
+
 
         const initialMarginRequired = notional / effectiveLeverage;
 
         const isMaker = orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
         const feeRate = marketData.zeroFees ? 0 : (isMaker ? 0.0002 : 0.0005);
         const fee = notional * feeRate;
-
-        const accountEquity = balance ? parseFloat(balance.equity) : 0;
 
         let liquidationPrice = 0;
         if (marginMode === 'ISOLATED') {
@@ -111,7 +122,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
             imf,
             leverage: effectiveLeverage,
         };
-    }, [marketData, size, price, leverage, orderType, side, livePrice, currencyMode, marginMode, balance]);
+    }, [marketData, size, price, leverage, orderType, side, livePrice, currencyMode, marginMode, balance, selectedMarket]);
 
     useEffect(() => {
         const { setPendingMargin, clearPendingMargin } = useOrderPreviewStore.getState();

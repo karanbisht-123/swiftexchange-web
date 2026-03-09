@@ -17,6 +17,7 @@ export interface Position {
   sumOpen: string;
   sumClose: string;
   netFunding: string;
+  leverage?: string;
   subaccountNumber?: any;
 }
 
@@ -49,6 +50,7 @@ export interface Order {
   createdAtHeight: string;
   updatedAt?: string;
   updatedAtHeight?: string;
+  clientMetadata?: string;
 }
 
 export interface Fill {
