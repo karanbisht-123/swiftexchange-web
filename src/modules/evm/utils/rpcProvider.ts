@@ -48,7 +48,11 @@ class RPCManager {
 
             try {
                 const provider = this.getProvider(url);
-                const result = await action(provider);
+
+                const timeoutPromise = new Promise<never>((_, reject) => {
+                    setTimeout(() => reject(new Error(`RPC Timeout after 8s on ${url}`)), 8000)
+                });
+                const result = await Promise.race([action(provider), timeoutPromise]);
 
                 this.workingIndexByChain.set(chainId, uniqueUrls.indexOf(url));
                 this.penaltyBox.delete(url);

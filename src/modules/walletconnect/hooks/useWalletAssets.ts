@@ -14,6 +14,8 @@ export const useWalletAssets = (network: string) => {
   const isLoading = usePortfolioStore(state => state.isLoading);
   const fetchAssets = usePortfolioStore(state => state.fetchAssets);
   const totalValue = usePortfolioStore(selectTotalValue);
+  const hasError = usePortfolioStore(state => state.hasError);
+  const errorMessage = usePortfolioStore(state => state.errorMessage);
 
   // Fetch assets on mount and when wallets/network change
   useEffect(() => {
@@ -65,6 +67,8 @@ export const useWalletAssets = (network: string) => {
     assets,
     loading: isLoading,
     totalValue,
+    hasError,
+    errorMessage,
     refetch: () => {
       const wallets = {
         [WalletType.EVM]: connectedWallets[WalletType.EVM],

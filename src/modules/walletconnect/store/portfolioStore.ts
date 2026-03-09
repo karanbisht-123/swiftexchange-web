@@ -30,6 +30,8 @@ interface PortfolioState {
     lastFetched: number;
     network: string;
     isFetching: boolean; // Prevent concurrent fetches
+    hasError: boolean;
+    errorMessage: string | null;
 }
 
 interface PortfolioActions {
@@ -48,11 +50,11 @@ interface PortfolioActions {
     enrichPrices: () => Promise<void>;
 }
 
-// Cache TTL: 60 seconds (production-ready)
+
 const CACHE_TTL = 60000;
 
-// Minimum time between fetches (prevents rapid calls on tab switches)
-const MIN_FETCH_INTERVAL = 5000;
+
+const MIN_FETCH_INTERVAL = 30000;
 
 export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
     subscribeWithSelector((set, get) => ({
@@ -61,6 +63,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         lastFetched: 0,
         network: 'mainnet',
         isFetching: false,
+        hasError: false,
+        errorMessage: null,
 
         updateAsset: (newAsset: Asset) => {
             set(state => {
@@ -71,7 +75,6 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                 } else {
                     nextAssets.push(newAsset);
                 }
-                // Sort by USD value descending
                 return {
                     assets: nextAssets.sort(
                         (a, b) => (b.balance || 0) * b.current_price - (a.balance || 0) * a.current_price
@@ -95,42 +98,42 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
             const state = get();
             const now = Date.now();
 
-            // Prevent concurrent fetches
+
             if (state.isFetching) {
                 console.log('[PortfolioStore] Already fetching, skipping');
                 return;
             }
 
-            // Skip if data is fresh (within TTL) and not forced
+
             if (!force && now - state.lastFetched < CACHE_TTL && state.network === network) {
                 console.log('[PortfolioStore] Using cached data, age:', now - state.lastFetched, 'ms');
                 return;
             }
 
-            // Prevent rapid fetches (min interval check)
             if (!force && now - state.lastFetched < MIN_FETCH_INTERVAL) {
                 console.log('[PortfolioStore] Too soon since last fetch, skipping');
                 return;
             }
 
             console.log('[PortfolioStore] Fetching portfolio data...');
-            set({ isLoading: true, isFetching: true, network });
+            set({ isLoading: true, isFetching: true, network, hasError: false, errorMessage: null });
 
             const evmAddr = connectedWallets[WalletType.EVM]?.address;
             const stellarAddr = connectedWallets[WalletType.STELLAR]?.address;
 
-            // Clear assets only if network changed
+
             if (state.network !== network) {
                 set({ assets: [] });
             }
 
             const { updateAsset } = get();
+            let fetchFailed = false;
 
             try {
-                // Fetch all in parallel for speed
+
                 const fetchPromises: Promise<void>[] = [];
 
-                // 1. STELLAR FETCH
+
                 if (stellarAddr) {
                     fetchPromises.push(
                         (async () => {
@@ -158,13 +161,14 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                                     }
                                 }
                             } catch (err) {
+                                fetchFailed = true;
                                 console.warn('[PortfolioStore] Stellar fetch failed:', err);
                             }
                         })()
                     );
                 }
 
-                // 2. EVM FETCH - Batch calls per chain
+
                 if (evmAddr) {
                     const chains = getEVMChains(network as NetworkType);
 
@@ -174,7 +178,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                                 try {
                                     const urls = [chain.rpcUrl, ...(chain.fallbackRpcUrls || [])];
 
-                                    // Native Balance
+
                                     const bal = await rpcManager.fetchWithFallback(chain.chainId, urls, p => p.getBalance(evmAddr));
                                     const balanceNum = parseFloat(ethers.formatEther(bal));
 
@@ -195,7 +199,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                                         });
                                     }
 
-                                    // ERC20 Tokens - Batch with Promise.allSettled
+
                                     const tokens = getTokenAddressesForChain(chain.chainId);
                                     const tokenPromises = Object.entries(tokens).map(async ([symbol, address]) => {
                                         try {
@@ -224,12 +228,13 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                                                 });
                                             }
                                         } catch {
-                                            // Token fetch failed, skip
+
                                         }
                                     });
 
                                     await Promise.allSettled(tokenPromises);
                                 } catch (err) {
+                                    fetchFailed = true;
                                     console.warn(`[PortfolioStore] Chain ${chain.name} fetch failed:`, err);
                                 }
                             })()
@@ -237,10 +242,15 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                     }
                 }
 
-                // Wait for all fetches
+
                 await Promise.allSettled(fetchPromises);
             } finally {
-                set({ isLoading: false, isFetching: false, lastFetched: Date.now() });
+                set({
+                    isLoading: false,
+                    isFetching: false,
+                    lastFetched: Date.now(),
+                    ...(fetchFailed ? { hasError: true, errorMessage: 'Some network fetches failed. Data might be incomplete.' } : {})
+                });
             }
 
             // Enrich prices in background
@@ -281,7 +291,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
     }))
 );
 
-// Selectors
+
 export const selectTotalValue = (state: PortfolioState) =>
     portfolioUtils.calculateTotalUSD(state.assets);
 

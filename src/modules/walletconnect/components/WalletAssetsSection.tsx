@@ -1,4 +1,4 @@
-import { RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { AlertCircle, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -150,12 +150,13 @@ AssetRow.displayName = 'AssetRow';
 const WalletAssetsSection = () => {
   const navigate = useNavigate();
   const { network } = useWalletStore();
-  const { assets, loading, totalValue, refetch } = useWalletAssets(network);
+  const { assets, loading, totalValue, hasError, errorMessage, refetch } = useWalletAssets(network);
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
 
   const hasLoadingPrices = assets.some(a => a.current_price === 0);
+
 
   const portfolioChange = useMemo(() => calculatePortfolioChange(assets), [assets]);
   const isPositive = portfolioChange >= 0;
@@ -229,7 +230,23 @@ const WalletAssetsSection = () => {
         </div>
 
         <div className="">
-          {assets.length === 0 && !loading ? (
+          {hasError ? (
+            <div className="px-6 py-8 text-center flex flex-col items-center justify-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mb-4 opacity-80" />
+              <h4 className="font-semibold text-primary mb-2">Connection Error</h4>
+              <p className="text-sm text-secondary mb-6 max-w-sm">
+                {errorMessage || 'Unable to fetch your portfolio. Please check your connection or try again later.'}
+              </p>
+              <button
+                onClick={refetch}
+                disabled={loading}
+                className="btn-primary px-6 py-2 flex items-center gap-2 rounded-md"
+              >
+                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                {loading ? 'Retrying...' : 'Retry Connection'}
+              </button>
+            </div>
+          ) : assets.length === 0 && !loading ? (
             <div className="px-6 py-12 text-center">
               <Wallet size={48} className="mx-auto mb-4 text-muted opacity-40" />
               <p className="text-sm text-muted">No assets found in connected wallets</p>
