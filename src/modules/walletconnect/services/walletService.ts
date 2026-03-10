@@ -19,10 +19,9 @@ import {
 } from './dydxKeyManager';
 import { sessionVault } from './sessionVault';
 
-// How long to wait for the user to complete wallet interaction
+
 const CONNECTION_TIMEOUT_MS = 120_000;
 
-// localStorage key for persisting session metadata (addresses, chain IDs — not keys)
 const SESSION_STORAGE_KEY = 'wallet_sessions';
 
 type WalletType = 'evm' | 'cosmos' | 'stellar';
@@ -53,7 +52,6 @@ interface DydxDerivation {
   mnemonic: string;
 }
 
-// Result from connectUnified — contains whichever accounts the wallet approved
 export interface UnifiedConnectionResult {
   evm?: WalletSession;
   stellar?: WalletSession;
@@ -89,7 +87,6 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
     message: { action: 'dYdX Chain Onboarding' },
   };
 
-  // WalletConnect providers expect a plain object; injected providers expect a JSON string
   const isWalletConnect = !!(provider as any)?.session;
   const dataToSign = isWalletConnect ? typedData : JSON.stringify(typedData);
 
@@ -137,15 +134,12 @@ class WalletService {
     this.loadNetwork();
   }
 
-  // ---------------------------------------------------------------------------
-  // Network
-  // ---------------------------------------------------------------------------
-
   private loadNetwork(): void {
     try {
       const stored = localStorage.getItem('network');
       this.currentNetwork = stored === 'testnet' ? 'testnet' : 'mainnet';
-    } catch {
+    } catch (error) {
+      console.warn('[WalletService] Failed to read network from storage:', error);
       this.currentNetwork = 'mainnet';
     }
   }
@@ -166,15 +160,6 @@ class WalletService {
     this.clearSessionStorage();
   }
 
-  // ---------------------------------------------------------------------------
-  // Provider factory
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Creates or returns a cached WalletConnect UniversalProvider.
-   * Each provider key gets its own WalletConnect Core instance with an isolated
-   * storage prefix to avoid namespace conflicts between independent sessions.
-   */
   private async getOrCreateProvider(key: string): Promise<any> {
     const existing = this.providers.get(key);
     if (existing?.session) return existing;
@@ -200,18 +185,7 @@ class WalletService {
     return provider;
   }
 
-  // ---------------------------------------------------------------------------
-  // Unified multichain connect (WalletConnect QR / deep link)
-  // ---------------------------------------------------------------------------
 
-  /**
-   * Opens a single WalletConnect session requesting EVM (required) and Stellar
-   * (optional). Wallets that don't support Stellar simply don't return a Stellar
-   * account — no error, no user action needed. The caller receives whichever
-   * accounts were approved.
-   *
-   * This is the primary path for WalletConnect-based wallets.
-   */
   async connectUnified(walletId: string): Promise<UnifiedConnectionResult> {
     this.emitState('evm', 'connecting');
 
@@ -260,7 +234,7 @@ class WalletService {
 
       const result: UnifiedConnectionResult = {};
 
-      // Parse EVM accounts
+
       const evmAccounts: string[] = session.namespaces?.eip155?.accounts ?? [];
       if (evmAccounts.length > 0) {
         const [, chainIdStr, address] = evmAccounts[0].split(':');
@@ -276,7 +250,7 @@ class WalletService {
         this.emitState('evm', 'connected');
       }
 
-      // Parse Stellar accounts — these are optional, no error if absent
+
       const stellarAccounts: string[] = session.namespaces?.stellar?.accounts ?? [];
       if (stellarAccounts.length > 0) {
         const [, chainId, address] = stellarAccounts[0].split(':');
@@ -525,8 +499,8 @@ class WalletService {
         cosmosAddress = account.bech32Address;
         cosmosChainId = targetChainId;
         this.providers.set('cosmos', cosmosProvider);
-      } catch {
-        // Cosmos extension failed — not fatal if EVM succeeded
+      } catch (error) {
+        console.warn('[WalletService] Cosmos extension connection failed:', error);
       }
     }
 
@@ -727,17 +701,28 @@ class WalletService {
 
     if (provider?.session) {
       try {
+
+        if (typeof provider.removeAllListeners === 'function') {
+          provider.removeAllListeners();
+        } else if (typeof provider.removeListener === 'function') {
+          const events = ['accountsChanged', 'chainChanged', 'disconnect', 'session_event', 'session_update', 'session_expire', 'session_delete', 'display_uri'];
+          events.forEach(event => {
+            try {
+              provider.removeListener(event);
+            } catch (error) {
+              console.log('wallet removeal Error', error)
+            }
+          });
+        }
         await provider.disconnect();
-      } catch {
-        // Disconnect errors are not actionable — clean up state regardless
+      } catch (error) {
+        console.warn('[WalletService] Disconnect error (ignored):', error);
       }
     }
 
     if (type === 'evm' || type === 'cosmos') {
       await purge();
     }
-
-    // If disconnecting EVM that shared a cosmos provider, also remove cosmos
     if (type === 'evm') {
       this.providers.delete('cosmos');
       this.derivationInProgress = false;
@@ -764,7 +749,7 @@ class WalletService {
     try {
       const data: Record<string, WalletSession> = {};
       this.sessions.forEach((session, type) => {
-        // Never persist sensitive key material — only public addresses and IDs
+        // only public addresses and IDs
         data[type] = {
           type: session.type,
           walletId: session.walletId,
@@ -778,8 +763,8 @@ class WalletService {
         };
       });
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
-    } catch {
-      // Storage may be unavailable (private browsing, storage quota) — non-fatal
+    } catch (error) {
+      console.warn('[WalletService] Session storage save failed:', error);
     }
   }
 
@@ -802,8 +787,8 @@ class WalletService {
             try {
               provider = await this.getOrCreateProvider(type);
               this.providers.set(type, provider);
-            } catch {
-              // Provider init failed — skip this type
+            } catch (error) {
+              console.warn(`[WalletService] Provider init failed for ${type}:`, error);
             }
           }
 
@@ -830,12 +815,12 @@ class WalletService {
               restored.push(restoredSession);
             }
           }
-        } catch {
-          // Failed to restore this wallet type — continue with others
+        } catch (error) {
+          console.warn(`[WalletService] Failed to restore session for ${type}:`, error);
         }
       }
-    } catch {
-      // Could not read stored sessions — start fresh
+    } catch (error) {
+      console.warn('[WalletService] Could not read stored sessions:', error);
     }
 
     return restored;
@@ -867,7 +852,8 @@ class WalletService {
         this.providers.set('stellar', win.freighter);
         this.emitState('stellar', 'connected');
         return session;
-      } catch {
+      } catch (error) {
+        console.warn('[WalletService] Freighter restore failed:', error);
         return null;
       }
     }
@@ -907,7 +893,8 @@ class WalletService {
         this.setupEVMListeners(evmProvider);
         this.emitState('evm', 'connected');
         return session;
-      } catch {
+      } catch (error) {
+        console.warn('[WalletService] EVM extension restore failed:', error);
         return null;
       }
     }
@@ -944,7 +931,8 @@ class WalletService {
         this.providers.set('cosmos', cosmosProvider);
         this.emitState('cosmos', 'connected');
         return session;
-      } catch {
+      } catch (error) {
+        console.warn('[WalletService] Cosmos extension restore failed:', error);
         return null;
       }
     }
@@ -1008,8 +996,8 @@ class WalletService {
     try {
       localStorage.removeItem(SESSION_STORAGE_KEY);
       purge();
-    } catch {
-      // Non-fatal
+    } catch (error) {
+      console.warn('[WalletService] Session storage clear failed:', error);
     }
   }
 
@@ -1031,7 +1019,6 @@ class WalletService {
       session.evmAddress = accounts[0];
 
       if (oldAddress && oldAddress !== session.evmAddress.toLowerCase()) {
-        // Address changed — invalidate any derived dYdX wallet for security
         delete session.dydxAddress;
         purge();
       }
@@ -1067,6 +1054,7 @@ class WalletService {
 
     provider.on('session_expire', () => this.handleDisconnect(type));
     provider.on('session_delete', () => this.handleDisconnect(type));
+    provider.on('disconnect', () => this.handleDisconnect(type));
   }
 
   private handleAccountsChanged(type: WalletType, accounts: unknown): void {
@@ -1283,7 +1271,7 @@ class WalletService {
       try {
         cb(type, state);
       } catch {
-        // Listener errors must not propagate and disrupt connection flow
+
       }
     });
   }
