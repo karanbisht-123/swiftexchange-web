@@ -16,9 +16,11 @@ import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
-  const { fills: storeFills, loadingFills, fillsError, isConnected } = useDydxData();
+  const { fills: storeFills, isConnected } = useDydxData();
   const [allFills, setAllFills] = useState<Fill[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [loadingFills, setLoadingFills] = useState(false);
+  const [fillsError, setFillsError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreData, setHasMoreData] = useState(true);
   const initialLoadDoneRef = useRef(false);
@@ -32,6 +34,31 @@ const FillsPanel: React.FC = () => {
       setCurrentPage(1);
       setHasMoreData(true);
       initialLoadDoneRef.current = false;
+      return;
+    }
+
+    if (!initialLoadDoneRef.current) {
+      let isMounted = true;
+      const fetchInitial = async () => {
+        setLoadingFills(true);
+        setFillsError(null);
+        try {
+          const initialFills = await dydxDataService.getFills(undefined, undefined, false);
+          if (isMounted) {
+            setAllFills(initialFills);
+            initialLoadDoneRef.current = true;
+          }
+        } catch (err: any) {
+          if (isMounted) setFillsError(err.message || 'Error loading fills');
+        } finally {
+          if (isMounted) setLoadingFills(false);
+        }
+      };
+      fetchInitial();
+
+      return () => {
+        isMounted = false;
+      };
     }
   }, [isConnected]);
 
@@ -45,7 +72,6 @@ const FillsPanel: React.FC = () => {
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
       });
-      initialLoadDoneRef.current = true;
     }
   }, [storeFills]);
 
@@ -72,8 +98,7 @@ const FillsPanel: React.FC = () => {
     try {
       const moreFills = await dydxDataService.getFills(
         undefined,
-        ITEMS_PER_PAGE,
-        lastFill.createdAtHeight,
+        undefined,
         false
       );
 
@@ -156,6 +181,7 @@ const FillsPanel: React.FC = () => {
               <th className="text-right px-4 py-3 font-medium">Price</th>
               <th className="text-right px-4 py-3 font-medium">Total</th>
               <th className="text-right px-4 py-3 font-medium">Fee</th>
+              <th className="text-right px-4 py-3 font-medium">Closed PNL</th>
               <th className="text-center px-4 py-3 font-medium">Liquidity</th>
             </tr>
           </thead>
@@ -163,6 +189,33 @@ const FillsPanel: React.FC = () => {
             {currentPageData.map(fill => {
               const total = (parseFloat(fill.size) * parseFloat(fill.price)).toFixed(2);
               const fee = Math.abs(parseFloat(fill.fee));
+
+              let closedPnlStr = '—';
+              let pnlClass = 'text-muted';
+
+              if (fill.positionSideBefore && fill.positionSizeBefore && fill.entryPriceBefore) {
+                const sizeBefore = parseFloat(fill.positionSizeBefore);
+                const entryPrice = parseFloat(fill.entryPriceBefore);
+                const fillPrice = parseFloat(fill.price);
+                const fillSize = parseFloat(fill.size);
+
+                let closedPnl: number | null = null;
+
+                if (fill.positionSideBefore === 'LONG' && fill.side === 'SELL') {
+                  const sizeClosed = Math.min(sizeBefore, fillSize);
+                  closedPnl = (fillPrice - entryPrice) * sizeClosed;
+                } else if (fill.positionSideBefore === 'SHORT' && fill.side === 'BUY') {
+                  const sizeClosed = Math.min(sizeBefore, fillSize);
+                  closedPnl = (entryPrice - fillPrice) * sizeClosed;
+                }
+
+                if (closedPnl !== null) {
+                  const isNegative = closedPnl < 0;
+                  const absValue = Math.abs(closedPnl);
+                  closedPnlStr = isNegative ? `-$${absValue.toFixed(2)}` : `$${absValue.toFixed(2)}`;
+                  pnlClass = isNegative ? 'text-red-400' : closedPnl > 0 ? 'text-green-400' : 'text-primary';
+                }
+              }
 
               return (
                 <tr
@@ -178,7 +231,7 @@ const FillsPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
-                      {fill.type}
+                      {fill.clientMetadata === '1' && fill.type === 'LIMIT' ? 'MARKET' : fill.type}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center">
@@ -195,6 +248,9 @@ const FillsPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-right text-red-400 font-mono">
                     ${fee.toFixed(4)}
+                  </td>
+                  <td className={`px-4 py-3 text-right font-mono ${pnlClass}`}>
+                    {closedPnlStr}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span
@@ -217,6 +273,33 @@ const FillsPanel: React.FC = () => {
         {currentPageData.map(fill => {
           const total = parseFloat(fill.size) * parseFloat(fill.price);
 
+          let closedPnlStr = '—';
+          let pnlClass = 'text-muted';
+
+          if (fill.positionSideBefore && fill.positionSizeBefore && fill.entryPriceBefore) {
+            const sizeBefore = parseFloat(fill.positionSizeBefore);
+            const entryPrice = parseFloat(fill.entryPriceBefore);
+            const fillPrice = parseFloat(fill.price);
+            const fillSize = parseFloat(fill.size);
+
+            let closedPnl: number | null = null;
+
+            if (fill.positionSideBefore === 'LONG' && fill.side === 'SELL') {
+              const sizeClosed = Math.min(sizeBefore, fillSize);
+              closedPnl = (fillPrice - entryPrice) * sizeClosed;
+            } else if (fill.positionSideBefore === 'SHORT' && fill.side === 'BUY') {
+              const sizeClosed = Math.min(sizeBefore, fillSize);
+              closedPnl = (entryPrice - fillPrice) * sizeClosed;
+            }
+
+            if (closedPnl !== null) {
+              const isNegative = closedPnl < 0;
+              const absValue = Math.abs(closedPnl);
+              closedPnlStr = isNegative ? `-$${absValue.toFixed(2)}` : `$${absValue.toFixed(2)}`;
+              pnlClass = isNegative ? 'text-red-400' : closedPnl > 0 ? 'text-green-400' : 'text-primary';
+            }
+          }
+
           return (
             <div
               key={fill.id}
@@ -233,6 +316,11 @@ const FillsPanel: React.FC = () => {
                   <span className="text-primary font-mono text-xs">
                     ${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </span>
+                  {closedPnlStr !== '—' && (
+                    <span className={`font-mono text-xs ${pnlClass}`}>
+                      PNL: {closedPnlStr}
+                    </span>
+                  )}
                 </div>
                 <span className="text-muted text-xs mx-2 truncate">
                   {getTimeAgo(fill.createdAt)}

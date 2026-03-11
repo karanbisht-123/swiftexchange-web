@@ -13,7 +13,8 @@ export interface MarginCalculation {
 }
 
 export interface OrderMarginImpact {
-  marginRequired: number;
+  initialMarginRequired: number;
+  maintenanceMarginRequired: number;
   newAvailableBalance: number;
   newMarginUsage: number;
   newMarginUsed: number;
@@ -22,6 +23,11 @@ export interface OrderMarginImpact {
   leverage: number;
 }
 
+/**
+ * Calculate current account-level margin metrics from balance.
+ * Equity = Q + Σ(Si × Pi)  →  provided by dYdX as `equity`
+ * Free Collateral = Equity − Total Initial Margin Requirement
+ */
 export const calculateCurrentMargin = (balance: AccountBalance | null): MarginCalculation => {
   if (!balance) {
     return {
@@ -35,32 +41,64 @@ export const calculateCurrentMargin = (balance: AccountBalance | null): MarginCa
 
   const equity = parseFloat(balance.equity || '0');
   const freeCollateral = parseFloat(balance.freeCollateral || '0');
-  const marginUsed = equity - freeCollateral;
+  const totalMarginRequired = equity - freeCollateral;
 
   let marginUsagePercent = 0;
   if (equity > 0) {
-    marginUsagePercent = (marginUsed / equity) * 100;
+    marginUsagePercent = (totalMarginRequired / equity) * 100;
   }
 
   return {
     portfolioValue: equity,
     availableBalance: freeCollateral,
-    marginUsed,
+    marginUsed: totalMarginRequired,
     marginUsagePercent: Math.max(0, Math.min(100, marginUsagePercent)),
-    totalMarginRequired: marginUsed,
+    totalMarginRequired,
   };
 };
 
+/**
+ * Calculate the Initial Margin Requirement for a single position.
+ * IMR = |S × P × I|
+ * S = size, P = price, I = initialMarginFraction
+ */
+export const calculateInitialMarginRequired = (
+  size: number,
+  price: number,
+  initialMarginFraction: number
+): number => {
+  return Math.abs(size * price * initialMarginFraction);
+};
+
+/**
+ * Calculate the Maintenance Margin Requirement for a single position.
+ * MMR = |S × P × M|
+ */
+export const calculateMaintenanceMarginRequired = (
+  size: number,
+  price: number,
+  maintenanceMarginFraction: number
+): number => {
+  return Math.abs(size * price * maintenanceMarginFraction);
+};
+
+/**
+ * Calculate post-order margin impact for the receipt display.
+ * Uses IMF-based formula: IMR = |size × price × imf|
+ */
 export const calculateOrderMarginImpact = (
   currentEquity: number,
   currentFree: number,
   orderSize: number,
   orderPrice: number,
-  leverage: number = 10
+  leverage: number = 10,
+  initialMarginFraction: number = 0.05
 ): OrderMarginImpact => {
   const notionalValue = Math.abs(orderSize * orderPrice);
-  const marginRequired = notionalValue / leverage;
-  const newAvailableBalance = currentFree - marginRequired;
+  const initialMarginRequired = Math.abs(orderSize * orderPrice * initialMarginFraction);
+  const maintenanceMarginRequired = initialMarginRequired * 0.6;
+
+  const newAvailableBalance = currentFree - initialMarginRequired;
   const newMarginUsed = currentEquity - newAvailableBalance;
 
   let newMarginUsage = 0;
@@ -69,7 +107,8 @@ export const calculateOrderMarginImpact = (
   }
 
   return {
-    marginRequired,
+    initialMarginRequired,
+    maintenanceMarginRequired,
     newAvailableBalance: Math.max(0, newAvailableBalance),
     newMarginUsage: Math.max(0, Math.min(100, newMarginUsage)),
     newMarginUsed: Math.max(0, newMarginUsed),
@@ -77,6 +116,45 @@ export const calculateOrderMarginImpact = (
     canAfford: newAvailableBalance >= 0,
     leverage,
   };
+};
+
+/**
+ * Calculate liquidation price for an ISOLATED position.
+ * p' = (e − s × p) / (|s| × MMF − s)
+ * e = subaccount equity, s = signed size, p = entry price
+ */
+export const calculateIsolatedLiquidationPrice = (
+  size: number,
+  price: number,
+  equity: number,
+  maintenanceMarginFraction: number,
+  side: 'BUY' | 'SELL'
+): number => {
+  const s = side === 'BUY' ? size : -size;
+  const numerator = equity - s * price;
+  const denominator = Math.abs(s) * maintenanceMarginFraction - s;
+  if (denominator === 0) return 0;
+  return Math.max(0, numerator / denominator);
+};
+
+/**
+ * Calculate liquidation price for a CROSS position.
+ * p' = (e − s × p − MMR_o) / (|s| × MMF − s)
+ * MMR_o = maintenance margin of all OTHER positions in the subaccount
+ */
+export const calculateCrossLiquidationPrice = (
+  size: number,
+  price: number,
+  equity: number,
+  maintenanceMarginFraction: number,
+  otherPositionsMMR: number,
+  side: 'BUY' | 'SELL'
+): number => {
+  const s = side === 'BUY' ? size : -size;
+  const numerator = equity - s * price - otherPositionsMMR;
+  const denominator = Math.abs(s) * maintenanceMarginFraction - s;
+  if (denominator === 0) return 0;
+  return Math.max(0, numerator / denominator);
 };
 
 export const calculateMaxOrderSize = (

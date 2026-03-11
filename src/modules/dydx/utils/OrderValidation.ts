@@ -1,13 +1,11 @@
 import { type MarginMode, type MarketData, SUBACCOUNT_CONSTANTS } from '../types/trading.types';
 import { type CurrencyMode, currencyService } from './currencyService';
 
-
 export interface OrderValidationResult {
   isValid: boolean;
   error?: string;
   warning?: string;
 }
-
 
 const TRADING_CONSTRAINTS = {
   MIN_CONDITIONAL_ORDER_EQUITY: 20,
@@ -17,7 +15,6 @@ const TRADING_CONSTRAINTS = {
   PRECISION_TOLERANCE: 0.0000001,
 } as const;
 
-
 const CONDITIONAL_ORDER_TYPES = [
   'LIMIT',
   'STOP_LIMIT',
@@ -25,7 +22,6 @@ const CONDITIONAL_ORDER_TYPES = [
   'TAKE_PROFIT_LIMIT',
   'TAKE_PROFIT_MARKET',
 ] as const;
-
 
 export function validateOrderSize(
   marketData: MarketData | null,
@@ -139,7 +135,6 @@ function validateAccountBalance(
   return { isValid: true };
 }
 
-
 function calculateMaxOrderSize(
   freeCollateral: number,
   leverage: number,
@@ -162,23 +157,6 @@ export function validateOrderPrice(
   if (isNaN(priceValue) || priceValue <= 0) {
     return createError('Please enter a valid price greater than 0');
   }
-  if (marketData.tickSize) {
-    const tickSize =
-      typeof marketData.tickSize === 'string'
-        ? parseFloat(marketData.tickSize)
-        : marketData.tickSize;
-    const remainder = priceValue % tickSize;
-    const isValidTickSize =
-      remainder < TRADING_CONSTRAINTS.PRECISION_TOLERANCE ||
-      tickSize - remainder < TRADING_CONSTRAINTS.PRECISION_TOLERANCE;
-
-    if (!isValidTickSize) {
-      return createError(
-        `Price must be a multiple of ${marketData.tickSize}. Nearest valid: ${roundToTickSize(priceValue, tickSize).toFixed(getPriceDecimals(marketData.tickSize))}`
-      );
-    }
-  }
-
   if (marketData.oraclePrice) {
     const oraclePrice = parseFloat(marketData.oraclePrice);
     const deviation = Math.abs(priceValue - oraclePrice) / oraclePrice;
@@ -193,7 +171,6 @@ export function validateOrderPrice(
 
   return { isValid: true };
 }
-
 
 export function validateTriggerPrice(
   marketData: MarketData | null,
@@ -227,7 +204,6 @@ export function validateTriggerPrice(
       }
     }
 
-    // Take Profit validation
     if (isTakeProfitOrder) {
       if (orderSide === 'SELL' && trigger <= currentPrice) {
         return {
@@ -274,16 +250,15 @@ function createError(message: string): OrderValidationResult {
     error: message,
   };
 }
-function roundToTickSize(price: number, tickSize: number): number {
+export function roundToTickSize(price: number, tickSize: number): number {
   return Math.round(price / tickSize) * tickSize;
 }
 
-function getPriceDecimals(tickSize: string | number): number {
+export function getPriceDecimals(tickSize: string | number): number {
   const tickStr = typeof tickSize === 'number' ? tickSize.toString() : tickSize;
   const parts = tickStr.split('.');
   return parts.length > 1 ? parts[1].length : 0;
 }
-
 
 export function validateIsolatedPosition(
   marginMode: MarginMode,
@@ -315,7 +290,6 @@ export function validateIsolatedPosition(
   return { isValid: true };
 }
 
-
 export function calculateIsolatedCollateralRequired(
   orderSizeUsd: number,
   initialMarginFraction: number
@@ -323,5 +297,24 @@ export function calculateIsolatedCollateralRequired(
   const marginRequired = orderSizeUsd * initialMarginFraction;
   const withBuffer = marginRequired * TRADING_CONSTRAINTS.SAFETY_MARGIN_MULTIPLIER;
   return Math.max(withBuffer, TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY);
+}
+
+export function calculateLiquidationPrice(
+  size: number,
+  price: number,
+  equity: number,
+  mmf: number,
+  side: 'BUY' | 'SELL'
+): number {
+  // Formula: p' = (e - s * p) / (|s| * MMF - s)
+  // s: signed size (positive for long, negative for short)
+  const signedSize = side === 'BUY' ? size : -size;
+  const numerator = equity - signedSize * price;
+  const denominator = Math.abs(signedSize) * mmf - signedSize;
+
+  if (denominator === 0) return 0;
+
+  const liqPrice = numerator / denominator;
+  return Math.max(0, liqPrice);
 }
 

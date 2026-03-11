@@ -2,6 +2,7 @@ export interface EVMChainConfig {
   chainId: number;
   name: string;
   rpcUrl: string;
+  fallbackRpcUrls?: string[];
   nativeCurrency: {
     name: string;
     symbol: string;
@@ -37,62 +38,26 @@ export interface StellarChainConfig {
 
 export type NetworkType = 'mainnet' | 'testnet';
 
-// ==================== MAINNET CONFIGURATIONS ====================
-
 export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
   {
     chainId: 1,
     name: 'Ethereum',
-    rpcUrl: 'https://eth.llamarpc.com',
+    rpcUrl: 'https://cloudflare-eth.com',
+    fallbackRpcUrls: ['https://eth-mainnet.public.blastapi.io', 'https://rpc.ankr.com/eth'],
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     logoUrl:
       'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
   },
   {
-    chainId: 137,
-    name: 'Polygon',
-    rpcUrl: 'https://polygon-rpc.com',
-    blockExplorerUrl: 'https://polygonscan.com',
-    nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
-  },
-  {
     chainId: 56,
     name: 'BNB Smart Chain',
     rpcUrl: 'https://bsc-dataseed.binance.org',
+    fallbackRpcUrls: ['https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'],
     blockExplorerUrl: 'https://bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
     logoUrl:
       'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
-  },
-  {
-    chainId: 42161,
-    name: 'Arbitrum One',
-    rpcUrl: 'https://arb1.arbitrum.io/rpc',
-    blockExplorerUrl: 'https://arbiscan.io',
-    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png',
-  },
-  {
-    chainId: 10,
-    name: 'Optimism',
-    rpcUrl: 'https://mainnet.optimism.io',
-    blockExplorerUrl: 'https://optimistic.etherscan.io',
-    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png',
-  },
-  {
-    chainId: 43114,
-    name: 'Avalanche C-Chain',
-    rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',
-    blockExplorerUrl: 'https://snowtrace.io',
-    nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png',
   },
 ];
 
@@ -137,62 +102,26 @@ export const STELLAR_CONFIG_MAINNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-// ==================== TESTNET CONFIGURATIONS ====================
-
 export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
   {
     chainId: 11155111,
     name: 'Sepolia',
     rpcUrl: 'https://ethereum-sepolia.publicnode.com',
+    fallbackRpcUrls: ['https://rpc.sepolia.org', 'https://rpc2.sepolia.org', 'https://sepolia.drpc.org'],
     blockExplorerUrl: 'https://sepolia.etherscan.io',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     logoUrl:
       'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
   },
   {
-    chainId: 80002,
-    name: 'Polygon Amoy',
-    rpcUrl: 'https://rpc-amoy.polygon.technology',
-    blockExplorerUrl: 'https://amoy.polygonscan.com',
-    nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
-  },
-  {
     chainId: 97,
     name: 'BNB Smart Chain Testnet',
     rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
+    fallbackRpcUrls: ['https://data-seed-prebsc-2-s1.binance.org:8545', 'https://data-seed-prebsc-1-s2.binance.org:8545'],
     blockExplorerUrl: 'https://testnet.bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'tBNB', decimals: 18 },
     logoUrl:
       'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
-  },
-  {
-    chainId: 421614,
-    name: 'Arbitrum Sepolia',
-    rpcUrl: 'https://sepolia-rollup.arbitrum.io/rpc',
-    blockExplorerUrl: 'https://sepolia.arbiscan.io',
-    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png',
-  },
-  {
-    chainId: 11155420,
-    name: 'Optimism Sepolia',
-    rpcUrl: 'https://sepolia.optimism.io',
-    blockExplorerUrl: 'https://sepolia-optimism.etherscan.io',
-    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png',
-  },
-  {
-    chainId: 43113,
-    name: 'Avalanche Fuji',
-    rpcUrl: 'https://api.avax-test.network/ext/bc/C/rpc',
-    blockExplorerUrl: 'https://testnet.snowtrace.io',
-    nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png',
   },
 ];
 
@@ -237,8 +166,6 @@ export const STELLAR_CONFIG_TESTNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-// ==================== DYNAMIC GETTERS ====================
-
 export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
   return network === 'mainnet' ? EVM_CHAINS_MAINNET : EVM_CHAINS_TESTNET;
 };
@@ -258,5 +185,43 @@ export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',
   description: 'Trade Swiftly, Trade Securely',
   url: 'https://SwiftExchange.com',
-  icons: ['https://SwiftExchange.com/icon.png'],
+  icons: ['/logo.png'],
+};
+
+/**
+ * Builds the WalletConnect namespace config for a unified multichain session.
+ *
+ * EVM is placed in requiredNamespaces so the session always succeeds with EVM.
+ * Stellar is placed in optionalNamespaces so wallets that don't support it
+ * (e.g. Trust Wallet, MetaMask Mobile) simply omit it without failing.
+ */
+export const buildUnifiedNamespaces = (
+  network: NetworkType
+): {
+  requiredNamespaces: Record<string, unknown>;
+  optionalNamespaces: Record<string, unknown>;
+} => {
+  const evmChains = getEVMChains(network).map(c => `eip155:${c.chainId}`);
+  const stellarConfig = getStellarConfig(network);
+  const stellarChain = `stellar:${stellarConfig.chainId}`;
+
+  const evmNamespace = {
+    methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+    chains: evmChains,
+    events: ['chainChanged', 'accountsChanged'],
+  };
+
+  return {
+    requiredNamespaces: {
+      eip155: evmNamespace,
+    },
+    optionalNamespaces: {
+      eip155: evmNamespace,
+      stellar: {
+        methods: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
+        chains: [stellarChain],
+        events: ['accountsChanged'],
+      },
+    },
+  };
 };

@@ -16,10 +16,12 @@ import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 const ITEMS_PER_PAGE = 10;
 
 const OrderHistoryPanel: React.FC = () => {
-  const { orders: storeOrders, loadingOrders, ordersError, isConnected } = useDydxData();
+  const { orders: storeOrders, isConnected } = useDydxData();
 
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreData, setHasMoreData] = useState(true);
 
@@ -29,7 +31,7 @@ const OrderHistoryPanel: React.FC = () => {
   const initialLoadDoneRef = useRef(false);
 
   const getOrderTime = (order: Order): number => {
-    return new Date(order.updatedAt || order.createdAtHeight || '0').getTime();
+    return order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
   };
 
   useEffect(() => {
@@ -38,6 +40,31 @@ const OrderHistoryPanel: React.FC = () => {
       setCurrentPage(1);
       setHasMoreData(true);
       initialLoadDoneRef.current = false;
+      return;
+    }
+
+    if (!initialLoadDoneRef.current) {
+      let isMounted = true;
+      const fetchInitial = async () => {
+        setLoadingOrders(true);
+        setOrdersError(null);
+        try {
+          const initialOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
+          if (isMounted) {
+            setAllOrders(initialOrders);
+            initialLoadDoneRef.current = true;
+          }
+        } catch (err: any) {
+          if (isMounted) setOrdersError(err.message || 'Error loading orders');
+        } finally {
+          if (isMounted) setLoadingOrders(false);
+        }
+      };
+      fetchInitial();
+
+      return () => {
+        isMounted = false;
+      };
     }
   }, [isConnected]);
 
@@ -45,11 +72,14 @@ const OrderHistoryPanel: React.FC = () => {
     if (storeOrders.length > 0) {
       setAllOrders(prevOrders => {
         const ordersMap = new Map<string, Order>();
-        prevOrders.forEach(o => ordersMap.set(o.id, o));
         storeOrders.forEach(o => ordersMap.set(o.id, o));
+        prevOrders.forEach(o => {
+          if (!ordersMap.has(o.id)) {
+            ordersMap.set(o.id, o);
+          }
+        });
         return Array.from(ordersMap.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
       });
-      initialLoadDoneRef.current = true;
     }
   }, [storeOrders]);
 
@@ -71,7 +101,7 @@ const OrderHistoryPanel: React.FC = () => {
 
     setLoadingMore(true);
     try {
-      const moreOrders = await dydxDataService.getOrders(undefined, ITEMS_PER_PAGE, true, false);
+      const moreOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
 
       if (moreOrders.length === 0) {
         setHasMoreData(false);
@@ -181,7 +211,7 @@ const OrderHistoryPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
-                      {order.type}
+                      {order.clientMetadata === '1' && order.type === 'LIMIT' ? 'MARKET' : order.type}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">
@@ -194,13 +224,13 @@ const OrderHistoryPanel: React.FC = () => {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">
-                    {order.type === 'MARKET' ? 'Market' : `$${parseFloat(order.price).toLocaleString()}`}
+                    {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT') ? 'Market' : `$${parseFloat(order.price).toLocaleString()}`}
                   </td>
                   <td className="px-4 py-3 text-center text-gray-400 text-xs">
                     {order.timeInForce || 'GTT'}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs">
-                    {getTimeAgo(order.updatedAt || order.createdAtHeight)}
+                    {getTimeAgo(order.updatedAt || '')}
                   </td>
                 </tr>
               );
@@ -226,7 +256,7 @@ const OrderHistoryPanel: React.FC = () => {
                   <div className="flex items-center gap-4">
                     <SideBadge side={order.side as 'BUY' | 'SELL'} />
                     <span className="text-primary font-mono text-xs">
-                      {order.type === 'MARKET' ? 'Market' : `$${price.toLocaleString()}`}
+                      {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT') ? 'Market' : `$${price.toLocaleString()}`}
                     </span>
                   </div>
 

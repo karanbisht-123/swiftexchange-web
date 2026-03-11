@@ -135,7 +135,7 @@ export default function StellarTradingChart({
       };
     }
     return {
-      background: '#f5f7fb',
+      background: '#fff',
       textColor: '#1a1d29',
       gridColor: '#e2e8f0',
       borderColor: '#cbd5e0',

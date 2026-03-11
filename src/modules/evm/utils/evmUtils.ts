@@ -2,11 +2,13 @@ import { ethers } from 'ethers';
 
 import { getEVMChains } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { rpcManager } from './rpcProvider';
 
 export type EVMNetworkConfig = {
   chainId: number;
   name: string;
   rpcUrl: string;
+  fallbackRpcUrls?: string[];
   nativeCurrency: { name: string; symbol: string; decimals: number };
   blockExplorerUrl: string;
 };
@@ -32,11 +34,14 @@ export function getEVMNetworkConfig(networkKey: NetworkKey): EVMNetworkConfig {
 }
 
 export async function getNativeBalance(networkKey: any, address: any): Promise<string> {
-  const { rpcUrl } = getEVMNetworkConfig(networkKey);
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const { rpcUrl, fallbackRpcUrls, chainId } = getEVMNetworkConfig(networkKey);
 
   try {
-    const bal = await provider.getBalance(address);
+    const bal = await rpcManager.fetchWithFallback(
+      chainId,
+      [rpcUrl, ...(fallbackRpcUrls || [])],
+      async (provider) => await provider.getBalance(address)
+    );
     return ethers.formatEther(bal);
   } catch (error) {
     console.error(`Failed to fetch balance for ${address} on ${networkKey}:`, error);
@@ -49,19 +54,21 @@ export async function getERC20Balances(
   senderAddress: string,
   evmAssets: any[]
 ): Promise<any[]> {
-  const { rpcUrl } = getEVMNetworkConfig(networkKey);
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const { rpcUrl, fallbackRpcUrls, chainId } = getEVMNetworkConfig(networkKey);
+  const urls = [rpcUrl, ...(fallbackRpcUrls || [])];
 
   const updatedAssets = await Promise.all(
     evmAssets.map(async asset => {
       try {
         let bal: bigint;
         if (asset.isNative) {
-          bal = await provider.getBalance(senderAddress);
+          bal = await rpcManager.fetchWithFallback(chainId, urls, p => p.getBalance(senderAddress));
         } else {
-          const erc20Abi = ['function balanceOf(address) view returns (uint256)'];
-          const contract = new ethers.Contract(asset.address, erc20Abi, provider);
-          bal = await contract.balanceOf(senderAddress);
+          bal = await rpcManager.fetchWithFallback(chainId, urls, async p => {
+            const erc20Abi = ['function balanceOf(address) view returns (uint256)'];
+            const contract = new ethers.Contract(asset.address, erc20Abi, p);
+            return await contract.balanceOf(senderAddress);
+          });
         }
         return {
           ...asset,
@@ -92,22 +99,24 @@ export async function estimateEVMFees(
   totalFee: string;
   totalCost: string;
 }> {
-  const { rpcUrl } = getEVMNetworkConfig(networkKey);
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const { rpcUrl, fallbackRpcUrls, chainId } = getEVMNetworkConfig(networkKey);
+  const urls = [rpcUrl, ...(fallbackRpcUrls || [])];
   const defaultGasLimit = BigInt(21000);
   const defaultGasPrice = BigInt(20000000000);
 
   try {
     const amountInWei = ethers.parseEther(amount);
-    const gasLimit = BigInt(
-      await provider.estimateGas({
+
+    const { gasLimit, feeData } = await rpcManager.fetchWithFallback(chainId, urls, async p => {
+      const gl = await p.estimateGas({
         from,
         to,
         value: amountInWei,
-      })
-    );
+      });
+      const fd = await p.getFeeData();
+      return { gasLimit: BigInt(gl), feeData: fd };
+    });
 
-    const feeData = await provider.getFeeData();
     let effectiveGasPrice = feeData.gasPrice ?? defaultGasPrice;
     if (feeData.maxFeePerGas) {
       effectiveGasPrice = feeData.maxFeePerGas;

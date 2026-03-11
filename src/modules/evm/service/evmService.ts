@@ -7,6 +7,7 @@ import type {
 } from '../../../types/evm/evmTransaction.types';
 import { generateTransactionId, getNetworkPrefix } from '../../../utils/transactionUtils';
 import { type NetworkKey, getEVMNetworkConfig, isValidEVMNetwork } from '../utils/evmUtils';
+import { rpcManager } from '../utils/rpcProvider';
 
 export async function sendCryptoEVMPrepare(
   networkKey: any,
@@ -24,10 +25,13 @@ export async function sendCryptoEVMPrepare(
   const endpoint = prefix + '/transaction/prepare';
 
   try {
-    const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+    const urls = [config.rpcUrl, ...(config.fallbackRpcUrls || [])];
+    const { feeData, nonce } = await rpcManager.fetchWithFallback(config.chainId, urls, async p => {
+      const fd = await p.getFeeData();
+      const n = await p.getTransactionCount(from);
+      return { feeData: fd, nonce: n };
+    });
     const amountInWei = ethers.parseEther(amount);
-    const feeData = await provider.getFeeData();
-    const nonce = await provider.getTransactionCount(from);
 
     const unsignedTxData: any = {
       to,

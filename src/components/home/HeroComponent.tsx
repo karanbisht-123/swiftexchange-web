@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRight, Send, Repeat, CreditCard, ArrowLeftRight, TrendingUp } from 'lucide-react';
 
+import { useWalletConnect } from '../../modules/walletconnect/hooks/useWalletConnect';
+
 const HeroComponent: React.FC = () => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const { openModal } = useWalletConnect();
 
   const images = [
     '/home2.png',
@@ -52,7 +55,10 @@ const HeroComponent: React.FC = () => {
           </p>
 
           <div className="flex flex-row items-center gap-4 w-full sm:w-auto">
-            <button className="btn btn-primary btn-lg w-full sm:w-auto shadow-lg shadow-brand-primary/20 hover:shadow-brand-primary/30 transition-all flex items-center justify-center gap-2 group">
+            <button
+              onClick={openModal}
+              className="btn btn-primary btn-lg w-full sm:w-auto shadow-lg shadow-brand-primary/20 hover:shadow-brand-primary/30 transition-all flex items-center justify-center gap-2 group"
+            >
               Start Trading
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>

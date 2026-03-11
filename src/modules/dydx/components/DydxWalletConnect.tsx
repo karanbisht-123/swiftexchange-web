@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, AlertCircle } from 'lucide-react';
-// ArrowUpDown
+import { ArrowUpRight, RefreshCw, AlertCircle } from 'lucide-react';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
 import { SubaccountTransfer } from './SubaccountTransfer';
-
+import { DydxWithdrawModal } from './DydxWithdrawModal';
+import { DydxDepositModal } from './DydxDepositModal';
+import useOrderPreviewStore from '../store/orderPreviewStore';
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
@@ -74,6 +75,8 @@ export const DydxWalletConnect: React.FC = () => {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [showDepositModal, setShowDepositModal] = useState(false);
 
   const {
     isConnected,
@@ -175,9 +178,59 @@ export const DydxWalletConnect: React.FC = () => {
     return calculateMarginUsage(balance.equity, balance.freeCollateral);
   }, [balance]);
 
+  const pendingMarginRequired = useOrderPreviewStore(s => s.pendingMarginRequired);
+
+  const projectedMarginUsagePercent = useMemo(() => {
+    if (!balance || pendingMarginRequired <= 0) return null;
+    const equity = Number(balance.equity);
+    const freeCollateral = Number(balance.freeCollateral);
+    if (equity <= 0) return null;
+    const currentMarginUsed = equity - freeCollateral;
+    const projectedMarginUsed = currentMarginUsed + pendingMarginRequired;
+    const pct = Math.min((projectedMarginUsed / equity) * 100, 100);
+    return Math.max(0, pct);
+  }, [balance, pendingMarginRequired]);
+
   const timeAgo = useMemo(() => formatTimeAgo(lastUpdateTime), [lastUpdateTime]);
 
-  if (connectionError || error) {
+  const isSubaccountNotFound = error?.toLowerCase().includes('404') || error?.toLowerCase().includes('subaccount');
+
+  if (isSubaccountNotFound) {
+    return (
+      <div className="bg-secondary  p-3 sm:p-4 ">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-xs text-muted">dYdX Trading Account</p>
+            <p className="text-xs font-mono text-secondary">
+              {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-1 rounded text-xs font-medium bg-warning text-white">
+              No Account
+            </span>
+          </div>
+        </div>
+        <div className="bg-warning-bg border border-color rounded p-2 mb-3">
+          <p className="text-xs text-warning">You need to deposit funds first to start trading</p>
+        </div>
+        <a
+          href="https://trade.dydx.exchange/portfolio/deposit"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block text-center py-2 rounded text-sm font-medium transition"
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)'
+          }}
+        >
+          Deposit Funds
+        </a>
+      </div>
+    );
+  }
+
+  if (connectionError || (error && !isSubaccountNotFound)) {
     return (
       <div className="bg-secondary rounded-lg lg:rounded-none p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
@@ -229,7 +282,7 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (needsDydxDerivation) {
     return (
-      <div className="bg-secondary rounded-lg lg:rounded-none p-3 sm:p-4 border border-color">
+      <div className="bg-secondary  p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-xs text-muted">dYdX Trading Account</p>
@@ -261,7 +314,7 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (isConnecting || (!isConnected && hasDydxAddress)) {
     return (
-      <div className="bg-secondary rounded-lg p-3 sm:p-4 border border-color">
+      <div className="bg-secondary p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-center py-4">
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-tertiary border-t-brand" />
         </div>
@@ -275,7 +328,7 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (!balance || hasZeroBalance) {
     return (
-      <div className="bg-secondary rounded-lg p-3 sm:p-4 border border-color">
+      <div className="bg-secondary p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-xs text-muted">dYdX Trading Account</p>
@@ -319,7 +372,7 @@ export const DydxWalletConnect: React.FC = () => {
   }
 
   return (
-    <div className="bg-secondary lg:rounded-none rounded-lg p-3 sm:p-4 ">
+    <div className="bg-secondary border-b border-color lg:rounded-none p-3 sm:p-4 ">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-color">
         <div className="flex items-center gap-2">
@@ -375,7 +428,6 @@ export const DydxWalletConnect: React.FC = () => {
             </span>
           </div>
 
-          {/* Margin Usage */}
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted">Margin Used</span>
             <div className="flex items-center gap-2">
@@ -394,33 +446,39 @@ export const DydxWalletConnect: React.FC = () => {
                     cy="12"
                     r="10"
                     stroke={
-                      marginMetrics.marginUsagePercent > 85
+                      (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 85
                         ? 'var(--color-danger)'
-                        : marginMetrics.marginUsagePercent > 70
+                        : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 70
                           ? 'var(--color-warning)'
-                          : marginMetrics.marginUsagePercent > 50
+                          : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 50
                             ? 'var(--color-warning)'
                             : 'var(--color-success)'
                     }
                     strokeWidth="2"
                     fill="none"
                     strokeDasharray={`${2 * Math.PI * 10}`}
-                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - marginMetrics.marginUsagePercent / 100)}`}
+                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) / 100)}`}
                     strokeLinecap="round"
                   />
                 </svg>
               </div>
               <span
-                className={`text-sm font-semibold ${marginMetrics.marginUsagePercent > 85
-                  ? 'text-danger'
-                  : marginMetrics.marginUsagePercent > 70
-                    ? 'text-warning'
-                    : marginMetrics.marginUsagePercent > 50
+                className={`text-sm font-semibold ${(projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 85
+                    ? 'text-danger'
+                    : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 70
                       ? 'text-warning'
                       : 'text-success'
                   }`}
               >
-                {formatPercent(marginMetrics.marginUsagePercent)}%
+                {projectedMarginUsagePercent !== null && projectedMarginUsagePercent !== undefined ? (
+                  <>
+                    <span className="text-muted">{formatPercent(marginMetrics!.marginUsagePercent)}%</span>
+                    {' → '}
+                    {formatPercent(projectedMarginUsagePercent)}%
+                  </>
+                ) : (
+                  <>{formatPercent(marginMetrics!.marginUsagePercent)}%</>
+                )}
               </span>
             </div>
           </div>
@@ -442,33 +500,44 @@ export const DydxWalletConnect: React.FC = () => {
 
           {/* Action Buttons */}
           <div className="flex gap-2 mt-3">
-            {/* <button
-              onClick={() => setShowTransferModal(true)}
-              className="flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors bg-gray-700 hover:bg-gray-600 text-white"
-            >
-              <ArrowUpDown className="w-3.5 h-3.5" />
-              Transfer
-            </button> */}
-            <a
-              href="https://trade.dydx.exchange/portfolio/deposit"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 text-center text-sm font-medium py-2 rounded-lg transition-colors"
+            <button
+              onClick={() => setShowDepositModal(true)}
+              className="flex-1 text-center text-sm font-medium py-2 rounded transition-colors"
               style={{
                 backgroundColor: 'var(--color-brand-accent)',
                 color: 'var(--color-text-inverse)'
               }}
             >
               Deposit
-            </a>
+            </button>
+            <button
+              onClick={() => setShowWithdrawModal(true)}
+              className="px-3 rounded py-2 transition-colors flex items-center justify-center"
+              style={{
+                backgroundColor: 'var(--color-bg-tertiary)',
+                color: 'var(--color-text-secondary)',
+                border: '1px solid var(--color-border)'
+              }}
+            >
+              <ArrowUpRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
       ) : null}
 
-      {/* Transfer Modal */}
       <SubaccountTransfer
         isOpen={showTransferModal}
         onClose={() => setShowTransferModal(false)}
+      />
+
+      <DydxWithdrawModal
+        isOpen={showWithdrawModal}
+        onClose={() => setShowWithdrawModal(false)}
+      />
+
+      <DydxDepositModal
+        isOpen={showDepositModal}
+        onClose={() => setShowDepositModal(false)}
       />
     </div>
   );

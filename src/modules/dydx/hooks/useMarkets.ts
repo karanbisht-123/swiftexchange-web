@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getIndexerClient } from '../client/clients';
+import { getIndexerClient, getValidatorClient } from '../client/clients';
 import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
 import type { MarketData } from '../types/trading.types';
-import { metadataService } from './useCoinGeckoMetadata';
+import { metadataService } from './useMetadata';
 import coinsList from '../data/coins.json';
 
 export type { MarketData };
@@ -118,12 +118,15 @@ export function useMarkets(): UseMarketsReturn {
   }, [storeMarkets]);
 
   const enrichMarketData = useCallback(
-    async (ticker: string, rawData: any): Promise<MarketData> => {
+    async (ticker: string, rawData: any, zeroFeeClobPairIds: Set<number>): Promise<MarketData> => {
       const metadata = await metadataService.getMetadata(ticker);
       const baseAsset = ticker.split('-')[0];
       const quoteAsset = ticker.split('-')[1] || 'USD';
       const staticCoin = (coinsList as any[]).find(c => c.symbol.toUpperCase() === baseAsset);
       const marketCap = staticCoin?.market_cap ? staticCoin.market_cap.toString() : '0';
+
+      const clobPairId = Number(rawData.clobPairId);
+      const isZeroFees = zeroFeeClobPairIds.has(clobPairId);
 
       return {
         ticker,
@@ -158,7 +161,7 @@ export function useMarkets(): UseMarketsReturn {
         defaultFundingRate1H: rawData.defaultFundingRate1H,
         spotVolume: rawData.spotVolume,
         marketCap: marketCap,
-        // zeroFees: rawData.zeroFees
+        zeroFees: isZeroFees
       };
     },
     []
@@ -167,17 +170,34 @@ export function useMarkets(): UseMarketsReturn {
   const fetchInitialMarketData = useCallback(async () => {
     try {
       const indexerClient = getIndexerClient();
-      const response = await indexerClient.markets.getPerpetualMarkets();
+      const validatorClient = await getValidatorClient();
+
+      const [marketsResponse, feeDiscountsResponse] = await Promise.all([
+        indexerClient.markets.getPerpetualMarkets(),
+        validatorClient.get.getAllPerpMarketFeeDiscounts().catch((err: any) => {
+          console.error('[useMarkets] Failed to fetch fee discounts:', err);
+          return { params: [] };
+        })
+      ]);
 
       if (!isMountedRef.current) return;
+
+      const zeroFeeClobPairIds = new Set<number>();
+      if (feeDiscountsResponse?.params) {
+        feeDiscountsResponse.params.forEach((param: any) => {
+          if (param.chargePpm === 0) {
+            zeroFeeClobPairIds.add(param.clobPairId);
+          }
+        });
+      }
 
       const marketsMap: Record<string, MarketData> = {};
       const tickers: string[] = [];
 
-      if (response?.markets) {
-        for (const [ticker, rawData] of Object.entries(response.markets)) {
+      if (marketsResponse?.markets) {
+        for (const [ticker, rawData] of Object.entries(marketsResponse.markets)) {
           tickers.push(ticker);
-          marketsMap[ticker] = await enrichMarketData(ticker, rawData);
+          marketsMap[ticker] = await enrichMarketData(ticker, rawData, zeroFeeClobPairIds);
         }
       }
 

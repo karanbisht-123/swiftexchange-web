@@ -60,7 +60,7 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-// Chart type icons mapping
+
 const chartTypeIcons: Record<ChartType, React.ReactNode> = {
   candlestick: <CandlestickChart className="w-4 h-4" />,
   line: <TrendingUp className="w-4 h-4" />,
@@ -79,7 +79,7 @@ export default function DyDxTradingChart() {
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [hasInitialData, setHasInitialData] = useState(false);
-  const [chartKey, setChartKey] = useState(0); // Key to force re-render chart container
+  const [chartKey, setChartKey] = useState(0);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -95,7 +95,6 @@ export default function DyDxTradingChart() {
     300
   );
 
-  // Track when we first get data
   useEffect(() => {
     if (candles.length > 0 && !hasInitialData) {
       setHasInitialData(true);
@@ -133,7 +132,7 @@ export default function DyDxTradingChart() {
     const colors = getThemeColors();
     const container = chartContainerRef.current;
 
-    // Clear existing chart
+
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -276,7 +275,7 @@ export default function DyDxTradingChart() {
     chart.timeScale().fitContent();
   }, [candles, chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
 
-  // ResizeObserver for container size changes
+
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -304,9 +303,9 @@ export default function DyDxTradingChart() {
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     };
-  }, [chartKey]); // Re-attach observer when chartKey changes
+  }, [chartKey]);
 
-  // Create chart when data or chartKey changes
+
   useEffect(() => {
     createChartInstance();
 
@@ -318,9 +317,7 @@ export default function DyDxTradingChart() {
     };
   }, [createChartInstance, chartKey]);
 
-  // Force chart recreation when fullscreen changes
   useEffect(() => {
-    // Destroy current chart
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -328,7 +325,6 @@ export default function DyDxTradingChart() {
       volumeSeriesRef.current = null;
     }
 
-    // Small delay to allow DOM to update, then trigger re-render
     const timeoutId = setTimeout(() => {
       setChartKey(prev => prev + 1);
     }, 100);
@@ -336,7 +332,6 @@ export default function DyDxTradingChart() {
     return () => clearTimeout(timeoutId);
   }, [isFullscreen]);
 
-  // Update candle in realtime
   useEffect(() => {
     if (!latestCandle || !seriesRef.current || !chartRef.current) return;
 
@@ -406,7 +401,7 @@ export default function DyDxTradingChart() {
     { value: 'area', label: 'Area', icon: <BarChart3 className="w-4 h-4" /> },
   ];
 
-  // Timeframe selector component - inside chart frame
+
   const TimeframeSelector = () => (
     <div className="absolute top-2 left-2 z-10 flex items-center gap-0.5 bg-secondary/90 backdrop-blur-sm rounded-lg p-1 border border-color shadow-lg">
       {timeframes.map(tf => (
@@ -424,7 +419,6 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-  // Chart type dropdown with icons
   const ChartTypeDropdown = () => (
     <div className="relative">
       <button
@@ -534,7 +528,7 @@ export default function DyDxTradingChart() {
     );
   };
 
-  // Initial loading spinner
+
   const InitialLoadingSpinner = () => {
     if (!isLoading || hasInitialData) return null;
 
@@ -548,22 +542,22 @@ export default function DyDxTradingChart() {
     );
   };
 
-  // Mobile fullscreen modal - TRUE FULLSCREEN like an app
+
   const MobileFullscreenModal = () => {
     if (!isFullscreen || !isMobile) return null;
 
     return (
       <div className="fixed inset-0 z-50 bg-primary flex flex-col animate-fade-in">
-        {/* Minimal header */}
+
         <div className="bg-secondary border-b border-color flex-shrink-0 safe-area-top">
           <div className="flex items-center justify-between px-2 py-1">
-            {/* Left side - Chart controls */}
+
             <div className="flex items-center gap-0.5">
               <ChartTypeDropdown />
               <SettingsDropdown />
             </div>
 
-            {/* Right side - Close button */}
+
             <button
               onClick={toggleFullscreen}
               className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -573,12 +567,12 @@ export default function DyDxTradingChart() {
           </div>
         </div>
 
-        {/* Chart container - takes all remaining space */}
+
         <div className="flex-1 bg-secondary relative overflow-hidden">
-          {/* Timeframe selector inside chart */}
+
           <TimeframeSelector />
 
-          {/* Loading overlay */}
+
           <LoadingOverlay />
 
           {error && (
@@ -587,7 +581,7 @@ export default function DyDxTradingChart() {
             </div>
           )}
 
-          {/* Chart */}
+
           {!hasInitialData && isLoading ? (
             <InitialLoadingSpinner />
           ) : (
@@ -598,19 +592,19 @@ export default function DyDxTradingChart() {
     );
   };
 
-  // Desktop fullscreen or inline chart
+
   const renderDesktopChart = () => (
     <div className={`${isFullscreen && !isMobile ? 'fixed inset-0 z-50' : 'h-full'} bg-primary flex flex-col`}>
-      {/* Compact Toolbar */}
+
       <div className="bg-secondary border-b border-color flex-shrink-0">
         <div className="flex items-center justify-between px-1">
-          {/* Left side - Chart Type & Settings */}
+
           <div className="flex items-center">
             <ChartTypeDropdown />
             <SettingsDropdown />
           </div>
 
-          {/* Right side - Actions */}
+
           <div className="flex items-center gap-1 px-1">
             <button
               onClick={downloadChart}
@@ -634,12 +628,12 @@ export default function DyDxTradingChart() {
         </div>
       </div>
 
-      {/* Chart Area */}
+
       <div className="flex-1 bg-secondary relative overflow-hidden">
-        {/* Timeframe selector inside chart */}
+
         <TimeframeSelector />
 
-        {/* Loading overlay */}
+
         <LoadingOverlay />
 
         {error && (
@@ -648,7 +642,7 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        {/* Chart */}
+
         {!hasInitialData && isLoading ? (
           <InitialLoadingSpinner />
         ) : (
@@ -658,10 +652,10 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-  // Mobile inline chart (non-fullscreen)
+
   const renderMobileChart = () => (
     <div className="h-full bg-primary flex flex-col">
-      {/* Compact Toolbar */}
+
       <div className="bg-secondary border-b border-color flex-shrink-0">
         <div className="flex items-center justify-end px-2 py-1">
           <div className="flex items-center gap-0.5">
@@ -678,12 +672,12 @@ export default function DyDxTradingChart() {
         </div>
       </div>
 
-      {/* Chart Area */}
+
       <div className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]">
-        {/* Timeframe selector inside chart */}
+
         <TimeframeSelector />
 
-        {/* Loading overlay */}
+
         <LoadingOverlay />
 
         {error && (
@@ -692,7 +686,7 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        {/* Chart */}
+
         {!hasInitialData && isLoading ? (
           <InitialLoadingSpinner />
         ) : (
@@ -702,7 +696,7 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-  // Render based on device and fullscreen state
+
   if (isMobile && isFullscreen) {
     return <MobileFullscreenModal />;
   }

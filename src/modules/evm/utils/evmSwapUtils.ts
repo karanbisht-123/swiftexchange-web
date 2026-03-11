@@ -4,6 +4,7 @@ import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { prepareSwapTransaction, getSwapQuote } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
+import { parseSwapError } from './swapErrorHandler';
 
 function isMainnet(): boolean {
   return useWalletStore.getState().network === 'mainnet';
@@ -67,17 +68,8 @@ export async function fetchEvmQuote(
       outputToken: selectedBuyAsset.symbol,
     };
   } catch (error: any) {
-    console.error('Error fetching quote:', error);
-    if (error.message?.includes('No liquidity')) {
-      throw new Error('Insufficient liquidity for this token pair');
-    }
-    if (error.message?.includes('network')) {
-      throw new Error('Network error. Please check your connection');
-    }
-    if (error.message?.includes('timeout')) {
-      throw new Error('Request timeout. Please try again');
-    }
-    throw new Error(error.message || 'Failed to fetch swap quote');
+    const message = parseSwapError(error);
+    throw new Error(message);
   }
 }
 
@@ -126,30 +118,35 @@ export async function executeSwap(
     let lastTxHash = '';
 
     if (isMainnet()) {
+      const ethersProvider = new ethers.BrowserProvider(provider);
+      const signer = await ethersProvider.getSigner();
+
       for (const tx of transactions) {
         const txParams: Record<string, any> = {
           from: tx.from || senderAddress,
           to: tx.to,
           data: tx.data,
-          value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : '0x0',
+          value: tx.value ? BigInt(tx.value) : 0n,
         };
 
         if (tx.gasLimit || tx.gas) {
-          txParams.gas = tx.gasLimit || tx.gas;
+          txParams.gasLimit = BigInt((tx.gasLimit || tx.gas) as string);
         }
         if (tx.maxFeePerGas) {
-          txParams.maxFeePerGas = `0x${BigInt(tx.maxFeePerGas).toString(16)}`;
+          txParams.maxFeePerGas = BigInt(tx.maxFeePerGas as string);
         }
         if (tx.maxPriorityFeePerGas) {
-          txParams.maxPriorityFeePerGas = `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}`;
+          txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas as string);
         }
 
-        const txHash = await provider.request({
-          method: 'eth_sendTransaction',
-          params: [txParams],
-        });
+        const txResponse = await signer.sendTransaction(txParams);
+        const receipt = await txResponse.wait();
 
-        lastTxHash = txHash;
+        if (!receipt || receipt.status === 0) {
+          throw new Error('Transaction failed');
+        }
+
+        lastTxHash = txResponse.hash;
       }
     } else {
       const ethersProvider = new ethers.BrowserProvider(provider);
@@ -190,24 +187,9 @@ export async function executeSwap(
 
     return lastTxHash;
   } catch (error: any) {
-    console.error('Swap execution error:', error);
 
-    if (error.code === 'ACTION_REJECTED' || error.code === 4001) {
-      throw new Error('Transaction rejected by user');
-    }
-    if (error.message?.includes('insufficient funds')) {
-      throw new Error('Insufficient funds for gas fees');
-    }
-    if (error.message?.includes('gas')) {
-      throw new Error('Transaction failed due to gas estimation error');
-    }
-    if (error.message?.includes('user rejected') || error.message?.includes('rejected by user')) {
-      throw new Error('Transaction rejected by user');
-    }
-    if (error.message?.includes('insufficient')) {
-      throw new Error('Insufficient balance or gas fees');
-    }
-
-    throw new Error(error.message || 'Failed to execute swap');
+    console.log(error, "eror comeing form SwapUtils", error)
+    const message = parseSwapError(error);
+    throw new Error(message);
   }
 }

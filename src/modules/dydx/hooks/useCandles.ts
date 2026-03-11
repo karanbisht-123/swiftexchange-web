@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getIndexerClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
+import { useTrades } from './useTrades';
 
 export type CandleResolution = '1MIN' | '5MINS' | '15MINS' | '30MINS' | '1HOUR' | '4HOURS' | '1DAY';
 
@@ -33,6 +34,8 @@ export function useRealtimeChart(
   resolution: CandleResolution = '1MIN',
   limit: number = 100
 ): UseRealtimeChartReturn {
+  // dYdX Indexer API enforces a maximum limit of 1000
+  const enforcedLimit = Math.min(limit, 1000);
   const [snapshotCandles, setSnapshotCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,14 +44,37 @@ export function useRealtimeChart(
   const unsubscribeFromCandles = useWebSocketStore(state => state.unsubscribeFromCandles);
   const isConnected = useWebSocketStore(state => state.isConnected);
 
+  const prevConnectedRef = useRef<boolean>(false);
+  const prevMarketRef = useRef<string>(market);
+  const prevResolutionRef = useRef<CandleResolution>(resolution);
+  const mountedRef = useRef(true);
+
   const candleKey = `candles_${market}_${resolution}`;
   const storeCandlesData = useWebSocketStore(state => state.candles.get(candleKey));
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
-    setIsLoading(true);
-    setError(null);
+    const isReconnect = !prevConnectedRef.current && isConnected;
+    const isParamChange = prevMarketRef.current !== market || prevResolutionRef.current !== resolution;
+
+    prevConnectedRef.current = isConnected;
+    prevMarketRef.current = market;
+    prevResolutionRef.current = resolution;
+
+    if (isParamChange) {
+      setSnapshotCandles([]);
+      setIsLoading(true);
+      setError(null);
+    } else if (isReconnect) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     const loadCandles = async () => {
       try {
@@ -58,24 +84,24 @@ export function useRealtimeChart(
           resolution,
           undefined,
           undefined,
-          limit
+          enforcedLimit
         );
 
         if (!mounted) return;
 
-        const fetchedCandles = data.candles || [];
+        const fetched = data.candles || [];
 
-        if (fetchedCandles.length > 0) {
-          const sortedCandles = [...fetchedCandles].sort(
+        if (fetched.length > 0) {
+          const sorted = [...fetched].sort(
             (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
           );
-
-          setSnapshotCandles(sortedCandles);
+          setSnapshotCandles(sorted);
         } else {
           setSnapshotCandles([]);
         }
 
         setIsLoading(false);
+        setError(null);
       } catch (err) {
         if (!mounted) return;
         console.error('[Candles] Load error:', err);
@@ -89,23 +115,23 @@ export function useRealtimeChart(
     return () => {
       mounted = false;
     };
-  }, [market, resolution, limit]);
+  }, [market, resolution, enforcedLimit, isConnected]);
 
   useEffect(() => {
-    console.log(`[Candles] Subscribing to ${market} ${resolution}`);
     subscribeToCandles(market, resolution);
 
     return () => {
-      console.log(`[Candles] Unsubscribing from ${market} ${resolution}`);
       unsubscribeFromCandles(market, resolution);
     };
   }, [market, resolution, subscribeToCandles, unsubscribeFromCandles]);
 
-  const candles = useMemo(() => {
+  const { trades } = useTrades(market, 50);
+
+  const mergedCandles = useMemo(() => {
     const liveCandles = storeCandlesData?.candles || [];
 
-    if (liveCandles.length === 0) {
-      return snapshotCandles;
+    if (liveCandles.length === 0 && snapshotCandles.length === 0) {
+      return [];
     }
 
     const candleMap = new Map<string, Candle>();
@@ -134,15 +160,49 @@ export function useRealtimeChart(
     const merged = Array.from(candleMap.values());
     merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 
-    return merged.slice(-limit);
-  }, [snapshotCandles, storeCandlesData, limit, market, resolution]);
+    return merged.slice(-enforcedLimit);
+  }, [snapshotCandles, storeCandlesData, enforcedLimit, market, resolution]);
 
   const latestCandle = useMemo(() => {
-    return candles.length > 0 ? candles[candles.length - 1] : null;
-  }, [candles]);
+    if (mergedCandles.length === 0) return null;
+    const current = { ...mergedCandles[mergedCandles.length - 1] };
+
+    if (trades.length > 0) {
+      const currentCandleTime = new Date(current.startedAt).getTime();
+      let addedVolume = 0;
+      let latestPrice = current.close;
+      let newHigh = parseFloat(current.high);
+      let newLow = parseFloat(current.low);
+      let hasValidTrade = false;
+      for (const trade of trades) {
+        const tradeTime = new Date(trade.createdAt).getTime();
+        if (tradeTime >= currentCandleTime) {
+          const price = parseFloat(trade.price);
+          const size = parseFloat(trade.size);
+
+          if (!hasValidTrade) {
+            latestPrice = trade.price;
+            hasValidTrade = true;
+          }
+
+          if (price > newHigh) newHigh = price;
+          if (price < newLow) newLow = price;
+          addedVolume += (price * size);
+        }
+      }
+
+      if (hasValidTrade) {
+        current.close = latestPrice;
+        current.high = newHigh.toString();
+        current.low = newLow.toString();
+      }
+    }
+
+    return current;
+  }, [mergedCandles, trades]);
 
   return {
-    candles,
+    candles: mergedCandles,
     latestCandle,
     error,
     isLoading,

@@ -1,8 +1,10 @@
 import { useState } from 'react';
-
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import type { OrderTypeEnum } from '../../../types/trading.types';
+import { validateNumberInput } from '../../../utils/inputValidation';
+import { Tooltip } from '../../../../../components/common/Tooltip';
 
-export type TimeInForceOption = 'GTT' | 'IOC' | 'FOK';
+export type TimeInForceOption = 'GTT' | 'IOC' | 'POST_ONLY';
 export type GoodTilUnit = 'minutes' | 'hours' | 'days' | 'weeks';
 
 interface AdvancedOptionsProps {
@@ -10,16 +12,13 @@ interface AdvancedOptionsProps {
   timeInForce: TimeInForceOption;
   goodTilValue: number;
   goodTilUnit: GoodTilUnit;
-  postOnly: boolean;
   reduceOnly: boolean;
   onTimeInForceChange: (tif: TimeInForceOption) => void;
   onGoodTilValueChange: (value: number) => void;
   onGoodTilUnitChange: (unit: GoodTilUnit) => void;
-  onPostOnlyChange: (checked: boolean) => void;
   onReduceOnlyChange: (checked: boolean) => void;
 }
 
-// Define as constants for runtime checks
 const CONDITIONAL_TYPES = [
   'STOP_MARKET',
   'STOP_LIMIT',
@@ -32,12 +31,10 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
   timeInForce,
   goodTilValue,
   goodTilUnit,
-  postOnly,
   reduceOnly,
   onTimeInForceChange,
   onGoodTilValueChange,
   onGoodTilUnitChange,
-  onPostOnlyChange,
   onReduceOnlyChange,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -46,173 +43,91 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
   const isConditional = CONDITIONAL_TYPES.includes(orderType as any);
 
   return (
-    <div className="px-4">
-      <button
+    <div className="px-1 lg:px-3 mt-4">
+      <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center justify-between w-full text-xs text-gray-400 hover:text-white transition-colors"
+        className="flex items-center gap-3 w-full cursor-pointer group mb-2"
       >
-        <span>Advanced</span>
-        <span className={`transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
-          ▼
+        <span className="text-xs font-semibold text-muted group-hover:text-primary transition-colors">Advanced</span>
+        <div className="flex-1 h-px bg-color" />
+        <span className="text-muted group-hover:text-primary transition-colors">
+          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </span>
-      </button>
+      </div>
 
       {isExpanded && (
-        <div className="mt-3 space-y-3 pb-2 px-1">
-          {/* Time In Force Selector */}
-          {isLimit && (
-            <div className="space-y-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
-                Time In Force
-              </label>
-              <div className="relative">
-                <select
-                  value={timeInForce}
-                  onChange={e => onTimeInForceChange(e.target.value as TimeInForceOption)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white appearance-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all cursor-pointer"
-                >
-                  <option value="GTT">Good Til Time (GTT)</option>
-                  <option value="IOC">Immediate or Cancel (IOC)</option>
-                  <option value="FOK">Fill or Kill (FOK)</option>
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <svg
-                    width="10"
-                    height="6"
-                    viewBox="0 0 10 6"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      d="M1 1L5 5L9 1"
-                      stroke="#6B7280"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Good Til Time Input */}
-          {((isLimit && timeInForce === 'GTT') || isConditional) && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
-                  Good Til Time
-                </label>
-                <span className="text-[10px] text-gray-600 font-medium">
-                  Max: 95d
-                </span>
-              </div>
-              <div className="grid grid-cols-[1fr_100px] gap-2">
-                <div className="relative group">
-                  <input
-                    type="number"
-                    min="1"
-                    value={goodTilValue}
-                    onChange={e => onGoodTilValueChange(parseInt(e.target.value) || 1)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-3 pr-2 py-2 text-xs text-white focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all placeholder-gray-600"
-                    placeholder="Duration"
-                  />
-                </div>
-                <div className="relative">
+        <div className="mt-3 space-y-3 pb-2 ">
+          <div className="flex gap-2 animate-fade-in w-full">
+            {(isLimit || isConditional) && (
+              <div className="flex-1 bg-primary border border-color rounded-xl p-2.5 relative">
+                <label className="block text-[10px] font-medium text-muted mb-0.5 ml-0.5">Time In Force</label>
+                <div className="relative flex items-center">
                   <select
-                    value={goodTilUnit}
-                    onChange={e => onGoodTilUnitChange(e.target.value as GoodTilUnit)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-3 pr-8 py-2 text-xs text-white appearance-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all cursor-pointer"
+                    value={timeInForce}
+                    onChange={e => onTimeInForceChange(e.target.value as TimeInForceOption)}
+                    className="w-full bg-transparent text-sm text-primary font-medium focus:outline-none appearance-none cursor-pointer pl-0.5 pr-6"
                   >
-                    <option value="minutes">Minutes</option>
-                    <option value="hours">Hours</option>
-                    <option value="days">Days</option>
-                    <option value="weeks">Weeks</option>
+                    <option value="GTT">Good Til Time</option>
+                    <option value="IOC">Immediate or Cancel</option>
+                    <option value="POST_ONLY">Post-Only</option>
                   </select>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <svg
-                      width="10"
-                      height="6"
-                      viewBox="0 0 10 6"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M1 1L5 5L9 1"
-                        stroke="#6B7280"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
+                  <div className="absolute right-1 pointer-events-none">
+                    <svg width="8" height="5" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M1 1L5 5L9 1" stroke="#6B7280" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Execution Options */}
-          <div className="pt-1 space-y-2">
-            {/* Post-Only */}
-            {isLimit && (
-              <label
-                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${postOnly
-                    ? 'bg-blue-500/10 border-blue-500/30'
-                    : 'bg-gray-900/30 border-gray-800 hover:border-gray-700'
-                  } ${reduceOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <div className="relative flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={postOnly}
-                    onChange={e => onPostOnlyChange(e.target.checked)}
-                    className="peer appearance-none w-4 h-4 rounded border border-gray-600 bg-gray-800 checked:bg-blue-500 checked:border-blue-500 transition-colors"
-                    disabled={reduceOnly}
-                  />
-                  <svg
-                    className="absolute w-2.5 h-2.5 text-white left-[3px] top-[3.5px] opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"
-                    viewBox="0 0 12 12"
-                    fill="none"
-                  >
-                    <path
-                      d="M10 3L4.5 8.5L2 6"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-                <div className="flex flex-col">
-                  <span
-                    className={`text-xs font-medium ${postOnly ? 'text-blue-200' : 'text-gray-300'}`}
-                  >
-                    Post-Only
-                  </span>
-                  {reduceOnly && (
-                    <span className="text-[10px] text-gray-500">Disabled with reduce-only</span>
-                  )}
-                </div>
-              </label>
             )}
 
-            {/* Reduce-Only - Hidden for Market Orders */}
+            {(((isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY'))) && (
+              <div className="flex-1 bg-primary border border-color rounded-xl p-2.5 relative">
+                <label className="block text-[10px] font-medium text-muted mb-0.5 ml-0.5">Time</label>
+                <div className="flex items-center">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={goodTilValue}
+                    onChange={e => onGoodTilValueChange(parseInt(validateNumberInput(e.target.value)) || 1)}
+                    className="flex-1 min-w-[30px] w-full bg-transparent text-sm text-primary font-medium focus:outline-none pl-0.5 pr-1"
+                  />
+                  <div className="relative shrink-0 bg-tertiary rounded-md px-2 py-1 flex items-center border border-color ml-1">
+                    <select
+                      value={goodTilUnit}
+                      onChange={e => onGoodTilUnitChange(e.target.value as GoodTilUnit)}
+                      className="bg-transparent text-xs text-primary font-medium focus:outline-none appearance-none cursor-pointer pr-4"
+                    >
+                      <option value="minutes">Mins</option>
+                      <option value="hours">Hours</option>
+                      <option value="days">Days</option>
+                      <option value="weeks">Weeks</option>
+                    </select>
+                    <div className="absolute right-1.5 pointer-events-none">
+                      <svg width="6" height="4" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M1 1L5 5L9 1" stroke="#6B7280" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 flex flex-col gap-3">
             {orderType !== 'MARKET' && (
               <label
-                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${reduceOnly
-                    ? 'bg-blue-500/10 border-blue-500/30'
-                    : 'bg-gray-900/30 border-gray-800 hover:border-gray-700'
-                  }`}
+                className={`flex items-center gap-2 cursor-pointer group w-fit`}
               >
-                <div className="relative flex items-center">
+                <div className="relative flex items-center justify-center w-5 h-5 rounded-md border border-color bg-primary group-hover:border-brand-primary transition-colors">
                   <input
                     type="checkbox"
                     checked={reduceOnly}
                     onChange={e => onReduceOnlyChange(e.target.checked)}
-                    className="peer appearance-none w-4 h-4 rounded border border-gray-600 bg-gray-800 checked:bg-blue-500 checked:border-blue-500 transition-colors"
+                    className="peer absolute inset-0 opacity-0 cursor-pointer"
                   />
+                  <div className="absolute inset-0 bg-brand-primary rounded-md opacity-0 peer-checked:opacity-100 transition-opacity" />
                   <svg
-                    className="absolute w-2.5 h-2.5 text-white left-[3px] top-[3.5px] opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"
+                    className="absolute w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 transition-opacity z-10"
                     viewBox="0 0 12 12"
                     fill="none"
                   >
@@ -225,17 +140,16 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                     />
                   </svg>
                 </div>
-                <span
-                  className={`text-xs font-medium ${reduceOnly ? 'text-blue-200' : 'text-gray-300'}`}
-                >
-                  Reduce-Only
-                </span>
+                <Tooltip content="Reduce-Only is only available if Time in Force is set to IOC." position="top">
+                  <span className={`text-xs ml-0.5 transition-colors ${reduceOnly ? 'text-primary font-semibold text-[13px]' : 'text-muted group-hover:text-primary font-medium'}`}>
+                    Reduce-Only
+                  </span>
+                </Tooltip>
               </label>
             )}
           </div>
 
-          {/* Info Text */}
-          {reduceOnly && isLimit && timeInForce === 'GTT' && (
+          {reduceOnly && (isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY') && (
             <div className="flex items-center gap-2 text-[10px] text-yellow-400 bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2">
               <span>⚠</span>
               <span>Reduce-only orders will use IOC</span>

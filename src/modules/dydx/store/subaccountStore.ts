@@ -35,8 +35,6 @@ export const useSubaccountStore = create<SubaccountState>()(
         ...initialState,
 
         setMarginMode: (mode: MarginMode, market?: string) => {
-            console.log('[subaccountStore] Margin mode changed:', mode, market ? `for ${market}` : '');
-
             if (mode === 'CROSS') {
                 dydxWalletService.setActiveSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
                 set({
@@ -54,7 +52,6 @@ export const useSubaccountStore = create<SubaccountState>()(
 
         setActiveSubaccount: (subaccountNumber: number) => {
             if (subaccountNumber < 0 || subaccountNumber > SUBACCOUNT_CONSTANTS.ISOLATED_END) {
-                console.warn('[subaccountStore] Invalid subaccount number:', subaccountNumber);
                 return;
             }
 

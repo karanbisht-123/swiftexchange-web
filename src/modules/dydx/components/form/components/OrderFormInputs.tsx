@@ -2,6 +2,8 @@ import { ArrowLeftRight } from 'lucide-react';
 
 import type { OrderTypeEnum } from '../../../types/trading.types';
 import type { CurrencyMode } from '../../../utils/currencyService';
+import { validateNumberInput } from '../../../utils/inputValidation';
+import { Tooltip } from '../../../../../components/common/Tooltip';
 
 interface OrderFormInputsProps {
   orderType: OrderTypeEnum;
@@ -41,6 +43,7 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
   size,
   price,
   triggerPrice,
+  currentPrice,
   onSizeChange,
   onPriceChange,
   onTriggerPriceChange,
@@ -83,101 +86,139 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
     return null;
   };
 
-  const getInputClasses = (hasError?: string, hasWarning?: string) => {
-    let borderClass = 'border-color';
-    if (hasError) borderClass = 'border-red-500/50';
-    else if (hasWarning) borderClass = 'border-amber-500/50';
 
-    return `w-full bg-primary border ${borderClass} rounded-xl px-4 py-3 text-sm text-primary placeholder-muted focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 transition-all shadow-sm`;
-  };
+  const parsedSize = parseFloat(size || '0');
+  const parsedPrice = parseFloat(currentPrice || '1');
+  const cryptoEquivalent =
+    currencyMode === 'USD'
+      ? parsedPrice > 0 ? (parsedSize / parsedPrice).toFixed(4) : '0.0000'
+      : (parsedSize * parsedPrice).toFixed(2);
+
+  const otherCurrencyMode = currencyMode === 'USD' ? baseAsset : 'USD';
 
   return (
-    <div className="space-y-4 px-1 lg:px-4">
-      {/* LIMIT PRICE INPUT */}
+    <div className="space-y-2.5 px-1 lg:px-3 mt-2">
       {showPrice && (
         <div className="animate-fade-in">
-          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">
-            Limit Price (USD)
-          </label>
-          <input
-            type="text"
-            value={price}
-            onChange={e => onPriceChange(e.target.value)}
-            placeholder="0.00"
-            className={getInputClasses(priceError, priceWarning)}
-            aria-label="Limit Price"
-            aria-invalid={!!priceError}
-            aria-describedby={priceError ? 'price-error' : undefined}
-          />
+          <div className="bg-primary border border-color rounded-xl px-3 py-1.5 md:px-4 md:py-1.5 shadow-sm focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary/20 transition-all">
+            <div className="flex justify-between items-center">
+              <Tooltip content="The precise price at which your order will execute" position="left">
+                <span className="text-[11px] font-semibold text-muted">Limit Price</span>
+              </Tooltip>
+              <span className="text-[10px] font-semibold bg-tertiary px-1.5 py-0.5 rounded text-secondary uppercase">
+                USD
+              </span>
+            </div>
+            <div className="flex items-center">
+              <span className="text-md font-semibold text-primary mr-1">$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={price}
+                onChange={e => onPriceChange(validateNumberInput(e.target.value))}
+                placeholder="0.00"
+                className="w-full bg-transparent text-md font-semibold text-primary outline-none placeholder-muted/50"
+                aria-label="Limit Price"
+                aria-invalid={!!priceError}
+                aria-describedby={priceError ? 'price-error' : undefined}
+              />
+            </div>
+          </div>
           <div id="price-error">{renderFeedback(priceError, priceWarning)}</div>
         </div>
       )}
 
-      {/* TRIGGER PRICE INPUT */}
       {showTriggerPrice && (
         <div className="animate-fade-in">
-          <label className="block text-xs font-semibold text-muted uppercase tracking-wider mb-2 ml-1">
-            Trigger Price (USD)
-          </label>
-          <input
-            type="text"
-            value={triggerPrice}
-            onChange={e => onTriggerPriceChange(e.target.value)}
-            placeholder="0.00"
-            className={getInputClasses(triggerError, triggerWarning)}
-            aria-label="Trigger Price"
-            aria-invalid={!!triggerError}
-            aria-describedby={triggerError ? 'trigger-error' : undefined}
-          />
+          <div className="bg-primary border border-color rounded-xl px-3 py-1.5 md:px-4 md:py-1.5 shadow-sm focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary/20 transition-all">
+            <div className="flex justify-between items-center">
+              <Tooltip content="The price that will trigger your order to become active" position="left">
+                <span className="text-[11px] font-semibold text-muted">Trigger Price</span>
+              </Tooltip>
+              <span className="text-[10px] font-semibold bg-tertiary px-1.5 py-0.5 rounded text-secondary uppercase">
+                USD
+              </span>
+            </div>
+            <div className="flex items-center">
+              <span className="text-md font-semibold text-primary mr-1">$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={triggerPrice}
+                onChange={e => onTriggerPriceChange(validateNumberInput(e.target.value))}
+                placeholder="0.00"
+                className="w-full bg-transparent text-md font-semibold text-primary outline-none placeholder-muted/50"
+                aria-label="Trigger Price"
+                aria-invalid={!!triggerError}
+                aria-describedby={triggerError ? 'trigger-error' : undefined}
+              />
+            </div>
+          </div>
           <div id="trigger-error">{renderFeedback(triggerError, triggerWarning)}</div>
         </div>
       )}
 
-      {/* SIZE INPUT */}
-      <div className="animate-fade-in">
-        <div className="flex items-center justify-between mb-2 ml-1">
-          <label className="text-xs font-semibold text-muted uppercase tracking-wider">
-            Amount
-          </label>
-          <button
-            type="button"
-            onClick={handleToggleCurrency}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-tertiary hover:bg-hover border border-color rounded-lg text-secondary transition-all font-medium shadow-sm"
-            title={`Switch to ${currencyMode === 'USD' ? baseAsset : 'USD'} input mode`}
-          >
-            <ArrowLeftRight size={12} className="text-brand-primary" />
-            {currencyMode === 'USD' ? 'USD' : baseAsset}
-          </button>
+      <div className="animate-fade-in space-y-2.5">
+        <div className="bg-primary border border-color rounded-xl px-3 py-1.5 md:px-4 md:py-1.5 shadow-sm focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary/20 transition-all">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Tooltip content="The total size of your position" position="left">
+                <span className="text-[11px] font-semibold text-muted">Amount</span>
+              </Tooltip>
+              <span className="text-[10px] font-semibold bg-tertiary px-1.5 py-0.5 rounded text-secondary uppercase">
+                {currencyMode === 'USD' ? 'USD' : baseAsset}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center mt-[-2px]">
+            <div className="flex items-center flex-1">
+              {currencyMode === 'USD' && <span className="text-md font-semibold text-primary mr-1">$</span>}
+              <input
+                type="text"
+                inputMode="decimal"
+                value={size}
+                onChange={e => onSizeChange(validateNumberInput(e.target.value))}
+                placeholder="0.00"
+                className="w-full bg-transparent text-md font-semibold text-primary outline-none placeholder-muted/50"
+                aria-label="Order Size"
+                aria-invalid={!!sizeError}
+                aria-describedby={sizeError ? 'size-error' : undefined}
+              />
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 border-l border-color pl-3">
+              <span className="text-xs font-medium text-muted">
+                ≈ {cryptoEquivalent} <span className="text-[10px] font-semibold bg-tertiary px-1 py-0.5 rounded text-secondary uppercase ml-0.5">{otherCurrencyMode}</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleToggleCurrency}
+                className="p-1 bg-tertiary hover:bg-hover rounded-md text-secondary transition-colors"
+                title={`Switch to ${otherCurrencyMode}`}
+              >
+                <ArrowLeftRight size={12} />
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="relative group">
-          <input
-            type="text"
-            value={size}
-            onChange={e => onSizeChange(e.target.value)}
-            placeholder={currencyMode === 'USD' ? '0.00' : '0.00000000'}
-            className={getInputClasses(sizeError, sizeWarning)}
-            aria-label="Order Size"
-            aria-invalid={!!sizeError}
-            aria-describedby={sizeError ? 'size-error' : undefined}
-          />
-          {maxBuyingPower && maxBuyingPower > 0 && (
-            <div
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted cursor-pointer hover:text-brand-primary hover:bg-tertiary transition-all bg-tertiary/80 border border-color px-2 py-1 rounded-md z-10 font-bold"
+
+        <div id="size-error" className="ml-1">{renderFeedback(sizeError, sizeWarning)}</div>
+
+        {maxBuyingPower && maxBuyingPower > 0 && (
+          <div className="flex justify-between items-center px-1 mt-1">
+            <span className="text-xs text-muted">
+              Avail: ${maxBuyingPower.toFixed(2)} @ {leverage}x
+            </span>
+            <button
+              type="button"
               onClick={onSetMax}
-              title="Click to fill max size"
+              className="text-xs font-semibold text-brand-primary hover:text-brand-primary-hover transition-colors"
             >
               MAX
-            </div>
-          )}
-        </div>
-        {maxBuyingPower && maxBuyingPower > 0 && (
-          <div className="mt-1.5 ml-1 flex justify-between items-center text-[10px]">
-            <span className="text-muted italic">
-              Max: ${maxBuyingPower.toFixed(2)} @ {leverage}x
-            </span>
+            </button>
           </div>
         )}
-        <div id="size-error">{renderFeedback(sizeError, sizeWarning)}</div>
       </div>
     </div>
   );

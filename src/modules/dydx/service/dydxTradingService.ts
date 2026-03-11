@@ -1,5 +1,4 @@
 import {
-  BECH32_PREFIX,
   LocalWallet,
   OrderExecution,
   OrderSide,
@@ -44,7 +43,6 @@ class DydxTradingService {
 
       const subaccountNumber =
         params.subaccountNumber ?? dydxWalletService.getActiveSubaccountNumber();
-      console.log('[dydxTradingService] Placing order with subaccount number:', subaccountNumber);
       const subaccount = SubaccountInfo.forLocalWallet(localWallet, subaccountNumber);
 
       const clientId = params.clientId ?? this.generateClientId();
@@ -68,18 +66,6 @@ class DydxTradingService {
         const targetEquity = isLongTermOrder ? Math.max(requiredMargin, 20.1) : requiredMargin;
         const targetEquityWithBuffer = targetEquity * 1.05;
 
-        console.log('[dydxTradingService] Auto-deposit calculation:', {
-          size,
-          oraclePrice,
-          leverage: params.leverage,
-          notionalValue,
-          requiredMargin,
-          targetEquity,
-          targetEquityWithBuffer,
-          isLongTermOrder,
-          subaccountNumber,
-        });
-
         const equityResult = await dydxSubaccountService.ensureIsolatedEquity(
           subaccountNumber,
           targetEquityWithBuffer
@@ -89,8 +75,6 @@ class DydxTradingService {
         }
 
         if (equityResult.transferredAmount > 0) {
-          console.log('[dydxTradingService] Transfer made, verifying equity before order...');
-
           await new Promise(resolve => setTimeout(resolve, 2000));
 
           const indexer = dydxWalletService.getIndexerClient();
@@ -102,18 +86,13 @@ class DydxTradingService {
                 subaccount.subaccountNumber
               );
               const currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
-              console.log(`[dydxTradingService] Equity verification attempt ${attempt + 1}:`, {
-                currentEquity,
-                requiredMargin: targetEquityWithBuffer,
-                verified: currentEquity >= targetEquityWithBuffer * 0.95,
-              });
 
               if (currentEquity >= targetEquityWithBuffer * 0.95) {
                 verified = true;
                 break;
               }
-            } catch (err) {
-              console.log(`[dydxTradingService] Equity check attempt ${attempt + 1} failed:`, err);
+            } catch {
+
             }
 
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -197,7 +176,7 @@ class DydxTradingService {
       clientId,
       goodTilBlock,
       OrderTimeInForce.IOC,
-      false
+      params.reduceOnly || false
     );
   }
 
@@ -214,14 +193,24 @@ class DydxTradingService {
       throw new Error('Trigger price is required for conditional orders');
     }
 
-    // Use duration in seconds
-    // dYdX expects goodTilTimeInSeconds as a duration
     const durationSeconds =
       params.goodTilTimeInSeconds || TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS;
 
     const safeDuration = Math.min(durationSeconds, TRADING_CONFIG.MAX_STATEFUL_EXPIRY_SECONDS);
 
     const side = this.normalizeToOrderSide(params.side);
+
+    const isMarketConditional = params.type.toUpperCase() === 'STOP_MARKET' || params.type.toUpperCase() === 'TAKE_PROFIT_MARKET';
+    const execution = isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT;
+
+    let timeInForce = OrderTimeInForce.GTT;
+    if (params.timeInForce === 'IOC') {
+      timeInForce = OrderTimeInForce.IOC;
+    }
+
+    if (params.reduceOnly || isMarketConditional) {
+      timeInForce = OrderTimeInForce.IOC;
+    }
 
     return await client.placeOrder(
       subaccount,
@@ -231,11 +220,11 @@ class DydxTradingService {
       price,
       size,
       clientId,
-      OrderTimeInForce.GTT,
+      timeInForce,
       safeDuration,
-      OrderExecution.DEFAULT,
+      execution,
       params.postOnly || false,
-      false,
+      params.reduceOnly || false,
       triggerPrice
     );
   }
@@ -255,11 +244,13 @@ class DydxTradingService {
     let timeInForce = OrderTimeInForce.GTT;
     if (params.timeInForce === 'IOC') {
       timeInForce = OrderTimeInForce.IOC;
-    } else if (params.timeInForce === 'FOK') {
-      timeInForce = OrderTimeInForce.FOK;
     }
 
     const side = this.normalizeToOrderSide(params.side);
+
+    if (params.reduceOnly) {
+      timeInForce = OrderTimeInForce.IOC;
+    }
 
     return await client.placeOrder(
       subaccount,
@@ -273,7 +264,7 @@ class DydxTradingService {
       safeDuration,
       OrderExecution.DEFAULT,
       params.postOnly || false,
-      false,
+      params.reduceOnly || false,
       undefined
     );
   }
@@ -283,14 +274,6 @@ class DydxTradingService {
       const positionSide = position.side.toUpperCase().trim();
       const closingSide: OrderSideEnum = positionSide === 'LONG' ? 'SELL' : 'BUY';
       const size = Math.abs(parseFloat(position.size));
-
-      console.log('Closing position:', {
-        market: position.market,
-        positionSide,
-        closingSide,
-        size,
-        subaccountNumber: position.subaccountNumber,
-      });
 
       const result = await this.placeOrder(
         {
@@ -305,7 +288,6 @@ class DydxTradingService {
         marketInfo
       );
 
-      console.log(result, 'Close position result');
       return result;
     } catch (error: any) {
       console.error('Close position error:', error);
@@ -405,16 +387,6 @@ class DydxTradingService {
         goodTilTimeInSeconds = goodTilBlockTime - nowInSeconds;
       }
 
-      console.log('[cancelOrder] Order details:', {
-        clientId,
-        orderFlags,
-        isShortTermOrder,
-        goodTilBlock: goodTilTimeInSeconds,
-        rawGoodTilBlockTime: order.goodTilBlockTime,
-        rawType: typeof order.goodTilBlockTime,
-        marketId,
-      });
-
       const result = await client.cancelOrder(
         subaccount as any,
         clientId,
@@ -441,9 +413,9 @@ class DydxTradingService {
 
   private validateReduceOnlyConstraints(params: PlaceOrderParams, _orderCategory: any) {
     if (!params.reduceOnly) return;
-    throw new Error(
-      'Reduce-only is currently disabled on dYdX. Use regular market orders to close positions instead.'
-    );
+    if (params.postOnly) {
+      throw new Error('Reduce-Only and Post-Only cannot be combined');
+    }
   }
 
   private categorizeOrder(type: string) {
@@ -534,19 +506,18 @@ class DydxTradingService {
     return 'unknown';
   }
 
-  private async getSigningWallet(): Promise<LocalWallet> {
+  private getSigningWallet(): LocalWallet {
     const evmSession = walletService.getSession('evm');
     if (!evmSession?.evmAddress) {
       throw new Error('EVM wallet not connected');
     }
 
-    const mnemonic = await walletService.getMnemonic();
-
-    if (!mnemonic) {
-      throw new Error('Mnemonic not found - please derive dYdX wallet first');
+    const wallet = walletService.getSigningWallet();
+    if (!wallet) {
+      throw new Error('Signing wallet not available - please derive dYdX wallet first');
     }
 
-    return await LocalWallet.fromMnemonic(mnemonic, BECH32_PREFIX);
+    return wallet;
   }
 
   private getUserFriendlyError(error: any): string {

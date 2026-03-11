@@ -410,7 +410,6 @@ export default function MarketsDisplay() {
 
   return (
     <div className="min-h-screen bg-primary text-primary">
-      {/* Search Bar */}
       <div className="bg-secondary sticky top-0 z-30 border-b border-color">
         <div className="max-w-[1920px] mx-auto px-4 py-4">
           <div className="relative">
@@ -437,15 +436,15 @@ export default function MarketsDisplay() {
         </div>
       </div>
 
-      <div className="max-w-[1920px] mx-auto px-4 py-4">
+      <div className="max-w-[1920px] mx-auto  ">
         {error && (
-          <div className="mb-4 p-3 rounded-lg text-sm" style={{ backgroundColor: 'var(--color-danger-bg)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}>
+          <div className="mb-4 p-3  text-sm" style={{ backgroundColor: 'var(--color-danger-bg)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}>
             {error}
           </div>
         )}
 
         {filteredAndSortedMarkets.length > 0 ? (
-          <div className="card">
+          <div className="card rounded-none">
             {isMobile ? (
               <div className="divide-y divide-color">
                 {paginatedMarkets.map(market => (

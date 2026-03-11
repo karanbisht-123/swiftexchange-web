@@ -9,6 +9,7 @@ export interface SwapConfig {
   isTestnet: boolean;
   nativeSymbol: string;
   rpcUrl: string;
+  fallbackRpcUrls?: string[];
 }
 
 export const SWAP_CONFIGS: Record<any, SwapConfig> = {
@@ -21,6 +22,7 @@ export const SWAP_CONFIGS: Record<any, SwapConfig> = {
     isTestnet: false,
     nativeSymbol: 'ETH',
     rpcUrl: 'https://eth.llamarpc.com',
+    fallbackRpcUrls: ['https://cloudflare-eth.com', 'https://eth-mainnet.public.blastapi.io'],
   },
   bsc: {
     wNative: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // WBNB
@@ -31,6 +33,7 @@ export const SWAP_CONFIGS: Record<any, SwapConfig> = {
     isTestnet: false,
     nativeSymbol: 'BNB',
     rpcUrl: 'https://bsc-dataseed.binance.org',
+    fallbackRpcUrls: ['https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'],
   },
   polygon: {
     wNative: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // WMATIC
@@ -41,9 +44,9 @@ export const SWAP_CONFIGS: Record<any, SwapConfig> = {
     isTestnet: false,
     nativeSymbol: 'MATIC',
     rpcUrl: 'https://polygon-rpc.com',
+    fallbackRpcUrls: ['https://polygon-bor.publicnode.com'],
   },
 
-  // Testnet Configurations
   sepolia: {
     wNative: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14', // WETH
     swapRouter: '0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E', // Uniswap V3 SwapRouter02
@@ -53,6 +56,7 @@ export const SWAP_CONFIGS: Record<any, SwapConfig> = {
     isTestnet: true,
     nativeSymbol: 'ETH',
     rpcUrl: 'https://rpc.sepolia.org',
+    fallbackRpcUrls: ['https://rpc2.sepolia.org', 'https://sepolia.drpc.org'],
   },
   bscTestnet: {
     wNative: '0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd', // WBNB
@@ -63,6 +67,7 @@ export const SWAP_CONFIGS: Record<any, SwapConfig> = {
     isTestnet: true,
     nativeSymbol: 'BNB',
     rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
+    fallbackRpcUrls: ['https://data-seed-prebsc-2-s1.binance.org:8545', 'https://data-seed-prebsc-1-s2.binance.org:8545'],
   },
   amoy: {
     wNative: '0x9c3C9283D3e44854697Cd22D3Faa240Cfb032889', // WMATIC
@@ -73,6 +78,7 @@ export const SWAP_CONFIGS: Record<any, SwapConfig> = {
     isTestnet: true,
     nativeSymbol: 'MATIC',
     rpcUrl: 'https://rpc-amoy.polygon.technology',
+    fallbackRpcUrls: ['https://polygon-amoy.drpc.org'],
   },
 };
 

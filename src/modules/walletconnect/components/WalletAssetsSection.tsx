@@ -1,9 +1,10 @@
-import { ArrowRightLeft, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { AlertCircle, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../../constants/routes';
 import TradeAssetModal from '../../evm/feature/one-tap-pay/TradeAssetModal';
+import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { type Asset, useWalletAssets } from '../hooks/useWalletAssets';
 
 import { useWalletStore } from '../store/walletConnectStore';
@@ -56,10 +57,11 @@ const calculatePortfolioChange = (assets: Asset[]): number => {
   return weightedChange / totalValue;
 };
 
-const AssetRow = memo(({ asset, onTrade }: { asset: Asset; onTrade: (asset: Asset) => void }) => {
+const AssetRow = memo(({ asset, onTrade, onPerp }: { asset: Asset; onTrade: (asset: Asset) => void; onPerp: (asset: Asset) => void }) => {
   const isPriceLoading = asset.current_price === 0;
   const usdValue = (asset.balance || 0) * (asset.current_price || 0);
   const canTrade = canTradeAsset(asset);
+  const canPrep = asset.chainType !== 'stellar';
 
   return (
     <div className="lg:px-4 px-0 py-4 hover:bg-hover transition-colors">
@@ -123,14 +125,25 @@ const AssetRow = memo(({ asset, onTrade }: { asset: Asset; onTrade: (asset: Asse
             </div>
           </div>
 
-          {canTrade && (
-            <button
-              onClick={() => onTrade(asset)}
-              className="btn btn-primary btn-sm gap-1.5"
-            >
-              <ArrowRightLeft size={14} />
-              Trade
-            </button>
+          {(canTrade || canPrep) && (
+            <div className="flex items-center gap-2">
+              {canTrade && (
+                <button
+                  onClick={() => onTrade(asset)}
+                  className="btn btn-primary btn-sm rounded-md"
+                >
+                  Spot
+                </button>
+              )}
+              {canPrep && (
+                <button
+                  onClick={() => onPerp(asset)}
+                  className="btn btn-primary btn-sm rounded-md"
+                >
+                  Prep
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -143,12 +156,14 @@ AssetRow.displayName = 'AssetRow';
 const WalletAssetsSection = () => {
   const navigate = useNavigate();
   const { network } = useWalletStore();
-  const { assets, loading, totalValue, refetch } = useWalletAssets(network);
+  const { assets, loading, totalValue, hasError, errorMessage, refetch } = useWalletAssets(network);
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
 
   const hasLoadingPrices = assets.some(a => a.current_price === 0);
+
 
   const portfolioChange = useMemo(() => calculatePortfolioChange(assets), [assets]);
   const isPositive = portfolioChange >= 0;
@@ -168,8 +183,18 @@ const WalletAssetsSection = () => {
     setIsTradeModalOpen(true);
   };
 
+  const handlePerp = (asset: Asset) => {
+    setSelectedAsset(asset);
+    setIsDepositModalOpen(true);
+  };
+
   const handleCloseModal = () => {
     setIsTradeModalOpen(false);
+    setSelectedAsset(null);
+  };
+
+  const handleCloseDepositModal = () => {
+    setIsDepositModalOpen(false);
     setSelectedAsset(null);
   };
 
@@ -222,7 +247,23 @@ const WalletAssetsSection = () => {
         </div>
 
         <div className="">
-          {assets.length === 0 && !loading ? (
+          {hasError ? (
+            <div className="px-6 py-8 text-center flex flex-col items-center justify-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mb-4 opacity-80" />
+              <h4 className="font-semibold text-primary mb-2">Connection Error</h4>
+              <p className="text-sm text-secondary mb-6 max-w-sm">
+                {errorMessage || 'Unable to fetch your portfolio. Please check your connection or try again later.'}
+              </p>
+              <button
+                onClick={refetch}
+                disabled={loading}
+                className="btn-primary px-6 py-2 flex items-center gap-2 rounded-md"
+              >
+                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                {loading ? 'Retrying...' : 'Retry Connection'}
+              </button>
+            </div>
+          ) : assets.length === 0 && !loading ? (
             <div className="px-6 py-12 text-center">
               <Wallet size={48} className="mx-auto mb-4 text-muted opacity-40" />
               <p className="text-sm text-muted">No assets found in connected wallets</p>
@@ -245,7 +286,7 @@ const WalletAssetsSection = () => {
             </div>
           ) : (
             assets.map(asset => (
-              <AssetRow key={asset.id} asset={asset} onTrade={handleTrade} />
+              <AssetRow key={asset.id} asset={asset} onTrade={handleTrade} onPerp={handlePerp} />
             ))
           )}
         </div>
@@ -260,6 +301,14 @@ const WalletAssetsSection = () => {
             ...selectedAsset,
             balance: selectedAsset.balance ?? 0,
           }}
+        />
+      )}
+
+      {selectedAsset && isDepositModalOpen && (
+        <DydxDepositModal
+          isOpen={isDepositModalOpen}
+          onClose={handleCloseDepositModal}
+          initialAsset={selectedAsset}
         />
       )}
     </>

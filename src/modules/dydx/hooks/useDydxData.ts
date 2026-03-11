@@ -55,6 +55,7 @@ export const useDydxData = (): UseDydxDataReturn => {
   const hasInitializedRef = useRef(false);
   const isFirstMountRef = useRef(true);
   const isFetchingRef = useRef(false);
+  const prevWsConnectedRef = useRef(false);
 
   const subscribeToParentSubaccount = useWebSocketStore(state => state.subscribeToParentSubaccount);
   const unsubscribeFromParentSubaccount = useWebSocketStore(
@@ -87,13 +88,6 @@ export const useDydxData = (): UseDydxDataReturn => {
 
     const filtered = raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
 
-    console.log('[useDydxData]  Positions computed:', {
-      childSubaccountsCount: parentData?.childSubaccounts?.length ?? 0,
-      rawPositions: raw.length,
-      filteredPositions: filtered.length,
-      parentKey,
-    });
-
     return filtered;
   }, [parentData?.childSubaccounts, updateTrigger, parentKey]);
 
@@ -107,8 +101,8 @@ export const useDydxData = (): UseDydxDataReturn => {
   const orders = useMemo(() => {
     const allOrders = parentData?.orders || [];
     return [...allOrders].sort((a, b) => {
-      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : Number(a.createdAtHeight || 0);
-      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : Number(b.createdAtHeight || 0);
+      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return timeB - timeA;
     });
   }, [parentData?.orders, updateTrigger]);
@@ -145,70 +139,7 @@ export const useDydxData = (): UseDydxDataReturn => {
       isMountedRef.current = false;
     };
   }, []);
-  const fetchHistoricalData = useCallback(async (): Promise<void> => {
-    if (isFetchingRef.current || hasInitializedRef.current) {
-      console.log('[useDydxData] Skipping fetch - already initialized or in progress');
-      return;
-    }
 
-    if (!dydxDataService.isReady() || !parentKey) {
-      console.log('[useDydxData] Skipping fetch - not ready');
-      return;
-    }
-
-    isFetchingRef.current = true;
-    hasInitializedRef.current = true;
-
-    console.log('[useDydxData] Starting historical data fetch...');
-
-    setLoadingOrders(true);
-    setLoadingFills(true);
-
-    try {
-      const [orderData, fillData] = await Promise.all([
-        dydxDataService.getOrders(undefined, 100, true, false),
-        dydxDataService.getFills(undefined, 100, undefined, false),
-      ]);
-
-      console.log('[useDydxData] Historical data fetched:', {
-        orders: orderData.length,
-        fills: fillData.length,
-      });
-
-      if (isMountedRef.current && parentKey) {
-
-        const currentData = useWebSocketStore.getState().parentSubaccounts.get(parentKey);
-
-        const existingOrderIds = new Set((currentData?.orders || []).map(o => o.id));
-        const newOrders = orderData.filter(o => !existingOrderIds.has(o.id));
-        const mergedOrders = [...(currentData?.orders || []), ...newOrders];
-
-        const existingFillIds = new Set((currentData?.fills || []).map(f => f.id));
-        const newFills = fillData.filter(f => !existingFillIds.has(f.id));
-        const mergedFills = [...(currentData?.fills || []), ...newFills];
-
-        useWebSocketStore.getState().updateParentSubaccount(parentKey, {
-          orders: mergedOrders,
-          fills: mergedFills,
-          lastUpdate: Date.now(),
-        });
-
-        console.log('[useDydxData] Historical data merged into store');
-      }
-    } catch (err: any) {
-      console.error('[useDydxData] Historical data fetch failed:', err);
-      if (isMountedRef.current) {
-        setOrdersError(err.message || 'Failed to fetch historical orders');
-        setFillsError(err.message || 'Failed to fetch historical fills');
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setLoadingOrders(false);
-        setLoadingFills(false);
-      }
-      isFetchingRef.current = false;
-    }
-  }, [parentKey]);
 
   const refreshOrders = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
@@ -217,8 +148,7 @@ export const useDydxData = (): UseDydxDataReturn => {
     setOrdersError(null);
 
     try {
-      const data = await dydxDataService.refreshOrders(undefined, 100);
-      console.log('[useDydxData] Orders manually refreshed:', data.length);
+      const data = await dydxDataService.refreshOrders(undefined, undefined);
 
       if (isMountedRef.current && parentKey) {
         useWebSocketStore.getState().updateParentSubaccount(parentKey, {
@@ -243,8 +173,7 @@ export const useDydxData = (): UseDydxDataReturn => {
     setFillsError(null);
 
     try {
-      const data = await dydxDataService.refreshFills(undefined, 100);
-      console.log('[useDydxData] Fills manually refreshed:', data.length);
+      const data = await dydxDataService.refreshFills(undefined, undefined);
 
       if (isMountedRef.current && parentKey) {
         useWebSocketStore.getState().updateParentSubaccount(parentKey, {
@@ -263,34 +192,105 @@ export const useDydxData = (): UseDydxDataReturn => {
   }, [parentKey]);
 
   const refreshPositions = useCallback(async (): Promise<void> => {
-    console.log('[useDydxData] Positions are real-time from WebSocket');
-  }, []);
+    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+    try {
+      const positionsData = await dydxDataService.refreshPositions('OPEN');
+      if (isMountedRef.current && parentKey) {
+        useWebSocketStore.setState(state => {
+          const existing = state.parentSubaccounts.get(parentKey);
+          if (!existing) return state;
+
+          const newChildMap = new Map();
+          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c, openPerpetualPositions: {} }));
+
+          positionsData.forEach(pos => {
+            const subNum = pos.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
+            if (!newChildMap.has(subNum)) {
+              newChildMap.set(subNum, {
+                subaccountNumber: subNum,
+                address: existing.address,
+                equity: '0',
+                freeCollateral: '0',
+                openPerpetualPositions: {},
+                assetPositions: {},
+                marginEnabled: true,
+                updatedAtHeight: '0',
+                latestProcessedBlockHeight: '0'
+              });
+            }
+            newChildMap.get(subNum).openPerpetualPositions[pos.market] = pos;
+          });
+
+          const childSubaccounts = Array.from(newChildMap.values());
+          const newMap = new Map(state.parentSubaccounts);
+          newMap.set(parentKey, { ...existing, childSubaccounts, lastUpdate: Date.now() });
+          return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
+        });
+      }
+    } catch (err) {
+      console.error('[useDydxData] Positions refresh failed:', err);
+    }
+  }, [parentKey]);
 
   const refreshAssetPositions = useCallback(async (): Promise<void> => {
-    console.log('[useDydxData] Asset positions are real-time from WebSocket');
-  }, []);
+    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+    try {
+      const assetData = await dydxDataService.getAssetPositions('OPEN', undefined, false);
+      if (isMountedRef.current && parentKey) {
+        useWebSocketStore.setState(state => {
+          const existing = state.parentSubaccounts.get(parentKey);
+          if (!existing) return state;
+
+          const newChildMap = new Map();
+          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c, assetPositions: {} }));
+
+          assetData.forEach((asset: any) => {
+            const subNum = asset.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
+            if (!newChildMap.has(subNum)) {
+              newChildMap.set(subNum, {
+                subaccountNumber: subNum,
+                address: existing.address,
+                equity: '0',
+                freeCollateral: '0',
+                openPerpetualPositions: {},
+                assetPositions: {},
+                marginEnabled: true,
+                updatedAtHeight: '0',
+                latestProcessedBlockHeight: '0'
+              });
+            }
+            newChildMap.get(subNum).assetPositions[asset.symbol] = asset;
+          });
+
+          const childSubaccounts = Array.from(newChildMap.values());
+          const newMap = new Map(state.parentSubaccounts);
+          newMap.set(parentKey, { ...existing, childSubaccounts, lastUpdate: Date.now() });
+          return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
+        });
+      }
+    } catch (err) {
+      console.error('[useDydxData] Asset positions refresh failed:', err);
+    }
+  }, [parentKey]);
 
   useEffect(() => {
-    if (!dydxAddress || !isConnected) {
-      return;
-    }
+    if (!dydxAddress || !isConnected) return;
+
+    const wsJustReconnected = !prevWsConnectedRef.current && isConnected;
+    prevWsConnectedRef.current = isConnected;
 
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
       subscribeToParentSubaccount(dydxAddress, subaccountNumber);
-      console.log('[useDydxData] WebSocket subscribed');
-
-      setTimeout(() => {
-        if (!hasInitializedRef.current) {
-          fetchHistoricalData();
-        }
-      }, 1000);
+      hasInitializedRef.current = true;
+    } else if (wsJustReconnected) {
+      hasInitializedRef.current = true;
     }
 
     return () => {
       unsubscribeFromParentSubaccount(dydxAddress, subaccountNumber);
       isFirstMountRef.current = true;
-      console.log('[useDydxData] WebSocket unsubscribed');
+      prevWsConnectedRef.current = false;
     };
   }, [
     dydxAddress,
@@ -298,7 +298,6 @@ export const useDydxData = (): UseDydxDataReturn => {
     isConnected,
     subscribeToParentSubaccount,
     unsubscribeFromParentSubaccount,
-    fetchHistoricalData,
   ]);
 
   useEffect(() => {
@@ -306,10 +305,8 @@ export const useDydxData = (): UseDydxDataReturn => {
       if (!isMountedRef.current) return;
 
       if (status === 'connected') {
-        console.log('[useDydxData] Wallet connected');
         setIsConnected(true);
       } else if (status === 'disconnected') {
-        console.log('[useDydxData] Wallet disconnected');
         setIsConnected(false);
         hasInitializedRef.current = false;
         isFetchingRef.current = false;

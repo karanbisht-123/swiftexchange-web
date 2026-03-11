@@ -17,6 +17,7 @@ export interface Position {
   sumOpen: string;
   sumClose: string;
   netFunding: string;
+  leverage?: string;
   subaccountNumber?: any;
 }
 
@@ -49,6 +50,7 @@ export interface Order {
   createdAtHeight: string;
   updatedAt?: string;
   updatedAtHeight?: string;
+  clientMetadata?: string;
 }
 
 export interface Fill {
@@ -65,6 +67,9 @@ export interface Fill {
   createdAtHeight: string;
   orderId?: string;
   clientMetadata?: string;
+  positionSizeBefore?: string;
+  entryPriceBefore?: string;
+  positionSideBefore?: string;
 }
 
 export interface HistoricalPnl {
@@ -78,6 +83,51 @@ export interface HistoricalPnl {
   blockTime: string;
 }
 
+export interface FundingPayment {
+  subaccountNumber: string;
+  createdAt: string;
+  createdAtHeight: string;
+  perpetualId: string;
+  ticker: string;
+  oraclePrice: string;
+  size: string;
+  side: string;
+  rate: string;
+  payment: string;
+  fundingIndex: string;
+}
+
+export interface FundingPaymentsResponse {
+  fundingPayments: FundingPayment[];
+  pageSize: number;
+  totalResults: number;
+  offset: number;
+}
+
+export interface Transfer {
+  id: string;
+  sender: {
+    address: string;
+    parentSubaccountNumber?: number;
+  };
+  recipient: {
+    address: string;
+    parentSubaccountNumber?: number;
+  };
+  size: string;
+  symbol: string;
+  type: 'DEPOSIT' | 'WITHDRAWAL';
+  createdAt: string;
+  createdAtHeight: string;
+  transactionHash: string;
+}
+
+export interface TransfersResponse {
+  transfers: Transfer[];
+  limit: number;
+  latestCreatedAt: string;
+}
+
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
@@ -85,8 +135,7 @@ interface CacheEntry<T> {
 
 class DydxDataService {
   private cache = new Map<string, CacheEntry<any>>();
-  private readonly CACHE_TTL = 8000;
-
+  private readonly CACHE_TTL = 5000;
   private stats = {
     restCalls: 0,
     cacheHits: 0,
@@ -120,26 +169,26 @@ class DydxDataService {
     this.cache.set(key, { data, timestamp: Date.now() });
   }
 
-  private invalidateCache(keys: string | string[]): void {
-    if (typeof keys === 'string') {
-      keys = [keys];
-    }
-    keys.forEach(pattern => {
-      for (const key of this.cache.keys()) {
-        if (key.includes(pattern)) {
-          this.cache.delete(key);
-        }
+  invalidateCache(keys: string | string[]): void {
+    const patterns = Array.isArray(keys) ? keys : [keys];
+    const keysToDelete: string[] = [];
+
+    this.cache.forEach((_, key) => {
+      if (patterns.some(pattern => key.startsWith(pattern))) {
+        keysToDelete.push(key);
       }
     });
+
+    keysToDelete.forEach(key => this.cache.delete(key));
   }
 
   async getPositions(
     status: 'OPEN' | 'CLOSED' = 'OPEN',
-    limit = 100,
+    limit?: number,
     useCache = true
   ): Promise<Position[]> {
     const statusEnum = status === 'OPEN' ? PositionStatus.OPEN : PositionStatus.CLOSED;
-    const cacheKey = `positions_${status}_${limit}`;
+    const cacheKey = `positions_${status}_${limit || 'default'}`;
 
     if (useCache) {
       const cached = this.getCached<Position[]>(cacheKey);
@@ -147,7 +196,6 @@ class DydxDataService {
     }
 
     this.stats.restCalls++;
-    console.log('[DydxDataService] REST API call for positions (fallback/manual refresh)');
 
     const { indexer, address, subaccountNumber } = this.getContext();
 
@@ -170,11 +218,11 @@ class DydxDataService {
 
   async getAssetPositions(
     status: 'OPEN' | 'CLOSED' = 'OPEN',
-    limit = 50,
+    limit?: number,
     useCache = true
   ): Promise<AssetPosition[]> {
     const statusEnum = status === 'OPEN' ? PositionStatus.OPEN : PositionStatus.CLOSED;
-    const cacheKey = `asset_positions_${status}_${limit}`;
+    const cacheKey = `asset_positions_${status}_${limit || 'default'}`;
 
     if (useCache) {
       const cached = this.getCached<AssetPosition[]>(cacheKey);
@@ -204,12 +252,11 @@ class DydxDataService {
 
   async getOrders(
     ticker?: string,
-    limit = 50,
+    limit?: number,
     returnLatestOrders = true,
-    useCache = true,
-    createdBeforeOrAtHeight?: string
+    useCache = true
   ): Promise<Order[]> {
-    const cacheKey = `orders_${ticker || 'all'}_${limit}_${returnLatestOrders}_${createdBeforeOrAtHeight || 'latest'}`;
+    const cacheKey = `orders_${ticker || 'all'}_${limit || 'default'}_${returnLatestOrders}`;
 
     if (useCache) {
       const cached = this.getCached<Order[]>(cacheKey);
@@ -236,12 +283,8 @@ class DydxDataService {
       const orders = (response || []) as Order[];
 
       const sorted = orders.sort((a, b) => {
-        const timeA = a.updatedAt
-          ? new Date(a.updatedAt).getTime()
-          : Number(a.createdAtHeight || 0);
-        const timeB = b.updatedAt
-          ? new Date(b.updatedAt).getTime()
-          : Number(b.createdAtHeight || 0);
+        const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         return timeB - timeA;
       });
 
@@ -255,11 +298,10 @@ class DydxDataService {
 
   async getFills(
     ticker?: string,
-    limit = 50,
-    createdBeforeOrAtHeight?: string,
+    limit?: number,
     useCache = true
   ): Promise<Fill[]> {
-    const cacheKey = `fills_${ticker || 'all'}_${limit}_${createdBeforeOrAtHeight || 'latest'}`;
+    const cacheKey = `fills_${ticker || 'all'}_${limit || 'default'}`;
 
     if (useCache) {
       const cached = this.getCached<Fill[]>(cacheKey);
@@ -270,14 +312,14 @@ class DydxDataService {
     const { indexer, address } = this.getContext();
 
     try {
-      const response = await indexer.account.getParentSubaccountNumberFills(
+      const response: any = await indexer.account.getParentSubaccountNumberFills(
         address,
         0,
         ticker,
         TickerType.PERPETUAL,
         limit,
         undefined,
-        createdBeforeOrAtHeight
+        undefined
       );
 
       const fills = (response?.fills || []) as Fill[];
@@ -330,19 +372,19 @@ class DydxDataService {
     }
   }
 
-  async refreshPositions(status: 'OPEN' | 'CLOSED' = 'OPEN', limit = 100): Promise<Position[]> {
+  async refreshPositions(status: 'OPEN' | 'CLOSED' = 'OPEN', limit?: number): Promise<Position[]> {
     this.invalidateCache('positions');
     return this.getPositions(status, limit, false);
   }
 
-  async refreshOrders(ticker?: string, limit = 50): Promise<Order[]> {
+  async refreshOrders(ticker?: string, limit?: number): Promise<Order[]> {
     this.invalidateCache('orders');
     return this.getOrders(ticker, limit, true, false);
   }
 
-  async refreshFills(ticker?: string, limit = 50): Promise<Fill[]> {
+  async refreshFills(ticker?: string, limit?: number): Promise<Fill[]> {
     this.invalidateCache('fills');
-    return this.getFills(ticker, limit, undefined, false);
+    return this.getFills(ticker, limit, false);
   }
 
   clearCache(pattern?: string): void {
@@ -362,6 +404,93 @@ class DydxDataService {
       },
     };
   }
-}
+  async getFundingPayments(
+    ticker?: string,
+    limit: number = 100,
+    page: number = 1
+  ): Promise<FundingPaymentsResponse> {
+    this.stats.restCalls++;
+    const { indexer, address, subaccountNumber } = this.getContext();
 
+    try {
+      const response: any = await indexer.account.getSubaccountFundingPayments(
+        address,
+        subaccountNumber,
+        limit,
+        ticker,
+        undefined,
+        page
+      );
+
+      return {
+        fundingPayments: (response.fundingPayments || []) as FundingPayment[],
+        pageSize: response.pageSize || limit,
+        totalResults: response.totalResults || 0,
+        offset: response.offset || 0
+      };
+    } catch (err) {
+      console.error('[DydxDataService] getFundingPayments failed:', err);
+      return {
+        fundingPayments: [],
+        pageSize: limit,
+        totalResults: 0,
+        offset: 0
+      };
+    }
+  }
+
+  async getHistoricalFunding(
+    market: string,
+    limit: number = 100,
+    effectiveBeforeOrAt?: string
+  ): Promise<any[]> {
+    this.stats.restCalls++;
+    try {
+      const indexer = dydxWalletService.getIndexerClient();
+      if (!indexer) throw new Error('Indexer client not initialized');
+
+      const response: any = await indexer.markets.getPerpetualMarketHistoricalFunding(
+        market,
+        effectiveBeforeOrAt,
+        undefined,
+        limit
+      );
+      return response.historicalFunding || [];
+    } catch (err) {
+      console.error('[DydxDataService] getHistoricalFunding failed:', err);
+      return [];
+    }
+  }
+
+  async getTransfers(
+    limit: number = 100,
+    createdBeforeOrAt?: any
+  ): Promise<TransfersResponse> {
+    this.stats.restCalls++;
+    const { indexer, address } = this.getContext();
+
+    try {
+
+      const response: any = await indexer.account.getParentSubaccountNumberTransfers(
+        address,
+        0,
+        limit,
+        createdBeforeOrAt
+      );
+
+      return {
+        transfers: (response.transfers || []) as Transfer[],
+        limit: limit,
+        latestCreatedAt: response.latestCreatedAt || ''
+      };
+    } catch (err) {
+      console.error('[DydxDataService] getTransfers failed:', err);
+      return {
+        transfers: [],
+        limit: limit,
+        latestCreatedAt: ''
+      };
+    }
+  }
+}
 export const dydxDataService = new DydxDataService();

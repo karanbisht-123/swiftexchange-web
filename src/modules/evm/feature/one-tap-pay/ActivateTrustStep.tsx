@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import { Horizon, Networks, TransactionBuilder } from '@stellar/stellar-sdk';
 
@@ -11,25 +11,30 @@ import { useWalletStore } from '../../../walletconnect/store/walletConnectStore'
 interface ActivateTrustStepProps {
   onComplete: (data: { claimedXLM: boolean }) => void;
   onSkip: (data: { claimedXLM: boolean }) => void;
-  isWalletActive: boolean;
-  stellarAddress?: string;
 }
 
-const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
-  onComplete,
-  onSkip,
-  isWalletActive,
-  stellarAddress,
-}) => {
+const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({ onComplete, onSkip }) => {
   const { getProvider } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
+  const stellarWallet = useWalletStore(state => state.connectedWallets.stellar);
   const stellarConfig = getStellarConfig(currentNetwork);
+  const stellarAddress = stellarWallet?.address;
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const provider = getProvider(WalletType.STELLAR);
+  const rawSession = (provider as any)?.session;
+  const stellarAccounts: string[] = rawSession?.namespaces?.stellar?.accounts ?? [];
+  const isWalletActive = stellarAccounts.length > 0 && !!stellarAddress;
 
   const handleClaimXLM = async () => {
     if (!stellarAddress) {
-      alert('Please connect your Stellar wallet first');
+      setError('Please connect your Stellar wallet first');
       return;
     }
+
+    setIsLoading(true);
+    setError(null);
 
     try {
       const endpoint = `/wallet/${stellarAddress}/activate-wallet`;
@@ -40,22 +45,18 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
         throw new Error('Invalid response: Missing XDR data from server');
       }
 
-      const provider = getProvider(WalletType.STELLAR);
       if (!provider) {
         throw new Error('Stellar wallet provider not found');
       }
 
       const networkPassphrase =
-        stellarConfig.network === 'TESTNET' ? Networks.TESTNET : Networks.PUBLIC;
+        currentNetwork === 'testnet' ? Networks.TESTNET : Networks.PUBLIC;
+
 
       const tx = TransactionBuilder.fromXDR(apiData.wallet.xdr.trim(), networkPassphrase);
-
       const signedXdr = await provider.signTransaction(tx.toXDR());
-
       const signedTx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
-
       const server = new Horizon.Server(stellarConfig.horizonUrl);
-
       const result = await server.submitTransaction(signedTx);
 
       if (result.hash) {
@@ -63,9 +64,10 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
       } else {
         onComplete({ claimedXLM: false });
       }
-    } catch (error: unknown) {
-      console.error('Error claiming XLM:', error);
-      alert(`Failed to claim XLM: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -94,13 +96,19 @@ const ActivateTrustStep: React.FC<ActivateTrustStepProps> = ({
         <p className="text-red-400 text-sm">Please connect your Stellar wallet first</p>
       )}
 
+      {error && (
+        <div className="card bg-danger-bg border border-red-300 text-left">
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      )}
+
       <div className="space-y-3">
         <button
           onClick={handleClaimXLM}
           className="btn btn-primary w-full btn-lg animate-pulse-once"
-          disabled={isWalletActive || !stellarAddress}
+          disabled={isWalletActive || !stellarAddress || isLoading}
         >
-          {isWalletActive ? 'Wallet Already Activated' : 'Claim 5 XLM Now'}
+          {isLoading ? 'Processing...' : isWalletActive ? 'Wallet Already Activated' : 'Claim 5 XLM Now'}
         </button>
 
         <button onClick={handleRemindMeLater} className="btn btn-secondary w-full btn-lg">

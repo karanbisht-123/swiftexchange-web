@@ -11,14 +11,13 @@ import {
   type TriggerParams,
 } from '../types/trading.types';
 
-// Create a global event emitter for trade actions
+
 const TRADE_EVENT = 'dydx-trade-action';
 
 export const triggerTradeRefresh = (action: 'order' | 'cancel' | 'close' | 'trigger') => {
   window.dispatchEvent(new CustomEvent(TRADE_EVENT, { detail: { action, timestamp: Date.now() } }));
 };
 
-// Helper hook to listen for trade events in useDydxData
 export const useTradeEvents = (callback: (action: string) => void) => {
   useEffect(() => {
     const handler = (e: any) => callback(e.detail?.action);
@@ -56,7 +55,6 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.placeOrder(params, marketInfo);
 
         if (result.success) {
-          console.log('[useDydxTrading] ✅ Order placed successfully, triggering refresh');
           triggerTradeRefresh('order');
         }
 
@@ -87,7 +85,6 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.cancelOrder(order);
 
         if (result.success) {
-          console.log('[useDydxTrading]  Order cancelled successfully, triggering refresh');
           triggerTradeRefresh('cancel');
         }
 
@@ -118,7 +115,6 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.closePosition(position, marketInfo);
 
         if (result.success) {
-          console.log('[useDydxTrading] Position closed successfully, triggering refresh');
           triggerTradeRefresh('close');
         }
 
@@ -150,7 +146,6 @@ export const useDydxTrading = () => {
         const result = await dydxTradingService.setTriggers(position, triggers, marketInfo);
 
         if (result.success) {
-          console.log('[useDydxTrading] riggers set successfully, triggering refresh');
           triggerTradeRefresh('trigger');
         }
 

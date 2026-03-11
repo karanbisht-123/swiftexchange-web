@@ -1,32 +1,46 @@
-import { NETWORK_CONFIGS } from '../config';
-import type { EVMNetworkConfig } from '../config/evmNetworks';
-import type { StellarNetworkConfig } from '../config/stellarNetworks';
+import { getEVMChains, type EVMChainConfig, type StellarChainConfig } from '../modules/walletconnect/config/chains';
+import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 
 export function isEVMNetwork(
-  config: EVMNetworkConfig | StellarNetworkConfig
-): config is EVMNetworkConfig {
-  return 'chainId' in config;
+  config: EVMChainConfig | StellarChainConfig
+): config is EVMChainConfig {
+  return 'chainId' in config && typeof config.chainId === 'number';
 }
 
 export function isStellarNetwork(
-  config: EVMNetworkConfig | StellarNetworkConfig
-): config is StellarNetworkConfig {
+  config: EVMChainConfig | StellarChainConfig
+): config is StellarChainConfig {
   return 'horizonUrl' in config;
 }
 
 export function getNetworkPrefix(networkKey: any): string {
-  const config = NETWORK_CONFIGS[networkKey];
-  if (!config) {
-    throw new Error(`Unsupported network: ${networkKey}`);
+  const currentNetwork = useWalletStore.getState().network;
+
+  if (typeof networkKey === 'number') {
+    const evmChains = getEVMChains(currentNetwork);
+    const evmChain = evmChains.find(c => c.chainId === networkKey);
+    if (!evmChain) throw new Error(`Unsupported EVM network: ${networkKey}`);
+
+    if (evmChain.chainId === 1 || evmChain.chainId === 11155111) return '/eth';
+    if (evmChain.chainId === 56 || evmChain.chainId === 97) return '/bsc';
+    if (evmChain.chainId === 137 || evmChain.chainId === 80002) return '/polygon';
+    if (evmChain.chainId === 43114 || evmChain.chainId === 43113) return '/avalanche';
+    if (evmChain.chainId === 10 || evmChain.chainId === 11155420) return '/optimism';
+    if (evmChain.chainId === 42161 || evmChain.chainId === 421614) return '/arbitrum';
+
+    return `/${evmChain.name.toLowerCase().replace(/\s+/g, '')}`;
   }
-  if (isEVMNetwork(config)) {
+
+  if (networkKey === 'stellar' || networkKey === 'pubnet' || networkKey === 'testnet') {
+    return '/stellar';
+  }
+
+  if (typeof networkKey === 'string') {
     if (networkKey === 'sepolia') return '/eth';
     if (networkKey === 'bscTestnet') return '/bsc';
     return `/${networkKey}`;
   }
-  if (isStellarNetwork(config)) {
-    return '/stellar';
-  }
+
   throw new Error('Unsupported network type');
 }
 

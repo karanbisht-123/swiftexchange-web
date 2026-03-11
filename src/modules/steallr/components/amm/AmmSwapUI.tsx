@@ -332,7 +332,7 @@ const AmmSwapUI = () => {
 
   return (
     <div className="flex flex-col lg:flex-row gap-1  lg:gap-4 h-full lg:p-0 overflow-y-auto lg:overflow-visible">
-      <div className="w-full h-[300px] lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0">
+      <div className="w-full h-[300px] bg-secondary lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0">
         <StellarTradingChart />
       </div>
       <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0">

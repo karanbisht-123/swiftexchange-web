@@ -41,7 +41,10 @@ const EvmTransactionHistory: React.FC = () => {
   const [selectedTx, setSelectedTx] = useState<TransactionItem | null>(null);
   const [selectedLocalTx, setSelectedLocalTx] = useState<LocalTransactionWithStatus | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-
+  const [sentPageKey, setSentPageKey] = useState<string | null>(null);
+  const [receivedPageKey, setReceivedPageKey] = useState<string | null>(null);
+  const [hasNextPage, setHasNextPage] = useState<boolean>(false);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const {
     transactions: localTransactions,
     isLoading: localLoading,
@@ -62,15 +65,50 @@ const EvmTransactionHistory: React.FC = () => {
     setLoading(true);
     setError(null);
     setSelectedTx(null);
+    setSentPageKey(null);
+    setReceivedPageKey(null);
+    setHasNextPage(false);
     try {
-      const data = await getEvmTransactionHistory(walletAddress, selectedView as ChainType);
-      const dataArray = Array.isArray(data) ? data : [];
+      const response = await getEvmTransactionHistory(walletAddress, selectedView as ChainType);
+      const dataArray = Array.isArray(response) ? response : response?.data || [];
       setHistoryData(dataArray);
+      if (response && 'pagination' in response) {
+        setSentPageKey((response as any).pagination.nextSentPageKey);
+        setReceivedPageKey((response as any).pagination.nextReceivedPageKey);
+        setHasNextPage((response as any).pagination.hasNextPage);
+      }
     } catch (err: any) {
       console.error('Failed to fetch transaction history:', err);
       setError(err.message || 'Failed to fetch transaction history');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!walletAddress || selectedView === 'recent' || selectedView === 'stellar' || !hasNextPage || loadingMore) return;
+
+    setLoadingMore(true);
+    try {
+      const response = await getEvmTransactionHistory(
+        walletAddress,
+        selectedView as ChainType,
+        sentPageKey || undefined,
+        receivedPageKey || undefined
+      );
+
+      const dataArray = Array.isArray(response) ? response : response?.data || [];
+      setHistoryData(prev => [...prev, ...dataArray]);
+
+      if (response && 'pagination' in response) {
+        setSentPageKey((response as any).pagination.nextSentPageKey);
+        setReceivedPageKey((response as any).pagination.nextReceivedPageKey);
+        setHasNextPage((response as any).pagination.hasNextPage);
+      }
+    } catch (err: any) {
+      console.error('Failed to load more transaction history:', err);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -147,11 +185,10 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedTx(null);
           setSelectedLocalTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
-          selectedView === 'recent'
-            ? 'bg-primary text-secondary shadow-sm'
-            : 'text-muted hover:text-primary'
-        }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${selectedView === 'recent'
+          ? 'bg-primary text-secondary shadow-sm'
+          : 'text-muted hover:text-primary'
+          }`}
       >
         Recent
         {hasPendingTransactions && (
@@ -163,11 +200,10 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedView('eth');
           setSelectedLocalTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-          selectedView === 'eth'
-            ? 'bg-primary text-secondary shadow-sm'
-            : 'text-muted hover:text-primary'
-        }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'eth'
+          ? 'bg-primary text-secondary shadow-sm'
+          : 'text-muted hover:text-primary'
+          }`}
       >
         ETH
       </button>
@@ -176,11 +212,10 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedView('bsc');
           setSelectedLocalTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-          selectedView === 'bsc'
-            ? 'bg-primary text-secondary shadow-sm'
-            : 'text-muted hover:text-primary'
-        }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'bsc'
+          ? 'bg-primary text-secondary shadow-sm'
+          : 'text-muted hover:text-primary'
+          }`}
       >
         BNB
       </button>
@@ -190,11 +225,10 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedLocalTx(null);
           setSelectedTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-          selectedView === 'stellar'
-            ? 'bg-primary text-secondary shadow-sm'
-            : 'text-muted hover:text-primary'
-        }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar'
+          ? 'bg-primary text-secondary shadow-sm'
+          : 'text-muted hover:text-primary'
+          }`}
       >
         Stellar
       </button>
@@ -263,11 +297,10 @@ const EvmTransactionHistory: React.FC = () => {
           return (
             <div
               key={tx.hash}
-              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${
-                isSelected
-                  ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
-                  : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
-              }`}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${isSelected
+                ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
+                : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
+                }`}
             >
               <button
                 onClick={() => handleLocalTxClick(tx)}
@@ -368,26 +401,24 @@ const EvmTransactionHistory: React.FC = () => {
             <button
               key={tx.uniqueId}
               onClick={() => handleTxClick(tx)}
-              className={`w-full lg:rounded-2xl   py-3 flex items-center justify-between transition-all group text-left ${
-                isSelected
-                  ? ' bg-secondary border-brand-primary/50 shadow-md '
-                  : ' hover:bg-tertiary/50 '
-              }`}
+              className={`w-full rounded-lg bg-primary p-3   flex items-center justify-between transition-all group text-left ${isSelected
+                ? ' border  '
+                : ' hover:bg-tertiary/50 '
+                }`}
             >
               <div className="flex items-center gap-4">
                 <div
-                  className={`lg:w-12 lg:h-12  h-10 w-10 rounded-full flex items-center justify-center shrink-0 border ${
-                    incoming
-                      ? 'bg-green-500/10 border-green-500/20 text-green-500'
-                      : 'bg-brand-primary/10 border-brand-primary/20 text-brand-primary'
-                  }`}
+                  className={`lg:w-12 lg:h-12  h-8 w-8 rounded-full flex items-center justify-center shrink-0 border ${incoming
+                    ? 'bg-green-500/10 border-green-500/20 text-green-500'
+                    : 'bg-brand-primary/10 border-brand-primary/20 text-gray-600'
+                    }`}
                 >
                   {incoming ? <ArrowDownLeft size={24} /> : <ArrowUpRight size={24} />}
                 </div>
                 <div>
-                  <div className="font-bold text-primary text-base flex items-center gap-2">
+                  <div className="text-primary font-semibold lg:text-md text-sm text-base flex items-center gap-1">
                     {incoming ? 'Received' : 'Sent'} {tx.asset}
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
+                    <span className="lg:text-md text-xs  px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
                       {tx.category}
                     </span>
                   </div>
@@ -416,6 +447,22 @@ const EvmTransactionHistory: React.FC = () => {
             </button>
           );
         })}
+        {hasNextPage && (
+          <button
+            onClick={loadMoreHistory}
+            disabled={loadingMore}
+            className="w-full py-3 mt-4 rounded-xl border border-color bg-tertiary hover:bg-tertiary/80 text-primary font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Loading...
+              </>
+            ) : (
+              'Load More'
+            )}
+          </button>
+        )}
       </div>
     );
   };
@@ -491,9 +538,9 @@ const EvmTransactionHistory: React.FC = () => {
 
   return (
     <PageLayout title="Transactions" headerActions={HeaderActions} maxWidth="7xl">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-ful">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative items-start">
         <div
-          className={`${selectedView === 'stellar' ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'} flex flex-col h-full overflow-hidden`}
+          className={`${selectedView === 'stellar' ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'} flex flex-col`}
         >
           {selectedView === 'recent' ? (
             renderRecentTransactions()
@@ -505,7 +552,7 @@ const EvmTransactionHistory: React.FC = () => {
         </div>
 
         {selectedView !== 'stellar' && (
-          <div className="hidden lg:block lg:col-span-5 xl:col-span-4 h-full sticky top-0">
+          <div className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-6 h-[calc(100vh-48px)]">
             {selectedView === 'recent' && selectedLocalTx ? (
               <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
                 {renderLocalTxDetails()}

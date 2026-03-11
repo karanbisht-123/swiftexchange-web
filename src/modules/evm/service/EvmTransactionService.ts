@@ -23,13 +23,31 @@ export interface TransactionItem {
     formattedAmount: string;
 }
 
-export type TransactionHistoryResponse = TransactionItem[];
+export interface TransactionPagination {
+    nextSentPageKey: string | null;
+    nextReceivedPageKey: string | null;
+    hasSentNextPage: boolean;
+    hasReceivedNextPage: boolean;
+    hasNextPage: boolean;
+}
 
+export interface TransactionHistoryResponse {
+    data: TransactionItem[];
+    pagination: TransactionPagination;
+}
 export const getEvmTransactionHistory = async (
     address: string,
-    chain: ChainType
+    chain: ChainType,
+    sentPageKey?: string,
+    receivedPageKey?: string
 ): Promise<TransactionHistoryResponse> => {
-    const endpoint = `/transaction-history/${address}/${chain}`;
+    let endpoint = `/transaction-history/${address}/${chain}`;
+    if (sentPageKey || receivedPageKey) {
+        const params = new URLSearchParams();
+        if (sentPageKey) params.append('sentPageKey', sentPageKey);
+        if (receivedPageKey) params.append('receivedPageKey', receivedPageKey);
+        endpoint += `?${params.toString()}`;
+    }
     const response = await fetchApiResponseFromProxy<TransactionHistoryResponse>(endpoint, 'GET');
     return response.data;
 };

@@ -46,9 +46,17 @@ const MarketRow = memo(function MarketRow({
   };
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(market.ticker, market)}
-      className={`w-full flex items-center gap-3 px-4 sm:px-4 py-4 sm:py-3 hover:bg-[#1e293b]/60 active:bg-[#1e293b]/80 transition-colors border-b border-[#1e293b]/30 ${isSelected ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(market.ticker, market);
+        }
+      }}
+      className={`w-full flex items-center gap-3 px-4 sm:px-4 py-4 sm:py-3 hover:bg-[#1e293b]/60 active:bg-[#1e293b]/80 cursor-pointer transition-colors border-b border-[#1e293b]/30 ${isSelected ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
         }`}
     >
       <button
@@ -111,7 +119,7 @@ const MarketRow = memo(function MarketRow({
         <div className="text-[10px] text-slate-500">Vol</div>
         <div className="text-xs text-slate-300 font-medium">{formatVolume(market.volume24H)}</div>
       </div>
-    </button>
+    </div>
   );
 });
 
