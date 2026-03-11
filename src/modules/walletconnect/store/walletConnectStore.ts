@@ -44,6 +44,7 @@ export interface WalletState {
   availableCosmosChains: CosmosChainConfig[];
   currentStellarConfig: StellarChainConfig;
   isRestoringSession: boolean;
+  sessionLastPingAt: Partial<Record<WalletType, number>>;
 }
 
 interface WalletActions {
@@ -58,6 +59,7 @@ interface WalletActions {
   setNetwork: (network: NetworkType) => Promise<void>;
   isConnected: (type: WalletType) => boolean;
   isConnecting: (type: WalletType) => boolean;
+  updateSessionPing: (type: WalletType) => void;
 }
 
 const getInitialNetwork = (): NetworkType => {
@@ -82,6 +84,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     availableCosmosChains: getCosmosChains(initialNetwork),
     currentStellarConfig: getStellarConfig(initialNetwork),
     isRestoringSession: false,
+    sessionLastPingAt: {},
 
     // Connect a single wallet type via extension or single-namespace WalletConnect
     connectWallet: async (type, walletId) => {
@@ -248,11 +251,14 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       set(state => {
         const { [type]: _wallet, ...remainingWallets } = state.connectedWallets;
         const { [type]: _status, ...remainingStatus } = state.connectionStatus;
+        const { [type]: _ping, ...remainingPings } = state.sessionLastPingAt;
         return {
           connectedWallets: remainingWallets,
           connectionStatus: remainingStatus,
+          sessionLastPingAt: remainingPings,
         };
       });
+      listenerInitialized = false;
     },
 
     restoreSessions: async () => {
@@ -320,6 +326,12 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isConnecting: type =>
       ['connecting', 'signing', 'deriving'].includes(get().connectionStatus[type]?.state ?? ''),
 
+    updateSessionPing: (type: WalletType) => {
+      set(state => ({
+        sessionLastPingAt: { ...state.sessionLastPingAt, [type]: Date.now() },
+      }));
+    },
+
     checkSessionHealth: async () => {
       const { walletService } = await import('../services/walletService');
       return walletService.checkSessionHealth();
@@ -341,9 +353,11 @@ export const initWalletListener = async () => {
           useWalletStore.setState(prev => {
             const { [type]: _wallet, ...remainingWallets } = prev.connectedWallets;
             const { [type]: _status, ...remainingStatus } = prev.connectionStatus;
+            const { [type]: _ping, ...remainingPings } = prev.sessionLastPingAt;
             return {
               connectedWallets: remainingWallets,
               connectionStatus: remainingStatus,
+              sessionLastPingAt: remainingPings,
             };
           });
           return;
@@ -378,9 +392,14 @@ export const initWalletListener = async () => {
             dydxAddress: session.dydxAddress,
           };
 
+          const pingAt = walletService.getLastPingAt(type);
+
           useWalletStore.setState(prev => ({
             connectedWallets: { ...prev.connectedWallets, [type]: updatedWallet },
             connectionStatus: { ...prev.connectionStatus, [type]: { state: 'connected' } },
+            ...(pingAt !== null
+              ? { sessionLastPingAt: { ...prev.sessionLastPingAt, [type]: pingAt } }
+              : {}),
           }));
         }
       } catch (error) {

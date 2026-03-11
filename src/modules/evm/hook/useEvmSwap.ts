@@ -178,7 +178,6 @@ export const useEvmSwap = ({
         }
 
         const errorMsg = err instanceof Error ? err.message : 'Failed to fetch quote';
-        console.error('Quote fetch error:', err);
         updateState({ error: errorMsg, quoteLoading: false, quote: null });
         throw new Error(errorMsg);
       }
@@ -232,7 +231,6 @@ export const useEvmSwap = ({
         return hash;
       } catch (err: any) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to perform swap';
-        console.error('Swap execution error:', err);
         updateState({ error: errorMsg, loading: false, txHash: null });
         throw new Error(errorMsg);
       }

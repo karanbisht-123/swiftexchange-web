@@ -8,6 +8,7 @@ import { getEVMChains } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
+import StellarActiveGuard from '../../../walletconnect/components/StellarActiveGuard';
 import { getBridgeQuote, prepareBridgeTransaction, type BridgeTransaction } from '../../service/evmSwapService';
 import { rpcManager } from '../../utils/rpcProvider';
 
@@ -739,29 +740,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
                 </div>
               )}
 
-              {!stellarAddress ? (
-                <div className="card bg-warning-bg p-4">
-                  <div className="flex items-start gap-3 mb-3">
-                    <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-                    <div>
-                      <h3 className="font-semibold text-primary text-sm">Connect Stellar Wallet</h3>
-                      <p className="text-muted text-xs mt-1">
-                        You need to connect your Stellar wallet to use this feature. Please connect to continue.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      onClose();
-                      openModal();
-                    }}
-                    className="btn btn-primary w-full gap-2"
-                  >
-                    <CreditCard size={16} />
-                    Connect Wallet
-                  </button>
-                </div>
-              ) : (
+              <StellarActiveGuard onSkip={onClose}>
                 <button
                   onClick={handleProceed}
                   disabled={!quoteData || !isValidAmount || isLoadingQuote || isChainSwitching || isPreparingBridge || txStatus === 'success'}
@@ -799,7 +778,7 @@ const TradeAssetModal: FC<TradeAssetModalProps> = ({ isOpen, onClose, selectedAs
                     </>
                   )}
                 </button>
-              )}
+              </StellarActiveGuard>
             </>
           )}
         </div>

@@ -319,18 +319,18 @@ const AlchemyCryptoBuy = () => {
               </p>
             </div>
           </div>
-          <button onClick={handleCloseTab} className="btn-danger w-full">
+          <button onClick={handleCloseTab} className="btn-danger btn  w-full">
             Close Existing Tab
           </button>
         </div>
       )}
 
       {/* Action Buttons */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-row gap-3">
         <button
           onClick={handleCreateOrder}
           disabled={!isFormValid() || !!(paymentTab && !paymentTab.closed)}
-          className={`btn-lg flex-1 ${isFormValid() && !(paymentTab && !paymentTab.closed) ? 'btn-primary' : 'btn-secondary'
+          className={`btn btn py-4 lg:py-5 flex-1 ${isFormValid() && !(paymentTab && !paymentTab.closed) ? 'btn-primary' : 'btn-secondary'
             }`}
         >
           {isCreatingOrder ? (
@@ -343,7 +343,7 @@ const AlchemyCryptoBuy = () => {
           )}
         </button>
         {(fiatAmount || orderError || orderSuccess) && (
-          <button onClick={resetForm} className="btn-secondary sm:w-auto px-6">
+          <button onClick={resetForm} className="btn-secondary btn py-4 lg:py-5 sm:w-auto px-6">
             Reset
           </button>
         )}

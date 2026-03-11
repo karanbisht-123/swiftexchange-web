@@ -1,16 +1,18 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, Clock, Loader2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, Clock, Info, Loader2, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { type Asset, useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useSubaccounts } from '../hooks/useSubaccounts';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
+import { Tooltip } from '../../../components/common/Tooltip';
 
 type ModalStep = 'form' | 'select_token';
 
 interface DydxDepositModalProps {
     isOpen: boolean;
     onClose: () => void;
+    initialAsset?: Asset | null;
 }
 
 const PRIORITY_SYMBOLS = ['USDC', 'USDT', 'ETH'];
@@ -18,11 +20,9 @@ const PRIORITY_SYMBOLS = ['USDC', 'USDT', 'ETH'];
 const CHAIN_ICONS: Record<string, string> = {
     ETH: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
     BNB: 'https://tokens.pancakeswap.finance/images/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c.png',
-    STELLAR: 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png',
 };
 
 const getChainIconUrl = (asset: Asset): string | undefined => {
-    if (asset.chainType === 'stellar') return CHAIN_ICONS.STELLAR;
     if (asset.chainId === 1) return CHAIN_ICONS.ETH;
     if (asset.chainId === 56) return CHAIN_ICONS.BNB;
     if (asset.chainName?.includes('Ethereum')) return CHAIN_ICONS.ETH;
@@ -42,7 +42,7 @@ const AssetIcon = ({ asset, size = 'md' }: { asset: Asset; size?: 'sm' | 'md' })
                     <img src={chainIcon} alt={asset.chainName} className="w-full h-full rounded-full" />
                 ) : (
                     <span className="text-[6px] font-bold text-primary leading-none">
-                        {asset.chainType === 'stellar' ? '★' : asset.chainName?.[0] || '?'}
+                        {asset.chainName?.[0] || '?'}
                     </span>
                 )}
             </div>
@@ -85,7 +85,7 @@ const AssetRow = ({
     );
 };
 
-export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onClose }) => {
+export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onClose, initialAsset }) => {
     const { network } = useWalletStore();
     const { assets } = useWalletAssets(network);
     const evmWallet = useWalletStore(state => state.connectedWallets.evm);
@@ -98,7 +98,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
         recoverDeposit,
         checkPendingDeposit,
         pendingQuantums,
-        dydxNativeQuantums,
+        // dydxNativeQuantums,
         isCheckingPending,
         step: depositStep,
         stepLabel,
@@ -113,6 +113,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
     const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
     const [amount, setAmount] = useState('');
     const [goFast, setGoFast] = useState(false);
+    const [slippage, setSlippage] = useState('1');
+    const [showVolatilityWarning, setShowVolatilityWarning] = useState(true);
 
     const sortedAssets = useMemo(() => {
         return [...assets].sort((a, b) => {
@@ -129,12 +131,16 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
     const otherTokens = useMemo(() => sortedAssets.filter(a => (a.balance || 0) === 0), [sortedAssets]);
 
     useEffect(() => {
-        if (isOpen && assets.length > 0 && !selectedAsset) {
-            const usdc = assets.find(a => a.symbol.toUpperCase() === 'USDC');
-            const eth = assets.find(a => a.symbol.toUpperCase() === 'ETH');
-            setSelectedAsset(usdc || eth || assets[0]);
+        if (isOpen) {
+            if (initialAsset) {
+                setSelectedAsset(initialAsset);
+            } else if (assets.length > 0 && !selectedAsset) {
+                const usdc = assets.find(a => a.symbol.toUpperCase() === 'USDC');
+                const eth = assets.find(a => a.symbol.toUpperCase() === 'ETH');
+                setSelectedAsset(usdc || eth || assets[0]);
+            }
         }
-    }, [isOpen, assets, selectedAsset]);
+    }, [isOpen, assets, initialAsset, selectedAsset]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -142,6 +148,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
             setAmount('');
             setSelectedAsset(null);
             setGoFast(false);
+            setSlippage('1');
+            setShowVolatilityWarning(true);
             reset();
         } else {
             checkPendingDeposit();
@@ -172,8 +180,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
 
     const handleDeposit = useCallback(async () => {
         if (!selectedAsset || !amount) return;
-        await deposit(selectedAsset.symbol, parseFloat(amount), evmChainId, goFast);
-    }, [selectedAsset, amount, deposit, evmChainId, goFast]);
+        await deposit(selectedAsset.symbol, parseFloat(amount), evmChainId, goFast, slippage || '1');
+    }, [selectedAsset, amount, deposit, evmChainId, goFast, slippage]);
 
     const amountValue = parseFloat(amount) || 0;
     const walletBalance = selectedAsset?.balance || 0;
@@ -229,7 +237,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                             </div>
                         )}
 
-                        {dydxNativeQuantums && !pendingQuantums && (
+                        {/* {dydxNativeQuantums && !pendingQuantums && (
                             <div className="px-5 pb-4">
                                 <div className="p-4 bg-tertiary border border-color rounded-xl">
                                     <div className="flex justify-between items-center gap-4">
@@ -250,7 +258,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                     </div>
                                 </div>
                             </div>
-                        )}
+                        )} */}
 
                         <div className="px-5 pb-3">
                             <div className="flex items-start gap-2 p-3 bg-brand/10 border border-brand/20 rounded-xl">
@@ -260,6 +268,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                 </p>
                             </div>
                         </div>
+
+
 
                         {depositStep !== 'success' ? (
                             <div className="px-5 pb-5 space-y-3">
@@ -311,7 +321,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                         </button>
                                     </div>
                                 </div>
-                                <div className="flex items-center justify-between px-1">
+                                <div className="flex items-center justify-between px-1 mb-3">
                                     <label className="flex items-center gap-2 cursor-pointer text-sm text-primary">
                                         <input
                                             type="checkbox"
@@ -321,6 +331,46 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                         />
                                         Go Fast (Skip routing)
                                     </label>
+                                </div>
+
+                                <div className="p-4 rounded-xl border border-color bg-tertiary">
+                                    <div className="flex justify-between items-center">
+                                        <Tooltip content="Slippage determines the maximum price change you are willing to accept compared to the current expected price. If the price changes by more than this percentage, your transaction will fail. Higher slippage increases the chance of execution in volatile markets, but may result in a worse price." position="top">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium text-primary flex items-center gap-1.5 cursor-help">
+                                                    Max Slippage (%)
+                                                    <Info className="w-3.5 h-3.5 text-muted" />
+                                                </span>
+                                                <span className="text-[10px] text-muted font-medium mt-0.5">Max 6%</span>
+                                            </div>
+                                        </Tooltip>
+
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={slippage}
+                                                onChange={(e) => {
+                                                    let val = e.target.value;
+                                                    if (val === '') {
+                                                        setSlippage('');
+                                                        return;
+                                                    }
+                                                    if (/^\d*\.?\d*$/.test(val)) {
+                                                        const num = parseFloat(val);
+                                                        if (num > 6) val = '6';
+                                                        setSlippage(val);
+                                                    }
+                                                }}
+                                                className="w-16 bg-transparent text-right text-primary text-sm font-semibold focus:outline-none placeholder-muted border-b border-color focus:border-brand transition-colors"
+                                            />
+                                            <span className="text-sm text-muted">%</span>
+                                        </div>
+                                    </div>
+                                    {parseFloat(slippage) > 3 && (
+                                        <div className="mt-2 text-xs text-brand">
+                                            High slippage tolerance, transaction might execute at an unfavorable price.
+                                        </div>
+                                    )}
                                 </div>
 
                                 {route && amountValue > 0 && (
@@ -359,6 +409,24 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({ isOpen, onCl
                                     <div className="p-3 bg-danger-bg border border-danger rounded-xl flex items-start gap-2">
                                         <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
                                         <p className="text-sm text-danger">{depositError}</p>
+                                    </div>
+                                )}
+
+                                {showVolatilityWarning && (
+                                    <div className="flex items-start gap-3 p-3 bg-brand/10 border border-brand/30 rounded-xl relative">
+                                        <AlertTriangle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
+                                        <div className="flex-1 pr-6">
+                                            <h4 className="text-sm font-semibold text-primary mb-1">Market Volatility</h4>
+                                            <p className="text-xs text-brand leading-relaxed">
+                                                If the market is volatile, you may want to increase your slippage tolerance to ensure your deposit succeeds.
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => setShowVolatilityWarning(false)}
+                                            className="absolute top-3 right-3 p-1 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 )}
 

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../../constants/routes';
 import TradeAssetModal from '../../evm/feature/one-tap-pay/TradeAssetModal';
+import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { type Asset, useWalletAssets } from '../hooks/useWalletAssets';
 
 import { useWalletStore } from '../store/walletConnectStore';
@@ -56,10 +57,11 @@ const calculatePortfolioChange = (assets: Asset[]): number => {
   return weightedChange / totalValue;
 };
 
-const AssetRow = memo(({ asset, onTrade }: { asset: Asset; onTrade: (asset: Asset) => void }) => {
+const AssetRow = memo(({ asset, onTrade, onPerp }: { asset: Asset; onTrade: (asset: Asset) => void; onPerp: (asset: Asset) => void }) => {
   const isPriceLoading = asset.current_price === 0;
   const usdValue = (asset.balance || 0) * (asset.current_price || 0);
   const canTrade = canTradeAsset(asset);
+  const canPrep = asset.chainType !== 'stellar';
 
   return (
     <div className="lg:px-4 px-0 py-4 hover:bg-hover transition-colors">
@@ -123,20 +125,24 @@ const AssetRow = memo(({ asset, onTrade }: { asset: Asset; onTrade: (asset: Asse
             </div>
           </div>
 
-          {canTrade && (
+          {(canTrade || canPrep) && (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => onTrade(asset)}
-                className="btn btn-primary btn-sm rounded-md"
-              >
-                Spot
-              </button>
-              <button
-                onClick={() => { }}
-                className="btn btn-primary btn-sm rounded-md"
-              >
-                Perp
-              </button>
+              {canTrade && (
+                <button
+                  onClick={() => onTrade(asset)}
+                  className="btn btn-primary btn-sm rounded-md"
+                >
+                  Spot
+                </button>
+              )}
+              {canPrep && (
+                <button
+                  onClick={() => onPerp(asset)}
+                  className="btn btn-primary btn-sm rounded-md"
+                >
+                  Prep
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -154,6 +160,7 @@ const WalletAssetsSection = () => {
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
 
   const hasLoadingPrices = assets.some(a => a.current_price === 0);
 
@@ -176,8 +183,18 @@ const WalletAssetsSection = () => {
     setIsTradeModalOpen(true);
   };
 
+  const handlePerp = (asset: Asset) => {
+    setSelectedAsset(asset);
+    setIsDepositModalOpen(true);
+  };
+
   const handleCloseModal = () => {
     setIsTradeModalOpen(false);
+    setSelectedAsset(null);
+  };
+
+  const handleCloseDepositModal = () => {
+    setIsDepositModalOpen(false);
     setSelectedAsset(null);
   };
 
@@ -269,7 +286,7 @@ const WalletAssetsSection = () => {
             </div>
           ) : (
             assets.map(asset => (
-              <AssetRow key={asset.id} asset={asset} onTrade={handleTrade} />
+              <AssetRow key={asset.id} asset={asset} onTrade={handleTrade} onPerp={handlePerp} />
             ))
           )}
         </div>
@@ -284,6 +301,14 @@ const WalletAssetsSection = () => {
             ...selectedAsset,
             balance: selectedAsset.balance ?? 0,
           }}
+        />
+      )}
+
+      {selectedAsset && isDepositModalOpen && (
+        <DydxDepositModal
+          isOpen={isDepositModalOpen}
+          onClose={handleCloseDepositModal}
+          initialAsset={selectedAsset}
         />
       )}
     </>

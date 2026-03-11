@@ -192,7 +192,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       await fetchQuote(quoteRequest, selectedSellAsset, selectedBuyAsset);
     } catch (err) {
-      console.error('Failed to fetch quote:', err);
+      console.log("qoute Fetching request Error :", err)
     }
   }, [
     selectedSellAsset,
@@ -309,7 +309,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     try {
       await performSwap(quote, selectedSellAsset, selectedBuyAsset, sellAmount, slippageTolerance);
     } catch (err) {
-      console.error('Swap failed:', err);
+      console.log("swap Exustion failer SwapAsset", err)
     }
   }, [
     quote,
@@ -404,17 +404,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
 
-        {error && (
-          <div className="card bg-danger-bg border-2 border-red-300 animate-slide-up">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h4 className="font-semibold text-red-900 mb-1">Transaction Error</h4>
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {!isConnected && (
           <div className="card text-center py-12">
@@ -848,6 +837,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           selectedAssetSymbol={assetModalOpen === 'sell' ? sellAssetSymbol : buyAssetSymbol}
           isLoading={isFetchingAssets}
         />
+
+
+        {error && (
+          <div className="card bg-danger-bg bg-red-200 border-2 border-red-300 animate-slide-up">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="font-semibold text-red-900 mb-1">Transaction Error</h4>
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </PageLayout>
   );

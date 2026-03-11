@@ -186,7 +186,7 @@ const MarketSwitcher: React.FC = () => {
   return (
     <>
 
-      <div className="lg:hidden flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color px-3 py-2">
+      <div className="lg:hidden flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color ">
 
         <button
           onClick={() => setIsModalOpen(true)}
@@ -230,7 +230,7 @@ const MarketSwitcher: React.FC = () => {
         <button
           onClick={() => setIsModalOpen(true)}
           disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-3.5 bg-tertiary hover:bg-hover transition-colors disabled:opacity-50 min-w-[140px]"
+          className="flex items-center gap-2 px-2 py-2.5 bg-tertiary hover:bg-hover transition-colors disabled:opacity-50 min-w-[140px]"
         >
           {'coinIcon' in marketData && marketData.coinIcon ? (
             <img
@@ -257,7 +257,7 @@ const MarketSwitcher: React.FC = () => {
         </button>
 
 
-        <div className="px-3 flex flex-col items-start min-w-[120px]">
+        <div className="px-2 pr-0 flex flex-col items-start min-w-[110px]">
           <AnimatedPrice
             price={currentPrice}
             tradeSide={livePriceSide}
@@ -267,8 +267,8 @@ const MarketSwitcher: React.FC = () => {
 
 
         <div className="hide-scrollbar flex items-center overflow-x-auto px-2 flex-1">
-          <div className="flex divide-x divide-color whitespace-nowrap">
-            <div className="flex flex-col px-4">
+          <div className="flex divide-x divide-divider whitespace-nowrap">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Oracle Price</span>
               <AnimatedValue
                 value={`$${parseFloat(marketData.oraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
@@ -276,7 +276,7 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            <div className="flex flex-col px-4">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Change</span>
               <div className={`flex ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}>
                 <AnimatedValue
@@ -290,7 +290,7 @@ const MarketSwitcher: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-col px-4">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Volume</span>
               <AnimatedValue
                 value={`$${parseFloat(marketData.volume24H).toLocaleString(undefined, {
@@ -300,7 +300,7 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            <div className="flex flex-col px-4">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Trades</span>
               <AnimatedValue
                 value={marketData.trades24H.toLocaleString()}
@@ -308,7 +308,7 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            <div className="flex flex-col px-4">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Open Interest</span>
               <AnimatedValue
                 value={`${parseFloat(marketData.openInterest).toLocaleString(undefined, {
@@ -318,7 +318,7 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            <div className="flex flex-col px-4">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">1h Funding</span>
               <AnimatedValue
                 value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
@@ -327,7 +327,7 @@ const MarketSwitcher: React.FC = () => {
               />
             </div>
 
-            <div className="flex flex-col px-4">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Next Funding</span>
               <div className="font-medium text-primary">
                 {(() => {
@@ -342,7 +342,7 @@ const MarketSwitcher: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-col px-4">
+            <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Maximum Leverage</span>
               <AnimatedValue
                 value={marketData.initialMarginFraction ? `${(1 / Number(marketData.initialMarginFraction)).toFixed(2)}×` : '-'}

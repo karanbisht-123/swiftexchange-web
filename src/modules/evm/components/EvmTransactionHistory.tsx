@@ -401,24 +401,24 @@ const EvmTransactionHistory: React.FC = () => {
             <button
               key={tx.uniqueId}
               onClick={() => handleTxClick(tx)}
-              className={`w-full lg:rounded-2xl   py-3 flex items-center justify-between transition-all group text-left ${isSelected
-                ? ' bg-secondary border-brand-primary/50 shadow-md '
+              className={`w-full rounded-lg bg-primary p-3   flex items-center justify-between transition-all group text-left ${isSelected
+                ? ' border  '
                 : ' hover:bg-tertiary/50 '
                 }`}
             >
               <div className="flex items-center gap-4">
                 <div
-                  className={`lg:w-12 lg:h-12  h-10 w-10 rounded-full flex items-center justify-center shrink-0 border ${incoming
+                  className={`lg:w-12 lg:h-12  h-8 w-8 rounded-full flex items-center justify-center shrink-0 border ${incoming
                     ? 'bg-green-500/10 border-green-500/20 text-green-500'
-                    : 'bg-brand-primary/10 border-brand-primary/20 text-brand-primary'
+                    : 'bg-brand-primary/10 border-brand-primary/20 text-gray-600'
                     }`}
                 >
                   {incoming ? <ArrowDownLeft size={24} /> : <ArrowUpRight size={24} />}
                 </div>
                 <div>
-                  <div className="font-bold text-primary text-base flex items-center gap-2">
+                  <div className="text-primary font-semibold lg:text-md text-sm text-base flex items-center gap-1">
                     {incoming ? 'Received' : 'Sent'} {tx.asset}
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
+                    <span className="lg:text-md text-xs  px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
                       {tx.category}
                     </span>
                   </div>

@@ -129,6 +129,9 @@ class WalletService {
   private listeners = new Set<(type: WalletType, state: ConnectionState) => void>();
   private currentNetwork: NetworkType = 'mainnet';
   private derivationInProgress = false;
+  private registeredProviders = new Set<any>();
+  private lastPingAt = new Map<WalletType, number>();
+  private disconnecting = new Set<WalletType>();
 
   constructor() {
     this.loadNetwork();
@@ -697,26 +700,41 @@ class WalletService {
   // ---------------------------------------------------------------------------
 
   async disconnect(type: WalletType): Promise<void> {
+    if (this.disconnecting.has(type)) return;
+    this.disconnecting.add(type);
+
     const provider = this.providers.get(type);
 
-    if (provider?.session) {
-      try {
+    if (provider) {
+      this.registeredProviders.delete(provider);
+
+      if (provider.session) {
+        const eventsToRemove = [
+          'session_event',
+          'session_update',
+          'session_delete',
+          'session_expire',
+          'session_extend',
+          'session_ping',
+          'proposal_expire',
+          'disconnect',
+          'accountsChanged',
+          'chainChanged',
+          'display_uri',
+        ];
 
         if (typeof provider.removeAllListeners === 'function') {
           provider.removeAllListeners();
         } else if (typeof provider.removeListener === 'function') {
-          const events = ['accountsChanged', 'chainChanged', 'disconnect', 'session_event', 'session_update', 'session_expire', 'session_delete', 'display_uri'];
-          events.forEach(event => {
-            try {
-              provider.removeListener(event);
-            } catch (error) {
-              console.log('wallet removeal Error', error)
-            }
+          eventsToRemove.forEach(event => {
+            try { provider.removeListener(event); } catch { }
           });
         }
-        await provider.disconnect();
-      } catch (error) {
-        console.warn('[WalletService] Disconnect error (ignored):', error);
+
+        try {
+          await provider.disconnect();
+        } catch {
+        }
       }
     }
 
@@ -729,16 +747,19 @@ class WalletService {
     }
 
     this.sessions.delete(type);
+    this.lastPingAt.delete(type);
     this.providers.delete(type);
     this.modals.get(type)?.closeModal();
     this.modals.delete(type);
+    this.disconnecting.delete(type);
 
     this.saveSession();
     this.emitState(type, 'disconnected');
   }
 
   private handleDisconnect(type: WalletType): void {
-    this.disconnect(type);
+    if (this.disconnecting.has(type)) return;
+    void this.disconnect(type);
   }
 
   // ---------------------------------------------------------------------------
@@ -1043,6 +1064,9 @@ class WalletService {
   }
 
   private setupWalletConnectListeners(provider: any, type: WalletType): void {
+    if (this.registeredProviders.has(provider)) return;
+    this.registeredProviders.add(provider);
+
     provider.on('session_event', ({ event, chainId: _chainId }: { event: { name: string; data: any }; chainId: string }) => {
       if (event.name === 'accountsChanged') this.handleAccountsChanged(type, event.data);
       if (event.name === 'chainChanged') this.handleChainChanged(type, event.data);
@@ -1052,8 +1076,24 @@ class WalletService {
       if (params?.namespaces) this.handleSessionUpdate(type, params.namespaces);
     });
 
-    provider.on('session_expire', () => this.handleDisconnect(type));
     provider.on('session_delete', () => this.handleDisconnect(type));
+
+    provider.on('session_expire', () => this.handleDisconnect(type));
+
+    provider.on('session_ping', () => {
+      this.lastPingAt.set(type, Date.now());
+    });
+
+    provider.on('session_extend', () => {
+      const session = this.sessions.get(type);
+      if (session) {
+        this.emitState(type, 'connected');
+      }
+    });
+
+    provider.on('proposal_expire', () => {
+    });
+
     provider.on('disconnect', () => this.handleDisconnect(type));
   }
 
@@ -1218,6 +1258,10 @@ class WalletService {
 
   getProvider(type: WalletType): any {
     return this.providers.get(type) ?? null;
+  }
+
+  getLastPingAt(type: WalletType): number | null {
+    return this.lastPingAt.get(type) ?? null;
   }
 
   isConnected(type: WalletType): boolean {

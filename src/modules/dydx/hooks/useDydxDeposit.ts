@@ -215,7 +215,8 @@ export const useDydxDeposit = () => {
         assetSymbol: string,
         amountHuman: number,
         evmChainId?: number,
-        goFast: boolean = false
+        goFast: boolean = false,
+        slippageTolerancePercent: string = '1'
     ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
         setError(null);
         setTxHash(null);
@@ -236,7 +237,7 @@ export const useDydxDeposit = () => {
             const skipRoute = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
 
             setStep('signing_evm');
-            const msgsResponse = await skipApiService.getDepositMsgs(skipRoute, evmAddress, dydxAddress);
+            const msgsResponse = await skipApiService.getDepositMsgs(skipRoute, evmAddress, dydxAddress, slippageTolerancePercent);
 
             const evmTxData = msgsResponse.txs.find(t => t.evm_tx)?.evm_tx;
             if (!evmTxData) throw new Error('No EVM transaction returned from Skip');

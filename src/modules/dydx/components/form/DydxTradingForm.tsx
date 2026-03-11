@@ -140,7 +140,6 @@ export const DydxTradingForm: React.FC = () => {
     return getMaxBuyingPower(balance, marketData, leverage);
   }, [balance, marketData, leverage]);
 
-  // Calculate target subaccount and equity for UI
   const targetSubaccount = useMemo(() => {
     if (marginMode === 'CROSS') return activeSubaccountNumber;
     return getNextIsolatedSubaccount(selectedMarket);
@@ -475,7 +474,7 @@ export const DydxTradingForm: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col max-w-lvw lg:max-w-[300px] h-[100svh] border-l border-gray-600  bg-secondary">
+    <div className="flex flex-col max-w-lvw lg:max-w-[300px] h-[100svh] border-l border-color bg-secondary">
       {notifications.map(notif => (
         <Notification
           key={notif.id}

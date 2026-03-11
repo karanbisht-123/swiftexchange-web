@@ -27,7 +27,7 @@ const Orderbook = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [maxRows, setMaxRows] = useState(10);
-  const ROW_HEIGHT = 20; // Exact height of each row in px
+  const ROW_HEIGHT = 20;
 
   const multipliers = [1, 5, 10, 50, 100];
   const currentTickSize = baseTickSize * multipliers[groupIndex];
@@ -134,7 +134,7 @@ const Orderbook = () => {
         const availableHeight = entry.contentRect.height;
         const listHeight = (availableHeight - 120) / 2;
 
-        // Calculate how many rows fit, ensure at least 2 rows show
+        // Calculate how many rows fit
         const calculatedRows = Math.floor(listHeight / ROW_HEIGHT);
         setMaxRows(Math.max(calculatedRows, 2));
       }
@@ -160,38 +160,38 @@ const Orderbook = () => {
 
   return (
     <div ref={containerRef} className="w-full h-full flex flex-col bg-secondary text-primary font-medium text-sm select-none">
-      <div className="flex items-center justify-between shrink-0 px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
+      <div className="flex items-center justify-between shrink-0 px-1 md:px-2 lg:px-4 py-2 border-b border-color">
         <div className="flex items-center gap-1">
           <button
-            className="text-primary hover:bg-[#2a2631] px-1.5 py-0.5 rounded transition-colors disabled:opacity-50"
+            className="text-primary hover:bg-hover px-1.5 py-0.5 rounded transition-colors disabled:opacity-50"
             onClick={() => setGroupIndex(Math.max(0, groupIndex - 1))}
             disabled={groupIndex === 0}
           >
             -
           </button>
           <button
-            className="text-primary hover:bg-[#2a2631] px-1.5 py-0.5 rounded transition-colors disabled:opacity-50"
+            className="text-primary hover:bg-hover px-1.5 py-0.5 rounded transition-colors disabled:opacity-50"
             onClick={() => setGroupIndex(Math.min(multipliers.length - 1, groupIndex + 1))}
             disabled={groupIndex === multipliers.length - 1}
           >
             +
           </button>
-          <span className="text-[#6b6b76] text-xs font-semibold ml-1">
+          <span className="text-muted text-xs font-semibold ml-1">
             ${currentTickSize >= 1 ? currentTickSize : currentTickSize.toString()}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-[#1a1620] rounded p-0.5">
+          <div className="flex items-center bg-primary rounded p-0.5">
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'base' ? 'bg-[#2a2631] text-white' : 'text-[#6b6b76] hover:text-white'
+              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'base' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
                 }`}
               onClick={() => setDisplayMode('base')}
             >
               {base}
             </button>
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'usd' ? 'bg-[#2a2631] text-white' : 'text-[#6b6b76] hover:text-white'
+              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'usd' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
                 }`}
               onClick={() => setDisplayMode('usd')}
             >
@@ -199,21 +199,21 @@ const Orderbook = () => {
             </button>
           </div>
           <div
-            className={`w-2 h-2 rounded-full hidden lg:block ${isConnected && !isLoading ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
+            className={`w-2 h-2 rounded-full hidden lg:block ${isConnected && !isLoading ? 'bg-success' : 'bg-warning'
               } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
+      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-muted border-b border-color font-medium">
         <div>
-          Price <span className="bg-[#1a1620] text-[#6b6b76] px-1 py-0.5 rounded text-[10px]">{quote}</span>
+          Price <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{quote}</span>
         </div>
         <div className="text-right">
-          Size <span className="bg-[#1a1620] text-[#6b6b76] px-1 py-0.5 rounded text-[10px]">{displayMode === 'base' ? base : quote}</span>
+          Size <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{displayMode === 'base' ? base : quote}</span>
         </div>
         <div className="text-right">
-          Total <span className="bg-[#1a1620] text-[#6b6b76] px-1 py-0.5 rounded text-[10px]">{displayMode === 'base' ? base : quote}</span>
+          Total <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{displayMode === 'base' ? base : quote}</span>
         </div>
       </div>
 
@@ -228,17 +228,17 @@ const Orderbook = () => {
             <div
               key={`ask-${priceKey}`}
               onClick={() => handlePriceClick(ask.price.toString())}
-              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 cursor-pointer"
+              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 cursor-pointer"
             >
               <div
-                className="absolute inset-y-0 right-0 bg-[#ff3b6915] origin-right will-change-transform transition-transform duration-500 ease-out"
+                className="absolute inset-y-0 right-0 bg-danger/10 origin-right will-change-transform transition-transform duration-500 ease-out"
                 style={{
                   width: '100%',
                   transform: `scaleX(${Math.min(1, depthPct / 100)})`,
                 }}
               />
 
-              <div className="relative text-[#ff3b69] font-semibold tabular-nums text-xs lg:text-[13px]">
+              <div className="relative text-danger font-semibold tabular-nums text-xs lg:text-[13px]">
                 {ask.price.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
@@ -247,7 +247,7 @@ const Orderbook = () => {
               <div className="relative text-right text-primary tabular-nums text-xs lg:text-[13px] ">
                 {displaySize}
               </div>
-              <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[13px] ">
+              <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px] ">
                 {displayTotal}
               </div>
             </div>
@@ -255,12 +255,12 @@ const Orderbook = () => {
         })}
       </div>
 
-      <div className="grid grid-cols-3 shrink-0 text-primary px-1 md:px-2 lg:px-4 py-2.5 border-y border-[#232027] bg-secondary shadow-sm text-xs lg:text-[13px]">
-        <div className="text-[#6b6b76] font-medium">Spread</div>
-        <div className="text-right font-semibold text-white tabular-nums">
+      <div className="grid grid-cols-3 shrink-0 text-primary px-1 md:px-2 lg:px-4 py-2.5 border-y border-color bg-secondary shadow-sm text-xs lg:text-[13px]">
+        <div className="text-muted font-medium">Spread</div>
+        <div className="text-right font-semibold text-primary tabular-nums">
           {spread !== null && spread >= 0 ? spread.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
         </div>
-        <div className="text-right text-[#6b6b76] font-medium tabular-nums">
+        <div className="text-right text-muted font-medium tabular-nums">
           {spreadPct !== null && spreadPct > 0 ? `${spreadPct.toFixed(3)}%` : '0.00%'}
         </div>
       </div>
@@ -276,17 +276,17 @@ const Orderbook = () => {
             <div
               key={`bid-${priceKey}`}
               onClick={() => handlePriceClick(bid.price.toString())}
-              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150 cursor-pointer"
+              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 cursor-pointer"
             >
               <div
-                className="absolute inset-y-0 right-0 bg-[#00ff9d15] origin-right will-change-transform transition-transform duration-500 ease-out"
+                className="absolute inset-y-0 right-0 bg-success/10 origin-right will-change-transform transition-transform duration-500 ease-out"
                 style={{
                   width: '100%',
                   transform: `scaleX(${Math.min(1, depthPct / 100)})`,
                 }}
               />
 
-              <div className="relative text-[#00ff9d] font-semibold tabular-nums text-xs lg:text-[13px]">
+              <div className="relative text-success font-semibold tabular-nums text-xs lg:text-[13px]">
                 {bid.price.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
@@ -295,7 +295,7 @@ const Orderbook = () => {
               <div className="relative text-right text-primary tabular-nums text-xs lg:text-[13px]">
                 {displaySize}
               </div>
-              <div className="relative text-right text-[#6b6b76] tabular-nums text-xs lg:text-[13px]">
+              <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px]">
                 {displayTotal}
               </div>
             </div>

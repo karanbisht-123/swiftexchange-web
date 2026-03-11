@@ -1,6 +1,7 @@
 import { Copy, Share2 } from 'lucide-react';
 
 import PageLayout from '../../../components/layout/PageLayout';
+import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useReceiveAssets } from '../hook/useReceiveassets';
 
@@ -118,70 +119,139 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
               </div>
             )}
 
-            <div className="card card-premium flex flex-col items-center justify-center p-6">
-              {walletAddress && isAddressValid ? (
-                <div className="relative w-56 h-56 bg-bg-card p-4 rounded-lg border border-border mb-6 premium-shadow animate-scale-in">
-                  <canvas ref={qrCanvasRef} className="w-full h-full rounded-md" />
-                  {currentAsset && (
-                    <img
-                      src={currentAsset.logo}
-                      alt={`${currentAsset.label} logo`}
-                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-bg-card p-1 premium-shadow"
-                    />
+            {currentAsset?.walletType === 'stellar' ? (
+              <StellarActiveGuard>
+                <div className="card card-premium flex flex-col items-center justify-center p-6">
+                  {walletAddress && isAddressValid ? (
+                    <div className="relative w-56 h-56 bg-bg-card p-4 rounded-lg border border-border mb-6 premium-shadow animate-scale-in">
+                      <canvas ref={qrCanvasRef} className="w-full h-full rounded-md" />
+                      {currentAsset && (
+                        <img
+                          src={currentAsset.logo}
+                          alt={`${currentAsset.label} logo`}
+                          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-bg-card p-1 premium-shadow"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="w-56 h-56 bg-bg-card p-4 rounded-lg border border-dashed border-border mb-6 flex items-center justify-center animate-fade-in">
+                      <p className="text-text-muted text-center text-sm">
+                        {!walletAddress
+                          ? `Connect ${currentAsset?.network} wallet to view address`
+                          : 'Invalid address for selected network'}
+                      </p>
+                    </div>
                   )}
-                </div>
-              ) : (
-                <div className="w-56 h-56 bg-bg-card p-4 rounded-lg border border-dashed border-border mb-6 flex items-center justify-center animate-fade-in">
-                  <p className="text-text-muted text-center text-sm">
-                    {!walletAddress
-                      ? `Connect ${currentAsset?.network} wallet to view address`
-                      : 'Invalid address for selected network'}
-                  </p>
-                </div>
-              )}
 
-              <div className="w-full mb-4">
-                <p className="text-sm font-semibold text-text-primary mb-2 text-center">
-                  Your {currentAsset?.value} Address
-                </p>
-                <div
-                  className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${isAddressValid
-                    ? 'border-border text-text-primary'
-                    : 'border-danger text-danger-dark bg-danger-light'
-                    }`}
-                >
-                  {walletAddress || `No ${currentAsset?.network} address available`}
+                  <div className="w-full mb-4">
+                    <p className="text-sm font-semibold text-text-primary mb-2 text-center">
+                      Your {currentAsset?.value} Address
+                    </p>
+                    <div
+                      className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${isAddressValid
+                        ? 'border-border text-text-primary'
+                        : 'border-danger text-danger-dark bg-danger-light'
+                        }`}
+                    >
+                      {walletAddress || `No ${currentAsset?.network} address available`}
+                      <button
+                        id="copy-btn-address"
+                        onClick={() => handleCopy()}
+                        className="btn btn-ghost absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-bg-overlay transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="Copy wallet address"
+                        disabled={!walletAddress || !isAddressValid}
+                      >
+                        <Copy className="w-5 h-5 text-text-muted" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center space-x-6">
+                    <button
+                      onClick={() => handleCopy()}
+                      className="btn btn-ghost flex flex-col items-center space-y-1 text-text-primary hover:text-text-accent transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      disabled={!walletAddress || !isAddressValid}
+                    >
+                      <Copy className="w-6 h-6" />
+                      <span className="font-medium">Copy Address</span>
+                    </button>
+                    <button
+                      onClick={handleShare}
+                      className="btn btn-ghost flex flex-col items-center space-y-1 text-text-primary hover:text-text-accent transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      disabled={!walletAddress || !isAddressValid}
+                    >
+                      <Share2 className="w-6 h-6" />
+                      <span className="font-medium">Share Address</span>
+                    </button>
+                  </div>
+                </div>
+              </StellarActiveGuard>
+            ) : (
+              <div className="card card-premium flex flex-col items-center justify-center p-6">
+                {walletAddress && isAddressValid ? (
+                  <div className="relative w-56 h-56 bg-bg-card p-4 rounded-lg border border-border mb-6 premium-shadow animate-scale-in">
+                    <canvas ref={qrCanvasRef} className="w-full h-full rounded-md" />
+                    {currentAsset && (
+                      <img
+                        src={currentAsset.logo}
+                        alt={`${currentAsset.label} logo`}
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-bg-card p-1 premium-shadow"
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div className="w-56 h-56 bg-bg-card p-4 rounded-lg border border-dashed border-border mb-6 flex items-center justify-center animate-fade-in">
+                    <p className="text-text-muted text-center text-sm">
+                      {!walletAddress
+                        ? `Connect ${currentAsset?.network} wallet to view address`
+                        : 'Invalid address for selected network'}
+                    </p>
+                  </div>
+                )}
+
+                <div className="w-full mb-4">
+                  <p className="text-sm font-semibold text-text-primary mb-2 text-center">
+                    Your {currentAsset?.value} Address
+                  </p>
+                  <div
+                    className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${isAddressValid
+                      ? 'border-border text-text-primary'
+                      : 'border-danger text-danger-dark bg-danger-light'
+                      }`}
+                  >
+                    {walletAddress || `No ${currentAsset?.network} address available`}
+                    <button
+                      id="copy-btn-address"
+                      onClick={() => handleCopy()}
+                      className="btn btn-ghost absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-bg-overlay transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-label="Copy wallet address"
+                      disabled={!walletAddress || !isAddressValid}
+                    >
+                      <Copy className="w-5 h-5 text-text-muted" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-center space-x-6">
                   <button
-                    id="copy-btn-address"
                     onClick={() => handleCopy()}
-                    className="btn btn-ghost absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-bg-overlay transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="Copy wallet address"
+                    className="btn btn-ghost flex flex-col items-center space-y-1 text-text-primary hover:text-text-accent transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                     disabled={!walletAddress || !isAddressValid}
                   >
-                    <Copy className="w-5 h-5 text-text-muted" />
+                    <Copy className="w-6 h-6" />
+                    <span className="font-medium">Copy Address</span>
+                  </button>
+                  <button
+                    onClick={handleShare}
+                    className="btn btn-ghost flex flex-col items-center space-y-1 text-text-primary hover:text-text-accent transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    disabled={!walletAddress || !isAddressValid}
+                  >
+                    <Share2 className="w-6 h-6" />
+                    <span className="font-medium">Share Address</span>
                   </button>
                 </div>
               </div>
-
-              <div className="flex justify-center space-x-6">
-                <button
-                  onClick={() => handleCopy()}
-                  className="btn btn-ghost flex flex-col items-center space-y-1 text-text-primary hover:text-text-accent transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  disabled={!walletAddress || !isAddressValid}
-                >
-                  <Copy className="w-6 h-6" />
-                  <span className="font-medium">Copy Address</span>
-                </button>
-                <button
-                  onClick={handleShare}
-                  className="btn btn-ghost flex flex-col items-center space-y-1 text-text-primary hover:text-text-accent transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  disabled={!walletAddress || !isAddressValid}
-                >
-                  <Share2 className="w-6 h-6" />
-                  <span className="font-medium">Share Address</span>
-                </button>
-              </div>
-            </div>
+            )}
           </>
         )}
       </div>

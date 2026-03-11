@@ -87,7 +87,7 @@ const ResizablePanel: React.FC<ResizablePanelProps> = ({
   return (
     <div
       ref={panelRef}
-      className={`bg-secondary border-t border-gray-800 flex flex-col overflow-hidden transition-none ${className}`}
+      className={`bg-secondary border-t border-color flex flex-col overflow-hidden transition-none ${className}`}
       style={{ height: `${height}vh` }}
     >
       <div

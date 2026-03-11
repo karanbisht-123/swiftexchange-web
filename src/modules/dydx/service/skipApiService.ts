@@ -1,4 +1,4 @@
-const SKIP_API_BASE = 'https://skip-proxy-web-mainnet.infrastructure-34d.workers.dev';
+const SKIP_API_BASE = 'https://api.skip.build';
 
 const DYDX_CHAIN_ID = 'dydx-mainnet-1';
 const NOBLE_CHAIN_ID = 'noble-1';
@@ -136,8 +136,10 @@ export const skipApiService = {
     async getDepositMsgs(
         route: SkipRoute,
         evmAddress: string,
-        dydxAddress: string
+        dydxAddress: string,
+        slippageTolerancePercent: string = '1'
     ): Promise<SkipMsgsResponse> {
+        console.log('route', route, "slippageTolerancePercent", slippageTolerancePercent, "dydxAddress", dydxAddress, "evmAddress", evmAddress);
         const body: any = {
             source_asset_denom: route.sourceAssetDenom,
             source_asset_chain_id: route.sourceChainId,
@@ -148,8 +150,14 @@ export const skipApiService = {
             address_list: [evmAddress, dydxAddress],
             operations: route.operations,
             estimated_amount_out: route.amountOut,
-            slippage_tolerance_percent: '1',
+            slippage_tolerance_percent: slippageTolerancePercent,
         };
+
+        console.log('Sending Skip Deposit Msgs Request:', {
+            ...body,
+            operations_count: body.operations?.length,
+
+        });
 
         return skipPost<SkipMsgsResponse>('/v2/fungible/msgs', body);
     },

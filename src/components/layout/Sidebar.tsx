@@ -144,12 +144,12 @@ const Sidebar: FC = () => {
         id="sidebar"
         className={`
           fixed left-0 top-0 h-screen z-40 
-          bg-secondary border-r border-[#232027]
+          bg-secondary 
           transition-all duration-200 w-20
           ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
-        <div className="h-16 px-2 border-b border-[#232027] flex items-center justify-center">
+        <div className="h-16 px-2 flex items-center justify-center">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
             <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>

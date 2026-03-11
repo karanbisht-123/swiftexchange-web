@@ -69,20 +69,20 @@ const ClaimableBalanceModal = ({ onClose }: ClaimableBalanceModalProps) => {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-            <div className="bg-[#1A1D24] rounded-2xl border border-white/10 w-full max-w-md shadow-2xl overflow-hidden transform transition-all scale-100">
+            <div className="bg-secondary rounded-2xl border border-white/10 w-full max-w-md shadow-2xl overflow-hidden transform transition-all scale-100">
                 <div className="p-6 border-b border-white/5 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-pink-500/10 flex items-center justify-center">
                             <Gift className="w-5 h-5 text-pink-500" />
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-white">Claimable Balances</h3>
+                            <h3 className="text-lg font-bold ">Claimable Balances</h3>
                             <p className="text-xs text-muted">You have pending payments to claim</p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1 rounded-full hover:bg-white/5 transition-colors text-muted hover:text-white"
+                        className="p-1 rounded-full hover:bg-white/5 transition-colors text-muted "
                     >
                         <X className="w-5 h-5" />
                     </button>
@@ -102,7 +102,7 @@ const ClaimableBalanceModal = ({ onClose }: ClaimableBalanceModalProps) => {
                                 return (
                                     <div key={balance.id} className="bg-white/5 rounded-xl p-4 border border-white/5 flex items-center justify-between group hover:border-pink-500/30 transition-all">
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-bold text-white">{amount} {assetCode}</span>
+                                            <span className="text-sm font-bold">{amount} {assetCode}</span>
                                             <span className="text-[10px] text-muted truncate max-w-[150px]">From: {balance.sponsor?.substring(0, 8)}...</span>
                                         </div>
 
@@ -110,8 +110,8 @@ const ClaimableBalanceModal = ({ onClose }: ClaimableBalanceModalProps) => {
                                             onClick={() => handleClaim(balance)}
                                             disabled={!!processingId}
                                             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${processingId === balance.id
-                                                ? 'bg-white/10 text-white cursor-wait'
-                                                : 'bg-primary text-white hover:bg-primary-hover shadow-lg shadow-primary/20'
+                                                ? 'bg-whi cursor-wait'
+                                                : 'bg-pr hover:bg-primary-hover shadow-lg shadow-primary/20'
                                                 }`}
                                         >
                                             {processingId === balance.id ? (

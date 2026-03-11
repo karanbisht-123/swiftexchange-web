@@ -29,7 +29,7 @@ interface PortfolioState {
     isLoading: boolean;
     lastFetched: number;
     network: string;
-    isFetching: boolean; // Prevent concurrent fetches
+    isFetching: boolean;
     hasError: boolean;
     errorMessage: string | null;
 }
@@ -120,6 +120,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
 
             const evmAddr = connectedWallets[WalletType.EVM]?.address;
             const stellarAddr = connectedWallets[WalletType.STELLAR]?.address;
+            console.log(evmAddr, "evmAddr");
+            console.log(stellarAddr, "stellarAddr");
 
 
             if (state.network !== network) {
@@ -135,12 +137,16 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
 
 
                 if (stellarAddr) {
+
+                    console.log("stellar bloc active for blance featching ")
                     fetchPromises.push(
                         (async () => {
                             try {
                                 const config = getStellarConfig(network as NetworkType);
                                 const server = new StellarSdk.Horizon.Server(config.horizonUrl);
                                 const acc = await server.loadAccount(stellarAddr);
+
+                                console.log(acc, 'stellar account');
 
                                 for (const b of acc.balances) {
                                     const balanceNum = parseFloat(b.balance);
@@ -160,9 +166,21 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                                         });
                                     }
                                 }
-                            } catch (err) {
-                                fetchFailed = true;
-                                console.warn('[PortfolioStore] Stellar fetch failed:', err);
+                            } catch (err: any) {
+                                // Stellar accounts that have never been funded return a 404.
+                                const isNotFound =
+                                    err?.response?.status === 404 ||
+                                    err?.status === 404 ||
+                                    (typeof err?.message === 'string' && err.message.includes('404'));
+
+                                if (isNotFound) {
+                                    console.info(
+                                        '[PortfolioStore] Stellar account not yet activated (no funds) – skipping.'
+                                    );
+                                } else {
+                                    fetchFailed = true;
+                                    console.warn('[PortfolioStore] Stellar fetch failed:', err);
+                                }
                             }
                         })()
                     );
@@ -178,8 +196,9 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                                 try {
                                     const urls = [chain.rpcUrl, ...(chain.fallbackRpcUrls || [])];
 
-
+                                    console.log(urls, "urls evm rpc");
                                     const bal = await rpcManager.fetchWithFallback(chain.chainId, urls, p => p.getBalance(evmAddr));
+                                    console.log(bal, "balance evm");
                                     const balanceNum = parseFloat(ethers.formatEther(bal));
 
                                     if (balanceNum > 0) {
@@ -253,7 +272,6 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                 });
             }
 
-            // Enrich prices in background
             setTimeout(() => get().enrichPrices(), 1000);
         },
 

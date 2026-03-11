@@ -141,10 +141,10 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     return (
         <div className="flex flex-col px-2">
             {calculations && (
-                <div className=" rounded-lg rounded-b-none bg-primary  overflow-hidden">
+                <div className=" rounded-lg rounded-b-none bg-secondary overflow-hidden border border-color border-b-0">
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
-                        className="w-full flex items-center justify-between p-3 text-xs font-medium text-gray-400 hover:text-gray-300 transition-colors bg-gray-900/20"
+                        className="w-full flex items-center justify-between p-3 text-xs font-medium text-muted hover:text-primary transition-colors bg-primary"
                     >
                         <span>Receipt</span>
                         {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -176,7 +176,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
                             <Row
                                 label="Rewards"
                                 value="DYDX"
-                                rightElement={<span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1 rounded ml-1 font-semibold">New</span>}
+                                rightElement={<span className="text-[10px] bg-info/20 text-info px-1 rounded ml-1 font-semibold">New</span>}
                                 tooltip="Estimated trading rewards"
                             />
                         </div>
@@ -189,8 +189,8 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
                 disabled={isPlacingOrder || !isFormValid}
                 className={`w-full py-4 rounded-lg -mt-2 z-20 font-bold text-sm transition-all
                 ${side === 'BUY'
-                        ? 'bg-green-500 hover:bg-green-600 active:bg-green-700'
-                        : 'bg-red-500 hover:bg-red-600 active:bg-red-700'
+                        ? 'bg-success hover:bg-success/90 active:bg-success/80'
+                        : 'bg-danger hover:bg-danger/90 active:bg-danger/80'
                     } disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg`}
             >
                 {isPlacingOrder ? 'Placing Order...' : `${side} ${selectedMarket || ''}`}
@@ -202,13 +202,13 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
 const Row: React.FC<{ label: string; value: string; isBadge?: boolean; rightElement?: React.ReactNode; tooltip?: string }> = ({ label, value, isBadge, rightElement, tooltip }) => (
     <div className="flex justify-between items-center text-xs">
         <Tooltip content={tooltip || ''} position="top">
-            <span className="text-gray-500">{label}</span>
+            <span className="text-muted">{label}</span>
         </Tooltip>
         <div className="flex items-center">
             {isBadge ? (
-                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">{value}</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-success/10 text-success border border-success/20">{value}</span>
             ) : (
-                <span className="text-gray-200 font-medium">{value}</span>
+                <span className="text-primary font-medium">{value}</span>
             )}
             {rightElement}
         </div>

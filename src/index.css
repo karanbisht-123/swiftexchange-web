@@ -1,6 +1,30 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;600;700&display=swap');
 @import 'tailwindcss';
 
+@theme {
+  --color-primary: var(--color-brand-primary);
+  --color-primary-hover: var(--color-brand-primary-hover);
+  --color-primary-light: var(--color-brand-primary-light);
+  --color-accent: var(--color-brand-accent);
+
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-info: var(--color-info);
+
+  --color-bg-primary: var(--color-bg-primary);
+  --color-bg-secondary: var(--color-bg-secondary);
+  --color-bg-tertiary: var(--color-bg-tertiary);
+  --color-bg-hover: var(--color-bg-hover);
+
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+
+  --color-border-color: var(--color-border);
+  --color-divider: var(--color-border-light);
+}
+
 :root {
   /* Brand Colors - Based on #020e46 */
   --color-brand-primary: #020e46;
@@ -70,10 +94,10 @@
   --color-bg-hover: #2d3241;
 
   /* Text Colors - High Contrast for Dark */
-  --color-text-primary: #f8f9fa;
+  --color-text-primary: #e2e8f0;
   --color-text-secondary: #c1c9d2;
   --color-text-muted: #8b95a5;
-  --color-text-inverse: #0a0e1a;
+  --color-text-inverse: #ffffff;
 
   /* Border Colors - Visible in Dark */
   --color-border: #2d3241;
@@ -477,6 +501,47 @@
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background-color: var(--color-text-muted);
+  }
+
+  /* Fixes for hardcoded white alphas in React components for light mode */
+  .bg-white\/5 {
+    background-color: rgba(0, 0, 0, 0.04);
+  }
+
+  .bg-white\/10 {
+    background-color: rgba(0, 0, 0, 0.08);
+  }
+
+  .border-white\/5 {
+    border-color: rgba(0, 0, 0, 0.06);
+  }
+
+  .border-white\/10 {
+    border-color: rgba(0, 0, 0, 0.12);
+  }
+
+  .dark .bg-white\/5 {
+    background-color: rgba(255, 255, 255, 0.04);
+  }
+
+  .dark .bg-white\/10 {
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .dark .border-white\/5 {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .dark .border-white\/10 {
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .bg-secondary\/50 {
+    background-color: rgba(255, 255, 255, 0.5);
+  }
+
+  .dark .bg-secondary\/50 {
+    background-color: rgba(25, 28, 37, 0.5);
   }
 }
 

@@ -2,6 +2,7 @@ import { AlertCircle, Copy, Info, Loader2 } from 'lucide-react';
 import React, { useCallback, useMemo } from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
+import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import TransactionSuccess from '../../transction/component/TransactionSuccess';
 import { useSendAsset } from '../hook/useSendassets';
 
@@ -234,10 +235,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <button onClick={handleBackToForm} className="btn-secondary">
+          <button onClick={handleBackToForm} className="btn-secondary btn py-4 lg:py-5">
             Back to Edit
           </button>
-          <button onClick={handleConfirmTransaction} className="btn-primary">
+          <button onClick={handleConfirmTransaction} className="btn-primary btn py-4 lg:py-5">
             Confirm & Send
           </button>
         </div>
@@ -362,9 +363,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             type="text"
             id="recipientAddress"
             className={`input ${(formError && formError.includes('Recipient address')) ||
-                (formError && formError.includes('Invalid recipient'))
-                ? 'input-danger'
-                : ''
+              (formError && formError.includes('Invalid recipient'))
+              ? 'input-danger'
+              : ''
               }`}
             placeholder={currentAsset?.type === 'stellar' ? 'G...' : '0x...'}
             value={recipientAddress}
@@ -385,9 +386,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   inputMode="decimal"
                   id="amount"
                   className={`input pr-16 ${formError &&
-                      (formError.includes('balance') || formError.includes('Amount must'))
-                      ? 'input-danger'
-                      : ''
+                    (formError.includes('balance') || formError.includes('Amount must'))
+                    ? 'input-danger'
+                    : ''
                     }`}
                   placeholder="0.0"
                   value={amount}
@@ -541,7 +542,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           type="button"
           onClick={handleReviewTransaction}
           disabled={!isFormValid}
-          className={`w-full btn-lg ${isFormValid ? 'btn-primary' : 'btn-secondary'}`}
+          className={`w-full btn py-4 lg:py-5 ${isFormValid ? 'btn-primary' : 'btn-secondary'}`}
         >
           {isEstimatingFees ? (
             <span className="flex items-center justify-center gap-2">
@@ -556,6 +557,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     );
   };
 
+  const isStellar = currentAsset?.type === 'stellar';
+
   return (
     <PageLayout
       title="Send Assets"
@@ -563,20 +566,39 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       onBack={transactionState.step === 'form' ? onBack : handleBackToForm}
       maxWidth="lg"
     >
-      {(() => {
-        switch (transactionState.step) {
-          case 'form':
-            return renderForm();
-          case 'review':
-            return TransactionReview;
-          case 'signing':
-          case 'success':
-          case 'error':
-            return TransactionStatusComponent;
-          default:
-            return renderForm();
-        }
-      })()}
+      {isStellar ? (
+        <StellarActiveGuard onSkip={onBack}>
+          {(() => {
+            switch (transactionState.step) {
+              case 'form':
+                return renderForm();
+              case 'review':
+                return TransactionReview;
+              case 'signing':
+              case 'success':
+              case 'error':
+                return TransactionStatusComponent;
+              default:
+                return renderForm();
+            }
+          })()}
+        </StellarActiveGuard>
+      ) : (
+        (() => {
+          switch (transactionState.step) {
+            case 'form':
+              return renderForm();
+            case 'review':
+              return TransactionReview;
+            case 'signing':
+            case 'success':
+            case 'error':
+              return TransactionStatusComponent;
+            default:
+              return renderForm();
+          }
+        })()
+      )}
     </PageLayout>
   );
 };

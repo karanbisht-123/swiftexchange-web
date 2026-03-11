@@ -227,8 +227,8 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                     <button
                         key={option.value}
                         onClick={() => setFilterType(option.value)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-200 border ${filterType === option.value
-                            ? 'bg-primary text-text-inverse border-primary shadow-lg'
+                        className={`px-3 py-1.5 text-xs font-medium rounded-sm  transition-all duration-200  ${filterType === option.value
+                            ? 'bg-primary text-text-inverse '
                             : 'bg-white/5 text-muted border-white/5 hover:bg-white/10 hover:text-text-primary'
                             }`}
                     >
@@ -245,7 +245,7 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
             <div className={`${!embedded ? 'bg-muted/10 rounded-xl border border-white/5' : ''} flex-1 overflow-hidden flex flex-col min-h-0`}>
                 <div className="hidden md:block overflow-y-auto flex-1">
                     <table className="w-full text-left border-collapse">
-                        <thead className="sticky top-0 bg-[#0d1017] z-10 shadow-sm">
+                        <thead className="sticky top-0 bg-primary">
                             <tr className="border-b border-white/5">
                                 <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">
                                     Type
@@ -275,7 +275,7 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                             ) : (
                                 filteredTransactions.map(tx => (
                                     <tr key={tx.id} className="hover:bg-white/5 transition-colors group">
-                                        <td className="px-6 py-4">
+                                        <td className="lg:px-6 px-2 py-4">
                                             <div className="flex items-center gap-3">
                                                 <div
                                                     className={`w-9 h-9 rounded-full flex items-center justify-center border shrink-0 ${tx.type === 'SEND' ? 'bg-warning/10 border-warning/20' :
@@ -340,7 +340,7 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                         </tbody>
                     </table>
                 </div>
-                <div className="md:hidden overflow-y-auto flex-1 p-3 space-y-3">
+                <div className="md:hidden overflow-y-auto flex-1  space-y-2">
                     {filteredTransactions.length === 0 && !isLoading ? (
                         <div className="text-center py-12 text-muted">
                             <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
@@ -350,11 +350,11 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                         filteredTransactions.map(tx => (
                             <div
                                 key={tx.id}
-                                className="bg-white/5 rounded-xl p-4 border border-white/5 flex items-center justify-between group"
+                                className="bg-primary rounded-xl lg:p-4 p-3 border border-white/5 flex items-center justify-between group"
                             >
                                 <div className="flex items-center gap-3">
                                     <div
-                                        className={`w-10 h-10 rounded-full flex items-center justify-center border shrink-0 ${tx.type === 'SEND'
+                                        className={`lg:w-12 lg:h-12 w-8 h-8 rounded-full flex items-center justify-center border shrink-0 ${tx.type === 'SEND'
                                             ? 'bg-warning/10 border-warning/20'
                                             : tx.type === 'RECEIVE'
                                                 ? 'bg-success/10 border-success/20'
@@ -404,7 +404,7 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                         ))
                     )}
                     {hasMore && (
-                        <div className="p-4 rounded-xl border border-white/5 text-center bg-white/5 hover:bg-white/10 transition-colors cursor-pointer" onClick={!isLoading ? loadMore : undefined}>
+                        <div className="p-4 rounded-xl border border-white/5 text-center bg-primary hover:bg-white/10 transition-colors cursor-pointer" onClick={!isLoading ? loadMore : undefined}>
                             <button
                                 disabled={isLoading}
                                 className="text-primary text-sm font-medium"

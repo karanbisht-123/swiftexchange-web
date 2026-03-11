@@ -13,10 +13,10 @@ const OrderAndTrades = () => {
   return (
     <>
       <div
-        className="hidden md:flex md:flex-col h-full card overflow-hidden"
+        className="hidden md:flex md:flex-col h-full  overflow-hidden border-l border-color"
         style={{ borderRadius: 0, padding: 0 }}
       >
-        <div className="flex bg-tertiary border-b border-[#232027] flex-shrink-0">
+        <div className="flex bg-tertiary  flex-shrink-0">
           <button
             onClick={() => setActiveTab('order')}
             className={`flex-1 px-4 py-3 text-sm font-medium transition-all duration-200 relative ${activeTab === 'order' ? 'text-primary' : 'text-secondary hover:text-primary'
@@ -56,7 +56,7 @@ const OrderAndTrades = () => {
         </div>
       </div>
 
-      <div className="md:hidden bottom-0 left-0 right-0 h-full flex overflow-hidden bg-secondary z-50 shadow-2xl border-t border-[#232027]">
+      <div className="md:hidden bottom-0 left-0 right-0 h-full flex overflow-hidden bg-secondary z-50 shadow-2xl">
         <div
           className={`transition-all duration-300 ease-in-out border-r border-[#232027] overflow-hidden flex flex-col ${mobileView === 'split' ? 'w-1/2' : mobileView === 'orderbook' ? 'w-full' : 'w-0'
             }`}
@@ -67,19 +67,19 @@ const OrderAndTrades = () => {
               {mobileView !== 'orderbook' && (
                 <button
                   onClick={() => setMobileView('orderbook')}
-                  className="p-1 hover:bg-gray-700/50 rounded transition-colors"
+                  className="p-1 hover:bg-hover rounded transition-colors"
                   title="Expand Order Book"
                 >
-                  <Maximize2 className="w-3 h-3 text-gray-400" />
+                  <Maximize2 className="w-3 h-3 text-muted" />
                 </button>
               )}
               {mobileView === 'orderbook' && (
                 <button
                   onClick={() => setMobileView('split')}
-                  className="p-1 hover:bg-gray-700/50 rounded transition-colors"
+                  className="p-1 hover:bg-hover rounded transition-colors"
                   title="Split View"
                 >
-                  <ChevronRight className="w-3 h-3 text-gray-400" />
+                  <ChevronRight className="w-3 h-3 text-muted" />
                 </button>
               )}
             </div>
@@ -98,19 +98,19 @@ const OrderAndTrades = () => {
               {mobileView === 'trades' && (
                 <button
                   onClick={() => setMobileView('split')}
-                  className="p-1 hover:bg-gray-700/50 rounded transition-colors"
+                  className="p-1 hover:bg-hover rounded transition-colors"
                   title="Split View"
                 >
-                  <ChevronLeft className="w-3 h-3 text-gray-400" />
+                  <ChevronLeft className="w-3 h-3 text-muted" />
                 </button>
               )}
               {mobileView !== 'trades' && (
                 <button
                   onClick={() => setMobileView('trades')}
-                  className="p-1 hover:bg-gray-700/50 rounded transition-colors"
+                  className="p-1 hover:bg-hover rounded transition-colors"
                   title="Expand Trades"
                 >
-                  <Maximize2 className="w-3 h-3 text-gray-400" />
+                  <Maximize2 className="w-3 h-3 text-muted" />
                 </button>
               )}
             </div>
@@ -124,21 +124,21 @@ const OrderAndTrades = () => {
         </div>
 
         {mobileView === 'split' && (
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex gap-2 bg-gray-900/95 backdrop-blur-sm rounded-full px-3 py-2 shadow-lg border border-gray-700">
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex gap-2 bg-secondary/95 backdrop-blur-sm rounded-full px-3 py-2 shadow-lg border border-color">
             <button
               onClick={() => setMobileView('orderbook')}
-              className="p-1.5 hover:bg-gray-700 rounded-full transition-colors"
+              className="p-1.5 hover:bg-hover rounded-full transition-colors"
               title="Expand Order Book"
             >
-              <ChevronLeft className="w-4 h-4 text-gray-300" />
+              <ChevronLeft className="w-4 h-4 text-muted" />
             </button>
-            <div className="w-px bg-gray-700" />
+            <div className="w-px bg-color" />
             <button
               onClick={() => setMobileView('trades')}
-              className="p-1.5 hover:bg-gray-700 rounded-full transition-colors"
+              className="p-1.5 hover:bg-hover rounded-full transition-colors"
               title="Expand Trades"
             >
-              <ChevronRight className="w-4 h-4 text-gray-300" />
+              <ChevronRight className="w-4 h-4 text-muted" />
             </button>
           </div>
         )}

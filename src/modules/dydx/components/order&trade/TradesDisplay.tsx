@@ -45,23 +45,23 @@ export default function TradesDisplay() {
   const quoteCurrency = selectedMarket.split('-')[1] || 'USD';
 
   return (
-    <div className="w-full h-full flex flex-col bg-secondary text-white font-medium text-sm select-none">
-      <div className="flex items-center shrink-0 justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-[#232027]">
+    <div className="w-full h-full flex flex-col bg-secondary text-primary font-medium text-sm select-none">
+      <div className="flex items-center shrink-0 justify-between px-1 md:px-2 lg:px-4 py-2 border-b border-color">
         <div className=" items-center gap-3 hidden lg:flex">
-          <span className="text-[#aaaaaa] text-xs font-semibold">Recent Trades</span>
+          <span className="text-muted text-xs font-semibold">Recent Trades</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-white font-semibold">{baseCurrency}</span>
-          <span className="text-[#aaaaaa]">/</span>
-          <span className="text-[#aaaaaa]">{quoteCurrency}</span>
+          <span className="text-primary font-semibold">{baseCurrency}</span>
+          <span className="text-muted">/</span>
+          <span className="text-muted">{quoteCurrency}</span>
           <div
-            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[#00ff9d]' : 'bg-[#ffaa00]'
+            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-warning'
               } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-[#6b6b76] border-b border-[#232027] font-medium">
+      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-muted border-b border-color font-medium">
         <div className="text-left">Size ({baseCurrency})</div>
         <div className="text-center">Price ({quoteCurrency})</div>
         <div className="text-right">Time</div>
@@ -70,8 +70,8 @@ export default function TradesDisplay() {
       {isLoading && trades.length === 0 && (
         <div className="flex items-center justify-center py-12">
           <div className="flex flex-col items-center gap-2">
-            <div className="animate-spin rounded-full h-6 w-6 border-2 border-[#00ff9d] border-t-transparent" />
-            <div className="text-[#6b6b76] text-sm">Loading trades...</div>
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-success border-t-transparent" />
+            <div className="text-muted text-sm">Loading trades...</div>
           </div>
         </div>
       )}
@@ -86,10 +86,10 @@ export default function TradesDisplay() {
             return (
               <div
                 key={uniqueKey}
-                className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-[#1a1620] relative overflow-hidden transition-colors duration-150"
+                className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-hover relative overflow-hidden transition-colors duration-150"
               >
                 <div
-                  className={`absolute inset-y-0 right-0 origin-right will-change-transform transition-transform duration-200 ease-out ${isBuy ? 'bg-[#00ff9d15]' : 'bg-[#ff3b6915]'
+                  className={`absolute inset-y-0 right-0 origin-right will-change-transform transition-transform duration-200 ease-out ${isBuy ? 'bg-success/10' : 'bg-danger/10'
                     }`}
                   style={{
                     width: '100%',
@@ -98,15 +98,15 @@ export default function TradesDisplay() {
                 />
 
                 <div
-                  className={`relative font-medium text-xs lg:text-[13px] tabular-nums text-left ${isBuy ? 'text-[#00ff9d]' : 'text-[#ff3b69]'
+                  className={`relative font-medium text-xs lg:text-[13px] tabular-nums text-left ${isBuy ? 'text-success' : 'text-danger'
                     }`}
                 >
                   {formatSize(trade.size)}
                 </div>
-                <div className="relative text-xs lg:text-[13px] text-white tabular-nums text-center">
+                <div className="relative text-xs lg:text-[13px] text-primary tabular-nums text-center">
                   ${formatPrice(trade.price)}
                 </div>
-                <div className="relative text-xs lg:text-[13px] text-[#6b6b76] tabular-nums text-right">
+                <div className="relative text-xs lg:text-[13px] text-muted tabular-nums text-right">
                   {formatTime(trade.createdAt)}
                 </div>
               </div>
@@ -116,8 +116,8 @@ export default function TradesDisplay() {
       )}
 
       {!isConnected && trades.length > 0 && (
-        <div className="px-4 py-2 bg-[#ffaa0015] border-t border-[#ffaa0030]">
-          <div className="text-xs text-[#ffaa00] text-center">
+        <div className="px-4 py-2 bg-warning/10 border-t border-warning/20">
+          <div className="text-xs text-warning text-center">
             Showing cached data - Reconnecting...
           </div>
         </div>
