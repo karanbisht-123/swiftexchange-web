@@ -218,8 +218,8 @@ const WalletAssetsSection = () => {
               {!hasLoadingPrices && assets.length > 0 && (
                 <div
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${isPositive
-                    ? 'bg-success-bg bg-green-600 text-success'
-                    : 'bg-danger-bg bg-red-600 text-danger'
+                    ? 'bg-success-bg bg-green-600 text-white'
+                    : 'bg-danger-bg bg-red-600 text-white'
                     }`}
                 >
                   {isPositive ? (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
 import cryptoSupportData from '../../../data/alchemy/AlchemyCryptoSupprort.json';
 import fiatSupportData from '../../../data/alchemy/AlchemyFiatSellSupprort.json';
@@ -57,10 +58,22 @@ const paymentOptions: PaymentOption[] = fiatSupportData.map(fiat => ({
 }));
 
 export const useAlchemyBuy = () => {
+  const location = useLocation();
+  const defaultCrypto = location.state?.defaultCrypto;
+  const defaultNetwork = location.state?.defaultNetwork;
+  const defaultAddress = location.state?.defaultAddress;
+
   const [fiatAmount, setFiatAmount] = useState('');
-  const [selectedCryptoOption, setSelectedCryptoOption] = useState<CryptoOption | null>(
-    cryptoOptions[0] || null
-  );
+  const [selectedCryptoOption, setSelectedCryptoOption] = useState<CryptoOption | null>(() => {
+    if (defaultCrypto) {
+      const match = cryptoOptions.find(opt =>
+        opt.crypto === defaultCrypto &&
+        (!defaultNetwork || opt.network === defaultNetwork)
+      );
+      if (match) return match;
+    }
+    return cryptoOptions[0] || null;
+  });
   const [selectedPaymentOption, setSelectedPaymentOption] = useState<PaymentOption | null>(
     paymentOptions[0] || null
   );
@@ -232,12 +245,14 @@ export const useAlchemyBuy = () => {
       return;
     }
 
+    const addressToUse = defaultAddress || evmAddress;
+
     const orderRequest: AlchemyBuyOrderRequest = {
       side: 'BUY',
       amount: fiatAmount,
       fiatCurrency: selectedPaymentOption.currency,
       cryptoCurrency: selectedCryptoOption.crypto,
-      address: evmAddress,
+      address: addressToUse,
       orderType: ORDER_TYPES.MARKET,
       network: selectedCryptoOption.network,
       alpha2: selectedPaymentOption.country,
