@@ -98,6 +98,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }));
 
       try {
+        console.log(`[WalletStore] Attempting to connect ${type} wallet: ${walletId}`);
         const { walletService } = await import('../services/walletService');
 
         const session =
@@ -126,6 +127,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         // Keep modal open if EVM connected but dYdX not yet derived
         const keepModalOpen = type === 'evm' && !session.dydxAddress;
 
+        console.log(`[WalletStore] Successfully connected ${type} wallet: ${walletId}`);
+
         set(state => ({
           connectedWallets: { ...state.connectedWallets, [type]: wallet },
           connectionStatus: {
@@ -134,7 +137,11 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           },
           isModalOpen: keepModalOpen,
         }));
-      } catch (error) {
+      } catch (error: any) {
+        console.error(`[WalletStore] Failed to connect ${type} wallet: ${walletId}`, {
+          message: error.message,
+          stack: error.stack,
+        });
         set(state => ({
           connectionStatus: {
             ...state.connectionStatus,
@@ -159,6 +166,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }));
 
       try {
+        console.log(`[WalletStore] Attempting to connect multichain connection: ${walletId}`);
         const { walletService } = await import('../services/walletService');
         const result = await walletService.connectUnified(walletId);
 
@@ -189,12 +197,18 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         // Keep modal open for dYdX derivation if EVM connected but not yet derived
         const keepModalOpen = !!result.evm && !result.evm.dydxAddress;
 
+        console.log(`[WalletStore] Multichain connection completed. Got EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`);
+
         set(state => ({
           connectedWallets: { ...state.connectedWallets, ...walletUpdates },
           connectionStatus: { ...state.connectionStatus, ...statusUpdates },
           isModalOpen: keepModalOpen,
         }));
-      } catch (error) {
+      } catch (error: any) {
+        console.error(`[WalletStore] Failed multichain connection for ${walletId}:`, {
+          message: error.message,
+          stack: error.stack,
+        });
         set(state => ({
           connectionStatus: {
             ...state.connectionStatus,
@@ -220,8 +234,11 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }));
 
       try {
+        console.log('[WalletStore] Initiating dYdX derivation...');
         const { walletService } = await import('../services/walletService');
         const dydx = await walletService.deriveDydx();
+
+        console.log('[WalletStore] Successfully derived dYdX address');
 
         set(state => ({
           connectedWallets: {
@@ -234,7 +251,11 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           },
           isModalOpen: false,
         }));
-      } catch (error) {
+      } catch (error: any) {
+        console.error('[WalletStore] Failed to derive dYdX address:', {
+          message: error.message,
+          stack: error.stack,
+        });
         set(state => ({
           connectionStatus: {
             ...state.connectionStatus,
@@ -266,13 +287,17 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       set({ isRestoringSession: true });
 
       try {
+        console.log('[WalletStore] Initializing session restoration');
         const { walletService } = await import('../services/walletService');
         const sessions = await walletService.restoreSessions();
 
         if (!sessions.length) {
+          console.log('[WalletStore] No sessions restored');
           set({ isRestoringSession: false });
           return;
         }
+
+        console.log(`[WalletStore] Restored ${sessions.length} sessions`);
 
         const wallets: Partial<Record<WalletType, ConnectedWallet>> = {};
         const status: Partial<Record<WalletType, WalletConnectionStatus>> = {};
@@ -299,8 +324,11 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         });
 
         set({ connectedWallets: wallets, connectionStatus: status, isRestoringSession: false });
-      } catch (error) {
-        console.error('[WalletStore] Failed to restore sessions:', error);
+      } catch (error: any) {
+        console.error('[WalletStore] Failed to restore sessions:', {
+          message: error.message,
+          stack: error.stack,
+        });
         set({ isRestoringSession: false });
       }
     },
@@ -402,14 +430,20 @@ export const initWalletListener = async () => {
               : {}),
           }));
         }
-      } catch (error) {
-        console.error('[WalletStore] State change handler error:', error);
+      } catch (error: any) {
+        console.error(`[WalletStore] State change handler error for ${type}:`, {
+          message: error.message,
+          stack: error.stack,
+        });
       }
     });
 
     listenerInitialized = true;
-  } catch (error) {
-    console.error('[WalletStore] Failed to initialize wallet listener:', error);
+  } catch (error: any) {
+    console.error('[WalletStore] Failed to initialize wallet listener:', {
+      message: error.message,
+      stack: error.stack,
+    });
   }
 };
 

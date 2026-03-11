@@ -205,15 +205,18 @@ export const buildUnifiedNamespaces = (
   const stellarConfig = getStellarConfig(network);
   const stellarChain = `stellar:${stellarConfig.chainId}`;
 
+  const evmNamespace = {
+    methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+    chains: evmChains,
+    events: ['chainChanged', 'accountsChanged'],
+  };
+
   return {
     requiredNamespaces: {
-      eip155: {
-        methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
-        chains: evmChains,
-        events: ['chainChanged', 'accountsChanged'],
-      },
+      eip155: evmNamespace,
     },
     optionalNamespaces: {
+      eip155: evmNamespace,
       stellar: {
         methods: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
         chains: [stellarChain],

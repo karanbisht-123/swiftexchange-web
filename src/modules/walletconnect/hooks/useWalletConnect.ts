@@ -104,7 +104,6 @@ export const useWalletConnect = () => {
 };
 
 export const useEVMWallet = () => {
-
   const wallet = useWalletStore(selectConnectedWallet('evm'));
   const status = useWalletStore(selectConnectionStatus('evm'));
 
@@ -118,11 +117,34 @@ export const useEVMWallet = () => {
   const connecting = useMemo(() => isConnecting('evm'), [isConnecting]);
 
   const connect = useCallback(
-    (walletId: string) => connectWallet('evm', walletId),
+    async (walletId: string) => {
+      console.log(`[UI] User initiated EVM connection for ${walletId}`);
+      try {
+        await connectWallet('evm', walletId);
+        console.log(`[UI] EVM connection successful for ${walletId}`);
+      } catch (error: any) {
+        console.error(`[UI] EVM connection failed for ${walletId}:`, {
+          message: error.message,
+          stack: error.stack,
+        });
+        throw error;
+      }
+    },
     [connectWallet]
   );
 
-  const disconnectWallet = useCallback(() => disconnect('evm'), [disconnect]);
+  const disconnectWallet = useCallback(async () => {
+    console.log('[UI] User initiated EVM disconnect');
+    try {
+      await disconnect('evm');
+      console.log('[UI] EVM disconnected successfully');
+    } catch (error: any) {
+      console.error('[UI] EVM disconnect failed:', {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+  }, [disconnect]);
 
   const getProvider = useCallback(() => {
     if (!wallet) return null;
@@ -155,11 +177,34 @@ export const useCosmosWallet = () => {
   const connecting = useMemo(() => isConnecting('cosmos'), [isConnecting]);
 
   const connect = useCallback(
-    (walletId: string) => connectWallet('cosmos', walletId),
+    async (walletId: string) => {
+      console.log(`[UI] User initiated Cosmos connection for ${walletId}`);
+      try {
+        await connectWallet('cosmos', walletId);
+        console.log(`[UI] Cosmos connection successful for ${walletId}`);
+      } catch (error: any) {
+        console.error(`[UI] Cosmos connection failed for ${walletId}:`, {
+          message: error.message,
+          stack: error.stack,
+        });
+        throw error;
+      }
+    },
     [connectWallet]
   );
 
-  const disconnectWallet = useCallback(() => disconnect('cosmos'), [disconnect]);
+  const disconnectWallet = useCallback(async () => {
+    console.log('[UI] User initiated Cosmos disconnect');
+    try {
+      await disconnect('cosmos');
+      console.log('[UI] Cosmos disconnected successfully');
+    } catch (error: any) {
+      console.error('[UI] Cosmos disconnect failed:', {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+  }, [disconnect]);
 
   const getProvider = useCallback(() => {
     if (!wallet) return null;
@@ -191,11 +236,34 @@ export const useStellarWallet = () => {
   const connecting = useMemo(() => isConnecting('stellar'), [isConnecting]);
 
   const connect = useCallback(
-    (walletId: string) => connectWallet('stellar', walletId),
+    async (walletId: string) => {
+      console.log(`[UI] User initiated Stellar connection for ${walletId}`);
+      try {
+        await connectWallet('stellar', walletId);
+        console.log(`[UI] Stellar connection successful for ${walletId}`);
+      } catch (error: any) {
+        console.error(`[UI] Stellar connection failed for ${walletId}:`, {
+          message: error.message,
+          stack: error.stack,
+        });
+        throw error;
+      }
+    },
     [connectWallet]
   );
 
-  const disconnectWallet = useCallback(() => disconnect('stellar'), [disconnect]);
+  const disconnectWallet = useCallback(async () => {
+    console.log('[UI] User initiated Stellar disconnect');
+    try {
+      await disconnect('stellar');
+      console.log('[UI] Stellar disconnected successfully');
+    } catch (error: any) {
+      console.error('[UI] Stellar disconnect failed:', {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+  }, [disconnect]);
 
   const getProvider = useCallback(() => {
     if (!wallet) return null;
