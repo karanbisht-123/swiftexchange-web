@@ -43,7 +43,15 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
     chainId: 1,
     name: 'Ethereum',
     rpcUrl: 'https://cloudflare-eth.com',
-    fallbackRpcUrls: ['https://eth-mainnet.public.blastapi.io', 'https://rpc.ankr.com/eth'],
+    fallbackRpcUrls: [
+      'https://ethereum-rpc.publicnode.com',
+      'https://eth.drpc.org',
+      'https://eth.meowrpc.com',
+      'https://eth-mainnet.public.blastapi.io',
+      'https://api.mycryptoapi.com/eth',
+      'https://rpc.flashbots.net',
+      'https://eth.api.pocket.network',
+    ],
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     logoUrl:
@@ -52,8 +60,16 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
   {
     chainId: 56,
     name: 'BNB Smart Chain',
-    rpcUrl: 'https://bsc-dataseed.binance.org',
-    fallbackRpcUrls: ['https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'],
+    rpcUrl: 'https://bsc-rpc.publicnode.com',
+    fallbackRpcUrls: [
+      'https://bsc-dataseed.bnbchain.org',
+      'https://bsc-dataseed1.defibit.io',
+      'https://bsc-dataseed2.defibit.io',
+      'https://bsc-dataseed1.ninicoin.io',
+      'https://bsc-dataseed2.ninicoin.io',
+      'https://bsc.drpc.org',
+      'https://bsc.meowrpc.com',
+    ],
     blockExplorerUrl: 'https://bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
     logoUrl:
@@ -107,7 +123,15 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
     chainId: 11155111,
     name: 'Sepolia',
     rpcUrl: 'https://ethereum-sepolia.publicnode.com',
-    fallbackRpcUrls: ['https://rpc.sepolia.org', 'https://rpc2.sepolia.org', 'https://sepolia.drpc.org'],
+    fallbackRpcUrls: [
+      'https://rpc.sepolia.org',
+      'https://rpc2.sepolia.org',
+      'https://sepolia.drpc.org',
+      'https://eth-sepolia.public.blastapi.io',
+      'https://eth-sepolia-testnet.api.pocket.network',
+      'https://sepolia.meowrpc.com',
+      'https://ethereum-sepolia-rpc.publicnode.com',
+    ],
     blockExplorerUrl: 'https://sepolia.etherscan.io',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     logoUrl:
@@ -116,8 +140,16 @@ export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
   {
     chainId: 97,
     name: 'BNB Smart Chain Testnet',
-    rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
-    fallbackRpcUrls: ['https://data-seed-prebsc-2-s1.binance.org:8545', 'https://data-seed-prebsc-1-s2.binance.org:8545'],
+    rpcUrl: 'https://bsc-testnet-rpc.publicnode.com',
+    fallbackRpcUrls: [
+      'https://bsc-testnet.drpc.org',
+      'https://data-seed-prebsc-1-s1.bnbchain.org:8545',
+      'https://data-seed-prebsc-2-s1.bnbchain.org:8545',
+      'https://data-seed-prebsc-1-s2.bnbchain.org:8545',
+      'https://data-seed-prebsc-2-s2.bnbchain.org:8545',
+      'https://bsc-testnet.public.blastapi.io',
+      'https://bsc-testnet.meowrpc.com',
+    ],
     blockExplorerUrl: 'https://testnet.bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'tBNB', decimals: 18 },
     logoUrl:
@@ -188,13 +220,6 @@ export const WALLETCONNECT_METADATA = {
   icons: ['/logo.png'],
 };
 
-/**
- * Builds the WalletConnect namespace config for a unified multichain session.
- *
- * EVM is placed in requiredNamespaces so the session always succeeds with EVM.
- * Stellar is placed in optionalNamespaces so wallets that don't support it
- * (e.g. Trust Wallet, MetaMask Mobile) simply omit it without failing.
- */
 export const buildUnifiedNamespaces = (
   network: NetworkType
 ): {

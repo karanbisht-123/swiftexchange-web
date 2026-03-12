@@ -7,14 +7,11 @@ export function parseSwapError(error: any): string {
 
     let message = error?.message || '';
 
-    // Ethers V6 nested errors
     if (error?.info?.error?.message) {
         message = error.info.error.message;
     }
 
     const errorMessageLower = message.toLowerCase();
-
-    // 1. User Rejected Transaction
     if (
         error?.code === 4001 ||
         error?.code === 'ACTION_REJECTED' ||
@@ -22,7 +19,7 @@ export function parseSwapError(error: any): string {
         (errorMessageLower.includes('rejected by user') && !errorMessageLower.includes('invalid transaction key')) ||
         (errorMessageLower.includes('transaction rejected') && !errorMessageLower.includes('invalid transaction key'))
     ) {
-        // Only return cancelled if it's truly a user cancel, not a formatting error wrapped in ACTION_REJECTED
+
         if (!errorMessageLower.includes('invalid transaction key')) {
             return 'Transaction was cancelled during confirmation.';
         }
@@ -67,9 +64,8 @@ export function parseSwapError(error: any): string {
         return 'Network error. Please check your connection and try again.';
     }
 
-    // Return the actual extracted error message if we have one, otherwise fallback
     if (message && message !== 'user rejected action' && message !== 'Failed to execute swap') {
-        // Clean up ethers specific prefixes if possible
+
         return message.replace('ethers-user-denied: ', '').replace('Error: ', '');
     }
 
