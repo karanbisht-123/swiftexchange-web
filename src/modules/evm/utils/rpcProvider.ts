@@ -77,18 +77,18 @@ class RPCManager {
 
                 const result = await Promise.race([action(provider), timeoutPromise]);
 
-                console.log(`[RPCManager] ✓ Success on ${url} (chain ${chainId})`);
+                console.log(`[RPCManager] Success on ${url} (chain ${chainId})`);
                 return result;
 
             } catch (error: any) {
                 lastError = error;
 
                 if (isPermanentError(error)) {
-                    console.error(`[RPCManager] ✗ Permanent failure (CORS/network) — blacklisting ${url}`);
+                    console.error(`[RPCManager] Permanent failure (CORS/network) — blacklisting ${url}`);
                     this.permanentlyFailedUrls.add(url);
                     this.providerCache.delete(url);
                 } else {
-                    console.warn(`[RPCManager] ✗ Transient failure on ${url} — jumping to next RPC`);
+                    console.warn(`[RPCManager] Transient failure on ${url} — jumping to next RPC`);
                 }
             }
         }

@@ -139,6 +139,7 @@ export const skipApiService = {
         dydxAddress: string,
         slippageTolerancePercent: string = '1'
     ): Promise<SkipMsgsResponse> {
+        console.log(evmAddress, "evm  adress [Skip go api service ] ", dydxAddress, "dydxaddress [Skip go api service]")
         console.log('route', route, "slippageTolerancePercent", slippageTolerancePercent, "dydxAddress", dydxAddress, "evmAddress", evmAddress);
         const body: any = {
             source_asset_denom: route.sourceAssetDenom,

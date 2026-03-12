@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import type { MarketData } from '../types/trading.types';
+import { useLivePriceStore } from './useLivePriceStore';
 
 interface MarketState {
   selectedMarket: string;
@@ -25,6 +26,7 @@ const useMarketStore = create<MarketState>()(
       lastUpdate: 0,
 
       setSelectedMarket: (ticker: string, marketData?: MarketData) => {
+        useLivePriceStore.getState().clearMarketPrice(ticker);
         set({
           selectedMarket: ticker,
           selectedMarketData: marketData || get().marketCache[ticker] || null,
