@@ -66,14 +66,16 @@ export const useAlchemyBuy = () => {
   const [fiatAmount, setFiatAmount] = useState('');
   const [selectedCryptoOption, setSelectedCryptoOption] = useState<CryptoOption | null>(() => {
     if (defaultCrypto) {
-      const match = cryptoOptions.find(opt =>
-        opt.crypto === defaultCrypto &&
-        (!defaultNetwork || opt.network === defaultNetwork)
+      const match = cryptoOptions.find(
+        opt => opt.crypto === defaultCrypto && (!defaultNetwork || opt.network === defaultNetwork)
       );
       if (match) return match;
     }
     return cryptoOptions[0] || null;
   });
+
+  console.log('Available crypto options:', cryptoOptions);
+  console.log('Selected crypto option:', selectedCryptoOption);
   const [selectedPaymentOption, setSelectedPaymentOption] = useState<PaymentOption | null>(
     paymentOptions[0] || null
   );
@@ -89,15 +91,15 @@ export const useAlchemyBuy = () => {
 
   const connectedWallets = useWalletStore(state => state.connectedWallets);
   const evmWallet = connectedWallets[WalletType.EVM];
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
   const evmAddress = evmWallet?.address || '';
+  const stellarAddress = stellarWallet?.address || '';
   const { country, isLoading: isLoadingCountry } = useUserCountry();
   const [hasAutoSelectedCountry, setHasAutoSelectedCountry] = useState(false);
 
   useEffect(() => {
     if (!hasAutoSelectedCountry && country && !isLoadingCountry) {
-      const matchingOption = paymentOptions.find(
-        option => option.country === country
-      );
+      const matchingOption = paymentOptions.find(option => option.country === country);
       if (matchingOption) {
         setSelectedPaymentOption(matchingOption);
       }
@@ -245,7 +247,10 @@ export const useAlchemyBuy = () => {
       return;
     }
 
-    const addressToUse = defaultAddress || evmAddress;
+    const addressToUse =
+      selectedCryptoOption?.network === 'XLM'
+        ? defaultAddress || stellarAddress || evmAddress
+        : evmAddress || defaultAddress || stellarAddress;
 
     const orderRequest: AlchemyBuyOrderRequest = {
       side: 'BUY',

@@ -24,4 +24,14 @@ export default defineConfig({
   optimizeDeps: {
     include: ['buffer', 'process', 'vm-browserify'],
   },
+
+  // server: {
+  //   proxy: {
+  //     '/api/skip': {
+  //       target: 'https://api.skip.build',
+  //       changeOrigin: true,
+  //       rewrite: (path) => path.replace(/^\/api\/skip/, ''),
+  //     },
+  //   },
+  // },
 });

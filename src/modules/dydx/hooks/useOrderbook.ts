@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { getSocketClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
+import { getIndexerClient } from '../client/clients';
 
 interface OrderbookLevel {
   price: string;
@@ -190,7 +191,6 @@ async function loadSnapshot(market: string, version: number): Promise<boolean> {
   const state = getOrCreateState(market);
 
   try {
-    const { getIndexerClient } = await import('../client/clients');
     const snap = await getIndexerClient().markets.getPerpetualMarketOrderbook(market);
 
     if (state.snapshotVersion !== version) return false;

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@dydxprotocol/v4-client-js": "^3.1.1",
+    "@skip-go/client": "^1.5.14",
     "@stellar/stellar-sdk": "^14.4.3",
     "@walletconnect/core": "^2.20.0",
     "@walletconnect/modal": "^2.7.0",

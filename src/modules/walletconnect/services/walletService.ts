@@ -734,62 +734,121 @@ class WalletService {
   // Disconnect
   // ---------------------------------------------------------------------------
 
+  // async disconnect(type: WalletType): Promise<void> {
+  //   if (this.disconnecting.has(type)) return;
+  //   this.disconnecting.add(type);
+
+  //   const provider = this.providers.get(type);
+
+  //   if (provider) {
+  //     this.registeredProviders.delete(provider);
+
+  //     if (provider.session) {
+  //       const eventsToRemove = [
+  //         'session_event',
+  //         'session_update',
+  //         'session_delete',
+  //         'session_expire',
+  //         'session_extend',
+  //         'session_ping',
+  //         'proposal_expire',
+  //         'disconnect',
+  //         'accountsChanged',
+  //         'chainChanged',
+  //         'display_uri',
+  //       ];
+
+  //       if (typeof provider.removeAllListeners === 'function') {
+  //         provider.removeAllListeners();
+  //       } else if (typeof provider.removeListener === 'function') {
+  //         eventsToRemove.forEach(event => {
+  //           try { provider.removeListener(event); } catch { }
+  //         });
+  //       }
+
+  //       try {
+  //         await provider.disconnect();
+  //       } catch {
+  //       }
+  //     }
+  //   }
+
+  //   if (type === 'evm' || type === 'cosmos') {
+  //     await purge();
+  //   }
+  //   if (type === 'evm') {
+  //     this.providers.delete('cosmos');
+  //     this.derivationInProgress = false;
+  //   }
+
+  //   this.sessions.delete(type);
+  //   this.lastPingAt.delete(type);
+  //   this.providers.delete(type);
+  //   this.modals.get(type)?.closeModal();
+  //   this.modals.delete(type);
+  //   this.disconnecting.delete(type);
+
+  //   this.saveSession();
+  //   this.emitState(type, 'disconnected');
+  // }
+
+
   async disconnect(type: WalletType): Promise<void> {
     if (this.disconnecting.has(type)) return;
     this.disconnecting.add(type);
 
     const provider = this.providers.get(type);
 
+    const sharedTypes: WalletType[] = [type];
     if (provider) {
-      this.registeredProviders.delete(provider);
-
-      if (provider.session) {
-        const eventsToRemove = [
-          'session_event',
-          'session_update',
-          'session_delete',
-          'session_expire',
-          'session_extend',
-          'session_ping',
-          'proposal_expire',
-          'disconnect',
-          'accountsChanged',
-          'chainChanged',
-          'display_uri',
-        ];
-
-        if (typeof provider.removeAllListeners === 'function') {
-          provider.removeAllListeners();
-        } else if (typeof provider.removeListener === 'function') {
-          eventsToRemove.forEach(event => {
-            try { provider.removeListener(event); } catch { }
-          });
-        }
-
-        try {
-          await provider.disconnect();
-        } catch {
+      for (const [key, p] of this.providers.entries()) {
+        const k = key as WalletType;
+        if (k !== type && p === provider && (k === 'evm' || k === 'cosmos' || k === 'stellar')) {
+          if (!this.disconnecting.has(k)) {
+            this.disconnecting.add(k);
+            sharedTypes.push(k);
+          }
         }
       }
     }
 
-    if (type === 'evm' || type === 'cosmos') {
-      await purge();
-    }
-    if (type === 'evm') {
-      this.providers.delete('cosmos');
-      this.derivationInProgress = false;
+    if (provider) {
+      this.registeredProviders.delete(provider);
+
+      if (provider.session) {
+        if (typeof provider.removeAllListeners === 'function') {
+          provider.removeAllListeners();
+        }
+        try {
+          await provider.disconnect();
+        } catch { }
+      }
     }
 
-    this.sessions.delete(type);
-    this.lastPingAt.delete(type);
-    this.providers.delete(type);
-    this.modals.get(type)?.closeModal();
-    this.modals.delete(type);
-    this.disconnecting.delete(type);
+    for (const t of sharedTypes) {
+      if (t === 'evm' || t === 'cosmos') {
+        await purge();
+      }
+      if (t === 'evm') {
+        this.derivationInProgress = false;
+      }
+      this.sessions.delete(t);
+      this.lastPingAt.delete(t);
+      this.providers.delete(t);
+      this.modals.get(t)?.closeModal();
+      this.modals.delete(t);
+      this.disconnecting.delete(t);
+    }
+
+    if (provider && this.providers.get('unified') === provider) {
+      this.providers.delete('unified');
+    }
 
     this.saveSession();
-    this.emitState(type, 'disconnected');
+
+    for (const t of sharedTypes) {
+      this.emitState(t, 'disconnected');
+    }
   }
 
   private handleDisconnect(type: WalletType): void {

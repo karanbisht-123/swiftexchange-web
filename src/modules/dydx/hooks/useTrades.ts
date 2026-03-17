@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getSocketClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
 import { useLivePriceStore } from '../store/useLivePriceStore';
+import { getIndexerClient } from '../client/clients';
 
 interface Trade {
   id: string;
@@ -150,7 +151,6 @@ async function loadSnapshot(
   const state = getOrCreateState(market, limit);
 
   try {
-    const { getIndexerClient } = await import('../client/clients');
     const client = getIndexerClient();
 
     let response: any;

@@ -16,6 +16,7 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
     const navigate = useNavigate();
     const currentNetwork = useWalletStore(state => state.network);
     const stellarWallet = useWalletStore(state => state.connectedWallets.stellar);
+    const openModal = useWalletStore(state => state.openModal);
     const isStellarConnected = !!stellarWallet?.address;
 
     const [accountActive, setAccountActive] = useState<boolean | null>(null);
@@ -36,19 +37,11 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
 
         try {
             const account = await horizon.loadAccount(stellarWallet.address);
-            const balances = account.balances;
-
-            const hasPositiveBalance = balances.some(
+            const hasPositiveBalance = account.balances.some(
                 (b) => parseFloat(b.balance) > 0
             );
-
-            if (hasPositiveBalance) {
-                setAccountActive(true);
-            } else {
-                setAccountActive(false);
-            }
+            setAccountActive(hasPositiveBalance);
         } catch (err: any) {
-
             if (err?.response?.status === 404) {
                 setAccountActive(false);
             } else {
@@ -64,7 +57,41 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
         checkAccountActivation();
     }, [stellarWallet?.address, currentNetwork]);
 
-    if (isStellarConnected && (accountActive === null || isLoading)) {
+    if (!isStellarConnected) {
+        return (
+            <div className="text-center h-full space-y-4 animate-slide-up p-4 flex flex-col items-center max-w-4xl mx-auto">
+                <div className="flex justify-center items-center my-3 relative">
+                    <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-48 h-8 bg-brand/20 blur-2xl rounded-full" />
+                    <div className="rounded-full bg-info-bg relative overflow-hidden">
+                        <div className="absolute inset-0 animate-pulse-once" />
+                        <img
+                            src="/fundwaalet-Photoroom.png"
+                            alt="Connect wallet"
+                            className="relative z-10 w-full h-72 object-contain"
+                        />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <h3 className="heading-3">Connect Your Stellar Wallet</h3>
+                    <p className="text-secondary max-w-xs mx-auto">
+                        Connect a Stellar wallet to start using this feature.
+                    </p>
+                </div>
+
+                <div className="flex flex-col w-full gap-3 pt-4">
+                    <button
+                        onClick={openModal}
+                        className="btn btn-primary w-full btn-lg"
+                    >
+                        Connect Wallet
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (accountActive === null || isLoading) {
         return (
             <div className="flex flex-col items-center justify-center p-8 space-y-4">
                 <Loader2 className="w-8 h-8 animate-spin text-brand" />
@@ -73,17 +100,21 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
         );
     }
 
-    if (isStellarConnected && accountActive === true) {
+    if (accountActive === true) {
         return <>{children}</>;
     }
 
     return (
-        <div className="text-center h-full  space-y-4 animate-slide-up p-4 flex flex-col items-center max-w-4xl mx-auto">
+        <div className="text-center h-full space-y-4 animate-slide-up p-4 flex flex-col items-center max-w-4xl mx-auto">
             <div className="flex justify-center items-center my-3 relative">
-                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-48 h-8 bg-brand/20 blur-2xl rounded-full"></div>
+                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-48 h-8 bg-brand/20 blur-2xl rounded-full" />
                 <div className="rounded-full bg-info-bg relative overflow-hidden">
-                    <div className="absolute inset-0 animate-pulse-once"></div>
-                    <img src="/fundwaalet-Photoroom.png" alt="Activate wallet" className="relative z-10 w-full h-72 object-contain" />
+                    <div className="absolute inset-0 animate-pulse-once" />
+                    <img
+                        src="/fundwaalet-Photoroom.png"
+                        alt="Activate wallet"
+                        className="relative z-10 w-full h-72 object-contain"
+                    />
                 </div>
             </div>
 
@@ -111,9 +142,7 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
                                     defaultAddress: stellarWallet?.address
                                 }
                             });
-                            if (onSkip) {
-                                onSkip();
-                            }
+                            if (onSkip) onSkip();
                         }}
                         className="btn btn-primary flex-1 btn-lg"
                     >
@@ -131,16 +160,8 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
                         ) : (
                             <RefreshCw className="w-6 h-6" />
                         )}
-
                     </button>
                 </div>
-
-                {/* <button
-                    onClick={() => onSkip?.()}
-                    className="btn btn-tertiary w-full btn-lg"
-                >
-                    Close
-                </button> */}
             </div>
         </div>
     );

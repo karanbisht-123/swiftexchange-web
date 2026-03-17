@@ -11,6 +11,7 @@ import {
   getStellarConfig,
 } from '../config/chains';
 
+import { walletService } from '../services/walletService';
 export type WalletType = 'evm' | 'cosmos' | 'stellar';
 
 type ConnectionState =
@@ -99,7 +100,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
       try {
         console.log(`[WalletStore] Attempting to connect ${type} wallet: ${walletId}`);
-        const { walletService } = await import('../services/walletService');
 
         const session =
           type === 'stellar'
@@ -167,7 +167,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
       try {
         console.log(`[WalletStore] Attempting to connect multichain connection: ${walletId}`);
-        const { walletService } = await import('../services/walletService');
         const result = await walletService.connectUnified(walletId);
 
         const walletUpdates: Partial<Record<WalletType, ConnectedWallet>> = {};
@@ -194,7 +193,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           statusUpdates.stellar = { state: 'connected' };
         }
 
-        // Keep modal open for dYdX derivation if EVM connected but not yet derived
         const keepModalOpen = !!result.evm && !result.evm.dydxAddress;
 
         console.log(`[WalletStore] Multichain connection completed. Got EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`);
@@ -235,7 +233,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
       try {
         console.log('[WalletStore] Initiating dYdX derivation...');
-        const { walletService } = await import('../services/walletService');
+
         const dydx = await walletService.deriveDydx();
 
         console.log('[WalletStore] Successfully derived dYdX address');
@@ -267,7 +265,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     disconnect: async type => {
-      const { walletService } = await import('../services/walletService');
       await walletService.disconnect(type);
       set(state => {
         const { [type]: _wallet, ...remainingWallets } = state.connectedWallets;
@@ -288,7 +285,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
       try {
         console.log('[WalletStore] Initializing session restoration');
-        const { walletService } = await import('../services/walletService');
+
         const sessions = await walletService.restoreSessions();
 
         if (!sessions.length) {
@@ -335,7 +332,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
     setNetwork: async network => {
       if (network === get().network) return;
-      const { walletService } = await import('../services/walletService');
       await walletService.setNetwork(network);
       set({
         network,
@@ -361,7 +357,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     checkSessionHealth: async () => {
-      const { walletService } = await import('../services/walletService');
       return walletService.checkSessionHealth();
     },
   }))
@@ -373,7 +368,6 @@ export const initWalletListener = async () => {
   if (listenerInitialized) return;
 
   try {
-    const { walletService } = await import('../services/walletService');
 
     walletService.onStateChange((type, state) => {
       try {

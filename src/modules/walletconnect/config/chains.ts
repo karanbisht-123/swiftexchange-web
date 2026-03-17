@@ -241,7 +241,6 @@ export const buildUnifiedNamespaces = (
 
   return {
     requiredNamespaces: {
-      eip155: evmNamespace,
     },
     optionalNamespaces: {
       eip155: evmNamespace,
