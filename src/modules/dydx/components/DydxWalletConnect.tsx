@@ -1,12 +1,13 @@
+import { AlertCircle, ArrowUpRight, RefreshCw } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, RefreshCw, AlertCircle } from 'lucide-react';
+
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
-import { SubaccountTransfer } from './SubaccountTransfer';
-import { DydxWithdrawModal } from './DydxWithdrawModal';
-import { DydxDepositModal } from './DydxDepositModal';
 import useOrderPreviewStore from '../store/orderPreviewStore';
+import { DydxDepositModal } from './DydxDepositModal';
+import { DydxWithdrawModal } from './DydxWithdrawModal';
+import { SubaccountTransfer } from './SubaccountTransfer';
 
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -201,9 +202,9 @@ export const DydxWalletConnect: React.FC = () => {
     balance && Number(balance.equity) === 0 && Number(balance.freeCollateral) === 0;
 
   // Single shared "no funds" UI used for both subaccount-not-found and zero balance
-  const showNoFunds = isSubaccountNotFound || (!balance || hasZeroBalance);
+  const showNoFunds = isSubaccountNotFound || !balance || hasZeroBalance;
 
-  if (showNoFunds && !connectionError && !(!hasEvmWallet) && !needsDydxDerivation && !isConnecting) {
+  if (showNoFunds && !connectionError && !!hasEvmWallet && !needsDydxDerivation && !isConnecting) {
     return (
       <>
         <div className="bg-secondary p-3 border border-color">
@@ -231,10 +232,7 @@ export const DydxWalletConnect: React.FC = () => {
           </div>
         </div>
 
-        <DydxDepositModal
-          isOpen={showDepositModal}
-          onClose={() => setShowDepositModal(false)}
-        />
+        <DydxDepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
       </>
     );
   }
@@ -423,16 +421,20 @@ export const DydxWalletConnect: React.FC = () => {
                 </svg>
               </div>
               <span
-                className={`text-sm font-semibold ${(projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
+                className={`text-sm font-semibold ${
+                  (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
                     ? 'text-danger'
                     : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
                       ? 'text-warning'
                       : 'text-success'
-                  }`}
+                }`}
               >
-                {projectedMarginUsagePercent !== null && projectedMarginUsagePercent !== undefined ? (
+                {projectedMarginUsagePercent !== null &&
+                projectedMarginUsagePercent !== undefined ? (
                   <>
-                    <span className="text-muted">{formatPercent(marginMetrics.marginUsagePercent)}%</span>
+                    <span className="text-muted">
+                      {formatPercent(marginMetrics.marginUsagePercent)}%
+                    </span>
                     {' → '}
                     {formatPercent(projectedMarginUsagePercent)}%
                   </>
@@ -446,10 +448,11 @@ export const DydxWalletConnect: React.FC = () => {
           {/* Warning Message */}
           {marginMetrics.marginUsagePercent > 70 && (
             <div
-              className={`rounded p-2 text-xs flex items-start gap-2 ${marginMetrics.marginUsagePercent > 85
+              className={`rounded p-2 text-xs flex items-start gap-2 ${
+                marginMetrics.marginUsagePercent > 85
                   ? 'bg-danger-bg text-danger'
                   : 'bg-warning-bg text-warning'
-                }`}
+              }`}
             >
               <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
               <span>
@@ -485,20 +488,11 @@ export const DydxWalletConnect: React.FC = () => {
         </div>
       ) : null}
 
-      <SubaccountTransfer
-        isOpen={showTransferModal}
-        onClose={() => setShowTransferModal(false)}
-      />
+      <SubaccountTransfer isOpen={showTransferModal} onClose={() => setShowTransferModal(false)} />
 
-      <DydxWithdrawModal
-        isOpen={showWithdrawModal}
-        onClose={() => setShowWithdrawModal(false)}
-      />
+      <DydxWithdrawModal isOpen={showWithdrawModal} onClose={() => setShowWithdrawModal(false)} />
 
-      <DydxDepositModal
-        isOpen={showDepositModal}
-        onClose={() => setShowDepositModal(false)}
-      />
+      <DydxDepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
     </div>
   );
 };

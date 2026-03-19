@@ -18,6 +18,8 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useBridgeTxStatus } from '../hooks/useBridgeTxStatus';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { useSubaccounts } from '../hooks/useSubaccounts';
+import { validateDepositAmount } from '../utils/inputValidation';
+import { NATIVE_WALLET_GAS_RESERVE_USD } from '../utils/skipBridgeUtils';
 
 type ModalStep = 'form' | 'select_token';
 
@@ -26,6 +28,7 @@ interface DydxDepositModalProps {
   onClose: () => void;
   initialAsset?: Asset | null;
 }
+
 
 const PRIORITY_SYMBOLS = ['USDC', 'USDT', 'ETH'];
 
@@ -42,6 +45,7 @@ const EXPLORER_BY_CHAIN_ID: Record<number, string> = {
   8453: 'https://basescan.org',
   56: 'https://bscscan.com',
 };
+
 
 const getChainIconUrl = (asset: Asset): string | undefined => {
   if (asset.chainId === 1) return CHAIN_ICONS.ETH;
@@ -101,11 +105,7 @@ const AssetRow = ({
           {asset.balance?.toLocaleString(undefined, { maximumFractionDigits: 6 })}
         </div>
         <div className="text-xs text-muted">
-          $
-          {usdValue.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
+          ${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
       </div>
     </button>
@@ -141,7 +141,6 @@ const BridgeTxStatusBanner = ({
           {status === 'failed' && <XCircle className="w-5 h-5 text-danger" />}
           {status === 'pending' && <Loader2 className="w-5 h-5 text-brand animate-spin" />}
         </div>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-1">
             <span className="text-sm font-semibold text-primary">
@@ -157,7 +156,6 @@ const BridgeTxStatusBanner = ({
               </span>
             )}
           </div>
-
           <p className="text-xs text-muted mb-2 leading-relaxed">
             {status === 'confirmed'
               ? 'Funds are crossing to dYdX. The next steps are automatic.'
@@ -165,7 +163,6 @@ const BridgeTxStatusBanner = ({
                 ? 'The EVM transaction reverted. Your funds were not moved — please try again.'
                 : 'Waiting for the EVM transaction to be included in a block…'}
           </p>
-
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-muted truncate">{shortHash}</span>
             <a
@@ -183,6 +180,7 @@ const BridgeTxStatusBanner = ({
   );
 };
 
+
 export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   isOpen,
   onClose,
@@ -193,14 +191,12 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
   const evmAddress = evmWallet?.address || '';
   const { totalEquity } = useSubaccounts();
+
   const {
     deposit,
     getRoute,
     reset,
-    // recoverDeposit,
     checkPendingDeposit,
-    // pendingQuantums,
-    // dydxNativeQuantums,
     isCheckingPending,
     step: depositStep,
     stepLabel,
@@ -220,6 +216,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const [slippage, setSlippage] = useState('1');
   const [showVolatilityWarning, setShowVolatilityWarning] = useState(true);
 
+  // ── Asset lists ────────────────────────────────────────────────────────────
   const sortedAssets = useMemo(() => {
     return [...assets].sort((a, b) => {
       const aIdx = PRIORITY_SYMBOLS.indexOf(a.symbol.toUpperCase());
@@ -236,6 +233,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     () => sortedAssets.filter(a => (a.balance || 0) === 0),
     [sortedAssets]
   );
+
 
   useEffect(() => {
     if (isOpen) {
@@ -281,7 +279,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const handleSetMax = useCallback(() => {
     if (selectedAsset?.balance) {
-      setAmount(selectedAsset.balance.toFixed(6));
+      const truncated = Math.floor(selectedAsset.balance * 1e6) / 1e6;
+      setAmount(truncated.toString());
     }
   }, [selectedAsset]);
 
@@ -290,15 +289,25 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     await deposit(selectedAsset.symbol, parseFloat(amount), evmChainId, goFast, slippage || '1');
   }, [selectedAsset, amount, deposit, evmChainId, goFast, slippage]);
 
+  // ── Derived values ─────────────────────────────────────────────────────────
   const amountValue = parseFloat(amount) || 0;
   const walletBalance = selectedAsset?.balance || 0;
   const isStable = ['USDC', 'USDT'].includes(selectedAsset?.symbol?.toUpperCase() || '');
-  const usdEquivalent = isStable ? amountValue : amountValue * (selectedAsset?.current_price || 0);
-  // Use actual received USDC from route when available (accurate for ETH→USDC swaps)
-  const equityAfter = parseFloat(totalEquity) + (route?.receivedAmount ?? usdEquivalent);
-  const isBelowMinimum = amountValue > 0 && usdEquivalent < MIN_DEPOSIT_USDC;
-  const isValidAmount = amountValue > 0 && amountValue <= walletBalance && !isBelowMinimum;
+  const rawUsdEquivalent = isStable
+    ? amountValue
+    : amountValue * (selectedAsset?.current_price || 0);
+  const usdEquivalent =
+    !isStable && (selectedAsset?.current_price || 0) === 0 ? null : rawUsdEquivalent;
 
+  const amountValidation = validateDepositAmount(
+    amountValue,
+    walletBalance,
+    usdEquivalent,
+    MIN_DEPOSIT_USDC
+  );
+
+  const displayUsd = usdEquivalent ?? rawUsdEquivalent;
+  const equityAfter = parseFloat(totalEquity) + (route?.receivedAmount ?? displayUsd);
   const showBridgeBanner = !!txHash && depositStep !== 'idle';
 
   if (!isOpen) return null;
@@ -321,76 +330,9 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               </button>
             </div>
 
-            {/* DEV ONLY — uncomment to enable stuck Noble deposit recovery
-            {pendingQuantums && (
-              <div className="px-5 pb-4">
-                <div className="p-4 bg-brand/10 border border-brand/30 rounded-xl relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-1 h-full bg-brand" />
-                  <div className="flex justify-between items-center gap-4">
-                    <div>
-                      <h4 className="text-sm font-semibold text-primary mb-1">
-                        Stuck Deposit Detected
-                      </h4>
-                      <p className="text-xs text-muted leading-relaxed">
-                        A previous bridge transaction was successful but waiting to be credited. You
-                        have{' '}
-                        <strong className="text-primary">
-                          ${(parseInt(pendingQuantums) / 1e6).toFixed(2)} USDC
-                        </strong>{' '}
-                        pending.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => recoverDeposit(pendingQuantums, 0)}
-                      disabled={isLoading}
-                      className="px-4 py-2 bg-brand text-black rounded-lg text-sm font-semibold shadow-sm hover:brightness-110 active:brightness-90 transition-all disabled:opacity-50 whitespace-nowrap flex items-center gap-2"
-                    >
-                      {isLoading && depositStep === 'transferring' ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : null}
-                      Crediting...
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            */}
-
-            {/* DEV ONLY — uncomment to enable native dYdX wallet balance recovery
-            {dydxNativeQuantums && !pendingQuantums && (
-              <div className="px-5 pb-4">
-                <div className="p-4 bg-tertiary border border-color rounded-xl">
-                  <div className="flex justify-between items-center gap-4">
-                    <div>
-                      <h4 className="text-sm font-semibold text-primary mb-1">
-                        Native dYdX Balance
-                      </h4>
-                      <p className="text-xs text-muted leading-relaxed">
-                        You have{' '}
-                        <strong className="text-primary">
-                          ${(parseInt(dydxNativeQuantums) / 1e6).toFixed(2)} USDC
-                        </strong>{' '}
-                        in your dYdX wallet.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => recoverDeposit(dydxNativeQuantums, 0)}
-                      disabled={isLoading}
-                      className="px-4 py-2 bg-secondary border border-color text-primary rounded-lg text-sm font-semibold hover:bg-hover transition-all disabled:opacity-50 whitespace-nowrap flex items-center gap-2"
-                    >
-                      {isLoading && depositStep === 'transferring' ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : null}
-                      Deposit All
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            */}
-
             {depositStep !== 'success' ? (
               <div className="px-5 pb-5 space-y-3">
+                {/* Bridge status banner */}
                 {showBridgeBanner && (
                   <BridgeTxStatusBanner
                     txHash={txHash!}
@@ -399,6 +341,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                   />
                 )}
 
+                {/* ── Amount input ─*/}
                 <div className="p-4 rounded-xl border border-color bg-tertiary">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -408,9 +351,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                         value={amount}
                         onChange={e => {
                           const val = e.target.value;
-                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                            setAmount(val);
-                          }
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) setAmount(val);
                         }}
                         placeholder="0.00"
                         disabled={isLoading}
@@ -436,8 +377,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted">
-                      {usdEquivalent > 0 && !isStable
-                        ? `≈ $${usdEquivalent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      {displayUsd > 0 && !isStable
+                        ? `≈ $${displayUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                         : null}
                     </span>
                     <button
@@ -449,9 +390,13 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                       &bull; <span className="text-brand font-medium">Max</span>
                     </button>
                   </div>
+
+                  {amountValidation.error && amountValue > 0 && (
+                    <p className="text-xs text-danger mt-1.5">{amountValidation.error}</p>
+                  )}
                 </div>
 
-                {/* Go Fast toggle */}
+                {/* ── Go Fast toggle ── */}
                 <div className="flex items-center justify-between px-1">
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
@@ -462,14 +407,14 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                       className="w-4 h-4 rounded border-color text-brand focus:ring-brand focus:ring-offset-0 bg-transparent"
                     />
                     <span className="text-sm text-primary">Go Fast</span>
-                    <span className="text-xs text-muted">(faster, may cost slightly more)</span>
                   </label>
                 </div>
 
+                {/* ── Slippage ──────────────────────────────────────────── */}
                 <div className="p-4 rounded-xl border border-color bg-tertiary">
                   <div className="flex justify-between items-center">
                     <Tooltip
-                      content="Slippage determines the maximum price change you are willing to accept compared to the current expected price. If the price changes by more than this percentage, your transaction will fail. Higher slippage increases the chance of execution in volatile markets, but may result in a worse price."
+                      content="Slippage determines the maximum price change you're willing to accept. Higher slippage increases execution chance in volatile markets."
                       position="top"
                     >
                       <div className="flex flex-col">
@@ -480,20 +425,15 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                         <span className="text-[10px] text-muted font-medium mt-0.5">Max 6%</span>
                       </div>
                     </Tooltip>
-
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         value={slippage}
                         onChange={e => {
                           let val = e.target.value;
-                          if (val === '') {
-                            setSlippage('');
-                            return;
-                          }
+                          if (val === '') { setSlippage(''); return; }
                           if (/^\d*\.?\d*$/.test(val)) {
-                            const num = parseFloat(val);
-                            if (num > 6) val = '6';
+                            if (parseFloat(val) > 6) val = '6';
                             setSlippage(val);
                           }
                         }}
@@ -505,15 +445,14 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                   </div>
                   {parseFloat(slippage) > 3 && (
                     <div className="mt-2 text-xs text-brand">
-                      High slippage tolerance, transaction might execute at an unfavorable price.
+                      High slippage — transaction may execute at an unfavourable price.
                     </div>
                   )}
                 </div>
 
-                {/* Route summary */}
+                {/* ── Route summary ── */}
                 {route && amountValue > 0 && !showBridgeBanner && (
                   <div className="rounded-xl border border-color bg-tertiary px-4 py-3 space-y-2.5">
-                    {/* You'll receive — most important, shown first */}
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted">You'll receive</span>
                       <span className="text-sm font-semibold text-primary">
@@ -525,21 +464,33 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                       </span>
                     </div>
 
-                    {/* Account balance after deposit */}
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted">Account balance after</span>
+                      <Tooltip
+                        content={`dYdX keeps ~$${NATIVE_WALLET_GAS_RESERVE_USD.toFixed(2)} USDC in your wallet to pay network fees for withdrawals. This is required by the dYdX protocol.`}
+                        position="top"
+                      >
+                        <span className="text-sm text-muted flex items-center gap-1 cursor-help">
+                          Network fee reserve
+                          <Info className="w-3 h-3 text-muted" />
+                        </span>
+                      </Tooltip>
+                      <span className="text-sm text-secondary">
+                        ~${NATIVE_WALLET_GAS_RESERVE_USD.toFixed(2)} USDC
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted">Account after</span>
                       <div className="text-sm font-medium text-primary flex items-center gap-1.5">
                         <span className="text-muted">
-                          $
-                          {parseFloat(totalEquity).toLocaleString(undefined, {
+                          ${parseFloat(totalEquity).toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
                         </span>
                         <span className="text-muted">→</span>
                         <span>
-                          ~$
-                          {equityAfter.toLocaleString(undefined, {
+                          ~${equityAfter.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
@@ -547,7 +498,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Route method + estimated time */}
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-1.5 text-sm text-muted">
                         <Clock className="w-3.5 h-3.5" />
@@ -556,13 +506,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                       <span className="text-sm text-secondary">{route.estimatedTime}</span>
                     </div>
 
-                    {/* Bridge fee — only shown when non-zero */}
                     {route.fee > 0 && (
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-muted">Bridge fee</span>
                         <span className="text-sm text-primary">
-                          ~$
-                          {route.fee.toLocaleString(undefined, {
+                          ~${route.fee.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 4,
                           })}
@@ -572,6 +520,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                   </div>
                 )}
 
+                {/*Error banner  */}
                 {depositError && (
                   <div className="p-3 bg-danger-bg border border-danger rounded-xl flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
@@ -579,14 +528,15 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                   </div>
                 )}
 
+                {/* Volatility warning */}
                 {showVolatilityWarning && !showBridgeBanner && (
                   <div className="flex items-start gap-3 p-3 bg-brand/10 border border-brand/30 rounded-xl relative">
                     <AlertTriangle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
                     <div className="flex-1 pr-6">
                       <h4 className="text-sm font-semibold text-primary mb-1">Market Volatility</h4>
                       <p className="text-xs text-brand leading-relaxed">
-                        If the market is volatile, you may want to increase your slippage tolerance
-                        to ensure your deposit succeeds.
+                        If the market is volatile, increase slippage tolerance to ensure your
+                        deposit succeeds.
                       </p>
                     </div>
                     <button
@@ -598,16 +548,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                   </div>
                 )}
 
+                {/* ── Deposit button  */}
                 <button
                   onClick={handleDeposit}
-                  disabled={
-                    isLoading ||
-                    !isValidAmount ||
-                    !evmAddress ||
-                    isBelowMinimum
-                    // Pending checks disabled for now — uncomment when recovery banners are re-enabled
-                    // || !!pendingQuantums
-                  }
+                  disabled={isLoading || !amountValidation.valid || !evmAddress}
                   className="w-full py-3.5 btn btn-primary rounded-xl font-semibold text-[15px] transition-all disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
@@ -617,14 +561,13 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                     </>
                   ) : !evmAddress ? (
                     'Connect EVM Wallet'
-                  ) : isBelowMinimum ? (
-                    `Min. deposit is $${MIN_DEPOSIT_USDC}`
                   ) : (
                     'Deposit'
                   )}
                 </button>
               </div>
             ) : (
+              /* ── Success ───────────────────────────────────────────── */
               <div className="px-5 pb-6 flex flex-col items-center text-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-success-bg flex items-center justify-center">
                   <CheckCircle2 className="w-8 h-8 text-success" />
@@ -635,7 +578,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                     Your deposit is being processed. Funds will appear in your account shortly.
                   </div>
                 </div>
-
                 {txHash && (
                   <a
                     href={`${EXPLORER_BY_CHAIN_ID[evmChainId] ?? 'https://etherscan.io'}/tx/${txHash}`}
@@ -646,7 +588,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                     View bridge transaction <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 )}
-
                 <button
                   onClick={onClose}
                   className="w-full py-3.5 btn btn-primary rounded-xl font-semibold text-[15px]"

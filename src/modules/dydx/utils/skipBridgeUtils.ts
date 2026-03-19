@@ -2,40 +2,44 @@ import { fromBech32, toBech32 } from '@cosmjs/encoding';
 import { createWalletClient, custom } from 'viem';
 import * as viemChains from 'viem/chains';
 
-
 export const DYDX_CHAIN_ID = 'dydx-mainnet-1';
 export const NOBLE_CHAIN_ID = 'noble-1';
 
-// IBC-wrapped USDC denom on dYdX chain
 export const DYDX_USDC_DENOM =
   'ibc/8E27BA2D5493AF5636760E354E46004562C46AB7EC0CC4C1CA14E9E20E2545B5';
 
-// Native USDC denom on Noble
 export const NOBLE_USDC_DENOM = 'uusdc';
 
-// Native USDC contract addresses, keyed by EVM chain ID
 export const USDC_EVM_CONTRACTS: Record<number, string> = {
-  1: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // Ethereum
-  137: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // Polygon
-  42161: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', // Arbitrum
-  10: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', // Optimism
-  8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Base
+  1: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+  137: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+  42161: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+  10: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+  8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 };
 
-// Native ETH denom strings, keyed by EVM chain ID
 const ETH_EVM_DENOMS: Record<number, string> = {
   1: 'ethereum-native',
 };
 
-// Bridges we allow Skip to route through
 export const SKIP_BRIDGES = ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as const;
 
-// ─── Address helpers ──────────────────────────────────────────────────────────
 
-/**
- * Convert a dydx1... address to its noble1... equivalent.
- * Both chains share the same underlying key material — only the bech32 prefix differs.
- */
+
+export const NATIVE_WALLET_GAS_RESERVE_UUSDC = 20_000; // $0.020
+export const NATIVE_WALLET_GAS_RESERVE_USD = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6; // 0.02
+
+
+export function computeDepositSplit(walletBalanceUusdc: number): {
+  keepUusdc: number;
+  depositUusdc: number;
+} {
+  const keepUusdc = Math.min(walletBalanceUusdc, NATIVE_WALLET_GAS_RESERVE_UUSDC);
+  const depositUusdc = Math.max(0, walletBalanceUusdc - keepUusdc);
+  return { keepUusdc, depositUusdc };
+}
+
+
 export function dydxToNoble(dydxAddress: string): string {
   try {
     const { data } = fromBech32(dydxAddress);
@@ -45,13 +49,6 @@ export function dydxToNoble(dydxAddress: string): string {
   }
 }
 
-/**
- * Wrap a dydx-prefixed offline signer so it advertises noble1... addresses
- * while still delegating actual signing to the underlying dydx signer.
- *
- * Skip requires the signer's reported address to match the chain prefix, but
- * we only have one key — re-prefixing lets us reuse it on Noble.
- */
 export function makeNobleSignerFromDydx(dydxSigner: any) {
   return {
     async getAccounts() {
@@ -62,16 +59,12 @@ export function makeNobleSignerFromDydx(dydxSigner: any) {
       }));
     },
     async signDirect(signerAddress: string, signDoc: any) {
-      // Translate noble1... -> dydx1... before forwarding to the real signer
       const dydxAddress = toBech32('dydx', fromBech32(signerAddress).data);
       return dydxSigner.signDirect(dydxAddress, signDoc);
     },
   };
 }
 
-
-
-/** Resolve the correct source denom for a given asset symbol and EVM chain. */
 export function getEvmSourceDenom(symbol: string, chainId: number): string {
   switch (symbol.toUpperCase()) {
     case 'ETH':
@@ -102,10 +95,6 @@ export function sumEstimatedFeesUsd(estimatedFees: any[]): number {
   );
 }
 
-/**
- * Sum only the fees that are deducted from the Noble chain wallet (in uusdc).
- * Used during withdrawal to compute a safe amountIn that leaves enough for gas.
- */
 export function sumNobleFeesUusdc(estimatedFees: any[]): number {
   return (estimatedFees ?? []).reduce((sum: number, f: any) => {
     const isNoble = f.chainId === NOBLE_CHAIN_ID || f.originAssetChainId === NOBLE_CHAIN_ID;
@@ -116,39 +105,19 @@ export function sumNobleFeesUusdc(estimatedFees: any[]): number {
 
 // ─── Signer builders ──────────────────────────────────────────────────────────
 
-/**
- * Build the getCosmosSigner callback required by Skip's executeRoute.
- *
- * Per docs (Executing a route): getCosmosSigner takes a chainId and returns
- * Promise<OfflineSigner>. We use one key for all Cosmos chains, re-prefixing
- * the reported address to match each chain's bech32 prefix.
- *
- * This handles intermediate Cosmos hops (e.g. osmosis-1) that Skip may include
- * in routes — the dYdX wallet can sign for all of them since they share the
- * same secp256k1 key material.
- */
 export function buildCosmosSigner(rawSigner: any) {
   return async (chainId: string) => {
-    // dYdX: use signer as-is (already uses dydx1 prefix)
     if (chainId === DYDX_CHAIN_ID) return rawSigner;
-
-    // All other Cosmos chains: wrap the signer to re-prefix addresses
     const prefix = COSMOS_CHAIN_PREFIXES[chainId];
     if (!prefix) {
       console.warn(
-        `[deposit] buildCosmosSigner: unknown Cosmos chain "${chainId}" — ` +
-        `falling back to dydx prefix. Add to COSMOS_CHAIN_PREFIXES if signing fails.`
+        `[buildCosmosSigner] Unknown Cosmos chain "${chainId}" — falling back to dydx prefix.`
       );
     }
-
     return makeCosmosSignerWithPrefix(rawSigner, prefix ?? 'dydx');
   };
 }
 
-/**
- * Generic version of makeNobleSignerFromDydx — wraps any offline signer to
- * report addresses with a given bech32 prefix while signing with the dYdX key.
- */
 export function makeCosmosSignerWithPrefix(dydxSigner: any, prefix: string) {
   return {
     async getAccounts() {
@@ -159,7 +128,6 @@ export function makeCosmosSignerWithPrefix(dydxSigner: any, prefix: string) {
       }));
     },
     async signDirect(signerAddress: string, signDoc: any) {
-      // Translate prefixed address back to dydx1... before forwarding
       const dydxAddress = toBech32('dydx', fromBech32(signerAddress).data);
       return dydxSigner.signDirect(dydxAddress, signDoc);
     },
@@ -170,29 +138,18 @@ export function makeCosmosSignerWithPrefix(dydxSigner: any, prefix: string) {
   };
 }
 
-// viem chain lookup map (built once at module load)
 const VIEM_CHAINS_BY_ID: Record<number, any> = Object.fromEntries(
   Object.values(viemChains)
     .filter((c: any) => typeof c?.id === 'number')
     .map((c: any) => [c.id, c])
 );
 
-/**
- * Build the getEvmSigner callback required by Skip's executeRoute.
- *
- * Per docs (Executing a route): getEvmSigner takes a chainId and returns
- * Promise<WalletClient>. We use the session provider (WalletConnect or injected)
- * and never call eth_requestAccounts — address is already known.
- */
 export function buildEvmSigner(evmAddress: string, sessionProvider?: any) {
   return async (chainId: string) => {
     const provider = sessionProvider ?? (window as any).ethereum;
     if (!provider) throw new Error('No EVM provider available — wallet not connected');
-
-    // Skip passes the numeric chain ID as a string — resolve to a viem chain object
     const chain = VIEM_CHAINS_BY_ID[Number(chainId)];
     if (!chain) throw new Error(`Unsupported EVM chain ID: ${chainId}`);
-
     return createWalletClient({
       account: evmAddress as `0x${string}`,
       chain,
@@ -201,12 +158,6 @@ export function buildEvmSigner(evmAddress: string, sessionProvider?: any) {
   };
 }
 
-/**
- * Known bech32 prefixes for Cosmos chains that Skip may include as intermediate
- * hops (e.g. osmosis-1 when routing USDC via Osmosis DEX).
- * All share the same underlying key material as the dYdX wallet — only the
- * bech32 prefix differs.
- */
 const COSMOS_CHAIN_PREFIXES: Record<string, string> = {
   'osmosis-1': 'osmo',
   'cosmoshub-4': 'cosmos',
@@ -223,11 +174,6 @@ const COSMOS_CHAIN_PREFIXES: Record<string, string> = {
   [DYDX_CHAIN_ID]: 'dydx',
 };
 
-/**
- * Derive a bech32 address for any Cosmos chain from the dYdX wallet address.
- * All Cosmos chains using secp256k1 share the same underlying key bytes —
- * only the human-readable prefix differs.
- */
 export function deriveCosmosAddress(dydxAddress: string, prefix: string): string {
   try {
     const { data } = fromBech32(dydxAddress);
@@ -237,76 +183,24 @@ export function deriveCosmosAddress(dydxAddress: string, prefix: string): string
   }
 }
 
-/**
- * Returns true if the chainId is an EVM chain (numeric string like "1", "137").
- * Cosmos chain IDs always contain at least one non-numeric character.
- */
 function isEvmChainId(chainId: string): boolean {
   return /^\d+$/.test(chainId);
 }
 
-/**
- * Map Skip's requiredChainAddresses list to the correct user address for each chain.
- *
- * Per docs (Getting Started, Step 6):
- *   "route.requiredChainAddresses lists the chain IDs for which addresses are needed."
- *   "Only use addresses your user can sign for."
- *
- * Per docs (Executing a route, Required fields):
- *   "One user address per chain in the same order as route.requiredChainAddresses"
- *   "All user addresses must match the chain ids expected in the route, and must
- *    be valid for the corresponding chain type (Cosmos, Evm, or Svm)."
- *
- * KEY FIX: Skip's validateUserAddresses checks that Cosmos chain IDs receive a
- * valid bech32 address and EVM chain IDs receive a valid 0x address. When Skip
- * routes through an intermediate Cosmos chain (e.g. osmosis-1 for a USDC swap),
- * passing the EVM 0x address for that chain fails validation. We must derive the
- * correct bech32 address for every Cosmos chain from the dYdX wallet key.
- *
- * Route variations:
- *  - Normal:  ["1", "noble-1", "dydx-mainnet-1"]
- *  - Go Fast: ["1", "dydx-mainnet-1"]  (Noble skipped)
- *  - Via DEX: ["1", "osmosis-1", "noble-1", "dydx-mainnet-1"]  (Osmosis swap)
- */
 export function buildUserAddresses(
   requiredChainIds: string[],
-  {
-    evmAddress,
-    dydxAddress,
-  }: { evmAddress: string; dydxAddress: string; nobleAddress?: string }
+  { evmAddress, dydxAddress }: { evmAddress: string; dydxAddress: string; nobleAddress?: string }
 ): { chainId: string; address: string }[] {
   return requiredChainIds.map(chainId => {
-    // EVM chains: numeric string IDs ("1", "137", "42161", etc.)
-    if (isEvmChainId(chainId)) {
-      return { chainId, address: evmAddress };
-    }
-
-    // Cosmos chains: derive address using the chain's bech32 prefix.
-    // Known chains use the lookup table; unknown chains fall back to the
-    // dydx prefix (safe for chains that share the dydx key derivation path).
+    if (isEvmChainId(chainId)) return { chainId, address: evmAddress };
     const prefix = COSMOS_CHAIN_PREFIXES[chainId] ?? 'dydx';
-
     if (!COSMOS_CHAIN_PREFIXES[chainId]) {
-      console.warn(
-        `[deposit] Unknown Cosmos chain "${chainId}" — using dydx prefix as fallback. ` +
-        `Add it to COSMOS_CHAIN_PREFIXES in skipBridgeUtils.ts if deposits fail.`
-      );
+      console.warn(`[buildUserAddresses] Unknown Cosmos chain "${chainId}" — using dydx prefix.`);
     }
-
-    const address = deriveCosmosAddress(dydxAddress, prefix);
-    return { chainId, address };
+    return { chainId, address: deriveCosmosAddress(dydxAddress, prefix) };
   });
 }
 
-
-/**
- * Detect whether an error thrown during EVM transaction submission is a gas
- * estimation failure caused by insufficient ETH balance.
- *
- * The raw error from ethers/viem is UNPREDICTABLE_GAS_LIMIT with an inner
- * message "gas required exceeds allowance (N)" where N is the wallet's ETH
- * balance in gas units. This is entirely opaque to users — we translate it.
- */
 export function isInsufficientGasError(err: any): boolean {
   const msg: string = (err?.message ?? err?.reason ?? '').toLowerCase();
   return (
@@ -315,4 +209,25 @@ export function isInsufficientGasError(err: any): boolean {
     msg.includes('insufficient funds for gas') ||
     (msg.includes('cannot estimate gas') && msg.includes('gas'))
   );
+}
+
+export async function fetchDydxWalletUsdcBalance(dydxAddress: string): Promise<number> {
+  try {
+    const res = await fetch(
+      `https://dydx-rest.publicnode.com/cosmos/bank/v1beta1/balances/${dydxAddress}`
+    );
+    if (!res.ok) return 0;
+    const { balances = [] } = await res.json();
+    const coin = (balances as Array<{ denom: string; amount: string }>).find(
+      b => b.denom === DYDX_USDC_DENOM
+    );
+    return parseInt(coin?.amount ?? '0', 10);
+  } catch {
+    return 0;
+  }
+}
+
+export async function fetchDydxWalletUsdcBalanceHuman(dydxAddress: string): Promise<number> {
+  const uusdc = await fetchDydxWalletUsdcBalance(dydxAddress);
+  return uusdc / 1e6;
 }

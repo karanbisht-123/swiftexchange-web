@@ -1,5 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { rpcManager } from '../../evm/utils/rpcProvider';
+
+export const RPC_BY_CHAIN_ID: Record<number, string[]> = {
+  1: ['https://eth.llamarpc.com'],
+  137: ['https://polygon.llamarpc.com'],
+  42161: ['https://arbitrum.llamarpc.com'],
+  10: ['https://optimism.llamarpc.com'],
+  8453: ['https://base.llamarpc.com'],
+  56: ['https://bsc.llamarpc.com'],
+};
+
+export const EXPLORER_BY_CHAIN_ID: Record<number, string> = {
+  1: 'https://etherscan.io',
+  137: 'https://polygonscan.com',
+  42161: 'https://arbiscan.io',
+  10: 'https://optimistic.etherscan.io',
+  8453: 'https://basescan.org',
+  56: 'https://bscscan.com',
+};
+
 export type BridgeTxStatus = 'idle' | 'pending' | 'confirmed' | 'failed';
 
 export interface BridgeTxState {
@@ -7,44 +27,16 @@ export interface BridgeTxState {
   confirmations: number;
   blockNumber: number | null;
   gasUsed: string | null;
+  isPolling: boolean;
 }
 
-const RPC_BY_CHAIN_ID: Record<number, string> = {
-  1: 'https://eth.llamarpc.com',
-  137: 'https://polygon.llamarpc.com',
-  42161: 'https://arbitrum.llamarpc.com',
-  10: 'https://optimism.llamarpc.com',
-  8453: 'https://base.llamarpc.com',
-  56: 'https://bsc.llamarpc.com',
-};
+export function getExplorerUrl(txHash: string, chainId: number): string {
+  const base = EXPLORER_BY_CHAIN_ID[chainId] ?? 'https://etherscan.io';
+  return `${base}/tx/${txHash}`;
+}
 
 const POLL_INTERVAL_MS = 4_000;
 const POLL_TIMEOUT_MS = 10 * 60 * 1_000;
-
-async function fetchReceipt(rpcUrl: string, txHash: string): Promise<any | null> {
-  const res = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_getTransactionReceipt',
-      params: [txHash],
-    }),
-  });
-  const json = await res.json();
-  return json?.result ?? null;
-}
-
-async function fetchLatestBlock(rpcUrl: string): Promise<number> {
-  const res = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'eth_blockNumber', params: [] }),
-  });
-  const json = await res.json();
-  return parseInt(json?.result ?? '0x0', 16);
-}
 
 export function useBridgeTxStatus(txHash: string | null, chainId: number) {
   const [state, setState] = useState<BridgeTxState>({
@@ -52,6 +44,7 @@ export function useBridgeTxStatus(txHash: string | null, chainId: number) {
     confirmations: 0,
     blockNumber: null,
     gasUsed: null,
+    isPolling: false,
   });
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -67,29 +60,32 @@ export function useBridgeTxStatus(txHash: string | null, chainId: number) {
   useEffect(() => {
     if (!txHash) {
       stopPolling();
-      setState({ status: 'idle', confirmations: 0, blockNumber: null, gasUsed: null });
+      setState({ status: 'idle', confirmations: 0, blockNumber: null, gasUsed: null, isPolling: false });
     }
   }, [txHash, stopPolling]);
 
   useEffect(() => {
     if (!txHash) return;
 
-    const rpcUrl = RPC_BY_CHAIN_ID[chainId] ?? RPC_BY_CHAIN_ID[1];
-
-    setState(prev => ({ ...prev, status: 'pending' }));
+    const urls = RPC_BY_CHAIN_ID[chainId] ?? RPC_BY_CHAIN_ID[1];
+    setState(prev => ({ ...prev, status: 'pending', isPolling: true }));
 
     const poll = async () => {
       try {
-        const [receipt, latestBlock] = await Promise.all([
-          fetchReceipt(rpcUrl, txHash),
-          fetchLatestBlock(rpcUrl),
+        const [receipt, latestBlockHex] = await Promise.all([
+          rpcManager.fetchWithFallback(chainId, urls, provider =>
+            provider.send('eth_getTransactionReceipt', [txHash])
+          ),
+          rpcManager.fetchWithFallback(chainId, urls, provider =>
+            provider.send('eth_blockNumber', [])
+          ),
         ]);
 
         if (!receipt) return;
 
-        // receipt.status: "0x1" = success, "0x0" = reverted
         const succeeded = receipt.status === '0x1';
         const txBlock = parseInt(receipt.blockNumber, 16);
+        const latestBlock = parseInt(latestBlockHex as string, 16);
         const confs = Math.max(0, latestBlock - txBlock);
 
         setState({
@@ -97,6 +93,7 @@ export function useBridgeTxStatus(txHash: string | null, chainId: number) {
           confirmations: confs,
           blockNumber: txBlock,
           gasUsed: receipt.gasUsed ?? null,
+          isPolling: false,
         });
 
         stopPolling();
@@ -109,7 +106,11 @@ export function useBridgeTxStatus(txHash: string | null, chainId: number) {
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
     timeoutRef.current = setTimeout(() => {
       stopPolling();
-      setState(prev => (prev.status === 'pending' ? { ...prev, status: 'failed' } : prev));
+      setState(prev =>
+        prev.status === 'pending'
+          ? { ...prev, status: 'failed', isPolling: false }
+          : prev
+      );
     }, POLL_TIMEOUT_MS);
 
     return stopPolling;
