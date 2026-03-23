@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 interface LeverageSliderProps {
   leverage: number;
@@ -63,8 +63,6 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
 
       <div className="flex items-center gap-4">
         <div className="relative flex-1 h-10 flex items-center group">
-
-
           <div className="absolute inset-0 flex items-center justify-between px-1 pointer-events-none">
             {ticks.map((_, i) => {
               const tickPos = (i / (ticks.length - 1)) * 100;
@@ -72,10 +70,9 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
               return (
                 <div
                   key={i}
-                  className={`w-[2px] transition-all duration-300 ease-out ${isActive
-                    ? 'h-4 bg-green-800'
-                    : 'h-3 bg-secondary'
-                    }`}
+                  className={`w-[2px] transition-all duration-300 ease-out ${
+                    isActive ? 'h-4 bg-green-800' : 'h-3 bg-secondary'
+                  }`}
                 />
               );
             })}
@@ -86,7 +83,7 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
             style={{
               left: `${percentage}%`,
               transform: `translateX(-50%)`,
-              willChange: 'transform'
+              willChange: 'transform',
             }}
           >
             <div className="w-2 h-2 bg-white rounded-full shadow-[0_0_12px_#fff]" />
@@ -102,7 +99,7 @@ export const LeverageSlider: React.FC<LeverageSliderProps> = ({
             onMouseUp={() => setIsDragging(false)}
             onTouchStart={() => setIsDragging(true)}
             onTouchEnd={() => setIsDragging(false)}
-            onChange={(e) => onChange(parseFloat(e.target.value))}
+            onChange={e => onChange(parseFloat(e.target.value))}
             className="absolute  inset-0 w-full h-full opacity-0 cursor-pointer z-20"
           />
         </div>

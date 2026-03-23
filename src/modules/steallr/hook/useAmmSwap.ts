@@ -178,8 +178,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
 
   const executeSwapWithWalletConnect = useCallback(
     async (transaction: any, walletProvider: any) => {
-
-      console.log("Waletprovider [useAmmswap ------]", walletProvider)
+      console.log('Waletprovider [useAmmswap ------]', walletProvider);
       if (!service) {
         throw new Error('AMM service not initialized');
       }

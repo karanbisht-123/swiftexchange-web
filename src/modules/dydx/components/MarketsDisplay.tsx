@@ -81,7 +81,8 @@ const MarketRow = memo(function MarketRow({
               className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold absolute top-0 left-0"
               style={{
                 display: market.coinIcon ? 'none' : 'flex',
-                background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))'
+                background:
+                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
               }}
             >
               {market.ticker.split('-')[0].slice(0, 2)}
@@ -94,9 +95,7 @@ const MarketRow = memo(function MarketRow({
               </div>
               <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-hover via-hover/60 to-transparent pointer-events-none group-hover:from-hover" />
             </div>
-            <div className="text-xs text-muted">
-              Volume {formatVolume(market.volume24H)}
-            </div>
+            <div className="text-xs text-muted">Volume {formatVolume(market.volume24H)}</div>
           </div>
         </div>
 
@@ -104,10 +103,7 @@ const MarketRow = memo(function MarketRow({
           <div className="text-primary font-semibold text-base">
             ${formatPrice(market.oraclePrice)}
           </div>
-          <div
-            className={`text-xs font-medium ${isPositive ? 'price-up' : 'price-down'
-              }`}
-          >
+          <div className={`text-xs font-medium ${isPositive ? 'price-up' : 'price-down'}`}>
             {isPositive ? '+' : ''}
             {formatPercent(market.priceChange24H)}%
           </div>
@@ -146,7 +142,8 @@ const MarketRow = memo(function MarketRow({
               className="w-10 h-10 rounded-full flex items-center justify-center text-[10px] font-bold absolute top-0 left-0"
               style={{
                 display: market.coinIcon ? 'none' : 'flex',
-                background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))'
+                background:
+                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
               }}
             >
               {market.ticker.split('-')[0].slice(0, 2)}
@@ -165,11 +162,13 @@ const MarketRow = memo(function MarketRow({
                   {Math.round(1 / Number(market.initialMarginFraction))}×
                 </span>
               )}
-              {market.zeroFees && <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 ml-1 flex-shrink-0">No Fees</span>}
+              {market.zeroFees && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 ml-1 flex-shrink-0">
+                  No Fees
+                </span>
+              )}
             </div>
-            <div className="text-[11px] text-muted truncate">
-              {market.coinName || 'Perpetual'}
-            </div>
+            <div className="text-[11px] text-muted truncate">{market.coinName || 'Perpetual'}</div>
           </div>
         </div>
       </td>
@@ -180,8 +179,9 @@ const MarketRow = memo(function MarketRow({
         <div className="flex items-center justify-end gap-2">
           <PriceChart change={priceChange} />
           <span
-            className={`inline-flex items-center gap-1 text-sm font-medium ${isPositive ? 'price-up' : 'price-down'
-              }`}
+            className={`inline-flex items-center gap-1 text-sm font-medium ${
+              isPositive ? 'price-up' : 'price-down'
+            }`}
           >
             {isPositive ? '+' : ''}
             {formatPercent(market.priceChange24H)}%
@@ -197,21 +197,21 @@ const MarketRow = memo(function MarketRow({
         </span>
       </td>
       <td className="py-3 px-4 text-right">
-        <span className="text-secondary text-sm">{formatTrades ? formatTrades(market.trades24H || 0) : (market.trades24H || 0).toLocaleString()}</span>
+        <span className="text-secondary text-sm">
+          {formatTrades
+            ? formatTrades(market.trades24H || 0)
+            : (market.trades24H || 0).toLocaleString()}
+        </span>
       </td>
       <td className="py-3 px-4 text-right">
         <span className="text-secondary text-sm">${formatVolume(market.openInterest)}</span>
       </td>
       <td className="py-3 px-4 text-right">
-        <div
-          className={`font-mono text-sm ${fundingRate >= 0 ? 'price-up' : 'price-down'}`}
-        >
+        <div className={`font-mono text-sm ${fundingRate >= 0 ? 'price-up' : 'price-down'}`}>
           {fundingRate >= 0 ? '+' : ''}
           {formatFundingRate(market.nextFundingRate)}%
         </div>
-        <div className="text-muted text-xs mt-0.5">
-          {getTimeUntilFunding(market.nextFundingAt)}
-        </div>
+        <div className="text-muted text-xs mt-0.5">{getTimeUntilFunding(market.nextFundingAt)}</div>
       </td>
     </tr>
   );
@@ -389,9 +389,15 @@ export default function MarketsDisplay() {
     ({ field }: { field: SortField }) => {
       if (sortField !== field) return null;
       return sortDirection === 'asc' ? (
-        <TrendingUp className="w-3.5 h-3.5 ml-1 inline" style={{ color: 'var(--color-brand-accent)' }} />
+        <TrendingUp
+          className="w-3.5 h-3.5 ml-1 inline"
+          style={{ color: 'var(--color-brand-accent)' }}
+        />
       ) : (
-        <TrendingDown className="w-3.5 h-3.5 ml-1 inline" style={{ color: 'var(--color-brand-accent)' }} />
+        <TrendingDown
+          className="w-3.5 h-3.5 ml-1 inline"
+          style={{ color: 'var(--color-brand-accent)' }}
+        />
       );
     },
     [sortField, sortDirection]
@@ -401,7 +407,13 @@ export default function MarketsDisplay() {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-2 mx-auto mb-4" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-brand-accent)' }} />
+          <div
+            className="animate-spin rounded-full h-12 w-12 border-2 mx-auto mb-4"
+            style={{
+              borderColor: 'var(--color-border)',
+              borderTopColor: 'var(--color-brand-accent)',
+            }}
+          />
           <p className="text-muted">Loading markets...</p>
         </div>
       </div>
@@ -438,7 +450,14 @@ export default function MarketsDisplay() {
 
       <div className="max-w-[1920px] mx-auto  ">
         {error && (
-          <div className="mb-4 p-3  text-sm" style={{ backgroundColor: 'var(--color-danger-bg)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}>
+          <div
+            className="mb-4 p-3  text-sm"
+            style={{
+              backgroundColor: 'var(--color-danger-bg)',
+              borderColor: 'var(--color-danger)',
+              color: 'var(--color-danger)',
+            }}
+          >
             {error}
           </div>
         )}
@@ -559,11 +578,16 @@ export default function MarketsDisplay() {
                       <button
                         key={page}
                         onClick={() => handlePageChange(page as number)}
-                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${currentPage === page
-                          ? 'text-white font-medium shadow-lg'
-                          : 'hover:bg-hover text-muted'
-                          }`}
-                        style={currentPage === page ? { backgroundColor: 'var(--color-brand-accent)' } : {}}
+                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${
+                          currentPage === page
+                            ? 'text-white font-medium shadow-lg'
+                            : 'hover:bg-hover text-muted'
+                        }`}
+                        style={
+                          currentPage === page
+                            ? { backgroundColor: 'var(--color-brand-accent)' }
+                            : {}
+                        }
                       >
                         {page}
                       </button>

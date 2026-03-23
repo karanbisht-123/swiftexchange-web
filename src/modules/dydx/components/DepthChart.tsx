@@ -99,9 +99,10 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       const centerX = padding.left + chartWidth / 2;
 
       // Clear canvas with theme background
-      ctx.fillStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-bg-secondary')
-        .trim() || '#191c25';
+      ctx.fillStyle =
+        getComputedStyle(document.documentElement)
+          .getPropertyValue('--color-bg-secondary')
+          .trim() || '#191c25';
       ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
       // Calculate max total for scaling
@@ -130,12 +131,12 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
         padding.top + chartHeight - (total / maxTotal) * chartHeight;
 
       // Get theme colors
-      const borderColor = getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-border')
-        .trim() || '#2d3241';
-      const textMuted = getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-text-muted')
-        .trim() || '#8b95a5';
+      const borderColor =
+        getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() ||
+        '#2d3241';
+      const textMuted =
+        getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() ||
+        '#8b95a5';
 
       // Draw grid
       ctx.strokeStyle = borderColor;
@@ -171,11 +172,7 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       ctx.fillStyle = textMuted;
       ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(
-        `${midPrice.toFixed(2)}`,
-        centerX,
-        canvasSize.height - padding.bottom + 20
-      );
+      ctx.fillText(`${midPrice.toFixed(2)}`, centerX, canvasSize.height - padding.bottom + 20);
 
       // Draw BIDS (green, moving left from center)
       ctx.beginPath();
@@ -203,9 +200,9 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       bids.forEach(b => {
         ctx.lineTo(xScaleBid(b.price), yScale(b.total));
       });
-      ctx.strokeStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-success')
-        .trim() || '#10b981';
+      ctx.strokeStyle =
+        getComputedStyle(document.documentElement).getPropertyValue('--color-success').trim() ||
+        '#10b981';
       ctx.lineWidth = 2;
       ctx.stroke();
 
@@ -235,9 +232,9 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       asks.forEach(a => {
         ctx.lineTo(xScaleAsk(a.price), yScale(a.total));
       });
-      ctx.strokeStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-danger')
-        .trim() || '#ef4444';
+      ctx.strokeStyle =
+        getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim() ||
+        '#ef4444';
       ctx.lineWidth = 2;
       ctx.stroke();
 
@@ -252,9 +249,10 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
         ctx.arc(x, y, 5, 0, Math.PI * 2);
         ctx.fillStyle = hoveredPoint.isBid ? '#10b981' : '#ef4444';
         ctx.fill();
-        ctx.strokeStyle = ctx.fillStyle = getComputedStyle(document.documentElement)
-          .getPropertyValue('--color-bg-secondary')
-          .trim() || '#191c25';
+        ctx.strokeStyle = ctx.fillStyle =
+          getComputedStyle(document.documentElement)
+            .getPropertyValue('--color-bg-secondary')
+            .trim() || '#191c25';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
@@ -370,11 +368,17 @@ const DepthChart: React.FC<{ height?: number }> = ({ height = 400 }) => {
       {depthData && (
         <div className="flex items-center justify-center gap-6 px-4 py-3 border-t border-color text-xs shrink-0">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-success)' }}></div>
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ backgroundColor: 'var(--color-success)' }}
+            ></div>
             <span className="text-muted">Bids</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-danger)' }}></div>
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ backgroundColor: 'var(--color-danger)' }}
+            ></div>
             <span className="text-muted">Asks</span>
           </div>
           <div className="text-muted">

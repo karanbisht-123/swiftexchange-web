@@ -437,11 +437,7 @@ export class TradeTransactionService {
     }
 
     try {
-      const response = await this.server
-        .claimableBalances()
-        .claimant(accountId)
-        .limit(50)
-        .call();
+      const response = await this.server.claimableBalances().claimant(accountId).limit(50).call();
 
       return response.records;
     } catch (error) {
@@ -496,4 +492,3 @@ export class TradeTransactionService {
     return this.executeTransactionWithWalletConnect(transaction, walletProvider, 'Claim Balance');
   }
 }
-

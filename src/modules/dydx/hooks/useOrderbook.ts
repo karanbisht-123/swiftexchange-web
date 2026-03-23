@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { getSocketClient } from '../client/clients';
+import { getIndexerClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
 
 interface OrderbookLevel {
@@ -149,7 +150,11 @@ function resetSubscription(market: string, clearData = false): void {
   if (!state) return;
 
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { /* ignore */ }
+    try {
+      state.unsubscribe();
+    } catch {
+      /* ignore */
+    }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
@@ -170,7 +175,11 @@ function unsubscribeFromMarket(market: string): void {
   if (!state || state.listeners.size > 0) return;
 
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { /* ignore */ }
+    try {
+      state.unsubscribe();
+    } catch {
+      /* ignore */
+    }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
@@ -190,7 +199,6 @@ async function loadSnapshot(market: string, version: number): Promise<boolean> {
   const state = getOrCreateState(market);
 
   try {
-    const { getIndexerClient } = await import('../client/clients');
     const snap = await getIndexerClient().markets.getPerpetualMarketOrderbook(market);
 
     if (state.snapshotVersion !== version) return false;
@@ -234,7 +242,9 @@ export function useOrderbook(market: string = 'BTC-USD') {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -247,7 +257,8 @@ export function useOrderbook(market: string = 'BTC-USD') {
     const state = getOrCreateState(market);
 
     const isMarketChange = prevMarketRef.current !== null && prevMarketRef.current !== market;
-    const isReconnect = !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
+    const isReconnect =
+      !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
 
     prevMarketRef.current = market;
     prevConnectedRef.current = isConnected;

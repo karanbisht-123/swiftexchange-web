@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSocketClient } from '../client/clients';
+import { getIndexerClient } from '../client/clients';
+import { useLivePriceStore } from '../store/useLivePriceStore';
 import { useWebSocketStore } from '../store/websocketStore';
 
 interface Trade {
@@ -21,7 +23,7 @@ interface MarketTradeState {
   snapshotVersion: number;
 }
 
-const tradesState = new Map<string, MarketTradeState>();
+export const tradesState = new Map<string, MarketTradeState>();
 
 function getOrCreateState(market: string, limit: number): MarketTradeState {
   if (!tradesState.has(market)) {
@@ -48,14 +50,24 @@ function scheduleUpdate(market: string): void {
 }
 
 function handleTradeUpdate(market: string, data: any): void {
-  const state = getOrCreateState(market, 50);
   const contents = data?.contents;
+  if (!contents?.trades || !Array.isArray(contents.trades) || contents.trades.length === 0) return;
 
-  if (!contents?.trades || !Array.isArray(contents.trades)) return;
+  const state = getOrCreateState(market, 50);
+  const incomingTrades = contents.trades;
+  const latestIncoming = incomingTrades[0];
+  if (latestIncoming?.price) {
+    useLivePriceStore
+      .getState()
+      .setLivePrice(
+        market,
+        parseFloat(latestIncoming.price),
+        latestIncoming.side as 'BUY' | 'SELL'
+      );
+  }
 
   const existingIds = new Set(state.trades.map(t => t.id));
-
-  const newTrades: Trade[] = contents.trades
+  const newTrades: Trade[] = incomingTrades
     .filter((t: any) => t?.id && !existingIds.has(t.id))
     .map((t: any) => ({
       id: t.id,
@@ -72,12 +84,6 @@ function handleTradeUpdate(market: string, data: any): void {
     if (state.trades.length > state.limit) {
       state.trades.length = state.limit;
     }
-
-    const latestTrade = state.trades[0];
-    import('../store/useLivePriceStore').then(module => {
-      module.useLivePriceStore.getState().setLivePrice(market, parseFloat(latestTrade.price), latestTrade.side);
-    });
-
     scheduleUpdate(market);
   }
 }
@@ -103,10 +109,15 @@ function resetSubscription(market: string, clearData = false): void {
   if (!state) return;
 
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { /* ignore */ }
+    try {
+      state.unsubscribe();
+    } catch {
+      /* ignore */
+    }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
+
   if (clearData) {
     state.trades = [];
   }
@@ -123,7 +134,11 @@ function unsubscribeFromMarket(market: string): void {
   if (!state || state.listeners.size > 0) return;
 
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { /* ignore */ }
+    try {
+      state.unsubscribe();
+    } catch {
+      /* ignore */
+    }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
@@ -137,16 +152,11 @@ function unsubscribeFromMarket(market: string): void {
   tradesState.delete(market);
 }
 
-async function loadSnapshot(
-  market: string,
-  limit: number,
-  version: number
-): Promise<boolean> {
+async function loadSnapshot(market: string, limit: number, version: number): Promise<boolean> {
   if (!market) return false;
   const state = getOrCreateState(market, limit);
 
   try {
-    const { getIndexerClient } = await import('../client/clients');
     const client = getIndexerClient();
 
     let response: any;
@@ -155,7 +165,6 @@ async function loadSnapshot(
     } catch {
       response = await client.markets.getPerpetualMarketTrades(market);
     }
-
     if (state.snapshotVersion !== version) return false;
 
     const mapped: Trade[] = (response?.trades || [])
@@ -168,7 +177,21 @@ async function loadSnapshot(
         createdAt: t.createdAt,
       }));
 
-    state.trades = mapped.slice(0, limit);
+    const liveTradeIds = new Set(state.trades.map(t => t.id));
+    const mergedTrades = [...state.trades, ...mapped.filter(t => !liveTradeIds.has(t.id))].slice(
+      0,
+      limit
+    );
+
+    state.trades = mergedTrades;
+    if (state.trades.length > 0) {
+      const existing = useLivePriceStore.getState().prices[market];
+      if (!existing) {
+        const top = state.trades[0];
+        useLivePriceStore.getState().setLivePrice(market, parseFloat(top.price), top.side);
+      }
+    }
+
     scheduleUpdate(market);
     return true;
   } catch (err) {
@@ -189,7 +212,9 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -203,7 +228,8 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     state.limit = limit;
 
     const isMarketChange = prevMarketRef.current !== null && prevMarketRef.current !== market;
-    const isReconnect = !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
+    const isReconnect =
+      !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
 
     prevMarketRef.current = market;
     prevConnectedRef.current = isConnected;
@@ -232,7 +258,9 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
 
     const version = state.snapshotVersion;
     const needsSnapshot = state.trades.length === 0 || isReconnect;
-
+    if (isConnected) {
+      subscribeToMarket(market);
+    }
     if (needsSnapshot) {
       loadSnapshot(market, limit, version).then(success => {
         if (!mountedRef.current) return;
@@ -249,10 +277,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
       });
     } else {
       setIsLoading(false);
-    }
-
-    if (isConnected) {
-      subscribeToMarket(market);
     }
 
     return () => {

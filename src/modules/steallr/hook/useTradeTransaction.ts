@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { ERROR_MESSAGES } from '../constants/tradeTransactionConstants';
 import { TradeTransactionService } from '../service/tradeTransactionService';
 import type { ActiveOffer, CompletedTrade, Pagination } from '../types/tradeTransaction.types';
-
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
 interface UseTradeTransactionProps {
   userAddress?: string;

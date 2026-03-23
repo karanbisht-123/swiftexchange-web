@@ -20,11 +20,7 @@ const ThemeToggle = () => {
         className="relative rounded-full p-2 text-(--color-text-secondary) hover:bg-(--color-bg-tertiary) hover:text-(--color-text-primary) transition-colors"
         aria-label="Toggle theme"
       >
-        {theme === 'light' ? (
-          <Moon size={20} />
-        ) : (
-          <Sun size={20} />
-        )}
+        {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
       </button>
     </div>
   );

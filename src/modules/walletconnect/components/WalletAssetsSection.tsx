@@ -3,10 +3,8 @@ import { memo, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../../constants/routes';
-import TradeAssetModal from '../../evm/feature/one-tap-pay/TradeAssetModal';
 import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { type Asset, useWalletAssets } from '../hooks/useWalletAssets';
-
 import { useWalletStore } from '../store/walletConnectStore';
 
 const CHAIN_ICONS: Record<string, string> = {
@@ -19,7 +17,6 @@ const getChainIcon = (asset: Asset): string | undefined => {
   if (asset.chainType === 'stellar') return CHAIN_ICONS.STELLAR;
   if (asset.chainId === 1) return CHAIN_ICONS.ETH;
   if (asset.chainId === 56) return CHAIN_ICONS.BNB;
-
 
   if (asset.chainName?.includes('Ethereum')) return CHAIN_ICONS.ETH;
   if (asset.chainName?.includes('BNB')) return CHAIN_ICONS.BNB;
@@ -57,99 +54,111 @@ const calculatePortfolioChange = (assets: Asset[]): number => {
   return weightedChange / totalValue;
 };
 
-const AssetRow = memo(({ asset, onTrade, onPerp }: { asset: Asset; onTrade: (asset: Asset) => void; onPerp: (asset: Asset) => void }) => {
-  const isPriceLoading = asset.current_price === 0;
-  const usdValue = (asset.balance || 0) * (asset.current_price || 0);
-  const canTrade = canTradeAsset(asset);
-  const canPrep = asset.chainType !== 'stellar';
+const AssetRow = memo(
+  ({
+    asset,
+    onTrade,
+    onPerp,
+  }: {
+    asset: Asset;
+    onTrade: (asset: Asset) => void;
+    onPerp: (asset: Asset) => void;
+  }) => {
+    const isPriceLoading = asset.current_price === 0;
+    const usdValue = (asset.balance || 0) * (asset.current_price || 0);
+    const canTrade = canTradeAsset(asset);
+    const canPrep = asset.chainType !== 'stellar';
 
-  return (
-    <div className="lg:px-4 px-0 py-4 hover:bg-hover transition-colors">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="relative shrink-0">
-            <img
-              src={asset.image}
-              className="w-12 h-12 rounded-full "
-              alt={asset.symbol}
-            />
-            <div className="absolute -bottom-1 -right-1 w-5 h-5  rounded-full flex items-center bg-primary justify-center border border-color">
-              {getChainIcon(asset) ? (
-                <img src={getChainIcon(asset)} alt={asset.chainName} className="w-3.5 h-3.5 rounded-full" />
-              ) : (
-                <span className="text-[8px] font-bold text-primary">
-                  {asset.chainType === 'stellar' ? '★' : asset.chainName?.[0] || '?'}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-2">
-              <span className="font-bold text-base text-primary">{asset.symbol}</span>
-              <span className="text-xs text-muted bg-secondary truncate">{asset.chainName}</span>
-            </div>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              {isPriceLoading ? (
-                <Shimmer className="h-3 w-16" />
-              ) : (
-                <>
-                  <span className="text-sm text-secondary font-medium">
-                    ${asset.current_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+    return (
+      <div className="lg:px-4 px-0 py-4 hover:bg-hover transition-colors">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="relative shrink-0">
+              <img src={asset.image} className="w-12 h-12 rounded-full " alt={asset.symbol} />
+              <div className="absolute -bottom-1 -right-1 w-5 h-5  rounded-full flex items-center bg-primary justify-center border border-color">
+                {getChainIcon(asset) ? (
+                  <img
+                    src={getChainIcon(asset)}
+                    alt={asset.chainName}
+                    className="w-3.5 h-3.5 rounded-full"
+                  />
+                ) : (
+                  <span className="text-[8px] font-bold text-primary">
+                    {asset.chainType === 'stellar' ? '★' : asset.chainName?.[0] || '?'}
                   </span>
-                  {asset.price_change_percentage_24h !== 0 && (
-                    <span
-                      className={`text-xs font-medium ${asset.price_change_percentage_24h >= 0 ? 'price-up' : 'price-down'
-                        }`}
-                    >
-                      {asset.price_change_percentage_24h >= 0 ? '+' : ''}
-                      {asset.price_change_percentage_24h?.toFixed(2)}%
+                )}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2">
+                <span className="font-bold text-base text-primary">{asset.symbol}</span>
+                <span className="text-xs text-muted bg-secondary truncate">{asset.chainName}</span>
+              </div>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                {isPriceLoading ? (
+                  <Shimmer className="h-3 w-16" />
+                ) : (
+                  <>
+                    <span className="text-sm text-secondary font-medium">
+                      $
+                      {asset.current_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </span>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="text-right shrink-0">
-            <div className="text-base font-semibold text-primary">
-              {asset.balance?.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-            </div>
-            <div className="text-sm text-muted mt-0.5">
-              {isPriceLoading ? (
-                <Shimmer className="h-3 w-16 ml-auto" />
-              ) : (
-                `$${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-              )}
+                    {asset.price_change_percentage_24h !== 0 && (
+                      <span
+                        className={`text-xs font-medium ${
+                          asset.price_change_percentage_24h >= 0 ? 'price-up' : 'price-down'
+                        }`}
+                      >
+                        {asset.price_change_percentage_24h >= 0 ? '+' : ''}
+                        {asset.price_change_percentage_24h?.toFixed(2)}%
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
-          {(canTrade || canPrep) && (
-            <div className="flex items-center gap-2">
-              {canTrade && (
-                <button
-                  onClick={() => onTrade(asset)}
-                  className="btn btn-primary btn-sm rounded-md"
-                >
-                  Spot
-                </button>
-              )}
-              {canPrep && (
-                <button
-                  onClick={() => onPerp(asset)}
-                  className="btn btn-primary btn-sm rounded-md"
-                >
-                  Prep
-                </button>
-              )}
+          <div className="flex items-center gap-3">
+            <div className="text-right shrink-0">
+              <div className="text-base font-semibold text-primary">
+                {asset.balance?.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+              </div>
+              <div className="text-sm text-muted mt-0.5">
+                {isPriceLoading ? (
+                  <Shimmer className="h-3 w-16 ml-auto" />
+                ) : (
+                  `$${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                )}
+              </div>
             </div>
-          )}
+
+            {(canTrade || canPrep) && (
+              <div className="flex items-center gap-2">
+                {canTrade && (
+                  <button
+                    onClick={() => onTrade(asset)}
+                    className="btn btn-primary btn-sm rounded-md"
+                  >
+                    Spot
+                  </button>
+                )}
+                {canPrep && (
+                  <button
+                    onClick={() => onPerp(asset)}
+                    className="btn btn-primary btn-sm rounded-md"
+                  >
+                    Prep
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-});
+    );
+  }
+);
 
 AssetRow.displayName = 'AssetRow';
 
@@ -159,11 +168,9 @@ const WalletAssetsSection = () => {
   const { assets, loading, totalValue, hasError, errorMessage, refetch } = useWalletAssets(network);
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
 
   const hasLoadingPrices = assets.some(a => a.current_price === 0);
-
 
   const portfolioChange = useMemo(() => calculatePortfolioChange(assets), [assets]);
   const isPositive = portfolioChange >= 0;
@@ -179,18 +186,12 @@ const WalletAssetsSection = () => {
       return;
     }
 
-    setSelectedAsset(asset);
-    setIsTradeModalOpen(true);
+    navigate(ROUTES.BRIDGE, { state: { selectedAsset: asset } });
   };
 
   const handlePerp = (asset: Asset) => {
     setSelectedAsset(asset);
     setIsDepositModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setIsTradeModalOpen(false);
-    setSelectedAsset(null);
   };
 
   const handleCloseDepositModal = () => {
@@ -217,16 +218,13 @@ const WalletAssetsSection = () => {
               </span>
               {!hasLoadingPrices && assets.length > 0 && (
                 <div
-                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${isPositive
-                    ? 'bg-success-bg bg-green-600 text-success'
-                    : 'bg-danger-bg bg-red-600 text-danger'
-                    }`}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${
+                    isPositive
+                      ? 'bg-success-bg bg-green-600 text-white'
+                      : 'bg-danger-bg bg-red-600 text-white'
+                  }`}
                 >
-                  {isPositive ? (
-                    <TrendingUp size={14} />
-                  ) : (
-                    <TrendingDown size={14} />
-                  )}
+                  {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                   <span>
                     {isPositive ? '+' : ''}
                     {portfolioChange.toFixed(2)}%
@@ -252,7 +250,8 @@ const WalletAssetsSection = () => {
               <AlertCircle className="w-12 h-12 text-red-500 mb-4 opacity-80" />
               <h4 className="font-semibold text-primary mb-2">Connection Error</h4>
               <p className="text-sm text-secondary mb-6 max-w-sm">
-                {errorMessage || 'Unable to fetch your portfolio. Please check your connection or try again later.'}
+                {errorMessage ||
+                  'Unable to fetch your portfolio. Please check your connection or try again later.'}
               </p>
               <button
                 onClick={refetch}
@@ -291,18 +290,6 @@ const WalletAssetsSection = () => {
           )}
         </div>
       </section>
-
-      {selectedAsset && selectedAsset.chainType !== 'stellar' && (
-        <TradeAssetModal
-          isOpen={isTradeModalOpen}
-          onClose={handleCloseModal}
-          assetName={selectedAsset.name}
-          selectedAsset={{
-            ...selectedAsset,
-            balance: selectedAsset.balance ?? 0,
-          }}
-        />
-      )}
 
       {selectedAsset && isDepositModalOpen && (
         <DydxDepositModal

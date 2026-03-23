@@ -72,7 +72,7 @@ Powered by `@dydxprotocol/v4-client-js`:
   - Post-Only Orders
   - Conditional Orders
 
-- **Margin Modes**: 
+- **Margin Modes**:
   - ✅ Cross Margin
   - ✅ Isolated Margin
 
@@ -91,12 +91,12 @@ Powered by `@dydxprotocol/v4-client-js`:
 
 ## 🌐 Supported Networks
 
-| Network | Features | Status |
-|---------|----------|--------|
-| **Ethereum** | Swaps, Transfers, Bridging | ✅ Active |
-| **BNB** | Swaps, Transfers, Bridging | ✅ Active |
-| **Stellar** | AMM Swaps, Order Book Trading, Trustlines | ✅ Active |
-| **dYdX Chain** | Perpetual Derivatives Trading | ✅ Active |
+| Network        | Features                                  | Status    |
+| -------------- | ----------------------------------------- | --------- |
+| **Ethereum**   | Swaps, Transfers, Bridging                | ✅ Active |
+| **BNB**        | Swaps, Transfers, Bridging                | ✅ Active |
+| **Stellar**    | AMM Swaps, Order Book Trading, Trustlines | ✅ Active |
+| **dYdX Chain** | Perpetual Derivatives Trading             | ✅ Active |
 
 ---
 
@@ -234,11 +234,13 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 ### First-Time User Journey
 
 #### Step 1: Connect Wallet
+
 - Click "Connect Wallet" button
 - Choose your wallet provider
 - Approve connection in your wallet
 
 #### Step 2: View Your Assets
+
 - See all your token balances across connected chains
 - Real-time price updates
 - Portfolio value tracking
@@ -246,6 +248,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 #### Step 3: Perform Actions
 
 **For EVM/Stellar Operations:**
+
 - Swap tokens on Stellar AMM
 - Bridge assets between chains
 - Send/receive native tokens
@@ -277,38 +280,38 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ### Frontend
 
-| Technology | Purpose |
-|------------|---------|
-| **React 18** | UI framework with concurrent features |
-| **Vite 5** | Lightning-fast build tool and dev server |
-| **TypeScript** | Type-safe development |
-| **Tailwind CSS** | Utility-first styling |
-| **@tailwindcss/vite** | Native Tailwind integration for Vite |
+| Technology            | Purpose                                  |
+| --------------------- | ---------------------------------------- |
+| **React 18**          | UI framework with concurrent features    |
+| **Vite 5**            | Lightning-fast build tool and dev server |
+| **TypeScript**        | Type-safe development                    |
+| **Tailwind CSS**      | Utility-first styling                    |
+| **@tailwindcss/vite** | Native Tailwind integration for Vite     |
 
 ### Blockchain Integration
 
-| Library | Purpose |
-|---------|---------|
-| **WalletConnect v2** | Multi-wallet connection protocol |
-| **Ethers.js** | EVM blockchain interaction |
-| **@stellar/stellar-sdk** | Stellar network operations |
-| **@dydxprotocol/v4-client-js** | dYdX perpetual trading |
+| Library                        | Purpose                          |
+| ------------------------------ | -------------------------------- |
+| **WalletConnect v2**           | Multi-wallet connection protocol |
+| **Ethers.js**                  | EVM blockchain interaction       |
+| **@stellar/stellar-sdk**       | Stellar network operations       |
+| **@dydxprotocol/v4-client-js** | dYdX perpetual trading           |
 
 ### State & Real-Time Data
 
-| Tool | Purpose |
-|------|---------|
-| **Zustand** | Lightweight state management |
+| Tool          | Purpose                                   |
+| ------------- | ----------------------------------------- |
+| **Zustand**   | Lightweight state management              |
 | **WebSocket** | Real-time market data and account updates |
 
 ### Development Tools
 
-| Tool | Purpose |
-|------|---------|
+| Tool                           | Purpose                                     |
+| ------------------------------ | ------------------------------------------- |
 | **vite-plugin-node-polyfills** | Node.js polyfills for browser compatibility |
-| **vite-plugin-remove-console** | Remove console logs in production builds |
-| **ESLint** | Code linting |
-| **Prettier** | Code formatting |
+| **vite-plugin-remove-console** | Remove console logs in production builds    |
+| **ESLint**                     | Code linting                                |
+| **Prettier**                   | Code formatting                             |
 
 ### Backend Services
 
@@ -326,12 +329,14 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 Swiftex never has access to your private keys:
 
 ✅ **What We Do:**
+
 - Request wallet signatures for actions
 - Derive dYdX keys client-side (in-memory only)
 - Relay signed transactions to blockchain networks
 - Provide UI for managing your assets
 
 ❌ **What We Don't Do:**
+
 - Store private keys or mnemonics
 - Have access to your funds
 - Sign transactions on your behalf
@@ -340,6 +345,7 @@ Swiftex never has access to your private keys:
 ### dYdX Signing Model
 
 **How It Works:**
+
 1. You sign a dYdX onboarding message with your EVM wallet
 2. The signature is used to deterministically derive your dYdX Chain address and signing keys
 3. These keys are held in browser memory ONLY for the active session
@@ -348,6 +354,7 @@ Swiftex never has access to your private keys:
 6. Keys are cleared when you close the browser
 
 **Security Best Practices:**
+
 - Always verify transaction details before signing
 - Use hardware wallets for large amounts
 - Keep your wallet software updated
@@ -355,6 +362,7 @@ Swiftex never has access to your private keys:
 - Close browser when done trading
 
 **Important Note:**
+
 - dYdX signing keys exist in browser memory only
 - Keys are never stored or transmitted
 - No random mnemonics are generated
@@ -392,6 +400,7 @@ The project uses a custom Vite setup optimized for blockchain development:
 
 ```typescript
 import react from '@vitejs/plugin-react';
+
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
@@ -420,6 +429,7 @@ export default defineConfig({
 ```
 
 **Key Features:**
+
 - **Node.js Polyfills**: Required for blockchain libraries to work in browser
 - **Console Removal**: Automatically strips console logs in production
 - **Global Definitions**: Defines `global` as `globalThis` for compatibility
@@ -478,6 +488,7 @@ All API calls go through Swiftex's authenticated proxy:
 - Contact the Swiftex team to get your authentication tokens
 
 The proxy handles:
+
 - RPC calls to EVM networks
 - Stellar Horizon API calls
 - dYdX indexer queries
@@ -500,6 +511,7 @@ Output will be in the `dist/` folder.
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/your-org/swiftex-wallet-exchange)
 
 **Vercel Configuration:**
+
 - Framework: Vite
 - Build Command: `npm run build`
 - Output Directory: `dist`
@@ -508,6 +520,7 @@ Output will be in the `dist/` folder.
 ### Deploy to Netlify
 
 **Netlify Configuration** (`netlify.toml`):
+
 ```toml
 [build]
   command = "npm run build"
@@ -524,6 +537,7 @@ Output will be in the `dist/` folder.
 Set all required environment variables in your hosting platform:
 
 **Required Variables:**
+
 - `VITE_WALLETCONNECT_PROJECT_ID`
 - `VITE_WALLETCONNECT_RELAY_URL`
 - `VITE_BASE_SERVER_URL_PROD`
@@ -548,6 +562,7 @@ The mobile app provides the same features with native mobile optimizations.
 ## 🗺️ Roadmap
 
 ### Q1 2025
+
 - ✅ Multi-wallet WalletConnect integration
 - ✅ Stellar asset management
 - ✅ dYdX v4 perpetual trading
@@ -572,6 +587,7 @@ Need help? We're here for you:
 - **Email**: support@swiftex.exchange
 - **GitHub Repository**: [swiftexchange-web](https://github.com/karanbisht-123/swiftexchange-web)
 - **GitHub Issues**: [Report a bug](https://github.com/karanbisht-123/swiftexchange-web/issues)
+
 ## 🙏 Acknowledgments
 
 Built with amazing tools and protocols:
@@ -592,12 +608,14 @@ Built with amazing tools and protocols:
 Swiftex Wallet Exchange is non-custodial software. Use at your own risk.
 
 **Risks:**
+
 - Trading cryptocurrencies and derivatives involves substantial risk of loss
 - You are solely responsible for securing your wallet and funds
 - Market conditions can be volatile and unpredictable
 - You may lose all or part of your investment
 
 **Always:**
+
 - ✅ Do your own research (DYOR)
 - ✅ Never invest more than you can afford to lose
 - ✅ Keep your seed phrase secure and private
@@ -605,6 +623,7 @@ Swiftex Wallet Exchange is non-custodial software. Use at your own risk.
 - ✅ Verify all transaction details before signing
 
 **Never:**
+
 - ❌ Share your private keys or seed phrases
 - ❌ Trust unsolicited messages
 - ❌ Use public WiFi without VPN

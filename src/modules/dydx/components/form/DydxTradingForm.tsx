@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { Notification, type NotificationType } from '../../../../components/common/Notification';
-import { useSubaccounts } from '../../hooks/useSubaccounts';
+import { Tooltip } from '../../../../components/common/Tooltip';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useMarkets } from '../../hooks/useMarkets';
+import { useSubaccounts } from '../../hooks/useSubaccounts';
 import useMarketStore from '../../store/marketStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
@@ -24,13 +25,11 @@ import {
   type TimeInForceOption,
 } from './components/AdvancedOptions';
 import { BuySellSelector } from './components/BuySellSelector';
-
 import { MarginTypeSelector } from './components/MarginTypeSelector';
 import { OrderFormInputs } from './components/OrderFormInputs';
 import { OrderReceipt } from './components/OrderReceipt';
 import { OrderTypeSelector } from './components/OrderTypeSelector';
 import { TpSlInputs } from './components/TpSlInputs';
-import { Tooltip } from '../../../../components/common/Tooltip';
 
 interface NotificationState {
   id: number;
@@ -233,13 +232,15 @@ export const DydxTradingForm: React.FC = () => {
   }, [orderError, clearOrderError]);
 
   useEffect(() => {
-    if (reduceOnly && (isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
+    if (
+      reduceOnly &&
+      (isLimit || isConditional) &&
+      (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')
+    ) {
       setTimeInForce('IOC');
       addNotification('warning', 'Reduce-only orders must use IOC', 'Time-in-Force Changed');
     }
   }, [reduceOnly, isLimit, isConditional, timeInForce]);
-
-
 
   useEffect(() => {
     const handlePriceClick = (clickedPrice: string) => {
@@ -362,7 +363,10 @@ export const DydxTradingForm: React.FC = () => {
       : undefined;
 
     if (finalPrice !== undefined && marketData.tickSize) {
-      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      const tickSize =
+        typeof marketData.tickSize === 'string'
+          ? parseFloat(marketData.tickSize)
+          : marketData.tickSize;
       finalPrice = roundToTickSize(finalPrice, tickSize);
     }
 
@@ -371,19 +375,28 @@ export const DydxTradingForm: React.FC = () => {
       : undefined;
 
     if (finalTriggerPrice !== undefined && marketData.tickSize) {
-      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      const tickSize =
+        typeof marketData.tickSize === 'string'
+          ? parseFloat(marketData.tickSize)
+          : marketData.tickSize;
       finalTriggerPrice = roundToTickSize(finalTriggerPrice, tickSize);
     }
 
     let finalTpPrice = showTpSl && tpPrice ? parseFloat(tpPrice) : undefined;
     if (finalTpPrice !== undefined && marketData.tickSize) {
-      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      const tickSize =
+        typeof marketData.tickSize === 'string'
+          ? parseFloat(marketData.tickSize)
+          : marketData.tickSize;
       finalTpPrice = roundToTickSize(finalTpPrice, tickSize);
     }
 
     let finalSlPrice = showTpSl && slPrice ? parseFloat(slPrice) : undefined;
     if (finalSlPrice !== undefined && marketData.tickSize) {
-      const tickSize = typeof marketData.tickSize === 'string' ? parseFloat(marketData.tickSize) : marketData.tickSize;
+      const tickSize =
+        typeof marketData.tickSize === 'string'
+          ? parseFloat(marketData.tickSize)
+          : marketData.tickSize;
       finalSlPrice = roundToTickSize(finalSlPrice, tickSize);
     }
 
@@ -437,7 +450,9 @@ export const DydxTradingForm: React.FC = () => {
       triggerPrice: finalTriggerPrice,
       timeInForce: timeInForce === 'POST_ONLY' ? 'GTT' : timeInForce,
       reduceOnly,
-      postOnly: (timeInForce === 'POST_ONLY' && (orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT')),
+      postOnly:
+        timeInForce === 'POST_ONLY' &&
+        (orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT'),
       goodTilTimeInSeconds,
       subaccountNumber: targetSubaccount,
       leverage,
@@ -495,16 +510,26 @@ export const DydxTradingForm: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-5">
               <div className="flex flex-col">
-                <span className="text-[8px] uppercase tracking-wider text-gray-500 ">Portfolio</span>
+                <span className="text-[8px] uppercase tracking-wider text-gray-500 ">
+                  Portfolio
+                </span>
                 <span className="text-base text-sm font-semibold text-white">
-                  ${Number(balance.equity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  $
+                  {Number(balance.equity).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               </div>
               <div className="w-px h-8 bg-gray-700/50" />
               <div className="flex flex-col">
                 <span className="text-[8px] uppercase tracking-wider text-gray-500">Available</span>
                 <span className="text-base text-sm font-semibold text-emerald-400">
-                  ${Number(balance.freeCollateral).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  $
+                  {Number(balance.freeCollateral).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               </div>
             </div>
@@ -513,8 +538,18 @@ export const DydxTradingForm: React.FC = () => {
           <div className="flex items-center justify-between py-1">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gray-700/50 flex items-center justify-center">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                <svg
+                  className="w-4 h-4 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                  />
                 </svg>
               </div>
               <span className="text-xs text-gray-400">Connect wallet to trade</span>
@@ -576,7 +611,9 @@ export const DydxTradingForm: React.FC = () => {
                   setSize(maxBuyingPower.toFixed(2));
                 } else if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
                   const baseAmount = maxBuyingPower / parseFloat(marketData.oraclePrice);
-                  const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
+                  const decimals = currencyService.getStepSizeDecimals(
+                    marketData.stepSize || '0.00000001'
+                  );
                   setSize(baseAmount.toFixed(decimals));
                 }
               }
@@ -589,7 +626,10 @@ export const DydxTradingForm: React.FC = () => {
                 {/* Custom dashed track */}
                 <div
                   className="absolute left-0 right-0 h-2 rounded-full pointer-events-none opacity-40"
-                  style={{ backgroundImage: 'repeating-linear-gradient(to right, var(--color-text-muted), var(--color-text-muted) 3px, transparent 3px, transparent 6px)' }}
+                  style={{
+                    backgroundImage:
+                      'repeating-linear-gradient(to right, var(--color-text-muted), var(--color-text-muted) 3px, transparent 3px, transparent 6px)',
+                  }}
                 />
 
                 {/* Filled track */}
@@ -669,7 +709,10 @@ export const DydxTradingForm: React.FC = () => {
                     />
                   </svg>
                 </div>
-                <Tooltip content="Automatically close your position when it reaches a specific price" position="top">
+                <Tooltip
+                  content="Automatically close your position when it reaches a specific price"
+                  position="top"
+                >
                   <span className="text-[12px] font-medium text-primary group-hover:text-brand-primary transition-colors">
                     Take Profit / Stop Loss
                   </span>
@@ -707,12 +750,9 @@ export const DydxTradingForm: React.FC = () => {
             selectedMarket={selectedMarket}
           />
 
-
           <div className="h-2" />
         </div>
       </div>
     </div>
   );
 };
-
-

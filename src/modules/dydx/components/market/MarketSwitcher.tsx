@@ -2,8 +2,9 @@ import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { useMarkets } from '../../hooks/useMarkets';
-import { useLivePriceStore } from '../../store/useLivePriceStore';
+import { tradesState } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
+import { useLivePriceStore } from '../../store/useLivePriceStore';
 import MarketSelectorModal from './MarketSelectorModal';
 
 interface AnimatedPriceProps {
@@ -42,7 +43,6 @@ const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, classNa
     </span>
   );
 };
-
 
 const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) => {
   const [displayValue, setDisplayValue] = useState(value);
@@ -122,8 +122,9 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
         <span className="text-muted text-xs mb-1">1h Funding</span>
         <AnimatedValue
           value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
-          className={`font-medium text-sm ${parseFloat(marketData.nextFundingRate || '0') >= 0 ? 'price-up' : 'price-down'
-            }`}
+          className={`font-medium text-sm ${
+            parseFloat(marketData.nextFundingRate || '0') >= 0 ? 'price-up' : 'price-down'
+          }`}
         />
       </div>
 
@@ -169,10 +170,13 @@ const MarketSwitcher: React.FC = () => {
     initialMarginFraction: '0.05',
   };
 
+  const snapshotPrice = tradesState.get(selectedMarket)?.trades[0]?.price;
   const currentPrice =
     livePrice && livePrice > 0
       ? livePrice.toFixed(2)
-      : parseFloat(marketData.oraclePrice).toFixed(2);
+      : snapshotPrice
+        ? parseFloat(snapshotPrice).toFixed(2)
+        : '--';
 
   const priceChange = parseFloat(marketData.priceChange24H);
   const oraclePrice = parseFloat(marketData.oraclePrice);
@@ -185,9 +189,7 @@ const MarketSwitcher: React.FC = () => {
 
   return (
     <>
-
-      <div className="lg:hidden flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color ">
-
+      <div className="lg:hidden flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color">
         <button
           onClick={() => setIsModalOpen(true)}
           disabled={isLoading}
@@ -203,29 +205,33 @@ const MarketSwitcher: React.FC = () => {
               }}
             />
           ) : (
-            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}>
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+              style={{
+                background:
+                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
+              }}
+            >
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
           )}
-          <span className="font-semibold text-primary text-sm">
-            {selectedMarket.split('-')[0]}
-          </span>
+          <span className="font-semibold text-primary text-sm">{selectedMarket.split('-')[0]}</span>
           <ChevronDown className="w-4 h-4 text-muted" />
         </button>
 
         <div className="flex flex-col items-end">
           <AnimatedPrice
             price={currentPrice}
-            tradeSide={livePriceSide}
+            tradeSide={currentPrice === '--' ? null : livePriceSide}
             className="text-base font-bold"
           />
           <AnimatedValue
             value={`${formattedPercentage}%`}
-            className={`text-xs font-medium ${changePercentage >= 0 ? 'price-up' : 'price-down'
-              }`}
+            className={`text-xs font-medium ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}
           />
         </div>
       </div>
+
       <div className="hidden lg:flex bg-secondary items-center w-full text-sm text-primary border-b border-color">
         <button
           onClick={() => setIsModalOpen(true)}
@@ -242,36 +248,41 @@ const MarketSwitcher: React.FC = () => {
               }}
             />
           ) : (
-            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}>
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+              style={{
+                background:
+                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
+              }}
+            >
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
           )}
 
           <div className="flex flex-col items-start">
-            <span className="font-semibold text-primary text-base">
-              {selectedMarket}
-            </span>
+            <span className="font-semibold text-primary text-base">{selectedMarket}</span>
           </div>
 
           <ChevronDown className="w-4 h-4 text-muted ml-1" />
         </button>
 
-
         <div className="px-2 pr-0 flex flex-col items-start min-w-[110px]">
           <AnimatedPrice
             price={currentPrice}
-            tradeSide={livePriceSide}
+            tradeSide={currentPrice === '--' ? null : livePriceSide}
             className="text-xl font-bold"
           />
         </div>
-
 
         <div className="hide-scrollbar flex items-center overflow-x-auto px-2 flex-1">
           <div className="flex divide-x divide-divider whitespace-nowrap">
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Oracle Price</span>
               <AnimatedValue
-                value={`$${parseFloat(marketData.oraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
+                value={`$${parseFloat(marketData.oraclePrice).toLocaleString(undefined, {
+                  minimumFractionDigits: 1,
+                  maximumFractionDigits: 1,
+                })}`}
                 className="font-medium text-primary"
               />
             </div>
@@ -283,10 +294,7 @@ const MarketSwitcher: React.FC = () => {
                   value={`$${priceChange.toFixed(1)}`}
                   className="font-medium text-xs"
                 />
-                <AnimatedValue
-                  value={`${formattedPercentage}%`}
-                  className="font-medium text-xs"
-                />
+                <AnimatedValue value={`${formattedPercentage}%`} className="font-medium text-xs" />
               </div>
             </div>
 
@@ -322,8 +330,9 @@ const MarketSwitcher: React.FC = () => {
               <span className="text-muted text-xs">1h Funding</span>
               <AnimatedValue
                 value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
-                className={`font-medium ${parseFloat(marketData.nextFundingRate) >= 0 ? 'price-up' : 'price-down'
-                  }`}
+                className={`font-medium ${
+                  parseFloat(marketData.nextFundingRate) >= 0 ? 'price-up' : 'price-down'
+                }`}
               />
             </div>
 
@@ -345,7 +354,11 @@ const MarketSwitcher: React.FC = () => {
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Maximum Leverage</span>
               <AnimatedValue
-                value={marketData.initialMarginFraction ? `${(1 / Number(marketData.initialMarginFraction)).toFixed(2)}×` : '-'}
+                value={
+                  marketData.initialMarginFraction
+                    ? `${(1 / Number(marketData.initialMarginFraction)).toFixed(2)}×`
+                    : '-'
+                }
                 className="font-medium text-primary"
               />
             </div>

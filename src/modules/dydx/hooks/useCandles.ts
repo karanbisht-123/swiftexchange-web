@@ -54,14 +54,17 @@ export function useRealtimeChart(
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     let mounted = true;
 
     const isReconnect = !prevConnectedRef.current && isConnected;
-    const isParamChange = prevMarketRef.current !== market || prevResolutionRef.current !== resolution;
+    const isParamChange =
+      prevMarketRef.current !== market || prevResolutionRef.current !== resolution;
 
     prevConnectedRef.current = isConnected;
     prevMarketRef.current = market;
@@ -187,7 +190,7 @@ export function useRealtimeChart(
 
           if (price > newHigh) newHigh = price;
           if (price < newLow) newLow = price;
-          addedVolume += (price * size);
+          addedVolume += price * size;
         }
       }
 

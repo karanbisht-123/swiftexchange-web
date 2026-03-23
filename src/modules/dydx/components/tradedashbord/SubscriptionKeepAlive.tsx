@@ -7,14 +7,14 @@ import { useTrades } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
 
 const SubscriptionKeepAlive: React.FC = React.memo(() => {
-    const { selectedMarket } = useMarketStore();
+  const { selectedMarket } = useMarketStore();
 
-    useOrderbook(selectedMarket);
-    useTrades(selectedMarket, 50);
-    useRealtimeChart(selectedMarket, '15MINS', 1000);
-    useDydxData();
+  useOrderbook(selectedMarket);
+  useTrades(selectedMarket, 50);
+  useRealtimeChart(selectedMarket, '15MINS', 1000);
+  useDydxData();
 
-    return null;
+  return null;
 });
 
 SubscriptionKeepAlive.displayName = 'SubscriptionKeepAlive';

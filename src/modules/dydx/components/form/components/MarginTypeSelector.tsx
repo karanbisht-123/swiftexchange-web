@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
 import { Info, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { useSubaccountStore } from '../../../store/subaccountStore';
 import type { MarginMode } from '../../../types/trading.types';
@@ -56,32 +56,37 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
   }, [tempLeverage, maxLeverage, onLeverageChange]);
 
   const ticks = useMemo(() => Array.from({ length: 45 }), []);
-  const modalPercentage = ((Math.min(Math.max(tempLeverage, 1), maxLeverage) - 1) / (maxLeverage - 1)) * 100;
+  const modalPercentage =
+    ((Math.min(Math.max(tempLeverage, 1), maxLeverage) - 1) / (maxLeverage - 1)) * 100;
 
   return (
     <>
       <div className="flex items-center justify-between px-2 py-2 border-b border-color md:px-4 ">
         <div className="relative flex items-center gap-1.5 md:gap-2">
-
           <div className="group absolute -top-2.5 left-1/2 -translate-x-1/2 flex items-center z-10 w-4 h-4 justify-center rounded-full bg-(--color-bg-secondary) border border-(--color-border) shadow-sm cursor-help hover:border-indigo-500/50 transition-colors">
             <Info size={10} className="text-(--color-text-muted) group-hover:text-indigo-400" />
             <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 w-[240px] sm:w-[300px] p-2.5 md:p-3 bg-(--color-bg-secondary) border border-(--color-border) rounded-lg shadow-xl z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none transform origin-bottom">
               <div className="space-y-2 text-[9px] md:text-[10px] leading-relaxed text-(--color-text-primary) text-left">
                 <div>
                   <strong className="block mb-0.5">Cross Margin</strong>
-                  <span className="text-(--color-text-secondary)">All assets in your main account are shared to back all open positions.</span>
+                  <span className="text-(--color-text-secondary)">
+                    All assets in your main account are shared to back all open positions.
+                  </span>
                 </div>
 
                 <div className="w-full h-px bg-(--color-border)" />
 
                 <div>
                   <strong className="block mb-0.5">Isolated Margin</strong>
-                  <span className="text-(--color-text-secondary)">Margin is assigned to a specific position.</span>
+                  <span className="text-(--color-text-secondary)">
+                    Margin is assigned to a specific position.
+                  </span>
                 </div>
 
                 <div className="p-1.5 md:p-2 bg-indigo-500/10 border border-indigo-500/20 rounded text-indigo-500">
                   <strong className="block mb-0.5">Auto-Transfer</strong>
-                  When placing an isolated trade, we automatically transfer equity to the subaccount.
+                  When placing an isolated trade, we automatically transfer equity to the
+                  subaccount.
                 </div>
               </div>
               <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-(--color-bg-secondary) border-b border-r border-(--color-border) transform rotate-45" />
@@ -91,19 +96,21 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
           <div className="flex items-center">
             <button
               onClick={() => handleChange('CROSS')}
-              className={`px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-semibold transition-all rounded-l-md border ${marginMode === 'CROSS'
-                ? 'bg-(--color-brand-primary) text-(--color-text-inverse) border-transparent relative z-0'
-                : 'bg-transparent text-(--color-text-secondary) border-(--color-border) hover:text-(--color-text-primary) hover:bg-(--color-bg-hover) relative z-0'
-                }`}
+              className={`px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-semibold transition-all rounded-l-md border ${
+                marginMode === 'CROSS'
+                  ? 'bg-(--color-brand-primary) text-(--color-text-inverse) border-transparent relative z-0'
+                  : 'bg-transparent text-(--color-text-secondary) border-(--color-border) hover:text-(--color-text-primary) hover:bg-(--color-bg-hover) relative z-0'
+              }`}
             >
               Cross
             </button>
             <button
               onClick={() => handleChange('ISOLATED')}
-              className={`px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-semibold transition-all rounded-r-md border border-l-0 ${marginMode === 'ISOLATED'
-                ? 'bg-(--color-brand-primary) text-(--color-text-inverse) border-transparent relative z-0'
-                : 'bg-transparent text-(--color-text-secondary) border-(--color-border) hover:text-(--color-text-primary) hover:bg-(--color-bg-hover) relative z-0'
-                }`}
+              className={`px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-semibold transition-all rounded-r-md border border-l-0 ${
+                marginMode === 'ISOLATED'
+                  ? 'bg-(--color-brand-primary) text-(--color-text-inverse) border-transparent relative z-0'
+                  : 'bg-transparent text-(--color-text-secondary) border-(--color-border) hover:text-(--color-text-primary) hover:bg-(--color-bg-hover) relative z-0'
+              }`}
             >
               Isolated
             </button>
@@ -138,7 +145,9 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
                     {marketTicker?.split('-')[0]?.substring(0, 3) || '—'}
                   </span>
                 </div>
-                <span className="text-sm font-semibold text-(--color-text-primary)">{marketTicker || '—'}</span>
+                <span className="text-sm font-semibold text-(--color-text-primary)">
+                  {marketTicker || '—'}
+                </span>
                 <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 uppercase tracking-wider">
                   Max {maxLeverage}×
                 </span>
@@ -152,15 +161,20 @@ export const MarginTypeSelector: React.FC<MarginTypeSelectorProps> = ({
                     return (
                       <div
                         key={i}
-                        className={`w-[2px] transition-all duration-300 ease-out ${isActive ? 'h-4 bg-green-500' : 'h-3 bg-(--color-border-dark)'
-                          }`}
+                        className={`w-[2px] transition-all duration-300 ease-out ${
+                          isActive ? 'h-4 bg-green-500' : 'h-3 bg-(--color-border-dark)'
+                        }`}
                       />
                     );
                   })}
                 </div>
                 <div
                   className="absolute z-10 w-9 h-9 bg-(--color-bg-secondary) border border-green-500 rounded-full blur-[1px] flex items-center justify-center pointer-events-none transition-transform duration-75 ease-out"
-                  style={{ left: `${modalPercentage}%`, transform: 'translateX(-50%)', willChange: 'transform' }}
+                  style={{
+                    left: `${modalPercentage}%`,
+                    transform: 'translateX(-50%)',
+                    willChange: 'transform',
+                  }}
                 >
                   <div className="w-2 h-2 bg-(--color-brand-primary) rounded-full" />
                 </div>

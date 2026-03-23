@@ -15,6 +15,9 @@ let validatorClient: ValidatorClient | null = null;
 let compositeClient: CompositeClient | null = null;
 let currentNetwork: 'mainnet' | 'testnet' | null = null;
 
+let socketClientInstance: ReturnType<typeof createSocketClient> | null = null;
+let socketClientNetwork: string | null = null;
+
 const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
   return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
@@ -23,6 +26,8 @@ export const resetAllClients = (isLogout = false): void => {
   indexerClient = null;
   validatorClient = null;
   compositeClient = null;
+  socketClientInstance = null;
+  socketClientNetwork = null;
 
   if (isLogout) {
     currentNetwork = null;
@@ -142,14 +147,22 @@ const createSocketClient = () => {
 export const getSocketClient = () => {
   const network = useWalletStore.getState().network;
   const networkConfig = getNetworkConfig(network);
-  webSocketManager.connect(networkConfig.indexerConfig.websocketEndpoint);
+  if (socketClientInstance && socketClientNetwork === network) {
+    return socketClientInstance;
+  }
+
+  webSocketManager.connect(networkConfig.indexerConfig.websocketEndpoint).catch(error => {
+    console.error('[SocketClient] Connection failed:', error);
+  });
 
   if (currentNetwork !== network) {
     checkNetworkChange(network);
     currentNetwork = network;
   }
 
-  return createSocketClient();
+  socketClientInstance = createSocketClient();
+  socketClientNetwork = network;
+  return socketClientInstance;
 };
 
 export type SocketClient = ReturnType<typeof createSocketClient>;

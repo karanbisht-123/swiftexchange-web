@@ -40,7 +40,7 @@ export async function getNativeBalance(networkKey: any, address: any): Promise<s
     const bal = await rpcManager.fetchWithFallback(
       chainId,
       [rpcUrl, ...(fallbackRpcUrls || [])],
-      async (provider) => await provider.getBalance(address)
+      async provider => await provider.getBalance(address)
     );
     return ethers.formatEther(bal);
   } catch (error) {

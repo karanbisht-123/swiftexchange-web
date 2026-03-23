@@ -93,16 +93,19 @@ const ResizablePanel: React.FC<ResizablePanelProps> = ({
       <div
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
-        className={`flex items-center justify-center h-2 cursor-ns-resize hover:bg-gray-700/50 transition-colors shrink-0 group relative ${isDragging ? 'bg-blue-500/30' : ''
-          }`}
+        className={`flex items-center justify-center h-2 cursor-ns-resize hover:bg-gray-700/50 transition-colors shrink-0 group relative ${
+          isDragging ? 'bg-blue-500/30' : ''
+        }`}
       >
         <div
-          className={`absolute inset-x-0 top-0 h-1 transition-colors ${isDragging ? 'bg-blue-500' : 'bg-transparent group-hover:bg-gray-600'
-            }`}
+          className={`absolute inset-x-0 top-0 h-1 transition-colors ${
+            isDragging ? 'bg-blue-500' : 'bg-transparent group-hover:bg-gray-600'
+          }`}
         />
         <GripHorizontal
-          className={`w-8 h-4 transition-colors ${isDragging ? 'text-blue-500' : 'text-gray-600 group-hover:text-gray-400'
-            }`}
+          className={`w-8 h-4 transition-colors ${
+            isDragging ? 'text-blue-500' : 'text-gray-600 group-hover:text-gray-400'
+          }`}
         />
       </div>
 

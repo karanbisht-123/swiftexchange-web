@@ -108,9 +108,10 @@ export const useDydxData = (): UseDydxDataReturn => {
   }, [parentData?.orders, updateTrigger]);
 
   const openOrders = useMemo(() => {
-    return orders.filter(order =>
-      OPEN_ORDER_STATUSES.includes(order.status) &&
-      !TERMINAL_ORDER_STATUSES.includes(order.status)
+    return orders.filter(
+      order =>
+        OPEN_ORDER_STATUSES.includes(order.status) &&
+        !TERMINAL_ORDER_STATUSES.includes(order.status)
     );
   }, [orders]);
 
@@ -139,7 +140,6 @@ export const useDydxData = (): UseDydxDataReturn => {
       isMountedRef.current = false;
     };
   }, []);
-
 
   const refreshOrders = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
@@ -201,7 +201,9 @@ export const useDydxData = (): UseDydxDataReturn => {
           if (!existing) return state;
 
           const newChildMap = new Map();
-          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c, openPerpetualPositions: {} }));
+          existing.childSubaccounts.forEach(c =>
+            newChildMap.set(c.subaccountNumber, { ...c, openPerpetualPositions: {} })
+          );
 
           positionsData.forEach(pos => {
             const subNum = pos.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
@@ -215,7 +217,7 @@ export const useDydxData = (): UseDydxDataReturn => {
                 assetPositions: {},
                 marginEnabled: true,
                 updatedAtHeight: '0',
-                latestProcessedBlockHeight: '0'
+                latestProcessedBlockHeight: '0',
               });
             }
             newChildMap.get(subNum).openPerpetualPositions[pos.market] = pos;
@@ -242,7 +244,9 @@ export const useDydxData = (): UseDydxDataReturn => {
           if (!existing) return state;
 
           const newChildMap = new Map();
-          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c, assetPositions: {} }));
+          existing.childSubaccounts.forEach(c =>
+            newChildMap.set(c.subaccountNumber, { ...c, assetPositions: {} })
+          );
 
           assetData.forEach((asset: any) => {
             const subNum = asset.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
@@ -256,7 +260,7 @@ export const useDydxData = (): UseDydxDataReturn => {
                 assetPositions: {},
                 marginEnabled: true,
                 updatedAtHeight: '0',
-                latestProcessedBlockHeight: '0'
+                latestProcessedBlockHeight: '0',
               });
             }
             newChildMap.get(subNum).assetPositions[asset.symbol] = asset;

@@ -1,30 +1,37 @@
-import { BookOpen, ArrowRightLeft, CandlestickChart, Wallet, BarChart2, LineChart } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  BarChart2,
+  BookOpen,
+  CandlestickChart,
+  LineChart,
+  Wallet,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { useDydxData } from '../../hooks/useDydxData';
+import { useMarkets } from '../../hooks/useMarkets';
 import DydxTopBar from '../../layout/DydxTopBar';
+import useMarketStore from '../../store/marketStore';
 import DepthChart from '../DepthChart';
 import DyDxTradingChart from '../DyDxTradingChart';
+import { DydxWalletConnect } from '../DydxWalletConnect';
 import MarketsDisplay from '../MarketsDisplay';
 import { DydxTradingForm } from '../form/DydxTradingForm';
 import MarketSwitcher from '../market/MarketSwitcher';
 import { MarketStats } from '../market/MarketSwitcher';
-import { DydxWalletConnect } from '../DydxWalletConnect';
 import OrderAndTrades from '../order&trade/OrderAndTrades';
+import Orderbook from '../order&trade/Orderbook';
 import FillsPanel from '../orderHistory/FillsPanel';
+import FundingPaymentsPanel from '../orderHistory/FundingPaymentsPanel';
 import OpenOrdersPanel from '../orderHistory/OpenOrdersPanel';
 import OrderHistoryPanel from '../orderHistory/OrderHistoryPanel';
 import PositionsPanel from '../orderHistory/PositionsPanel';
-import FundingPaymentsPanel from '../orderHistory/FundingPaymentsPanel';
 import TransferHistoryPanel from '../orderHistory/TransferHistoryPanel';
 import FundingChart from './FundingChart';
 import ResizablePanel from './ResizablePanel';
-import { useMarkets } from '../../hooks/useMarkets';
-import useMarketStore from '../../store/marketStore';
-import Orderbook from '../order&trade/Orderbook';
-import SubscriptionKeepAlive from './SubscriptionKeepAlive';
 import ResizablePanelHorizontal from './ResizablePanelHorizontal';
+import SubscriptionKeepAlive from './SubscriptionKeepAlive';
 
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
@@ -87,7 +94,13 @@ const TradingintrFace = () => {
                     )}
                   </div>
                 </div>
-                <ResizablePanelHorizontal defaultWidth={300} minWidth={250} maxWidth={500} position="left" className="bg-secondary shrink-0 z-10">
+                <ResizablePanelHorizontal
+                  defaultWidth={300}
+                  minWidth={250}
+                  maxWidth={500}
+                  position="left"
+                  className="bg-secondary shrink-0 z-10"
+                >
                   <OrderAndTrades />
                 </ResizablePanelHorizontal>
               </div>
@@ -131,14 +144,8 @@ const PortfolioView = ({
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }) => {
-  const {
-    positions,
-    openOrderCount,
-    fillCount,
-    loadingPositions,
-    loadingOrders,
-    loadingFills
-  } = useDydxData();
+  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills } =
+    useDydxData();
 
   const tabs = ['wallet', 'positions', 'orders', 'fills', 'history', 'funding', 'transfers'];
   const labels: Record<string, string> = {
@@ -208,10 +215,11 @@ const PortfolioView = ({
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === tab
-                ? 'text-primary border-b-2 border-blue-500'
-                : 'text-muted hover:text-primary'
-                }`}
+              className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
+                activeTab === tab
+                  ? 'text-primary border-b-2 border-blue-500'
+                  : 'text-muted hover:text-primary'
+              }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}
@@ -313,10 +321,11 @@ const MobileLayout = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-primary text-muted hover:bg-hover hover:text-primary'
-                  }`}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-primary text-muted hover:bg-hover hover:text-primary'
+                }`}
               >
                 <Icon className="w-5 h-5 shrink-0" />
                 {isActive && (
@@ -335,14 +344,8 @@ const MobileLayout = () => {
 const MobilePortfolio = () => {
   const [activeTab, setActiveTab] = useState('wallet');
 
-  const {
-    positions,
-    openOrderCount,
-    fillCount,
-    loadingPositions,
-    loadingOrders,
-    loadingFills
-  } = useDydxData();
+  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills } =
+    useDydxData();
 
   const tabs = ['wallet', 'positions', 'orders', 'fills', 'history', 'funding'];
   const labels: Record<string, string> = {
@@ -411,10 +414,11 @@ const MobilePortfolio = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative px-4 py-3 text-xs font-semibold transition-colors whitespace-nowrap ${activeTab === tab
-                ? 'text-primary border-b-2 border-blue-500'
-                : 'text-muted hover:text-primary'
-                }`}
+              className={`relative px-4 py-3 text-xs font-semibold transition-colors whitespace-nowrap ${
+                activeTab === tab
+                  ? 'text-primary border-b-2 border-blue-500'
+                  : 'text-muted hover:text-primary'
+              }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}
@@ -455,14 +459,8 @@ const BottomTabsSection = ({
   activeBottomTab: string;
   setActiveBottomTab: (tab: string) => void;
 }) => {
-  const {
-    positions,
-    openOrderCount,
-    fillCount,
-    loadingPositions,
-    loadingOrders,
-    loadingFills
-  } = useDydxData();
+  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills } =
+    useDydxData();
 
   const tabs = ['positions', 'orders', 'fills', 'history', 'funding', 'transfer'];
   const labels: Record<string, string> = {
@@ -531,10 +529,11 @@ const BottomTabsSection = ({
             <button
               key={tab}
               onClick={() => setActiveBottomTab(tab)}
-              className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${activeBottomTab === tab
-                ? 'text-primary border-b-2 border-blue-500'
-                : 'text-muted hover:text-primary'
-                }`}
+              className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
+                activeBottomTab === tab
+                  ? 'text-primary border-b-2 border-blue-500'
+                  : 'text-muted hover:text-primary'
+              }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}

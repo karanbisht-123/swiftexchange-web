@@ -1,7 +1,7 @@
 import { Check, ChevronDown, Copy, Plus, X } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 
-import { EVM_WALLETS, COSMOS_WALLETS, STELLAR_WALLETS, WalletType } from '../constants/Wallet';
+import { COSMOS_WALLETS, EVM_WALLETS, STELLAR_WALLETS, WalletType } from '../constants/Wallet';
 import { useWalletConnect } from '../hooks/useWalletConnect';
 
 const ALL_WALLETS = [...EVM_WALLETS, ...COSMOS_WALLETS, ...STELLAR_WALLETS];
@@ -29,7 +29,7 @@ export const ConnectWalletButton: React.FC = () => {
       await navigator.clipboard.writeText(address);
       setCopiedAddress(address);
       setTimeout(() => setCopiedAddress(null), 2000);
-    } catch { }
+    } catch {}
   };
 
   const handleDisconnectAll = async () => {
@@ -48,7 +48,7 @@ export const ConnectWalletButton: React.FC = () => {
       type !== 'undefined' &&
       conn?.address &&
       Object.values(WalletType).includes(type as WalletType)
-  ) as [WalletType, NonNullable<typeof connectedWallets[WalletType]>][];
+  ) as [WalletType, NonNullable<(typeof connectedWallets)[WalletType]>][];
 
   const hasConnections = validConnectedWallets.length > 0;
 
@@ -84,7 +84,10 @@ export const ConnectWalletButton: React.FC = () => {
           {validConnectedWallets.slice(0, 3).map(([type, conn]) => (
             <div
               key={type}
-              style={{ background: 'var(--color-bg-secondary)', border: '2px solid var(--color-bg-tertiary)' }}
+              style={{
+                background: 'var(--color-bg-secondary)',
+                border: '2px solid var(--color-bg-tertiary)',
+              }}
               className="w-7 h-7 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0"
               title={conn.walletId}
             >
@@ -158,7 +161,10 @@ export const ConnectWalletButton: React.FC = () => {
               style={{ borderBottom: '1px solid var(--color-border)' }}
               className="flex items-center justify-between px-4 py-3"
             >
-              <span style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold">
+              <span
+                style={{ color: 'var(--color-text-primary)' }}
+                className="text-sm font-semibold"
+              >
                 Connected Wallets
               </span>
               <button
@@ -255,7 +261,10 @@ export const ConnectWalletButton: React.FC = () => {
                             title="Copy dYdX"
                           >
                             {copiedAddress === conn.dydxAddress ? (
-                              <Check className="w-3 h-3" style={{ color: 'var(--color-success)' }} />
+                              <Check
+                                className="w-3 h-3"
+                                style={{ color: 'var(--color-success)' }}
+                              />
                             ) : (
                               <Copy className="w-3 h-3" />
                             )}
@@ -296,12 +305,12 @@ export const ConnectWalletButton: React.FC = () => {
               })}
             </div>
 
-            <div
-              style={{ borderTop: '1px solid var(--color-border)' }}
-              className="flex gap-2 p-3"
-            >
+            <div style={{ borderTop: '1px solid var(--color-border)' }} className="flex gap-2 p-3">
               <button
-                onClick={() => { openModal(); setShowDropdown(false); }}
+                onClick={() => {
+                  openModal();
+                  setShowDropdown(false);
+                }}
                 style={{
                   background: 'var(--color-brand-primary)',
                   color: '#fff',

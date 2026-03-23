@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
 function isMainnet(): boolean {
   return useWalletStore.getState().network === 'mainnet';
@@ -204,7 +205,10 @@ class TransactionRouter {
   }
 
   private ensureProviderNamespaces(provider: any): void {
-    if (provider.session && (!provider.namespaces || Object.keys(provider.namespaces).length === 0)) {
+    if (
+      provider.session &&
+      (!provider.namespaces || Object.keys(provider.namespaces).length === 0)
+    ) {
       console.log('[Router] Patching provider namespaces from session...');
       provider.namespaces = provider.session.namespaces;
     }
@@ -232,9 +236,10 @@ class TransactionRouter {
 
       this.ensureProviderNamespaces(provider);
 
-      const chainId = typeof request.networkKey === 'number'
-        ? request.networkKey
-        : parseInt(String(session.chainId)) || 1;
+      const chainId =
+        typeof request.networkKey === 'number'
+          ? request.networkKey
+          : parseInt(String(session.chainId)) || 1;
       const chainIdCAIP = `eip155:${chainId}`;
 
       if (provider.setDefaultChain) {
@@ -259,7 +264,12 @@ class TransactionRouter {
           to: request.to,
           value: '0x' + amountInWei.toString(16),
         };
-        if (request.data && typeof request.data === 'string' && request.data.startsWith('0x') && request.data.length > 2) {
+        if (
+          request.data &&
+          typeof request.data === 'string' &&
+          request.data.startsWith('0x') &&
+          request.data.length > 2
+        ) {
           txParams.data = request.data;
         }
 
@@ -289,7 +299,6 @@ class TransactionRouter {
             params: [txParams],
           });
         }
-
       } else {
         // Testnet using ethers
         console.log('Using ethers.BrowserProvider for Testnet transaction');
@@ -300,7 +309,10 @@ class TransactionRouter {
           to: request.to,
           value: amountInWei,
           from: request.from,
-          data: (request.data && typeof request.data === 'string' && request.data.startsWith('0x')) ? request.data : undefined
+          data:
+            request.data && typeof request.data === 'string' && request.data.startsWith('0x')
+              ? request.data
+              : undefined,
         };
 
         console.log('Transaction params (Testnet/Ethers):', tx);
@@ -370,9 +382,10 @@ class TransactionRouter {
         network: request.data.network || 'TESTNET',
       };
 
-      const stellarChainId = typeof request.networkKey === 'string'
-        ? request.networkKey
-        : String(session.chainId) || 'pubnet';
+      const stellarChainId =
+        typeof request.networkKey === 'string'
+          ? request.networkKey
+          : String(session.chainId) || 'pubnet';
       const chainCAIP = `${stellarChainId}`;
 
       console.log('Using Stellar chain:', chainCAIP);
@@ -419,7 +432,6 @@ class TransactionRouter {
           },
         });
       } else {
-
         console.log('Using direct provider.request() for Stellar');
         result = await provider.request({
           method: 'stellar_signAndSubmitXDR',
@@ -434,7 +446,7 @@ class TransactionRouter {
         console.groupEnd();
         return {
           status: 'success',
-          hash: result.hash || result.transactionHash || 'stellar_submitted'
+          hash: result.hash || result.transactionHash || 'stellar_submitted',
         };
       }
 

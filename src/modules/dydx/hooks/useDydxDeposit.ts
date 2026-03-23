@@ -1,351 +1,368 @@
 import { useCallback, useState } from 'react';
+
 import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
+import { executeRoute, route as fetchSkipRoute } from '@skip-go/client';
 import Long from 'long';
 
 import { walletService } from '../../walletconnect/services/walletService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { dydxWalletService } from '../service/dydxWalletService';
-import { skipApiService, type SkipRoute } from '../service/skipApiService';
+import { skipApiService } from '../service/skipApiService';
 import { SUBACCOUNT_CONSTANTS } from '../types/trading.types';
+import { classifyBridgeError } from '../utils/bridgeErrorUtils';
+import {
+  DYDX_CHAIN_ID,
+  DYDX_USDC_DENOM,
+  NATIVE_WALLET_GAS_RESERVE_USD,
+  NATIVE_WALLET_GAS_RESERVE_UUSDC,
+  buildCosmosSigner,
+  buildEvmSigner,
+  buildUserAddresses,
+  computeDepositSplit,
+  dydxToNoble,
+  fetchDydxWalletUsdcBalance,
+} from '../utils/skipBridgeUtils';
 
-const MIN_DEPOSIT_USDC = 10;
-const NOBLE_POLL_INTERVAL_MS = 4000;
-const NOBLE_POLL_MAX_ATTEMPTS = 45;
+export const MIN_DEPOSIT_USDC = 3;
+
+const MIN_SUBACCOUNT_DEPOSIT_UUSDC = 10_000;
+
+const DYDX_POLL_TIMEOUT_MS = 180_000;
+const DYDX_POLL_INTERVAL_MS = 5_000;
 
 export type DepositStep =
-    | 'idle'
-    | 'routing'
-    | 'signing_evm'
-    | 'pending_bridge'
-    | 'transferring'
-    | 'success'
-    | 'error';
+  | 'idle'
+  | 'routing'
+  | 'signing_evm'
+  | 'pending_bridge'
+  | 'transferring'
+  | 'success'
+  | 'error';
 
 export interface DepositRoute {
-    estimatedTime: string;
-    fee: number;
-    receivedAmount: number;
-    usdAmountOut: string;
-    raw: SkipRoute;
+  estimatedTime: string;
+  fee: number;
+  receivedAmount: number;
+  usdAmountOut: string;
 }
 
-async function sendEvmTx(tx: {
-    to: string;
-    value: string;
-    data: string;
-    chainId: string;
-}): Promise<string> {
-    const ethereum = (window as any).ethereum;
-    if (!ethereum) throw new Error('MetaMask not found');
+async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): Promise<number> {
+  const deadline = Date.now() + DYDX_POLL_TIMEOUT_MS;
 
-    const accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' });
-    if (!accounts.length) throw new Error('No EVM account connected');
-
-    const from = accounts[0];
-    const txHash = await ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [{
-            from,
-            to: tx.to,
-            value: tx.value === '0' ? '0x0' : '0x' + BigInt(tx.value).toString(16),
-            data: tx.data,
-            chainId: '0x' + parseInt(tx.chainId, 10).toString(16),
-        }],
-    });
-    return txHash as string;
-}
-
-async function approveErc20IfNeeded(
-    tokenContract: string,
-    spender: string,
-    amount: string
-): Promise<void> {
-    const ethereum = (window as any).ethereum;
-    if (!ethereum) return;
-
-    const accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' });
-    const owner = accounts[0];
-
-    const allowanceData = '0xdd62ed3e' +
-        owner.replace('0x', '').padStart(64, '0') +
-        spender.replace('0x', '').padStart(64, '0');
-
-    const allowanceHex: string = await ethereum.request({
-        method: 'eth_call',
-        params: [{ to: tokenContract, data: allowanceData }, 'latest'],
-    });
-
-    const allowance = BigInt(allowanceHex);
-    const required = BigInt(amount);
-
-    if (allowance >= required) return;
-
-    const approveData = '0x095ea7b3' +
-        spender.replace('0x', '').padStart(64, '0') +
-        required.toString(16).padStart(64, '0');
-
-    await ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [{ from: owner, to: tokenContract, data: approveData }],
-    });
-
-    await new Promise(r => setTimeout(r, 3000));
-}
-
-async function pollNobleBalance(nobleAddress: string, expectedUusdc: bigint): Promise<void> {
-    for (let i = 0; i < NOBLE_POLL_MAX_ATTEMPTS; i++) {
-        try {
-            const res = await fetch(
-                `https://rest.cosmos.directory/noble/cosmos/bank/v1beta1/balances/${nobleAddress}`
-            );
-            if (res.ok) {
-                const data = await res.json();
-                const balances: { denom: string; amount: string }[] = data.balances || [];
-                const uusdc = balances.find(b => b.denom === 'uusdc');
-                if (uusdc && BigInt(uusdc.amount) >= expectedUusdc) return;
-            }
-        } catch {
-        }
-        await new Promise(r => setTimeout(r, NOBLE_POLL_INTERVAL_MS));
-    }
-    throw new Error('Bridge timeout: funds did not arrive at Noble in time. Check your transaction and try again.');
-}
-
-function dydxToNoble(dydxAddress: string): string {
+  while (Date.now() < deadline) {
     try {
-        const { fromBech32, toBech32 } = require('@cosmjs/encoding');
-        const { data } = fromBech32(dydxAddress);
-        return toBech32('noble', data);
-    } catch {
-        return dydxAddress.replace(/^dydx/, 'noble');
+      const bal = await fetchDydxWalletUsdcBalance(dydxAddress);
+      console.log(`[deposit] dYdX wallet: ${bal} uusdc (need >= ${minUusdc})`);
+      if (bal >= minUusdc) return bal;
+    } catch (e) {
+      console.warn('[deposit] balance poll error:', e);
     }
+    await new Promise(r => setTimeout(r, DYDX_POLL_INTERVAL_MS));
+  }
+
+  throw new Error(
+    `Timed out waiting for bridged funds on dYdX chain. ` +
+      `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
+  );
 }
 
 export const useDydxDeposit = () => {
-    const [step, setStep] = useState<DepositStep>('idle');
-    const [error, setError] = useState<string | null>(null);
-    const [txHash, setTxHash] = useState<string | null>(null);
-    const [route, setRoute] = useState<DepositRoute | null>(null);
+  const [step, setStep] = useState<DepositStep>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [errorRetryable, setErrorRetryable] = useState(true);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [route, setRoute] = useState<DepositRoute | null>(null);
+  const [depositedAmount, setDepositedAmount] = useState<number | null>(null);
 
-    const [pendingQuantums, setPendingQuantums] = useState<string | null>(null);
-    const [dydxNativeQuantums, setDydxNativeQuantums] = useState<string | null>(null);
-    const [isCheckingPending, setIsCheckingPending] = useState(false);
+  const [pendingNobleQuantums, setPendingNobleQuantums] = useState<string | null>(null);
+  const [pendingDydxQuantums, setPendingDydxQuantums] = useState<string | null>(null);
+  const [isCheckingPending, setIsCheckingPending] = useState(false);
 
-    const checkPendingDeposit = useCallback(async () => {
-        setIsCheckingPending(true);
-        setPendingQuantums(null);
-        setDydxNativeQuantums(null);
-        try {
-            const dydxAddress = useWalletStore.getState().connectedWallets.evm?.dydxAddress
-                ?? useWalletStore.getState().connectedWallets.cosmos?.dydxAddress;
-
-            if (!dydxAddress) return;
-
-            const nobleAddress = dydxToNoble(dydxAddress);
-            const res = await fetch(`https://rest.cosmos.directory/noble/cosmos/bank/v1beta1/balances/${nobleAddress}`);
-            if (res.ok) {
-                const data = await res.json();
-                const balances: { denom: string; amount: string }[] = data.balances || [];
-                const uusdc = balances.find(b => b.denom === 'uusdc');
-                if (uusdc && BigInt(uusdc.amount) > 0) {
-                    setPendingQuantums(uusdc.amount);
-                }
-            }
-
-            try {
-                const dydxRes = await fetch(`https://dydx-rest.publicnode.com/cosmos/bank/v1beta1/balances/${dydxAddress}`);
-                if (dydxRes.ok) {
-                    const dydxData = await dydxRes.json();
-                    const dydxBalances: { denom: string; amount: string }[] = dydxData.balances || [];
-                    const dydxUsdc = dydxBalances.find(b => b.denom === 'ibc/8E27BA2D5493AF5636760E354E46004562C46AB7EC0CC4C1CA14E9E20E2545B5' || b.denom === 'uusdc');
-                    if (dydxUsdc) {
-                        const totalQuantums = BigInt(dydxUsdc.amount);
-                        const GAS_RESERVE = 10000n; // 0.01 USDC
-                        if (totalQuantums > GAS_RESERVE) {
-                            setDydxNativeQuantums((totalQuantums - GAS_RESERVE).toString());
-                        }
-                    }
-                }
-            } catch (e: any) {
-                console.error('Failed to native dydx balance:', e);
-            }
-
-        } catch (e: any) {
-            console.error('Failed to check pending deposit:', e);
-        } finally {
-            setIsCheckingPending(false);
-        }
-    }, []);
-
-    const getRoute = useCallback(async (
-        assetSymbol: string,
-        amountHuman: number,
-        evmChainId?: number,
-        goFast: boolean = false
+  const getRoute = useCallback(
+    async (
+      assetSymbol: string,
+      amountHuman: number,
+      evmChainId?: number,
+      goFast = false
     ): Promise<DepositRoute | null> => {
-        setStep('routing');
-        setError(null);
+      setStep('routing');
+      setError(null);
+      try {
+        const chainId =
+          evmChainId ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
 
-        try {
-            const chainId = evmChainId
-                ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
+        const raw = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
 
-            const raw = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
-            const receivedUsdc = parseInt(raw.amountOut || '0', 10) / 1e6;
+        const result: DepositRoute = {
+          estimatedTime: skipApiService.formatDuration(raw.estimatedDurationSeconds),
+          fee: raw.estimatedFeesUsd,
+          receivedAmount: parseInt(raw.amountOut, 10) / 1e6,
+          usdAmountOut: raw.usdAmountOut,
+        };
 
-            const result: DepositRoute = {
-                estimatedTime: skipApiService.formatDuration(raw.estimatedDurationSeconds),
-                fee: raw.estimatedFees,
-                receivedAmount: receivedUsdc,
-                usdAmountOut: raw.usdAmountOut,
-                raw,
-            };
-
-            setRoute(result);
-            setStep('idle');
-            return result;
-        } catch (err: any) {
-            setError(err.message || 'Failed to fetch route');
-            setStep('error');
-            return null;
-        }
-    }, []);
-
-    const deposit = useCallback(async (
-        assetSymbol: string,
-        amountHuman: number,
-        evmChainId?: number,
-        goFast: boolean = false,
-        slippageTolerancePercent: string = '1'
-    ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
-        setError(null);
-        setTxHash(null);
-
-        try {
-            const storeState = useWalletStore.getState();
-            const evmWallet = storeState.connectedWallets.evm;
-            const evmAddress = evmWallet?.address;
-            const dydxAddress = evmWallet?.dydxAddress
-                ?? storeState.connectedWallets.cosmos?.dydxAddress;
-
-            if (!evmAddress) throw new Error('EVM wallet not connected');
-            if (!dydxAddress) throw new Error('dYdX wallet not derived. Please derive your dYdX wallet first.');
-
-            const chainId = evmChainId ?? Number(evmWallet?.chainId ?? 1);
-
-            setStep('routing');
-            const skipRoute = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
-
-            setStep('signing_evm');
-            const msgsResponse = await skipApiService.getDepositMsgs(skipRoute, evmAddress, dydxAddress, slippageTolerancePercent);
-
-            const evmTxData = msgsResponse.txs.find(t => t.evm_tx)?.evm_tx;
-            if (!evmTxData) throw new Error('No EVM transaction returned from Skip');
-
-            if (evmTxData.required_erc20_approvals?.length) {
-                for (const approval of evmTxData.required_erc20_approvals) {
-                    await approveErc20IfNeeded(approval.token_contract, approval.spender, approval.amount);
-                }
-            }
-
-            const bridgeTxHash = await sendEvmTx({
-                to: evmTxData.to,
-                value: evmTxData.value || '0',
-                data: evmTxData.data,
-                chainId: evmTxData.chain_id,
-            });
-            setTxHash(bridgeTxHash);
-
-            setStep('pending_bridge');
-            const nobleAddress = dydxToNoble(dydxAddress);
-            const expectedUusdc = BigInt(skipRoute.amountOut);
-            await pollNobleBalance(nobleAddress, expectedUusdc);
-
-            setStep('transferring');
-            const localWallet = walletService.getSigningWallet();
-            if (!localWallet) throw new Error('dYdX signing wallet not available');
-
-            const client = await dydxWalletService.getCompositeClient();
-            if (!client) throw new Error('dYdX client not connected');
-
-            const subaccount = SubaccountInfo.forLocalWallet(
-                localWallet,
-                SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
-            );
-
-            const quantums = Long.fromString(skipRoute.amountOut);
-            await client.validatorClient.post.deposit(subaccount, 0, quantums);
-
-            await new Promise(r => setTimeout(r, 2000));
-
-            setStep('success');
-            return { success: true, txHash: bridgeTxHash };
-        } catch (err: any) {
-            const message = err.message || 'Deposit failed';
-            setError(message);
-            setStep('error');
-            return { success: false, error: message };
-        }
-    }, []);
-
-    const reset = useCallback(() => {
+        setRoute(result);
         setStep('idle');
-        setError(null);
-        setTxHash(null);
-        setRoute(null);
-    }, []);
+        return result;
+      } catch (err: any) {
+        setError(err.message ?? 'Failed to fetch route');
+        setStep('error');
+        return null;
+      }
+    },
+    []
+  );
 
-    const recoverDeposit = useCallback(async (
-        amountQuantums: string,
-        subaccountNumber: number = 0
-    ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
-        setError(null);
-        setStep('transferring');
-        try {
-            const result = await dydxWalletService.depositToSubaccount(amountQuantums, subaccountNumber);
-            if (result.success) {
-                setTxHash(result.transactionHash ?? null);
-                setStep('success');
-                setPendingQuantums(null);
-                setDydxNativeQuantums(null);
-            } else {
-                setError(result.error ?? 'Recovery failed');
-                setStep('error');
-            }
-            return result;
-        } catch (err: any) {
-            const message = err.message || 'Recovery failed';
-            setError(message);
-            setStep('error');
-            return { success: false, error: message };
+  const deposit = useCallback(
+    async (
+      assetSymbol: string,
+      amountHuman: number,
+      evmChainId?: number,
+      goFast = false,
+      slippageTolerancePercent = '1'
+    ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
+      setError(null);
+      setErrorRetryable(true);
+      setTxHash(null);
+      setDepositedAmount(null);
+
+      try {
+        const storeState = useWalletStore.getState();
+        const evmWallet = storeState.connectedWallets.evm;
+        const evmAddress = evmWallet?.address;
+        const dydxAddress =
+          evmWallet?.dydxAddress ?? storeState.connectedWallets.cosmos?.dydxAddress;
+
+        if (!evmAddress) throw new Error('EVM wallet not connected');
+        if (!dydxAddress) throw new Error('dYdX wallet not derived -- please onboard first');
+
+        const chainId = evmChainId ?? Number(evmWallet?.chainId ?? 1);
+
+        setStep('routing');
+
+        const sourceDenom = skipApiService.getSourceDenomForAsset(assetSymbol, chainId);
+        const amountIn = skipApiService.toAmountIn(amountHuman, assetSymbol);
+
+        const rawRoute = await fetchSkipRoute({
+          sourceAssetDenom: sourceDenom,
+          sourceAssetChainId: String(chainId),
+          destAssetDenom: DYDX_USDC_DENOM,
+          destAssetChainId: DYDX_CHAIN_ID,
+          amountIn,
+          cumulativeAffiliateFeeBps: '0',
+          allowUnsafe: false,
+          smartRelay: true,
+          smartSwapOptions: { splitRoutes: false, evmSwaps: true },
+          bridges: ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as any,
+          allowMultiTx: true,
+          goFast,
+        });
+
+        if (!rawRoute) throw new Error('No deposit route returned from Skip');
+
+        const requiredChainIds: string[] = rawRoute.requiredChainAddresses ?? [];
+        if (requiredChainIds.length === 0) {
+          throw new Error(
+            'Skip route returned no requiredChainAddresses -- cannot build userAddresses.'
+          );
         }
-    }, []);
+        const userAddresses = buildUserAddresses(requiredChainIds, { evmAddress, dydxAddress });
+        console.log('[deposit] requiredChainAddresses:', requiredChainIds);
+        console.log('[deposit] userAddresses:', userAddresses);
 
-    const stepLabel: Record<DepositStep, string> = {
-        idle: '',
-        routing: 'Finding best route...',
-        signing_evm: 'Sign in MetaMask...',
-        pending_bridge: 'Bridging funds...',
-        transferring: 'Moving to account...',
-        success: 'Deposit complete',
-        error: 'Deposit failed',
-    };
+        const localWallet = walletService.getSigningWallet();
+        if (!localWallet) throw new Error('dYdX signing wallet not available');
 
-    return {
-        deposit,
-        getRoute,
-        reset,
-        recoverDeposit,
-        checkPendingDeposit,
-        pendingQuantums,
-        dydxNativeQuantums,
-        isCheckingPending,
-        step,
-        stepLabel: stepLabel[step],
-        error,
-        txHash,
-        route,
-        isLoading: step === 'routing' || step === 'signing_evm' || step === 'pending_bridge' || step === 'transferring',
-        MIN_DEPOSIT_USDC,
-    };
+        const rawSigner =
+          localWallet.offlineSigner ?? (localWallet as any).signer ?? (localWallet as any).wallet;
+        if (!rawSigner) throw new Error('No offline signer on localWallet');
+
+        setStep('signing_evm');
+        let bridgeTxHash = '';
+
+        await executeRoute({
+          route: rawRoute,
+          userAddresses,
+          getCosmosSigner: buildCosmosSigner(rawSigner),
+          getEvmSigner: buildEvmSigner(evmAddress, walletService.getProvider('evm')),
+          slippageTolerancePercent,
+          onTransactionBroadcast: async ({ txHash: hash, chainId: cid }) => {
+            console.log(`[deposit] broadcast on ${cid}: ${hash}`);
+            bridgeTxHash = hash;
+            setTxHash(hash);
+            setStep('pending_bridge');
+          },
+          // onTransactionTracked: async ({ txHash: hash, chainId: cid }) =>
+          //   console.log(`[deposit] tracked on ${cid}: ${hash}`),
+          // onTransactionCompleted: async ({ txHash: hash, chainId: cid, status }) =>
+          //   console.log(`[deposit] completed on ${cid}: ${hash}`, status),
+          // onApproveAllowance: async (approvalInfo: any) =>
+          //   console.log(
+          //     `[deposit] ERC-20 approval ${approvalInfo.status} for ${approvalInfo.allowance?.tokenContract}`
+          //   ),
+        });
+
+        setStep('transferring');
+
+        const expectedAmountUusdc = parseInt(rawRoute.amountOut ?? '0', 10);
+        const minExpectedUusdc = Math.floor(expectedAmountUusdc * 0.9);
+
+        const walletBalance = await waitForDydxWalletBalance(dydxAddress, minExpectedUusdc);
+        console.log('[deposit] dYdX wallet balance confirmed:', walletBalance, 'uusdc');
+
+        const { keepUusdc, depositUusdc } = computeDepositSplit(walletBalance);
+
+        console.log(`[deposit] wallet=${walletBalance} keep=${keepUusdc} deposit=${depositUusdc}`);
+
+        if (depositUusdc < MIN_SUBACCOUNT_DEPOSIT_UUSDC) {
+          console.warn(
+            `[deposit] depositUusdc (${depositUusdc}) below dust threshold -- ` +
+              `skipping subaccount deposit. Wallet gas reserve funded.`
+          );
+          setDepositedAmount(0);
+          await new Promise(r => setTimeout(r, 1_000));
+          setStep('success');
+          return { success: true, txHash: bridgeTxHash };
+        }
+
+        const client = await dydxWalletService.getCompositeClient();
+        if (!client) throw new Error('dYdX client not connected');
+
+        const subaccount = SubaccountInfo.forLocalWallet(
+          localWallet,
+          SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
+        );
+
+        await client.validatorClient.post.deposit(subaccount, 0, Long.fromNumber(depositUusdc));
+
+        setDepositedAmount(depositUusdc / 1e6);
+        await new Promise(r => setTimeout(r, 2_000));
+        setStep('success');
+
+        return { success: true, txHash: bridgeTxHash };
+      } catch (err: any) {
+        console.error('[deposit] error:', err);
+        const classified = classifyBridgeError(err);
+        setError(classified.message);
+        setErrorRetryable(classified.retryable);
+        setStep('error');
+        return { success: false, error: classified.message };
+      }
+    },
+    []
+  );
+
+  const recoverDeposit = useCallback(
+    async (
+      amountQuantums: string,
+      subaccountNumber = 0
+    ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
+      setError(null);
+      setStep('transferring');
+      try {
+        const result = await dydxWalletService.depositToSubaccount(
+          amountQuantums,
+          subaccountNumber
+        );
+        if (result.success) {
+          setTxHash(result.transactionHash ?? null);
+          setStep('success');
+          setPendingDydxQuantums(null);
+          setPendingNobleQuantums(null);
+        } else {
+          setError(result.error ?? 'Recovery failed');
+          setStep('error');
+        }
+        return result;
+      } catch (err: any) {
+        const message = err.message ?? 'Recovery failed';
+        setError(message);
+        setStep('error');
+        return { success: false, error: message };
+      }
+    },
+    []
+  );
+
+  const checkPendingDeposit = useCallback(async () => {
+    setIsCheckingPending(true);
+    setPendingNobleQuantums(null);
+    setPendingDydxQuantums(null);
+
+    try {
+      const dydxAddress =
+        useWalletStore.getState().connectedWallets.evm?.dydxAddress ??
+        useWalletStore.getState().connectedWallets.cosmos?.dydxAddress;
+      if (!dydxAddress) return;
+
+      const nobleAddress = dydxToNoble(dydxAddress);
+
+      try {
+        const res = await fetch(
+          `https://rest.cosmos.directory/noble/cosmos/bank/v1beta1/balances/${nobleAddress}`
+        );
+        if (res.ok) {
+          const { balances = [] } = await res.json();
+          const uusdc = (balances as any[]).find(b => b.denom === 'uusdc');
+          if (uusdc && BigInt(uusdc.amount) > 0n) setPendingNobleQuantums(uusdc.amount);
+        }
+      } catch (e) {
+        console.warn('[deposit] Noble balance check failed:', e);
+      }
+
+      try {
+        const walletBal = await fetchDydxWalletUsdcBalance(dydxAddress);
+        const total = BigInt(walletBal);
+        const reserve = BigInt(NATIVE_WALLET_GAS_RESERVE_UUSDC);
+        if (total > reserve) setPendingDydxQuantums((total - reserve).toString());
+      } catch (e) {
+        console.warn('[deposit] dYdX balance check failed:', e);
+      }
+    } catch (e) {
+      console.error('[deposit] checkPendingDeposit error:', e);
+    } finally {
+      setIsCheckingPending(false);
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    setStep('idle');
+    setError(null);
+    setErrorRetryable(true);
+    setTxHash(null);
+    setRoute(null);
+    setDepositedAmount(null);
+  }, []);
+
+  const stepLabelMap: Record<DepositStep, string> = {
+    idle: '',
+    routing: 'Finding best route...',
+    signing_evm: 'Sign in wallet...',
+    pending_bridge: 'Bridging funds...',
+    transferring: 'Moving to account...',
+    success: 'Deposit complete',
+    error: 'Deposit failed',
+  };
+
+  return {
+    deposit,
+    getRoute,
+    reset,
+    recoverDeposit,
+    checkPendingDeposit,
+    pendingNobleQuantums,
+    pendingDydxQuantums,
+    pendingQuantums: pendingNobleQuantums,
+    dydxNativeQuantums: pendingDydxQuantums,
+    isCheckingPending,
+    step,
+    stepLabel: stepLabelMap[step],
+    error,
+    errorRetryable,
+    txHash,
+    route,
+    depositedAmount,
+    isLoading: step !== 'idle' && step !== 'success' && step !== 'error',
+    MIN_DEPOSIT_USDC,
+    NATIVE_WALLET_GAS_RESERVE_USD,
+  };
 };

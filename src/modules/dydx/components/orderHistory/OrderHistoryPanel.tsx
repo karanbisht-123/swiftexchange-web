@@ -211,12 +211,12 @@ const OrderHistoryPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
-                      {order.clientMetadata === '1' && order.type === 'LIMIT' ? 'MARKET' : order.type}
+                      {order.clientMetadata === '1' && order.type === 'LIMIT'
+                        ? 'MARKET'
+                        : order.type}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">
-                    {size.toFixed(4)}
-                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{size.toFixed(4)}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="text-primary font-mono">{filled.toFixed(4)}</div>
                     {fillPercent > 0 && fillPercent < 100 && (
@@ -224,7 +224,10 @@ const OrderHistoryPanel: React.FC = () => {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">
-                    {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT') ? 'Market' : `$${parseFloat(order.price).toLocaleString()}`}
+                    {order.type === 'MARKET' ||
+                    (order.clientMetadata === '1' && order.type === 'LIMIT')
+                      ? 'Market'
+                      : `$${parseFloat(order.price).toLocaleString()}`}
                   </td>
                   <td className="px-4 py-3 text-center text-gray-400 text-xs">
                     {order.timeInForce || 'GTT'}
@@ -256,17 +259,17 @@ const OrderHistoryPanel: React.FC = () => {
                   <div className="flex items-center gap-4">
                     <SideBadge side={order.side as 'BUY' | 'SELL'} />
                     <span className="text-primary font-mono text-xs">
-                      {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT') ? 'Market' : `$${price.toLocaleString()}`}
+                      {order.type === 'MARKET' ||
+                      (order.clientMetadata === '1' && order.type === 'LIMIT')
+                        ? 'Market'
+                        : `$${price.toLocaleString()}`}
                     </span>
                   </div>
-
                 </div>
               </div>
               <div className="flex items-start flex-col mr-2  ">
                 <StatusIndicator status={order.status} />
-                <span className="text-muted text-xs">
-                  {size.toFixed(4)}
-                </span>
+                <span className="text-muted text-xs">{size.toFixed(4)}</span>
               </div>
               <ChevronRight size={16} className="text-muted flex-shrink-0" />
             </div>
@@ -284,11 +287,7 @@ const OrderHistoryPanel: React.FC = () => {
         hasMore={hasMoreData}
       />
 
-      <SidePanel
-        isOpen={showDetail}
-        onClose={handleCloseDetail}
-        title="Order Details"
-      >
+      <SidePanel isOpen={showDetail} onClose={handleCloseDetail} title="Order Details">
         {selectedOrder && <OrderDetailPanel order={selectedOrder} />}
       </SidePanel>
     </div>

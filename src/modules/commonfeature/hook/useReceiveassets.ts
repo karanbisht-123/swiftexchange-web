@@ -94,8 +94,7 @@ Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
     if (navigator.share) {
       try {
         await navigator.share({ title: `My ${currentAsset?.value} address`, text });
-      } catch {
-      }
+      } catch {}
     } else {
       try {
         await navigator.clipboard.writeText(text);

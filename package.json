@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "NODE_OPTIONS='--max-old-space-size=4096' vite build",
     "lint": "eslint .",
     "format": "prettier --write .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@allbridge/bridge-core-sdk": "^3.29.1",
     "@dydxprotocol/v4-client-js": "^3.1.1",
+    "@skip-go/client": "^1.5.14",
     "@stellar/stellar-sdk": "^14.4.3",
     "@walletconnect/core": "^2.20.0",
     "@walletconnect/modal": "^2.7.0",
@@ -26,11 +28,12 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.8.2",
     "react-select": "^5.10.2",
+    "viem": "^2.47.5",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
-    "@tailwindcss/vite": "^4.1.13",
+    "@tailwindcss/vite": "^4.2.2",
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
     "@types/babel__generator": "^7.27.0",
     "@types/babel__template": "^7.4.4",
@@ -45,6 +48,7 @@
     "globals": "^16.3.0",
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "^0.6.14",
+    "rollup-plugin-visualizer": "^7.0.1",
     "tailwindcss": "^4.1.13",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.1",

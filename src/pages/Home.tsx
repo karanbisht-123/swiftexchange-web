@@ -1,6 +1,6 @@
+import DownloadSection from '../components/home/DownloadSection';
 import HeroComponent from '../components/home/HeroComponent';
 import PlatformPreview from '../components/home/PlatformPreview';
-import DownloadSection from '../components/home/DownloadSection';
 import Topbar from '../components/layout/Topbar';
 
 const Home = () => {

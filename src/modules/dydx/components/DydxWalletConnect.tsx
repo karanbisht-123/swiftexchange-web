@@ -1,12 +1,14 @@
+import { AlertCircle, ArrowUpRight, RefreshCw } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, RefreshCw, AlertCircle } from 'lucide-react';
+
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
-import { SubaccountTransfer } from './SubaccountTransfer';
-import { DydxWithdrawModal } from './DydxWithdrawModal';
-import { DydxDepositModal } from './DydxDepositModal';
 import useOrderPreviewStore from '../store/orderPreviewStore';
+import { DydxDepositModal } from './DydxDepositModal';
+import { DydxWithdrawModal } from './DydxWithdrawModal';
+import { SubaccountTransfer } from './SubaccountTransfer';
+
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
@@ -193,40 +195,45 @@ export const DydxWalletConnect: React.FC = () => {
 
   const timeAgo = useMemo(() => formatTimeAgo(lastUpdateTime), [lastUpdateTime]);
 
-  const isSubaccountNotFound = error?.toLowerCase().includes('404') || error?.toLowerCase().includes('subaccount');
+  const isSubaccountNotFound =
+    error?.toLowerCase().includes('404') || error?.toLowerCase().includes('subaccount');
 
-  if (isSubaccountNotFound) {
+  const hasZeroBalance =
+    balance && Number(balance.equity) === 0 && Number(balance.freeCollateral) === 0;
+
+  // Single shared "no funds" UI used for both subaccount-not-found and zero balance
+  const showNoFunds = isSubaccountNotFound || !balance || hasZeroBalance;
+
+  if (showNoFunds && !connectionError && !!hasEvmWallet && !needsDydxDerivation && !isConnecting) {
     return (
-      <div className="bg-secondary  p-3 sm:p-4 ">
-        <div className="flex items-center justify-between mb-3">
-          <div>
+      <>
+        <div className="bg-secondary p-3 border border-color">
+          <div className="mb-2">
             <p className="text-xs text-muted">dYdX Trading Account</p>
             <p className="text-xs font-mono text-secondary">
               {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-1 rounded text-xs font-medium bg-warning text-white">
-              No Account
-            </span>
+
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-muted leading-relaxed min-w-0">
+              Add funds to start trading on dYdX
+            </p>
+            <button
+              onClick={() => setShowDepositModal(true)}
+              className="text-xs font-medium py-1.5 px-3 rounded flex-shrink-0 transition-colors"
+              style={{
+                backgroundColor: 'var(--color-brand-accent)',
+                color: 'var(--color-text-inverse)',
+              }}
+            >
+              Add Funds
+            </button>
           </div>
         </div>
-        <div className="bg-warning-bg border border-color rounded p-2 mb-3">
-          <p className="text-xs text-warning">You need to deposit funds first to start trading</p>
-        </div>
-        <a
-          href="https://trade.dydx.exchange/portfolio/deposit"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-center py-2 rounded text-sm font-medium transition"
-          style={{
-            backgroundColor: 'var(--color-brand-accent)',
-            color: 'var(--color-text-inverse)'
-          }}
-        >
-          Deposit Funds
-        </a>
-      </div>
+
+        <DydxDepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
+      </>
     );
   }
 
@@ -245,7 +252,7 @@ export const DydxWalletConnect: React.FC = () => {
           className="w-full py-2 rounded text-sm font-medium transition disabled:opacity-50"
           style={{
             backgroundColor: 'var(--color-brand-accent)',
-            color: 'var(--color-text-inverse)'
+            color: 'var(--color-text-inverse)',
           }}
         >
           {isConnecting || isDeriving ? 'Processing...' : 'Retry Connection'}
@@ -271,7 +278,7 @@ export const DydxWalletConnect: React.FC = () => {
           className="w-full font-medium py-2 rounded text-sm transition"
           style={{
             backgroundColor: 'var(--color-brand-accent)',
-            color: 'var(--color-text-inverse)'
+            color: 'var(--color-text-inverse)',
           }}
         >
           Connect Wallet
@@ -282,7 +289,7 @@ export const DydxWalletConnect: React.FC = () => {
 
   if (needsDydxDerivation) {
     return (
-      <div className="bg-secondary  p-3 sm:p-4 border border-color">
+      <div className="bg-secondary p-3 sm:p-4 border border-color">
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-xs text-muted">dYdX Trading Account</p>
@@ -303,7 +310,7 @@ export const DydxWalletConnect: React.FC = () => {
           className="w-full font-medium py-2 rounded text-sm transition disabled:opacity-50"
           style={{
             backgroundColor: 'var(--color-brand-accent)',
-            color: 'var(--color-text-inverse)'
+            color: 'var(--color-text-inverse)',
           }}
         >
           {isDeriving ? 'Deriving...' : 'Derive dYdX Account'}
@@ -323,56 +330,8 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-  const hasZeroBalance =
-    balance && Number(balance.equity) === 0 && Number(balance.freeCollateral) === 0;
-
-  if (!balance || hasZeroBalance) {
-    return (
-      <div className="bg-secondary p-3 sm:p-4 border border-color">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-xs text-muted">dYdX Trading Account</p>
-            <p className="text-xs font-mono text-secondary">
-              {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={refresh}
-              disabled={loadingBalance}
-              className="p-1 rounded hover:bg-hover transition-colors disabled:opacity-50"
-              title="Refresh balance"
-            >
-              <RefreshCw
-                className={`w-4 h-4 text-muted ${loadingBalance ? 'animate-spin' : ''}`}
-              />
-            </button>
-            <span className="px-2 py-1 rounded text-xs font-medium bg-warning text-white">
-              No Funds
-            </span>
-          </div>
-        </div>
-        <div className="bg-warning-bg border border-color rounded p-2 mb-3">
-          <p className="text-xs text-warning">Deposit USDC to start trading on dYdX Chain</p>
-        </div>
-        <a
-          href="https://trade.dydx.exchange/portfolio/deposit"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-center py-2 rounded text-sm font-medium transition"
-          style={{
-            backgroundColor: 'var(--color-brand-accent)',
-            color: 'var(--color-text-inverse)'
-          }}
-        >
-          Deposit Funds
-        </a>
-      </div>
-    );
-  }
-
   return (
-    <div className="bg-secondary border-b border-color lg:rounded-none p-3 sm:p-4 ">
+    <div className="bg-secondary border-b border-color lg:rounded-none p-3 sm:p-4">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-color">
         <div className="flex items-center gap-2">
@@ -428,6 +387,7 @@ export const DydxWalletConnect: React.FC = () => {
             </span>
           </div>
 
+          {/* Margin Used */}
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted">Margin Used</span>
             <div className="flex items-center gap-2">
@@ -446,38 +406,40 @@ export const DydxWalletConnect: React.FC = () => {
                     cy="12"
                     r="10"
                     stroke={
-                      (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 85
+                      (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
                         ? 'var(--color-danger)'
-                        : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 70
+                        : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 50
                           ? 'var(--color-warning)'
-                          : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 50
-                            ? 'var(--color-warning)'
-                            : 'var(--color-success)'
+                          : 'var(--color-success)'
                     }
                     strokeWidth="2"
                     fill="none"
                     strokeDasharray={`${2 * Math.PI * 10}`}
-                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) / 100)}`}
+                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) / 100)}`}
                     strokeLinecap="round"
                   />
                 </svg>
               </div>
               <span
-                className={`text-sm font-semibold ${(projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 85
+                className={`text-sm font-semibold ${
+                  (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
                     ? 'text-danger'
-                    : (projectedMarginUsagePercent ?? marginMetrics!.marginUsagePercent) > 70
+                    : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
                       ? 'text-warning'
                       : 'text-success'
-                  }`}
+                }`}
               >
-                {projectedMarginUsagePercent !== null && projectedMarginUsagePercent !== undefined ? (
+                {projectedMarginUsagePercent !== null &&
+                projectedMarginUsagePercent !== undefined ? (
                   <>
-                    <span className="text-muted">{formatPercent(marginMetrics!.marginUsagePercent)}%</span>
+                    <span className="text-muted">
+                      {formatPercent(marginMetrics.marginUsagePercent)}%
+                    </span>
                     {' → '}
                     {formatPercent(projectedMarginUsagePercent)}%
                   </>
                 ) : (
-                  <>{formatPercent(marginMetrics!.marginUsagePercent)}%</>
+                  <>{formatPercent(marginMetrics.marginUsagePercent)}%</>
                 )}
               </span>
             </div>
@@ -486,10 +448,11 @@ export const DydxWalletConnect: React.FC = () => {
           {/* Warning Message */}
           {marginMetrics.marginUsagePercent > 70 && (
             <div
-              className={`rounded p-2 text-xs flex items-start gap-2 ${marginMetrics.marginUsagePercent > 85
-                ? 'bg-danger-bg text-danger'
-                : 'bg-warning-bg text-warning'
-                }`}
+              className={`rounded p-2 text-xs flex items-start gap-2 ${
+                marginMetrics.marginUsagePercent > 85
+                  ? 'bg-danger-bg text-danger'
+                  : 'bg-warning-bg text-warning'
+              }`}
             >
               <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
               <span>
@@ -505,7 +468,7 @@ export const DydxWalletConnect: React.FC = () => {
               className="flex-1 text-center text-sm font-medium py-2 rounded transition-colors"
               style={{
                 backgroundColor: 'var(--color-brand-accent)',
-                color: 'var(--color-text-inverse)'
+                color: 'var(--color-text-inverse)',
               }}
             >
               Deposit
@@ -516,7 +479,7 @@ export const DydxWalletConnect: React.FC = () => {
               style={{
                 backgroundColor: 'var(--color-bg-tertiary)',
                 color: 'var(--color-text-secondary)',
-                border: '1px solid var(--color-border)'
+                border: '1px solid var(--color-border)',
               }}
             >
               <ArrowUpRight className="w-4 h-4" />
@@ -525,20 +488,11 @@ export const DydxWalletConnect: React.FC = () => {
         </div>
       ) : null}
 
-      <SubaccountTransfer
-        isOpen={showTransferModal}
-        onClose={() => setShowTransferModal(false)}
-      />
+      <SubaccountTransfer isOpen={showTransferModal} onClose={() => setShowTransferModal(false)} />
 
-      <DydxWithdrawModal
-        isOpen={showWithdrawModal}
-        onClose={() => setShowWithdrawModal(false)}
-      />
+      <DydxWithdrawModal isOpen={showWithdrawModal} onClose={() => setShowWithdrawModal(false)} />
 
-      <DydxDepositModal
-        isOpen={showDepositModal}
-        onClose={() => setShowDepositModal(false)}
-      />
+      <DydxDepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
     </div>
   );
 };

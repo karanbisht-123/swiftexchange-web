@@ -120,8 +120,9 @@ const AlchemyCryptoBuy = () => {
             onChange={e => setFiatAmount(e.target.value)}
             onWheel={e => e.currentTarget.blur()}
             className={`input flex-1 ${quoteError ? 'input-danger' : ''}`}
-            placeholder={`Enter amount (Min: ${selectedPaymentOption?.payMin || MIN_AMOUNT
-              } ${selectedPaymentOption?.currency || ''})`}
+            placeholder={`Enter amount (Min: ${
+              selectedPaymentOption?.payMin || MIN_AMOUNT
+            } ${selectedPaymentOption?.currency || ''})`}
             min={selectedPaymentOption?.payMin || MIN_AMOUNT}
           />
           <div className="w-full sm:w-1/3">
@@ -140,7 +141,7 @@ const AlchemyCryptoBuy = () => {
                       src={option.flag}
                       alt={option.countryName}
                       className="w-6 h-4 object-cover rounded-sm"
-                      onError={(e) => {
+                      onError={e => {
                         (e.target as HTMLImageElement).style.display = 'none';
                       }}
                     />
@@ -196,7 +197,7 @@ const AlchemyCryptoBuy = () => {
                       src={option.icon}
                       alt={option.crypto}
                       className="w-5 h-5 rounded-full"
-                      onError={(e) => {
+                      onError={e => {
                         (e.target as HTMLImageElement).style.display = 'none';
                       }}
                     />
@@ -330,8 +331,9 @@ const AlchemyCryptoBuy = () => {
         <button
           onClick={handleCreateOrder}
           disabled={!isFormValid() || !!(paymentTab && !paymentTab.closed)}
-          className={`btn btn py-4 lg:py-5 flex-1 ${isFormValid() && !(paymentTab && !paymentTab.closed) ? 'btn-primary' : 'btn-secondary'
-            }`}
+          className={`btn btn py-4 lg:py-5 flex-1 ${
+            isFormValid() && !(paymentTab && !paymentTab.closed) ? 'btn-primary' : 'btn-secondary'
+          }`}
         >
           {isCreatingOrder ? (
             <div className="flex items-center justify-center gap-2">

@@ -311,11 +311,7 @@ export class AmmSwapService {
   }
 
   private isWalletConnectProvider(provider: any): boolean {
-    return !!(
-      provider.client &&
-      provider.session &&
-      typeof provider.client.request === 'function'
-    );
+    return !!(provider.client && provider.session && typeof provider.client.request === 'function');
   }
 
   async executeSwapWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {

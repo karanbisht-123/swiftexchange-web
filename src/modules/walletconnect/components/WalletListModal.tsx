@@ -43,11 +43,15 @@ export const WalletListModal: React.FC = () => {
       setConnectingWallet(null);
       setError(null);
     }
-    return () => { document.body.style.overflow = 'unset'; };
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
   }, [isModalOpen]);
 
   useEffect(() => {
-    return () => { if (connectTimeoutRef.current) window.clearTimeout(connectTimeoutRef.current); };
+    return () => {
+      if (connectTimeoutRef.current) window.clearTimeout(connectTimeoutRef.current);
+    };
   }, []);
 
   const clearConnectTimeout = () => {
@@ -200,16 +204,25 @@ export const WalletListModal: React.FC = () => {
                     }}
                   />
                 ) : (
-                  <span style={{ color: 'var(--color-text-muted)' }} className="font-semibold text-sm">
+                  <span
+                    style={{ color: 'var(--color-text-muted)' }}
+                    className="font-semibold text-sm"
+                  >
                     {type[0].toUpperCase()}
                   </span>
                 )}
               </div>
               <div className="flex flex-col min-w-0">
-                <span style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold truncate">
+                <span
+                  style={{ color: 'var(--color-text-primary)' }}
+                  className="text-sm font-semibold truncate"
+                >
                   {config?.name ?? connected.walletId}
                 </span>
-                <span style={{ color: 'var(--color-text-secondary)' }} className="text-xs font-mono truncate">
+                <span
+                  style={{ color: 'var(--color-text-secondary)' }}
+                  className="text-xs font-mono truncate"
+                >
                   {formatAddress(connected.address)}
                 </span>
               </div>
@@ -234,7 +247,10 @@ export const WalletListModal: React.FC = () => {
 
           {type === 'evm' && (
             <div
-              style={{ borderColor: 'var(--color-brand-primary)', background: 'color-mix(in srgb, var(--color-brand-primary) 8%, transparent)' }}
+              style={{
+                borderColor: 'var(--color-brand-primary)',
+                background: 'color-mix(in srgb, var(--color-brand-primary) 8%, transparent)',
+              }}
               className="p-3 md:p-4 rounded-xl border"
             >
               {hasDydx ? (
@@ -245,13 +261,32 @@ export const WalletListModal: React.FC = () => {
                       className="w-5 h-5 rounded-full flex items-center justify-center"
                     >
                       <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
                       </svg>
                     </div>
-                    <span style={{ color: 'var(--color-brand-primary)' }} className="text-sm font-semibold">dYdX Wallet Derived</span>
+                    <span
+                      style={{ color: 'var(--color-brand-primary)' }}
+                      className="text-sm font-semibold"
+                    >
+                      dYdX Wallet Derived
+                    </span>
                   </div>
-                  <span style={{ color: 'var(--color-text-secondary)' }} className="text-xs block mb-1">dYdX Address</span>
-                  <span style={{ color: 'var(--color-brand-primary)' }} className="text-xs font-mono break-all">{connected.dydxAddress}</span>
+                  <span
+                    style={{ color: 'var(--color-text-secondary)' }}
+                    className="text-xs block mb-1"
+                  >
+                    dYdX Address
+                  </span>
+                  <span
+                    style={{ color: 'var(--color-brand-primary)' }}
+                    className="text-xs font-mono break-all"
+                  >
+                    {connected.dydxAddress}
+                  </span>
                 </div>
               ) : isSigningNow ? (
                 <div className="flex items-center gap-3">
@@ -262,15 +297,29 @@ export const WalletListModal: React.FC = () => {
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   </div>
                   <div>
-                    <p style={{ color: 'var(--color-brand-primary)' }} className="text-sm font-semibold">Sign in Wallet</p>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">Approve the signature to generate your dYdX address</p>
+                    <p
+                      style={{ color: 'var(--color-brand-primary)' }}
+                      className="text-sm font-semibold"
+                    >
+                      Sign in Wallet
+                    </p>
+                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
+                      Approve the signature to generate your dYdX address
+                    </p>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p style={{ color: 'var(--color-brand-primary)' }} className="text-sm font-semibold">Derive dYdX Wallet</p>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">One-time signature to enable trading</p>
+                    <p
+                      style={{ color: 'var(--color-brand-primary)' }}
+                      className="text-sm font-semibold"
+                    >
+                      Derive dYdX Wallet
+                    </p>
+                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                      One-time signature to enable trading
+                    </p>
                   </div>
                   <button
                     onClick={handleDeriveDydx}
@@ -287,7 +336,16 @@ export const WalletListModal: React.FC = () => {
         </div>
       );
     },
-    [connectedWallets, getWalletConfig, formatAddress, handleDisconnect, handleDeriveDydx, disconnectingType, isAnyActionInProgress, isSigning]
+    [
+      connectedWallets,
+      getWalletConfig,
+      formatAddress,
+      handleDisconnect,
+      handleDeriveDydx,
+      disconnectingType,
+      isAnyActionInProgress,
+      isSigning,
+    ]
   );
 
   const renderWalletGrid = useCallback(
@@ -306,11 +364,16 @@ export const WalletListModal: React.FC = () => {
             >
               {isThisConnecting && (
                 <div
-                  style={{ background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)' }}
+                  style={{
+                    background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
+                  }}
                   className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
                 >
                   <div
-                    style={{ borderColor: 'var(--color-brand-primary)', borderTopColor: 'transparent' }}
+                    style={{
+                      borderColor: 'var(--color-brand-primary)',
+                      borderTopColor: 'transparent',
+                    }}
                     className="w-5 h-5 border-2 rounded-full animate-spin"
                   />
                 </div>
@@ -366,7 +429,10 @@ export const WalletListModal: React.FC = () => {
       >
         {isMobile && (
           <div className="pt-2.5 pb-1 flex justify-center flex-shrink-0">
-            <div style={{ background: 'var(--color-border-dark)' }} className="w-10 h-1 rounded-full" />
+            <div
+              style={{ background: 'var(--color-border-dark)' }}
+              className="w-10 h-1 rounded-full"
+            />
           </div>
         )}
 
@@ -374,7 +440,10 @@ export const WalletListModal: React.FC = () => {
           style={{ borderColor: 'var(--color-border)' }}
           className="flex items-center justify-between px-4 md:px-6 py-4 border-b flex-shrink-0"
         >
-          <h2 style={{ color: 'var(--color-text-primary)' }} className="text-lg md:text-xl font-bold">
+          <h2
+            style={{ color: 'var(--color-text-primary)' }}
+            className="text-lg md:text-xl font-bold"
+          >
             {bothConnected ? 'Connected Wallets' : 'Connect Wallet'}
           </h2>
           <button
@@ -390,7 +459,11 @@ export const WalletListModal: React.FC = () => {
 
         {error && (
           <div
-            style={{ background: 'var(--color-danger-bg)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+            style={{
+              background: 'var(--color-danger-bg)',
+              borderColor: 'var(--color-danger)',
+              color: 'var(--color-danger)',
+            }}
             className="mx-4 mt-3 p-3 rounded-lg border text-sm text-center animate-fade-in"
           >
             {error}
@@ -398,10 +471,12 @@ export const WalletListModal: React.FC = () => {
         )}
 
         <div className="p-4 md:p-6 overflow-y-auto scrollbar-thin space-y-5 flex-1">
-
           {evmConnected && (
             <div className="space-y-2">
-              <h3 style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold uppercase tracking-wide opacity-60">
+              <h3
+                style={{ color: 'var(--color-text-primary)' }}
+                className="text-sm font-semibold uppercase tracking-wide opacity-60"
+              >
                 EVM Wallet
               </h3>
               {renderConnectedCard('evm')}
@@ -410,7 +485,10 @@ export const WalletListModal: React.FC = () => {
 
           {stellarConnected && (
             <div className="space-y-2">
-              <h3 style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold uppercase tracking-wide opacity-60">
+              <h3
+                style={{ color: 'var(--color-text-primary)' }}
+                className="text-sm font-semibold uppercase tracking-wide opacity-60"
+              >
                 Stellar Wallet
               </h3>
               {renderConnectedCard('stellar')}
@@ -419,7 +497,10 @@ export const WalletListModal: React.FC = () => {
 
           {evmConnected && !stellarConnected && (
             <div
-              style={{ borderColor: 'color-mix(in srgb, var(--color-brand-primary) 30%, transparent)', background: 'color-mix(in srgb, var(--color-brand-primary) 6%, transparent)' }}
+              style={{
+                borderColor: 'color-mix(in srgb, var(--color-brand-primary) 30%, transparent)',
+                background: 'color-mix(in srgb, var(--color-brand-primary) 6%, transparent)',
+              }}
               className="p-3 rounded-lg border"
             >
               <p style={{ color: 'var(--color-text-secondary)' }} className="text-xs">
@@ -429,14 +510,16 @@ export const WalletListModal: React.FC = () => {
           )}
 
           {!bothConnected && (
-            <div
-              style={{ borderColor: 'var(--color-border)' }}
-              className="border-t pt-5 space-y-5"
-            >
+            <div style={{ borderColor: 'var(--color-border)' }} className="border-t pt-5 space-y-5">
               {!evmConnected && (
                 <div className="space-y-3">
                   <div>
-                    <h3 style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold">Connect EVM + Stellar</h3>
+                    <h3
+                      style={{ color: 'var(--color-text-primary)' }}
+                      className="text-sm font-semibold"
+                    >
+                      Connect EVM + Stellar
+                    </h3>
                     <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
                       One QR code — connects both chains if your wallet supports them
                     </p>
@@ -444,16 +527,25 @@ export const WalletListModal: React.FC = () => {
                   <button
                     onClick={handleUnifiedConnect}
                     disabled={isAnyActionInProgress}
-                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-tertiary)' }}
+                    style={{
+                      borderColor: 'var(--color-border)',
+                      background: 'var(--color-bg-tertiary)',
+                    }}
                     className="w-full flex items-center gap-3 p-3 md:p-4 rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] transition-all disabled:opacity-50 disabled:cursor-not-allowed relative"
                   >
                     {isUnifiedConnecting && (
                       <div
-                        style={{ background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)' }}
+                        style={{
+                          background:
+                            'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
+                        }}
                         className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
                       >
                         <div
-                          style={{ borderColor: 'var(--color-brand-primary)', borderTopColor: 'transparent' }}
+                          style={{
+                            borderColor: 'var(--color-brand-primary)',
+                            borderTopColor: 'transparent',
+                          }}
                           className="w-5 h-5 border-2 rounded-full animate-spin"
                         />
                       </div>
@@ -462,11 +554,22 @@ export const WalletListModal: React.FC = () => {
                       style={{ background: 'var(--color-bg-secondary)' }}
                       className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
                     >
-                      <img src={WALLETCONNECT_ICON} alt="WalletConnect" className="w-8 h-8 rounded-full object-contain" />
+                      <img
+                        src={WALLETCONNECT_ICON}
+                        alt="WalletConnect"
+                        className="w-8 h-8 rounded-full object-contain"
+                      />
                     </div>
                     <div className="text-left">
-                      <p style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold">WalletConnect</p>
-                      <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">Multichain — EVM + Stellar (if supported)</p>
+                      <p
+                        style={{ color: 'var(--color-text-primary)' }}
+                        className="text-sm font-semibold"
+                      >
+                        WalletConnect
+                      </p>
+                      <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
+                        Multichain — EVM + Stellar (if supported)
+                      </p>
                     </div>
                   </button>
                 </div>
@@ -475,7 +578,12 @@ export const WalletListModal: React.FC = () => {
               {!evmConnected && (
                 <div className="space-y-3">
                   <div>
-                    <h3 style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold">EVM Wallets</h3>
+                    <h3
+                      style={{ color: 'var(--color-text-primary)' }}
+                      className="text-sm font-semibold"
+                    >
+                      EVM Wallets
+                    </h3>
                     <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
                       Browser extension or EVM-only WalletConnect
                     </p>
@@ -487,7 +595,12 @@ export const WalletListModal: React.FC = () => {
               {!stellarConnected && (
                 <div className="space-y-3">
                   <div>
-                    <h3 style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold">Stellar Wallets</h3>
+                    <h3
+                      style={{ color: 'var(--color-text-primary)' }}
+                      className="text-sm font-semibold"
+                    >
+                      Stellar Wallets
+                    </h3>
                     <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
                       Browser extension or Stellar-only WalletConnect
                     </p>
@@ -509,9 +622,16 @@ export const WalletListModal: React.FC = () => {
                 style={{ borderColor: 'var(--color-brand-primary)', borderTopColor: 'transparent' }}
                 className="inline-block w-10 h-10 border-4 rounded-full animate-spin mb-4"
               />
-              <p style={{ color: 'var(--color-text-primary)' }} className="font-semibold text-base mb-1">Connecting...</p>
+              <p
+                style={{ color: 'var(--color-text-primary)' }}
+                className="font-semibold text-base mb-1"
+              >
+                Connecting...
+              </p>
               <p style={{ color: 'var(--color-text-muted)' }} className="text-sm mb-4">
-                {isMobile ? 'Approve in your wallet app' : 'Scan the QR code or approve in your wallet'}
+                {isMobile
+                  ? 'Approve in your wallet app'
+                  : 'Scan the QR code or approve in your wallet'}
               </p>
               <button
                 onClick={handleModalClose}

@@ -45,7 +45,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [slippageTolerance, setSlippageTolerance] = useState<number>(0.5);
   const [showDetails, setShowDetails] = useState<boolean>(true);
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
-  const [preSelectedAsset, setPreSelectedAsset] = useState<{ symbol: string; chainId?: number } | null>(null);
+  const [preSelectedAsset, setPreSelectedAsset] = useState<{
+    symbol: string;
+    chainId?: number;
+  } | null>(null);
 
   const [selectedChainId, setSelectedChainId] = useState<number>(1);
   const [assetModalOpen, setAssetModalOpen] = useState<'sell' | 'buy' | null>(null);
@@ -192,7 +195,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       await fetchQuote(quoteRequest, selectedSellAsset, selectedBuyAsset);
     } catch (err) {
-      console.log("qoute Fetching request Error :", err)
+      console.log('qoute Fetching request Error :', err);
     }
   }, [
     selectedSellAsset,
@@ -309,7 +312,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     try {
       await performSwap(quote, selectedSellAsset, selectedBuyAsset, sellAmount, slippageTolerance);
     } catch (err) {
-      console.log("swap Exustion failer SwapAsset", err)
+      console.log('swap Exustion failer SwapAsset', err);
     }
   }, [
     quote,
@@ -404,7 +407,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
 
-
         {!isConnected && (
           <div className="card text-center py-12">
             <div className="flex justify-center mb-6">
@@ -446,10 +448,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         onClick={() => handleChainSelect(chain.chainId)}
                         disabled={isChainSwitching}
                         title={`Switch to ${chain.name}`}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 border ${isSelected
-                          ? 'btn-primary border-transparent shadow-md'
-                          : 'btn-secondary hover:bg-tertiary border-color'
-                          }`}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 border ${
+                          isSelected
+                            ? 'btn-primary border-transparent shadow-md'
+                            : 'btn-secondary hover:bg-tertiary border-color'
+                        }`}
                       >
                         <img
                           src={chain.logoUrl}
@@ -545,10 +548,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     type="text"
                     inputMode="decimal"
                     pattern="^[0-9]*[.,]?[0-9]*$"
-                    className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0')
-                      ? 'text-red-500'
-                      : ''
-                      }`}
+                    className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${
+                      parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0')
+                        ? 'text-red-500'
+                        : ''
+                    }`}
                     placeholder="0.00"
                     value={sellAmount}
                     onChange={handleAmountChange}
@@ -837,7 +841,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           selectedAssetSymbol={assetModalOpen === 'sell' ? sellAssetSymbol : buyAssetSymbol}
           isLoading={isFetchingAssets}
         />
-
 
         {error && (
           <div className="card bg-danger-bg bg-red-200 border-2 border-red-300 animate-slide-up">

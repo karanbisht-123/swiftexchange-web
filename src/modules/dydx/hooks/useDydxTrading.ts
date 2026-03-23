@@ -11,7 +11,6 @@ import {
   type TriggerParams,
 } from '../types/trading.types';
 
-
 const TRADE_EVENT = 'dydx-trade-action';
 
 export const triggerTradeRefresh = (action: 'order' | 'cancel' | 'close' | 'trigger') => {

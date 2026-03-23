@@ -1,5 +1,6 @@
 import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
 import Long from 'long';
+
 import { walletService } from '../../walletconnect/services/walletService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getCompositeClient, getIndexerClient } from '../client/clients';
@@ -147,7 +148,8 @@ class DydxWalletService {
       if (!client || !address) throw new Error('Wallet not connected');
 
       const localWallet = walletService.getSigningWallet();
-      if (!localWallet) throw new Error('Signing wallet not available - please derive dYdX wallet first');
+      if (!localWallet)
+        throw new Error('Signing wallet not available - please derive dYdX wallet first');
 
       const subaccount = SubaccountInfo.forLocalWallet(localWallet, subaccountNumber);
       const quantums = Long.fromString(quantumsString);
@@ -171,7 +173,10 @@ class DydxWalletService {
     }
   }
 
-  async withdraw(amount: string, toAddress?: string): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+  async withdraw(
+    amount: string,
+    toAddress?: string
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
     try {
       const client = await this.getCompositeClient();
       const address = this.getAddress();
@@ -217,13 +222,13 @@ class DydxWalletService {
 
       return {
         success: true,
-        transactionHash: txHash
+        transactionHash: txHash,
       };
     } catch (error: any) {
       console.error('[dydxWalletService] Withdraw failed:', error);
       return {
         success: false,
-        error: error.message || 'Withdraw failed'
+        error: error.message || 'Withdraw failed',
       };
     }
   }
@@ -236,7 +241,6 @@ class DydxWalletService {
   getChainId = () => this.chainId;
   getStatus = () => this.status;
 
-
   setActiveSubaccount(subaccountNumber: number): void {
     if (subaccountNumber < 0 || subaccountNumber > SUBACCOUNT_CONSTANTS.ISOLATED_END) {
       return;
@@ -245,9 +249,10 @@ class DydxWalletService {
   }
 
   getMarginMode(): MarginMode {
-    return this.activeSubaccountNumber >= SUBACCOUNT_CONSTANTS.ISOLATED_START ? 'ISOLATED' : 'CROSS';
+    return this.activeSubaccountNumber >= SUBACCOUNT_CONSTANTS.ISOLATED_START
+      ? 'ISOLATED'
+      : 'CROSS';
   }
-
 
   resetToDefaultSubaccount(): void {
     this.activeSubaccountNumber = SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT;

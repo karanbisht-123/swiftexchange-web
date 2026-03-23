@@ -1,9 +1,9 @@
 import { ArrowLeftRight } from 'lucide-react';
 
+import { Tooltip } from '../../../../../components/common/Tooltip';
 import type { OrderTypeEnum } from '../../../types/trading.types';
 import type { CurrencyMode } from '../../../utils/currencyService';
 import { validateNumberInput } from '../../../utils/inputValidation';
-import { Tooltip } from '../../../../../components/common/Tooltip';
 
 interface OrderFormInputsProps {
   orderType: OrderTypeEnum;
@@ -86,12 +86,13 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
     return null;
   };
 
-
   const parsedSize = parseFloat(size || '0');
   const parsedPrice = parseFloat(currentPrice || '1');
   const cryptoEquivalent =
     currencyMode === 'USD'
-      ? parsedPrice > 0 ? (parsedSize / parsedPrice).toFixed(4) : '0.0000'
+      ? parsedPrice > 0
+        ? (parsedSize / parsedPrice).toFixed(4)
+        : '0.0000'
       : (parsedSize * parsedPrice).toFixed(2);
 
   const otherCurrencyMode = currencyMode === 'USD' ? baseAsset : 'USD';
@@ -132,7 +133,10 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
         <div className="animate-fade-in">
           <div className="bg-primary border border-color rounded-xl px-3 py-1.5 md:px-4 md:py-1.5 shadow-sm focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary/20 transition-all">
             <div className="flex justify-between items-center">
-              <Tooltip content="The price that will trigger your order to become active" position="left">
+              <Tooltip
+                content="The price that will trigger your order to become active"
+                position="left"
+              >
                 <span className="text-[11px] font-semibold text-muted">Trigger Price</span>
               </Tooltip>
               <span className="text-[10px] font-semibold bg-tertiary px-1.5 py-0.5 rounded text-secondary uppercase">
@@ -173,7 +177,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
           <div className="flex justify-between items-center mt-[-2px]">
             <div className="flex items-center flex-1">
-              {currencyMode === 'USD' && <span className="text-md font-semibold text-primary mr-1">$</span>}
+              {currencyMode === 'USD' && (
+                <span className="text-md font-semibold text-primary mr-1">$</span>
+              )}
               <input
                 type="text"
                 inputMode="decimal"
@@ -189,7 +195,10 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
             <div className="flex items-center gap-2 shrink-0 border-l border-color pl-3">
               <span className="text-xs font-medium text-muted">
-                ≈ {cryptoEquivalent} <span className="text-[10px] font-semibold bg-tertiary px-1 py-0.5 rounded text-secondary uppercase ml-0.5">{otherCurrencyMode}</span>
+                ≈ {cryptoEquivalent}{' '}
+                <span className="text-[10px] font-semibold bg-tertiary px-1 py-0.5 rounded text-secondary uppercase ml-0.5">
+                  {otherCurrencyMode}
+                </span>
               </span>
               <button
                 type="button"
@@ -203,7 +212,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
           </div>
         </div>
 
-        <div id="size-error" className="ml-1">{renderFeedback(sizeError, sizeWarning)}</div>
+        <div id="size-error" className="ml-1">
+          {renderFeedback(sizeError, sizeWarning)}
+        </div>
 
         {maxBuyingPower && maxBuyingPower > 0 && (
           <div className="flex justify-between items-center px-1 mt-1">

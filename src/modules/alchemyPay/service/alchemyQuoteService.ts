@@ -18,9 +18,8 @@ export const fetchAlchemyQuote = async (quoteData: AlchemyQuoteRequest): Promise
     if (apiResponse.success === false) {
       if (apiResponse.data) {
         try {
-          const parsedData = typeof apiResponse.data === 'string'
-            ? JSON.parse(apiResponse.data)
-            : apiResponse.data;
+          const parsedData =
+            typeof apiResponse.data === 'string' ? JSON.parse(apiResponse.data) : apiResponse.data;
 
           if (parsedData.returnMsg) {
             throw new Error(parsedData.returnMsg);

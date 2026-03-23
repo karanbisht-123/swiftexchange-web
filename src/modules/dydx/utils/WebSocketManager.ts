@@ -94,6 +94,11 @@ class WebSocketManager {
     v4_block_height: 60000,
   };
 
+  private readonly HIGH_PRIORITY_CHANNELS = new Set([
+    'v4_trades',
+    'v4_subaccounts',
+    'v4_parent_subaccounts',
+  ]);
   // messages received
   private totalMessagesReceived = 0;
   private messagesByChannel = new Map<string, number>();
@@ -501,12 +506,11 @@ class WebSocketManager {
     handlers: Set<MessageHandler>
   ): void {
     const throttleInterval = this.THROTTLE_INTERVALS[data.channel] ?? 0;
+    const isHighPriority = this.HIGH_PRIORITY_CHANNELS.has(data.channel);
 
     if (throttleInterval === 0) {
-      handlers.forEach(handler => {
-        this.pendingHandlerCalls.push({ handler, data });
-      });
-      this.scheduleHandlerExecution();
+      handlers.forEach(handler => this.pendingHandlerCalls.push({ handler, data }));
+      this.scheduleHandlerExecution(isHighPriority);
     } else {
       const throttleKey = `${key}_throttle`;
 
@@ -524,24 +528,32 @@ class WebSocketManager {
     }
   }
 
-  private scheduleHandlerExecution(): void {
+  private scheduleHandlerExecution(highPriority = false): void {
+    if (highPriority) {
+      queueMicrotask(() => {
+        const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
+        calls.forEach(({ handler, data }) => {
+          try {
+            handler(data);
+          } catch (e) {
+            console.error(e);
+          }
+        });
+      });
+      return;
+    }
     if (this.rafId !== null) return;
-
     this.rafId = requestAnimationFrame(() => {
       this.rafId = null;
       const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
-
       calls.forEach(({ handler, data }) => {
         try {
           handler(data);
-        } catch (error) {
-          console.error('[WS] Handler execution error:', error);
+        } catch (e) {
+          console.error(e);
         }
       });
-
-      if (this.pendingHandlerCalls.length > 0) {
-        this.scheduleHandlerExecution();
-      }
+      if (this.pendingHandlerCalls.length > 0) this.scheduleHandlerExecution();
     });
   }
 
@@ -765,7 +777,6 @@ class WebSocketManager {
   }
 
   private clearAllSubscriptions(): void {
-
     this.subscriptions.clear();
     this.serverSubscriptions.clear();
     this.pendingSubscriptions.clear();
