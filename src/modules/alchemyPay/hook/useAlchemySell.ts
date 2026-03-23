@@ -94,9 +94,7 @@ export const useAlchemySell = () => {
 
   useEffect(() => {
     if (!hasAutoSelectedCountry && country && !isLoadingCountry) {
-      const matchingOption = paymentOptions.find(
-        option => option.country === country
-      );
+      const matchingOption = paymentOptions.find(option => option.country === country);
       if (matchingOption) {
         setSelectedPaymentOption(matchingOption);
       }

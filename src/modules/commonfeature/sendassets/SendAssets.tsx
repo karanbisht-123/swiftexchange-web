@@ -2,8 +2,8 @@ import { AlertCircle, Copy, Info, Loader2 } from 'lucide-react';
 import React, { useCallback, useMemo } from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
-import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import TransactionSuccess from '../../transction/component/TransactionSuccess';
+import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { useSendAsset } from '../hook/useSendassets';
 
 interface SendCryptoProps {
@@ -362,11 +362,12 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           <input
             type="text"
             id="recipientAddress"
-            className={`input ${(formError && formError.includes('Recipient address')) ||
+            className={`input ${
+              (formError && formError.includes('Recipient address')) ||
               (formError && formError.includes('Invalid recipient'))
-              ? 'input-danger'
-              : ''
-              }`}
+                ? 'input-danger'
+                : ''
+            }`}
             placeholder={currentAsset?.type === 'stellar' ? 'G...' : '0x...'}
             value={recipientAddress}
             onChange={handleRecipientChange}
@@ -385,11 +386,12 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   type="text"
                   inputMode="decimal"
                   id="amount"
-                  className={`input pr-16 ${formError &&
+                  className={`input pr-16 ${
+                    formError &&
                     (formError.includes('balance') || formError.includes('Amount must'))
-                    ? 'input-danger'
-                    : ''
-                    }`}
+                      ? 'input-danger'
+                      : ''
+                  }`}
                   placeholder="0.0"
                   value={amount}
                   onChange={handleAmountChange}

@@ -176,7 +176,6 @@ export interface Transfer {
 }
 export type MarginMode = 'CROSS' | 'ISOLATED';
 
-
 export interface TransferResult {
   success: boolean;
   transactionHash?: string;
@@ -185,7 +184,6 @@ export interface TransferResult {
   toSubaccount: number;
   amount: string;
 }
-
 
 export interface SubaccountBalance {
   subaccountNumber: number;
@@ -202,4 +200,3 @@ export const SUBACCOUNT_CONSTANTS = {
   MIN_ISOLATED_EQUITY: 20,
   DEFAULT_CROSS_SUBACCOUNT: 0,
 } as const;
-

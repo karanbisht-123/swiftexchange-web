@@ -1,11 +1,4 @@
-import {
-  AlertCircle,
-  ArrowRight,
-  ExternalLink,
-  Search,
-  Timer,
-  X,
-} from 'lucide-react';
+import { AlertCircle, ArrowRight, ExternalLink, Search, Timer, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
@@ -138,19 +131,21 @@ const TradeTransactionUI = () => {
         <div className="p-1 bg-muted/30 border border-white/5 rounded-full inline-flex">
           <button
             onClick={() => setActiveTab('active')}
-            className={`px-5 py-2 text-sm font-medium rounded-full transition-all duration-200 ${activeTab === 'active'
-              ? 'bg-primary text-text-inverse shadow-lg'
-              : 'text-muted hover:text-text-primary'
-              }`}
+            className={`px-5 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
+              activeTab === 'active'
+                ? 'bg-primary text-text-inverse shadow-lg'
+                : 'text-muted hover:text-text-primary'
+            }`}
           >
             Active Offers
           </button>
           <button
             onClick={() => setActiveTab('completed')}
-            className={`px-5 py-2 text-sm font-medium rounded-full transition-all duration-200 ${activeTab === 'completed'
-              ? 'bg-primary text-text-inverse shadow-lg'
-              : 'text-muted hover:text-text-primary'
-              }`}
+            className={`px-5 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
+              activeTab === 'completed'
+                ? 'bg-primary text-text-inverse shadow-lg'
+                : 'text-muted hover:text-text-primary'
+            }`}
           >
             Completed Trades
           </button>
@@ -365,10 +360,11 @@ const TradeTransactionUI = () => {
                       <tr key={trade.id} className="hover:bg-white/5 transition-colors">
                         <td className="px-6 py-4">
                           <span
-                            className={`text-xs px-2 py-0.5 rounded border ${trade.isBuy
-                              ? 'border-success/20 text-success bg-success/5'
-                              : 'border-danger/20 text-danger bg-danger/5'
-                              }`}
+                            className={`text-xs px-2 py-0.5 rounded border ${
+                              trade.isBuy
+                                ? 'border-success/20 text-success bg-success/5'
+                                : 'border-danger/20 text-danger bg-danger/5'
+                            }`}
                           >
                             {trade.isBuy ? 'Buy' : 'Sell'}
                           </span>
@@ -437,13 +433,16 @@ const TradeTransactionUI = () => {
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-text-primary">{trade.baseAsset.code}</span>
                         <span className="text-muted text-xs">/</span>
-                        <span className="font-bold text-text-primary">{trade.counterAsset.code}</span>
+                        <span className="font-bold text-text-primary">
+                          {trade.counterAsset.code}
+                        </span>
                       </div>
                       <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-semibold tracking-wide ${trade.isBuy
-                          ? 'border-success/20 text-success bg-success/10'
-                          : 'border-danger/20 text-danger bg-danger/10'
-                          }`}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-semibold tracking-wide ${
+                          trade.isBuy
+                            ? 'border-success/20 text-success bg-success/10'
+                            : 'border-danger/20 text-danger bg-danger/10'
+                        }`}
                       >
                         {trade.isBuy ? 'Buy' : 'Sell'}
                       </span>

@@ -19,7 +19,6 @@ import { SUBACCOUNT_CONSTANTS } from '../types/trading.types';
 import { validateWithdrawAmount } from '../utils/inputValidation';
 import { NATIVE_WALLET_GAS_RESERVE_UUSDC } from '../utils/skipBridgeUtils';
 
-
 interface DydxWithdrawModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -43,7 +42,7 @@ interface PersistedWithdrawState {
 const formatCurr = (val: number) => `$${val.toFixed(2)}`;
 const formatPct = (val: number) => `${val.toFixed(2)}%`;
 
-// Main Modal 
+// Main Modal
 
 export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, onClose }) => {
   const {
@@ -69,7 +68,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     errorRetryable,
   } = useDydxWithdraw();
 
-  //  Local state 
+  //  Local state
   const [fromSubaccount, setFromSubaccount] = useState<any>(
     SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
   );
@@ -86,7 +85,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     }
   });
 
-  // Persist withdraw state across refreshes 
+  // Persist withdraw state across refreshes
   useEffect(() => {
     if (isWithdrawing && amount) {
       const state: PersistedWithdrawState = {
@@ -132,7 +131,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
 
   const amountValue = parseFloat(amount) || 0;
 
-
   const amountValidation = validateWithdrawAmount(amountValue, sourceBalance, 1, 0.01);
 
   const baseFee = 0.05;
@@ -145,7 +143,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   const equityAfter = Math.max(0, equityBefore - amountValue);
   const marginUsageAfter =
     equityAfter > 0 ? ((equityBefore - globalFreeCol) / equityAfter) * 100 : 0;
-
 
   const handleCopy = () => {
     if (!evmAddress) return;
@@ -170,7 +167,14 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
       setPersistedState(null);
       setSuccess(true);
     }
-  }, [amountValidation.valid, withdraw, amountValue, fromSubaccount, evmAddress, clearWithdrawError]);
+  }, [
+    amountValidation.valid,
+    withdraw,
+    amountValue,
+    fromSubaccount,
+    evmAddress,
+    clearWithdrawError,
+  ]);
 
   const handleDismissProgress = () => {
     if (!isWithdrawing) {
@@ -180,7 +184,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   };
 
   if (!isOpen) return null;
-
 
   if (showProgressScreen) {
     const elapsedMinutes = persistedState
@@ -273,12 +276,13 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
                         <div className="w-3.5 h-3.5 rounded-full border border-muted shrink-0" />
                       )}
                       <span
-                        className={`text-sm ${isCurrent
-                          ? 'text-brand font-medium'
-                          : isPast
-                            ? 'text-muted line-through'
-                            : 'text-muted'
-                          }`}
+                        className={`text-sm ${
+                          isCurrent
+                            ? 'text-brand font-medium'
+                            : isPast
+                              ? 'text-muted line-through'
+                              : 'text-muted'
+                        }`}
                       >
                         {s.label}
                       </span>
@@ -302,8 +306,8 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             )}
 
             <p className="text-xs text-muted leading-relaxed">
-              Funds travel dYdX → Noble → Ethereum. This typically takes 3–10 minutes. You can
-              close this modal — the transaction continues on-chain.
+              Funds travel dYdX → Noble → Ethereum. This typically takes 3–10 minutes. You can close
+              this modal — the transaction continues on-chain.
             </p>
 
             {!isWithdrawing && (
@@ -319,7 +323,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
       </div>
     );
   }
-
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">

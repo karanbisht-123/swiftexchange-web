@@ -45,12 +45,13 @@ export function DataTable<T>({ data, columns, getRowKey, emptyState }: DataTable
               {columns.map(col => (
                 <th
                   key={col.key}
-                  className={`px-4 py-3 font-medium ${col.align === 'left'
-                    ? 'text-left'
-                    : col.align === 'right'
-                      ? 'text-right'
-                      : 'text-center'
-                    }`}
+                  className={`px-4 py-3 font-medium ${
+                    col.align === 'left'
+                      ? 'text-left'
+                      : col.align === 'right'
+                        ? 'text-right'
+                        : 'text-center'
+                  }`}
                 >
                   {col.header}
                 </th>
@@ -66,12 +67,13 @@ export function DataTable<T>({ data, columns, getRowKey, emptyState }: DataTable
                 {columns.map(col => (
                   <td
                     key={col.key}
-                    className={`px-4 py-3 text-primary ${col.align === 'left'
-                      ? 'text-left'
-                      : col.align === 'right'
-                        ? 'text-right'
-                        : 'text-center'
-                      }`}
+                    className={`px-4 py-3 text-primary ${
+                      col.align === 'left'
+                        ? 'text-left'
+                        : col.align === 'right'
+                          ? 'text-right'
+                          : 'text-center'
+                    }`}
                   >
                     {col.render(item)}
                   </td>
@@ -82,23 +84,19 @@ export function DataTable<T>({ data, columns, getRowKey, emptyState }: DataTable
         </table>
       </div>
 
-
       <div className="md:hidden space-y-2 p-2">
         {data.map(item => (
           <div
             key={getRowKey(item)}
             className="bg-secondary border border-color rounded-lg p-2.5 overflow-x-auto"
           >
-
             <div className="flex items-center gap-3 min-w-max">
-
               {compactColumns.length > 0 &&
                 compactColumns.map(col => (
                   <div key={col.key} className="text-primary font-medium text-xs">
                     {col.render(item)}
                   </div>
                 ))}
-
 
               {compactColumns.length > 0 && labeledColumns.length > 0 && (
                 <div className="h-4 w-px bg-color" />
@@ -114,7 +112,6 @@ export function DataTable<T>({ data, columns, getRowKey, emptyState }: DataTable
                     <span className="text-primary font-medium text-xs">{col.render(item)}</span>
                   </div>
                 ))}
-
 
               {compactColumns.length === 0 &&
                 labeledColumns.length === 0 &&

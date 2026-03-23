@@ -11,10 +11,7 @@ export const validateNumberInput = (value: string): string => {
 
 //  Error taxonomy
 
-export type ValidationErrorType =
-  | 'INSUFFICIENT_BALANCE'
-  | 'AMOUNT_TOO_LOW'
-  | 'INVALID_AMOUNT';
+export type ValidationErrorType = 'INSUFFICIENT_BALANCE' | 'AMOUNT_TOO_LOW' | 'INVALID_AMOUNT';
 
 export interface ValidationResult {
   valid: boolean;
@@ -22,7 +19,7 @@ export interface ValidationResult {
   errorType?: ValidationErrorType;
 }
 
-// Deposit validation 
+// Deposit validation
 
 export function validateDepositAmount(
   amountHuman: number,
@@ -52,7 +49,7 @@ export function validateDepositAmount(
   return { valid: true, error: null };
 }
 
-// Withdrawal validation 
+// Withdrawal validation
 
 export function validateWithdrawAmount(
   amountHuman: number,

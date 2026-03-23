@@ -2,9 +2,9 @@ import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { useMarkets } from '../../hooks/useMarkets';
-import { useLivePriceStore } from '../../store/useLivePriceStore';
-import useMarketStore from '../../store/marketStore';
 import { tradesState } from '../../hooks/useTrades';
+import useMarketStore from '../../store/marketStore';
+import { useLivePriceStore } from '../../store/useLivePriceStore';
 import MarketSelectorModal from './MarketSelectorModal';
 
 interface AnimatedPriceProps {
@@ -122,8 +122,9 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
         <span className="text-muted text-xs mb-1">1h Funding</span>
         <AnimatedValue
           value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
-          className={`font-medium text-sm ${parseFloat(marketData.nextFundingRate || '0') >= 0 ? 'price-up' : 'price-down'
-            }`}
+          className={`font-medium text-sm ${
+            parseFloat(marketData.nextFundingRate || '0') >= 0 ? 'price-up' : 'price-down'
+          }`}
         />
       </div>
 
@@ -170,11 +171,12 @@ const MarketSwitcher: React.FC = () => {
   };
 
   const snapshotPrice = tradesState.get(selectedMarket)?.trades[0]?.price;
-  const currentPrice = livePrice && livePrice > 0
-    ? livePrice.toFixed(2)
-    : snapshotPrice
-      ? parseFloat(snapshotPrice).toFixed(2)
-      : '--';
+  const currentPrice =
+    livePrice && livePrice > 0
+      ? livePrice.toFixed(2)
+      : snapshotPrice
+        ? parseFloat(snapshotPrice).toFixed(2)
+        : '--';
 
   const priceChange = parseFloat(marketData.priceChange24H);
   const oraclePrice = parseFloat(marketData.oraclePrice);
@@ -205,14 +207,15 @@ const MarketSwitcher: React.FC = () => {
           ) : (
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-              style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}
+              style={{
+                background:
+                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
+              }}
             >
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
           )}
-          <span className="font-semibold text-primary text-sm">
-            {selectedMarket.split('-')[0]}
-          </span>
+          <span className="font-semibold text-primary text-sm">{selectedMarket.split('-')[0]}</span>
           <ChevronDown className="w-4 h-4 text-muted" />
         </button>
 
@@ -247,16 +250,17 @@ const MarketSwitcher: React.FC = () => {
           ) : (
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-              style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}
+              style={{
+                background:
+                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
+              }}
             >
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
           )}
 
           <div className="flex flex-col items-start">
-            <span className="font-semibold text-primary text-base">
-              {selectedMarket}
-            </span>
+            <span className="font-semibold text-primary text-base">{selectedMarket}</span>
           </div>
 
           <ChevronDown className="w-4 h-4 text-muted ml-1" />
@@ -290,10 +294,7 @@ const MarketSwitcher: React.FC = () => {
                   value={`$${priceChange.toFixed(1)}`}
                   className="font-medium text-xs"
                 />
-                <AnimatedValue
-                  value={`${formattedPercentage}%`}
-                  className="font-medium text-xs"
-                />
+                <AnimatedValue value={`${formattedPercentage}%`} className="font-medium text-xs" />
               </div>
             </div>
 
@@ -329,8 +330,9 @@ const MarketSwitcher: React.FC = () => {
               <span className="text-muted text-xs">1h Funding</span>
               <AnimatedValue
                 value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
-                className={`font-medium ${parseFloat(marketData.nextFundingRate) >= 0 ? 'price-up' : 'price-down'
-                  }`}
+                className={`font-medium ${
+                  parseFloat(marketData.nextFundingRate) >= 0 ? 'price-up' : 'price-down'
+                }`}
               />
             </div>
 

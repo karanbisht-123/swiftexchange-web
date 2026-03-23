@@ -4,13 +4,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Fill, dydxDataService } from '../../service/dydxOrderService';
 import { getTimeAgo } from '../../utils/timeUtils';
-import { FillDetailPanel } from '../shared/FillDetailPanel';
 import { EmptyState } from '../shared/EmptyState';
+import { FillDetailPanel } from '../shared/FillDetailPanel';
 import { LoadingState } from '../shared/LoadingState';
 import { MarketBadge } from '../shared/MarketBadge';
 import { Pagination } from '../shared/Pagination';
-import { SidePanel } from '../shared/SidePanel';
 import { SideBadge } from '../shared/SideBadge';
+import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
 const ITEMS_PER_PAGE = 10;
@@ -96,11 +96,7 @@ const FillsPanel: React.FC = () => {
 
     setLoadingMore(true);
     try {
-      const moreFills = await dydxDataService.getFills(
-        undefined,
-        undefined,
-        false
-      );
+      const moreFills = await dydxDataService.getFills(undefined, undefined, false);
 
       if (moreFills.length === 0) {
         setHasMoreData(false);
@@ -212,8 +208,14 @@ const FillsPanel: React.FC = () => {
                 if (closedPnl !== null) {
                   const isNegative = closedPnl < 0;
                   const absValue = Math.abs(closedPnl);
-                  closedPnlStr = isNegative ? `-$${absValue.toFixed(2)}` : `$${absValue.toFixed(2)}`;
-                  pnlClass = isNegative ? 'text-red-400' : closedPnl > 0 ? 'text-green-400' : 'text-primary';
+                  closedPnlStr = isNegative
+                    ? `-$${absValue.toFixed(2)}`
+                    : `$${absValue.toFixed(2)}`;
+                  pnlClass = isNegative
+                    ? 'text-red-400'
+                    : closedPnl > 0
+                      ? 'text-green-400'
+                      : 'text-primary';
                 }
               }
 
@@ -246,18 +248,15 @@ const FillsPanel: React.FC = () => {
                   <td className="px-4 py-3 text-right text-primary font-mono">
                     ${parseFloat(total).toLocaleString()}
                   </td>
-                  <td className="px-4 py-3 text-right text-red-400 font-mono">
-                    ${fee.toFixed(4)}
-                  </td>
-                  <td className={`px-4 py-3 text-right font-mono ${pnlClass}`}>
-                    {closedPnlStr}
-                  </td>
+                  <td className="px-4 py-3 text-right text-red-400 font-mono">${fee.toFixed(4)}</td>
+                  <td className={`px-4 py-3 text-right font-mono ${pnlClass}`}>{closedPnlStr}</td>
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${fill.liquidity === 'MAKER'
-                        ? 'bg-blue-500/20 text-blue-400'
-                        : 'bg-purple-500/20 text-purple-400'
-                        }`}
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        fill.liquidity === 'MAKER'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'bg-purple-500/20 text-purple-400'
+                      }`}
                     >
                       {fill.liquidity}
                     </span>
@@ -296,7 +295,11 @@ const FillsPanel: React.FC = () => {
               const isNegative = closedPnl < 0;
               const absValue = Math.abs(closedPnl);
               closedPnlStr = isNegative ? `-$${absValue.toFixed(2)}` : `$${absValue.toFixed(2)}`;
-              pnlClass = isNegative ? 'text-red-400' : closedPnl > 0 ? 'text-green-400' : 'text-primary';
+              pnlClass = isNegative
+                ? 'text-red-400'
+                : closedPnl > 0
+                  ? 'text-green-400'
+                  : 'text-primary';
             }
           }
 
@@ -308,7 +311,6 @@ const FillsPanel: React.FC = () => {
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <MarketBadge market={fill.market || (fill as any).ticker} />
-
               </div>
               <div className="flex itme-center">
                 <div className="flex items-center gap-4">
@@ -317,9 +319,7 @@ const FillsPanel: React.FC = () => {
                     ${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </span>
                   {closedPnlStr !== '—' && (
-                    <span className={`font-mono text-xs ${pnlClass}`}>
-                      PNL: {closedPnlStr}
-                    </span>
+                    <span className={`font-mono text-xs ${pnlClass}`}>PNL: {closedPnlStr}</span>
                   )}
                 </div>
                 <span className="text-muted text-xs mx-2 truncate">
@@ -342,11 +342,7 @@ const FillsPanel: React.FC = () => {
         hasMore={hasMoreData}
       />
 
-      <SidePanel
-        isOpen={showDetail}
-        onClose={handleCloseDetail}
-        title="Fill Details"
-      >
+      <SidePanel isOpen={showDetail} onClose={handleCloseDetail} title="Fill Details">
         {selectedFill && <FillDetailPanel fill={selectedFill} />}
       </SidePanel>
     </div>

@@ -1,13 +1,12 @@
+import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { GlobalNotifications } from './components/GlobalNotifications';
 import { NetworkMonitor } from './components/NetworkMonitor';
 import { WalletListModal } from './modules/walletconnect/components/WalletListModal';
-import { GlobalNotifications } from './components/GlobalNotifications';
-import { ErrorBoundary } from './components/ErrorBoundary';
 import { initWalletListener } from './modules/walletconnect/store/walletConnectStore';
 import router from './routes';
-
-import { useEffect } from 'react';
 
 const App = () => {
   useEffect(() => {

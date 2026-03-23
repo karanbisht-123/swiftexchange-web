@@ -1,130 +1,142 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import React from 'react';
 
-export type NotificationType = 'EVM_SWAP' | 'SEND' | 'RECEIVE' | 'BRIDGE' | 'STELLAR' | 'DYDX' | 'SYSTEM';
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+export type NotificationType =
+  | 'EVM_SWAP'
+  | 'SEND'
+  | 'RECEIVE'
+  | 'BRIDGE'
+  | 'STELLAR'
+  | 'DYDX'
+  | 'SYSTEM';
 
 export interface AppNotification {
-    id: string;
-    type: NotificationType;
-    title: string;
-    message: React.ReactNode;
-    timestamp: number;
-    read: boolean;
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: React.ReactNode;
+  timestamp: number;
+  read: boolean;
 }
 
-export interface ToastNotification extends AppNotification { }
+export interface ToastNotification extends AppNotification {}
 
 interface NotificationState {
-    notifications: AppNotification[];
-    activeToasts: ToastNotification[];
-    enabledTypes: Record<NotificationType, boolean>;
-    isGlobalPanelOpen: boolean;
-    addNotification: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
-    removeNotification: (id: string) => void;
-    clearAll: () => void;
-    markAsRead: (id: string) => void;
-    markAllAsRead: () => void;
-    toggleType: (type: NotificationType, enabled: boolean) => void;
-    setGlobalPanelOpen: (isOpen: boolean) => void;
-    disablePushNotifications: () => void;
-    removeToast: (id: string) => void;
-    showToast: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
+  notifications: AppNotification[];
+  activeToasts: ToastNotification[];
+  enabledTypes: Record<NotificationType, boolean>;
+  isGlobalPanelOpen: boolean;
+  addNotification: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
+  removeNotification: (id: string) => void;
+  clearAll: () => void;
+  markAsRead: (id: string) => void;
+  markAllAsRead: () => void;
+  toggleType: (type: NotificationType, enabled: boolean) => void;
+  setGlobalPanelOpen: (isOpen: boolean) => void;
+  disablePushNotifications: () => void;
+  removeToast: (id: string) => void;
+  showToast: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
 }
 
 export const useNotificationStore = create<NotificationState>()(
-    persist(
-        (set, get) => ({
-            notifications: [],
-            activeToasts: [],
-            enabledTypes: {
-                EVM_SWAP: true,
-                SEND: true,
-                RECEIVE: true,
-                BRIDGE: true,
-                STELLAR: true,
-                DYDX: true,
-                SYSTEM: true,
-            },
-            isGlobalPanelOpen: false,
+  persist(
+    (set, get) => ({
+      notifications: [],
+      activeToasts: [],
+      enabledTypes: {
+        EVM_SWAP: true,
+        SEND: true,
+        RECEIVE: true,
+        BRIDGE: true,
+        STELLAR: true,
+        DYDX: true,
+        SYSTEM: true,
+      },
+      isGlobalPanelOpen: false,
 
-            addNotification: (notif) => {
-                const state = get();
-                if (!state.enabledTypes[notif.type]) return;
+      addNotification: notif => {
+        const state = get();
+        if (!state.enabledTypes[notif.type]) return;
 
-                const newNotif = {
-                    ...notif,
-                    id: crypto.randomUUID(),
-                    timestamp: Date.now(),
-                    read: false,
-                };
+        const newNotif = {
+          ...notif,
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          read: false,
+        };
 
-                set((state) => ({
-                    notifications: [newNotif, ...state.notifications],
-                }));
-            },
+        set(state => ({
+          notifications: [newNotif, ...state.notifications],
+        }));
+      },
 
-            removeNotification: (id) => set((state) => ({
-                notifications: state.notifications.filter((n) => n.id !== id),
-            })),
+      removeNotification: id =>
+        set(state => ({
+          notifications: state.notifications.filter(n => n.id !== id),
+        })),
 
-            clearAll: () => set({ notifications: [] }),
+      clearAll: () => set({ notifications: [] }),
 
-            markAsRead: (id) => set((state) => ({
-                notifications: state.notifications.map((n) =>
-                    n.id === id ? { ...n, read: true } : n
-                ),
-            })),
+      markAsRead: id =>
+        set(state => ({
+          notifications: state.notifications.map(n => (n.id === id ? { ...n, read: true } : n)),
+        })),
 
-            markAllAsRead: () => set((state) => ({
-                notifications: state.notifications.map((n) => ({ ...n, read: true })),
-            })),
+      markAllAsRead: () =>
+        set(state => ({
+          notifications: state.notifications.map(n => ({ ...n, read: true })),
+        })),
 
-            toggleType: (type, enabled) => set((state) => ({
-                enabledTypes: { ...state.enabledTypes, [type]: enabled },
-            })),
+      toggleType: (type, enabled) =>
+        set(state => ({
+          enabledTypes: { ...state.enabledTypes, [type]: enabled },
+        })),
 
-            setGlobalPanelOpen: (isOpen) => set({ isGlobalPanelOpen: isOpen }),
+      setGlobalPanelOpen: isOpen => set({ isGlobalPanelOpen: isOpen }),
 
-            disablePushNotifications: () => set((state) => {
-                const disabled: Record<string, boolean> = {};
-                Object.keys(state.enabledTypes).forEach((key) => {
-                    disabled[key] = false;
-                });
-                return { enabledTypes: disabled as Record<NotificationType, boolean> };
-            }),
-
-            removeToast: (id) => set((state) => ({
-                activeToasts: state.activeToasts.filter((t) => t.id !== id),
-            })),
-
-            showToast: (notif) => {
-                const state = get();
-                if (!state.enabledTypes[notif.type]) return;
-
-                const newNotif = {
-                    ...notif,
-                    id: crypto.randomUUID(),
-                    timestamp: Date.now(),
-                    read: false,
-                };
-
-                set((state) => ({
-                    notifications: [newNotif, ...state.notifications],
-                    activeToasts: [...state.activeToasts, newNotif],
-                }));
-
-                setTimeout(() => {
-                    get().removeToast(newNotif.id);
-                }, 5000);
-            },
+      disablePushNotifications: () =>
+        set(state => {
+          const disabled: Record<string, boolean> = {};
+          Object.keys(state.enabledTypes).forEach(key => {
+            disabled[key] = false;
+          });
+          return { enabledTypes: disabled as Record<NotificationType, boolean> };
         }),
-        {
-            name: 'notification-storage',
-            partialize: (state) => ({
-                notifications: state.notifications,
-                enabledTypes: state.enabledTypes,
-            }),
-        }
-    )
+
+      removeToast: id =>
+        set(state => ({
+          activeToasts: state.activeToasts.filter(t => t.id !== id),
+        })),
+
+      showToast: notif => {
+        const state = get();
+        if (!state.enabledTypes[notif.type]) return;
+
+        const newNotif = {
+          ...notif,
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          read: false,
+        };
+
+        set(state => ({
+          notifications: [newNotif, ...state.notifications],
+          activeToasts: [...state.activeToasts, newNotif],
+        }));
+
+        setTimeout(() => {
+          get().removeToast(newNotif.id);
+        }, 5000);
+      },
+    }),
+    {
+      name: 'notification-storage',
+      partialize: state => ({
+        notifications: state.notifications,
+        enabledTypes: state.enabledTypes,
+      }),
+    }
+  )
 );

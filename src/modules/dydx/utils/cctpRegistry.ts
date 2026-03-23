@@ -1,3 +1,4 @@
+//  not in use for now
 import { Registry } from '@cosmjs/proto-signing';
 import { defaultRegistryTypes } from '@cosmjs/stargate';
 

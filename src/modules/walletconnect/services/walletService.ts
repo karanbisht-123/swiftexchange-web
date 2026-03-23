@@ -1,6 +1,7 @@
+import type { LocalWallet } from '@dydxprotocol/v4-client-js';
+import { BECH32_PREFIX, LocalWallet as LW, onboarding } from '@dydxprotocol/v4-client-js';
 import { WalletConnectModal } from '@walletconnect/modal';
 import type UniversalProviderType from '@walletconnect/universal-provider';
-import type { LocalWallet } from '@dydxprotocol/v4-client-js';
 
 import {
   type NetworkType,
@@ -11,14 +12,8 @@ import {
   getEVMChains,
   getStellarConfig,
 } from '../config/chains';
-import {
-  decryptAndRestore,
-  encryptAndStore,
-  hasEncryptedBlob,
-  purge,
-} from './dydxKeyManager';
+import { decryptAndRestore, encryptAndStore, hasEncryptedBlob, purge } from './dydxKeyManager';
 import { sessionVault } from './sessionVault';
-
 
 const CONNECTION_TIMEOUT_MS = 120_000;
 
@@ -110,7 +105,11 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
       message: error.message,
       code: error.code,
     });
-    if (error.code === 4001 || error.code === 'ACTION_REJECTED' || error.message === 'SIGNATURE_TIMEOUT') {
+    if (
+      error.code === 4001 ||
+      error.code === 'ACTION_REJECTED' ||
+      error.message === 'SIGNATURE_TIMEOUT'
+    ) {
       throw new Error('USER_REJECTED');
     }
     throw new Error('Wallet does not support eth_signTypedData_v4');
@@ -118,8 +117,6 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
 }
 
 async function deriveDydxAddress(evmAddress: string, provider: unknown): Promise<DydxDerivation> {
-  const { onboarding, LocalWallet: LW, BECH32_PREFIX } = await import('@dydxprotocol/v4-client-js');
-
   const signature = await signDydxMessage(evmAddress, provider);
   const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
 
@@ -197,7 +194,6 @@ class WalletService {
     return provider;
   }
 
-
   async connectUnified(walletId: string): Promise<UnifiedConnectionResult> {
     this.emitState('evm', 'connecting');
 
@@ -212,7 +208,10 @@ class WalletService {
       const stellarConfig = getStellarConfig(this.currentNetwork);
       const stellarChain = `stellar:${stellarConfig.chainId}`;
 
-      console.log('[Wallet] Initiating multichain connection request for namespaces:', JSON.stringify(namespaces, null, 2));
+      console.log(
+        '[Wallet] Initiating multichain connection request for namespaces:',
+        JSON.stringify(namespaces, null, 2)
+      );
       console.log('[Wallet] Requested chains:', [...evmChains, stellarChain]);
 
       modal = new WalletConnectModal({
@@ -250,7 +249,6 @@ class WalletService {
 
       const result: UnifiedConnectionResult = {};
 
-
       const evmAccounts: string[] = session.namespaces?.eip155?.accounts ?? [];
       if (evmAccounts.length > 0) {
         const [, chainIdStr, address] = evmAccounts[0].split(':');
@@ -265,7 +263,6 @@ class WalletService {
         result.evm = evmSession;
         this.emitState('evm', 'connected');
       }
-
 
       const stellarAccounts: string[] = session.namespaces?.stellar?.accounts ?? [];
       if (stellarAccounts.length > 0) {
@@ -282,7 +279,9 @@ class WalletService {
         this.emitState('stellar', 'connected');
       }
 
-      console.log(`[Wallet] Multichain connection returned EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`);
+      console.log(
+        `[Wallet] Multichain connection returned EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`
+      );
 
       this.saveSession();
       return result;
@@ -498,7 +497,8 @@ class WalletService {
     let cosmosProvider = preferredType === 'cosmos' ? cosmosProviders[walletId] : null;
 
     if (!evmProvider && preferredType === 'evm') cosmosProvider = cosmosProviders[walletId];
-    else if (!cosmosProvider && preferredType === 'cosmos') evmProvider = evmProviders[walletId] ?? win.ethereum;
+    else if (!cosmosProvider && preferredType === 'cosmos')
+      evmProvider = evmProviders[walletId] ?? win.ethereum;
 
     if (!evmProvider && !cosmosProvider) throw new Error('Wallet extension not found');
 
@@ -587,21 +587,24 @@ class WalletService {
     const namespaces =
       preferredType === 'evm'
         ? {
-          eip155: {
-            methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
-            chains: evmChains,
-            events: ['chainChanged', 'accountsChanged'],
-          },
-        }
+            eip155: {
+              methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+              chains: evmChains,
+              events: ['chainChanged', 'accountsChanged'],
+            },
+          }
         : {
-          cosmos: {
-            methods: ['cosmos_signDirect', 'cosmos_signAmino'],
-            chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
-            events: ['accountsChanged'],
-          },
-        };
+            cosmos: {
+              methods: ['cosmos_signDirect', 'cosmos_signAmino'],
+              chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
+              events: ['accountsChanged'],
+            },
+          };
 
-    console.log(`[Wallet] Initiating single connection request for ${preferredType}. Namespaces:`, JSON.stringify(namespaces, null, 2));
+    console.log(
+      `[Wallet] Initiating single connection request for ${preferredType}. Namespaces:`,
+      JSON.stringify(namespaces, null, 2)
+    );
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -673,7 +676,10 @@ class WalletService {
       },
     };
 
-    console.log('[Wallet] Initiating Stellar-only connection request. Namespaces:', JSON.stringify(namespaces, null, 2));
+    console.log(
+      '[Wallet] Initiating Stellar-only connection request. Namespaces:',
+      JSON.stringify(namespaces, null, 2)
+    );
 
     const modal = new WalletConnectModal({
       projectId: WALLETCONNECT_PROJECT_ID,
@@ -792,7 +798,6 @@ class WalletService {
   //   this.emitState(type, 'disconnected');
   // }
 
-
   async disconnect(type: WalletType): Promise<void> {
     if (this.disconnecting.has(type)) return;
     this.disconnecting.add(type);
@@ -821,7 +826,7 @@ class WalletService {
         }
         try {
           await provider.disconnect();
-        } catch { }
+        } catch {}
       }
     }
 
@@ -894,7 +899,7 @@ class WalletService {
     try {
       const stored = localStorage.getItem(SESSION_STORAGE_KEY);
 
-      console.log(stored, "hii iam storead ------")
+      console.log(stored, 'hii iam storead ------');
       if (!stored) {
         console.log('[System] No stored sessions found');
         return [];
@@ -910,13 +915,15 @@ class WalletService {
         this.clearSessionStorage();
         return [];
       }
+
       const hasDydxBlob = hasEncryptedBlob();
 
       for (const [typeStr, savedSession] of Object.entries(data)) {
         const type = typeStr as WalletType;
         try {
-          // Try to restore via WalletConnect active session first
-          let provider = this.providers.get(type) ?? this.providers.get('unified');
+          const existingUnified = this.providers.get('unified');
+          let provider = this.providers.get(type) ?? existingUnified;
+
           if (!provider) {
             try {
               if (savedSession.walletId === 'walletconnect') {
@@ -924,11 +931,10 @@ class WalletService {
                 if (unifiedProvider?.session) {
                   provider = unifiedProvider;
                   this.providers.set('unified', provider);
-                  this.providers.set(type, provider);
                 } else {
                   provider = await this.getOrCreateProvider(type);
-                  this.providers.set(type, provider);
                 }
+                this.providers.set(type, provider);
               } else {
                 provider = await this.getOrCreateProvider(type);
                 this.providers.set(type, provider);
@@ -936,6 +942,8 @@ class WalletService {
             } catch (error) {
               console.warn(`[WalletService] Provider init failed for ${type}:`, error);
             }
+          } else {
+            this.providers.set(type, provider);
           }
 
           if (provider?.session) {
@@ -956,7 +964,11 @@ class WalletService {
             savedSession.walletId !== 'walletconnect' &&
             this.isExtensionInstalled(savedSession.walletId)
           ) {
-            const restoredSession = await this.restoreExtensionSession(type, savedSession, hasDydxBlob);
+            const restoredSession = await this.restoreExtensionSession(
+              type,
+              savedSession,
+              hasDydxBlob
+            );
             if (restoredSession) {
               restored.push(restoredSession);
             }
@@ -1202,21 +1214,24 @@ class WalletService {
       return types;
     };
 
-    provider.on('session_event', ({ event, chainId }: { event: { name: string; data: any }; chainId?: string }) => {
-      let eventType: WalletType | undefined;
-      if (chainId?.startsWith('eip155')) eventType = 'evm';
-      else if (chainId?.startsWith('cosmos')) eventType = 'cosmos';
-      else if (chainId?.startsWith('stellar')) eventType = 'stellar';
-      else {
-        const bound = getBoundTypes();
-        if (bound.length > 0) eventType = bound[0];
+    provider.on(
+      'session_event',
+      ({ event, chainId }: { event: { name: string; data: any }; chainId?: string }) => {
+        let eventType: WalletType | undefined;
+        if (chainId?.startsWith('eip155')) eventType = 'evm';
+        else if (chainId?.startsWith('cosmos')) eventType = 'cosmos';
+        else if (chainId?.startsWith('stellar')) eventType = 'stellar';
+        else {
+          const bound = getBoundTypes();
+          if (bound.length > 0) eventType = bound[0];
+        }
+
+        if (!eventType) return;
+
+        if (event.name === 'accountsChanged') this.handleAccountsChanged(eventType, event.data);
+        if (event.name === 'chainChanged') this.handleChainChanged(eventType, event.data);
       }
-
-      if (!eventType) return;
-
-      if (event.name === 'accountsChanged') this.handleAccountsChanged(eventType, event.data);
-      if (event.name === 'chainChanged') this.handleChainChanged(eventType, event.data);
-    });
+    );
 
     provider.on('session_update', ({ params }: { topic: string; params: any }) => {
       if (params?.namespaces) {
@@ -1245,8 +1260,7 @@ class WalletService {
       });
     });
 
-    provider.on('proposal_expire', () => {
-    });
+    provider.on('proposal_expire', () => {});
 
     provider.on('disconnect', () => {
       getBoundTypes().forEach(t => this.handleDisconnect(t));

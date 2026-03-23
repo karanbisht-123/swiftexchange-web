@@ -60,7 +60,6 @@ function isNativeAddress(address: string): boolean {
 }
 
 export function getTokensForChain(chainId: number): TokenInfo[] {
-
   console.log('getTokensForChain', chainId);
   let rawTokens: any[] = [];
   if (chainId === 1 || chainId === 11155111) {
@@ -109,8 +108,14 @@ export async function fetchSingleTokenBalance(
 ): Promise<string> {
   try {
     if (isNative) {
-
-      console.log('fetchSingleTokenBalance', walletAddress, provider, tokenAddress, isNative, decimals);
+      console.log(
+        'fetchSingleTokenBalance',
+        walletAddress,
+        provider,
+        tokenAddress,
+        isNative,
+        decimals
+      );
       const balance = await provider.getBalance(walletAddress);
       return ethers.formatEther(balance);
     }

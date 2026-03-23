@@ -1,15 +1,16 @@
 import {
-  Menu,
-  X,
+  Infinity,
+  ArrowRightLeft,
+  BarChart2,
+  CandlestickChart,
+  History,
+  Landmark,
   LayoutDashboard,
-  SendHorizontal,
+  Menu,
   QrCode,
   Repeat2,
-  Landmark,
-  BarChart2,
-  History,
-  CandlestickChart,
-  Infinity,
+  SendHorizontal,
+  X,
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
@@ -87,6 +88,11 @@ const Sidebar: FC = () => {
       href: ROUTES.TRADING_EVM_SWAP,
       label: 'Swap',
       icon: <Repeat2 className="w-5 h-5" />,
+    },
+    {
+      href: ROUTES.BRIDGE,
+      label: 'Bridge',
+      icon: <ArrowRightLeft className="w-5 h-5" />,
     },
     {
       href: ROUTES.TRADING_EVM_FIAT,
@@ -179,7 +185,9 @@ const Sidebar: FC = () => {
                   title={item.label}
                 >
                   <span className="flex-shrink-0 mb-1">{item.icon}</span>
-                  <span className="text-[10px] leading-tight font-medium text-center">{item.label}</span>
+                  <span className="text-[10px] leading-tight font-medium text-center">
+                    {item.label}
+                  </span>
                 </button>
               ) : (
                 <Link
@@ -197,16 +205,16 @@ const Sidebar: FC = () => {
                   title={item.label}
                 >
                   <span className="flex-shrink-0 mb-1">{item.icon}</span>
-                  <span className="text-[10px] leading-tight font-medium text-center">{item.label}</span>
+                  <span className="text-[10px] leading-tight font-medium text-center">
+                    {item.label}
+                  </span>
                 </Link>
               );
             })}
           </div>
         </nav>
       </aside>
-      <div
-        className={`hidden lg:block flex-shrink-0 transition-all duration-200 w-20`}
-      />
+      <div className={`hidden lg:block flex-shrink-0 transition-all duration-200 w-20`} />
     </>
   );
 };

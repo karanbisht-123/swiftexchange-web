@@ -91,9 +91,7 @@ class DydxTradingService {
                 verified = true;
                 break;
               }
-            } catch {
-
-            }
+            } catch {}
 
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
@@ -200,7 +198,9 @@ class DydxTradingService {
 
     const side = this.normalizeToOrderSide(params.side);
 
-    const isMarketConditional = params.type.toUpperCase() === 'STOP_MARKET' || params.type.toUpperCase() === 'TAKE_PROFIT_MARKET';
+    const isMarketConditional =
+      params.type.toUpperCase() === 'STOP_MARKET' ||
+      params.type.toUpperCase() === 'TAKE_PROFIT_MARKET';
     const execution = isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT;
 
     let timeInForce = OrderTimeInForce.GTT;

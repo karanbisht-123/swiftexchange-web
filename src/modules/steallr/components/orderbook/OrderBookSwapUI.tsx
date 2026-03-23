@@ -1,20 +1,19 @@
-import {
-  AlertCircle,
-  ArrowDownUp,
-  CheckCircle,
-  RefreshCw,
-} from 'lucide-react';
+import { AlertCircle, ArrowDownUp, CheckCircle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
-import { ERROR_MESSAGES, SUCCESS_MESSAGES, UI_STRINGS } from '../../constants/orderBookSwapConstants';
+import {
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+  UI_STRINGS,
+} from '../../constants/orderBookSwapConstants';
 import { useLargeOrder } from '../../hook/useOrderBookSwap';
 import { useAmmSwapStore } from '../../store/ammSwapStore';
 import { useLargeOrderStore } from '../../store/orderBookSwapStore';
-import OrderBook from './OrderBook';
 import StellarTradingChart from '../chart/StellarTradingChart';
 import LastTrades from '../tradescreen/LastTrades';
+import OrderBook from './OrderBook';
 
 const TOKEN_ICONS: Record<string, string> = {
   XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
@@ -163,10 +162,7 @@ const OrderBookSwapUI = () => {
           <AlertCircle className="w-16 h-16 text-warning mx-auto" />
           <h4 className="text-lg font-semibold text-primary">Stellar Wallet Not Connected</h4>
           <p className="text-muted text-sm">Please connect your Stellar wallet to start trading</p>
-          <button
-            onClick={openModal}
-            className="btn btn-primary btn-lg w-full font-semibold mt-4"
-          >
+          <button onClick={openModal} className="btn btn-primary btn-lg w-full font-semibold mt-4">
             Connect Wallet
           </button>
         </div>
@@ -179,8 +175,9 @@ const OrderBookSwapUI = () => {
       <div className="flex sm:hidden bg-secondary border-b border-white/5">
         <button
           onClick={() => setActiveTab('overview')}
-          className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'overview' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+          className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
+            activeTab === 'overview' ? 'text-primary' : 'text-muted hover:text-primary'
+          }`}
         >
           Overview
           {activeTab === 'overview' && (
@@ -189,8 +186,9 @@ const OrderBookSwapUI = () => {
         </button>
         <button
           onClick={() => setActiveTab('orderBook')}
-          className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'orderBook' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+          className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
+            activeTab === 'orderBook' ? 'text-primary' : 'text-muted hover:text-primary'
+          }`}
         >
           Orderbook
           {activeTab === 'orderBook' && (
@@ -199,8 +197,9 @@ const OrderBookSwapUI = () => {
         </button>
         <button
           onClick={() => setActiveTab('trades')}
-          className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'trades' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+          className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
+            activeTab === 'trades' ? 'text-primary' : 'text-muted hover:text-primary'
+          }`}
         >
           Last Trades
           {activeTab === 'trades' && (
@@ -211,8 +210,7 @@ const OrderBookSwapUI = () => {
 
       <div className="flex flex-col lg:flex-row">
         <div
-          className={`flex-1 p-4 lg:p-6 ${activeTab === 'overview' ? 'block' : 'hidden sm:block'
-            }`}
+          className={`flex-1 p-4 lg:p-6 ${activeTab === 'overview' ? 'block' : 'hidden sm:block'}`}
         >
           <div className="mb-6 h-[300px] w-full bg-primary/20 rounded-xl overflow-hidden">
             <StellarTradingChart />
@@ -235,20 +233,22 @@ const OrderBookSwapUI = () => {
           <div className="flex gap-2 mb-6">
             <button
               onClick={() => !isBuy && setIsBuy()}
-              className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${isBuy
-                ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
-                : 'bg-white/5 text-muted hover:text-primary'
-                }`}
+              className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${
+                isBuy
+                  ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
+                  : 'bg-white/5 text-muted hover:text-primary'
+              }`}
               disabled={isLoading}
             >
               Buy
             </button>
             <button
               onClick={() => isBuy && setIsBuy()}
-              className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${!isBuy
-                ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
-                : 'bg-white/5 text-muted hover:text-primary'
-                }`}
+              className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${
+                !isBuy
+                  ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+                  : 'bg-white/5 text-muted hover:text-primary'
+              }`}
               disabled={isLoading}
             >
               Sell
@@ -258,7 +258,9 @@ const OrderBookSwapUI = () => {
           <div className="bg-white/5 rounded-2xl p-1 border border-white/5 mb-6">
             <div className="flex flex-col md:flex-row items-center relative">
               <div className="flex-1 w-full p-6">
-                <label className="text-xs text-muted mb-3 block uppercase tracking-wider font-semibold">From</label>
+                <label className="text-xs text-muted mb-3 block uppercase tracking-wider font-semibold">
+                  From
+                </label>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     {getTokenIcon(fromToken?.code || '') ? (
@@ -317,7 +319,9 @@ const OrderBookSwapUI = () => {
               </div>
 
               <div className="flex-1 w-full p-6">
-                <label className="text-xs text-muted mb-3 block uppercase tracking-wider font-semibold">To</label>
+                <label className="text-xs text-muted mb-3 block uppercase tracking-wider font-semibold">
+                  To
+                </label>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     {getTokenIcon(toToken?.code || '') ? (
@@ -366,9 +370,7 @@ const OrderBookSwapUI = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-muted mb-2 block">
-                  Amount
-                </label>
+                <label className="text-xs text-muted mb-2 block">Amount</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -401,7 +403,12 @@ const OrderBookSwapUI = () => {
             <div>
               <div className="flex justify-between mb-2">
                 <label className="text-xs text-muted">Total</label>
-                <button onClick={setMaxAmount} className="text-xs text-primary hover:underline uppercase font-bold tracking-wide">Max Available</button>
+                <button
+                  onClick={setMaxAmount}
+                  className="text-xs text-primary hover:underline uppercase font-bold tracking-wide"
+                >
+                  Max Available
+                </button>
               </div>
               <input
                 type="text"
@@ -422,12 +429,13 @@ const OrderBookSwapUI = () => {
           <button
             onClick={handlePlaceOrder}
             disabled={!canPlaceOrder || orderStatus === 'pending'}
-            className={`w-full mt-6 py-5 rounded-xl font-bold text-lg transition-all ${canPlaceOrder && orderStatus !== 'pending'
-              ? isBuy
-                ? 'bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
-                : 'bg-red-500 hover:bg-red-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
-              : 'bg-white/5 text-muted cursor-not-allowed border border-white/5'
-              }`}
+            className={`w-full mt-6 py-5 rounded-xl font-bold text-lg transition-all ${
+              canPlaceOrder && orderStatus !== 'pending'
+                ? isBuy
+                  ? 'bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
+                  : 'bg-red-500 hover:bg-red-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
+                : 'bg-white/5 text-muted cursor-not-allowed border border-white/5'
+            }`}
           >
             {orderStatus === 'pending' ? (
               <span className="flex items-center justify-center gap-3">
@@ -445,16 +453,14 @@ const OrderBookSwapUI = () => {
           </button>
         </div>
         <div
-          className={`lg:w-80 lg:border-l lg:border-white/5 bg-secondary ${activeTab === 'orderBook' ? 'block' : 'hidden sm:block'
-            }`}
+          className={`lg:w-80 lg:border-l lg:border-white/5 bg-secondary ${
+            activeTab === 'orderBook' ? 'block' : 'hidden sm:block'
+          }`}
         >
           <OrderBook orderBook={orderBook} isBuy={isBuy} setPrice={setPrice} />
         </div>
 
-        <div
-          className={`lg:hidden bg-secondary ${activeTab === 'trades' ? 'block' : 'hidden'
-            }`}
-        >
+        <div className={`lg:hidden bg-secondary ${activeTab === 'trades' ? 'block' : 'hidden'}`}>
           <LastTrades baseAsset={fromToken || undefined} counterAsset={toToken || undefined} />
         </div>
       </div>

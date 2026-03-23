@@ -1,13 +1,13 @@
+import { Bell } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { Bell } from 'lucide-react';
 import { ROUTES } from '../../constants/routes';
 import { ConnectWalletButton } from '../../modules/walletconnect/components/ConnectWalletButton';
 import NetworkSwitch from '../../modules/walletconnect/components/NetworkSwitch';
 import { useWalletConnect } from '../../modules/walletconnect/hooks/useWalletConnect';
-import ThemeToggle from '../../utils/ThemeToggle';
 import { useNotificationStore } from '../../store/notificationStore';
+import ThemeToggle from '../../utils/ThemeToggle';
 
 const Topbar: React.FC = () => {
   const { connectedWallets, isRestoringSession, disconnectAll } = useWalletConnect();

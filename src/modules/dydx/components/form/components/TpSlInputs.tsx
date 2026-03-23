@@ -23,7 +23,6 @@ export const TpSlInputs: React.FC<TpSlInputsProps> = ({
   const [tpGain, setTpGain] = useState('');
   const [slLoss, setSlLoss] = useState('');
 
-
   useEffect(() => {
     if (!entryPrice || entryPrice <= 0) return;
 
@@ -84,8 +83,12 @@ export const TpSlInputs: React.FC<TpSlInputsProps> = ({
     <div className="space-y-4 px-4 pb-2">
       <div className="space-y-1.5 animate-fade-in">
         <div className="flex items-center justify-between mb-2 ml-1">
-          <label className="text-xs font-semibold text-muted uppercase tracking-wider">Take Profit</label>
-          <span className="text-[10px] text-green-500 font-bold uppercase tracking-wider bg-green-500/10 px-2 py-0.5 rounded">Target</span>
+          <label className="text-xs font-semibold text-muted uppercase tracking-wider">
+            Take Profit
+          </label>
+          <span className="text-[10px] text-green-500 font-bold uppercase tracking-wider bg-green-500/10 px-2 py-0.5 rounded">
+            Target
+          </span>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="relative group">
@@ -119,8 +122,12 @@ export const TpSlInputs: React.FC<TpSlInputsProps> = ({
 
       <div className="space-y-1.5 animate-fade-in pt-2">
         <div className="flex items-center justify-between mb-2 ml-1">
-          <label className="text-xs font-semibold text-muted uppercase tracking-wider">Stop Loss</label>
-          <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider bg-red-500/10 px-2 py-0.5 rounded">Protection</span>
+          <label className="text-xs font-semibold text-muted uppercase tracking-wider">
+            Stop Loss
+          </label>
+          <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider bg-red-500/10 px-2 py-0.5 rounded">
+            Protection
+          </span>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="relative group">

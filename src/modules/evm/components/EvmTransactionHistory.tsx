@@ -86,7 +86,14 @@ const EvmTransactionHistory: React.FC = () => {
   };
 
   const loadMoreHistory = async () => {
-    if (!walletAddress || selectedView === 'recent' || selectedView === 'stellar' || !hasNextPage || loadingMore) return;
+    if (
+      !walletAddress ||
+      selectedView === 'recent' ||
+      selectedView === 'stellar' ||
+      !hasNextPage ||
+      loadingMore
+    )
+      return;
 
     setLoadingMore(true);
     try {
@@ -185,10 +192,11 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedTx(null);
           setSelectedLocalTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${selectedView === 'recent'
-          ? 'bg-primary text-secondary shadow-sm'
-          : 'text-muted hover:text-primary'
-          }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          selectedView === 'recent'
+            ? 'bg-primary text-secondary shadow-sm'
+            : 'text-muted hover:text-primary'
+        }`}
       >
         Recent
         {hasPendingTransactions && (
@@ -200,10 +208,11 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedView('eth');
           setSelectedLocalTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'eth'
-          ? 'bg-primary text-secondary shadow-sm'
-          : 'text-muted hover:text-primary'
-          }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+          selectedView === 'eth'
+            ? 'bg-primary text-secondary shadow-sm'
+            : 'text-muted hover:text-primary'
+        }`}
       >
         ETH
       </button>
@@ -212,10 +221,11 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedView('bsc');
           setSelectedLocalTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'bsc'
-          ? 'bg-primary text-secondary shadow-sm'
-          : 'text-muted hover:text-primary'
-          }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+          selectedView === 'bsc'
+            ? 'bg-primary text-secondary shadow-sm'
+            : 'text-muted hover:text-primary'
+        }`}
       >
         BNB
       </button>
@@ -225,10 +235,11 @@ const EvmTransactionHistory: React.FC = () => {
           setSelectedLocalTx(null);
           setSelectedTx(null);
         }}
-        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar'
-          ? 'bg-primary text-secondary shadow-sm'
-          : 'text-muted hover:text-primary'
-          }`}
+        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+          selectedView === 'stellar'
+            ? 'bg-primary text-secondary shadow-sm'
+            : 'text-muted hover:text-primary'
+        }`}
       >
         Stellar
       </button>
@@ -297,10 +308,11 @@ const EvmTransactionHistory: React.FC = () => {
           return (
             <div
               key={tx.hash}
-              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${isSelected
-                ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
-                : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
-                }`}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${
+                isSelected
+                  ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
+                  : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
+              }`}
             >
               <button
                 onClick={() => handleLocalTxClick(tx)}
@@ -401,17 +413,17 @@ const EvmTransactionHistory: React.FC = () => {
             <button
               key={tx.uniqueId}
               onClick={() => handleTxClick(tx)}
-              className={`w-full rounded-lg bg-primary p-3   flex items-center justify-between transition-all group text-left ${isSelected
-                ? ' border  '
-                : ' hover:bg-tertiary/50 '
-                }`}
+              className={`w-full rounded-lg bg-primary p-3   flex items-center justify-between transition-all group text-left ${
+                isSelected ? ' border  ' : ' hover:bg-tertiary/50 '
+              }`}
             >
               <div className="flex items-center gap-4">
                 <div
-                  className={`lg:w-12 lg:h-12  h-8 w-8 rounded-full flex items-center justify-center shrink-0 border ${incoming
-                    ? 'bg-green-500/10 border-green-500/20 text-green-500'
-                    : 'bg-brand-primary/10 border-brand-primary/20 text-gray-600'
-                    }`}
+                  className={`lg:w-12 lg:h-12  h-8 w-8 rounded-full flex items-center justify-center shrink-0 border ${
+                    incoming
+                      ? 'bg-green-500/10 border-green-500/20 text-green-500'
+                      : 'bg-brand-primary/10 border-brand-primary/20 text-gray-600'
+                  }`}
                 >
                   {incoming ? <ArrowDownLeft size={24} /> : <ArrowUpRight size={24} />}
                 </div>

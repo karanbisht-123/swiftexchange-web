@@ -55,8 +55,9 @@ export default function TradesDisplay() {
           <span className="text-muted">/</span>
           <span className="text-muted">{quoteCurrency}</span>
           <div
-            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-warning'
-              } ${isConnected ? 'animate-pulse' : ''}`}
+            className={`w-2 h-2 rounded-full ${
+              isConnected ? 'bg-success' : 'bg-warning'
+            } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
@@ -89,8 +90,9 @@ export default function TradesDisplay() {
                 className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-hover relative overflow-hidden transition-colors duration-150"
               >
                 <div
-                  className={`absolute inset-y-0 right-0 origin-right will-change-transform transition-transform duration-200 ease-out ${isBuy ? 'bg-success/10' : 'bg-danger/10'
-                    }`}
+                  className={`absolute inset-y-0 right-0 origin-right will-change-transform transition-transform duration-200 ease-out ${
+                    isBuy ? 'bg-success/10' : 'bg-danger/10'
+                  }`}
                   style={{
                     width: '100%',
                     transform: `scaleX(${depthPct})`,
@@ -98,8 +100,9 @@ export default function TradesDisplay() {
                 />
 
                 <div
-                  className={`relative font-medium text-xs lg:text-[13px] tabular-nums text-left ${isBuy ? 'text-success' : 'text-danger'
-                    }`}
+                  className={`relative font-medium text-xs lg:text-[13px] tabular-nums text-left ${
+                    isBuy ? 'text-success' : 'text-danger'
+                  }`}
                 >
                   {formatSize(trade.size)}
                 </div>

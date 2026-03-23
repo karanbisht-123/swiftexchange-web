@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { validateAddress } from '../../../validator/AddressValidator';
 import { estimateEVMFees, getNativeBalance } from '../../evm/service/evmService';
+import { addLocalTransaction } from '../../evm/service/localTransactionService';
 import {
   estimateStellarFees,
   getStellarBalance,
@@ -21,7 +22,6 @@ import {
   assetFromEVM,
   assetFromStellar,
 } from '../../walletconnect/utils/assetFromChain';
-import { addLocalTransaction } from '../../evm/service/localTransactionService';
 
 interface TransactionState {
   txHash: string | null;
@@ -459,7 +459,7 @@ export const useSendAsset = (onBack?: () => void) => {
     console.log(label);
     try {
       await navigator.clipboard.writeText(text);
-    } catch { }
+    } catch {}
   }, []);
 
   useEffect(() => {

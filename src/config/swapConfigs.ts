@@ -67,7 +67,10 @@ export const SWAP_CONFIGS: Record<any, SwapConfig> = {
     isTestnet: true,
     nativeSymbol: 'BNB',
     rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
-    fallbackRpcUrls: ['https://data-seed-prebsc-2-s1.binance.org:8545', 'https://data-seed-prebsc-1-s2.binance.org:8545'],
+    fallbackRpcUrls: [
+      'https://data-seed-prebsc-2-s1.binance.org:8545',
+      'https://data-seed-prebsc-1-s2.binance.org:8545',
+    ],
   },
   amoy: {
     wNative: '0x9c3C9283D3e44854697Cd22D3Faa240Cfb032889', // WMATIC

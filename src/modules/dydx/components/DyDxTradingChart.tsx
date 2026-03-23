@@ -60,7 +60,6 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-
 const chartTypeIcons: Record<ChartType, React.ReactNode> = {
   candlestick: <CandlestickChart className="w-4 h-4" />,
   line: <TrendingUp className="w-4 h-4" />,
@@ -131,7 +130,6 @@ export default function DyDxTradingChart() {
 
     const colors = getThemeColors();
     const container = chartContainerRef.current;
-
 
     if (chartRef.current) {
       chartRef.current.remove();
@@ -275,7 +273,6 @@ export default function DyDxTradingChart() {
     chart.timeScale().fitContent();
   }, [candles, chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
 
-
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -304,7 +301,6 @@ export default function DyDxTradingChart() {
       resizeObserverRef.current = null;
     };
   }, [chartKey]);
-
 
   useEffect(() => {
     createChartInstance();
@@ -401,17 +397,17 @@ export default function DyDxTradingChart() {
     { value: 'area', label: 'Area', icon: <BarChart3 className="w-4 h-4" /> },
   ];
 
-
   const TimeframeSelector = () => (
     <div className="absolute top-2 left-2 z-10 flex items-center gap-0.5 bg-secondary/90 backdrop-blur-sm rounded-lg p-1 border border-color shadow-lg">
       {timeframes.map(tf => (
         <button
           key={tf.value}
           onClick={() => setTimeframe(tf.value)}
-          className={`px-2 py-1 text-[10px] sm:text-xs font-medium rounded transition-all min-w-[28px] sm:min-w-[32px] ${timeframe === tf.value
-            ? 'bg-brand text-white'
-            : 'text-gray-400 hover:text-white hover:bg-white/10'
-            }`}
+          className={`px-2 py-1 text-[10px] sm:text-xs font-medium rounded transition-all min-w-[28px] sm:min-w-[32px] ${
+            timeframe === tf.value
+              ? 'bg-brand text-white'
+              : 'text-gray-400 hover:text-white hover:bg-white/10'
+          }`}
         >
           {tf.label}
         </button>
@@ -442,8 +438,9 @@ export default function DyDxTradingChart() {
                   setChartType(ct.value);
                   setShowChartTypeMenu(false);
                 }}
-                className={`w-full text-left px-3 py-2.5 text-xs hover:bg-hover transition-colors flex items-center gap-2 ${chartType === ct.value ? 'bg-hover text-brand font-medium' : 'text-primary'
-                  }`}
+                className={`w-full text-left px-3 py-2.5 text-xs hover:bg-hover transition-colors flex items-center gap-2 ${
+                  chartType === ct.value ? 'bg-hover text-brand font-medium' : 'text-primary'
+                }`}
               >
                 {ct.icon}
                 <span>{ct.label}</span>
@@ -528,7 +525,6 @@ export default function DyDxTradingChart() {
     );
   };
 
-
   const InitialLoadingSpinner = () => {
     if (!isLoading || hasInitialData) return null;
 
@@ -542,21 +538,17 @@ export default function DyDxTradingChart() {
     );
   };
 
-
   const MobileFullscreenModal = () => {
     if (!isFullscreen || !isMobile) return null;
 
     return (
       <div className="fixed inset-0 z-50 bg-primary flex flex-col animate-fade-in">
-
         <div className="bg-secondary border-b border-color flex-shrink-0 safe-area-top">
           <div className="flex items-center justify-between px-2 py-1">
-
             <div className="flex items-center gap-0.5">
               <ChartTypeDropdown />
               <SettingsDropdown />
             </div>
-
 
             <button
               onClick={toggleFullscreen}
@@ -567,11 +559,8 @@ export default function DyDxTradingChart() {
           </div>
         </div>
 
-
         <div className="flex-1 bg-secondary relative overflow-hidden">
-
           <TimeframeSelector />
-
 
           <LoadingOverlay />
 
@@ -581,29 +570,30 @@ export default function DyDxTradingChart() {
             </div>
           )}
 
-
           {!hasInitialData && isLoading ? (
             <InitialLoadingSpinner />
           ) : (
-            <div key={chartKey} ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+            <div
+              key={chartKey}
+              ref={chartContainerRef}
+              className="absolute inset-0 w-full h-full"
+            />
           )}
         </div>
       </div>
     );
   };
 
-
   const renderDesktopChart = () => (
-    <div className={`${isFullscreen && !isMobile ? 'fixed inset-0 z-50' : 'h-full'} bg-primary flex flex-col`}>
-
+    <div
+      className={`${isFullscreen && !isMobile ? 'fixed inset-0 z-50' : 'h-full'} bg-primary flex flex-col`}
+    >
       <div className="bg-secondary border-b border-color flex-shrink-0">
         <div className="flex items-center justify-between px-1">
-
           <div className="flex items-center">
             <ChartTypeDropdown />
             <SettingsDropdown />
           </div>
-
 
           <div className="flex items-center gap-1 px-1">
             <button
@@ -628,11 +618,8 @@ export default function DyDxTradingChart() {
         </div>
       </div>
 
-
       <div className="flex-1 bg-secondary relative overflow-hidden">
-
         <TimeframeSelector />
-
 
         <LoadingOverlay />
 
@@ -641,7 +628,6 @@ export default function DyDxTradingChart() {
             <p className="text-xs sm:text-sm text-red-400 font-medium">{error}</p>
           </div>
         )}
-
 
         {!hasInitialData && isLoading ? (
           <InitialLoadingSpinner />
@@ -652,10 +638,8 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-
   const renderMobileChart = () => (
     <div className="h-full bg-primary flex flex-col">
-
       <div className="bg-secondary border-b border-color flex-shrink-0">
         <div className="flex items-center justify-end px-2 py-1">
           <div className="flex items-center gap-0.5">
@@ -672,11 +656,8 @@ export default function DyDxTradingChart() {
         </div>
       </div>
 
-
       <div className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]">
-
         <TimeframeSelector />
-
 
         <LoadingOverlay />
 
@@ -686,7 +667,6 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-
         {!hasInitialData && isLoading ? (
           <InitialLoadingSpinner />
         ) : (
@@ -695,7 +675,6 @@ export default function DyDxTradingChart() {
       </div>
     </div>
   );
-
 
   if (isMobile && isFullscreen) {
     return <MobileFullscreenModal />;

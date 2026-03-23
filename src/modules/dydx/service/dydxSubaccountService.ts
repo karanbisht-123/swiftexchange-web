@@ -115,11 +115,7 @@ class DydxSubaccountService {
     };
   }
 
-  calculateRequiredCollateral(
-    size: number,
-    oraclePrice: number,
-    leverage: number
-  ): number {
+  calculateRequiredCollateral(size: number, oraclePrice: number, leverage: number): number {
     const notionalValue = size * oraclePrice;
     const initialMargin = notionalValue / leverage;
     const withBuffer = initialMargin * 1.05;

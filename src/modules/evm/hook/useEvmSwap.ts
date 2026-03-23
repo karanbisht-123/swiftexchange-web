@@ -4,12 +4,12 @@ import { ethers } from 'ethers';
 
 import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { addLocalTransaction } from '../service/localTransactionService';
 import {
   type TokenInfo,
   fetchSingleTokenBalance,
   getTokensForChain,
 } from '../service/tokenListService';
-import { addLocalTransaction } from '../service/localTransactionService';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
 
 interface UseEvmSwapProps {

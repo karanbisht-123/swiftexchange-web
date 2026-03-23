@@ -95,35 +95,38 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
 
           <div className="max-h-[180px] overflow-y-auto scrollbar-hide mb-2">
             {hasAsks ? (
-              [...orderBook.asks].slice(0, 10).reverse().map((ask: any, idx: number) => {
-                const amount = parseFloat(ask.amount);
-                const price = parseFloat(ask.price);
-                const total = amount * price;
-                const depthPercent = calculateDepth(amount, maxAskAmount);
-                const isHighlighted = highlightedPrice === ask.price;
+              [...orderBook.asks]
+                .slice(0, 10)
+                .reverse()
+                .map((ask: any, idx: number) => {
+                  const amount = parseFloat(ask.amount);
+                  const price = parseFloat(ask.price);
+                  const total = amount * price;
+                  const depthPercent = calculateDepth(amount, maxAskAmount);
+                  const isHighlighted = highlightedPrice === ask.price;
 
-                return (
-                  <div
-                    key={`ask-${idx}-${ask.price}`}
-                    className={`relative grid grid-cols-3 text-xs py-2 px-3 cursor-pointer transition-all duration-150 hover:bg-red-500/5 ${isHighlighted ? 'bg-red-500/20' : ''}`}
-                    onClick={() => handlePriceClick(ask.price)}
-                  >
+                  return (
                     <div
-                      className="absolute right-0 top-0 bottom-0 bg-red-500/10 transition-all duration-300"
-                      style={{ width: `${depthPercent}%` }}
-                    />
-                    <span className="relative z-10 text-red-500 font-mono font-medium">
-                      {formatPrice(price)}
-                    </span>
-                    <span className="relative z-10 text-center text-secondary font-mono">
-                      {formatAmount(amount)}
-                    </span>
-                    <span className="relative z-10 text-right text-muted font-mono text-[10px]">
-                      {formatAmount(total)}
-                    </span>
-                  </div>
-                );
-              })
+                      key={`ask-${idx}-${ask.price}`}
+                      className={`relative grid grid-cols-3 text-xs py-2 px-3 cursor-pointer transition-all duration-150 hover:bg-red-500/5 ${isHighlighted ? 'bg-red-500/20' : ''}`}
+                      onClick={() => handlePriceClick(ask.price)}
+                    >
+                      <div
+                        className="absolute right-0 top-0 bottom-0 bg-red-500/10 transition-all duration-300"
+                        style={{ width: `${depthPercent}%` }}
+                      />
+                      <span className="relative z-10 text-red-500 font-mono font-medium">
+                        {formatPrice(price)}
+                      </span>
+                      <span className="relative z-10 text-center text-secondary font-mono">
+                        {formatAmount(amount)}
+                      </span>
+                      <span className="relative z-10 text-right text-muted font-mono text-[10px]">
+                        {formatAmount(total)}
+                      </span>
+                    </div>
+                  );
+                })
             ) : (
               <div className="text-center py-4 text-xs text-muted">No sell orders</div>
             )}
@@ -132,9 +135,13 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
           {hasAsks && hasBids && (
             <div className="py-3 px-3 my-1 border-y border-white/5 bg-white/5 backdrop-blur-sm">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-muted uppercase font-bold tracking-wider">Spread</span>
+                <span className="text-[10px] text-muted uppercase font-bold tracking-wider">
+                  Spread
+                </span>
                 <span className="text-sm font-bold text-primary font-mono">
-                  {formatPrice(parseFloat(orderBook.asks[0].price) - parseFloat(orderBook.bids[0].price))}
+                  {formatPrice(
+                    parseFloat(orderBook.asks[0].price) - parseFloat(orderBook.bids[0].price)
+                  )}
                 </span>
               </div>
             </div>

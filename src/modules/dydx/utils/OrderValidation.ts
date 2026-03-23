@@ -178,7 +178,6 @@ export function validateTriggerPrice(
   orderSide: 'BUY' | 'SELL',
   orderType: string
 ): OrderValidationResult {
-
   const priceValidation = validateOrderPrice(marketData, triggerPrice);
   if (!priceValidation.isValid) {
     return priceValidation;
@@ -273,7 +272,7 @@ export function validateIsolatedPosition(
     const difference = TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY - subaccountEquity;
     return createError(
       `Isolated positions require minimum $${TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY} equity. ` +
-      `Need $${difference.toFixed(2)} more. Transfer funds to this subaccount first.`
+        `Need $${difference.toFixed(2)} more. Transfer funds to this subaccount first.`
     );
   }
 
@@ -317,4 +316,3 @@ export function calculateLiquidationPrice(
   const liqPrice = numerator / denominator;
   return Math.max(0, liqPrice);
 }
-

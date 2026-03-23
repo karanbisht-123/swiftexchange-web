@@ -1,9 +1,9 @@
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useMarkets } from '../../hooks/useMarkets';
 import { useOrderbook } from '../../hooks/useOrderbook';
 import useMarketStore from '../../store/marketStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
-import { useMarkets } from '../../hooks/useMarkets';
 
 interface OrderbookRow {
   price: number;
@@ -127,7 +127,7 @@ const Orderbook = () => {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const observer = new ResizeObserver((entries) => {
+    const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
         // Calculate max rows based on available container height
         // Subtract header/spread sizes (approx 120px total vertical space used by non-row elements)
@@ -159,7 +159,10 @@ const Orderbook = () => {
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full flex flex-col bg-secondary text-primary font-medium text-sm select-none">
+    <div
+      ref={containerRef}
+      className="w-full h-full flex flex-col bg-secondary text-primary font-medium text-sm select-none"
+    >
       <div className="flex items-center justify-between shrink-0 px-1 md:px-2 lg:px-4 py-2 border-b border-color">
         <div className="flex items-center gap-1">
           <button
@@ -184,45 +187,70 @@ const Orderbook = () => {
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-primary rounded p-0.5">
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'base' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
-                }`}
+              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${
+                displayMode === 'base' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
+              }`}
               onClick={() => setDisplayMode('base')}
             >
               {base}
             </button>
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'usd' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
-                }`}
+              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${
+                displayMode === 'usd' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
+              }`}
               onClick={() => setDisplayMode('usd')}
             >
               {quote}
             </button>
           </div>
           <div
-            className={`w-2 h-2 rounded-full hidden lg:block ${isConnected && !isLoading ? 'bg-success' : 'bg-warning'
-              } ${isConnected ? 'animate-pulse' : ''}`}
+            className={`w-2 h-2 rounded-full hidden lg:block ${
+              isConnected && !isLoading ? 'bg-success' : 'bg-warning'
+            } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
 
       <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-muted border-b border-color font-medium">
         <div>
-          Price <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{quote}</span>
+          Price{' '}
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{quote}</span>
         </div>
         <div className="text-right">
-          Size <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{displayMode === 'base' ? base : quote}</span>
+          Size{' '}
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">
+            {displayMode === 'base' ? base : quote}
+          </span>
         </div>
         <div className="text-right">
-          Total <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{displayMode === 'base' ? base : quote}</span>
+          Total{' '}
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">
+            {displayMode === 'base' ? base : quote}
+          </span>
         </div>
       </div>
 
       <div className="relative flex-1 overflow-auto hide-scrollbar flex flex-col justify-end">
         {asks.map(ask => {
           const priceKey = ask.price.toString();
-          const depthPct = displayMode === 'base' ? (ask.total / maxBaseTotal) * 100 : (ask.usdTotal / maxUsdTotal) * 100;
-          const displaySize = displayMode === 'base' ? ask.size.toFixed(4) : ask.usdSize.toLocaleString(undefined, { minimumFractionDigits: getDecimals(ask.usdSize), maximumFractionDigits: getDecimals(ask.usdSize) });
-          const displayTotal = displayMode === 'base' ? ask.total.toFixed(4) : ask.usdTotal.toLocaleString(undefined, { minimumFractionDigits: getDecimals(ask.usdTotal), maximumFractionDigits: getDecimals(ask.usdTotal) });
+          const depthPct =
+            displayMode === 'base'
+              ? (ask.total / maxBaseTotal) * 100
+              : (ask.usdTotal / maxUsdTotal) * 100;
+          const displaySize =
+            displayMode === 'base'
+              ? ask.size.toFixed(4)
+              : ask.usdSize.toLocaleString(undefined, {
+                  minimumFractionDigits: getDecimals(ask.usdSize),
+                  maximumFractionDigits: getDecimals(ask.usdSize),
+                });
+          const displayTotal =
+            displayMode === 'base'
+              ? ask.total.toFixed(4)
+              : ask.usdTotal.toLocaleString(undefined, {
+                  minimumFractionDigits: getDecimals(ask.usdTotal),
+                  maximumFractionDigits: getDecimals(ask.usdTotal),
+                });
 
           return (
             <div
@@ -258,7 +286,9 @@ const Orderbook = () => {
       <div className="grid grid-cols-3 shrink-0 text-primary px-1 md:px-2 lg:px-4 py-2.5 border-y border-color bg-secondary shadow-sm text-xs lg:text-[13px]">
         <div className="text-muted font-medium">Spread</div>
         <div className="text-right font-semibold text-primary tabular-nums">
-          {spread !== null && spread >= 0 ? spread.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
+          {spread !== null && spread >= 0
+            ? spread.toLocaleString(undefined, { minimumFractionDigits: 2 })
+            : '0.00'}
         </div>
         <div className="text-right text-muted font-medium tabular-nums">
           {spreadPct !== null && spreadPct > 0 ? `${spreadPct.toFixed(3)}%` : '0.00%'}
@@ -268,9 +298,24 @@ const Orderbook = () => {
       <div className="relative flex-1 overflow-auto hide-scrollbar">
         {bids.map(bid => {
           const priceKey = bid.price.toString();
-          const depthPct = displayMode === 'base' ? (bid.total / maxBaseTotal) * 100 : (bid.usdTotal / maxUsdTotal) * 100;
-          const displaySize = displayMode === 'base' ? bid.size.toFixed(4) : bid.usdSize.toLocaleString(undefined, { minimumFractionDigits: getDecimals(bid.usdSize), maximumFractionDigits: getDecimals(bid.usdSize) });
-          const displayTotal = displayMode === 'base' ? bid.total.toFixed(4) : bid.usdTotal.toLocaleString(undefined, { minimumFractionDigits: getDecimals(bid.usdTotal), maximumFractionDigits: getDecimals(bid.usdTotal) });
+          const depthPct =
+            displayMode === 'base'
+              ? (bid.total / maxBaseTotal) * 100
+              : (bid.usdTotal / maxUsdTotal) * 100;
+          const displaySize =
+            displayMode === 'base'
+              ? bid.size.toFixed(4)
+              : bid.usdSize.toLocaleString(undefined, {
+                  minimumFractionDigits: getDecimals(bid.usdSize),
+                  maximumFractionDigits: getDecimals(bid.usdSize),
+                });
+          const displayTotal =
+            displayMode === 'base'
+              ? bid.total.toFixed(4)
+              : bid.usdTotal.toLocaleString(undefined, {
+                  minimumFractionDigits: getDecimals(bid.usdTotal),
+                  maximumFractionDigits: getDecimals(bid.usdTotal),
+                });
 
           return (
             <div

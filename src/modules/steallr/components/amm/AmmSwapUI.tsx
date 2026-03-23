@@ -6,9 +6,9 @@ import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES, UI_STRINGS } from '../../constants/ammSwapConstants';
 import { useAmmSwap } from '../../hook/useAmmSwap';
 import { useAmmSwapStore } from '../../store/ammSwapStore';
+import StellarTradingChart from '../chart/StellarTradingChart';
 import { SettingsPanel, SwapDetails, TokenSelector } from './AmmSwapSubComponents';
 import { XlmReserveButton, useTrustlineCount } from './XlmReserveInfo';
-import StellarTradingChart from '../chart/StellarTradingChart';
 
 const AmmSwapUI = () => {
   const [showSettings, setShowSettings] = useState(false);
@@ -41,13 +41,20 @@ const AmmSwapUI = () => {
     userAddress: stellarAddress,
   });
 
-  const { addTransaction, setDefaultSlippage, setSelectedChartPair, preSelectedToken, setPreSelectedToken } = useAmmSwapStore();
+  const {
+    addTransaction,
+    setDefaultSlippage,
+    setSelectedChartPair,
+    preSelectedToken,
+    setPreSelectedToken,
+  } = useAmmSwapStore();
   const trustlineCount = useTrustlineCount(availableTokens);
 
   useEffect(() => {
     if (preSelectedToken && availableTokens.length > 0) {
       const tokenToSelect = availableTokens.find(
-        t => t.code === preSelectedToken.code &&
+        t =>
+          t.code === preSelectedToken.code &&
           (!preSelectedToken.issuer || t.issuer === preSelectedToken.issuer)
       );
       if (tokenToSelect) {
@@ -144,14 +151,9 @@ const AmmSwapUI = () => {
               disabled={!quote || isLoading}
               className="btn btn-ghost btn-sm"
             >
-              <RefreshCw
-                className={`w-4 h-4 text-text-muted ${isLoading ? 'animate-spin' : ''}`}
-              />
+              <RefreshCw className={`w-4 h-4 text-text-muted ${isLoading ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="btn btn-ghost btn-sm"
-            >
+            <button onClick={() => setShowSettings(!showSettings)} className="btn btn-ghost btn-sm">
               <Settings className="w-4 h-4 text-text-muted" />
             </button>
             <SettingsPanel
@@ -167,8 +169,7 @@ const AmmSwapUI = () => {
           <div className="flex items-center justify-between text-small text-muted">
             <span>From</span>
             <span>
-              Balance:{' '}
-              {fromToken?.balance ? parseFloat(fromToken.balance).toFixed(7) : '0.0000000'}
+              Balance: {fromToken?.balance ? parseFloat(fromToken.balance).toFixed(7) : '0.0000000'}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -253,10 +254,11 @@ const AmmSwapUI = () => {
         <button
           onClick={handleSwap}
           disabled={!canSwap || swapStatus === 'pending'}
-          className={`btn btn-primary py-4  btn-gradient btn w-full font-semibold ${canSwap && swapStatus !== 'pending'
-            ? 'animate-scale-in'
-            : 'opacity-50 cursor-not-allowed'
-            }`}
+          className={`btn btn-primary py-4  btn-gradient btn w-full font-semibold ${
+            canSwap && swapStatus !== 'pending'
+              ? 'animate-scale-in'
+              : 'opacity-50 cursor-not-allowed'
+          }`}
         >
           {swapStatus === 'pending' ? (
             <span className="flex items-center justify-center gap-2">
@@ -276,7 +278,6 @@ const AmmSwapUI = () => {
             UI_STRINGS.SWAP_BUTTON
           )}
         </button>
-
 
         {quote && (
           <div className="flex items-center justify-center gap-2 text-xs text-muted animate-fade-in">
@@ -307,10 +308,7 @@ const AmmSwapUI = () => {
           <AlertCircle className="w-16 h-16 text-warning mx-auto" />
           <h4 className="heading-4">Stellar Wallet Not Connected</h4>
           <p className="text-muted">Please connect your Stellar wallet to start swapping tokens</p>
-          <button
-            onClick={openModal}
-            className="btn btn-primary btn-lg w-full font-semibold mt-4"
-          >
+          <button onClick={openModal} className="btn btn-primary btn-lg w-full font-semibold mt-4">
             Connect Wallet
           </button>
         </div>

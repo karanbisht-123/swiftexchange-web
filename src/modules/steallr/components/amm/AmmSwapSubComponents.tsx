@@ -24,11 +24,7 @@ interface TokenSelectorProps {
   label?: string;
 }
 
-export const TokenSelector = ({
-  selectedToken,
-  onSelect,
-  tokens,
-}: TokenSelectorProps) => {
+export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelectorProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const tokenIcon = getTokenIcon(selectedToken.code);
 
@@ -43,7 +39,7 @@ export const TokenSelector = ({
             src={tokenIcon}
             alt={selectedToken.code}
             className="w-5 h-5 rounded-full"
-            onError={(e) => {
+            onError={e => {
               (e.target as HTMLImageElement).style.display = 'none';
             }}
           />
@@ -53,7 +49,9 @@ export const TokenSelector = ({
           </div>
         )}
         <span className="font-semibold text-sm text-primary">{selectedToken.code}</span>
-        <ChevronDown className={`w-4 h-4 text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          className={`w-4 h-4 text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {isOpen && (
@@ -71,15 +69,16 @@ export const TokenSelector = ({
                     onSelect(token);
                     setIsOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-hover transition-colors ${isSelected ? 'bg-hover' : ''
-                    }`}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-hover transition-colors ${
+                    isSelected ? 'bg-hover' : ''
+                  }`}
                 >
                   {icon ? (
                     <img
                       src={icon}
                       alt={token.code}
                       className="w-6 h-6 rounded-full"
-                      onError={(e) => {
+                      onError={e => {
                         (e.target as HTMLImageElement).style.display = 'none';
                       }}
                     />
@@ -98,9 +97,7 @@ export const TokenSelector = ({
                     )}
                   </div>
 
-                  {isSelected && (
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                  )}
+                  {isSelected && <div className="w-2 h-2 rounded-full bg-green-500" />}
                 </button>
               );
             })}
@@ -145,8 +142,9 @@ export const SettingsPanel = ({
                   onSlippageChange(preset);
                   setCustom('');
                 }}
-                className={`btn btn-secondary btn-sm ${slippage === preset ? 'bg-brand-primary text-text-inverse' : ''
-                  }`}
+                className={`btn btn-secondary btn-sm ${
+                  slippage === preset ? 'bg-brand-primary text-text-inverse' : ''
+                }`}
               >
                 {preset}%
               </button>
@@ -193,9 +191,9 @@ export const SwapDetails = ({ quote }: SwapDetailsProps) => {
     quote.path.path[0].code === quote.path.path[1].code
       ? '1'
       : (
-        parseFloat(quote.estimatedOutput) /
-        parseFloat(quote.path.path[0].code === 'XLM' ? '100' : '1')
-      ).toFixed(6);
+          parseFloat(quote.estimatedOutput) /
+          parseFloat(quote.path.path[0].code === 'XLM' ? '100' : '1')
+        ).toFixed(6);
   const priceImpactColor =
     quote.priceImpact > 5 ? 'price-down' : quote.priceImpact > 2 ? 'text-warning' : 'price-up';
 

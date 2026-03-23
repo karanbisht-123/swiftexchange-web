@@ -20,7 +20,6 @@ export const Pagination: React.FC<PaginationProps> = ({
   itemsPerPage = 10,
   hasMore = false,
 }) => {
-
   if (totalPages <= 1 && !hasMore) return null;
 
   const getPageNumbers = () => {
@@ -136,10 +135,11 @@ export const Pagination: React.FC<PaginationProps> = ({
                   key={page}
                   onClick={() => handlePageClick(page)}
                   disabled={loading}
-                  className={`min-w-[32px] px-2 py-2 rounded  text-xs font-medium transition-colors ${isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-muted bg-primary hover:bg-hover hover:text-primary'
-                    } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  className={`min-w-[32px] px-2 py-2 rounded  text-xs font-medium transition-colors ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-muted bg-primary hover:bg-hover hover:text-primary'
+                  } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   {page}
                 </button>
@@ -187,10 +187,11 @@ export const Pagination: React.FC<PaginationProps> = ({
                 key={`${page}-${index}`}
                 onClick={() => handlePageClick(page)}
                 disabled={loading}
-                className={`min-w-[32px] px-2.5 py-1 rounded text-xs font-medium transition-colors ${isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-primary text-muted hover:bg-hover hover:text-primary'
-                  } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                className={`min-w-[32px] px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-primary text-muted hover:bg-hover hover:text-primary'
+                } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
               >
                 {page}
               </button>

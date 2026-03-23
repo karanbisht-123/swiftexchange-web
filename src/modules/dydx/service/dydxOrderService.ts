@@ -296,11 +296,7 @@ class DydxDataService {
     }
   }
 
-  async getFills(
-    ticker?: string,
-    limit?: number,
-    useCache = true
-  ): Promise<Fill[]> {
+  async getFills(ticker?: string, limit?: number, useCache = true): Promise<Fill[]> {
     const cacheKey = `fills_${ticker || 'all'}_${limit || 'default'}`;
 
     if (useCache) {
@@ -426,7 +422,7 @@ class DydxDataService {
         fundingPayments: (response.fundingPayments || []) as FundingPayment[],
         pageSize: response.pageSize || limit,
         totalResults: response.totalResults || 0,
-        offset: response.offset || 0
+        offset: response.offset || 0,
       };
     } catch (err) {
       console.error('[DydxDataService] getFundingPayments failed:', err);
@@ -434,7 +430,7 @@ class DydxDataService {
         fundingPayments: [],
         pageSize: limit,
         totalResults: 0,
-        offset: 0
+        offset: 0,
       };
     }
   }
@@ -462,15 +458,11 @@ class DydxDataService {
     }
   }
 
-  async getTransfers(
-    limit: number = 100,
-    createdBeforeOrAt?: any
-  ): Promise<TransfersResponse> {
+  async getTransfers(limit: number = 100, createdBeforeOrAt?: any): Promise<TransfersResponse> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
 
     try {
-
       const response: any = await indexer.account.getParentSubaccountNumberTransfers(
         address,
         0,
@@ -481,14 +473,14 @@ class DydxDataService {
       return {
         transfers: (response.transfers || []) as Transfer[],
         limit: limit,
-        latestCreatedAt: response.latestCreatedAt || ''
+        latestCreatedAt: response.latestCreatedAt || '',
       };
     } catch (err) {
       console.error('[DydxDataService] getTransfers failed:', err);
       return {
         transfers: [],
         limit: limit,
-        latestCreatedAt: ''
+        latestCreatedAt: '',
       };
     }
   }

@@ -1,4 +1,8 @@
-import { getEVMChains, type EVMChainConfig, type StellarChainConfig } from '../modules/walletconnect/config/chains';
+import {
+  type EVMChainConfig,
+  type StellarChainConfig,
+  getEVMChains,
+} from '../modules/walletconnect/config/chains';
 import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 
 export function isEVMNetwork(

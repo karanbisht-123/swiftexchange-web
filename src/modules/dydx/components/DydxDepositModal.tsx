@@ -29,7 +29,6 @@ interface DydxDepositModalProps {
   initialAsset?: Asset | null;
 }
 
-
 const PRIORITY_SYMBOLS = ['USDC', 'USDT', 'ETH'];
 
 const CHAIN_ICONS: Record<string, string> = {
@@ -45,7 +44,6 @@ const EXPLORER_BY_CHAIN_ID: Record<number, string> = {
   8453: 'https://basescan.org',
   56: 'https://bscscan.com',
 };
-
 
 const getChainIconUrl = (asset: Asset): string | undefined => {
   if (asset.chainId === 1) return CHAIN_ICONS.ETH;
@@ -90,8 +88,9 @@ const AssetRow = ({
   return (
     <button
       onClick={() => onSelect(asset)}
-      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${isSelected ? 'bg-brand/10 border border-brand/30' : 'hover:bg-hover'
-        }`}
+      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${
+        isSelected ? 'bg-brand/10 border border-brand/30' : 'hover:bg-hover'
+      }`}
     >
       <div className="flex items-center gap-3">
         <AssetIcon asset={asset} />
@@ -105,7 +104,11 @@ const AssetRow = ({
           {asset.balance?.toLocaleString(undefined, { maximumFractionDigits: 6 })}
         </div>
         <div className="text-xs text-muted">
-          ${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          $
+          {usdValue.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </div>
       </div>
     </button>
@@ -128,12 +131,13 @@ const BridgeTxStatusBanner = ({
 
   return (
     <div
-      className={`rounded-xl border p-4 transition-colors ${status === 'confirmed'
+      className={`rounded-xl border p-4 transition-colors ${
+        status === 'confirmed'
           ? 'bg-success-bg border-success/40'
           : status === 'failed'
             ? 'bg-danger-bg border-danger/40'
             : 'bg-brand/5 border-brand/20'
-        }`}
+      }`}
     >
       <div className="flex items-start gap-3">
         <div className="shrink-0 mt-0.5">
@@ -179,7 +183,6 @@ const BridgeTxStatusBanner = ({
     </div>
   );
 };
-
 
 export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   isOpen,
@@ -233,7 +236,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     () => sortedAssets.filter(a => (a.balance || 0) === 0),
     [sortedAssets]
   );
-
 
   useEffect(() => {
     if (isOpen) {
@@ -431,7 +433,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                         value={slippage}
                         onChange={e => {
                           let val = e.target.value;
-                          if (val === '') { setSlippage(''); return; }
+                          if (val === '') {
+                            setSlippage('');
+                            return;
+                          }
                           if (/^\d*\.?\d*$/.test(val)) {
                             if (parseFloat(val) > 6) val = '6';
                             setSlippage(val);
@@ -456,7 +461,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted">You'll receive</span>
                       <span className="text-sm font-semibold text-primary">
-                        ~{route.receivedAmount.toLocaleString(undefined, {
+                        ~
+                        {route.receivedAmount.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}{' '}
@@ -483,14 +489,16 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                       <span className="text-sm text-muted">Account after</span>
                       <div className="text-sm font-medium text-primary flex items-center gap-1.5">
                         <span className="text-muted">
-                          ${parseFloat(totalEquity).toLocaleString(undefined, {
+                          $
+                          {parseFloat(totalEquity).toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
                         </span>
                         <span className="text-muted">→</span>
                         <span>
-                          ~${equityAfter.toLocaleString(undefined, {
+                          ~$
+                          {equityAfter.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
@@ -510,7 +518,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-muted">Bridge fee</span>
                         <span className="text-sm text-primary">
-                          ~${route.fee.toLocaleString(undefined, {
+                          ~$
+                          {route.fee.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 4,
                           })}

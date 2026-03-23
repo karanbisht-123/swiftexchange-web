@@ -19,8 +19,9 @@ const OrderAndTrades = () => {
         <div className="flex bg-tertiary  flex-shrink-0">
           <button
             onClick={() => setActiveTab('order')}
-            className={`flex-1 px-4 py-3 text-sm font-medium transition-all duration-200 relative ${activeTab === 'order' ? 'text-primary' : 'text-secondary hover:text-primary'
-              }`}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition-all duration-200 relative ${
+              activeTab === 'order' ? 'text-primary' : 'text-secondary hover:text-primary'
+            }`}
           >
             Order Book
             {activeTab === 'order' && (
@@ -29,8 +30,9 @@ const OrderAndTrades = () => {
           </button>
           <button
             onClick={() => setActiveTab('trades')}
-            className={`flex-1 px-4 py-3 text-sm font-medium transition-all duration-200 relative ${activeTab === 'trades' ? 'text-primary' : 'text-secondary hover:text-primary'
-              }`}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition-all duration-200 relative ${
+              activeTab === 'trades' ? 'text-primary' : 'text-secondary hover:text-primary'
+            }`}
           >
             Trades
             {activeTab === 'trades' && (
@@ -41,15 +43,17 @@ const OrderAndTrades = () => {
 
         <div className="relative flex-1 overflow-hidden">
           <div
-            className={`absolute inset-0 transition-opacity duration-200 overflow-auto hide-scrollbar ${activeTab === 'order' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
-              }`}
+            className={`absolute inset-0 transition-opacity duration-200 overflow-auto hide-scrollbar ${
+              activeTab === 'order' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
+            }`}
           >
             <Orderbook />
           </div>
 
           <div
-            className={`absolute inset-0 transition-opacity duration-200 overflow-auto hide-scrollbar ${activeTab === 'trades' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
-              }`}
+            className={`absolute inset-0 transition-opacity duration-200 overflow-auto hide-scrollbar ${
+              activeTab === 'trades' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
+            }`}
           >
             <TradesDisplay />
           </div>
@@ -58,8 +62,9 @@ const OrderAndTrades = () => {
 
       <div className="md:hidden bottom-0 left-0 right-0 h-full flex overflow-hidden bg-secondary z-50 shadow-2xl">
         <div
-          className={`transition-all duration-300 ease-in-out border-r border-[#232027] overflow-hidden flex flex-col ${mobileView === 'split' ? 'w-1/2' : mobileView === 'orderbook' ? 'w-full' : 'w-0'
-            }`}
+          className={`transition-all duration-300 ease-in-out border-r border-[#232027] overflow-hidden flex flex-col ${
+            mobileView === 'split' ? 'w-1/2' : mobileView === 'orderbook' ? 'w-full' : 'w-0'
+          }`}
         >
           <div className="bg-secondary border-b border-[#232027] px-2 py-2 flex-shrink-0 flex items-center justify-between">
             <h3 className="text-[10px] font-semibold text-primary truncate flex-1">Order Book</h3>
@@ -90,8 +95,9 @@ const OrderAndTrades = () => {
         </div>
 
         <div
-          className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${mobileView === 'split' ? 'w-1/2' : mobileView === 'trades' ? 'w-full' : 'w-0'
-            }`}
+          className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
+            mobileView === 'split' ? 'w-1/2' : mobileView === 'trades' ? 'w-full' : 'w-0'
+          }`}
         >
           <div className="bg-secondary border-b border-[#232027] px-2 py-2 flex-shrink-0 flex items-center justify-between">
             <div className="flex items-center gap-1 mr-2">

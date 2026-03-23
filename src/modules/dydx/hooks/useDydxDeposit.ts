@@ -23,15 +23,12 @@ import {
   fetchDydxWalletUsdcBalance,
 } from '../utils/skipBridgeUtils';
 
-
 export const MIN_DEPOSIT_USDC = 3;
 
 const MIN_SUBACCOUNT_DEPOSIT_UUSDC = 10_000;
 
 const DYDX_POLL_TIMEOUT_MS = 180_000;
 const DYDX_POLL_INTERVAL_MS = 5_000;
-
-
 
 export type DepositStep =
   | 'idle'
@@ -49,14 +46,13 @@ export interface DepositRoute {
   usdAmountOut: string;
 }
 
-
 async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): Promise<number> {
   const deadline = Date.now() + DYDX_POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
     try {
       const bal = await fetchDydxWalletUsdcBalance(dydxAddress);
-      console.log(`[deposit] dYdX wallet: ${bal} uusdc (need ≥ ${minUusdc})`);
+      console.log(`[deposit] dYdX wallet: ${bal} uusdc (need >= ${minUusdc})`);
       if (bal >= minUusdc) return bal;
     } catch (e) {
       console.warn('[deposit] balance poll error:', e);
@@ -66,10 +62,9 @@ async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): 
 
   throw new Error(
     `Timed out waiting for bridged funds on dYdX chain. ` +
-    `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
+      `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
   );
 }
-
 
 export const useDydxDeposit = () => {
   const [step, setStep] = useState<DepositStep>('idle');
@@ -83,7 +78,6 @@ export const useDydxDeposit = () => {
   const [pendingDydxQuantums, setPendingDydxQuantums] = useState<string | null>(null);
   const [isCheckingPending, setIsCheckingPending] = useState(false);
 
-  // ── Route fetch 
   const getRoute = useCallback(
     async (
       assetSymbol: string,
@@ -118,7 +112,6 @@ export const useDydxDeposit = () => {
     []
   );
 
-  // ── Main deposit 
   const deposit = useCallback(
     async (
       assetSymbol: string,
@@ -133,7 +126,6 @@ export const useDydxDeposit = () => {
       setDepositedAmount(null);
 
       try {
-        // 1. Resolve addresses 
         const storeState = useWalletStore.getState();
         const evmWallet = storeState.connectedWallets.evm;
         const evmAddress = evmWallet?.address;
@@ -141,11 +133,10 @@ export const useDydxDeposit = () => {
           evmWallet?.dydxAddress ?? storeState.connectedWallets.cosmos?.dydxAddress;
 
         if (!evmAddress) throw new Error('EVM wallet not connected');
-        if (!dydxAddress) throw new Error('dYdX wallet not derived — please onboard first');
+        if (!dydxAddress) throw new Error('dYdX wallet not derived -- please onboard first');
 
         const chainId = evmChainId ?? Number(evmWallet?.chainId ?? 1);
 
-        // 2. Fetch Skip route 
         setStep('routing');
 
         const sourceDenom = skipApiService.getSourceDenomForAsset(assetSymbol, chainId);
@@ -168,18 +159,16 @@ export const useDydxDeposit = () => {
 
         if (!rawRoute) throw new Error('No deposit route returned from Skip');
 
-        // 3. Build user addresses ──────────────────────────────────────────
         const requiredChainIds: string[] = rawRoute.requiredChainAddresses ?? [];
         if (requiredChainIds.length === 0) {
           throw new Error(
-            'Skip route returned no requiredChainAddresses — cannot build userAddresses.'
+            'Skip route returned no requiredChainAddresses -- cannot build userAddresses.'
           );
         }
         const userAddresses = buildUserAddresses(requiredChainIds, { evmAddress, dydxAddress });
         console.log('[deposit] requiredChainAddresses:', requiredChainIds);
         console.log('[deposit] userAddresses:', userAddresses);
 
-        // 4. Resolve signing wallet ────────────────────────────────────────
         const localWallet = walletService.getSigningWallet();
         if (!localWallet) throw new Error('dYdX signing wallet not available');
 
@@ -187,7 +176,6 @@ export const useDydxDeposit = () => {
           localWallet.offlineSigner ?? (localWallet as any).signer ?? (localWallet as any).wallet;
         if (!rawSigner) throw new Error('No offline signer on localWallet');
 
-        // 5. Execute bridge route ──────────────────────────────────────────
         setStep('signing_evm');
         let bridgeTxHash = '';
 
@@ -203,17 +191,16 @@ export const useDydxDeposit = () => {
             setTxHash(hash);
             setStep('pending_bridge');
           },
-          onTransactionTracked: async ({ txHash: hash, chainId: cid }) =>
-            console.log(`[deposit] tracked on ${cid}: ${hash}`),
-          onTransactionCompleted: async ({ txHash: hash, chainId: cid, status }) =>
-            console.log(`[deposit] completed on ${cid}: ${hash}`, status),
-          onApproveAllowance: async (approvalInfo: any) =>
-            console.log(
-              `[deposit] ERC-20 approval ${approvalInfo.status} for ${approvalInfo.allowance?.tokenContract}`
-            ),
+          // onTransactionTracked: async ({ txHash: hash, chainId: cid }) =>
+          //   console.log(`[deposit] tracked on ${cid}: ${hash}`),
+          // onTransactionCompleted: async ({ txHash: hash, chainId: cid, status }) =>
+          //   console.log(`[deposit] completed on ${cid}: ${hash}`, status),
+          // onApproveAllowance: async (approvalInfo: any) =>
+          //   console.log(
+          //     `[deposit] ERC-20 approval ${approvalInfo.status} for ${approvalInfo.allowance?.tokenContract}`
+          //   ),
         });
 
-        // 6. Wait for bridged USDC to arrive in main wallet
         setStep('transferring');
 
         const expectedAmountUusdc = parseInt(rawRoute.amountOut ?? '0', 10);
@@ -222,26 +209,14 @@ export const useDydxDeposit = () => {
         const walletBalance = await waitForDydxWalletBalance(dydxAddress, minExpectedUusdc);
         console.log('[deposit] dYdX wallet balance confirmed:', walletBalance, 'uusdc');
 
-        // 7. Split: keep gas reserve in main wallet, deposit rest
-        //
-        // dYdX gas is paid from the main (bank) wallet — not the subaccount.
-        // We always keep NATIVE_WALLET_GAS_RESERVE_UUSDC in the wallet and
-        // deposit everything above that into the trading subaccount.
-        //
-        // This mirrors exactly what the official dYdX frontend does.
-
         const { keepUusdc, depositUusdc } = computeDepositSplit(walletBalance);
 
-        console.log(
-          `[deposit] wallet=${walletBalance} keep=${keepUusdc} deposit=${depositUusdc}`
-        );
+        console.log(`[deposit] wallet=${walletBalance} keep=${keepUusdc} deposit=${depositUusdc}`);
 
         if (depositUusdc < MIN_SUBACCOUNT_DEPOSIT_UUSDC) {
-          // Entire bridged amount needed for gas reserve (very small deposit).
-          // Still success — the wallet is now funded for future operations.
           console.warn(
-            `[deposit] depositUusdc (${depositUusdc}) below dust threshold — ` +
-            `skipping subaccount deposit. Wallet gas reserve funded.`
+            `[deposit] depositUusdc (${depositUusdc}) below dust threshold -- ` +
+              `skipping subaccount deposit. Wallet gas reserve funded.`
           );
           setDepositedAmount(0);
           await new Promise(r => setTimeout(r, 1_000));
@@ -249,7 +224,6 @@ export const useDydxDeposit = () => {
           return { success: true, txHash: bridgeTxHash };
         }
 
-        // 8. Deposit into trading subaccount 
         const client = await dydxWalletService.getCompositeClient();
         if (!client) throw new Error('dYdX client not connected');
 
@@ -277,7 +251,6 @@ export const useDydxDeposit = () => {
     []
   );
 
-  // Recover stuck deposit 
   const recoverDeposit = useCallback(
     async (
       amountQuantums: string,
@@ -310,7 +283,6 @@ export const useDydxDeposit = () => {
     []
   );
 
-  // Check for stuck pending deposits =
   const checkPendingDeposit = useCallback(async () => {
     setIsCheckingPending(true);
     setPendingNobleQuantums(null);
@@ -324,7 +296,6 @@ export const useDydxDeposit = () => {
 
       const nobleAddress = dydxToNoble(dydxAddress);
 
-      // Noble balance check
       try {
         const res = await fetch(
           `https://rest.cosmos.directory/noble/cosmos/bank/v1beta1/balances/${nobleAddress}`
@@ -338,8 +309,6 @@ export const useDydxDeposit = () => {
         console.warn('[deposit] Noble balance check failed:', e);
       }
 
-      // dYdX native wallet check — only flag funds ABOVE the gas reserve as "stuck"
-      // (the reserve itself is intentional and should not be treated as a pending deposit)
       try {
         const walletBal = await fetchDydxWalletUsdcBalance(dydxAddress);
         const total = BigInt(walletBal);
@@ -355,7 +324,6 @@ export const useDydxDeposit = () => {
     }
   }, []);
 
-  // ── Reset ─────────────────────
   const reset = useCallback(() => {
     setStep('idle');
     setError(null);

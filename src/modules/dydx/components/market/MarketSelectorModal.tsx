@@ -56,8 +56,9 @@ const MarketRow = memo(function MarketRow({
           onSelect(market.ticker, market);
         }
       }}
-      className={`w-full flex items-center gap-3 px-4 sm:px-4 py-4 sm:py-3 hover:bg-[#1e293b]/60 active:bg-[#1e293b]/80 cursor-pointer transition-colors border-b border-[#1e293b]/30 ${isSelected ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
-        }`}
+      className={`w-full flex items-center gap-3 px-4 sm:px-4 py-4 sm:py-3 hover:bg-[#1e293b]/60 active:bg-[#1e293b]/80 cursor-pointer transition-colors border-b border-[#1e293b]/30 ${
+        isSelected ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
+      }`}
     >
       <button
         onClick={e => {
@@ -67,8 +68,9 @@ const MarketRow = memo(function MarketRow({
         className="flex-shrink-0 p-2 sm:p-1 -m-2 sm:-m-1 hover:scale-110 active:scale-95 transition-transform"
       >
         <Star
-          className={`w-5 h-5 sm:w-4 sm:h-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600 hover:text-slate-400'
-            }`}
+          className={`w-5 h-5 sm:w-4 sm:h-4 ${
+            isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600 hover:text-slate-400'
+          }`}
         />
       </button>
 
@@ -98,7 +100,9 @@ const MarketRow = memo(function MarketRow({
           <span>{market.ticker.split('-')[0]}</span>
           <span className="text-slate-500 text-sm sm:text-xs">/USD</span>
         </div>
-        <div className="text-xs sm:text-[11px] text-slate-500 truncate">{market.coinName || 'Perpetual'}</div>
+        <div className="text-xs sm:text-[11px] text-slate-500 truncate">
+          {market.coinName || 'Perpetual'}
+        </div>
       </div>
 
       <div className="text-right flex-shrink-0">
@@ -106,10 +110,15 @@ const MarketRow = memo(function MarketRow({
           ${formatPrice(market.oraclePrice)}
         </div>
         <div
-          className={`text-sm sm:text-xs font-medium flex items-center justify-end gap-0.5 ${isPositive ? 'text-emerald-400' : 'text-red-400'
-            }`}
+          className={`text-sm sm:text-xs font-medium flex items-center justify-end gap-0.5 ${
+            isPositive ? 'text-emerald-400' : 'text-red-400'
+          }`}
         >
-          {isPositive ? <TrendingUp className="w-3.5 h-3.5 sm:w-3 sm:h-3" /> : <TrendingDown className="w-3.5 h-3.5 sm:w-3 sm:h-3" />}
+          {isPositive ? (
+            <TrendingUp className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+          ) : (
+            <TrendingDown className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+          )}
           {isPositive ? '+' : ''}
           {percentChange}%
         </div>
@@ -213,7 +222,6 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
       );
     }
 
-
     if (activeTab === 'favorites') {
       filtered = filtered.filter(m => favorites.has(m.ticker));
     }
@@ -245,14 +253,16 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
   return (
     <>
       <div
-        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
+        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
         onClick={onClose}
       />
       <div
         ref={panelRef}
-        className={`fixed top-0 left-0 z-50 h-full w-full sm:max-w-sm bg-secondary border-r border-[#334155] shadow-2xl transition-transform duration-300 ease-out ${isOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
+        className={`fixed top-0 left-0 z-50 h-full w-full sm:max-w-sm bg-secondary border-r border-[#334155] shadow-2xl transition-transform duration-300 ease-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
       >
         <div className="flex items-center justify-between px-4 sm:px-4 py-4 sm:py-3 border-b border-[#334155] pt-safe">
           <h2 className="text-xl sm:text-lg font-semibold text-white">Markets</h2>
@@ -288,19 +298,21 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
         <div className="flex border-b border-[#334155]/50">
           <button
             onClick={() => setActiveTab('all')}
-            className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors ${activeTab === 'all'
-              ? 'text-white border-b-2 border-blue-500'
-              : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
-              }`}
+            className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors ${
+              activeTab === 'all'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
+            }`}
           >
             All Markets
           </button>
           <button
             onClick={() => setActiveTab('favorites')}
-            className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors flex items-center justify-center gap-2 sm:gap-1.5 ${activeTab === 'favorites'
-              ? 'text-white border-b-2 border-blue-500'
-              : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
-              }`}
+            className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors flex items-center justify-center gap-2 sm:gap-1.5 ${
+              activeTab === 'favorites'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
+            }`}
           >
             <Star className="w-5 h-5 sm:w-4 sm:h-4" />
             Favorites
@@ -317,7 +329,7 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
           className="overflow-y-auto overscroll-contain relative"
           style={{
             height: 'calc(100vh - 220px)',
-            WebkitOverflowScrolling: 'touch'
+            WebkitOverflowScrolling: 'touch',
           }}
           onScroll={handleScroll}
         >
@@ -357,7 +369,11 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
                   ? 'No favorites yet'
                   : 'No markets found'}
               </p>
-              {searchTerm && <p className="text-sm sm:text-xs text-slate-600 mt-2 sm:mt-1">Try a different search</p>}
+              {searchTerm && (
+                <p className="text-sm sm:text-xs text-slate-600 mt-2 sm:mt-1">
+                  Try a different search
+                </p>
+              )}
             </div>
           )}
         </div>

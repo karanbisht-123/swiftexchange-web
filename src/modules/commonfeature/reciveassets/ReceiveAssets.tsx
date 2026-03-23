@@ -148,10 +148,11 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                       Your {currentAsset?.value} Address
                     </p>
                     <div
-                      className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${isAddressValid
-                        ? 'border-border text-text-primary'
-                        : 'border-danger text-danger-dark bg-danger-light'
-                        }`}
+                      className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${
+                        isAddressValid
+                          ? 'border-border text-text-primary'
+                          : 'border-danger text-danger-dark bg-danger-light'
+                      }`}
                     >
                       {walletAddress || `No ${currentAsset?.network} address available`}
                       <button
@@ -214,10 +215,11 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                     Your {currentAsset?.value} Address
                   </p>
                   <div
-                    className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${isAddressValid
-                      ? 'border-border text-text-primary'
-                      : 'border-danger text-danger-dark bg-danger-light'
-                      }`}
+                    className={`relative card card-glass py-3 px-4 pr-12 text-center text-sm text-mono break-all ${
+                      isAddressValid
+                        ? 'border-border text-text-primary'
+                        : 'border-danger text-danger-dark bg-danger-light'
+                    }`}
                   >
                     {walletAddress || `No ${currentAsset?.network} address available`}
                     <button

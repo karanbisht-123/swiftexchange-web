@@ -94,7 +94,11 @@ class WebSocketManager {
     v4_block_height: 60000,
   };
 
-  private readonly HIGH_PRIORITY_CHANNELS = new Set(['v4_trades', 'v4_subaccounts', 'v4_parent_subaccounts'])
+  private readonly HIGH_PRIORITY_CHANNELS = new Set([
+    'v4_trades',
+    'v4_subaccounts',
+    'v4_parent_subaccounts',
+  ]);
   // messages received
   private totalMessagesReceived = 0;
   private messagesByChannel = new Map<string, number>();
@@ -496,7 +500,11 @@ class WebSocketManager {
     return false;
   }
 
-  private throttleMessage(key: string, data: WebSocketMessage, handlers: Set<MessageHandler>): void {
+  private throttleMessage(
+    key: string,
+    data: WebSocketMessage,
+    handlers: Set<MessageHandler>
+  ): void {
     const throttleInterval = this.THROTTLE_INTERVALS[data.channel] ?? 0;
     const isHighPriority = this.HIGH_PRIORITY_CHANNELS.has(data.channel);
 
@@ -524,7 +532,13 @@ class WebSocketManager {
     if (highPriority) {
       queueMicrotask(() => {
         const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
-        calls.forEach(({ handler, data }) => { try { handler(data); } catch (e) { console.error(e); } });
+        calls.forEach(({ handler, data }) => {
+          try {
+            handler(data);
+          } catch (e) {
+            console.error(e);
+          }
+        });
       });
       return;
     }
@@ -532,7 +546,13 @@ class WebSocketManager {
     this.rafId = requestAnimationFrame(() => {
       this.rafId = null;
       const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
-      calls.forEach(({ handler, data }) => { try { handler(data); } catch (e) { console.error(e); } });
+      calls.forEach(({ handler, data }) => {
+        try {
+          handler(data);
+        } catch (e) {
+          console.error(e);
+        }
+      });
       if (this.pendingHandlerCalls.length > 0) this.scheduleHandlerExecution();
     });
   }
@@ -757,7 +777,6 @@ class WebSocketManager {
   }
 
   private clearAllSubscriptions(): void {
-
     this.subscriptions.clear();
     this.serverSubscriptions.clear();
     this.pendingSubscriptions.clear();

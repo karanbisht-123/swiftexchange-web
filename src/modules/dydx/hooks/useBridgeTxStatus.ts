@@ -60,7 +60,13 @@ export function useBridgeTxStatus(txHash: string | null, chainId: number) {
   useEffect(() => {
     if (!txHash) {
       stopPolling();
-      setState({ status: 'idle', confirmations: 0, blockNumber: null, gasUsed: null, isPolling: false });
+      setState({
+        status: 'idle',
+        confirmations: 0,
+        blockNumber: null,
+        gasUsed: null,
+        isPolling: false,
+      });
     }
   }, [txHash, stopPolling]);
 
@@ -107,9 +113,7 @@ export function useBridgeTxStatus(txHash: string | null, chainId: number) {
     timeoutRef.current = setTimeout(() => {
       stopPolling();
       setState(prev =>
-        prev.status === 'pending'
-          ? { ...prev, status: 'failed', isPolling: false }
-          : prev
+        prev.status === 'pending' ? { ...prev, status: 'failed', isPolling: false } : prev
       );
     }, POLL_TIMEOUT_MS);
 

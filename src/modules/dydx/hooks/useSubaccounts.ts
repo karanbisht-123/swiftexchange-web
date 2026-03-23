@@ -4,10 +4,7 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { dydxSubaccountService } from '../service/dydxSubaccountService';
 import { dydxWalletService } from '../service/dydxWalletService';
 import { getSubaccountBalance, useSubaccountStore } from '../store/subaccountStore';
-import {
-  type ChildSubaccount,
-  useWebSocketStore,
-} from '../store/websocketStore';
+import { type ChildSubaccount, useWebSocketStore } from '../store/websocketStore';
 import {
   SUBACCOUNT_CONSTANTS,
   type SubaccountBalance,

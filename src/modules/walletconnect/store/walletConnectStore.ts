@@ -10,8 +10,8 @@ import {
   getEVMChains,
   getStellarConfig,
 } from '../config/chains';
-
 import { walletService } from '../services/walletService';
+
 export type WalletType = 'evm' | 'cosmos' | 'stellar';
 
 type ConnectionState =
@@ -195,7 +195,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         const keepModalOpen = !!result.evm && !result.evm.dydxAddress;
 
-        console.log(`[WalletStore] Multichain connection completed. Got EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`);
+        console.log(
+          `[WalletStore] Multichain connection completed. Got EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`
+        );
 
         set(state => ({
           connectedWallets: { ...state.connectedWallets, ...walletUpdates },
@@ -368,7 +370,6 @@ export const initWalletListener = async () => {
   if (listenerInitialized) return;
 
   try {
-
     walletService.onStateChange((type, state) => {
       try {
         if (state === 'disconnected' || state === 'failed') {

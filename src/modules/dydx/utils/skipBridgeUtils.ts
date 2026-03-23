@@ -24,11 +24,8 @@ const ETH_EVM_DENOMS: Record<number, string> = {
 
 export const SKIP_BRIDGES = ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as const;
 
-
-
 export const NATIVE_WALLET_GAS_RESERVE_UUSDC = 20_000; // $0.020
 export const NATIVE_WALLET_GAS_RESERVE_USD = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6; // 0.02
-
 
 export function computeDepositSplit(walletBalanceUusdc: number): {
   keepUusdc: number;
@@ -38,7 +35,6 @@ export function computeDepositSplit(walletBalanceUusdc: number): {
   const depositUusdc = Math.max(0, walletBalanceUusdc - keepUusdc);
   return { keepUusdc, depositUusdc };
 }
-
 
 export function dydxToNoble(dydxAddress: string): string {
   try {
@@ -103,7 +99,7 @@ export function sumNobleFeesUusdc(estimatedFees: any[]): number {
   }, 0);
 }
 
-// ─── Signer builders ──────────────────────────────────────────────────────────
+//Signer builders
 
 export function buildCosmosSigner(rawSigner: any) {
   return async (chainId: string) => {

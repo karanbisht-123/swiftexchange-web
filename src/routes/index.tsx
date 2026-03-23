@@ -9,6 +9,7 @@ import SendAssets from '../modules/commonfeature/sendassets/SendAssets';
 // import MarketsDisplay from '../modules/dydx/components/MarketsDisplay';
 import TradingintrFace from '../modules/dydx/components/tradedashbord/TradingintrFace';
 import EvmTransactionHistory from '../modules/evm/components/EvmTransactionHistory';
+import BridgePage from '../modules/evm/feature/bridge/BridgePage';
 // import WebSocketDebugger from '../modules/dydx/utils/WebSocketDebugger';
 import SwapAssets from '../modules/evm/feature/swap/SwapAssets';
 import CryptoMarket from '../modules/market/CryptoMarket';
@@ -84,6 +85,14 @@ const router = createBrowserRouter([
             element: (
               <Layout>
                 <AlchemyPayIntegration />
+              </Layout>
+            ),
+          },
+          {
+            path: ROUTES.BRIDGE,
+            element: (
+              <Layout>
+                <BridgePage />
               </Layout>
             ),
           },

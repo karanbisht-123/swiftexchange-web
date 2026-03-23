@@ -13,8 +13,8 @@ import type {
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { TRANSACTION_STEP } from '../constant/OnTapPay.constants';
-import { addLocalTransaction } from '../service/localTransactionService';
 import { getBridgeQuote, getSwapQuote } from '../service/evmSwapService';
+import { addLocalTransaction } from '../service/localTransactionService';
 
 const QUOTE_DEBOUNCE_DELAY = 800;
 const SLIPPAGE_TOLERANCE = 0.5;

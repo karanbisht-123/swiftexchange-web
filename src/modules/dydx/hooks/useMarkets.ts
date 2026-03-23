@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getIndexerClient, getValidatorClient } from '../client/clients';
+import coinsList from '../data/coins.json';
 import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
 import type { MarketData } from '../types/trading.types';
 import { metadataService } from './useMetadata';
-import coinsList from '../data/coins.json';
 
 export type { MarketData };
 
@@ -161,7 +161,7 @@ export function useMarkets(): UseMarketsReturn {
         defaultFundingRate1H: rawData.defaultFundingRate1H,
         spotVolume: rawData.spotVolume,
         marketCap: marketCap,
-        zeroFees: isZeroFees
+        zeroFees: isZeroFees,
       };
     },
     []
@@ -177,7 +177,7 @@ export function useMarkets(): UseMarketsReturn {
         validatorClient.get.getAllPerpMarketFeeDiscounts().catch((err: any) => {
           console.error('[useMarkets] Failed to fetch fee discounts:', err);
           return { params: [] };
-        })
+        }),
       ]);
 
       if (!isMountedRef.current) return;
@@ -225,7 +225,6 @@ export function useMarkets(): UseMarketsReturn {
     setError(null);
     await fetchInitialMarketData();
   }, [fetchInitialMarketData]);
-
 
   useEffect(() => {
     isMountedRef.current = true;

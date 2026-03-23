@@ -50,7 +50,7 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
       'https://rpc.flashbots.net/fast',
       'https://eth.api.onfinality.io/public',
       'https://rpc.mevblocker.io',
-      'https://rpc.mevblocker.io'
+      'https://rpc.mevblocker.io',
     ],
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
@@ -71,7 +71,7 @@ export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
       'https://bsc.meowrpc.com',
       'https://1rpc.io/bnb',
       'https://bsc.rpc.blxrbdn.com',
-      'https://public-bsc.nownodes.io'
+      'https://public-bsc.nownodes.io',
     ],
     blockExplorerUrl: 'https://bscscan.com',
     nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
@@ -240,8 +240,7 @@ export const buildUnifiedNamespaces = (
   };
 
   return {
-    requiredNamespaces: {
-    },
+    requiredNamespaces: {},
     optionalNamespaces: {
       eip155: evmNamespace,
       stellar: {

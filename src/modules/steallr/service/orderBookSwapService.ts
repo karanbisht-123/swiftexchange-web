@@ -161,13 +161,8 @@ export class OrderBookSwapService {
     }
   }
 
-
   private isWalletConnectProvider(provider: any): boolean {
-    return !!(
-      provider.client &&
-      provider.session &&
-      typeof provider.client.request === 'function'
-    );
+    return !!(provider.client && provider.session && typeof provider.client.request === 'function');
   }
 
   async executeOrderWithWalletConnect(

@@ -15,7 +15,6 @@ let validatorClient: ValidatorClient | null = null;
 let compositeClient: CompositeClient | null = null;
 let currentNetwork: 'mainnet' | 'testnet' | null = null;
 
-
 let socketClientInstance: ReturnType<typeof createSocketClient> | null = null;
 let socketClientNetwork: string | null = null;
 

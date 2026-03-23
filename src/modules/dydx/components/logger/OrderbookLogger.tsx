@@ -9,7 +9,6 @@ const OrderbookLogger = () => {
 
     const connectAndSubscribe = async () => {
       try {
-
         await socketClient.connect();
         console.log(' WebSocket connected successfully');
         const market = 'BTC-USD';

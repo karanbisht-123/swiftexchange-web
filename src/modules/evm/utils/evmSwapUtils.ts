@@ -1,8 +1,9 @@
 import { ethers } from 'ethers';
+
 import type { SwapQuote, SwapQuoteRequest, SwapType } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { prepareSwapTransaction, getSwapQuote } from '../service/evmSwapService';
+import { getSwapQuote, prepareSwapTransaction } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
 import { parseSwapError } from './swapErrorHandler';
 
@@ -160,7 +161,10 @@ export async function executeSwap(
         ];
         const tokenContract = new ethers.Contract(selectedSellAsset.address, erc20Abi, signer);
         const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
-        const currentAllowance = await tokenContract.allowance(senderAddress, (txData as any).spenderAddress);
+        const currentAllowance = await tokenContract.allowance(
+          senderAddress,
+          (txData as any).spenderAddress
+        );
 
         if (currentAllowance < amountIn) {
           const approveTx = await tokenContract.approve((txData as any).spenderAddress, amountIn);
@@ -187,8 +191,7 @@ export async function executeSwap(
 
     return lastTxHash;
   } catch (error: any) {
-
-    console.log(error, "eror comeing form SwapUtils", error)
+    console.log(error, 'eror comeing form SwapUtils', error);
     const message = parseSwapError(error);
     throw new Error(message);
   }

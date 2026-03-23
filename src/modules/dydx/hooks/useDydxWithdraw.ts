@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 
 import { StargateClient } from '@cosmjs/stargate';
 import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
+import { executeRoute, route as fetchSkipRoute } from '@skip-go/client';
 import Long from 'long';
 
 import { walletService } from '../../walletconnect/services/walletService';
@@ -24,8 +25,6 @@ import {
   sumNobleFeesUusdc,
 } from '../utils/skipBridgeUtils';
 
-// ─── Constants ──
-
 const NOBLE_RPC_ENDPOINT = 'https://noble-rpc.polkachu.com:443';
 const NOBLE_POLL_TIMEOUT_MS = 120_000;
 const NOBLE_POLL_INTERVAL_MS = 5_000;
@@ -40,22 +39,20 @@ const IBC_RETRY_DELAY_MS = 3_000;
 /**
  * HOW GAS WORKS ON dYdX:
  *
- * - Gas is paid from the native wallet (bank module) in USDC (uusdc denom).
- * - post.withdraw() and post.deposit() use zeroFee=true internally — they cost
- *   NO gas from the native wallet. Only IBC MsgTransfer costs real gas.
- * - So we fold the IBC gas amount into the single withdraw tx:
- *     withdrawQuantums = userAmount + shortfall
- *   After settlement, shortfall stays in the native wallet to pay for the IBC tx.
- *   The user only bridges `userAmount` to Noble.
- * - There is NO separate "auto top-up" step — that would require its own gas tx,
- *   creating a circular dependency. The fold approach is the correct pattern,
- *   matching what the official dYdX frontend does.
+ * Gas is paid from the native wallet (bank module) in USDC (uusdc denom).
+ * post.withdraw() and post.deposit() use zeroFee=true internally -- they cost
+ * NO gas from the native wallet. Only IBC MsgTransfer costs real gas.
+ * So we fold the IBC gas amount into the single withdraw tx:
+ *   withdrawQuantums = userAmount + shortfall
+ * After settlement, shortfall stays in the native wallet to pay for the IBC tx.
+ * The user only bridges userAmount to Noble.
+ * There is NO separate auto top-up step -- that would require its own gas tx,
+ * creating a circular dependency. The fold approach is the correct pattern,
+ * matching what the official dYdX frontend does.
  *
- *  NATIVE_WALLET_GAS_RESERVE_UUSDC = 20 000 uusdc ($0.02) — 6× the actual IBC fee (~$0.003)
+ * NATIVE_WALLET_GAS_RESERVE_UUSDC = 20000 uusdc ($0.02) -- 6x the actual IBC fee (~$0.003)
  * for a generous buffer. Exported from skipBridgeUtils so UI stays in sync.
  */
-
-// ─── Types ──
 
 export type WithdrawStep =
   | 'idle'
@@ -69,7 +66,6 @@ export type WithdrawStep =
   | 'pending'
   | 'success'
   | 'error';
-
 
 function formatTxHash(hashRaw: unknown): string {
   if (typeof hashRaw === 'string') return hashRaw;
@@ -93,14 +89,14 @@ async function waitForNobleBalance(
     const coin = await client.getBalance(nobleAddress, NOBLE_USDC_DENOM);
     const bal = parseInt(coin?.amount ?? '0', 10);
     onTick?.(bal);
-    console.log(`[withdraw] Noble balance: ${bal} uusdc (need ≥ ${minAmountUusdc})`);
+    console.log(`[withdraw] Noble balance: ${bal} uusdc (need >= ${minAmountUusdc})`);
     if (bal >= minAmountUusdc) return bal;
     await new Promise(r => setTimeout(r, NOBLE_POLL_INTERVAL_MS));
   }
 
   throw new Error(
     `Timed out waiting for Noble funds. ` +
-    `Check https://www.mintscan.io/noble/address/${nobleAddress}`
+      `Check https://www.mintscan.io/noble/address/${nobleAddress}`
   );
 }
 
@@ -122,7 +118,6 @@ export const useDydxWithdraw = () => {
 
   const isWithdrawing = step !== 'idle' && step !== 'success' && step !== 'error';
 
-  // Bridge: Noble => EVM 
   const _bridgeFromNoble = useCallback(
     async (
       nobleBalUusdc: number,
@@ -133,8 +128,6 @@ export const useDydxWithdraw = () => {
       destChainId: number | undefined,
       rawSigner: any
     ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
-      const { route: fetchSkipRoute, executeRoute } = await import('@skip-go/client');
-
       const chainId = destChainId ?? Number(evmWallet?.chainId ?? 1);
       const destAssetDenom = USDC_EVM_CONTRACTS[chainId] ?? USDC_EVM_CONTRACTS[1];
 
@@ -152,7 +145,6 @@ export const useDydxWithdraw = () => {
 
       setStep('routing');
 
-      // Probe to estimate bridge fees
       const probeRoute = await fetchSkipRoute({
         ...baseRouteParams,
         amountIn: nobleBalUusdc.toString(),
@@ -170,7 +162,7 @@ export const useDydxWithdraw = () => {
       if (safeAmountIn <= 0) {
         throw new Error(
           `Noble balance (${nobleBalUusdc} uusdc) too low to cover bridge fees ` +
-          `(~${feeBuffer} uusdc). Need at least ${feeBuffer + 1} uusdc.`
+            `(~${feeBuffer} uusdc). Need at least ${feeBuffer + 1} uusdc.`
         );
       }
 
@@ -200,10 +192,10 @@ export const useDydxWithdraw = () => {
           setTxHash(hash);
           console.log(`[bridge] broadcast on ${cid}: ${hash}`);
         },
-        onTransactionTracked: async ({ chainId: cid, txHash: hash }: any) =>
-          console.log(`[bridge] tracked on ${cid}: ${hash}`),
-        onTransactionCompleted: async ({ chainId: cid, txHash: hash, status }: any) =>
-          console.log(`[bridge] completed on ${cid}: ${hash}`, status),
+        // onTransactionTracked: async ({ chainId: cid, txHash: hash }: any) =>
+        //   console.log(`[bridge] tracked on ${cid}: ${hash}`),
+        // onTransactionCompleted: async ({ chainId: cid, txHash: hash, status }: any) =>
+        //   console.log(`[bridge] completed on ${cid}: ${hash}`, status),
       } as any);
 
       setStep('pending');
@@ -213,7 +205,6 @@ export const useDydxWithdraw = () => {
     },
     []
   );
-
 
   const withdraw = useCallback(
     async (
@@ -229,7 +220,6 @@ export const useDydxWithdraw = () => {
       setWithdrawnAmount(null);
 
       try {
-        //  Resolve addresses 
         const storeState = useWalletStore.getState();
         const evmWallet = storeState.connectedWallets.evm;
         const evmAddress = toAddress ?? evmWallet?.address;
@@ -255,7 +245,6 @@ export const useDydxWithdraw = () => {
           localWallet.offlineSigner ?? (localWallet as any).signer ?? (localWallet as any).wallet;
         if (!rawSigner) throw new Error('No offline signer available');
 
-        // ──Step A: Move isolated sub =>cross margin if needed 
         if (fromSubaccount !== SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT) {
           setStep('transferring_to_main');
           const transferResult = await dydxSubaccountService.transfer(
@@ -274,25 +263,17 @@ export const useDydxWithdraw = () => {
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
 
-        // Step B: Compute gas shortfall 
-        // Gas is paid from the native wallet in USDC (uusdc). Only the IBC
-        // MsgTransfer costs real gas — post.withdraw() itself is zeroFee.
-
-
         const walletUusdc = await fetchDydxWalletUsdcBalance(dydxAddress);
         const shortfallUusdc = Math.max(0, NATIVE_WALLET_GAS_RESERVE_UUSDC - walletUusdc);
 
         console.log(
           `[gas] wallet=${walletUusdc} uusdc | ` +
-          `reserve=${NATIVE_WALLET_GAS_RESERVE_UUSDC} uusdc | ` +
-          `shortfall=${shortfallUusdc} uusdc`
+            `reserve=${NATIVE_WALLET_GAS_RESERVE_UUSDC} uusdc | ` +
+            `shortfall=${shortfallUusdc} uusdc`
         );
 
-        // withdrawQuantums includes the user's requested amount + gas shortfall
         const withdrawQuantums = amountInQuantums + shortfallUusdc;
 
-        // Step C: Withdraw from subaccount => native wallet 
-        // post.withdraw() is a privileged tx with zeroFee — no gas deducted
         setStep('signing');
 
         const withdrawResult = await client.validatorClient.post.withdraw(
@@ -302,24 +283,20 @@ export const useDydxWithdraw = () => {
         );
         setTxHash(formatTxHash((withdrawResult as any)?.hash));
 
-        //  Wait for native wallet to reflect the withdrawal
         {
           const POLL_INTERVAL_MS = 3_000;
           const POLL_TIMEOUT_MS = 60_000;
-          // We need at least: original balance + shortfall (proves tx settled)
           const requiredWalletBalance = walletUusdc + shortfallUusdc;
           const deadline = Date.now() + POLL_TIMEOUT_MS;
 
-          console.log(
-            `[withdraw] Waiting for native wallet ≥ ${requiredWalletBalance} uusdc…`
-          );
+          console.log(`[withdraw] Waiting for native wallet >= ${requiredWalletBalance} uusdc...`);
 
           let settled = false;
           while (Date.now() < deadline) {
             await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
             const currentBal = await fetchDydxWalletUsdcBalance(dydxAddress);
             console.log(
-              `[withdraw] Native wallet: ${currentBal} uusdc (need ≥ ${requiredWalletBalance})`
+              `[withdraw] Native wallet: ${currentBal} uusdc (need >= ${requiredWalletBalance})`
             );
             if (currentBal >= requiredWalletBalance) {
               settled = true;
@@ -330,14 +307,11 @@ export const useDydxWithdraw = () => {
           if (!settled) {
             throw new Error(
               `Withdrawal did not reflect in native wallet within ${POLL_TIMEOUT_MS / 1000}s. ` +
-              `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
+                `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
             );
           }
         }
 
-        // ── Step D: IBC transfer: native wallet => Noble
-        // Sends exactly `amountInQuantums`. The `shortfallUusdc` stays in
-        // the native wallet and is used automatically to pay the IBC tx fee.
         setStep('ibc_to_noble');
 
         const timeoutTimestamp = (BigInt(Date.now() + 10 * 60 * 1_000) * 1_000_000n).toString();
@@ -370,7 +344,7 @@ export const useDydxWithdraw = () => {
           } catch (err: any) {
             if (isTransientBroadcastError(err) && attempt < IBC_MAX_RETRIES) {
               console.log(
-                `[withdraw] RPC lag — retrying IBC send (${attempt}/${IBC_MAX_RETRIES})…`
+                `[withdraw] RPC lag -- retrying IBC send (${attempt}/${IBC_MAX_RETRIES})...`
               );
               await new Promise(r => setTimeout(r, IBC_RETRY_DELAY_MS));
               continue;
@@ -385,19 +359,15 @@ export const useDydxWithdraw = () => {
 
         console.log('[withdraw] IBC tx:', formatTxHash((ibcResult as any)?.hash));
 
-        // Step E: Wait for Noble balance ──
         setStep('waiting_noble');
 
         const minNobleBalance = Math.floor(amountInQuantums * 0.9);
-        const finalNobleBalance = await waitForNobleBalance(
-          nobleAddress,
-          minNobleBalance,
-          bal => setNobleBalance(bal)
+        const finalNobleBalance = await waitForNobleBalance(nobleAddress, minNobleBalance, bal =>
+          setNobleBalance(bal)
         );
         console.log('[withdraw] Noble balance confirmed:', finalNobleBalance, 'uusdc');
         setWithdrawnAmount(parseFloat(amount));
 
-        // Step F: Bridge Noble => EVM ──
         return await _bridgeFromNoble(
           finalNobleBalance,
           nobleAddress,
@@ -419,7 +389,6 @@ export const useDydxWithdraw = () => {
     [_bridgeFromNoble]
   );
 
-  // ── Noble balance recovery (stuck funds) ──
   const recoverNobleBalance = useCallback(
     async (
       toAddress?: string,
@@ -473,7 +442,6 @@ export const useDydxWithdraw = () => {
     [_bridgeFromNoble]
   );
 
-  // ── Reset ───
   const reset = useCallback(() => {
     setStep('idle');
     setError(null);
@@ -485,14 +453,14 @@ export const useDydxWithdraw = () => {
 
   const stepLabelMap: Record<WithdrawStep, string> = {
     idle: '',
-    routing: 'Calculating fees…',
-    checking_gas: 'Preparing withdrawal…',
-    transferring_to_main: 'Moving to main account…',
-    signing: 'Signing & settling…',
-    ibc_to_noble: 'Sending to Noble chain…',
-    waiting_noble: 'Waiting for Noble funds…',
-    bridging: 'Bridging to destination…',
-    pending: 'Processing…',
+    routing: 'Calculating fees...',
+    checking_gas: 'Preparing withdrawal...',
+    transferring_to_main: 'Moving to main account...',
+    signing: 'Signing & settling...',
+    ibc_to_noble: 'Sending to Noble chain...',
+    waiting_noble: 'Waiting for Noble funds...',
+    bridging: 'Bridging to destination...',
+    pending: 'Processing...',
     success: 'Withdrawal complete',
     error: 'Withdrawal failed',
   };

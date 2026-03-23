@@ -2,15 +2,15 @@ import { Edit2, Loader2, TrendingDown, TrendingUp, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Notification } from '../../../../components/common/Notification';
-import { metadataService } from '../../hooks/useMetadata';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
+import { metadataService } from '../../hooks/useMetadata';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
 import useMarketStore from '../../store/marketStore';
 import { type Position } from '../../types/trading.types';
 import {
-  calculateIsolatedLiquidationPrice,
   calculateCrossLiquidationPrice,
+  calculateIsolatedLiquidationPrice,
 } from '../../utils/marginCalculator';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
 
@@ -173,40 +173,56 @@ const PositionsPanel: React.FC = () => {
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }, []);
 
-  const getLiquidationPrice = useCallback((position: Position) => {
-    const subaccount = childSubaccounts.find(
-      (sub) => sub.subaccountNumber === position.subaccountNumber
-    );
-    const equity = parseFloat(subaccount?.equity || '0');
+  const getLiquidationPrice = useCallback(
+    (position: Position) => {
+      const subaccount = childSubaccounts.find(
+        sub => sub.subaccountNumber === position.subaccountNumber
+      );
+      const equity = parseFloat(subaccount?.equity || '0');
 
-    const mktData = marketCache[position.market];
-    const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : parseFloat(position.entryPrice);
-    const mmf = mktData?.maintenanceMarginFraction
-      ? parseFloat(mktData.maintenanceMarginFraction)
-      : 0.03;
+      const mktData = marketCache[position.market];
+      const oraclePrice = mktData
+        ? parseFloat(mktData.oraclePrice)
+        : parseFloat(position.entryPrice);
+      const mmf = mktData?.maintenanceMarginFraction
+        ? parseFloat(mktData.maintenanceMarginFraction)
+        : 0.03;
 
-    const absSize = Math.abs(parseFloat(position.size));
-    const side = position.side === 'LONG' ? 'BUY' : 'SELL';
-    const isIsolated = (position.subaccountNumber ?? 0) >= 128;
+      const absSize = Math.abs(parseFloat(position.size));
+      const side = position.side === 'LONG' ? 'BUY' : 'SELL';
+      const isIsolated = (position.subaccountNumber ?? 0) >= 128;
 
-    if (isIsolated) {
-      // p' = (e − s × p) / (|s| × MMF − s)
-      return calculateIsolatedLiquidationPrice(absSize, oraclePrice, equity, mmf, side);
-    }
+      if (isIsolated) {
+        // p' = (e − s × p) / (|s| × MMF − s)
+        return calculateIsolatedLiquidationPrice(absSize, oraclePrice, equity, mmf, side);
+      }
 
-    // Cross: p' = (e − s × p − MMR_o) / (|s| × MMF − s)
-    // MMR_o = Σ |Si × Pi × Mi| for all OTHER positions in the subaccount
-    const otherPositionsMMR = positions
-      .filter((p) => p.subaccountNumber === position.subaccountNumber && p.market !== position.market)
-      .reduce((sum, p) => {
-        const pMkt = marketCache[p.market];
-        const pPrice = pMkt ? parseFloat(pMkt.oraclePrice) : parseFloat(p.entryPrice);
-        const pMmf = pMkt?.maintenanceMarginFraction ? parseFloat(pMkt.maintenanceMarginFraction) : 0.03;
-        return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
-      }, 0);
+      // Cross: p' = (e − s × p − MMR_o) / (|s| × MMF − s)
+      // MMR_o = Σ |Si × Pi × Mi| for all OTHER positions in the subaccount
+      const otherPositionsMMR = positions
+        .filter(
+          p => p.subaccountNumber === position.subaccountNumber && p.market !== position.market
+        )
+        .reduce((sum, p) => {
+          const pMkt = marketCache[p.market];
+          const pPrice = pMkt ? parseFloat(pMkt.oraclePrice) : parseFloat(p.entryPrice);
+          const pMmf = pMkt?.maintenanceMarginFraction
+            ? parseFloat(pMkt.maintenanceMarginFraction)
+            : 0.03;
+          return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
+        }, 0);
 
-    return calculateCrossLiquidationPrice(absSize, oraclePrice, equity, mmf, otherPositionsMMR, side);
-  }, [childSubaccounts, marketCache, positions]);
+      return calculateCrossLiquidationPrice(
+        absSize,
+        oraclePrice,
+        equity,
+        mmf,
+        otherPositionsMMR,
+        side
+      );
+    },
+    [childSubaccounts, marketCache, positions]
+  );
 
   const getPositionMetrics = useCallback(
     (position: Position) => {
@@ -216,7 +232,9 @@ const PositionsPanel: React.FC = () => {
       const mktData = marketCache[position.market];
       const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : entryPrice;
       const imf = mktData?.initialMarginFraction ? parseFloat(mktData.initialMarginFraction) : 0.05;
-      const mmf = mktData?.maintenanceMarginFraction ? parseFloat(mktData.maintenanceMarginFraction) : 0.03;
+      const mmf = mktData?.maintenanceMarginFraction
+        ? parseFloat(mktData.maintenanceMarginFraction)
+        : 0.03;
 
       const notional = absSize * oraclePrice;
       const maxLeverage = imf > 0 ? Math.floor(1 / imf) : 20;
@@ -226,7 +244,9 @@ const PositionsPanel: React.FC = () => {
 
       const apiLeverage = position.leverage ? parseFloat(position.leverage) : 0;
       const storedLeverage = (() => {
-        const raw = localStorage.getItem(`dydx_leverage_${position.market}`) ?? localStorage.getItem('dydx_leverage');
+        const raw =
+          localStorage.getItem(`dydx_leverage_${position.market}`) ??
+          localStorage.getItem('dydx_leverage');
         const parsed = raw ? parseFloat(raw) : 0;
         return parsed > 0 ? parsed : 0;
       })();
@@ -238,14 +258,13 @@ const PositionsPanel: React.FC = () => {
       let margin: number;
       if (isIsolated) {
         const subaccount = childSubaccounts.find(
-          (sub) => sub.subaccountNumber === position.subaccountNumber
+          sub => sub.subaccountNumber === position.subaccountNumber
         );
         const subEquity = parseFloat(subaccount?.equity || '0');
         margin = subEquity > 0 ? subEquity : notional / effectiveLeverage;
       } else {
         margin = notional / effectiveLeverage;
       }
-
 
       const liquidationPrice = getLiquidationPrice(position);
 
@@ -412,10 +431,13 @@ const PositionsPanel: React.FC = () => {
                   </td>
 
                   <td className="p-3">
-                    <span className={`px-1.5 py-1 rounded text-[10px] font-medium ${metrics.marginType === 'Cross'
-                      ? 'bg-secondary text-primary'
-                      : 'bg-secondary text-primary'
-                      }`}>
+                    <span
+                      className={`px-1.5 py-1 rounded text-[10px] font-medium ${
+                        metrics.marginType === 'Cross'
+                          ? 'bg-secondary text-primary'
+                          : 'bg-secondary text-primary'
+                      }`}
+                    >
                       {metrics.marginType}
                     </span>
                   </td>
@@ -429,7 +451,9 @@ const PositionsPanel: React.FC = () => {
                     </div>
                   </td> */}
 
-                  <td className="p-3 text-right text-primary font-mono">{metrics.absSize.toFixed(4)}</td>
+                  <td className="p-3 text-right text-primary font-mono">
+                    {metrics.absSize.toFixed(4)}
+                  </td>
 
                   <td className="p-3 text-right text-primary font-mono">
                     ${formatPrice(metrics.notional)}
@@ -437,8 +461,9 @@ const PositionsPanel: React.FC = () => {
 
                   <td className="p-3 text-right">
                     <div
-                      className={`flex flex-col font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
+                      className={`flex flex-col font-mono ${
+                        unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                      }`}
                     >
                       <span>
                         {unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}
@@ -510,7 +535,10 @@ const PositionsPanel: React.FC = () => {
           const isClosing = closingMarket === position.market;
 
           return (
-            <div key={position.market} className="bg-secondary border border-color rounded-lg p-2.5 text-xs">
+            <div
+              key={position.market}
+              className="bg-secondary border border-color rounded-lg p-2.5 text-xs"
+            >
               <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center overflow-hidden">
@@ -520,18 +548,22 @@ const PositionsPanel: React.FC = () => {
                   <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-yellow-500/10 text-yellow-400">
                     {metrics.leverage.toFixed(1)}×
                   </span>
-                  <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${metrics.marginType === 'Cross'
-                    ? 'bg-secondary text-primary'
-                    : 'bg-secondary text-primary'
-                    }`}>
+                  <span
+                    className={`px-1 py-0.5 rounded text-[9px] font-medium ${
+                      metrics.marginType === 'Cross'
+                        ? 'bg-secondary text-primary'
+                        : 'bg-secondary text-primary'
+                    }`}
+                  >
                     {metrics.marginType}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <div
-                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
-                      }`}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+                    }`}
                   >
                     {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
                     {position.side}
@@ -556,50 +588,79 @@ const PositionsPanel: React.FC = () => {
                 </div>
               </div>
 
-
               <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Size</span>
-                  <span className="text-primary font-medium font-mono">{metrics.absSize.toFixed(4)}</span>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Size
+                  </span>
+                  <span className="text-primary font-medium font-mono">
+                    {metrics.absSize.toFixed(4)}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Value</span>
-                  <span className="text-primary font-medium font-mono">${formatPrice(metrics.notional)}</span>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Value
+                  </span>
+                  <span className="text-primary font-medium font-mono">
+                    ${formatPrice(metrics.notional)}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Avg Open</span>
-                  <span className="text-primary font-medium font-mono">${formatPrice(metrics.entryPrice)}</span>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Avg Open
+                  </span>
+                  <span className="text-primary font-medium font-mono">
+                    ${formatPrice(metrics.entryPrice)}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Oracle</span>
-                  <span className="text-blue-400 font-medium font-mono">${formatPrice(metrics.oraclePrice)}</span>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Oracle
+                  </span>
+                  <span className="text-blue-400 font-medium font-mono">
+                    ${formatPrice(metrics.oraclePrice)}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Margin</span>
-                  <span className="text-primary font-medium font-mono">${formatPrice(metrics.margin)}</span>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Margin
+                  </span>
+                  <span className="text-primary font-medium font-mono">
+                    ${formatPrice(metrics.margin)}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Liq Price</span>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Liq Price
+                  </span>
                   <span className="text-orange-400 font-medium font-mono">
                     ${metrics.liquidationPrice ? formatPrice(metrics.liquidationPrice) : '—'}
                   </span>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Unrealized P&L</span>
-                  <div className={`font-medium font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    <div>{unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}</div>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Unrealized P&L
+                  </span>
+                  <div
+                    className={`font-medium font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                  >
+                    <div>
+                      {unrealizedPnl >= 0 ? '+' : ''}${formatPrice(unrealizedPnl)}
+                    </div>
                     <div className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</div>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Funding</span>
+                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+                    Funding
+                  </span>
                   <span className="text-primary font-medium font-mono">
                     {parseFloat(position.netFunding || '0').toFixed(4)}
                   </span>

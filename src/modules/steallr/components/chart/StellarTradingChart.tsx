@@ -69,7 +69,6 @@ export default function StellarTradingChart({
   autoStream = true,
   onAssetPairChange: _onAssetPairChange,
 }: StellarTradingChartProps) {
-
   const isDark = useTheme();
   const [resolution, setResolution] = useState<ChartResolution>(CHART_RESOLUTIONS['1w']);
   const [timeRangeKey, setTimeRangeKey] = useState<keyof typeof TIME_RANGES>('1Y');
@@ -429,7 +428,8 @@ export default function StellarTradingChart({
           onClick={onToggle}
           className="btn-secondary btn-sm flex items-center gap-2"
         >
-          <span className="hidden md:inline">{label}:</span> <span className="font-medium">{value}</span>
+          <span className="hidden md:inline">{label}:</span>{' '}
+          <span className="font-medium">{value}</span>
           <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
 
@@ -448,8 +448,9 @@ export default function StellarTradingChart({
                       onChange(opt.value);
                       onToggle();
                     }}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${value === opt.label ? 'bg-hover text-brand' : 'text-primary'
-                      }`}
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${
+                      value === opt.label ? 'bg-hover text-brand' : 'text-primary'
+                    }`}
                   >
                     {opt.label}
                   </button>
@@ -543,7 +544,9 @@ export default function StellarTradingChart({
   };
 
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50' : 'h-full'} bg-primary lg:rounded-xl flex flex-col overflow-hidden`}>
+    <div
+      className={`${isFullscreen ? 'fixed inset-0 z-50' : 'h-full'} bg-primary lg:rounded-xl flex flex-col overflow-hidden`}
+    >
       <div className="h-full flex flex-col">
         <div className="bg-secondary px-2 py-2 border-b border-white/5">
           <div className="flex items-center justify-between gap-4">
@@ -611,9 +614,7 @@ export default function StellarTradingChart({
 
         <div className="flex-1 bg-secondary relative min-h-0">
           {isLoading && chartData.length === 0 ? (
-            <div
-              className="absolute inset-0 flex items-center justify-center"
-            >
+            <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
                 <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                 <p className="text-secondary text-sm">Loading chart data...</p>
@@ -623,10 +624,7 @@ export default function StellarTradingChart({
               </div>
             </div>
           ) : (
-            <div
-              ref={chartContainerRef}
-              className="absolute inset-0 w-full h-full"
-            />
+            <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
           )}
         </div>
 
