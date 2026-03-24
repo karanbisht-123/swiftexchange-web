@@ -1,6 +1,8 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
+import { type NetworkType } from '../../walletconnect/config/chains';
+import { type ChainType, chainTypeToId } from '../utils/Chainregistry';
 
-export type ChainType = 'eth' | 'bsc';
+export type { ChainType };
 
 export interface TransactionItem {
   blockNum: string;
@@ -21,6 +23,7 @@ export interface TransactionItem {
   };
   metadata: any | null;
   formattedAmount: string;
+  chainId: number;
 }
 
 export interface TransactionPagination {
@@ -35,9 +38,11 @@ export interface TransactionHistoryResponse {
   data: TransactionItem[];
   pagination: TransactionPagination;
 }
+
 export const getEvmTransactionHistory = async (
   address: string,
   chain: ChainType,
+  network: NetworkType,
   sentPageKey?: string,
   receivedPageKey?: string
 ): Promise<TransactionHistoryResponse> => {
@@ -48,6 +53,14 @@ export const getEvmTransactionHistory = async (
     if (receivedPageKey) params.append('receivedPageKey', receivedPageKey);
     endpoint += `?${params.toString()}`;
   }
+
   const response = await fetchApiResponseFromProxy<TransactionHistoryResponse>(endpoint, 'GET');
-  return response.data;
+
+  const resolvedChainId = chainTypeToId(chain, network);
+  const data = (response.data.data ?? []).map(tx => ({
+    ...tx,
+    chainId: resolvedChainId,
+  }));
+
+  return { ...response.data, data };
 };

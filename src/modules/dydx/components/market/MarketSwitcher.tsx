@@ -6,6 +6,14 @@ import { tradesState } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
 import { useLivePriceStore } from '../../store/useLivePriceStore';
 import MarketSelectorModal from './MarketSelectorModal';
+import { Tooltip } from '../../../../components/common/Tooltip';
+import {
+  formatFundingRate,
+  formatAnnualizedFundingRate,
+  fetchDydxServerTime,
+  getNextFundingTimestamp,
+  formatFundingCountdown,
+} from '../../utils/FundingUtils';
 
 interface AnimatedPriceProps {
   price: string | number;
@@ -36,9 +44,7 @@ const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, classNa
   }, [price]);
 
   return (
-    <span
-      className={`${className} ${getPriceColor()} transition-colors duration-300 font-bold tabular-nums`}
-    >
+    <span className={`${className} ${getPriceColor()} transition-colors duration-300 font-bold tabular-nums`}>
       {displayPrice}
     </span>
   );
@@ -62,6 +68,29 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '' }) 
   );
 };
 
+function useFundingCountdown(): string {
+  const [countdown, setCountdown] = useState('--:--');
+  const offsetRef = useRef<number>(0);
+
+  useEffect(() => {
+    fetchDydxServerTime().then(serverMs => {
+      offsetRef.current = serverMs - Date.now();
+    }).catch(() => {
+      offsetRef.current = 0;
+    });
+
+    const interval = setInterval(() => {
+      const serverNow = Date.now() + offsetRef.current;
+      const target = getNextFundingTimestamp(serverNow);
+      setCountdown(formatFundingCountdown(target, serverNow));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return countdown;
+}
+
 interface MarketStatsProps {
   marketData?: {
     ticker: string;
@@ -69,16 +98,23 @@ interface MarketStatsProps {
     volume24H: string;
     trades24H: number;
     nextFundingRate: string;
-    nextFundingAt: string;
     openInterest: string;
     initialMarginFraction?: string;
+    maintenanceMarginFraction?: string;
   };
 }
 
 export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
-  if (!marketData) {
-    return null;
-  }
+  const countdown = useFundingCountdown();
+
+  if (!marketData) return null;
+
+  const fundingFormatted = formatFundingRate(marketData.nextFundingRate);
+  const annualized = formatAnnualizedFundingRate(marketData.nextFundingRate);
+  const isPositive = parseFloat(marketData.nextFundingRate) >= 0;
+
+  const imf = Number(marketData.initialMarginFraction);
+  const mmf = Number(marketData.maintenanceMarginFraction);
 
   return (
     <div className="grid grid-cols-2 bg-secondary border-t border-color">
@@ -93,9 +129,7 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
       <div className="flex flex-col p-3 border-b border-color">
         <span className="text-muted text-xs mb-1">24H Volume</span>
         <AnimatedValue
-          value={`${parseFloat(marketData.volume24H || '0').toLocaleString(undefined, {
-            maximumFractionDigits: 0,
-          })}`}
+          value={`${parseFloat(marketData.volume24H || '0').toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
           className="font-medium text-primary text-sm"
         />
       </div>
@@ -111,37 +145,24 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
       <div className="flex flex-col p-3 border-b border-color">
         <span className="text-muted text-xs mb-1">Open Interest</span>
         <AnimatedValue
-          value={`${parseFloat(marketData.openInterest || '0').toLocaleString(undefined, {
-            maximumFractionDigits: 0,
-          })} USD`}
+          value={`${parseFloat(marketData.openInterest || '0').toLocaleString(undefined, { maximumFractionDigits: 0 })} USD`}
           className="font-medium text-primary text-sm"
         />
       </div>
 
       <div className="flex flex-col p-3 border-r border-color">
         <span className="text-muted text-xs mb-1">1h Funding</span>
-        <AnimatedValue
-          value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
-          className={`font-medium text-sm ${
-            parseFloat(marketData.nextFundingRate || '0') >= 0 ? 'price-up' : 'price-down'
-          }`}
-        />
+        <Tooltip content={`Annualized: ${annualized}`} position="top">
+          <AnimatedValue
+            value={fundingFormatted}
+            className={`font-medium text-sm ${isPositive ? 'price-up' : 'price-down'}`}
+          />
+        </Tooltip>
       </div>
 
       <div className="flex flex-col p-3">
         <span className="text-muted text-xs mb-1">Next Funding</span>
-        <div className="font-medium text-primary text-sm">
-          {(() => {
-            if (!marketData.nextFundingAt) return '-';
-            const funding = new Date(marketData.nextFundingAt).getTime();
-            const now = Date.now();
-            const diff = funding - now;
-            if (diff <= 0) return '00:00';
-            const minutes = Math.floor((diff % 3600000) / 60000);
-            const seconds = Math.floor((diff % 60000) / 1000);
-            return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-          })()}
-        </div>
+        <span className="font-medium text-primary text-sm tabular-nums">{countdown}</span>
       </div>
     </div>
   );
@@ -149,7 +170,6 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
 
 const MarketSwitcher: React.FC = () => {
   const { selectedMarket } = useMarketStore();
-
   const { getMarket, isLoading } = useMarkets();
   const livePriceData = useLivePriceStore(state => state.prices[selectedMarket]);
   const livePrice = livePriceData?.price || null;
@@ -164,11 +184,13 @@ const MarketSwitcher: React.FC = () => {
     volume24H: '0',
     trades24H: 0,
     nextFundingRate: '0',
-    nextFundingAt: '',
     openInterest: '0',
     coinIcon: '',
     initialMarginFraction: '0.05',
+    maintenanceMarginFraction: '0',
   };
+
+  const countdown = useFundingCountdown();
 
   const snapshotPrice = tradesState.get(selectedMarket)?.trades[0]?.price;
   const currentPrice =
@@ -187,6 +209,15 @@ const MarketSwitcher: React.FC = () => {
   const formattedPercentage =
     changePercentage >= 0 ? `+${priceChangePercentage}` : priceChangePercentage;
 
+  const fundingFormatted = formatFundingRate(marketData.nextFundingRate);
+  const annualized = formatAnnualizedFundingRate(marketData.nextFundingRate);
+  const isFundingPositive = parseFloat(marketData.nextFundingRate) >= 0;
+
+  const imf = Number(marketData.initialMarginFraction);
+
+  const maxLeverage = imf > 0 ? `${(1 / imf).toFixed(2)}×` : '-';
+  const leverageTooltip = "Maximum allowed leverage for this market. To limit risk, maximum leverage decreases linearly with position size after a certain threshold."
+
   return (
     <>
       <div className="lg:hidden flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color">
@@ -200,17 +231,12 @@ const MarketSwitcher: React.FC = () => {
               src={marketData.coinIcon}
               alt={selectedMarket}
               className="w-6 h-6 rounded-full"
-              onError={e => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-              }}
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
             />
           ) : (
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-              style={{
-                background:
-                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
-              }}
+              style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}
             >
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
@@ -243,26 +269,19 @@ const MarketSwitcher: React.FC = () => {
               src={marketData.coinIcon}
               alt={selectedMarket}
               className="w-6 h-6 rounded-full"
-              onError={e => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-              }}
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
             />
           ) : (
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-              style={{
-                background:
-                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
-              }}
+              style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}
             >
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
           )}
-
           <div className="flex flex-col items-start">
             <span className="font-semibold text-primary text-base">{selectedMarket}</span>
           </div>
-
           <ChevronDown className="w-4 h-4 text-muted ml-1" />
         </button>
 
@@ -276,13 +295,11 @@ const MarketSwitcher: React.FC = () => {
 
         <div className="hide-scrollbar flex items-center overflow-x-auto px-2 flex-1">
           <div className="flex divide-x divide-divider whitespace-nowrap">
+
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Oracle Price</span>
               <AnimatedValue
-                value={`$${parseFloat(marketData.oraclePrice).toLocaleString(undefined, {
-                  minimumFractionDigits: 1,
-                  maximumFractionDigits: 1,
-                })}`}
+                value={`$${parseFloat(marketData.oraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
                 className="font-medium text-primary"
               />
             </div>
@@ -290,10 +307,7 @@ const MarketSwitcher: React.FC = () => {
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Change</span>
               <div className={`flex ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}>
-                <AnimatedValue
-                  value={`$${priceChange.toFixed(1)}`}
-                  className="font-medium text-xs"
-                />
+                <AnimatedValue value={`$${priceChange.toFixed(1)}`} className="font-medium text-xs" />
                 <AnimatedValue value={`${formattedPercentage}%`} className="font-medium text-xs" />
               </div>
             </div>
@@ -301,67 +315,49 @@ const MarketSwitcher: React.FC = () => {
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Volume</span>
               <AnimatedValue
-                value={`$${parseFloat(marketData.volume24H).toLocaleString(undefined, {
-                  maximumFractionDigits: 0,
-                })}`}
+                value={`$${parseFloat(marketData.volume24H).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
                 className="font-medium text-primary"
               />
             </div>
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Trades</span>
-              <AnimatedValue
-                value={marketData.trades24H.toLocaleString()}
-                className="font-medium text-primary"
-              />
+              <AnimatedValue value={marketData.trades24H.toLocaleString()} className="font-medium text-primary" />
             </div>
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Open Interest</span>
               <AnimatedValue
-                value={`${parseFloat(marketData.openInterest).toLocaleString(undefined, {
-                  maximumFractionDigits: 0,
-                })} USD`}
+                value={`${parseFloat(marketData.openInterest).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD`}
                 className="font-medium text-primary"
               />
             </div>
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">1h Funding</span>
-              <AnimatedValue
-                value={`${parseFloat(marketData.nextFundingRate || '0').toFixed(5)}%`}
-                className={`font-medium ${
-                  parseFloat(marketData.nextFundingRate) >= 0 ? 'price-up' : 'price-down'
-                }`}
-              />
+              <Tooltip content={`Annualized: ${annualized}`} position="bottom">
+                <AnimatedValue
+                  value={fundingFormatted}
+                  className={`font-medium ${isFundingPositive ? 'price-up' : 'price-down'}`}
+                />
+              </Tooltip>
             </div>
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Next Funding</span>
-              <div className="font-medium text-primary">
-                {(() => {
-                  const funding = new Date(marketData.nextFundingAt).getTime();
-                  const now = Date.now();
-                  const diff = funding - now;
-                  if (diff <= 0) return '00:00';
-                  const minutes = Math.floor((diff % 3600000) / 60000);
-                  const seconds = Math.floor((diff % 60000) / 1000);
-                  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-                })()}
-              </div>
+              <span className="font-medium text-primary tabular-nums">{countdown}</span>
             </div>
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Maximum Leverage</span>
-              <AnimatedValue
-                value={
-                  marketData.initialMarginFraction
-                    ? `${(1 / Number(marketData.initialMarginFraction)).toFixed(2)}×`
-                    : '-'
-                }
-                className="font-medium text-primary"
-              />
+              <Tooltip content={leverageTooltip} position="bottom">
+                <AnimatedValue
+                  value={maxLeverage}
+                  className="font-medium text-primary"
+                />
+              </Tooltip>
             </div>
+
           </div>
         </div>
       </div>

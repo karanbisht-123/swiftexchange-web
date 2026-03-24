@@ -20,7 +20,7 @@ export type MessageHandler = (data: WebSocketMessage) => void;
 export type ConnectionHandler = () => void;
 
 interface MessageCache {
-  lastContent: string;
+  lastHash: number;
   lastTimestamp: number;
 }
 
@@ -28,6 +28,16 @@ interface SubscriptionStats {
   lastMessageTime: number;
   messageCount: number;
   errorCount: number;
+}
+
+function cheapHash(obj: unknown): number {
+  const str = typeof obj === 'string' ? obj : JSON.stringify(obj);
+  let h = 5381;
+  for (let i = 0; i < Math.min(str.length, 512); i++) {
+    h = ((h << 5) + h) ^ str.charCodeAt(i);
+    h = h >>> 0; // keep 32-bit unsigned
+  }
+  return h;
 }
 
 class WebSocketManager {
@@ -50,21 +60,28 @@ class WebSocketManager {
   private subscriptionStats = new Map<string, SubscriptionStats>();
 
   private messageQueue: WebSocketSubscription[] = [];
-  private flushTimer: NodeJS.Timeout | null = null;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly FLUSH_INTERVAL = 100;
+
+
   private rafId: number | null = null;
   private pendingHandlerCalls: Array<{ handler: MessageHandler; data: WebSocketMessage }> = [];
   private readonly MAX_BATCH_SIZE = 100;
   private lastMessageTime = 0;
-  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private tabHiddenAt: number | null = null;
+  private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private readonly HEALTH_CHECK_INTERVAL = 15000;
-  private readonly CONNECTION_TIMEOUT = 60000;
+  private readonly CONNECTION_TIMEOUT = 300_000;
 
-  private pingInterval: NodeJS.Timeout | null = null;
-  private readonly PING_INTERVAL = 25000;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly PING_INTERVAL = 30_000;
   private pongReceived = true;
   private missedPongs = 0;
   private readonly MAX_MISSED_PONGS = 2;
+
+
+  private disconnectNotifyTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly DISCONNECT_NOTIFY_DELAY = 3000;
 
   private connectionHandlers = new Set<ConnectionHandler>();
   private disconnectionHandlers = new Set<ConnectionHandler>();
@@ -72,9 +89,10 @@ class WebSocketManager {
   private messageCache = new Map<string, MessageCache>();
   private readonly CACHE_CLEANUP_INTERVAL = 60000;
   private readonly CACHE_TTL = 5000;
-  private cacheCleanupTimer: NodeJS.Timeout | null = null;
+  private cacheCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-  private throttleMap = new Map<string, NodeJS.Timeout>();
+
+  private throttleMap = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly THROTTLE_INTERVALS: Record<string, number> = {
     v4_markets: 500,
     v4_candles: 0,
@@ -99,7 +117,7 @@ class WebSocketManager {
     'v4_subaccounts',
     'v4_parent_subaccounts',
   ]);
-  // messages received
+
   private totalMessagesReceived = 0;
   private messagesByChannel = new Map<string, number>();
 
@@ -124,8 +142,15 @@ class WebSocketManager {
 
   private readonly handleVisibilityChange = (): void => {
     if (document.hidden) {
+      this.tabHiddenAt = Date.now();
       this.stopPing();
       return;
+    }
+
+    if (this.tabHiddenAt !== null) {
+      const hiddenDuration = Date.now() - this.tabHiddenAt;
+      this.lastMessageTime += hiddenDuration;
+      this.tabHiddenAt = null;
     }
 
     if (!this.currentWsUrl) return;
@@ -176,14 +201,19 @@ class WebSocketManager {
           this.reconnectAttempts = 0;
           this.isReconnecting = false;
           this.lastMessageTime = Date.now();
+          this.tabHiddenAt = null;
           this.pongReceived = true;
           this.missedPongs = 0;
           this.serverSubscriptions.clear();
           this.subscriptionInProgress.clear();
           this.messageCache.clear();
           this.resubscribeAll();
-          if (!document.hidden) {
+          if (typeof document === 'undefined' || !document.hidden) {
             this.startPing();
+          }
+          if (this.disconnectNotifyTimer !== null) {
+            clearTimeout(this.disconnectNotifyTimer);
+            this.disconnectNotifyTimer = null;
           }
           this.notifyConnectionHandlers();
           resolve();
@@ -213,7 +243,6 @@ class WebSocketManager {
           this.stopPing();
           this.serverSubscriptions.clear();
           this.subscriptionInProgress.clear();
-          this.notifyDisconnectionHandlers();
 
           const shouldReconnect =
             !this.isReconnecting &&
@@ -222,7 +251,10 @@ class WebSocketManager {
             this.currentWsUrl !== null;
 
           if (shouldReconnect) {
+            this.scheduleDisconnectNotification();
             this.attemptReconnect();
+          } else {
+            this.notifyDisconnectionHandlers();
           }
         };
       } catch (error) {
@@ -231,6 +263,8 @@ class WebSocketManager {
         reject(error);
       }
     });
+
+    return this.connectPromise;
   }
 
   private async disconnect(): Promise<void> {
@@ -282,7 +316,7 @@ class WebSocketManager {
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
-      await this.connect(this.currentWsUrl);
+      await this.connect(this.currentWsUrl!);
       this.isReconnecting = false;
     } catch (error) {
       console.error('[WS] Reconnection failed:', error);
@@ -336,6 +370,13 @@ class WebSocketManager {
           this.subscriptionInProgress.delete(subscriptionKey);
           this.messageCache.delete(subscriptionKey);
           this.subscriptionStats.delete(subscriptionKey);
+
+          const throttleKey = `${subscriptionKey}_throttle`;
+          const existingThrottle = this.throttleMap.get(throttleKey);
+          if (existingThrottle) {
+            clearTimeout(existingThrottle);
+            this.throttleMap.delete(throttleKey);
+          }
 
           const unsubMsg: WebSocketSubscription = {
             type: 'unsubscribe',
@@ -402,7 +443,6 @@ class WebSocketManager {
 
       if (data.type === 'connected' && data.connection_id) {
         this.connectionId = data.connection_id;
-        console.log('[WS] Received connection ID:', data.connection_id);
         return;
       }
 
@@ -410,7 +450,6 @@ class WebSocketManager {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
         this.serverSubscriptions.add(key);
         this.subscriptionInProgress.delete(key);
-        console.log('[WS] Subscribed to:', key);
         if (data.contents) {
           const handlers = this.subscriptions.get(key);
           if (handlers && handlers.size > 0) {
@@ -426,29 +465,21 @@ class WebSocketManager {
       if (data.type === 'unsubscribed') {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
         this.serverSubscriptions.delete(key);
-        console.log('[WS] Unsubscribed from:', key);
         return;
       }
 
       if (data.type === 'error' && data.message) {
         const key = data.id ? `${data.channel}_${data.id}` : data.channel;
-
         const isAlreadySubscribed = data.message.includes('already subscribed');
         if (!isAlreadySubscribed) {
           console.error('[WS] Subscription error:', data.message);
         }
-
         const stats = this.subscriptionStats.get(key);
-        if (stats) {
-          stats.errorCount++;
-        }
-
+        if (stats) stats.errorCount++;
         if (isAlreadySubscribed) {
           this.serverSubscriptions.add(key);
-          this.subscriptionInProgress.delete(key);
-        } else {
-          this.subscriptionInProgress.delete(key);
         }
+        this.subscriptionInProgress.delete(key);
         return;
       }
 
@@ -486,17 +517,16 @@ class WebSocketManager {
       console.error('[WS] Message parse error:', error);
     }
   }
-
   private isDuplicateMessage(key: string, data: WebSocketMessage): boolean {
-    const contentStr = JSON.stringify(data.contents);
+    const hash = cheapHash(data.contents);
     const cached = this.messageCache.get(key);
     const now = Date.now();
 
-    if (cached && cached.lastContent === contentStr && now - cached.lastTimestamp < 100) {
+    if (cached && cached.lastHash === hash && now - cached.lastTimestamp < 100) {
       return true;
     }
 
-    this.messageCache.set(key, { lastContent: contentStr, lastTimestamp: now });
+    this.messageCache.set(key, { lastHash: hash, lastTimestamp: now });
     return false;
   }
 
@@ -520,10 +550,11 @@ class WebSocketManager {
         });
         this.scheduleHandlerExecution();
 
-        this.throttleMap.set(
-          throttleKey,
-          setTimeout(() => this.throttleMap.delete(throttleKey), throttleInterval)
+        const timer = setTimeout(
+          () => this.throttleMap.delete(throttleKey),
+          throttleInterval
         );
+        this.throttleMap.set(throttleKey, timer);
       }
     }
   }
@@ -542,7 +573,10 @@ class WebSocketManager {
       });
       return;
     }
+
+
     if (this.rafId !== null) return;
+
     this.rafId = requestAnimationFrame(() => {
       this.rafId = null;
       const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
@@ -556,26 +590,32 @@ class WebSocketManager {
       if (this.pendingHandlerCalls.length > 0) this.scheduleHandlerExecution();
     });
   }
+  private scheduleDisconnectNotification(): void {
+    if (this.disconnectNotifyTimer !== null) return;
+    this.disconnectNotifyTimer = setTimeout(() => {
+      this.disconnectNotifyTimer = null;
+      if (!this.isConnected()) {
+        this.notifyDisconnectionHandlers();
+      }
+    }, this.DISCONNECT_NOTIFY_DELAY);
+  }
 
   private startPing(): void {
     this.stopPing();
 
     this.pingInterval = setInterval(() => {
       if (!this.isConnected()) return;
-
       if (!this.pongReceived) {
-        this.missedPongs++;
-        if (this.missedPongs >= this.MAX_MISSED_PONGS) {
-          this.ws?.close();
-          return;
-        }
+        this.missedPongs = Math.min(this.missedPongs + 1, this.MAX_MISSED_PONGS);
       }
 
       this.pongReceived = false;
       try {
+
         this.ws!.send(JSON.stringify({ type: 'ping' }));
       } catch (error) {
         console.error('[WS] Ping send failed:', error);
+
         this.ws?.close();
       }
     }, this.PING_INTERVAL);
@@ -596,31 +636,38 @@ class WebSocketManager {
 
       const now = Date.now();
 
-      const timeSinceLastMessage = now - this.lastMessageTime;
-      if (timeSinceLastMessage > this.CONNECTION_TIMEOUT) {
-        this.ws?.close();
-        return;
+      const tabIsHidden = typeof document !== 'undefined' && document.hidden;
+      if (!tabIsHidden) {
+        const timeSinceLastMessage = now - this.lastMessageTime;
+        if (timeSinceLastMessage > this.CONNECTION_TIMEOUT) {
+          console.warn('[WS] Health check: no messages for', timeSinceLastMessage, 'ms — closing');
+          this.ws?.close();
+          return;
+        }
       }
 
-      this.subscriptionStats.forEach((stats, key) => {
-        if (!this.serverSubscriptions.has(key)) return;
-        if (stats.lastMessageTime === 0) return;
 
-        const channel = key.split('_').slice(0, 2).join('_');
-        const threshold = this.CHANNEL_STALE_THRESHOLDS[channel];
-        if (!threshold) return;
+      if (!tabIsHidden) {
+        this.subscriptionStats.forEach((stats, key) => {
+          if (!this.serverSubscriptions.has(key)) return;
+          if (stats.lastMessageTime === 0) return;
 
-        const staleDuration = now - stats.lastMessageTime;
-        if (staleDuration > threshold) {
-          this.serverSubscriptions.delete(key);
-          this.subscriptionInProgress.delete(key);
-          const pending = this.pendingSubscriptions.get(key);
-          if (pending) {
-            this.subscriptionInProgress.add(key);
-            this.queueMessage(pending);
+          const channel = key.split('_').slice(0, 2).join('_');
+          const threshold = this.CHANNEL_STALE_THRESHOLDS[channel];
+          if (!threshold) return;
+
+          const staleDuration = now - stats.lastMessageTime;
+          if (staleDuration > threshold) {
+            this.serverSubscriptions.delete(key);
+            this.subscriptionInProgress.delete(key);
+            const pending = this.pendingSubscriptions.get(key);
+            if (pending) {
+              this.subscriptionInProgress.add(key);
+              this.queueMessage(pending);
+            }
           }
-        }
-      });
+        });
+      }
     }, this.HEALTH_CHECK_INTERVAL);
   }
 
@@ -688,8 +735,7 @@ class WebSocketManager {
     }
   }
 
-  // subscription activity
-  getDebugInfo(): any {
+  getDebugInfo(): Record<string, unknown> {
     const now = Date.now();
     const subscriptionActivity = Array.from(this.subscriptionStats.entries()).map(
       ([key, stats]) => ({
@@ -712,6 +758,7 @@ class WebSocketManager {
       inProgressSubscriptions: Array.from(this.subscriptionInProgress),
       reconnectAttempts: this.reconnectAttempts,
       isReconnecting: this.isReconnecting,
+      reconnectBannerPending: this.disconnectNotifyTimer !== null,
       messageQueueLength: this.messageQueue.length,
       pendingHandlerCalls: this.pendingHandlerCalls.length,
       activeHandlerCount: Array.from(this.subscriptions.values()).reduce(
@@ -755,12 +802,19 @@ class WebSocketManager {
 
     this.serverSubscriptions.clear();
     this.subscriptionInProgress.clear();
+
+    if (this.disconnectNotifyTimer !== null) {
+      clearTimeout(this.disconnectNotifyTimer);
+      this.disconnectNotifyTimer = null;
+    }
+
     this.notifyDisconnectionHandlers();
 
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
+
 
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
@@ -774,6 +828,7 @@ class WebSocketManager {
     this.connectionId = null;
     this.pongReceived = true;
     this.missedPongs = 0;
+    this.tabHiddenAt = null;
   }
 
   private clearAllSubscriptions(): void {
@@ -784,8 +839,16 @@ class WebSocketManager {
     this.messageQueue = [];
     this.messageCache.clear();
     this.subscriptionStats.clear();
-    this.throttleMap.forEach(t => clearTimeout(t));
+
+
+    this.throttleMap.forEach(timer => clearTimeout(timer));
     this.throttleMap.clear();
+
+    if (this.disconnectNotifyTimer !== null) {
+      clearTimeout(this.disconnectNotifyTimer);
+      this.disconnectNotifyTimer = null;
+    }
+
     this.connectionHandlers.clear();
     this.disconnectionHandlers.clear();
     this.totalMessagesReceived = 0;
