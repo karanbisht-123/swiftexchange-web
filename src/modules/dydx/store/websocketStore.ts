@@ -101,6 +101,12 @@ export interface CandleData {
   lastUpdate: number;
 }
 
+export interface PositionPnl {
+  unrealizedPnl: string;
+  realizedPnl: string;
+  netFunding: string;
+}
+
 interface WebSocketState {
   isConnected: boolean;
   connectionId: string | null;
@@ -111,10 +117,12 @@ interface WebSocketState {
   trades: Map<string, TradeData>;
   candles: Map<string, CandleData>;
 
+  positionPnl: Map<string, PositionPnl>;
+
   activeSubscriptions: Set<string>;
   subscriptionRefs: Map<string, () => void>;
   subscriptionCounts: Map<string, number>;
-  unsubTimers: Map<string, NodeJS.Timeout>;
+  unsubTimers: Map<string, ReturnType<typeof setTimeout>>;
 
   subscribeToParentSubaccount: (address: string, subaccountNumber: number) => void;
   unsubscribeFromParentSubaccount: (address: string, subaccountNumber: number) => void;
@@ -221,6 +229,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     markets: new Map(),
     trades: new Map(),
     candles: new Map(),
+    positionPnl: new Map(),
     activeSubscriptions: new Set(),
     subscriptionRefs: new Map(),
     subscriptionCounts: new Map(),
@@ -259,6 +268,20 @@ export const useWebSocketStore = create<WebSocketState>()(
                 updatedAtHeight: child.updatedAtHeight || '0',
                 latestProcessedBlockHeight: child.latestProcessedBlockHeight || '0',
               }));
+
+              const initialPnl = new Map(get().positionPnl);
+              subaccount.childSubaccounts.forEach((child: any) => {
+                Object.values(child.openPerpetualPositions || {}).forEach((pos: any) => {
+                  if (pos.market) {
+                    initialPnl.set(pos.market, {
+                      unrealizedPnl: pos.unrealizedPnl || '0',
+                      realizedPnl: pos.realizedPnl || '0',
+                      netFunding: pos.netFunding || '0',
+                    });
+                  }
+                });
+              });
+              set({ positionPnl: initialPnl });
             }
 
             if (contents.orders !== undefined) {
@@ -293,6 +316,8 @@ export const useWebSocketStore = create<WebSocketState>()(
 
             const newOrders: any[] = [];
             const newFills: any[] = [];
+            const pnlUpdates = new Map<string, PositionPnl>();
+            let hasStructuralPositionChange = false;
 
             batchContents.forEach((batch: any) => {
               if (batch.perpetualPositions && Array.isArray(batch.perpetualPositions)) {
@@ -315,14 +340,61 @@ export const useWebSocketStore = create<WebSocketState>()(
                       latestProcessedBlockHeight: batch.blockHeight || '0',
                     });
                     childIndex = updatedChildSubaccounts.length - 1;
+                    hasStructuralPositionChange = true;
                   }
 
                   const child = updatedChildSubaccounts[childIndex];
 
                   if (pos.status === 'CLOSED' || parseFloat(pos.size || '0') === 0) {
                     delete child.openPerpetualPositions[pos.market];
+                    hasStructuralPositionChange = true;
                   } else {
-                    child.openPerpetualPositions[pos.market] = { ...pos, subaccountNumber: subNum };
+                    const existing = child.openPerpetualPositions[pos.market];
+
+                    const isPnlOnlyUpdate =
+                      existing &&
+                      pos.unrealizedPnl !== undefined &&
+                      pos.size === undefined &&
+                      pos.entryPrice === undefined &&
+                      pos.side === undefined;
+
+                    if (isPnlOnlyUpdate) {
+                      pnlUpdates.set(pos.market, {
+                        unrealizedPnl: pos.unrealizedPnl ?? existing.unrealizedPnl,
+                        realizedPnl: pos.realizedPnl ?? existing.realizedPnl,
+                        netFunding: pos.netFunding ?? existing.netFunding,
+                      });
+
+                      child.openPerpetualPositions[pos.market] = {
+                        ...existing,
+                        unrealizedPnl: pos.unrealizedPnl ?? existing.unrealizedPnl,
+                        realizedPnl: pos.realizedPnl ?? existing.realizedPnl,
+                        netFunding: pos.netFunding ?? existing.netFunding,
+                      };
+                    } else {
+                      const merged = existing
+                        ? {
+                          ...existing,
+                          ...pos,
+                          unrealizedPnl: pos.unrealizedPnl ?? existing.unrealizedPnl ?? '0',
+                          realizedPnl: pos.realizedPnl ?? existing.realizedPnl ?? '0',
+                          netFunding: pos.netFunding ?? existing.netFunding ?? '0',
+                          entryPrice: pos.entryPrice ?? existing.entryPrice ?? '0',
+                          size: pos.size ?? existing.size ?? '0',
+                          side: pos.side ?? existing.side,
+                          subaccountNumber: subNum,
+                        }
+                        : { ...pos, subaccountNumber: subNum };
+
+                      child.openPerpetualPositions[pos.market] = merged;
+                      hasStructuralPositionChange = true;
+
+                      pnlUpdates.set(pos.market, {
+                        unrealizedPnl: merged.unrealizedPnl,
+                        realizedPnl: merged.realizedPnl,
+                        netFunding: merged.netFunding,
+                      });
+                    }
                   }
 
                   child.updatedAtHeight = batch.blockHeight || child.updatedAtHeight;
@@ -330,6 +402,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                     batch.blockHeight || child.latestProcessedBlockHeight;
                 });
               }
+
               if (batch.assetPositions && Array.isArray(batch.assetPositions)) {
                 batch.assetPositions.forEach((asset: any) => {
                   const subNum = asset.subaccountNumber ?? batchSubaccountNumber;
@@ -370,7 +443,17 @@ export const useWebSocketStore = create<WebSocketState>()(
               }
             });
 
-            updates.childSubaccounts = updatedChildSubaccounts;
+            if (pnlUpdates.size > 0) {
+              set(state => {
+                const next = new Map(state.positionPnl);
+                pnlUpdates.forEach((val, market) => next.set(market, val));
+                return { positionPnl: next };
+              });
+            }
+
+            if (hasStructuralPositionChange) {
+              updates.childSubaccounts = updatedChildSubaccounts;
+            }
 
             if (newOrders.length > 0) {
               updates.orders = newOrders;
@@ -461,17 +544,26 @@ export const useWebSocketStore = create<WebSocketState>()(
         const socketClient = getSocketClient();
         return socketClient.subscribeToMarkets((data: any) => {
           if (data.contents?.markets) {
-            Object.entries(data.contents.markets).forEach(([ticker, mktData]: [string, any]) => {
-              get().updateMarket(ticker, {
-                ticker,
-                oraclePrice: mktData.oraclePrice,
-                priceChange24H: mktData.priceChange24H,
-                trades24H: mktData.trades24H,
-                volume24H: mktData.volume24H,
-                openInterest: mktData.openInterest,
-                nextFundingRate: mktData.nextFundingRate,
-                lastUpdate: Date.now(),
-              });
+            set((state: WebSocketState) => {
+              const newMap = new Map(state.markets);
+              const now = Date.now();
+              Object.entries(data.contents.markets).forEach(
+                ([ticker, mktData]: [string, any]) => {
+                  const existing = newMap.get(ticker);
+                  newMap.set(ticker, {
+                    ...existing,
+                    ticker,
+                    oraclePrice: mktData.oraclePrice,
+                    priceChange24H: mktData.priceChange24H,
+                    trades24H: mktData.trades24H,
+                    volume24H: mktData.volume24H,
+                    openInterest: mktData.openInterest,
+                    nextFundingRate: mktData.nextFundingRate,
+                    lastUpdate: now,
+                  } as MarketData);
+                }
+              );
+              return { markets: newMap };
             });
           }
         });
@@ -550,7 +642,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               (order.updatedAt &&
                 (!existingOrder.updatedAt ||
                   new Date(order.updatedAt).getTime() >=
-                    new Date(existingOrder.updatedAt).getTime()))
+                  new Date(existingOrder.updatedAt).getTime()))
             ) {
               orderMap.set(order.id, order);
             }
@@ -625,9 +717,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newMap = new Map(state.markets);
         const existing = newMap.get(ticker);
         newMap.set(ticker, { ...existing, ...data, lastUpdate: Date.now() } as MarketData);
-        return {
-          markets: newMap,
-        };
+        return { markets: newMap };
       });
     },
 
@@ -636,9 +726,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newMap = new Map(state.trades);
         const existing = newMap.get(market);
         newMap.set(market, { ...existing, ...data } as TradeData);
-        return {
-          trades: newMap,
-        };
+        return { trades: newMap };
       });
     },
 
@@ -647,14 +735,14 @@ export const useWebSocketStore = create<WebSocketState>()(
         const newMap = new Map(state.candles);
         const existing = newMap.get(key);
         newMap.set(key, { ...existing, ...data } as CandleData);
-        return {
-          candles: newMap,
-        };
+        return { candles: newMap };
       });
     },
 
     cleanup: () => {
       const { subscriptionRefs, unsubTimers } = get();
+
+      unsubTimers.forEach(timer => clearTimeout(timer));
 
       subscriptionRefs.forEach((unsubscribe, key) => {
         try {
@@ -664,13 +752,12 @@ export const useWebSocketStore = create<WebSocketState>()(
         }
       });
 
-      unsubTimers.forEach(timer => clearTimeout(timer));
-
       set({
         parentSubaccounts: new Map(),
         markets: new Map(),
         trades: new Map(),
         candles: new Map(),
+        positionPnl: new Map(),
         activeSubscriptions: new Set(),
         subscriptionRefs: new Map(),
         subscriptionCounts: new Map(),

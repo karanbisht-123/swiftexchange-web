@@ -4,7 +4,7 @@ import { ethers } from 'ethers';
 
 import { ERC20_ABI } from '../../../abi/Erc20AbI';
 import { SWAP_ROUTER_ABI } from '../../../abi/SwapRouterABI';
-import { getConfigByChainId, getNetworkKeyFromChainId } from '../../../config/swapConfigs';
+import { getSwapConfig } from '../utils/Chainregistry';
 import type {
   BridgeQuoteDetails,
   QuoteDetails,
@@ -109,7 +109,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       const currentChainId = parseInt(chainIdHex, 16);
       setChainId(currentChainId);
 
-      const config = getConfigByChainId(currentChainId);
+      const config = getSwapConfig(currentChainId);
       if (!config) {
         throw new Error(`Unsupported chain: ${currentChainId}`);
       }
@@ -253,11 +253,8 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       setError(null);
 
       try {
-        const config = getConfigByChainId(chainId);
+        const config = getSwapConfig(chainId);
         if (!config) throw new Error(`Unsupported chain: ${chainId}`);
-
-        const networkKey = getNetworkKeyFromChainId(chainId);
-        if (!networkKey) throw new Error(`Network key not found for chain: ${chainId}`);
 
         const chainType = chainId === 1 || chainId === 11155111 ? 'ETH' : 'BNB';
 
@@ -422,7 +419,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
       throw new Error('Missing required data for approval');
     }
 
-    const config = getConfigByChainId(chainId);
+    const config = getSwapConfig(chainId);
     if (!config) throw new Error(`Unsupported chain: ${chainId}`);
 
     const ethersProvider = new ethers.BrowserProvider(provider);
@@ -471,7 +468,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
     // logger.step(TRANSACTION_STEP.PREPARING_SWAP);
     setCurrentStep(TRANSACTION_STEP.PREPARING_SWAP);
 
-    const config = getConfigByChainId(chainId);
+    const config = getSwapConfig(chainId);
     if (!config) throw new Error(`Unsupported chain: ${chainId}`);
 
     try {
@@ -544,7 +541,7 @@ export const useOneTapPay = ({ bridgeRecipient, onRampUrl, onComplete }: UseOneT
     // logger.step(TRANSACTION_STEP.PREPARING_BRIDGE);
     setCurrentStep(TRANSACTION_STEP.PREPARING_BRIDGE);
 
-    const config = getConfigByChainId(chainId);
+    const config = getSwapConfig(chainId);
     if (!config) throw new Error(`Unsupported chain: ${chainId}`);
 
     try {
