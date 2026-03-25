@@ -165,6 +165,6 @@ export const useSubaccounts = () => {
     sweepToCross,
     isTransferring,
     transferError,
-    clearTransferError: () => setTransferError(null),
+    clearTransferError: useCallback(() => setTransferError(null), []),
   };
 };

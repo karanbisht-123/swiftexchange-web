@@ -116,8 +116,20 @@ const PositionRow = React.memo(function PositionRow({
         <PnlCell market={position.market} margin={metrics.margin} />
       </td>
 
-      <td className="p-3 text-right text-primary font-mono">
-        ${formatPrice(metrics.margin)}
+      <td className="p-3 text-right font-mono">
+        <div className="flex items-center justify-end gap-1.5 text-primary">
+          <span>${formatPrice(metrics.margin)}</span>
+          {isIsolated && (
+            <button
+              onClick={() => onAddMargin(position)}
+              disabled={isClosing}
+              className="p-1 hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
+              title="Add Margin"
+            >
+              <PlusCircle size={12} />
+            </button>
+          )}
+        </div>
       </td>
 
       <td className="p-3 text-right text-muted font-mono">
@@ -138,16 +150,7 @@ const PositionRow = React.memo(function PositionRow({
 
       <td className="p-3 text-center">
         <div className="flex justify-center gap-1.5">
-          {isIsolated && (
-            <button
-              onClick={() => onAddMargin(position)}
-              disabled={isClosing}
-              className="p-1.5 bg-secondary hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
-              title="Add Margin"
-            >
-              <PlusCircle size={12} />
-            </button>
-          )}
+
           <button
             onClick={() => onEdit(position)}
             disabled={isClosing}
@@ -223,16 +226,7 @@ const PositionCard = React.memo(function PositionCard({
             {position.side}
           </div>
 
-          {isIsolated && (
-            <button
-              onClick={() => onAddMargin(position)}
-              disabled={isClosing}
-              className="p-1.5 bg-primary hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
-              title="Add Margin"
-            >
-              <PlusCircle size={12} />
-            </button>
-          )}
+
 
           <button
             onClick={() => onEdit(position)}
@@ -276,7 +270,19 @@ const PositionCard = React.memo(function PositionCard({
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Margin</span>
-          <span className="text-primary font-medium font-mono">${formatPrice(metrics.margin)}</span>
+          <div className="flex items-center gap-1 font-medium font-mono">
+            <span className="text-primary">${formatPrice(metrics.margin)}</span>
+            {isIsolated && (
+              <button
+                onClick={() => onAddMargin(position)}
+                disabled={isClosing}
+                className="p-1 hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
+                title="Add Margin"
+              >
+                <PlusCircle size={12} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col gap-0.5">
@@ -835,6 +841,7 @@ const PositionsPanel: React.FC = () => {
           onClose={() => setAddMarginPosition(null)}
           position={addMarginPosition}
           onSuccess={handleAddMarginSuccess}
+          marketIcon={getMarketIcon(addMarginPosition.market)}
         />
       )}
     </div>
