@@ -1,4 +1,4 @@
-import { Edit2, Loader2, TrendingDown, TrendingUp, X } from 'lucide-react';
+import { Edit2, Loader2, TrendingDown, TrendingUp, X, PlusCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Notification } from '../../../../components/common/Notification';
@@ -14,6 +14,7 @@ import {
   calculateIsolatedLiquidationPrice,
 } from '../../utils/marginCalculator';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
+import AddMarginModal from '../shared/Addmarginmodal';
 
 interface PnlCellProps {
   market: string;
@@ -63,6 +64,7 @@ interface PositionRowProps {
   isClosing: boolean;
   onEdit: (position: Position) => void;
   onClose: (position: Position) => void;
+  onAddMargin: (position: Position) => void;
   getMarketIcon: (market: string) => React.ReactNode;
   formatPrice: (value: string | number) => string;
 }
@@ -73,9 +75,12 @@ const PositionRow = React.memo(function PositionRow({
   isClosing,
   onEdit,
   onClose,
+  onAddMargin,
   getMarketIcon,
   formatPrice,
 }: PositionRowProps) {
+  const isIsolated = (position.subaccountNumber ?? 0) >= 128;
+
   return (
     <tr className="border-b border-color hover:bg-hover transition-colors">
       <td className="p-3">
@@ -132,7 +137,17 @@ const PositionRow = React.memo(function PositionRow({
       </td>
 
       <td className="p-3 text-center">
-        <div className="flex justify-center gap-2">
+        <div className="flex justify-center gap-1.5">
+          {isIsolated && (
+            <button
+              onClick={() => onAddMargin(position)}
+              disabled={isClosing}
+              className="p-1.5 bg-secondary hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
+              title="Add Margin"
+            >
+              <PlusCircle size={12} />
+            </button>
+          )}
           <button
             onClick={() => onEdit(position)}
             disabled={isClosing}
@@ -165,6 +180,7 @@ interface PositionCardProps {
   isClosing: boolean;
   onEdit: (position: Position) => void;
   onClose: (position: Position) => void;
+  onAddMargin: (position: Position) => void;
   getMarketIcon: (market: string) => React.ReactNode;
   formatPrice: (value: string | number) => string;
 }
@@ -175,10 +191,12 @@ const PositionCard = React.memo(function PositionCard({
   isClosing,
   onEdit,
   onClose,
+  onAddMargin,
   getMarketIcon,
   formatPrice,
 }: PositionCardProps) {
   const isShort = position.side === 'SHORT';
+  const isIsolated = (position.subaccountNumber ?? 0) >= 128;
 
   return (
     <div className="bg-secondary border border-color rounded-lg p-2.5 text-xs">
@@ -196,7 +214,7 @@ const PositionCard = React.memo(function PositionCard({
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <div
             className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
               }`}
@@ -204,6 +222,17 @@ const PositionCard = React.memo(function PositionCard({
             {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
             {position.side}
           </div>
+
+          {isIsolated && (
+            <button
+              onClick={() => onAddMargin(position)}
+              disabled={isClosing}
+              className="p-1.5 bg-primary hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
+              title="Add Margin"
+            >
+              <PlusCircle size={12} />
+            </button>
+          )}
 
           <button
             onClick={() => onEdit(position)}
@@ -326,13 +355,9 @@ function computePositionMetrics(
   );
   const equity = parseFloat(subaccount?.equity || '0');
 
-  let margin: number;
-  if (isIsolated) {
-    const subEquity = equity;
-    margin = subEquity > 0 ? subEquity : notional / effectiveLeverage;
-  } else {
-    margin = notional / effectiveLeverage;
-  }
+  const margin = isIsolated
+    ? equity > 0 ? equity : notional / effectiveLeverage
+    : notional / effectiveLeverage;
 
   const side = position.side === 'LONG' ? 'BUY' : 'SELL';
 
@@ -388,15 +413,15 @@ const PositionsPanel: React.FC = () => {
   } = useDydxData();
 
   const positions = rawPositions as Position[];
-  const { closePosition, setTriggers, isSettingTriggers, orderError, clearOrderError } =
-    useDydxTrading();
+  const { closePosition, closeAllPositions, setTriggers, isSettingTriggers, orderError, clearOrderError } = useDydxTrading();
   const { childSubaccounts } = useSubaccounts();
-
   const marketCache = useMarketStore(state => state.marketCache);
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
+  const [addMarginPosition, setAddMarginPosition] = useState<Position | null>(null);
   const [closingMarket, setClosingMarket] = useState<string | null>(null);
+  const [isClosingAll, setIsClosingAll] = useState(false);
   const [hiddenPositions, setHiddenPositions] = useState<Set<string>>(new Set());
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [newPositionsCount, setNewPositionsCount] = useState(0);
@@ -415,6 +440,12 @@ const PositionsPanel: React.FC = () => {
 
   const activeMarkets = useMemo(() => [...new Set(positions.map(p => p.market))], [positions]);
 
+  // Visible positions — excludes ones already submitted for closing
+  const visiblePositions = useMemo(
+    () => positions.filter(p => !hiddenPositions.has(p.market)),
+    [positions, hiddenPositions]
+  );
+
   useEffect(() => {
     const currentLength = positions.length;
     const prevLength = prevPositionsLengthRef.current;
@@ -423,21 +454,15 @@ const PositionsPanel: React.FC = () => {
       const newCount = currentLength - prevLength;
       setNewPositionsCount(newCount);
 
-      if (newPositionTimerRef.current) {
-        clearTimeout(newPositionTimerRef.current);
-      }
+      if (newPositionTimerRef.current) clearTimeout(newPositionTimerRef.current);
 
-      newPositionTimerRef.current = setTimeout(() => {
-        setNewPositionsCount(0);
-      }, 5000);
+      newPositionTimerRef.current = setTimeout(() => setNewPositionsCount(0), 5000);
     }
 
     prevPositionsLengthRef.current = currentLength;
 
     return () => {
-      if (newPositionTimerRef.current) {
-        clearTimeout(newPositionTimerRef.current);
-      }
+      if (newPositionTimerRef.current) clearTimeout(newPositionTimerRef.current);
     };
   }, [positions.length]);
 
@@ -474,6 +499,15 @@ const PositionsPanel: React.FC = () => {
     [clearOrderError]
   );
 
+  const handleAddMargin = useCallback((position: Position) => {
+    setAddMarginPosition(position);
+  }, []);
+
+  const handleAddMarginSuccess = useCallback(() => {
+    showNotification(`Margin added to ${addMarginPosition?.market} position`, 'success');
+    setTimeout(refreshPositions, 1500);
+  }, [addMarginPosition, refreshPositions, showNotification]);
+
   const handleSaveTriggers = useCallback(
     async (config: TriggerConfig) => {
       if (!selectedPosition) return;
@@ -485,9 +519,7 @@ const PositionsPanel: React.FC = () => {
 
         const result = await setTriggers(selectedPosition, params);
 
-        let successCount = 0;
-        if (result.takeProfit?.success) successCount++;
-        if (result.stopLoss?.success) successCount++;
+        const successCount = [result.takeProfit?.success, result.stopLoss?.success].filter(Boolean).length;
 
         if (successCount > 0) {
           const triggerText = successCount === 2 ? 'Take Profit & Stop Loss' : 'Trigger';
@@ -495,9 +527,7 @@ const PositionsPanel: React.FC = () => {
           setShowPriceTriggers(false);
           setTimeout(refreshPositions, 1500);
         } else {
-          const errorMsg =
-            result.takeProfit?.error || result.stopLoss?.error || 'Failed to set triggers';
-          showNotification(errorMsg, 'error');
+          showNotification(result.takeProfit?.error || result.stopLoss?.error || 'Failed to set triggers', 'error');
         }
       } catch (error: any) {
         showNotification(error.message || 'Failed to set triggers', 'error');
@@ -531,6 +561,50 @@ const PositionsPanel: React.FC = () => {
     [closePosition, refreshPositions, showNotification]
   );
 
+  const handleCloseAll = useCallback(async () => {
+    if (visiblePositions.length === 0) return;
+    if (!window.confirm(`Close all ${visiblePositions.length} open position${visiblePositions.length > 1 ? 's' : ''}?`)) return;
+
+    setIsClosingAll(true);
+
+    try {
+      // Build marketInfoMap from the cache so closeAllPositions skips indexer round trips
+      const marketInfoMap = Object.fromEntries(
+        visiblePositions
+          .map(p => [p.market, marketCache[p.market]])
+          .filter(([, v]) => v != null)
+      );
+
+      const result = await closeAllPositions(visiblePositions, marketInfoMap);
+
+      // Hide all positions that closed successfully
+      if (result.closed > 0) {
+        const closedMarkets = result.results
+          .filter((r: any) => r.success)
+          .map((r: any) => r.market);
+        setHiddenPositions(prev => {
+          const next = new Set(prev);
+          closedMarkets.forEach((m: string) => next.add(m));
+          return next;
+        });
+      }
+
+      if (result.success) {
+        showNotification(`All ${result.closed} position${result.closed > 1 ? 's' : ''} closed successfully!`, 'success');
+      } else if (result.partialSuccess) {
+        showNotification(`${result.closed} closed, ${result.failed} failed — check individual positions`, 'error');
+      } else {
+        showNotification('Failed to close positions', 'error');
+      }
+
+      setTimeout(refreshPositions, 1000);
+    } catch (error: any) {
+      showNotification(error.message || 'Failed to close all positions', 'error');
+    } finally {
+      setIsClosingAll(false);
+    }
+  }, [visiblePositions, marketCache, closeAllPositions, refreshPositions, showNotification]);
+
   const formatPrice = useCallback((value: string | number) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -561,10 +635,7 @@ const PositionsPanel: React.FC = () => {
     const map = new Map<string, ReturnType<typeof computePositionMetrics>>();
     positions.forEach(position => {
       if (Math.abs(parseFloat(position.size)) > 0) {
-        map.set(
-          position.market,
-          computePositionMetrics(position, marketCache, childSubaccounts, positions)
-        );
+        map.set(position.market, computePositionMetrics(position, marketCache, childSubaccounts, positions));
       }
     });
     return map;
@@ -636,6 +707,7 @@ const PositionsPanel: React.FC = () => {
         </div>
       )}
 
+      {/* Desktop table */}
       <div className="hidden md:block">
         <table className="w-full text-left text-xs border-collapse">
           <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
@@ -661,7 +733,26 @@ const PositionsPanel: React.FC = () => {
               <th className="p-2 border-b border-color text-right text-[10px]">Oracle</th>
               <th className="p-2 border-b border-color text-right text-[10px]">Liquidation</th>
               <th className="p-2 border-b border-color text-right text-[10px]">Funding</th>
-              <th className="p-2 border-b border-color text-center text-[10px]">Actions</th>
+              <th className="p-2 border-b border-color text-center text-[10px]">
+                <div className="flex items-center justify-center gap-2">
+                  Actions
+                  {visiblePositions.length > 1 && (
+                    <button
+                      onClick={handleCloseAll}
+                      disabled={isClosingAll || !!closingMarket}
+                      className="px-1.5 py-0.5 bg-red-900/40 hover:bg-red-700/50 text-red-400 hover:text-red-300 rounded text-[9px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                      title="Close all positions"
+                    >
+                      {isClosingAll ? (
+                        <Loader2 size={8} className="animate-spin" />
+                      ) : (
+                        <X size={8} />
+                      )}
+                      Close All
+                    </button>
+                  )}
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -675,9 +766,10 @@ const PositionsPanel: React.FC = () => {
                   key={position.market}
                   position={position}
                   metrics={metrics}
-                  isClosing={closingMarket === position.market}
+                  isClosing={closingMarket === position.market || isClosingAll}
                   onEdit={handleEdit}
                   onClose={handleClose}
+                  onAddMargin={handleAddMargin}
                   getMarketIcon={getMarketIcon}
                   formatPrice={formatPrice}
                 />
@@ -687,7 +779,24 @@ const PositionsPanel: React.FC = () => {
         </table>
       </div>
 
+      {/* Mobile cards */}
       <div className="md:hidden space-y-1.5 p-2">
+        {/* Close All button — only shown when there are multiple positions */}
+        {visiblePositions.length > 1 && (
+          <button
+            onClick={handleCloseAll}
+            disabled={isClosingAll || !!closingMarket}
+            className="w-full flex items-center justify-center gap-1.5 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800/40 text-red-400 hover:text-red-300 rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isClosingAll ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <X size={12} />
+            )}
+            {isClosingAll ? 'Closing all positions...' : `Close All Positions (${visiblePositions.length})`}
+          </button>
+        )}
+
         {positions.map(position => {
           if (hiddenPositions.has(position.market)) return null;
           const metrics = positionMetrics.get(position.market);
@@ -698,9 +807,10 @@ const PositionsPanel: React.FC = () => {
               key={position.market}
               position={position}
               metrics={metrics}
-              isClosing={closingMarket === position.market}
+              isClosing={closingMarket === position.market || isClosingAll}
               onEdit={handleEdit}
               onClose={handleClose}
+              onAddMargin={handleAddMargin}
               getMarketIcon={getMarketIcon}
               formatPrice={formatPrice}
             />
@@ -716,6 +826,15 @@ const PositionsPanel: React.FC = () => {
           isLoading={isSettingTriggers}
           error={orderError}
           onSave={handleSaveTriggers}
+        />
+      )}
+
+      {addMarginPosition && (
+        <AddMarginModal
+          isOpen={!!addMarginPosition}
+          onClose={() => setAddMarginPosition(null)}
+          position={addMarginPosition}
+          onSuccess={handleAddMarginSuccess}
         />
       )}
     </div>

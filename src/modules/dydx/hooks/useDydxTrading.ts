@@ -127,6 +127,32 @@ export const useDydxTrading = () => {
     [canTrade, address]
   );
 
+  const closeAllPositions = useCallback(
+    async (positions: Position[], marketInfoMap?: Record<string, any>): Promise<any> => {
+      if (!canTrade || !address) {
+        const msg = 'Not ready to trade';
+        setOrderError(msg);
+        return { success: false, error: msg, userMessage: msg, retryable: false, closed: 0, failed: positions.length, results: [] };
+      }
+
+      try {
+        const cache = marketInfoMap || useMarketStore.getState().marketCache;
+        const result = await dydxTradingService.closeAllPositions(positions, cache as any);
+
+        if (result.closed > 0 || result.success) {
+          triggerTradeRefresh('close');
+        }
+
+        return result;
+      } catch (err: any) {
+        const msg = err.message || 'Close all positions failed';
+        setOrderError(msg);
+        return { success: false, error: msg, userMessage: msg, retryable: true, closed: 0, failed: positions.length, results: [] };
+      }
+    },
+    [canTrade, address]
+  );
+
   const setTriggers = useCallback(
     async (position: Position, triggers: TriggerParams): Promise<any> => {
       if (!canTrade || !address) {
@@ -164,6 +190,7 @@ export const useDydxTrading = () => {
     placeOrder,
     cancelOrder,
     closePosition,
+    closeAllPositions,
     setTriggers,
     isPlacingOrder,
     isCancelling,
