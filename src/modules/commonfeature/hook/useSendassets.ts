@@ -14,7 +14,8 @@ import type {
 } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
-import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains } from '../../evm/utils/Chainregistry';
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {

@@ -16,7 +16,6 @@ import { decryptAndRestore, encryptAndStore, hasEncryptedBlob, purge } from './d
 import { sessionVault } from './sessionVault';
 
 const CONNECTION_TIMEOUT_MS = 120_000;
-
 const SESSION_STORAGE_KEY = 'wallet_sessions';
 
 type WalletType = 'evm' | 'cosmos' | 'stellar';
@@ -40,6 +39,12 @@ interface WalletSession {
   dydxAddress?: string;
   stellarAddress?: string;
   stellarChainId?: string;
+  /**
+   * Tracks whether this WalletConnect session was established as part of a
+   * unified (multichain) connection or as an individual chain connection.
+   * Used during session restore to pick the correct provider key.
+   */
+  connectionMode?: 'unified' | 'separate';
 }
 
 interface DydxDerivation {
@@ -85,9 +90,6 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
   const isWalletConnect = !!(provider as any)?.session;
   const dataToSign = isWalletConnect ? typedData : JSON.stringify(typedData);
 
-  console.log(`[Transaction] Requesting signature from ${evmAddress} for dYdX onboarding...`);
-  console.log('[Transaction] Payload:', JSON.stringify(typedData, null, 2));
-
   try {
     const signaturePromise = (provider as any).request({
       method: 'eth_signTypedData_v4',
@@ -97,14 +99,8 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
       setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
     );
 
-    const signature = await Promise.race([signaturePromise, timeoutPromise]);
-    console.log(`[Transaction] Signature received: ${String(signature).substring(0, 10)}...`);
-    return signature as string;
+    return (await Promise.race([signaturePromise, timeoutPromise])) as string;
   } catch (error: any) {
-    console.error('[Transaction] Signature request failed:', {
-      message: error.message,
-      code: error.code,
-    });
     if (
       error.code === 4001 ||
       error.code === 'ACTION_REJECTED' ||
@@ -147,8 +143,7 @@ class WalletService {
     try {
       const stored = localStorage.getItem('network');
       this.currentNetwork = stored === 'testnet' ? 'testnet' : 'mainnet';
-    } catch (error) {
-      console.warn('[WalletService] Failed to read network from storage:', error);
+    } catch {
       this.currentNetwork = 'mainnet';
     }
   }
@@ -194,6 +189,10 @@ class WalletService {
     return provider;
   }
 
+  // ---------------------------------------------------------------------------
+  // Unified (multichain) connect
+  // ---------------------------------------------------------------------------
+
   async connectUnified(walletId: string): Promise<UnifiedConnectionResult> {
     this.emitState('evm', 'connecting');
 
@@ -207,12 +206,6 @@ class WalletService {
       const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
       const stellarConfig = getStellarConfig(this.currentNetwork);
       const stellarChain = `stellar:${stellarConfig.chainId}`;
-
-      console.log(
-        '[Wallet] Initiating multichain connection request for namespaces:',
-        JSON.stringify(namespaces, null, 2)
-      );
-      console.log('[Wallet] Requested chains:', [...evmChains, stellarChain]);
 
       modal = new WalletConnectModal({
         projectId: WALLETCONNECT_PROJECT_ID,
@@ -237,7 +230,6 @@ class WalletService {
           .then((s: any) => {
             clearTimeout(timeout);
             modal!.closeModal();
-            console.log('[Wallet] Raw multichain connection response:', s);
             resolve(s);
           })
           .catch((err: any) => {
@@ -257,6 +249,7 @@ class WalletService {
           walletId,
           evmAddress: address,
           evmChainId: parseInt(chainIdStr, 10),
+          connectionMode: 'unified',
         };
         this.sessions.set('evm', evmSession);
         this.providers.set('evm', provider);
@@ -272,6 +265,7 @@ class WalletService {
           walletId,
           stellarAddress: address,
           stellarChainId: chainId,
+          connectionMode: 'unified',
         };
         this.sessions.set('stellar', stellarSession);
         this.providers.set('stellar', provider);
@@ -279,17 +273,9 @@ class WalletService {
         this.emitState('stellar', 'connected');
       }
 
-      console.log(
-        `[Wallet] Multichain connection returned EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`
-      );
-
       this.saveSession();
       return result;
     } catch (error: any) {
-      console.error(`[Wallet] Multichain connection failed for ${walletId}:`, {
-        message: error.message,
-        stack: error.stack,
-      });
       modal?.closeModal();
       if (provider && !provider.session) {
         this.providers.delete('unified');
@@ -318,7 +304,10 @@ class WalletService {
       let cosmosAddress: string | undefined;
       let cosmosChainId: string | undefined;
 
-      if (walletId !== 'walletconnect' && this.isExtensionInstalled(walletId)) {
+      const isExtension =
+        walletId !== 'walletconnect' && this.isExtensionInstalled(walletId);
+
+      if (isExtension) {
         const result = await this.connectExtension(walletId, preferredType);
         provider = result.provider;
         evmAddress = result.evmAddress;
@@ -341,6 +330,8 @@ class WalletService {
         evmChainId,
         cosmosAddress,
         cosmosChainId,
+        // WalletConnect single connections always use a per-type provider key
+        connectionMode: isExtension ? undefined : 'separate',
       };
 
       this.sessions.set(type, session);
@@ -353,24 +344,21 @@ class WalletService {
         this.emitState(type, 'signing');
 
         try {
-          // Give WalletConnect sessions a moment to settle before signing
           if (provider?.session) {
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
 
           const derived = await deriveDydxAddress(evmAddress, provider);
           session.dydxAddress = await encryptAndStore(derived.mnemonic);
-          // Zero out the mnemonic reference immediately after handing it off
           derived.mnemonic = '';
 
           this.sessions.set(type, session);
           this.emitState(type, 'connected');
           this.saveSession();
           return session;
-        } catch (error: any) {
+        } catch {
           this.emitState(type, 'connected');
           this.saveSession();
-          // User rejected or timed out — not a hard failure. They can derive later.
           return { ...session, derivationSkipped: true };
         }
       } else if (cosmosChainId === dydxChainId) {
@@ -378,15 +366,10 @@ class WalletService {
         this.sessions.set(type, session);
       }
 
-      console.log(`[Wallet] Successfully connected ${type} wallet: ${walletId}`);
       this.emitState(type, 'connected');
       this.saveSession();
       return session;
     } catch (error: any) {
-      console.error(`[Wallet] Connection failed for ${walletId} on ${type}:`, {
-        message: error.message,
-        stack: error.stack,
-      });
       this.emitState(type, 'failed');
       throw error;
     }
@@ -396,7 +379,6 @@ class WalletService {
     this.emitState('stellar', 'connecting');
 
     try {
-      console.log(`[Wallet] Attempting to connect Stellar wallet: ${walletId}...`);
       const win = window as any;
       if (walletId === 'freighter' && win.freighter) {
         return await this.connectStellarExtension(win.freighter);
@@ -450,10 +432,6 @@ class WalletService {
       if (error.message === 'USER_REJECTED') {
         throw new Error('Signature rejected by user');
       }
-      console.error(`[Wallet] dYdX derivation failed for ${session.evmAddress}:`, {
-        message: error.message,
-        stack: error.stack,
-      });
       throw error;
     }
   }
@@ -510,7 +488,6 @@ class WalletService {
 
     if (evmProvider) {
       const accounts: string[] = await evmProvider.request({ method: 'eth_requestAccounts' });
-      console.log('[Wallet] Raw EVM extension accounts:', accounts);
       const chainIdHex: string = await evmProvider.request({ method: 'eth_chainId' });
       evmAddress = accounts[0];
       evmChainId = parseInt(chainIdHex, 16);
@@ -524,7 +501,6 @@ class WalletService {
         const targetChainId = dydxChainId || chains[0].chainId;
         await cosmosProvider.enable(targetChainId);
         const account = await cosmosProvider.getKey(targetChainId);
-        console.log('[Wallet] Raw Cosmos extension account:', account);
         cosmosAddress = account.bech32Address;
         cosmosChainId = targetChainId;
         this.providers.set('cosmos', cosmosProvider);
@@ -542,7 +518,6 @@ class WalletService {
     if (!isConnected) await freighter.connect();
 
     const publicKey: string = await freighter.getPublicKey();
-    console.log('[Wallet] Raw Freighter extension publicKey:', publicKey);
     const config = getStellarConfig(this.currentNetwork);
 
     const session: WalletSession = {
@@ -560,7 +535,7 @@ class WalletService {
   }
 
   // ---------------------------------------------------------------------------
-  // WalletConnect single-namespace helpers (for individual chain connect)
+  // WalletConnect single-namespace helpers
   // ---------------------------------------------------------------------------
 
   private async connectWalletConnectSingle(
@@ -573,6 +548,8 @@ class WalletService {
     cosmosAddress?: string;
     cosmosChainId?: string;
   }> {
+    // Each separate connection gets its own provider keyed by type, ensuring
+    // restore can find the right provider independent of any unified session.
     const provider = await this.getOrCreateProvider(preferredType);
     const evmChains = getEVMChains(this.currentNetwork).map(c => `eip155:${c.chainId}`);
     const cosmosChains = getCosmosChains(this.currentNetwork);
@@ -587,24 +564,19 @@ class WalletService {
     const namespaces =
       preferredType === 'evm'
         ? {
-            eip155: {
-              methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
-              chains: evmChains,
-              events: ['chainChanged', 'accountsChanged'],
-            },
-          }
+          eip155: {
+            methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+            chains: evmChains,
+            events: ['chainChanged', 'accountsChanged'],
+          },
+        }
         : {
-            cosmos: {
-              methods: ['cosmos_signDirect', 'cosmos_signAmino'],
-              chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
-              events: ['accountsChanged'],
-            },
-          };
-
-    console.log(
-      `[Wallet] Initiating single connection request for ${preferredType}. Namespaces:`,
-      JSON.stringify(namespaces, null, 2)
-    );
+          cosmos: {
+            methods: ['cosmos_signDirect', 'cosmos_signAmino'],
+            chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
+            events: ['accountsChanged'],
+          },
+        };
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -622,7 +594,6 @@ class WalletService {
         .then((session: any) => {
           clearTimeout(timeout);
           modal.closeModal();
-          console.log('[Wallet] Raw connectWalletConnectSingle session:', session);
 
           const evmAccount: string | undefined = session.namespaces?.eip155?.accounts?.[0];
           const cosmosAccount: string | undefined = session.namespaces?.cosmos?.accounts?.[0];
@@ -664,6 +635,7 @@ class WalletService {
   }
 
   private async connectStellarWalletConnectSingle(walletId: string): Promise<WalletSession> {
+    // Keyed as 'stellar' so restore finds it via getOrCreateProvider('stellar')
     const provider = await this.getOrCreateProvider('stellar');
     const config = getStellarConfig(this.currentNetwork);
     const stellarChain = `stellar:${config.chainId}`;
@@ -675,11 +647,6 @@ class WalletService {
         events: ['accountsChanged'],
       },
     };
-
-    console.log(
-      '[Wallet] Initiating Stellar-only connection request. Namespaces:',
-      JSON.stringify(namespaces, null, 2)
-    );
 
     const modal = new WalletConnectModal({
       projectId: WALLETCONNECT_PROJECT_ID,
@@ -699,13 +666,10 @@ class WalletService {
       });
 
       provider
-        .connect({
-          namespaces: namespaces,
-        })
+        .connect({ namespaces })
         .then((session: any) => {
           clearTimeout(timeout);
           modal.closeModal();
-          console.log('[Wallet] Raw connectStellarWalletConnect session:', session);
 
           const account: string | undefined = session.namespaces?.stellar?.accounts?.[0];
           if (!account) {
@@ -719,6 +683,7 @@ class WalletService {
             walletId,
             stellarAddress: address,
             stellarChainId: chainId,
+            connectionMode: 'separate',
           };
 
           this.sessions.set('stellar', walletSession);
@@ -739,64 +704,6 @@ class WalletService {
   // ---------------------------------------------------------------------------
   // Disconnect
   // ---------------------------------------------------------------------------
-
-  // async disconnect(type: WalletType): Promise<void> {
-  //   if (this.disconnecting.has(type)) return;
-  //   this.disconnecting.add(type);
-
-  //   const provider = this.providers.get(type);
-
-  //   if (provider) {
-  //     this.registeredProviders.delete(provider);
-
-  //     if (provider.session) {
-  //       const eventsToRemove = [
-  //         'session_event',
-  //         'session_update',
-  //         'session_delete',
-  //         'session_expire',
-  //         'session_extend',
-  //         'session_ping',
-  //         'proposal_expire',
-  //         'disconnect',
-  //         'accountsChanged',
-  //         'chainChanged',
-  //         'display_uri',
-  //       ];
-
-  //       if (typeof provider.removeAllListeners === 'function') {
-  //         provider.removeAllListeners();
-  //       } else if (typeof provider.removeListener === 'function') {
-  //         eventsToRemove.forEach(event => {
-  //           try { provider.removeListener(event); } catch { }
-  //         });
-  //       }
-
-  //       try {
-  //         await provider.disconnect();
-  //       } catch {
-  //       }
-  //     }
-  //   }
-
-  //   if (type === 'evm' || type === 'cosmos') {
-  //     await purge();
-  //   }
-  //   if (type === 'evm') {
-  //     this.providers.delete('cosmos');
-  //     this.derivationInProgress = false;
-  //   }
-
-  //   this.sessions.delete(type);
-  //   this.lastPingAt.delete(type);
-  //   this.providers.delete(type);
-  //   this.modals.get(type)?.closeModal();
-  //   this.modals.delete(type);
-  //   this.disconnecting.delete(type);
-
-  //   this.saveSession();
-  //   this.emitState(type, 'disconnected');
-  // }
 
   async disconnect(type: WalletType): Promise<void> {
     if (this.disconnecting.has(type)) return;
@@ -819,24 +726,19 @@ class WalletService {
 
     if (provider) {
       this.registeredProviders.delete(provider);
-
       if (provider.session) {
         if (typeof provider.removeAllListeners === 'function') {
           provider.removeAllListeners();
         }
         try {
           await provider.disconnect();
-        } catch {}
+        } catch { }
       }
     }
 
     for (const t of sharedTypes) {
-      if (t === 'evm' || t === 'cosmos') {
-        await purge();
-      }
-      if (t === 'evm') {
-        this.derivationInProgress = false;
-      }
+      if (t === 'evm' || t === 'cosmos') await purge();
+      if (t === 'evm') this.derivationInProgress = false;
       this.sessions.delete(t);
       this.lastPingAt.delete(t);
       this.providers.delete(t);
@@ -850,7 +752,6 @@ class WalletService {
     }
 
     this.saveSession();
-
     for (const t of sharedTypes) {
       this.emitState(t, 'disconnected');
     }
@@ -869,7 +770,6 @@ class WalletService {
     try {
       const data: Record<string, WalletSession> = {};
       this.sessions.forEach((session, type) => {
-        // only public addresses and IDs
         data[type] = {
           type: session.type,
           walletId: session.walletId,
@@ -880,38 +780,26 @@ class WalletService {
           dydxAddress: session.dydxAddress,
           stellarAddress: session.stellarAddress,
           stellarChainId: session.stellarChainId,
+          connectionMode: session.connectionMode,
         };
       });
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
-      console.log('[System] Session successfully saved to storage');
     } catch (error: any) {
-      console.error('[System] Session storage save failed:', {
-        message: error.message,
-        stack: error.stack,
-      });
+      console.error('[System] Session storage save failed:', error.message);
     }
   }
 
   async restoreSessions(): Promise<WalletSession[]> {
-    console.log('[System] Initializing session restoration...');
     const restored: WalletSession[] = [];
 
     try {
       const stored = localStorage.getItem(SESSION_STORAGE_KEY);
-
-      console.log(stored, 'hii iam storead ------');
-      if (!stored) {
-        console.log('[System] No stored sessions found');
-        return [];
-      }
+      if (!stored) return [];
 
       let data: Record<string, WalletSession>;
       try {
         data = JSON.parse(stored);
-      } catch (parseError: any) {
-        console.error('[System] Malformed session data in LocalStorage. Purging...', {
-          message: parseError.message,
-        });
+      } catch {
         this.clearSessionStorage();
         return [];
       }
@@ -921,58 +809,8 @@ class WalletService {
       for (const [typeStr, savedSession] of Object.entries(data)) {
         const type = typeStr as WalletType;
         try {
-          const existingUnified = this.providers.get('unified');
-          let provider = this.providers.get(type) ?? existingUnified;
-
-          if (!provider) {
-            try {
-              if (savedSession.walletId === 'walletconnect') {
-                const unifiedProvider = await this.getOrCreateProvider('unified');
-                if (unifiedProvider?.session) {
-                  provider = unifiedProvider;
-                  this.providers.set('unified', provider);
-                } else {
-                  provider = await this.getOrCreateProvider(type);
-                }
-                this.providers.set(type, provider);
-              } else {
-                provider = await this.getOrCreateProvider(type);
-                this.providers.set(type, provider);
-              }
-            } catch (error) {
-              console.warn(`[WalletService] Provider init failed for ${type}:`, error);
-            }
-          } else {
-            this.providers.set(type, provider);
-          }
-
-          if (provider?.session) {
-            this.setupWalletConnectListeners(provider, type);
-            const refreshed = await this.refreshSessionFromProvider(provider, savedSession);
-
-            if (hasDydxBlob && savedSession.dydxAddress) {
-              const didRestore = await decryptAndRestore();
-              if (didRestore) {
-                refreshed.dydxAddress = savedSession.dydxAddress;
-              }
-            }
-
-            this.sessions.set(type, refreshed);
-            restored.push(refreshed);
-            this.emitState(type, 'connected');
-          } else if (
-            savedSession.walletId !== 'walletconnect' &&
-            this.isExtensionInstalled(savedSession.walletId)
-          ) {
-            const restoredSession = await this.restoreExtensionSession(
-              type,
-              savedSession,
-              hasDydxBlob
-            );
-            if (restoredSession) {
-              restored.push(restoredSession);
-            }
-          }
+          const restoredSession = await this.restoreSession(type, savedSession, hasDydxBlob);
+          if (restoredSession) restored.push(restoredSession);
         } catch (error) {
           console.warn(`[WalletService] Failed to restore session for ${type}:`, error);
         }
@@ -982,6 +820,59 @@ class WalletService {
     }
 
     return restored;
+  }
+
+
+  private async restoreSession(
+    type: WalletType,
+    savedSession: WalletSession,
+    hasDydxBlob: boolean
+  ): Promise<WalletSession | null> {
+    const isWalletConnect = savedSession.walletId === 'walletconnect';
+
+    if (!isWalletConnect) {
+      return this.restoreExtensionSession(type, savedSession, hasDydxBlob);
+    }
+
+    // --- WalletConnect restore ---
+    // Pick the provider key based on how the session was originally created.
+    const providerKey =
+      savedSession.connectionMode === 'unified' ? 'unified' : type;
+
+    let provider = this.providers.get(providerKey);
+
+    if (!provider) {
+      try {
+        provider = await this.getOrCreateProvider(providerKey);
+      } catch (error) {
+        console.warn(`[WalletService] Provider init failed for key '${providerKey}':`, error);
+        return null;
+      }
+    }
+
+    if (!provider?.session) {
+      console.warn(
+        `[WalletService] No active WalletConnect session for key '${providerKey}' (type: ${type})`
+      );
+      return null;
+    }
+
+
+    this.providers.set(providerKey, provider);
+    this.providers.set(type, provider);
+
+    this.setupWalletConnectListeners(provider, type);
+
+    const refreshed = await this.refreshSessionFromProvider(provider, savedSession);
+
+    if (hasDydxBlob && savedSession.dydxAddress) {
+      const didRestore = await decryptAndRestore();
+      if (didRestore) refreshed.dydxAddress = savedSession.dydxAddress;
+    }
+
+    this.sessions.set(type, refreshed);
+    this.emitState(type, 'connected');
+    return refreshed;
   }
 
   private async restoreExtensionSession(
@@ -1134,6 +1025,7 @@ class WalletService {
     const refreshed: WalletSession = {
       type: saved.type,
       walletId: saved.walletId,
+      connectionMode: saved.connectionMode,
       evmAddress,
       evmChainId,
       cosmosAddress,
@@ -1204,7 +1096,7 @@ class WalletService {
     if (this.registeredProviders.has(provider)) return;
     this.registeredProviders.add(provider);
 
-    const getBoundTypes = () => {
+    const getBoundTypes = (): WalletType[] => {
       const types: WalletType[] = [];
       for (const [key, p] of this.providers.entries()) {
         if (p === provider && (key === 'evm' || key === 'cosmos' || key === 'stellar')) {
@@ -1227,7 +1119,6 @@ class WalletService {
         }
 
         if (!eventType) return;
-
         if (event.name === 'accountsChanged') this.handleAccountsChanged(eventType, event.data);
         if (event.name === 'chainChanged') this.handleChainChanged(eventType, event.data);
       }
@@ -1239,32 +1130,16 @@ class WalletService {
       }
     });
 
-    provider.on('session_delete', () => {
-      getBoundTypes().forEach(t => this.handleDisconnect(t));
-    });
-
-    provider.on('session_expire', () => {
-      getBoundTypes().forEach(t => this.handleDisconnect(t));
-    });
-
-    provider.on('session_ping', () => {
-      getBoundTypes().forEach(t => this.lastPingAt.set(t, Date.now()));
-    });
-
+    provider.on('session_delete', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
+    provider.on('session_expire', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
+    provider.on('session_ping', () => getBoundTypes().forEach(t => this.lastPingAt.set(t, Date.now())));
     provider.on('session_extend', () => {
       getBoundTypes().forEach(t => {
-        const session = this.sessions.get(t);
-        if (session) {
-          this.emitState(t, 'connected');
-        }
+        if (this.sessions.get(t)) this.emitState(t, 'connected');
       });
     });
-
-    provider.on('proposal_expire', () => {});
-
-    provider.on('disconnect', () => {
-      getBoundTypes().forEach(t => this.handleDisconnect(t));
-    });
+    provider.on('proposal_expire', () => { });
+    provider.on('disconnect', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
   }
 
   private handleAccountsChanged(type: WalletType, accounts: unknown): void {
@@ -1289,7 +1164,6 @@ class WalletService {
       } else {
         session.evmAddress = firstAccount;
       }
-
       if (oldEvmAddress && oldEvmAddress !== session.evmAddress?.toLowerCase()) {
         delete session.dydxAddress;
         purge();
@@ -1386,11 +1260,7 @@ class WalletService {
     };
 
     const link = deepLinks[walletId];
-    if (link) {
-      setTimeout(() => {
-        window.location.href = link;
-      }, 100);
-    }
+    if (link) setTimeout(() => { window.location.href = link; }, 100);
   }
 
   // ---------------------------------------------------------------------------
@@ -1410,9 +1280,7 @@ class WalletService {
       const valid = hasSession && notExpired;
       results.push({ type, valid });
 
-      if (!valid) {
-        this.handleDisconnect(type);
-      }
+      if (!valid) this.handleDisconnect(type);
     }
 
     return results;
@@ -1481,15 +1349,11 @@ class WalletService {
   }
 
   private emitState(type: WalletType, state: ConnectionState): void {
-    console.log(`[WalletService] Emitting state for ${type}: ${state}`);
     this.listeners.forEach(cb => {
       try {
         cb(type, state);
       } catch (error: any) {
-        console.error(`[WalletService] Error in state listener for ${type} [${state}]:`, {
-          message: error.message,
-          stack: error.stack,
-        });
+        console.error(`[WalletService] Error in state listener for ${type} [${state}]:`, error.message);
       }
     });
   }

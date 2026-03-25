@@ -105,9 +105,8 @@ const AssetRow = memo(
                     </span>
                     {asset.price_change_percentage_24h !== 0 && (
                       <span
-                        className={`text-xs font-medium ${
-                          asset.price_change_percentage_24h >= 0 ? 'price-up' : 'price-down'
-                        }`}
+                        className={`text-xs font-medium ${asset.price_change_percentage_24h >= 0 ? 'price-up' : 'price-down'
+                          }`}
                       >
                         {asset.price_change_percentage_24h >= 0 ? '+' : ''}
                         {asset.price_change_percentage_24h?.toFixed(2)}%
@@ -218,11 +217,10 @@ const WalletAssetsSection = () => {
               </span>
               {!hasLoadingPrices && assets.length > 0 && (
                 <div
-                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${
-                    isPositive
+                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${isPositive
                       ? 'bg-success-bg bg-green-600 text-white'
                       : 'bg-danger-bg bg-red-600 text-white'
-                  }`}
+                    }`}
                 >
                   {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                   <span>

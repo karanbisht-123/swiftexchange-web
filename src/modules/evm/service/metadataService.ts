@@ -1,12 +1,8 @@
-import { type NetworkKey } from '../../../config/swapConfigs';
-import {
-  CACHE_TTL,
-  COINGECKO_BASE,
-  PLATFORM_MAP,
-  TESTNET_METADATA,
-  isTestnetNetwork,
-} from '../../../constants/assetConstants';
+import { CACHE_TTL, COINGECKO_BASE } from '../../../constants/assetConstants';
 import type { CachedMetadata, TokenMetadata } from '../../../types/evm/swap.types';
+import { getChainById } from '../utils/Chainregistry';
+
+export type NetworkKey = number;
 
 export class MetadataService {
   private static cache = new Map<string, CachedMetadata>();
@@ -52,12 +48,23 @@ export class MetadataService {
       return cached;
     }
 
+    const chain = getChainById(networkKey);
+    if (!chain) {
+      throw new Error(`Unsupported network: ${networkKey}`);
+    }
+
     const normalizedAddress = address.toLowerCase();
-    if (isTestnetNetwork(networkKey)) {
-      const testnetMeta = TESTNET_METADATA[networkKey]?.[normalizedAddress];
+    if (chain.networkType === 'testnet') {
+      const testnetMeta = chain.testnetTokenMetadata?.[normalizedAddress];
       if (testnetMeta) {
-        this.setCachedMetadata(networkKey, address, testnetMeta);
-        return testnetMeta;
+        const mappedMeta: TokenMetadata = {
+          name: testnetMeta.name,
+          code: testnetMeta.symbol,
+          decimals: testnetMeta.decimals,
+          logoUri: testnetMeta.logoURI || null,
+        };
+        this.setCachedMetadata(networkKey, address, mappedMeta);
+        return mappedMeta;
       }
       return {
         name: 'Unknown Token',
@@ -67,9 +74,9 @@ export class MetadataService {
       };
     }
 
-    const platform = PLATFORM_MAP[networkKey];
+    const platform = chain.coingeckoPlatform;
     if (!platform) {
-      throw new Error(`Unsupported network: ${networkKey}`);
+      throw new Error(`Unsupported platform for network: ${networkKey}`);
     }
 
     try {

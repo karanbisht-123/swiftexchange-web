@@ -1,6 +1,5 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
-import { type NetworkType } from '../../walletconnect/config/chains';
-import { type ChainType, chainTypeToId } from '../utils/Chainregistry';
+import { type ChainType, type NetworkType, chainTypeToId } from '../utils/Chainregistry';
 
 export type { ChainType };
 

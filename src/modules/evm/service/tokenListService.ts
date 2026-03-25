@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-import { ERC20_ABI } from '../../../config/tokenConfig';
+import { ERC20_ABI } from '../../../abi/Erc20AbI';
 import PancakeTokens from '../../../data/swap/PancakeList.json';
 import UniswapTokens from '../../../data/swap/UniswapList.json';
 

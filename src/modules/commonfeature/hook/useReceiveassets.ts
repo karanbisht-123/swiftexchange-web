@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 import { validateAddress } from '../../../validator/AddressValidator';
-import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains } from '../../evm/utils/Chainregistry';
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {

@@ -38,47 +38,9 @@ export interface StellarChainConfig {
 
 export type NetworkType = 'mainnet' | 'testnet';
 
-export const EVM_CHAINS_MAINNET: EVMChainConfig[] = [
-  {
-    chainId: 1,
-    name: 'Ethereum',
-    rpcUrl: 'https://ethereum-rpc.publicnode.com',
-    fallbackRpcUrls: [
-      'https://cloudflare-eth.com',
-      'https://eth.drpc.org',
-      'https://eth.llamarpc.com',
-      'https://rpc.flashbots.net/fast',
-      'https://eth.api.onfinality.io/public',
-      'https://rpc.mevblocker.io',
-      'https://rpc.mevblocker.io',
-    ],
-    blockExplorerUrl: 'https://etherscan.io',
-    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
-  },
-  {
-    chainId: 56,
-    name: 'BNB Smart Chain',
-    rpcUrl: 'https://bsc.publicnode.com',
-    fallbackRpcUrls: [
-      'https://bsc-dataseed.bnbchain.org',
-      'https://bsc-dataseed1.defibit.io',
-      'https://bsc-dataseed2.defibit.io',
-      'https://bsc-dataseed1.ninicoin.io',
-      'https://bsc-dataseed2.ninicoin.io',
-      'https://bsc.drpc.org',
-      'https://bsc.meowrpc.com',
-      'https://1rpc.io/bnb',
-      'https://bsc.rpc.blxrbdn.com',
-      'https://public-bsc.nownodes.io',
-    ],
-    blockExplorerUrl: 'https://bscscan.com',
-    nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
-  },
-];
+import { getEVMChains as getRegistryEVMChains } from '../../evm/utils/Chainregistry';
+
+export const EVM_CHAINS_MAINNET: EVMChainConfig[] = getRegistryEVMChains('mainnet');
 
 export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
   {
@@ -121,44 +83,7 @@ export const STELLAR_CONFIG_MAINNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-export const EVM_CHAINS_TESTNET: EVMChainConfig[] = [
-  {
-    chainId: 11155111,
-    name: 'Sepolia',
-    rpcUrl: 'https://ethereum-sepolia.publicnode.com',
-    fallbackRpcUrls: [
-      'https://rpc.sepolia.org',
-      'https://rpc2.sepolia.org',
-      'https://sepolia.drpc.org',
-      'https://eth-sepolia.public.blastapi.io',
-      'https://eth-sepolia-testnet.api.pocket.network',
-      'https://sepolia.meowrpc.com',
-      'https://ethereum-sepolia-rpc.publicnode.com',
-    ],
-    blockExplorerUrl: 'https://sepolia.etherscan.io',
-    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
-  },
-  {
-    chainId: 97,
-    name: 'BNB Smart Chain Testnet',
-    rpcUrl: 'https://bsc-testnet-rpc.publicnode.com',
-    fallbackRpcUrls: [
-      'https://bsc-testnet.drpc.org',
-      'https://data-seed-prebsc-1-s1.bnbchain.org:8545',
-      'https://data-seed-prebsc-2-s1.bnbchain.org:8545',
-      'https://data-seed-prebsc-1-s2.bnbchain.org:8545',
-      'https://data-seed-prebsc-2-s2.bnbchain.org:8545',
-      'https://bsc-testnet.public.blastapi.io',
-      'https://bsc-testnet.meowrpc.com',
-    ],
-    blockExplorerUrl: 'https://testnet.bscscan.com',
-    nativeCurrency: { name: 'BNB', symbol: 'tBNB', decimals: 18 },
-    logoUrl:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
-  },
-];
+export const EVM_CHAINS_TESTNET: EVMChainConfig[] = getRegistryEVMChains('testnet');
 
 export const COSMOS_CHAINS_TESTNET: CosmosChainConfig[] = [
   {
