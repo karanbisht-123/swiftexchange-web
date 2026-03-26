@@ -40,6 +40,8 @@ interface UseDydxDataReturn {
   isConnected: boolean;
   isReceivingUpdates: boolean;
   lastUpdateTime: number | null;
+  blockHeight: string;
+  recentlyFilledCount: number;
 }
 
 export const useDydxData = (): UseDydxDataReturn => {
@@ -125,6 +127,12 @@ export const useDydxData = (): UseDydxDataReturn => {
   const openOrderCount = openOrders.length;
   const activePositionCount = positions.length;
   const fillCount = fills.length;
+  const blockHeight = parentData?.blockHeight || '0';
+
+  // Count recently filled orders (terminal orders still in the store's 10s grace period)
+  const recentlyFilledCount = useMemo(() => {
+    return orders.filter(o => o.status === 'FILLED').length;
+  }, [orders]);
 
   const lastUpdateTime = parentData?.lastUpdate || null;
   const isReceivingUpdates = parentData ? Date.now() - parentData.lastUpdate < 30000 : false;
@@ -194,19 +202,63 @@ export const useDydxData = (): UseDydxDataReturn => {
   const refreshPositions = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
     try {
+      // First, get the positions
       const positionsData = await dydxDataService.refreshPositions('OPEN');
+      
+      // Also get the latest subaccount balances so margin updates reflect instantly
+      let subaccountsData: any[] = [];
+      try {
+        const indexer = dydxWalletService.getIndexerClient();
+        const address = dydxWalletService.getAddress();
+        if (indexer && address) {
+          const res = await indexer.account.getSubaccounts(address);
+          subaccountsData = res.subaccounts || [];
+        }
+      } catch (err) {
+        console.warn('[useDydxData] Failed to fetch subaccounts balances during refreshPositions', err);
+      }
+
       if (isMountedRef.current && parentKey) {
         useWebSocketStore.setState(state => {
           const existing = state.parentSubaccounts.get(parentKey);
           if (!existing) return state;
 
           const newChildMap = new Map();
-          existing.childSubaccounts.forEach(c =>
-            newChildMap.set(c.subaccountNumber, { ...c, openPerpetualPositions: {} })
-          );
+          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c }));
+
+          // Update equity and collateral from the API if available
+          subaccountsData.forEach(sub => {
+            const num = sub.subaccountNumber || 0;
+            if (newChildMap.has(num)) {
+              const child = newChildMap.get(num);
+              child.equity = sub.equity ?? child.equity;
+              child.freeCollateral = sub.freeCollateral ?? child.freeCollateral;
+            } else {
+              newChildMap.set(num, {
+                subaccountNumber: num,
+                address: existing.address,
+                equity: sub.equity || '0',
+                freeCollateral: sub.freeCollateral || '0',
+                openPerpetualPositions: {},
+                assetPositions: {},
+                marginEnabled: true,
+                updatedAtHeight: '0',
+                latestProcessedBlockHeight: '0',
+              });
+            }
+          });
+
+          // Track which markets we got from the API to potentially clear ones that are actually closed
+          // But only clear if they belong to the specific subaccount
+          const apiMarketsBySubaccount = new Map<number, Set<string>>();
 
           positionsData.forEach(pos => {
             const subNum = pos.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
+            if (!apiMarketsBySubaccount.has(subNum)) {
+              apiMarketsBySubaccount.set(subNum, new Set());
+            }
+            apiMarketsBySubaccount.get(subNum)!.add(pos.market);
+
             if (!newChildMap.has(subNum)) {
               newChildMap.set(subNum, {
                 subaccountNumber: subNum,
@@ -220,12 +272,26 @@ export const useDydxData = (): UseDydxDataReturn => {
                 latestProcessedBlockHeight: '0',
               });
             }
-            newChildMap.get(subNum).openPerpetualPositions[pos.market] = pos;
+            const childInfo = newChildMap.get(subNum);
+            
+            // Merge position data so we don't lose local state like marginEnabled if it exists
+            const existingPos = childInfo.openPerpetualPositions[pos.market];
+            childInfo.openPerpetualPositions[pos.market] = existingPos ? { ...existingPos, ...pos } : pos;
           });
+
+          // Optional: we can remove positions from newChildMap that weren't in the API response 
+          // if we are sure the API response is complete, but since this was causing UI drops, 
+          // let's just let the WebSocket handle closing positions.
 
           const childSubaccounts = Array.from(newChildMap.values());
           const newMap = new Map(state.parentSubaccounts);
-          newMap.set(parentKey, { ...existing, childSubaccounts, lastUpdate: Date.now() });
+          
+          // Also update parent equity if we got the cross subaccount
+          const crossSub = subaccountsData.find(s => (s.subaccountNumber || 0) === 0);
+          const parentEquity = crossSub?.equity ?? existing.equity;
+          const parentCollateral = crossSub?.freeCollateral ?? existing.freeCollateral;
+
+          newMap.set(parentKey, { ...existing, childSubaccounts, equity: parentEquity, freeCollateral: parentCollateral, lastUpdate: Date.now() });
           return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
         });
       }
@@ -244,9 +310,7 @@ export const useDydxData = (): UseDydxDataReturn => {
           if (!existing) return state;
 
           const newChildMap = new Map();
-          existing.childSubaccounts.forEach(c =>
-            newChildMap.set(c.subaccountNumber, { ...c, assetPositions: {} })
-          );
+          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c }));
 
           assetData.forEach((asset: any) => {
             const subNum = asset.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
@@ -263,7 +327,9 @@ export const useDydxData = (): UseDydxDataReturn => {
                 latestProcessedBlockHeight: '0',
               });
             }
-            newChildMap.get(subNum).assetPositions[asset.symbol] = asset;
+            const childInfo = newChildMap.get(subNum);
+            const existingAsset = childInfo.assetPositions[asset.symbol];
+            childInfo.assetPositions[asset.symbol] = existingAsset ? { ...existingAsset, ...asset } : asset;
           });
 
           const childSubaccounts = Array.from(newChildMap.values());
@@ -353,5 +419,7 @@ export const useDydxData = (): UseDydxDataReturn => {
     isConnected,
     isReceivingUpdates,
     lastUpdateTime,
+    blockHeight,
+    recentlyFilledCount,
   };
 };

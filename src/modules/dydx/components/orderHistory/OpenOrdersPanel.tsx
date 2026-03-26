@@ -46,6 +46,20 @@ const OpenOrdersPanel: React.FC = () => {
     fetchIcons();
   }, [openOrders]);
 
+  // Bug 5 fix: auto-clear hidden orders when they no longer exist in openOrders
+  useEffect(() => {
+    if (hiddenOrders.size === 0) return;
+    const currentIds = new Set(openOrders.map(o => o.id));
+    const staleIds = [...hiddenOrders].filter(id => !currentIds.has(id));
+    if (staleIds.length > 0) {
+      setHiddenOrders(prev => {
+        const next = new Set(prev);
+        staleIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }
+  }, [openOrders, hiddenOrders]);
+
   const handleCancel = useCallback(
     async (order: Order) => {
       if (!confirm(`Cancel ${order.side} order for ${order.ticker}?`)) return;

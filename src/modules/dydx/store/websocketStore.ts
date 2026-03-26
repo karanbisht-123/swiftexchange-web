@@ -317,6 +317,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             const newOrders: any[] = [];
             const newFills: any[] = [];
             const pnlUpdates = new Map<string, PositionPnl>();
+            const closedMarkets: string[] = [];
             let hasStructuralPositionChange = false;
 
             batchContents.forEach((batch: any) => {
@@ -348,6 +349,12 @@ export const useWebSocketStore = create<WebSocketState>()(
                   if (pos.status === 'CLOSED' || parseFloat(pos.size || '0') === 0) {
                     delete child.openPerpetualPositions[pos.market];
                     hasStructuralPositionChange = true;
+                    pnlUpdates.set(pos.market, {
+                      unrealizedPnl: '0',
+                      realizedPnl: pos.realizedPnl ?? '0',
+                      netFunding: pos.netFunding ?? '0',
+                    });
+                    closedMarkets.push(pos.market);
                   } else {
                     const existing = child.openPerpetualPositions[pos.market];
 
@@ -426,7 +433,12 @@ export const useWebSocketStore = create<WebSocketState>()(
                   }
 
                   const child = updatedChildSubaccounts[childIndex];
-                  child.assetPositions[asset.symbol] = { ...asset, subaccountNumber: subNum };
+                  const assetSize = parseFloat(asset.size || '0');
+                  if (assetSize === 0) {
+                    delete child.assetPositions[asset.symbol];
+                  } else {
+                    child.assetPositions[asset.symbol] = { ...asset, subaccountNumber: subNum };
+                  }
                 });
               }
 
@@ -443,10 +455,11 @@ export const useWebSocketStore = create<WebSocketState>()(
               }
             });
 
-            if (pnlUpdates.size > 0) {
+            if (pnlUpdates.size > 0 || closedMarkets.length > 0) {
               set(state => {
                 const next = new Map(state.positionPnl);
                 pnlUpdates.forEach((val, market) => next.set(market, val));
+                closedMarkets.forEach(market => next.delete(market));
                 return { positionPnl: next };
               });
             }
@@ -631,6 +644,10 @@ export const useWebSocketStore = create<WebSocketState>()(
           lastUpdate: 0,
         };
 
+        const TERMINAL_STATUSES = ['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED'];
+        const ORDER_PRUNE_AGE_MS = 10_000;
+        const now = Date.now();
+
         let mergedOrders = existing.orders;
         if (data.orders !== undefined) {
           const orderMap = new Map<string, any>();
@@ -644,10 +661,17 @@ export const useWebSocketStore = create<WebSocketState>()(
                   new Date(order.updatedAt).getTime() >=
                   new Date(existingOrder.updatedAt).getTime()))
             ) {
-              orderMap.set(order.id, order);
+              orderMap.set(order.id, { ...order, _mergedAt: now });
             }
           });
           mergedOrders = Array.from(orderMap.values())
+            .filter(order => {
+              if (TERMINAL_STATUSES.includes(order.status)) {
+                const mergedAt = order._mergedAt || now;
+                return now - mergedAt < ORDER_PRUNE_AGE_MS;
+              }
+              return true;
+            })
             .sort((a, b) => {
               const tA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
               const tB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
@@ -655,6 +679,19 @@ export const useWebSocketStore = create<WebSocketState>()(
             })
             .slice(0, 150);
         }
+
+
+        const currentBlock = parseInt(data.blockHeight || existing.blockHeight || '0', 10);
+        const orderCountBeforeBlockExpiry = mergedOrders.length;
+        if (currentBlock > 0) {
+          mergedOrders = mergedOrders.filter(order => {
+            if (order.goodTilBlock && !TERMINAL_STATUSES.includes(order.status)) {
+              return parseInt(order.goodTilBlock, 10) >= currentBlock;
+            }
+            return true;
+          });
+        }
+        const ordersExpiredByBlock = orderCountBeforeBlockExpiry !== mergedOrders.length;
 
         let mergedFills = existing.fills;
         if (data.fills !== undefined) {
@@ -702,6 +739,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           hasOrderChanges ||
           hasFillChanges ||
           hasEquityChange ||
+          ordersExpiredByBlock ||
           merged.orders.length !== existing.orders.length ||
           merged.fills.length !== existing.fills.length;
 

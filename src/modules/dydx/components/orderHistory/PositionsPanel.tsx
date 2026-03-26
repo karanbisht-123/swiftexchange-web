@@ -19,11 +19,31 @@ import AddMarginModal from '../shared/Addmarginmodal';
 interface PnlCellProps {
   market: string;
   margin: number;
+  entryPrice: number;
+  size: number;
+  side: string;
 }
 
-const PnlCell = React.memo(function PnlCell({ market, margin }: PnlCellProps) {
+const PnlCell = React.memo(function PnlCell({ market, margin, entryPrice, size, side }: PnlCellProps) {
+  // Subscribe to live oracle price from the markets WebSocket channel
+  const oraclePrice = useWebSocketStore(state => {
+    const mkt = state.markets.get(market);
+    return mkt ? parseFloat(mkt.oraclePrice) : null;
+  });
+  // Fallback to position-based PnL if oracle price unavailable
   const pnlData = useWebSocketStore(state => state.positionPnl.get(market));
-  const unrealizedPnl = parseFloat(pnlData?.unrealizedPnl ?? '0');
+
+  // Calculate PnL from oracle price for real-time updates (like dYdX website)
+  const absSize = Math.abs(size);
+  let unrealizedPnl: number;
+  if (oraclePrice !== null && entryPrice > 0 && absSize > 0) {
+    unrealizedPnl = side === 'LONG'
+      ? (oraclePrice - entryPrice) * absSize
+      : (entryPrice - oraclePrice) * absSize;
+  } else {
+    unrealizedPnl = parseFloat(pnlData?.unrealizedPnl ?? '0');
+  }
+
   const pnlPercentage = margin > 0 ? (unrealizedPnl / margin) * 100 : 0;
   const isPositive = unrealizedPnl >= 0;
 
@@ -40,11 +60,29 @@ const PnlCell = React.memo(function PnlCell({ market, margin }: PnlCellProps) {
 interface PnlCellMobileProps {
   market: string;
   margin: number;
+  entryPrice: number;
+  size: number;
+  side: string;
 }
 
-const PnlCellMobile = React.memo(function PnlCellMobile({ market, margin }: PnlCellMobileProps) {
+const PnlCellMobile = React.memo(function PnlCellMobile({ market, margin, entryPrice, size, side }: PnlCellMobileProps) {
+  // Subscribe to live oracle price from the markets WebSocket channel
+  const oraclePrice = useWebSocketStore(state => {
+    const mkt = state.markets.get(market);
+    return mkt ? parseFloat(mkt.oraclePrice) : null;
+  });
   const pnlData = useWebSocketStore(state => state.positionPnl.get(market));
-  const unrealizedPnl = parseFloat(pnlData?.unrealizedPnl ?? '0');
+
+  const absSize = Math.abs(size);
+  let unrealizedPnl: number;
+  if (oraclePrice !== null && entryPrice > 0 && absSize > 0) {
+    unrealizedPnl = side === 'LONG'
+      ? (oraclePrice - entryPrice) * absSize
+      : (entryPrice - oraclePrice) * absSize;
+  } else {
+    unrealizedPnl = parseFloat(pnlData?.unrealizedPnl ?? '0');
+  }
+
   const pnlPercentage = margin > 0 ? (unrealizedPnl / margin) * 100 : 0;
   const isPositive = unrealizedPnl >= 0;
 
@@ -113,7 +151,7 @@ const PositionRow = React.memo(function PositionRow({
       </td>
 
       <td className="p-3 text-right">
-        <PnlCell market={position.market} margin={metrics.margin} />
+        <PnlCell market={position.market} margin={metrics.margin} entryPrice={metrics.entryPrice} size={parseFloat(position.size)} side={position.side} />
       </td>
 
       <td className="p-3 text-right font-mono">
@@ -294,7 +332,7 @@ const PositionCard = React.memo(function PositionCard({
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Unrealized P&L</span>
-          <PnlCellMobile market={position.market} margin={metrics.margin} />
+          <PnlCellMobile market={position.market} margin={metrics.margin} entryPrice={metrics.entryPrice} size={parseFloat(position.size)} side={position.side} />
         </div>
 
         <div className="flex flex-col gap-0.5">
@@ -495,6 +533,20 @@ const PositionsPanel: React.FC = () => {
 
     fetchIcons();
   }, [activeMarkets]);
+
+  // Bug 4 fix: auto-clear hidden positions when market no longer exists in positions
+  useEffect(() => {
+    if (hiddenPositions.size === 0) return;
+    const currentMarkets = new Set(positions.map(p => p.market));
+    const staleMarkets = [...hiddenPositions].filter(m => !currentMarkets.has(m));
+    if (staleMarkets.length > 0) {
+      setHiddenPositions(prev => {
+        const next = new Set(prev);
+        staleMarkets.forEach(m => next.delete(m));
+        return next;
+      });
+    }
+  }, [positions, hiddenPositions]);
 
   const handleEdit = useCallback(
     (position: Position) => {
