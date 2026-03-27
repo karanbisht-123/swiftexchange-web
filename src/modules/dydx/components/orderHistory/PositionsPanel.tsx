@@ -4,10 +4,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Notification } from '../../../../components/common/Notification';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
+import { useMarkets } from '../../hooks/useMarkets';
 import { metadataService } from '../../hooks/useMetadata';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
 import useMarketStore from '../../store/marketStore';
-import { useWebSocketStore } from '../../store/websocketStore';
 import { type Position } from '../../types/trading.types';
 import {
   calculateCrossLiquidationPrice,
@@ -16,44 +16,49 @@ import {
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
 import AddMarginModal from '../shared/Addmarginmodal';
 
-interface PnlCellProps {
-  market: string;
-  margin: number;
+interface OraclePriceCellProps {
+  oraclePrice: number | null;
+  formatPrice: (value: string | number) => string;
 }
 
-const PnlCell = React.memo(function PnlCell({ market, margin }: PnlCellProps) {
-  const pnlData = useWebSocketStore(state => state.positionPnl.get(market));
-  const unrealizedPnl = parseFloat(pnlData?.unrealizedPnl ?? '0');
-  const pnlPercentage = margin > 0 ? (unrealizedPnl / margin) * 100 : 0;
-  const isPositive = unrealizedPnl >= 0;
-
+const OraclePriceCell = React.memo(function OraclePriceCell({ oraclePrice, formatPrice }: OraclePriceCellProps) {
   return (
-    <div className={`flex flex-col font-mono ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
-      <span>
-        {isPositive ? '+' : ''}${unrealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-      </span>
-      <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
-    </div>
+    <span className="text-blue-400 font-mono">
+      {oraclePrice !== null ? `$${formatPrice(oraclePrice)}` : '—'}
+    </span>
   );
 });
 
-interface PnlCellMobileProps {
-  market: string;
+interface PnlCellProps {
+  oraclePrice: number | null;
   margin: number;
+  entryPrice: number;
+  size: number;
+  mobile?: boolean;
 }
 
-const PnlCellMobile = React.memo(function PnlCellMobile({ market, margin }: PnlCellMobileProps) {
-  const pnlData = useWebSocketStore(state => state.positionPnl.get(market));
-  const unrealizedPnl = parseFloat(pnlData?.unrealizedPnl ?? '0');
+const PnlCell = React.memo(function PnlCell({ oraclePrice, margin, entryPrice, size, mobile = false }: PnlCellProps) {
+  const unrealizedPnl = oraclePrice !== null && entryPrice > 0
+    ? size * (oraclePrice - entryPrice)
+    : 0;
+
   const pnlPercentage = margin > 0 ? (unrealizedPnl / margin) * 100 : 0;
   const isPositive = unrealizedPnl >= 0;
+  const formatted = unrealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  if (mobile) {
+    return (
+      <div className={`font-medium font-mono ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+        <div>{isPositive ? '+' : ''}${formatted}</div>
+        <div className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`font-medium font-mono ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
-      <div>
-        {isPositive ? '+' : ''}${unrealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-      </div>
-      <div className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</div>
+    <div className={`flex flex-col font-mono ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+      <span>{isPositive ? '+' : ''}${formatted}</span>
+      <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
     </div>
   );
 });
@@ -61,6 +66,7 @@ const PnlCellMobile = React.memo(function PnlCellMobile({ market, margin }: PnlC
 interface PositionRowProps {
   position: Position;
   metrics: ReturnType<typeof computePositionMetrics>;
+  oraclePrice: number | null;
   isClosing: boolean;
   onEdit: (position: Position) => void;
   onClose: (position: Position) => void;
@@ -72,6 +78,7 @@ interface PositionRowProps {
 const PositionRow = React.memo(function PositionRow({
   position,
   metrics,
+  oraclePrice,
   isClosing,
   onEdit,
   onClose,
@@ -113,19 +120,36 @@ const PositionRow = React.memo(function PositionRow({
       </td>
 
       <td className="p-3 text-right">
-        <PnlCell market={position.market} margin={metrics.margin} />
+        <PnlCell
+          oraclePrice={oraclePrice}
+          margin={metrics.margin}
+          entryPrice={metrics.entryPrice}
+          size={parseFloat(position.size)}
+        />
       </td>
 
-      <td className="p-3 text-right text-primary font-mono">
-        ${formatPrice(metrics.margin)}
+      <td className="p-3 text-right font-mono">
+        <div className="flex items-center justify-end gap-1.5 text-primary">
+          <span>${formatPrice(metrics.margin)}</span>
+          {isIsolated && (
+            <button
+              onClick={() => onAddMargin(position)}
+              disabled={isClosing}
+              className="p-1 hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
+              title="Add Margin"
+            >
+              <PlusCircle size={12} />
+            </button>
+          )}
+        </div>
       </td>
 
       <td className="p-3 text-right text-muted font-mono">
         ${formatPrice(metrics.entryPrice)}
       </td>
 
-      <td className="p-3 text-right text-blue-400 font-mono">
-        ${formatPrice(metrics.oraclePrice)}
+      <td className="p-3 text-right">
+        <OraclePriceCell oraclePrice={oraclePrice} formatPrice={formatPrice} />
       </td>
 
       <td className="p-3 text-right text-orange-400 font-mono">
@@ -138,16 +162,6 @@ const PositionRow = React.memo(function PositionRow({
 
       <td className="p-3 text-center">
         <div className="flex justify-center gap-1.5">
-          {isIsolated && (
-            <button
-              onClick={() => onAddMargin(position)}
-              disabled={isClosing}
-              className="p-1.5 bg-secondary hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
-              title="Add Margin"
-            >
-              <PlusCircle size={12} />
-            </button>
-          )}
           <button
             onClick={() => onEdit(position)}
             disabled={isClosing}
@@ -177,6 +191,7 @@ const PositionRow = React.memo(function PositionRow({
 interface PositionCardProps {
   position: Position;
   metrics: ReturnType<typeof computePositionMetrics>;
+  oraclePrice: number | null;
   isClosing: boolean;
   onEdit: (position: Position) => void;
   onClose: (position: Position) => void;
@@ -188,6 +203,7 @@ interface PositionCardProps {
 const PositionCard = React.memo(function PositionCard({
   position,
   metrics,
+  oraclePrice,
   isClosing,
   onEdit,
   onClose,
@@ -222,17 +238,6 @@ const PositionCard = React.memo(function PositionCard({
             {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
             {position.side}
           </div>
-
-          {isIsolated && (
-            <button
-              onClick={() => onAddMargin(position)}
-              disabled={isClosing}
-              className="p-1.5 bg-primary hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
-              title="Add Margin"
-            >
-              <PlusCircle size={12} />
-            </button>
-          )}
 
           <button
             onClick={() => onEdit(position)}
@@ -271,12 +276,24 @@ const PositionCard = React.memo(function PositionCard({
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Oracle</span>
-          <span className="text-blue-400 font-medium font-mono">${formatPrice(metrics.oraclePrice)}</span>
+          <OraclePriceCell oraclePrice={oraclePrice} formatPrice={formatPrice} />
         </div>
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Margin</span>
-          <span className="text-primary font-medium font-mono">${formatPrice(metrics.margin)}</span>
+          <div className="flex items-center gap-1 font-medium font-mono">
+            <span className="text-primary">${formatPrice(metrics.margin)}</span>
+            {isIsolated && (
+              <button
+                onClick={() => onAddMargin(position)}
+                disabled={isClosing}
+                className="p-1 hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
+                title="Add Margin"
+              >
+                <PlusCircle size={12} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col gap-0.5">
@@ -288,7 +305,13 @@ const PositionCard = React.memo(function PositionCard({
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Unrealized P&L</span>
-          <PnlCellMobile market={position.market} margin={metrics.margin} />
+          <PnlCell
+            oraclePrice={oraclePrice}
+            margin={metrics.margin}
+            entryPrice={metrics.entryPrice}
+            size={parseFloat(position.size)}
+            mobile
+          />
         </div>
 
         <div className="flex flex-col gap-0.5">
@@ -319,13 +342,15 @@ function computePositionMetrics(
   position: Position,
   marketCache: Record<string, any>,
   childSubaccounts: any[],
-  positions: Position[]
+  positions: Position[],
+  liveOraclePrice?: number
 ): PositionMetrics {
   const rawSize = parseFloat(position.size);
   const absSize = Math.abs(rawSize);
   const entryPrice = parseFloat(position.entryPrice);
   const mktData = marketCache[position.market];
-  const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : entryPrice;
+  const cachedOraclePrice = mktData ? parseFloat(mktData.oraclePrice) : entryPrice;
+  const oraclePrice = liveOraclePrice != null && liveOraclePrice > 0 ? liveOraclePrice : cachedOraclePrice;
   const imf = mktData?.initialMarginFraction ? parseFloat(mktData.initialMarginFraction) : 0.05;
   const mmf = mktData?.maintenanceMarginFraction
     ? parseFloat(mktData.maintenanceMarginFraction)
@@ -416,6 +441,7 @@ const PositionsPanel: React.FC = () => {
   const { closePosition, closeAllPositions, setTriggers, isSettingTriggers, orderError, clearOrderError } = useDydxTrading();
   const { childSubaccounts } = useSubaccounts();
   const marketCache = useMarketStore(state => state.marketCache);
+  const { getMarket } = useMarkets();
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
@@ -438,9 +464,23 @@ const PositionsPanel: React.FC = () => {
     setNotification({ message, type });
   }, []);
 
-  const activeMarkets = useMemo(() => [...new Set(positions.map(p => p.market))], [positions]);
+  const activeMarkets = useMemo(
+    () => [...new Set(positions.map(p => p.market))],
+    [positions]
+  );
 
-  // Visible positions — excludes ones already submitted for closing
+  const oraclePrices = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const market of activeMarkets) {
+      const marketData = getMarket(market);
+      if (marketData?.oraclePrice) {
+        const price = parseFloat(marketData.oraclePrice);
+        if (price > 0) result[market] = price;
+      }
+    }
+    return result;
+  }, [activeMarkets, getMarket]);
+
   const visiblePositions = useMemo(
     () => positions.filter(p => !hiddenPositions.has(p.market)),
     [positions, hiddenPositions]
@@ -489,6 +529,19 @@ const PositionsPanel: React.FC = () => {
 
     fetchIcons();
   }, [activeMarkets]);
+
+  useEffect(() => {
+    if (hiddenPositions.size === 0) return;
+    const currentMarkets = new Set(positions.map(p => p.market));
+    const staleMarkets = [...hiddenPositions].filter(m => !currentMarkets.has(m));
+    if (staleMarkets.length > 0) {
+      setHiddenPositions(prev => {
+        const next = new Set(prev);
+        staleMarkets.forEach(m => next.delete(m));
+        return next;
+      });
+    }
+  }, [positions, hiddenPositions]);
 
   const handleEdit = useCallback(
     (position: Position) => {
@@ -568,7 +621,6 @@ const PositionsPanel: React.FC = () => {
     setIsClosingAll(true);
 
     try {
-      // Build marketInfoMap from the cache so closeAllPositions skips indexer round trips
       const marketInfoMap = Object.fromEntries(
         visiblePositions
           .map(p => [p.market, marketCache[p.market]])
@@ -577,7 +629,6 @@ const PositionsPanel: React.FC = () => {
 
       const result = await closeAllPositions(visiblePositions, marketInfoMap);
 
-      // Hide all positions that closed successfully
       if (result.closed > 0) {
         const closedMarkets = result.results
           .filter((r: any) => r.success)
@@ -635,11 +686,15 @@ const PositionsPanel: React.FC = () => {
     const map = new Map<string, ReturnType<typeof computePositionMetrics>>();
     positions.forEach(position => {
       if (Math.abs(parseFloat(position.size)) > 0) {
-        map.set(position.market, computePositionMetrics(position, marketCache, childSubaccounts, positions));
+        const liveOracle = oraclePrices[position.market];
+        map.set(
+          position.market,
+          computePositionMetrics(position, marketCache, childSubaccounts, positions, liveOracle)
+        );
       }
     });
     return map;
-  }, [positions, marketCache, childSubaccounts]);
+  }, [positions, marketCache, childSubaccounts, oraclePrices]);
 
   if (!isConnected) {
     return (
@@ -707,7 +762,6 @@ const PositionsPanel: React.FC = () => {
         </div>
       )}
 
-      {/* Desktop table */}
       <div className="hidden md:block">
         <table className="w-full text-left text-xs border-collapse">
           <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
@@ -766,6 +820,7 @@ const PositionsPanel: React.FC = () => {
                   key={position.market}
                   position={position}
                   metrics={metrics}
+                  oraclePrice={oraclePrices[position.market] ?? null}
                   isClosing={closingMarket === position.market || isClosingAll}
                   onEdit={handleEdit}
                   onClose={handleClose}
@@ -779,9 +834,7 @@ const PositionsPanel: React.FC = () => {
         </table>
       </div>
 
-      {/* Mobile cards */}
       <div className="md:hidden space-y-1.5 p-2">
-        {/* Close All button — only shown when there are multiple positions */}
         {visiblePositions.length > 1 && (
           <button
             onClick={handleCloseAll}
@@ -807,6 +860,7 @@ const PositionsPanel: React.FC = () => {
               key={position.market}
               position={position}
               metrics={metrics}
+              oraclePrice={oraclePrices[position.market] ?? null}
               isClosing={closingMarket === position.market || isClosingAll}
               onEdit={handleEdit}
               onClose={handleClose}
@@ -835,6 +889,7 @@ const PositionsPanel: React.FC = () => {
           onClose={() => setAddMarginPosition(null)}
           position={addMarginPosition}
           onSuccess={handleAddMarginSuccess}
+          marketIcon={getMarketIcon(addMarginPosition.market)}
         />
       )}
     </div>

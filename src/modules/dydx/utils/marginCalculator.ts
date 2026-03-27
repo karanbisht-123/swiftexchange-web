@@ -215,3 +215,25 @@ export const formatCurrency = (value: number, decimals: number = 2): string => {
 export const formatPercent = (value: number, decimals: number = 2): string => {
   return value.toFixed(decimals);
 };
+
+/**
+ * Calculate the Minimum Required Margin for holding a position.
+ * MMR = (Notional Value × Maintenance Margin Fraction) × Safety Buffer
+ */
+export const getMinimumRequiredMargin = (
+  notionalValue: number,
+  maintenanceMarginFraction: number,
+  safetyBuffer: number = 1.10
+): number => {
+  return notionalValue * maintenanceMarginFraction * safetyBuffer;
+};
+
+/**
+ * Calculate the Transferable Amount for a subaccount.
+ */
+export const getTransferableAmount = (
+  equity: number,
+  minRequiredMargin: number
+): number => {
+  return Math.max(0, equity - minRequiredMargin);
+};

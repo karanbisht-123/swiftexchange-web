@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
+import { type TrackedOrder } from '../../store/websocketStore';
 import { type Order, dydxDataService } from '../../service/dydxOrderService';
 import { getTimeAgo } from '../../utils/timeUtils';
 import { EmptyState } from '../shared/EmptyState';
@@ -13,26 +14,28 @@ import { SideBadge, StatusIndicator } from '../shared/SideBadge';
 import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
+
+type AnyOrder = Order & Partial<TrackedOrder>;
+
 const ITEMS_PER_PAGE = 10;
 
 const OrderHistoryPanel: React.FC = () => {
   const { orders: storeOrders, isConnected } = useDydxData();
 
-  const [allOrders, setAllOrders] = useState<Order[]>([]);
+  const [allOrders, setAllOrders] = useState<AnyOrder[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreData, setHasMoreData] = useState(true);
 
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<AnyOrder | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
   const initialLoadDoneRef = useRef(false);
 
-  const getOrderTime = (order: Order): number => {
-    return order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
-  };
+  const getOrderTime = (order: AnyOrder): number =>
+    order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
 
   useEffect(() => {
     if (!isConnected) {
@@ -43,57 +46,50 @@ const OrderHistoryPanel: React.FC = () => {
       return;
     }
 
-    if (!initialLoadDoneRef.current) {
-      let isMounted = true;
-      const fetchInitial = async () => {
-        setLoadingOrders(true);
-        setOrdersError(null);
-        try {
-          const initialOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
-          if (isMounted) {
-            setAllOrders(initialOrders);
-            initialLoadDoneRef.current = true;
-          }
-        } catch (err: any) {
-          if (isMounted) setOrdersError(err.message || 'Error loading orders');
-        } finally {
-          if (isMounted) setLoadingOrders(false);
-        }
-      };
-      fetchInitial();
+    if (initialLoadDoneRef.current) return;
 
-      return () => {
-        isMounted = false;
-      };
-    }
+    let isMounted = true;
+    const fetchInitial = async () => {
+      setLoadingOrders(true);
+      setOrdersError(null);
+      try {
+        const initialOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
+        if (isMounted) {
+          setAllOrders(initialOrders as AnyOrder[]);
+          initialLoadDoneRef.current = true;
+        }
+      } catch (err: any) {
+        if (isMounted) setOrdersError(err.message || 'Error loading orders');
+      } finally {
+        if (isMounted) setLoadingOrders(false);
+      }
+    };
+    fetchInitial();
+
+    return () => { isMounted = false; };
   }, [isConnected]);
 
   useEffect(() => {
-    if (storeOrders.length > 0) {
-      setAllOrders(prevOrders => {
-        const ordersMap = new Map<string, Order>();
-        storeOrders.forEach(o => ordersMap.set(o.id, o));
-        prevOrders.forEach(o => {
-          if (!ordersMap.has(o.id)) {
-            ordersMap.set(o.id, o);
-          }
-        });
-        return Array.from(ordersMap.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
-      });
-    }
+    if (storeOrders.length === 0) return;
+
+    setAllOrders(prev => {
+      const map = new Map<string, AnyOrder>();
+
+      prev.forEach(o => map.set(o.id, o));
+      storeOrders.forEach(o => map.set(o.id, o as AnyOrder));
+      return Array.from(map.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
+    });
   }, [storeOrders]);
 
+
   const totalPages = useMemo(() => {
-    const currentPages = Math.ceil(allOrders.length / ITEMS_PER_PAGE);
-    return hasMoreData && allOrders.length >= ITEMS_PER_PAGE
-      ? currentPages
-      : Math.max(currentPages, 1);
+    const pages = Math.ceil(allOrders.length / ITEMS_PER_PAGE);
+    return hasMoreData && allOrders.length >= ITEMS_PER_PAGE ? pages : Math.max(pages, 1);
   }, [allOrders.length, hasMoreData]);
 
   const currentPageData = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    return allOrders.slice(startIndex, endIndex);
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return allOrders.slice(start, start + ITEMS_PER_PAGE);
   }, [allOrders, currentPage]);
 
   const loadMoreData = useCallback(async () => {
@@ -107,27 +103,26 @@ const OrderHistoryPanel: React.FC = () => {
         setHasMoreData(false);
         return;
       }
-      const oldestOrder = allOrders[allOrders.length - 1];
-      const oldestTime = oldestOrder ? getOrderTime(oldestOrder) : Date.now();
-      const olderOrders = moreOrders.filter(o => getOrderTime(o) < oldestTime);
+
+      const oldestTime = allOrders.length
+        ? getOrderTime(allOrders[allOrders.length - 1])
+        : Date.now();
+      const olderOrders = moreOrders.filter(o => getOrderTime(o as AnyOrder) < oldestTime);
 
       if (olderOrders.length === 0) {
         setHasMoreData(false);
         return;
       }
-      setAllOrders(prev => {
-        const ordersMap = new Map<string, Order>();
-        prev.forEach(o => ordersMap.set(o.id, o));
-        olderOrders.forEach(o => ordersMap.set(o.id, o));
 
-        return Array.from(ordersMap.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
+      setAllOrders(prev => {
+        const map = new Map<string, AnyOrder>(prev.map(o => [o.id, o]));
+        olderOrders.forEach(o => map.set(o.id, o as AnyOrder));
+        return Array.from(map.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
       });
 
-      if (moreOrders.length < ITEMS_PER_PAGE) {
-        setHasMoreData(false);
-      }
-    } catch (error) {
-      console.error('[OrderHistoryPanel] Failed to load more data:', error);
+      if (moreOrders.length < ITEMS_PER_PAGE) setHasMoreData(false);
+    } catch (err) {
+      console.error('[OrderHistoryPanel] Failed to load more:', err);
     } finally {
       setLoadingMore(false);
     }
@@ -136,16 +131,14 @@ const OrderHistoryPanel: React.FC = () => {
   const handlePageChange = useCallback(
     (page: number) => {
       setCurrentPage(page);
-
-      const requiredItems = page * ITEMS_PER_PAGE;
-      if (allOrders.length < requiredItems && hasMoreData && !loadingMore) {
+      if (allOrders.length < page * ITEMS_PER_PAGE && hasMoreData && !loadingMore) {
         loadMoreData();
       }
     },
     [allOrders.length, hasMoreData, loadingMore, loadMoreData]
   );
 
-  const handleOrderClick = useCallback((order: Order) => {
+  const handleOrderClick = useCallback((order: AnyOrder) => {
     setSelectedOrder(order);
     setShowDetail(true);
   }, []);
@@ -155,18 +148,16 @@ const OrderHistoryPanel: React.FC = () => {
     setTimeout(() => setSelectedOrder(null), 300);
   }, []);
 
+
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view your order history" />;
   }
-
   if (loadingOrders && allOrders.length === 0) {
     return <LoadingState message="Loading order history..." />;
   }
-
   if (ordersError && allOrders.length === 0) {
     return <EmptyState title="Error Loading Orders" description={ordersError} />;
   }
-
   if (allOrders.length === 0 && !loadingOrders) {
     return <EmptyState title="No Orders" description="Place your first trade to see orders here" />;
   }
@@ -190,7 +181,7 @@ const OrderHistoryPanel: React.FC = () => {
           </thead>
           <tbody>
             {currentPageData.map(order => {
-              const filled = parseFloat(order.totalFilled || '0');
+              const filled = parseFloat((order as any).totalFilled || order.totalOptimisticFilled || '0');
               const size = parseFloat(order.size);
               const fillPercent = size > 0 ? (filled / size) * 100 : 0;
 
@@ -201,7 +192,7 @@ const OrderHistoryPanel: React.FC = () => {
                   className="border-b border-color hover:bg-hover transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3">
-                    <MarketBadge market={order.ticker} />
+                    <MarketBadge market={order.ticker ?? ''} />
                   </td>
                   <td className="px-4 py-3 text-center">
                     <StatusIndicator status={order.status} />
@@ -211,9 +202,7 @@ const OrderHistoryPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
-                      {order.clientMetadata === '1' && order.type === 'LIMIT'
-                        ? 'MARKET'
-                        : order.type}
+                      {order.clientMetadata === '1' && order.type === 'LIMIT' ? 'MARKET' : order.type}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">{size.toFixed(4)}</td>
@@ -224,8 +213,7 @@ const OrderHistoryPanel: React.FC = () => {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">
-                    {order.type === 'MARKET' ||
-                    (order.clientMetadata === '1' && order.type === 'LIMIT')
+                    {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT')
                       ? 'Market'
                       : `$${parseFloat(order.price).toLocaleString()}`}
                   </td>
@@ -242,7 +230,7 @@ const OrderHistoryPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto  space-y-0.5">
+      <div className="md:hidden flex-1 overflow-auto space-y-0.5">
         {currentPageData.map(order => {
           const size = parseFloat(order.size);
           const price = parseFloat(order.price);
@@ -251,23 +239,22 @@ const OrderHistoryPanel: React.FC = () => {
             <div
               key={order.id}
               onClick={() => handleOrderClick(order)}
-              className="bg-secondary border border-color  p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color p-3 flex items-center justify-between active:bg-hover transition-colors"
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <MarketBadge market={order.ticker} />
-                <div className="flex  min-w-0">
+                <MarketBadge market={order.ticker ?? ''} />
+                <div className="flex min-w-0">
                   <div className="flex items-center gap-4">
                     <SideBadge side={order.side as 'BUY' | 'SELL'} />
                     <span className="text-primary font-mono text-xs">
-                      {order.type === 'MARKET' ||
-                      (order.clientMetadata === '1' && order.type === 'LIMIT')
+                      {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT')
                         ? 'Market'
                         : `$${price.toLocaleString()}`}
                     </span>
                   </div>
                 </div>
               </div>
-              <div className="flex items-start flex-col mr-2  ">
+              <div className="flex items-start flex-col mr-2">
                 <StatusIndicator status={order.status} />
                 <span className="text-muted text-xs">{size.toFixed(4)}</span>
               </div>
@@ -288,7 +275,7 @@ const OrderHistoryPanel: React.FC = () => {
       />
 
       <SidePanel isOpen={showDetail} onClose={handleCloseDetail} title="Order Details">
-        {selectedOrder && <OrderDetailPanel order={selectedOrder} />}
+        {selectedOrder && <OrderDetailPanel order={selectedOrder as Order} />}
       </SidePanel>
     </div>
   );

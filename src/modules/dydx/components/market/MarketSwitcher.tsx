@@ -113,8 +113,8 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
   const annualized = formatAnnualizedFundingRate(marketData.nextFundingRate);
   const isPositive = parseFloat(marketData.nextFundingRate) >= 0;
 
-  const imf = Number(marketData.initialMarginFraction);
-  const mmf = Number(marketData.maintenanceMarginFraction);
+  // const imf = Number(marketData.initialMarginFraction);
+  // const mmf = Number(marketData.maintenanceMarginFraction);
 
   return (
     <div className="grid grid-cols-2 bg-secondary border-t border-color">
