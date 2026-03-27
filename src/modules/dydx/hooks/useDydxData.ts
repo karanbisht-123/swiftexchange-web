@@ -9,7 +9,12 @@ import {
   dydxDataService,
 } from '../service/dydxOrderService';
 import { dydxWalletService } from '../service/dydxWalletService';
-import { useWebSocketStore } from '../store/websocketStore';
+import {
+  type TrackedOrder,
+  selectOpenAndGraceOrders,
+  selectRecentlyTerminalOrders,
+  useWebSocketStore,
+} from '../store/websocketStore';
 
 interface UseDydxDataReturn {
   positions: Position[];
@@ -22,8 +27,8 @@ interface UseDydxDataReturn {
   assetPositionsError: string | null;
   refreshAssetPositions: () => Promise<void>;
 
-  orders: Order[];
-  openOrders: Order[];
+  orders: TrackedOrder[];
+  openOrders: TrackedOrder[];
   loadingOrders: boolean;
   ordersError: string | null;
   refreshOrders: () => Promise<void>;
@@ -47,10 +52,8 @@ interface UseDydxDataReturn {
 export const useDydxData = (): UseDydxDataReturn => {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
-
   const [loadingFills, setLoadingFills] = useState(false);
   const [fillsError, setFillsError] = useState<string | null>(null);
-
   const [isConnected, setIsConnected] = useState(false);
 
   const isMountedRef = useRef(true);
@@ -59,95 +62,83 @@ export const useDydxData = (): UseDydxDataReturn => {
   const isFetchingRef = useRef(false);
   const prevWsConnectedRef = useRef(false);
 
-  const subscribeToParentSubaccount = useWebSocketStore(state => state.subscribeToParentSubaccount);
-  const unsubscribeFromParentSubaccount = useWebSocketStore(
-    state => state.unsubscribeFromParentSubaccount
-  );
+  const subscribeToParentSubaccount = useWebSocketStore(s => s.subscribeToParentSubaccount);
+  const unsubscribeFromParentSubaccount = useWebSocketStore(s => s.unsubscribeFromParentSubaccount);
 
   const dydxAddress = dydxWalletService.getAddress();
   const subaccountNumber = dydxWalletService.getSubaccountNumber();
-
   const parentKey = dydxAddress ? `parent_subaccount_${dydxAddress}_${subaccountNumber}` : null;
 
   const { parentData, updateTrigger } = useWebSocketStore(
     useShallow(state => ({
-      parentData: parentKey ? state.parentSubaccounts.get(parentKey) : null,
+      parentData: parentKey ? state.parentSubaccounts.get(parentKey) : undefined,
       updateTrigger: state.updateTrigger,
     }))
   );
 
-  const OPEN_ORDER_STATUSES = ['OPEN', 'PARTIALLY_FILLED', 'BEST_EFFORT_OPENED', 'UNTRIGGERED'];
-  const TERMINAL_ORDER_STATUSES = ['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED'];
+  // ── Derived data ──────────────────────────────────────────────────────────
 
   const positions = useMemo(() => {
-    const raw =
-      parentData?.childSubaccounts?.flatMap(child =>
-        Object.values(child.openPerpetualPositions || {}).map(pos => ({
-          ...pos,
-          subaccountNumber: child.subaccountNumber,
-        }))
-      ) || [];
-
-    const filtered = raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
-
-    return filtered;
+    const raw = parentData?.childSubaccounts?.flatMap(child =>
+      Object.values(child.openPerpetualPositions || {}).map(pos => ({
+        ...pos,
+        subaccountNumber: child.subaccountNumber,
+      }))
+    ) ?? [];
+    return raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
   }, [parentData?.childSubaccounts, updateTrigger, parentKey]);
 
   const assetPositions = useMemo(() => {
-    return (
-      parentData?.childSubaccounts?.flatMap(child => Object.values(child.assetPositions || {})) ||
-      []
-    );
+    return parentData?.childSubaccounts?.flatMap(child =>
+      Object.values(child.assetPositions || {})
+    ) ?? [];
   }, [parentData?.childSubaccounts, updateTrigger]);
 
-  const orders = useMemo(() => {
-    const allOrders = parentData?.orders || [];
-    return [...allOrders].sort((a, b) => {
-      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-      return timeB - timeA;
+  const orders = useMemo<TrackedOrder[]>(() => {
+    const all = parentData?.orders ?? [];
+    return [...all].sort((a, b) => {
+      const tA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const tB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return tB - tA;
     });
   }, [parentData?.orders, updateTrigger]);
 
-  const openOrders = useMemo(() => {
-    return orders.filter(
-      order =>
-        OPEN_ORDER_STATUSES.includes(order.status) &&
-        !TERMINAL_ORDER_STATUSES.includes(order.status)
-    );
-  }, [orders]);
+  // Includes recently-terminal orders (within grace window) so UI can fade them out
+  const openOrders = useMemo<TrackedOrder[]>(
+    () => selectOpenAndGraceOrders(parentData),
+    [parentData?.orders, updateTrigger]
+  );
 
   const fills = useMemo(() => {
-    const allFills = parentData?.fills || [];
-    return [...allFills].sort((a, b) => {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+    const all = parentData?.fills ?? [];
+    return [...all].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [parentData?.fills, updateTrigger]);
 
   const openOrderCount = openOrders.length;
   const activePositionCount = positions.length;
   const fillCount = fills.length;
-  const blockHeight = parentData?.blockHeight || '0';
+  const blockHeight = parentData?.blockHeight ?? '0';
+  const lastUpdateTime = parentData?.lastUpdate ?? null;
+  const isReceivingUpdates = parentData ? Date.now() - parentData.lastUpdate < 30_000 : false;
 
-  // Count recently filled orders (terminal orders still in the store's 10s grace period)
-  const recentlyFilledCount = useMemo(() => {
-    return orders.filter(o => o.status === 'FILLED').length;
-  }, [orders]);
-
-  const lastUpdateTime = parentData?.lastUpdate || null;
-  const isReceivingUpdates = parentData ? Date.now() - parentData.lastUpdate < 30000 : false;
+  const recentlyFilledCount = useMemo(
+    () => selectRecentlyTerminalOrders(parentData).filter(o => o.status === 'FILLED').length,
+    [parentData?.orders, updateTrigger]
+  );
 
   const loadingPositions = false;
   const positionsError = null;
   const loadingAssetPositions = false;
   const assetPositionsError = null;
 
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+
   useEffect(() => {
     isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
+    return () => { isMountedRef.current = false; };
   }, []);
+
+  // ── Refresh callbacks ─────────────────────────────────────────────────────
 
   const refreshOrders = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
@@ -156,19 +147,19 @@ export const useDydxData = (): UseDydxDataReturn => {
     setOrdersError(null);
 
     try {
-      const data = await dydxDataService.refreshOrders(undefined, undefined);
+      const data: Order[] = await dydxDataService.refreshOrders(undefined, undefined);
 
       if (isMountedRef.current && parentKey) {
-        useWebSocketStore.getState().updateParentSubaccount(parentKey, {
-          orders: data,
-          lastUpdate: Date.now(),
-        });
+        // HTTP data gets msgId=0 so any live WS update (msgId ≥ 1) always wins
+        useWebSocketStore.getState().updateParentSubaccount(
+          parentKey,
+          { orders: data as any, lastUpdate: Date.now() },
+          0
+        );
       }
     } catch (err: any) {
       console.error('[useDydxData] Orders refresh failed:', err);
-      if (isMountedRef.current) {
-        setOrdersError(err.message || 'Failed to refresh orders');
-      }
+      if (isMountedRef.current) setOrdersError(err.message || 'Failed to refresh orders');
     } finally {
       if (isMountedRef.current) setLoadingOrders(false);
     }
@@ -182,18 +173,12 @@ export const useDydxData = (): UseDydxDataReturn => {
 
     try {
       const data = await dydxDataService.refreshFills(undefined, undefined);
-
       if (isMountedRef.current && parentKey) {
-        useWebSocketStore.getState().updateParentSubaccount(parentKey, {
-          fills: data,
-          lastUpdate: Date.now(),
-        });
+        useWebSocketStore.getState().updateParentSubaccount(parentKey, { fills: data, lastUpdate: Date.now() });
       }
     } catch (err: any) {
       console.error('[useDydxData] Fills refresh failed:', err);
-      if (isMountedRef.current) {
-        setFillsError(err.message || 'Failed to refresh fills');
-      }
+      if (isMountedRef.current) setFillsError(err.message || 'Failed to refresh fills');
     } finally {
       if (isMountedRef.current) setLoadingFills(false);
     }
@@ -201,11 +186,10 @@ export const useDydxData = (): UseDydxDataReturn => {
 
   const refreshPositions = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+
     try {
-      // First, get the positions
       const positionsData = await dydxDataService.refreshPositions('OPEN');
-      
-      // Also get the latest subaccount balances so margin updates reflect instantly
+
       let subaccountsData: any[] = [];
       try {
         const indexer = dydxWalletService.getIndexerClient();
@@ -215,86 +199,70 @@ export const useDydxData = (): UseDydxDataReturn => {
           subaccountsData = res.subaccounts || [];
         }
       } catch (err) {
-        console.warn('[useDydxData] Failed to fetch subaccounts balances during refreshPositions', err);
+        console.warn('[useDydxData] Failed to fetch subaccount balances during refreshPositions', err);
       }
 
-      if (isMountedRef.current && parentKey) {
-        useWebSocketStore.setState(state => {
-          const existing = state.parentSubaccounts.get(parentKey);
-          if (!existing) return state;
+      if (!isMountedRef.current || !parentKey) return;
 
-          const newChildMap = new Map();
-          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c }));
+      useWebSocketStore.setState(state => {
+        const existing = state.parentSubaccounts.get(parentKey);
+        if (!existing) return state;
 
-          // Update equity and collateral from the API if available
-          subaccountsData.forEach(sub => {
-            const num = sub.subaccountNumber || 0;
-            if (newChildMap.has(num)) {
-              const child = newChildMap.get(num);
-              child.equity = sub.equity ?? child.equity;
-              child.freeCollateral = sub.freeCollateral ?? child.freeCollateral;
-            } else {
-              newChildMap.set(num, {
-                subaccountNumber: num,
-                address: existing.address,
-                equity: sub.equity || '0',
-                freeCollateral: sub.freeCollateral || '0',
-                openPerpetualPositions: {},
-                assetPositions: {},
-                marginEnabled: true,
-                updatedAtHeight: '0',
-                latestProcessedBlockHeight: '0',
-              });
-            }
-          });
+        const newChildMap = new Map(existing.childSubaccounts.map(c => [c.subaccountNumber, { ...c }]));
 
-          // Track which markets we got from the API to potentially clear ones that are actually closed
-          // But only clear if they belong to the specific subaccount
-          const apiMarketsBySubaccount = new Map<number, Set<string>>();
-
-          positionsData.forEach(pos => {
-            const subNum = pos.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
-            if (!apiMarketsBySubaccount.has(subNum)) {
-              apiMarketsBySubaccount.set(subNum, new Set());
-            }
-            apiMarketsBySubaccount.get(subNum)!.add(pos.market);
-
-            if (!newChildMap.has(subNum)) {
-              newChildMap.set(subNum, {
-                subaccountNumber: subNum,
-                address: existing.address,
-                equity: '0',
-                freeCollateral: '0',
-                openPerpetualPositions: {},
-                assetPositions: {},
-                marginEnabled: true,
-                updatedAtHeight: '0',
-                latestProcessedBlockHeight: '0',
-              });
-            }
-            const childInfo = newChildMap.get(subNum);
-            
-            // Merge position data so we don't lose local state like marginEnabled if it exists
-            const existingPos = childInfo.openPerpetualPositions[pos.market];
-            childInfo.openPerpetualPositions[pos.market] = existingPos ? { ...existingPos, ...pos } : pos;
-          });
-
-          // Optional: we can remove positions from newChildMap that weren't in the API response 
-          // if we are sure the API response is complete, but since this was causing UI drops, 
-          // let's just let the WebSocket handle closing positions.
-
-          const childSubaccounts = Array.from(newChildMap.values());
-          const newMap = new Map(state.parentSubaccounts);
-          
-          // Also update parent equity if we got the cross subaccount
-          const crossSub = subaccountsData.find(s => (s.subaccountNumber || 0) === 0);
-          const parentEquity = crossSub?.equity ?? existing.equity;
-          const parentCollateral = crossSub?.freeCollateral ?? existing.freeCollateral;
-
-          newMap.set(parentKey, { ...existing, childSubaccounts, equity: parentEquity, freeCollateral: parentCollateral, lastUpdate: Date.now() });
-          return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
+        subaccountsData.forEach(sub => {
+          const num = sub.subaccountNumber ?? 0;
+          if (newChildMap.has(num)) {
+            const child = newChildMap.get(num)!;
+            child.equity = sub.equity ?? child.equity;
+            child.freeCollateral = sub.freeCollateral ?? child.freeCollateral;
+          } else {
+            newChildMap.set(num, {
+              subaccountNumber: num,
+              address: existing.address,
+              equity: sub.equity || '0',
+              freeCollateral: sub.freeCollateral || '0',
+              openPerpetualPositions: {},
+              assetPositions: {},
+              marginEnabled: true,
+              updatedAtHeight: '0',
+              latestProcessedBlockHeight: '0',
+            });
+          }
         });
-      }
+
+        positionsData.forEach((pos: any) => {
+          const subNum = pos.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
+          if (!newChildMap.has(subNum)) {
+            newChildMap.set(subNum, {
+              subaccountNumber: subNum,
+              address: existing.address,
+              equity: '0',
+              freeCollateral: '0',
+              openPerpetualPositions: {},
+              assetPositions: {},
+              marginEnabled: true,
+              updatedAtHeight: '0',
+              latestProcessedBlockHeight: '0',
+            });
+          }
+          const child = newChildMap.get(subNum)!;
+          const existingPos = child.openPerpetualPositions[pos.market];
+          child.openPerpetualPositions[pos.market] = existingPos ? { ...existingPos, ...pos } : pos;
+        });
+
+        const crossSub = subaccountsData.find(s => (s.subaccountNumber ?? 0) === 0);
+        const newMap = new Map(state.parentSubaccounts);
+        newMap.set(parentKey, {
+          ...existing,
+          childSubaccounts: Array.from(newChildMap.values()),
+          equity: crossSub?.equity ?? existing.equity,
+          freeCollateral: crossSub?.freeCollateral ?? existing.freeCollateral,
+          lastUpdate: Date.now(),
+        });
+
+        return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
+      });
     } catch (err) {
       console.error('[useDydxData] Positions refresh failed:', err);
     }
@@ -302,46 +270,52 @@ export const useDydxData = (): UseDydxDataReturn => {
 
   const refreshAssetPositions = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+
     try {
       const assetData = await dydxDataService.getAssetPositions('OPEN', undefined, false);
-      if (isMountedRef.current && parentKey) {
-        useWebSocketStore.setState(state => {
-          const existing = state.parentSubaccounts.get(parentKey);
-          if (!existing) return state;
 
-          const newChildMap = new Map();
-          existing.childSubaccounts.forEach(c => newChildMap.set(c.subaccountNumber, { ...c }));
+      if (!isMountedRef.current || !parentKey) return;
 
-          assetData.forEach((asset: any) => {
-            const subNum = asset.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
-            if (!newChildMap.has(subNum)) {
-              newChildMap.set(subNum, {
-                subaccountNumber: subNum,
-                address: existing.address,
-                equity: '0',
-                freeCollateral: '0',
-                openPerpetualPositions: {},
-                assetPositions: {},
-                marginEnabled: true,
-                updatedAtHeight: '0',
-                latestProcessedBlockHeight: '0',
-              });
-            }
-            const childInfo = newChildMap.get(subNum);
-            const existingAsset = childInfo.assetPositions[asset.symbol];
-            childInfo.assetPositions[asset.symbol] = existingAsset ? { ...existingAsset, ...asset } : asset;
-          });
+      useWebSocketStore.setState(state => {
+        const existing = state.parentSubaccounts.get(parentKey);
+        if (!existing) return state;
 
-          const childSubaccounts = Array.from(newChildMap.values());
-          const newMap = new Map(state.parentSubaccounts);
-          newMap.set(parentKey, { ...existing, childSubaccounts, lastUpdate: Date.now() });
-          return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
+        const newChildMap = new Map(existing.childSubaccounts.map(c => [c.subaccountNumber, { ...c }]));
+
+        assetData.forEach((asset: any) => {
+          const subNum = asset.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
+          if (!newChildMap.has(subNum)) {
+            newChildMap.set(subNum, {
+              subaccountNumber: subNum,
+              address: existing.address,
+              equity: '0',
+              freeCollateral: '0',
+              openPerpetualPositions: {},
+              assetPositions: {},
+              marginEnabled: true,
+              updatedAtHeight: '0',
+              latestProcessedBlockHeight: '0',
+            });
+          }
+          const child = newChildMap.get(subNum)!;
+          const existingAsset = child.assetPositions[asset.symbol];
+          child.assetPositions[asset.symbol] = existingAsset ? { ...existingAsset, ...asset } : asset;
         });
-      }
+
+        const newMap = new Map(state.parentSubaccounts);
+        newMap.set(parentKey, {
+          ...existing,
+          childSubaccounts: Array.from(newChildMap.values()),
+          lastUpdate: Date.now(),
+        });
+        return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
+      });
     } catch (err) {
       console.error('[useDydxData] Asset positions refresh failed:', err);
     }
   }, [parentKey]);
+
+  // ── Subscriptions ─────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!dydxAddress || !isConnected) return;
@@ -362,18 +336,11 @@ export const useDydxData = (): UseDydxDataReturn => {
       isFirstMountRef.current = true;
       prevWsConnectedRef.current = false;
     };
-  }, [
-    dydxAddress,
-    subaccountNumber,
-    isConnected,
-    subscribeToParentSubaccount,
-    unsubscribeFromParentSubaccount,
-  ]);
+  }, [dydxAddress, subaccountNumber, isConnected, subscribeToParentSubaccount, unsubscribeFromParentSubaccount]);
 
   useEffect(() => {
     const unsubscribe = dydxWalletService.onStatusChange(status => {
       if (!isMountedRef.current) return;
-
       if (status === 'connected') {
         setIsConnected(true);
       } else if (status === 'disconnected') {
@@ -383,12 +350,12 @@ export const useDydxData = (): UseDydxDataReturn => {
       }
     });
 
-    if (dydxWalletService.isConnected()) {
-      setIsConnected(true);
-    }
+    if (dydxWalletService.isConnected()) setIsConnected(true);
 
     return unsubscribe;
   }, []);
+
+  // ── Return ────────────────────────────────────────────────────────────────
 
   return {
     positions,

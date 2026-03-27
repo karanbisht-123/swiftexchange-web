@@ -3,40 +3,41 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { metadataService } from '../../hooks/useMetadata';
-import { type Order } from '../../service/dydxOrderService';
+import { type TrackedOrder } from '../../store/websocketStore';
 import { dydxTradingService } from '../../service/dydxTradingService';
 
 const OpenOrdersPanel: React.FC = () => {
   const { openOrders, loadingOrders, ordersError, refreshOrders, isConnected } = useDydxData();
 
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
-  const [hiddenOrders, setHiddenOrders] = useState<Set<string>>(new Set());
   const [icons, setIcons] = useState<Record<string, string>>({});
 
+  // ── Sort open orders newest-first ──────────────────────────
   const sortedOpenOrders = useMemo(() => {
     return [...openOrders].sort((a, b) => {
-      const timeA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
-      const timeB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
-      return timeB - timeA;
+      const tA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const tB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return tB - tA;
     });
   }, [openOrders]);
 
+  // ── Load market icons ──────────────────────────────────────
   useEffect(() => {
     if (openOrders.length === 0) return;
 
     const fetchIcons = async () => {
-      const markets = [...new Set(openOrders.map(o => o.ticker))];
-      const iconPromises = markets.map(async market => {
-        const metadata = await metadataService.getMetadata(market);
-        return { market, icon: metadata?.image };
-      });
+      const markets = [...new Set(openOrders.map(o => o.ticker).filter(Boolean))];
+      const results = await Promise.allSettled(
+        markets.map(async market => {
+          const meta = await metadataService.getMetadata(market!);
+          return { market: market!, icon: meta?.image };
+        })
+      );
 
-      const iconResults = await Promise.allSettled(iconPromises);
       const newIcons: Record<string, string> = {};
-
-      iconResults.forEach(result => {
-        if (result.status === 'fulfilled' && result.value.icon) {
-          newIcons[result.value.market] = result.value.icon;
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value.icon) {
+          newIcons[r.value.market] = r.value.icon;
         }
       });
 
@@ -46,22 +47,9 @@ const OpenOrdersPanel: React.FC = () => {
     fetchIcons();
   }, [openOrders]);
 
-  // Bug 5 fix: auto-clear hidden orders when they no longer exist in openOrders
-  useEffect(() => {
-    if (hiddenOrders.size === 0) return;
-    const currentIds = new Set(openOrders.map(o => o.id));
-    const staleIds = [...hiddenOrders].filter(id => !currentIds.has(id));
-    if (staleIds.length > 0) {
-      setHiddenOrders(prev => {
-        const next = new Set(prev);
-        staleIds.forEach(id => next.delete(id));
-        return next;
-      });
-    }
-  }, [openOrders, hiddenOrders]);
-
+  // ── Cancel handler ─────────────────────────────────────────
   const handleCancel = useCallback(
-    async (order: Order) => {
+    async (order: TrackedOrder) => {
       if (!confirm(`Cancel ${order.side} order for ${order.ticker}?`)) return;
 
       setCancelling(prev => new Set(prev).add(order.id));
@@ -75,12 +63,14 @@ const OpenOrdersPanel: React.FC = () => {
           goodTilBlockTime: order.goodTilBlockTime,
         });
 
-        if (result.success) {
-          setHiddenOrders(prev => new Set(prev).add(order.id));
-          setTimeout(() => refreshOrders(), 1000);
-        } else {
+        if (!result.success) {
           throw new Error(result.userMessage || result.error || 'Failed to cancel order');
         }
+
+        // The order will disappear naturally via the WebSocket BEST_EFFORT_CANCELED /
+        // CANCELED status update — no need to hide it manually here.
+        // Refresh after a short delay as a safety net in case WS is delayed.
+        setTimeout(() => refreshOrders(), 1_500);
       } catch (err: any) {
         console.error('[OpenOrdersPanel] Failed to cancel order:', err);
         alert(`Failed to cancel order: ${err.message || 'Unknown error'}`);
@@ -95,11 +85,12 @@ const OpenOrdersPanel: React.FC = () => {
     [refreshOrders]
   );
 
+  // ── Helpers ────────────────────────────────────────────────
   const getTimeAgo = useCallback((ts: string) => {
     const diff = Date.now() - new Date(ts).getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
+    const minutes = Math.floor(diff / 60_000);
+    const hours = Math.floor(diff / 3_600_000);
+    const days = Math.floor(diff / 86_400_000);
     if (minutes < 1) return 'Just now';
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
@@ -120,7 +111,9 @@ const OpenOrdersPanel: React.FC = () => {
             className="w-full h-full object-cover rounded-full"
             onError={e => {
               e.currentTarget.style.display = 'none';
-              e.currentTarget.parentElement!.innerHTML = `<span class="text-primary text-xs font-bold">${baseAsset.slice(0, 3)}</span>`;
+              if (e.currentTarget.parentElement) {
+                e.currentTarget.parentElement.innerHTML = `<span class="text-primary text-xs font-bold">${baseAsset.slice(0, 3)}</span>`;
+              }
             }}
           />
         );
@@ -154,13 +147,6 @@ const OpenOrdersPanel: React.FC = () => {
             <span>Filling</span>
           </div>
         );
-      case 'BEST_EFFORT_CANCELED':
-        return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs">
-            <Clock className="w-3 h-3" />
-            <span>Canceling</span>
-          </div>
-        );
       case 'UNTRIGGERED':
         return (
           <div className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
@@ -174,6 +160,8 @@ const OpenOrdersPanel: React.FC = () => {
         );
     }
   }, []);
+
+  // ── Guards ─────────────────────────────────────────────────
   if (!isConnected) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted">
@@ -217,8 +205,10 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
+  // ── Render ─────────────────────────────────────────────────
   return (
     <div className="h-full flex flex-col bg-primary overflow-auto">
+      {/* Desktop table */}
       <div className="hidden md:block">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
@@ -237,30 +227,25 @@ const OpenOrdersPanel: React.FC = () => {
           </thead>
           <tbody>
             {sortedOpenOrders.map(order => {
-              if (hiddenOrders.has(order.id)) return null;
-
               const isCancelling = cancelling.has(order.id);
-              const filled = parseFloat(order.totalFilled || '0');
+              const filled = parseFloat(order.totalOptimisticFilled || '0');
               const size = parseFloat(order.size);
               const fillPercent = size > 0 ? (filled / size) * 100 : 0;
-
-              const isPending =
-                order.status === 'BEST_EFFORT_OPENED' || order.status === 'BEST_EFFORT_CANCELED';
+              const isPending = order.status === 'BEST_EFFORT_OPENED';
 
               return (
                 <tr
                   key={order.id}
-                  className={`border-b border-color hover:bg-hover transition-colors ${
-                    isCancelling ? 'opacity-50' : ''
-                  } ${isPending ? 'bg-yellow-500/5' : ''}`}
+                  className={`border-b border-color hover:bg-hover transition-colors ${isCancelling ? 'opacity-50' : ''
+                    } ${isPending ? 'bg-yellow-500/5' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                        {getMarketIcon(order.ticker)}
+                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center overflow-hidden">
+                        {order.ticker && getMarketIcon(order.ticker)}
                       </div>
                       <span className="text-primary text-xs font-medium">
-                        {order.ticker.split('-')[0]}
+                        {order.ticker?.split('-')[0] ?? '—'}
                       </span>
                     </div>
                   </td>
@@ -277,17 +262,18 @@ const OpenOrdersPanel: React.FC = () => {
 
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`px-2 py-1 rounded text-xs font-bold ${
-                        order.side === 'BUY'
+                      className={`px-2 py-1 rounded text-xs font-bold ${order.side === 'BUY'
                           ? 'bg-green-500/20 text-green-400'
                           : 'bg-red-500/20 text-red-400'
-                      }`}
+                        }`}
                     >
                       {order.side}
                     </span>
                   </td>
 
-                  <td className="px-4 py-3 text-right text-primary font-mono">{size.toFixed(4)}</td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">
+                    {size.toFixed(4)}
+                  </td>
 
                   <td className="px-4 py-3 text-right">
                     <div className="text-muted text-xs font-mono">{filled.toFixed(4)}</div>
@@ -298,7 +284,7 @@ const OpenOrdersPanel: React.FC = () => {
 
                   <td className="px-4 py-3 text-right text-primary font-mono">
                     {order.type === 'MARKET' ||
-                    (order.clientMetadata === '1' && order.type === 'LIMIT')
+                      (order.clientMetadata === '1' && order.type === 'LIMIT')
                       ? 'Market'
                       : `$${parseFloat(order.price).toLocaleString()}`}
                   </td>
@@ -318,12 +304,11 @@ const OpenOrdersPanel: React.FC = () => {
                   <td className="px-4 py-3 text-center">
                     <button
                       onClick={() => handleCancel(order)}
-                      disabled={isCancelling || order.status === 'BEST_EFFORT_CANCELED'}
-                      className={`p-1.5 rounded transition-colors ${
-                        isCancelling || order.status === 'BEST_EFFORT_CANCELED'
+                      disabled={isCancelling}
+                      className={`p-1.5 rounded transition-colors ${isCancelling
                           ? 'bg-secondary cursor-not-allowed'
                           : 'bg-red-600 hover:bg-red-500 text-white'
-                      }`}
+                        }`}
                       title="Cancel order"
                     >
                       {isCancelling ? (
@@ -340,53 +325,53 @@ const OpenOrdersPanel: React.FC = () => {
         </table>
       </div>
 
+      {/* Mobile cards */}
       <div className="md:hidden space-y-1.5 p-2">
         {sortedOpenOrders.map(order => {
-          if (hiddenOrders.has(order.id)) return null;
-
           const isCancelling = cancelling.has(order.id);
-          const filled = parseFloat(order.totalFilled || '0');
+          const filled = parseFloat(order.totalOptimisticFilled || '0');
           const size = parseFloat(order.size);
           const fillPercent = size > 0 ? (filled / size) * 100 : 0;
 
           return (
             <div
               key={order.id}
-              className={`bg-secondary border border-color rounded-lg p-2.5 text-xs ${
-                isCancelling ? 'opacity-50' : ''
-              }`}
+              className={`bg-secondary border border-color rounded-lg p-2.5 text-xs ${isCancelling ? 'opacity-50' : ''
+                }`}
             >
               <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                    {getMarketIcon(order.ticker)}
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center overflow-hidden">
+                    {order.ticker && getMarketIcon(order.ticker)}
                   </div>
-                  <span className="text-primary font-bold">{order.ticker.split('-')[0]}</span>
+                  <span className="text-primary font-bold">
+                    {order.ticker?.split('-')[0] ?? '—'}
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 bg-primary text-primary rounded text-[10px]">
-                    {order.clientMetadata === '1' && order.type === 'LIMIT' ? 'MARKET' : order.type}
+                    {order.clientMetadata === '1' && order.type === 'LIMIT'
+                      ? 'MARKET'
+                      : order.type}
                   </span>
 
                   <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      order.side === 'BUY'
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY'
                         ? 'bg-green-500/20 text-green-400'
                         : 'bg-red-500/20 text-red-400'
-                    }`}
+                      }`}
                   >
                     {order.side}
                   </span>
 
                   <button
                     onClick={() => handleCancel(order)}
-                    disabled={isCancelling || order.status === 'BEST_EFFORT_CANCELED'}
-                    className={`p-1.5 rounded transition-colors ${
-                      isCancelling || order.status === 'BEST_EFFORT_CANCELED'
+                    disabled={isCancelling}
+                    className={`p-1.5 rounded transition-colors ${isCancelling
                         ? 'bg-primary cursor-not-allowed'
                         : 'bg-red-600 hover:bg-red-500 text-white'
-                    }`}
+                      }`}
                   >
                     {isCancelling ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -396,7 +381,9 @@ const OpenOrdersPanel: React.FC = () => {
                   </button>
                 </div>
               </div>
+
               <div className="mb-2">{getStatusBadge(order.status)}</div>
+
               <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
@@ -410,7 +397,9 @@ const OpenOrdersPanel: React.FC = () => {
                     Filled
                   </span>
                   <div>
-                    <div className="text-primary font-medium font-mono">{filled.toFixed(4)}</div>
+                    <div className="text-primary font-medium font-mono">
+                      {filled.toFixed(4)}
+                    </div>
                     {fillPercent > 0 && (
                       <div className="text-[9px] text-muted">{fillPercent.toFixed(0)}%</div>
                     )}
@@ -432,7 +421,9 @@ const OpenOrdersPanel: React.FC = () => {
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
                     TIF
                   </span>
-                  <span className="text-primary font-medium">{order.timeInForce || 'GTT'}</span>
+                  <span className="text-primary font-medium">
+                    {order.timeInForce || 'GTT'}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-0.5 col-span-2">

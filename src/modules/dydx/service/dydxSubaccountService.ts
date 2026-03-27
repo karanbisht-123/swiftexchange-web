@@ -238,6 +238,109 @@ class DydxSubaccountService {
     }
   }
 
+  getEligibleSourceSubaccounts(
+    excludeId: number,
+    childSubaccounts: Array<{
+      subaccountNumber: number;
+      equity: string;
+      openPerpetualPositions?: Record<string, any>;
+    }>,
+    positions: any[],
+    marketCache: Record<string, any>
+  ): Array<{ value: number; label: string; available: number; equity: number }> {
+    const eligible: Array<{ value: number; label: string; available: number; equity: number }> = [];
+
+    childSubaccounts.forEach(sub => {
+      const subNumber = sub.subaccountNumber;
+      if (subNumber === excludeId || subNumber < SUBACCOUNT_CONSTANTS.ISOLATED_START) return;
+
+      const equity = parseFloat(sub.equity || '0');
+      if (equity <= 0) return;
+
+      const subPositions = positions.filter(p => p.subaccountNumber === subNumber);
+      if (subPositions.length === 0) return;
+
+      // Calculate total required margin for all positions in this subaccount (should be 1 for isolated)
+      let totalMinRequired = 0;
+      subPositions.forEach(p => {
+        const mktData = marketCache[p.market];
+        const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : parseFloat(p.entryPrice);
+        const mmf = mktData?.maintenanceMarginFraction ? parseFloat(mktData.maintenanceMarginFraction) : 0.03;
+        const size = Math.abs(parseFloat(p.size));
+        const notional = size * oraclePrice;
+        
+        // Safety buffer of 1.10
+        totalMinRequired += notional * mmf * 1.10;
+      });
+
+      const transferable = Math.max(0, equity - totalMinRequired);
+      
+      if (transferable > 0) {
+        eligible.push({
+          value: subNumber,
+          label: `Isolated: ${subPositions[0].market} (${subNumber})`,
+          available: transferable,
+          equity,
+        });
+      }
+    });
+
+    return eligible.sort((a, b) => b.available - a.available);
+  }
+
+  async transferMarginBetweenSubaccounts(
+    fromSubaccount: number,
+    toSubaccount: number,
+    amount: string
+  ): Promise<TransferResult> {
+    try {
+      if (fromSubaccount === 0 || toSubaccount === 0) {
+        return await this.transfer(fromSubaccount, toSubaccount, amount);
+      }
+
+      // Both are isolated subaccounts, try direct transfer
+      const directResult = await this.transfer(fromSubaccount, toSubaccount, amount);
+      
+      if (directResult.success) {
+        return directResult;
+      }
+      
+      // If direct transfer fails, attempt 2-hop routing via cross (subaccount 0)
+      console.warn('[dydxSubaccountService] Direct isolated transfer failed, attempting 2-hop routing', directResult.error);
+      
+      const toCrossResult = await this.transfer(fromSubaccount, 0, amount);
+      if (!toCrossResult.success) {
+        return toCrossResult;
+      }
+      
+      const toDestResult = await this.transfer(0, toSubaccount, amount);
+      if (!toDestResult.success) {
+        // If the second hop fails, the funds are stuck in cross
+        return {
+          ...toDestResult,
+          error: `Partial transfer failure: Funds moved to Cross but failed to reach destination. ${toDestResult.error}`
+        };
+      }
+      
+      return {
+        success: true,
+        transactionHash: toDestResult.transactionHash,
+        fromSubaccount,
+        toSubaccount,
+        amount
+      };
+    } catch (error: any) {
+      console.error('[dydxSubaccountService] transferMarginBetweenSubaccounts failed:', error);
+      return {
+        success: false,
+        error: error.message || 'Transfer failed',
+        fromSubaccount,
+        toSubaccount,
+        amount
+      };
+    }
+  }
+
   private getSigningWallet(): LocalWallet {
     const evmSession = walletService.getSession('evm');
     if (!evmSession?.evmAddress) {

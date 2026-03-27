@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-
 import { getIndexerClient, getSocketClient } from '../client/clients';
 import { useLivePriceStore } from '../store/useLivePriceStore';
 import { useWebSocketStore } from '../store/websocketStore';
@@ -24,11 +23,11 @@ interface MarketTradeState {
   newestTradeAt: number;
 }
 
-const SNAPSHOT_FRESHNESS_MS = 30_000;
+const SNAPSHOT_FRESHNESS_MS = 10_000;
+const CACHE_INVALIDATION_MS = 2 * 60 * 1000;
 
 let globalRafId: number | undefined;
 const pendingFlush = new Set<string>();
-
 export const tradesState = new Map<string, MarketTradeState>();
 
 function getOrCreateState(market: string, limit: number): MarketTradeState {
@@ -48,6 +47,11 @@ function getOrCreateState(market: string, limit: number): MarketTradeState {
   return tradesState.get(market)!;
 }
 
+function isCacheStale(state: MarketTradeState): boolean {
+  if (!state.hasValidSnapshot) return true;
+  return Date.now() - state.snapshotLoadedAt > CACHE_INVALIDATION_MS;
+}
+
 function scheduleGlobalFlush(market: string): void {
   pendingFlush.add(market);
   if (globalRafId !== undefined) return;
@@ -58,8 +62,7 @@ function scheduleGlobalFlush(market: string): void {
     for (const m of toFlush) {
       const s = tradesState.get(m);
       if (s && s.listeners.size > 0) {
-        const snapshot = [...s.trades];
-        s.listeners.forEach(listener => listener(snapshot));
+        s.listeners.forEach(l => l([...s.trades]));
       }
     }
   });
@@ -68,24 +71,13 @@ function scheduleGlobalFlush(market: string): void {
 function handleTradeUpdate(market: string, data: any): void {
   const contents = data?.contents;
   if (!contents) return;
-
   const state = getOrCreateState(market, 50);
-
-
-  const rawTrades: any[] = Array.isArray(contents.trades)
-    ? contents.trades
-    : Array.isArray(contents)
-      ? contents
-      : [];
-
+  const rawTrades: any[] = Array.isArray(contents.trades) ? contents.trades : Array.isArray(contents) ? contents : [];
   if (rawTrades.length === 0) return;
-
 
   const latestRaw = rawTrades[0];
   if (latestRaw?.price) {
-    useLivePriceStore
-      .getState()
-      .setLivePrice(market, parseFloat(latestRaw.price), latestRaw.side as 'BUY' | 'SELL');
+    useLivePriceStore.getState().setLivePrice(market, parseFloat(latestRaw.price), latestRaw.side as 'BUY' | 'SELL');
   }
 
   const existingIds = new Set(state.trades.map(t => t.id));
@@ -100,18 +92,14 @@ function handleTradeUpdate(market: string, data: any): void {
     }));
 
   if (newTrades.length === 0) return;
-  for (let i = newTrades.length - 1; i >= 0; i--) {
-    state.trades.unshift(newTrades[i]);
-  }
-  if (state.trades.length > state.limit) {
-    state.trades.length = state.limit;
-  }
 
-  if (state.trades[0]?.createdAt) {
-    const ts = new Date(state.trades[0].createdAt).getTime();
-    if (ts > state.newestTradeAt) state.newestTradeAt = ts;
-  }
+  const combined = [...newTrades, ...state.trades];
+  combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  state.trades = combined.slice(0, state.limit);
 
+  if (state.trades[0]) {
+    state.newestTradeAt = new Date(state.trades[0].createdAt).getTime();
+  }
   scheduleGlobalFlush(market);
 }
 
@@ -120,13 +108,10 @@ function subscribeToMarket(market: string): void {
   const state = getOrCreateState(market, 50);
   if (state.isSubscribed) return;
   try {
-    const socketClient = getSocketClient();
-    state.unsubscribe = socketClient.subscribeToTrades(market, data =>
-      handleTradeUpdate(market, data)
-    );
+    state.unsubscribe = getSocketClient().subscribeToTrades(market, data => handleTradeUpdate(market, data));
     state.isSubscribed = true;
   } catch (err) {
-    console.error('[Trades] Subscribe error:', err);
+    console.error(err);
   }
 }
 
@@ -134,7 +119,7 @@ function resetSubscription(market: string, clearData = false): void {
   const state = tradesState.get(market);
   if (!state) return;
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { /* ignore */ }
+    try { state.unsubscribe(); } catch { }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
@@ -150,14 +135,12 @@ function resetSubscription(market: string, clearData = false): void {
 
 function unsubscribeFromMarket(market: string): void {
   const state = tradesState.get(market);
-  if (!state) return;
-  if (state.listeners.size > 0) return;
+  if (!state || state.listeners.size > 0) return;
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { /* ignore */ }
+    try { state.unsubscribe(); } catch { }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
-  pendingFlush.delete(market);
   state.trades = [];
   state.hasValidSnapshot = false;
   state.snapshotLoadedAt = 0;
@@ -167,16 +150,9 @@ function unsubscribeFromMarket(market: string): void {
 async function loadSnapshot(market: string, limit: number, version: number): Promise<boolean> {
   if (!market) return false;
   const state = getOrCreateState(market, limit);
-
   try {
     const client = getIndexerClient();
-    let response: any;
-    try {
-      response = await client.markets.getPerpetualMarketTrades(market, undefined, undefined, limit);
-    } catch {
-      response = await client.markets.getPerpetualMarketTrades(market);
-    }
-
+    const response = await client.markets.getPerpetualMarketTrades(market, undefined, undefined, limit);
     if (state.snapshotVersion !== version) return false;
 
     const mapped: Trade[] = (response?.trades || [])
@@ -189,58 +165,29 @@ async function loadSnapshot(market: string, limit: number, version: number): Pro
         createdAt: t.createdAt,
       }));
 
-    if (mapped.length === 0) {
-      state.hasValidSnapshot = true;
-      state.snapshotLoadedAt = Date.now();
-      return true;
-    }
-
-    const newestSnapshotAt = new Date(mapped[0].createdAt).getTime();
-
     const liveIds = new Set(state.trades.map(t => t.id));
-    const restOnly = mapped.filter(t => !liveIds.has(t.id));
+    const uniqueSnapshot = mapped.filter(t => !liveIds.has(t.id));
+    const combined = [...state.trades, ...uniqueSnapshot];
 
-    if (state.newestTradeAt > 0 && state.newestTradeAt >= newestSnapshotAt) {
-      state.trades = [...state.trades, ...restOnly].slice(0, limit);
-    } else {
-      state.trades = [...state.trades, ...restOnly].slice(0, limit);
-    }
-
+    combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    state.trades = combined.slice(0, limit);
     state.hasValidSnapshot = true;
     state.snapshotLoadedAt = Date.now();
 
-    if (state.trades.length > 0) {
-      const existing = useLivePriceStore.getState().prices[market];
-      if (!existing) {
-        const top = state.trades[0];
-        useLivePriceStore.getState().setLivePrice(market, parseFloat(top.price), top.side);
-      }
+    if (state.trades[0]) {
+      state.newestTradeAt = new Date(state.trades[0].createdAt).getTime();
     }
-
-    if (state.listeners.size > 0) {
-      scheduleGlobalFlush(market);
-    }
+    scheduleGlobalFlush(market);
     return true;
   } catch (err) {
-    console.error('[Trades] Snapshot error:', err);
+    console.error(err);
     return false;
   }
 }
 
 export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
-  const [trades, setTrades] = useState<Trade[]>(() => {
-    const cached = tradesState.get(market);
-    if (cached?.hasValidSnapshot && cached.trades.length > 0) return [...cached.trades];
-    return [];
-  });
-
-  const [isLoading, setIsLoading] = useState(() => {
-    if (!market) return false;
-    const cached = tradesState.get(market);
-    return !(cached?.hasValidSnapshot && cached.trades.length > 0);
-  });
-
-  const [error, setError] = useState<string | null>(null);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const isConnected = useWebSocketStore(state => state.isConnected);
   const prevMarketRef = useRef<string | null>(null);
   const prevConnectedRef = useRef<boolean>(false);
@@ -252,73 +199,60 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
   }, []);
 
   useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || !market) return;
+      const state = tradesState.get(market);
+      if (!state || !isCacheStale(state)) return;
+      resetSubscription(market, true);
+      setIsLoading(true);
+      if (isConnected) subscribeToMarket(market);
+      loadSnapshot(market, limit, state.snapshotVersion).then(() => {
+        if (mountedRef.current) setIsLoading(false);
+      });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [market, limit, isConnected]);
+
+  useEffect(() => {
     if (!market) {
       setIsLoading(false);
       setTrades([]);
       return;
     }
-
     const state = getOrCreateState(market, limit);
-    state.limit = limit;
-
     const isMarketChange = prevMarketRef.current !== null && prevMarketRef.current !== market;
-    const isReconnect =
-      !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
+    const isReconnect = !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
 
+    if (isMarketChange) {
+      resetSubscription(prevMarketRef.current!, true);
+      setTrades([]);
+      setIsLoading(true);
+    }
     prevMarketRef.current = market;
     prevConnectedRef.current = isConnected;
 
-    const snapshotAge = Date.now() - state.snapshotLoadedAt;
-    const snapshotIsFresh = state.hasValidSnapshot && snapshotAge < SNAPSHOT_FRESHNESS_MS;
-
-    if (state.trades.length > 0) {
-      setTrades([...state.trades]);
-      setIsLoading(false);
-      setError(null);
-    } else if (isMarketChange) {
-      setTrades([]);
-      setIsLoading(true);
-      setError(null);
-    } else if (isReconnect) {
+    if (isReconnect) {
       resetSubscription(market, false);
       setIsLoading(true);
-      setError(null);
     }
-    const listener = (updatedTrades: Trade[]) => {
-      if (!mountedRef.current) return;
-      setTrades(updatedTrades);
-      setIsLoading(false);
-      setError(null);
+
+    const listener = (u: Trade[]) => {
+      if (mountedRef.current) {
+        setTrades(u);
+        setIsLoading(false);
+      }
     };
     state.listeners.add(listener);
-    if (isConnected) {
-      subscribeToMarket(market);
-    }
+    if (isConnected) subscribeToMarket(market);
 
-    const needsSnapshot =
-      state.trades.length === 0 || isReconnect || (!snapshotIsFresh && isMarketChange);
-
-    if (needsSnapshot) {
-      const version = state.snapshotVersion;
-      loadSnapshot(market, limit, version).then(success => {
-        if (!mountedRef.current) return;
-        if (success) {
-          const current = tradesState.get(market);
-          if (current && current.trades.length > 0) {
-            setTrades(prev => {
-              if (prev.length === 0) return [...current.trades];
-              const currentNewest = current.trades[0]?.createdAt ?? '';
-              const prevNewest = prev[0]?.createdAt ?? '';
-              return currentNewest >= prevNewest ? [...current.trades] : prev;
-            });
-          }
-          setIsLoading(false);
-        } else if (version === state.snapshotVersion) {
-          setError('Failed to load trades');
-          setIsLoading(false);
-        }
+    const snapshotIsFresh = state.hasValidSnapshot && (Date.now() - state.snapshotLoadedAt < SNAPSHOT_FRESHNESS_MS);
+    if (state.trades.length === 0 || isReconnect || isMarketChange || !snapshotIsFresh) {
+      loadSnapshot(market, limit, state.snapshotVersion).then(() => {
+        if (mountedRef.current) setIsLoading(false);
       });
     } else {
+      setTrades([...state.trades]);
       setIsLoading(false);
     }
 
@@ -328,8 +262,5 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     };
   }, [market, limit, isConnected]);
 
-  const livePrice = trades.length > 0 ? parseFloat(trades[0].price) : null;
-  const livePriceSide = trades.length > 0 ? trades[0].side : null;
-
-  return { trades, isLoading, isConnected, error, livePrice, livePriceSide };
+  return { trades, isLoading, isConnected };
 }

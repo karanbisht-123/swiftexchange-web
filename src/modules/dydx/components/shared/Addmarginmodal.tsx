@@ -1,8 +1,11 @@
 import { AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
+import { useDydxData } from '../../hooks/useDydxData';
+import useMarketStore from '../../store/marketStore';
+import { dydxSubaccountService } from '../../service/dydxSubaccountService';
 import { type Position } from '../../types/trading.types';
 
 interface AddMarginModalProps {
@@ -51,13 +54,44 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
     const isIsolated = subaccountNumber >= 128;
 
     const { balance } = useDydxWallet();
-    const { getBalance, transfer, isTransferring, transferError, clearTransferError } = useSubaccounts();
+    const { positions } = useDydxData();
+    const marketCache = useMarketStore(state => state.marketCache);
+    const { getBalance, transfer, isTransferring, transferError, clearTransferError, childSubaccounts } = useSubaccounts();
 
     const crossFreeCollateral = parseFloat(balance?.freeCollateral ?? '0');
     const crossMarginUsage = 0; // Provide default fallback
 
     const isolatedBalance = getBalance(subaccountNumber);
     const isolatedEquity = parseFloat(isolatedBalance?.equity ?? '0');
+
+    const [selectedSource, setSelectedSource] = useState<number>(0);
+
+    const eligibleSources = useMemo(() => {
+        const sources = dydxSubaccountService.getEligibleSourceSubaccounts(
+            subaccountNumber,
+            childSubaccounts,
+            positions as Position[],
+            marketCache
+        );
+        
+        return [
+            {
+                value: 0,
+                label: 'Cross Account',
+                available: crossFreeCollateral,
+                equity: parseFloat(balance?.equity ?? '0')
+            },
+            ...sources
+        ].filter((s: { value: number; label: string; available: number; equity: number }) => s.available > 0 || s.value === 0);
+    }, [subaccountNumber, childSubaccounts, positions, marketCache, crossFreeCollateral, balance?.equity]);
+
+    useEffect(() => {
+        if (isOpen && activeTab === 'add' && eligibleSources.length > 0) {
+            // Default to Cross Account if available, else first isolated
+            const crossSource = eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === 0);
+            setSelectedSource(crossSource ? 0 : eligibleSources[0].value);
+        }
+    }, [isOpen, activeTab, eligibleSources.length]);
 
     useEffect(() => {
         if (isOpen) {
@@ -78,7 +112,10 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
         }
     }, [transferError]);
 
-    const available = activeTab === 'add' ? crossFreeCollateral : isolatedEquity;
+    const available = activeTab === 'add' 
+        ? (eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === selectedSource)?.available ?? 0)
+        : isolatedEquity;
+        
     const amountError = amount ? validateAmount(amount, available, activeTab, isolatedEquity) : null;
     const loading = modalState === 'loading' || isTransferring;
     const numericAmount = parseFloat(amount) || 0;
@@ -108,7 +145,7 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
         setModalState('loading');
         setError(null);
 
-        const fromSub = activeTab === 'add' ? 0 : subaccountNumber;
+        const fromSub = activeTab === 'add' ? selectedSource : subaccountNumber;
         const toSub = activeTab === 'add' ? subaccountNumber : 0;
 
         const result = await transfer(fromSub, toSub, amount);
@@ -206,6 +243,36 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                         })}
                     </div>
 
+                    {activeTab === 'add' && (
+                        <div className="bg-[#15171b] border border-[#2a2d36] rounded-xl overflow-hidden p-3.5">
+                            <label className="block text-[11px] text-[#8b94a5] font-medium mb-1.5">
+                                Source Account
+                            </label>
+                            {eligibleSources.length === 1 && eligibleSources[0].value === 0 ? (
+                                <div className="text-sm font-medium text-white flex justify-between items-center">
+                                    <span>Cross Account</span>
+                                    <span className="text-[#8b94a5] text-xs">No other positions have margin.</span>
+                                </div>
+                            ) : (
+                                <select
+                                    value={selectedSource}
+                                    onChange={(e) => {
+                                        setSelectedSource(Number(e.target.value));
+                                        setAmount('');
+                                    }}
+                                    disabled={loading || modalState === 'success'}
+                                    className="w-full bg-transparent text-sm font-medium text-white outline-none cursor-pointer"
+                                >
+                                    {eligibleSources.map((s: { value: number; label: string; available: number; equity: number }) => (
+                                        <option key={s.value} value={s.value} className="bg-[#1f2128]">
+                                            {s.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+                    )}
+
                     <div className="bg-[#15171b] border border-[#2a2d36] rounded-xl overflow-hidden">
                         <div className="px-3.5 pt-2.5 pb-1">
                             <label className="text-[11px] text-[#8b94a5] font-medium">
@@ -227,6 +294,15 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                         </div>
                     </div>
 
+                    <div className="flex justify-between items-center px-1 text-[11px] text-[#8b94a5]">
+                        <span>Available to transfer: ${available.toFixed(2)}</span>
+                        {activeTab === 'add' && selectedSource !== 0 && (
+                            <span>Minimum retained in source: ${(
+                                (eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === selectedSource)?.equity ?? 0) - available
+                            ).toFixed(2)}</span>
+                        )}
+                    </div>
+
                     {amountError && (
                         <div className="flex items-center gap-1.5 text-xs text-red-500">
                             <AlertTriangle size={12} />
@@ -234,16 +310,33 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                         </div>
                     )}
 
-                    <div className="space-y-2 py-1">
-                        <div className="flex justify-between items-center text-[13px]">
-                            <span className="text-[#8b94a5]">Cross Free Collateral</span>
-                            <span className="text-white font-medium">${crossFreeCollateral.toFixed(2)}</span>
+                    {activeTab === 'add' && selectedSource !== 0 ? (
+                        <div className="space-y-2 py-1">
+                            <div className="flex justify-between items-center text-[13px]">
+                                <span className="text-[#8b94a5]">Source Bal. after transfer</span>
+                                <span className="text-white font-medium">
+                                    ${Math.max(0, (eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === selectedSource)?.equity ?? 0) - numericAmount).toFixed(2)}
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center text-[13px]">
+                                <span className="text-[#8b94a5]">Dest Bal. after transfer</span>
+                                <span className="text-white font-medium">
+                                    ${(isolatedEquity + numericAmount).toFixed(2)}
+                                </span>
+                            </div>
                         </div>
-                        <div className="flex justify-between items-center text-[13px]">
-                            <span className="text-[#8b94a5]">Cross Margin Usage</span>
-                            <span className="text-white font-medium">{crossMarginUsage.toFixed(2)}%</span>
+                    ) : (
+                        <div className="space-y-2 py-1">
+                            <div className="flex justify-between items-center text-[13px]">
+                                <span className="text-[#8b94a5]">Cross Free Collateral</span>
+                                <span className="text-white font-medium">${crossFreeCollateral.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[13px]">
+                                <span className="text-[#8b94a5]">Cross Margin Usage</span>
+                                <span className="text-white font-medium">{crossMarginUsage.toFixed(2)}%</span>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     <div className="bg-[#2a2d36]/30 rounded-xl p-3 border border-[#2a2d36]">
                         <div className="flex justify-between items-start text-[13px]">

@@ -4,6 +4,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { getSocketClient } from '../client/clients';
 import { webSocketManager } from '../utils/WebSocketManager';
 
+
 export interface ChildSubaccount {
   address: string;
   subaccountNumber: number;
@@ -50,7 +51,7 @@ export interface ParentSubaccountData {
   equity: string;
   freeCollateral: string;
   childSubaccounts: ChildSubaccount[];
-  orders: any[];
+  orders: TrackedOrder[];
   fills: any[];
   transfers: any[];
   blockHeight: string;
@@ -107,6 +108,51 @@ export interface PositionPnl {
   netFunding: string;
 }
 
+export interface TrackedOrder {
+  id: string;
+  subaccountId?: string;
+  clientId?: string;
+  clobPairId?: string;
+  side: 'BUY' | 'SELL';
+  size: string;
+  price: string;
+  type: string;
+  status: string;
+  timeInForce?: string;
+  postOnly?: boolean;
+  reduceOnly?: boolean;
+  orderFlags?: string;
+  goodTilBlock?: string;
+  goodTilBlockTime?: string;
+  ticker?: string;
+  removalReason?: string;
+  clientMetadata?: string;
+  updatedAt?: string;
+  createdAtHeight?: string;
+  totalOptimisticFilled?: string;
+  _msgId: number;
+  _terminalAt?: number;
+}
+
+export type RawOrder = Omit<TrackedOrder, '_msgId' | '_terminalAt'> & {
+  _msgId?: number;
+  _terminalAt?: number;
+};
+
+export type PartialSubaccountUpdate = Omit<Partial<ParentSubaccountData>, 'orders'> & {
+  orders?: RawOrder[];
+};
+
+const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED']);
+
+const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
+
+const TERMINAL_GRACE_MS = 6_000;
+
+const MAX_ORDERS = 150;
+const MAX_FILLS = 150;
+const UNSUB_DELAY_MS = 5_000;
+
 interface WebSocketState {
   isConnected: boolean;
   connectionId: string | null;
@@ -116,7 +162,6 @@ interface WebSocketState {
   markets: Map<string, MarketData>;
   trades: Map<string, TradeData>;
   candles: Map<string, CandleData>;
-
   positionPnl: Map<string, PositionPnl>;
 
   activeSubscriptions: Set<string>;
@@ -126,7 +171,6 @@ interface WebSocketState {
 
   subscribeToParentSubaccount: (address: string, subaccountNumber: number) => void;
   unsubscribeFromParentSubaccount: (address: string, subaccountNumber: number) => void;
-
   subscribeToMarket: (ticker: string) => void;
   unsubscribeFromMarket: (ticker: string) => void;
   subscribeToAllMarkets: () => void;
@@ -135,17 +179,23 @@ interface WebSocketState {
   unsubscribeFromTrades: (market: string) => void;
   subscribeToCandles: (market: string, resolution: string) => void;
   unsubscribeFromCandles: (market: string, resolution: string) => void;
-  updateParentSubaccount: (key: string, data: Partial<ParentSubaccountData>) => void;
+
+  updateParentSubaccount: (key: string, data: PartialSubaccountUpdate, msgId?: number) => void;
   updateMarket: (ticker: string, data: Partial<MarketData>) => void;
+  updateMarkets: (updates: Record<string, Partial<MarketData>>) => void;
   updateTrades: (market: string, data: Partial<TradeData>) => void;
   updateCandles: (key: string, data: Partial<CandleData>) => void;
   cleanup: () => void;
 }
 
-const handleSubscribe = (key: string, set: any, subscribeFn: () => (() => void) | void) => {
-  set((state: WebSocketState) => {
+const handleSubscribe = (
+  key: string,
+  set: (fn: (s: WebSocketState) => Partial<WebSocketState>) => void,
+  subscribeFn: () => (() => void) | void
+) => {
+  set((state) => {
     const { activeSubscriptions, subscriptionCounts, unsubTimers, subscriptionRefs } = state;
-    const count = subscriptionCounts.get(key) || 0;
+    const count = subscriptionCounts.get(key) ?? 0;
     const newCounts = new Map(subscriptionCounts).set(key, count + 1);
 
     const timer = unsubTimers.get(key);
@@ -156,31 +206,32 @@ const handleSubscribe = (key: string, set: any, subscribeFn: () => (() => void) 
       return { subscriptionCounts: newCounts, unsubTimers: newTimers };
     }
 
-    if (activeSubscriptions.has(key)) {
-      return { subscriptionCounts: newCounts };
-    }
+    if (activeSubscriptions.has(key)) return { subscriptionCounts: newCounts };
 
     try {
       const unsubscribe = subscribeFn();
-      if (unsubscribe) {
+      if (typeof unsubscribe === 'function') {
         return {
           activeSubscriptions: new Set(activeSubscriptions).add(key),
           subscriptionRefs: new Map(subscriptionRefs).set(key, unsubscribe),
           subscriptionCounts: newCounts,
         };
       }
-      return { subscriptionCounts: newCounts };
     } catch (error) {
       console.error(`[WSStore] Failed to subscribe to ${key}:`, error);
-      return { subscriptionCounts: newCounts };
     }
+
+    return { subscriptionCounts: newCounts };
   });
 };
 
-const handleUnsubscribe = (key: string, set: any) => {
-  set((state: WebSocketState) => {
+const handleUnsubscribe = (
+  key: string,
+  set: (fn: (s: WebSocketState) => Partial<WebSocketState>) => void
+) => {
+  set((state) => {
     const { subscriptionCounts, unsubTimers } = state;
-    const count = subscriptionCounts.get(key) || 0;
+    const count = subscriptionCounts.get(key) ?? 0;
 
     if (count > 1) {
       return { subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) };
@@ -190,28 +241,27 @@ const handleUnsubscribe = (key: string, set: any) => {
     newCounts.delete(key);
 
     const timer = setTimeout(() => {
-      set((innerState: WebSocketState) => {
-        if (innerState.subscriptionCounts.has(key)) return innerState;
+      set((inner) => {
+        if (inner.subscriptionCounts.has(key)) return {};
 
-        const innerRefs = new Map(innerState.subscriptionRefs);
-        const innerSubs = new Set(innerState.activeSubscriptions);
-        const innerTimers = new Map(innerState.unsubTimers);
+        const refs = new Map(inner.subscriptionRefs);
+        const subs = new Set(inner.activeSubscriptions);
+        const timers = new Map(inner.unsubTimers);
 
-        const unsubscribe = innerRefs.get(key);
+        const unsubscribe = refs.get(key);
         if (typeof unsubscribe === 'function') {
-          unsubscribe();
+          try { unsubscribe(); } catch (err) {
+            console.error(`[WSStore] Error unsubscribing from ${key}:`, err);
+          }
         }
-        innerRefs.delete(key);
-        innerSubs.delete(key);
-        innerTimers.delete(key);
 
-        return {
-          subscriptionRefs: innerRefs,
-          activeSubscriptions: innerSubs,
-          unsubTimers: innerTimers,
-        };
+        refs.delete(key);
+        subs.delete(key);
+        timers.delete(key);
+
+        return { subscriptionRefs: refs, activeSubscriptions: subs, unsubTimers: timers };
       });
-    }, 5000);
+    }, UNSUB_DELAY_MS);
 
     return {
       subscriptionCounts: newCounts,
@@ -219,6 +269,80 @@ const handleUnsubscribe = (key: string, set: any) => {
     };
   });
 };
+
+function mergeOrders(
+  existing: Map<string, TrackedOrder>,
+  incoming: any[],
+  msgId: number,
+  now: number
+): Map<string, TrackedOrder> {
+  const next = new Map(existing);
+
+  for (const raw of incoming) {
+    const id: string = raw.id;
+    if (!id) continue;
+
+    const prev = next.get(id);
+    if (prev && prev._msgId > msgId) continue;
+
+    const isTerminal = TERMINAL_STATUSES.has(raw.status);
+
+    next.set(id, {
+      ...prev,
+      ...raw,
+      _msgId: msgId,
+      _terminalAt: isTerminal
+        ? (prev && TERMINAL_STATUSES.has(prev.status) ? prev._terminalAt : now)
+        : undefined,
+    } as TrackedOrder);
+  }
+
+  return next;
+}
+
+function evictOrders(
+  orderMap: Map<string, TrackedOrder>,
+  currentBlock: number,
+  now: number
+): TrackedOrder[] {
+  const kept: TrackedOrder[] = [];
+
+  for (const order of orderMap.values()) {
+    if (TERMINAL_STATUSES.has(order.status)) {
+      if (now - (order._terminalAt ?? now) < TERMINAL_GRACE_MS) kept.push(order);
+      continue;
+    }
+
+    if (currentBlock > 0 && order.goodTilBlock && parseInt(order.goodTilBlock, 10) < currentBlock) {
+      continue;
+    }
+
+    kept.push(order);
+  }
+
+  return kept
+    .sort((a, b) => {
+      const tA = a.updatedAt ? new Date(a.updatedAt).getTime() : parseInt(a.createdAtHeight ?? '0', 10);
+      const tB = b.updatedAt ? new Date(b.updatedAt).getTime() : parseInt(b.createdAtHeight ?? '0', 10);
+      return tB - tA;
+    })
+    .slice(0, MAX_ORDERS);
+}
+
+function mergeFills(existing: any[], incoming: any[]): any[] {
+  const fillMap = new Map<string, any>(existing.map(f => [f.id, f]));
+
+  for (const fill of incoming) {
+    const ex = fillMap.get(fill.id);
+    if (!ex || (fill.createdAt && new Date(fill.createdAt) >= new Date(ex.createdAt))) {
+      fillMap.set(fill.id, fill);
+    }
+  }
+
+  return Array.from(fillMap.values())
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, MAX_FILLS);
+}
 
 export const useWebSocketStore = create<WebSocketState>()(
   subscribeWithSelector((set, get) => ({
@@ -235,48 +359,49 @@ export const useWebSocketStore = create<WebSocketState>()(
     subscriptionCounts: new Map(),
     unsubTimers: new Map(),
 
-    subscribeToParentSubaccount: (address: string, subaccountNumber: number) => {
+    subscribeToParentSubaccount: (address, subaccountNumber) => {
       const key = `parent_subaccount_${address}_${subaccountNumber}`;
+
       handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
+
         return socketClient.subscribeToParentSubaccounts(address, subaccountNumber, (data: any) => {
           if (!data?.contents) return;
 
-          const messageType = data.type;
+          const msgId: number = data.message_id ?? 0;
+          const messageType: string = data.type;
           const contents = data.contents;
-          const updates: Partial<ParentSubaccountData> = {
-            lastUpdate: Date.now(),
-          };
+          const updates: Partial<ParentSubaccountData> = { lastUpdate: Date.now() };
 
           if (messageType === 'subscribed' && contents.subaccount) {
-            const subaccount = contents.subaccount;
+            const sub = contents.subaccount;
 
-            updates.address = subaccount.address;
-            updates.parentSubaccountNumber = subaccount.parentSubaccountNumber;
-            updates.equity = subaccount.equity || '0';
-            updates.freeCollateral = subaccount.freeCollateral || '0';
+            updates.address = sub.address;
+            updates.parentSubaccountNumber = sub.parentSubaccountNumber;
+            updates.equity = sub.equity ?? '0';
+            updates.freeCollateral = sub.freeCollateral ?? '0';
 
-            if (subaccount.childSubaccounts && Array.isArray(subaccount.childSubaccounts)) {
-              updates.childSubaccounts = subaccount.childSubaccounts.map((child: any) => ({
+            if (Array.isArray(sub.childSubaccounts)) {
+              updates.childSubaccounts = sub.childSubaccounts.map((child: any) => ({
                 address: child.address,
                 subaccountNumber: child.subaccountNumber,
-                equity: child.equity || '0',
-                freeCollateral: child.freeCollateral || '0',
-                openPerpetualPositions: child.openPerpetualPositions || {},
-                assetPositions: child.assetPositions || {},
+                equity: child.equity ?? '0',
+                freeCollateral: child.freeCollateral ?? '0',
+                openPerpetualPositions: child.openPerpetualPositions ?? {},
+                assetPositions: child.assetPositions ?? {},
                 marginEnabled: child.marginEnabled ?? true,
-                updatedAtHeight: child.updatedAtHeight || '0',
-                latestProcessedBlockHeight: child.latestProcessedBlockHeight || '0',
+                updatedAtHeight: child.updatedAtHeight ?? '0',
+                latestProcessedBlockHeight: child.latestProcessedBlockHeight ?? '0',
               }));
 
               const initialPnl = new Map(get().positionPnl);
-              subaccount.childSubaccounts.forEach((child: any) => {
-                Object.values(child.openPerpetualPositions || {}).forEach((pos: any) => {
+              sub.childSubaccounts.forEach((child: any) => {
+                Object.values(child.openPerpetualPositions ?? {}).forEach((pos: any) => {
                   if (pos.market) {
                     initialPnl.set(pos.market, {
-                      unrealizedPnl: pos.unrealizedPnl || '0',
-                      realizedPnl: pos.realizedPnl || '0',
-                      netFunding: pos.netFunding || '0',
+                      unrealizedPnl: pos.unrealizedPnl ?? '0',
+                      realizedPnl: pos.realizedPnl ?? '0',
+                      netFunding: pos.netFunding ?? '0',
                     });
                   }
                 });
@@ -285,70 +410,64 @@ export const useWebSocketStore = create<WebSocketState>()(
             }
 
             if (contents.orders !== undefined) {
-              updates.orders = Array.isArray(contents.orders) ? contents.orders : [];
+              updates.orders = (Array.isArray(contents.orders) ? contents.orders : []).map(
+                (o: any) => ({ ...o, _msgId: 0 })
+              );
             }
-            if (contents.fills !== undefined) {
-              updates.fills = Array.isArray(contents.fills) ? contents.fills : [];
-            }
-            if (contents.transfers !== undefined) {
-              updates.transfers = Array.isArray(contents.transfers) ? contents.transfers : [];
-            }
-            if (contents.blockHeight) {
-              updates.blockHeight = contents.blockHeight;
-            }
+            if (contents.fills !== undefined) updates.fills = Array.isArray(contents.fills) ? contents.fills : [];
+            if (contents.transfers !== undefined) updates.transfers = Array.isArray(contents.transfers) ? contents.transfers : [];
+            if (contents.blockHeight) updates.blockHeight = contents.blockHeight;
 
-            get().updateParentSubaccount(key, updates);
+            get().updateParentSubaccount(key, updates, msgId);
             return;
           }
 
           if (messageType === 'channel_batch_data' || messageType === 'channel_data') {
-            const batchContents = Array.isArray(contents) ? contents : [contents];
-            const batchSubaccountNumber = data.subaccountNumber ?? 0;
-
+            const batches: any[] = Array.isArray(contents) ? contents : [contents];
+            const batchSubNum: number = data.subaccountNumber ?? 0;
             const currentData = get().parentSubaccounts.get(key);
             if (!currentData) return;
 
-            let updatedChildSubaccounts = currentData.childSubaccounts.map(child => ({
+            let updatedChildren = currentData.childSubaccounts.map(child => ({
               ...child,
               openPerpetualPositions: { ...child.openPerpetualPositions },
               assetPositions: { ...child.assetPositions },
             }));
 
-            const newOrders: any[] = [];
-            const newFills: any[] = [];
+            const allOrders: any[] = [];
+            const allFills: any[] = [];
             const pnlUpdates = new Map<string, PositionPnl>();
             const closedMarkets: string[] = [];
-            let hasStructuralPositionChange = false;
+            let hasPositionChange = false;
 
-            batchContents.forEach((batch: any) => {
-              if (batch.perpetualPositions && Array.isArray(batch.perpetualPositions)) {
-                batch.perpetualPositions.forEach((pos: any) => {
-                  const subNum = pos.subaccountNumber ?? batchSubaccountNumber;
-                  let childIndex = updatedChildSubaccounts.findIndex(
-                    c => c.subaccountNumber === subNum
-                  );
+            for (const batch of batches) {
+              if (Array.isArray(batch.perpetualPositions)) {
+                for (const pos of batch.perpetualPositions) {
+                  const subNum: number = pos.subaccountNumber ?? batchSubNum;
+                  let idx = updatedChildren.findIndex(c => c.subaccountNumber === subNum);
 
-                  if (childIndex === -1) {
-                    updatedChildSubaccounts.push({
-                      address: pos.address || currentData.address,
+                  if (idx === -1) {
+                    updatedChildren.push({
+                      address: pos.address ?? currentData.address,
                       subaccountNumber: subNum,
                       equity: '0',
                       freeCollateral: '0',
                       openPerpetualPositions: {},
                       assetPositions: {},
                       marginEnabled: true,
-                      updatedAtHeight: batch.blockHeight || '0',
-                      latestProcessedBlockHeight: batch.blockHeight || '0',
+                      updatedAtHeight: batch.blockHeight ?? '0',
+                      latestProcessedBlockHeight: batch.blockHeight ?? '0',
                     });
-                    childIndex = updatedChildSubaccounts.length - 1;
-                    hasStructuralPositionChange = true;
+                    idx = updatedChildren.length - 1;
+                    hasPositionChange = true;
                   }
 
-                  const child = updatedChildSubaccounts[childIndex];
+                  const child = updatedChildren[idx];
+                  const isClosed = pos.status === 'CLOSED' || parseFloat(pos.size ?? '0') === 0;
 
-                  if (pos.status === 'CLOSED' || parseFloat(pos.size || '0') === 0) {
+                  if (isClosed) {
                     delete child.openPerpetualPositions[pos.market];
-                    hasStructuralPositionChange = true;
+                    hasPositionChange = true;
                     pnlUpdates.set(pos.market, {
                       unrealizedPnl: '0',
                       realizedPnl: pos.realizedPnl ?? '0',
@@ -357,29 +476,21 @@ export const useWebSocketStore = create<WebSocketState>()(
                     closedMarkets.push(pos.market);
                   } else {
                     const existing = child.openPerpetualPositions[pos.market];
-
-                    const isPnlOnlyUpdate =
+                    const isPnlOnly =
                       existing &&
                       pos.unrealizedPnl !== undefined &&
                       pos.size === undefined &&
                       pos.entryPrice === undefined &&
                       pos.side === undefined;
 
-                    if (isPnlOnlyUpdate) {
-                      pnlUpdates.set(pos.market, {
-                        unrealizedPnl: pos.unrealizedPnl ?? existing.unrealizedPnl,
-                        realizedPnl: pos.realizedPnl ?? existing.realizedPnl,
-                        netFunding: pos.netFunding ?? existing.netFunding,
-                      });
-
-                      child.openPerpetualPositions[pos.market] = {
+                    const merged = isPnlOnly
+                      ? {
                         ...existing,
                         unrealizedPnl: pos.unrealizedPnl ?? existing.unrealizedPnl,
                         realizedPnl: pos.realizedPnl ?? existing.realizedPnl,
                         netFunding: pos.netFunding ?? existing.netFunding,
-                      };
-                    } else {
-                      const merged = existing
+                      }
+                      : existing
                         ? {
                           ...existing,
                           ...pos,
@@ -393,67 +504,54 @@ export const useWebSocketStore = create<WebSocketState>()(
                         }
                         : { ...pos, subaccountNumber: subNum };
 
-                      child.openPerpetualPositions[pos.market] = merged;
-                      hasStructuralPositionChange = true;
+                    child.openPerpetualPositions[pos.market] = merged;
+                    if (!isPnlOnly) hasPositionChange = true;
 
-                      pnlUpdates.set(pos.market, {
-                        unrealizedPnl: merged.unrealizedPnl,
-                        realizedPnl: merged.realizedPnl,
-                        netFunding: merged.netFunding,
-                      });
-                    }
+                    pnlUpdates.set(pos.market, {
+                      unrealizedPnl: merged.unrealizedPnl,
+                      realizedPnl: merged.realizedPnl,
+                      netFunding: merged.netFunding,
+                    });
                   }
 
-                  child.updatedAtHeight = batch.blockHeight || child.updatedAtHeight;
-                  child.latestProcessedBlockHeight =
-                    batch.blockHeight || child.latestProcessedBlockHeight;
-                });
+                  child.updatedAtHeight = batch.blockHeight ?? child.updatedAtHeight;
+                  child.latestProcessedBlockHeight = batch.blockHeight ?? child.latestProcessedBlockHeight;
+                }
               }
 
-              if (batch.assetPositions && Array.isArray(batch.assetPositions)) {
-                batch.assetPositions.forEach((asset: any) => {
-                  const subNum = asset.subaccountNumber ?? batchSubaccountNumber;
-                  let childIndex = updatedChildSubaccounts.findIndex(
-                    c => c.subaccountNumber === subNum
-                  );
+              if (Array.isArray(batch.assetPositions)) {
+                for (const asset of batch.assetPositions) {
+                  const subNum: number = asset.subaccountNumber ?? batchSubNum;
+                  let idx = updatedChildren.findIndex(c => c.subaccountNumber === subNum);
 
-                  if (childIndex === -1) {
-                    updatedChildSubaccounts.push({
-                      address: asset.address || currentData.address,
+                  if (idx === -1) {
+                    updatedChildren.push({
+                      address: asset.address ?? currentData.address,
                       subaccountNumber: subNum,
                       equity: '0',
                       freeCollateral: '0',
                       openPerpetualPositions: {},
                       assetPositions: {},
                       marginEnabled: true,
-                      updatedAtHeight: batch.blockHeight || '0',
-                      latestProcessedBlockHeight: batch.blockHeight || '0',
+                      updatedAtHeight: batch.blockHeight ?? '0',
+                      latestProcessedBlockHeight: batch.blockHeight ?? '0',
                     });
-                    childIndex = updatedChildSubaccounts.length - 1;
+                    idx = updatedChildren.length - 1;
                   }
 
-                  const child = updatedChildSubaccounts[childIndex];
-                  const assetSize = parseFloat(asset.size || '0');
-                  if (assetSize === 0) {
+                  const child = updatedChildren[idx];
+                  if (parseFloat(asset.size ?? '0') === 0) {
                     delete child.assetPositions[asset.symbol];
                   } else {
                     child.assetPositions[asset.symbol] = { ...asset, subaccountNumber: subNum };
                   }
-                });
+                }
               }
 
-              if (batch.orders && Array.isArray(batch.orders)) {
-                newOrders.push(...batch.orders);
-              }
-
-              if (batch.fills && Array.isArray(batch.fills)) {
-                newFills.push(...batch.fills);
-              }
-
-              if (batch.blockHeight) {
-                updates.blockHeight = batch.blockHeight;
-              }
-            });
+              if (Array.isArray(batch.orders)) allOrders.push(...batch.orders);
+              if (Array.isArray(batch.fills)) allFills.push(...batch.fills);
+              if (batch.blockHeight) updates.blockHeight = batch.blockHeight;
+            }
 
             if (pnlUpdates.size > 0 || closedMarkets.length > 0) {
               set(state => {
@@ -464,82 +562,64 @@ export const useWebSocketStore = create<WebSocketState>()(
               });
             }
 
-            if (hasStructuralPositionChange) {
-              updates.childSubaccounts = updatedChildSubaccounts;
-            }
+            if (hasPositionChange) updates.childSubaccounts = updatedChildren;
+            if (allOrders.length > 0) updates.orders = allOrders as any;
+            if (allFills.length > 0) updates.fills = allFills;
 
-            if (newOrders.length > 0) {
-              updates.orders = newOrders;
-            }
-
-            if (newFills.length > 0) {
-              updates.fills = newFills;
-            }
-
-            get().updateParentSubaccount(key, updates);
+            get().updateParentSubaccount(key, updates, msgId);
             return;
           }
 
           if (contents.subaccount) {
-            const subaccount = contents.subaccount;
+            const sub = contents.subaccount;
+            updates.address = sub.address;
+            updates.parentSubaccountNumber = sub.parentSubaccountNumber;
+            updates.equity = sub.equity ?? '0';
+            updates.freeCollateral = sub.freeCollateral ?? '0';
 
-            updates.address = subaccount.address;
-            updates.parentSubaccountNumber = subaccount.parentSubaccountNumber;
-            updates.equity = subaccount.equity || '0';
-            updates.freeCollateral = subaccount.freeCollateral || '0';
-
-            if (subaccount.childSubaccounts && Array.isArray(subaccount.childSubaccounts)) {
-              updates.childSubaccounts = subaccount.childSubaccounts.map((child: any) => ({
+            if (Array.isArray(sub.childSubaccounts)) {
+              updates.childSubaccounts = sub.childSubaccounts.map((child: any) => ({
                 address: child.address,
                 subaccountNumber: child.subaccountNumber,
-                equity: child.equity || '0',
-                freeCollateral: child.freeCollateral || '0',
-                openPerpetualPositions: child.openPerpetualPositions || {},
-                assetPositions: child.assetPositions || {},
+                equity: child.equity ?? '0',
+                freeCollateral: child.freeCollateral ?? '0',
+                openPerpetualPositions: child.openPerpetualPositions ?? {},
+                assetPositions: child.assetPositions ?? {},
                 marginEnabled: child.marginEnabled ?? true,
-                updatedAtHeight: child.updatedAtHeight || '0',
-                latestProcessedBlockHeight: child.latestProcessedBlockHeight || '0',
+                updatedAtHeight: child.updatedAtHeight ?? '0',
+                latestProcessedBlockHeight: child.latestProcessedBlockHeight ?? '0',
               }));
             }
           }
 
-          if (contents.orders !== undefined) {
-            updates.orders = Array.isArray(contents.orders) ? contents.orders : [];
-          }
-          if (contents.fills !== undefined) {
-            updates.fills = Array.isArray(contents.fills) ? contents.fills : [];
-          }
-          if (contents.transfers !== undefined) {
-            updates.transfers = Array.isArray(contents.transfers) ? contents.transfers : [];
-          }
-          if (contents.blockHeight) {
-            updates.blockHeight = contents.blockHeight;
-          }
+          if (contents.orders !== undefined) updates.orders = Array.isArray(contents.orders) ? contents.orders : ([] as any);
+          if (contents.fills !== undefined) updates.fills = Array.isArray(contents.fills) ? contents.fills : [];
+          if (contents.transfers !== undefined) updates.transfers = Array.isArray(contents.transfers) ? contents.transfers : [];
+          if (contents.blockHeight) updates.blockHeight = contents.blockHeight;
 
-          get().updateParentSubaccount(key, updates);
+          get().updateParentSubaccount(key, updates, msgId);
         });
       });
     },
 
-    unsubscribeFromParentSubaccount: (address: string, subaccountNumber: number) => {
+    unsubscribeFromParentSubaccount: (address, subaccountNumber) => {
       handleUnsubscribe(`parent_subaccount_${address}_${subaccountNumber}`, set);
     },
 
-    subscribeToMarket: (ticker: string) => {
-      const key = `market_${ticker}`;
-      handleSubscribe(key, set, () => {
+    subscribeToMarket: (ticker) => {
+      handleSubscribe(`market_${ticker}`, set, () => {
         const socketClient = getSocketClient();
-        return socketClient.subscribeToMarkets(data => {
-          if (data.contents?.markets && data.contents.markets[ticker]) {
-            const mktData = data.contents.markets[ticker];
+        return socketClient.subscribeToMarkets((data: any) => {
+          if (data.contents?.markets?.[ticker]) {
+            const m = data.contents.markets[ticker];
             get().updateMarket(ticker, {
               ticker,
-              oraclePrice: mktData.oraclePrice,
-              priceChange24H: mktData.priceChange24H,
-              trades24H: mktData.trades24H,
-              volume24H: mktData.volume24H,
-              openInterest: mktData.openInterest,
-              nextFundingRate: mktData.nextFundingRate,
+              oraclePrice: m.oraclePrice,
+              priceChange24H: m.priceChange24H,
+              trades24H: m.trades24H,
+              volume24H: m.volume24H,
+              openInterest: m.openInterest,
+              nextFundingRate: m.nextFundingRate,
               lastUpdate: Date.now(),
             });
           }
@@ -547,37 +627,16 @@ export const useWebSocketStore = create<WebSocketState>()(
       });
     },
 
-    unsubscribeFromMarket: (ticker: string) => {
+    unsubscribeFromMarket: (ticker) => {
       handleUnsubscribe(`market_${ticker}`, set);
     },
 
     subscribeToAllMarkets: () => {
-      const key = 'markets_all';
-      handleSubscribe(key, set, () => {
+      handleSubscribe('markets_all', set, () => {
         const socketClient = getSocketClient();
         return socketClient.subscribeToMarkets((data: any) => {
           if (data.contents?.markets) {
-            set((state: WebSocketState) => {
-              const newMap = new Map(state.markets);
-              const now = Date.now();
-              Object.entries(data.contents.markets).forEach(
-                ([ticker, mktData]: [string, any]) => {
-                  const existing = newMap.get(ticker);
-                  newMap.set(ticker, {
-                    ...existing,
-                    ticker,
-                    oraclePrice: mktData.oraclePrice,
-                    priceChange24H: mktData.priceChange24H,
-                    trades24H: mktData.trades24H,
-                    volume24H: mktData.volume24H,
-                    openInterest: mktData.openInterest,
-                    nextFundingRate: mktData.nextFundingRate,
-                    lastUpdate: now,
-                  } as MarketData);
-                }
-              );
-              return { markets: newMap };
-            });
+            get().updateMarkets(data.contents.markets);
           }
         });
       });
@@ -587,131 +646,64 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleUnsubscribe('markets_all', set);
     },
 
-    subscribeToTrades: (market: string) => {
-      const key = `trades_${market}`;
-      handleSubscribe(key, set, () => {
+    subscribeToTrades: (market) => {
+      handleSubscribe(`trades_${market}`, set, () => {
         const socketClient = getSocketClient();
-        return socketClient.subscribeToTrades(market, data => {
+        return socketClient.subscribeToTrades(market, (data: any) => {
           if (data.contents?.trades) {
-            get().updateTrades(market, {
-              market,
-              trades: data.contents.trades,
-              lastUpdate: Date.now(),
-            });
+            get().updateTrades(market, { market, trades: data.contents.trades, lastUpdate: Date.now() });
           }
         });
       });
     },
 
-    unsubscribeFromTrades: (market: string) => {
+    unsubscribeFromTrades: (market) => {
       handleUnsubscribe(`trades_${market}`, set);
     },
 
-    subscribeToCandles: (market: string, resolution: string) => {
+    subscribeToCandles: (market, resolution) => {
       const key = `candles_${market}_${resolution}`;
       handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
-        return socketClient.subscribeToCandles(market, resolution, data => {
+        return socketClient.subscribeToCandles(market, resolution, (data: any) => {
           if (data.contents?.candles) {
-            get().updateCandles(key, {
-              market,
-              resolution,
-              candles: data.contents.candles,
-              lastUpdate: Date.now(),
-            });
+            get().updateCandles(key, { market, resolution, candles: data.contents.candles, lastUpdate: Date.now() });
           }
         });
       });
     },
 
-    unsubscribeFromCandles: (market: string, resolution: string) => {
+    unsubscribeFromCandles: (market, resolution) => {
       handleUnsubscribe(`candles_${market}_${resolution}`, set);
     },
 
-    updateParentSubaccount: (key: string, data: Partial<ParentSubaccountData>) => {
-      set(state => {
+    updateParentSubaccount: (key, data, msgId = 0) => {
+      set((state) => {
         const newMap = new Map(state.parentSubaccounts);
-        const existing = newMap.get(key) || {
+        const existing = newMap.get(key) ?? {
           address: '',
           parentSubaccountNumber: 0,
           equity: '0',
           freeCollateral: '0',
           childSubaccounts: [],
-          orders: [],
+          orders: [] as TrackedOrder[],
           fills: [],
           transfers: [],
           blockHeight: '0',
           lastUpdate: 0,
         };
 
-        const TERMINAL_STATUSES = ['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED'];
-        const ORDER_PRUNE_AGE_MS = 10_000;
         const now = Date.now();
+        const orderMap = new Map<string, TrackedOrder>(existing.orders.map(o => [o.id, o]));
 
-        let mergedOrders = existing.orders;
-        if (data.orders !== undefined) {
-          const orderMap = new Map<string, any>();
-          existing.orders.forEach(order => orderMap.set(order.id, order));
-          data.orders.forEach(order => {
-            const existingOrder = orderMap.get(order.id);
-            if (
-              !existingOrder ||
-              (order.updatedAt &&
-                (!existingOrder.updatedAt ||
-                  new Date(order.updatedAt).getTime() >=
-                  new Date(existingOrder.updatedAt).getTime()))
-            ) {
-              orderMap.set(order.id, { ...order, _mergedAt: now });
-            }
-          });
-          mergedOrders = Array.from(orderMap.values())
-            .filter(order => {
-              if (TERMINAL_STATUSES.includes(order.status)) {
-                const mergedAt = order._mergedAt || now;
-                return now - mergedAt < ORDER_PRUNE_AGE_MS;
-              }
-              return true;
-            })
-            .sort((a, b) => {
-              const tA = new Date(a.updatedAt || a.createdAtHeight || '0').getTime();
-              const tB = new Date(b.updatedAt || b.createdAtHeight || '0').getTime();
-              return tB - tA;
-            })
-            .slice(0, 150);
-        }
+        const mergedOrderMap =
+          data.orders !== undefined && data.orders.length > 0
+            ? mergeOrders(orderMap, data.orders as any[], msgId, now)
+            : orderMap;
 
-
-        const currentBlock = parseInt(data.blockHeight || existing.blockHeight || '0', 10);
-        const orderCountBeforeBlockExpiry = mergedOrders.length;
-        if (currentBlock > 0) {
-          mergedOrders = mergedOrders.filter(order => {
-            if (order.goodTilBlock && !TERMINAL_STATUSES.includes(order.status)) {
-              return parseInt(order.goodTilBlock, 10) >= currentBlock;
-            }
-            return true;
-          });
-        }
-        const ordersExpiredByBlock = orderCountBeforeBlockExpiry !== mergedOrders.length;
-
-        let mergedFills = existing.fills;
-        if (data.fills !== undefined) {
-          const fillMap = new Map<string, any>();
-          existing.fills.forEach(fill => fillMap.set(fill.id, fill));
-          data.fills.forEach(fill => {
-            const existingFill = fillMap.get(fill.id);
-            if (
-              !existingFill ||
-              (fill.createdAt &&
-                (!existingFill.createdAt ||
-                  new Date(fill.createdAt).getTime() >= new Date(existingFill.createdAt).getTime()))
-            ) {
-              fillMap.set(fill.id, fill);
-            }
-          });
-          mergedFills = Array.from(fillMap.values())
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-            .slice(0, 150);
-        }
+        const currentBlock = parseInt(data.blockHeight ?? existing.blockHeight ?? '0', 10);
+        const finalOrders = evictOrders(mergedOrderMap, currentBlock, now);
+        const finalFills = data.fills !== undefined ? mergeFills(existing.fills, data.fills) : existing.fills;
 
         const merged: ParentSubaccountData = {
           address: data.address ?? existing.address,
@@ -719,29 +711,23 @@ export const useWebSocketStore = create<WebSocketState>()(
           equity: data.equity ?? existing.equity,
           freeCollateral: data.freeCollateral ?? existing.freeCollateral,
           childSubaccounts: data.childSubaccounts ?? existing.childSubaccounts,
-          orders: mergedOrders,
-          fills: mergedFills,
+          orders: finalOrders,
+          fills: finalFills,
           transfers: data.transfers ?? existing.transfers,
           blockHeight: data.blockHeight ?? existing.blockHeight,
-          lastUpdate: Date.now(),
+          lastUpdate: now,
         };
 
         newMap.set(key, merged);
 
-        const hasChildSubaccountChanges = data.childSubaccounts !== undefined;
-        const hasOrderChanges = data.orders !== undefined && data.orders.length > 0;
-        const hasFillChanges = data.fills !== undefined && data.fills.length > 0;
-        const hasEquityChange =
-          data.equity !== existing.equity || data.freeCollateral !== existing.freeCollateral;
-
         const hasChanges =
-          hasChildSubaccountChanges ||
-          hasOrderChanges ||
-          hasFillChanges ||
-          hasEquityChange ||
-          ordersExpiredByBlock ||
-          merged.orders.length !== existing.orders.length ||
-          merged.fills.length !== existing.fills.length;
+          data.childSubaccounts !== undefined ||
+          (data.orders !== undefined && data.orders.length > 0) ||
+          (data.fills !== undefined && data.fills.length > 0) ||
+          data.equity !== existing.equity ||
+          data.freeCollateral !== existing.freeCollateral ||
+          finalOrders.length !== existing.orders.length ||
+          finalFills.length !== existing.fills.length;
 
         return {
           parentSubaccounts: newMap,
@@ -750,29 +736,77 @@ export const useWebSocketStore = create<WebSocketState>()(
       });
     },
 
-    updateMarket: (ticker: string, data: Partial<MarketData>) => {
-      set(state => {
+    updateMarket: (ticker, data) => {
+      set((state) => {
+        const existing = state.markets.get(ticker);
+        const next = { ...existing, ...data, lastUpdate: Date.now() } as MarketData;
+
+        if (
+          existing &&
+          existing.oraclePrice === next.oraclePrice &&
+          existing.volume24H === next.volume24H &&
+          existing.nextFundingRate === next.nextFundingRate &&
+          existing.openInterest === next.openInterest &&
+          existing.priceChange24H === next.priceChange24H
+        ) {
+          return {};
+        }
+
         const newMap = new Map(state.markets);
-        const existing = newMap.get(ticker);
-        newMap.set(ticker, { ...existing, ...data, lastUpdate: Date.now() } as MarketData);
+        newMap.set(ticker, next);
         return { markets: newMap };
       });
     },
 
-    updateTrades: (market: string, data: Partial<TradeData>) => {
-      set(state => {
+    updateMarkets: (updates: Record<string, Partial<MarketData>>) => {
+      set((state) => {
+        const now = Date.now();
+        let hasAnyChange = false;
+        const newMap = new Map(state.markets);
+
+        for (const [ticker, m] of Object.entries(updates)) {
+          const existing = newMap.get(ticker);
+          const next: MarketData = {
+            ...(existing ?? { ticker, trades24H: '0', lastUpdate: 0 }),
+            ticker,
+            oraclePrice: m.oraclePrice ?? existing?.oraclePrice ?? '0',
+            priceChange24H: m.priceChange24H ?? existing?.priceChange24H ?? '0',
+            volume24H: m.volume24H ?? existing?.volume24H ?? '0',
+            openInterest: m.openInterest ?? existing?.openInterest ?? '0',
+            nextFundingRate: m.nextFundingRate ?? existing?.nextFundingRate ?? '0',
+            trades24H: m.trades24H ?? existing?.trades24H ?? '0',
+            lastUpdate: now,
+          };
+
+          if (
+            !existing ||
+            existing.oraclePrice !== next.oraclePrice ||
+            existing.volume24H !== next.volume24H ||
+            existing.nextFundingRate !== next.nextFundingRate ||
+            existing.openInterest !== next.openInterest ||
+            existing.priceChange24H !== next.priceChange24H
+          ) {
+            newMap.set(ticker, next);
+            hasAnyChange = true;
+          }
+        }
+
+        return hasAnyChange ? { markets: newMap } : {};
+      });
+    },
+
+    updateTrades: (market, data) => {
+      set((state) => {
         const newMap = new Map(state.trades);
-        const existing = newMap.get(market);
-        newMap.set(market, { ...existing, ...data } as TradeData);
+        newMap.set(market, { ...newMap.get(market), ...data } as TradeData);
         return { trades: newMap };
       });
     },
 
-    updateCandles: (key: string, data: Partial<CandleData>) => {
-      set(state => {
+    updateCandles: (key, data) => {
+      set((state) => {
         const newMap = new Map(state.candles);
-        const existing = newMap.get(key);
-        newMap.set(key, { ...existing, ...data } as CandleData);
+        newMap.set(key, { ...newMap.get(key), ...data } as CandleData);
         return { candles: newMap };
       });
     },
@@ -781,11 +815,8 @@ export const useWebSocketStore = create<WebSocketState>()(
       const { subscriptionRefs, unsubTimers } = get();
 
       unsubTimers.forEach(timer => clearTimeout(timer));
-
       subscriptionRefs.forEach((unsubscribe, key) => {
-        try {
-          unsubscribe();
-        } catch (error) {
+        try { unsubscribe(); } catch (error) {
           console.error(`[WSStore] Cleanup error for ${key}:`, error);
         }
       });
@@ -806,10 +837,28 @@ export const useWebSocketStore = create<WebSocketState>()(
   }))
 );
 
-webSocketManager.onConnect(() => {
-  useWebSocketStore.setState({ isConnected: true });
-});
+webSocketManager.onConnect(() => useWebSocketStore.setState({ isConnected: true }));
+webSocketManager.onDisconnect(() => useWebSocketStore.setState({ isConnected: false }));
 
-webSocketManager.onDisconnect(() => {
-  useWebSocketStore.setState({ isConnected: false });
-});
+export function selectOpenOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
+  if (!data) return [];
+  return data.orders.filter(o => OPEN_STATUSES.has(o.status));
+}
+
+export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
+  if (!data) return [];
+  const now = Date.now();
+  return data.orders.filter(o => {
+    if (OPEN_STATUSES.has(o.status)) return true;
+    if (TERMINAL_STATUSES.has(o.status)) return now - (o._terminalAt ?? now) < TERMINAL_GRACE_MS;
+    return false;
+  });
+}
+
+export function selectRecentlyTerminalOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
+  if (!data) return [];
+  const now = Date.now();
+  return data.orders.filter(
+    o => TERMINAL_STATUSES.has(o.status) && now - (o._terminalAt ?? now) < TERMINAL_GRACE_MS
+  );
+}
