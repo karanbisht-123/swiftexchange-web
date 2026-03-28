@@ -1,4 +1,4 @@
-import type { NetworkKey } from '../config/swapConfigs';
+import { type NetworkKey } from '../modules/evm/utils/Chainregistry';
 import type { TokenMetadata } from '../types/evm/swap.types';
 
 export const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';

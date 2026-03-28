@@ -1,9 +1,8 @@
 import { ArrowDownLeft, Check, Copy, ExternalLink } from 'lucide-react';
 import React, { useState } from 'react';
 
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { type TransactionItem } from '../service/EvmTransactionService';
-import { getChainLogoUrl, getChainName, getExplorerUrl, normalizeChainId } from '../utils/Chainregistry';
+import { getChainLogoUrl, getChainName, getExplorerUrl } from '../utils/Chainregistry';
 
 interface TransactionDetailsViewProps {
   transaction: TransactionItem;
@@ -11,12 +10,10 @@ interface TransactionDetailsViewProps {
 }
 
 const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transaction, chainId }) => {
-  const currentNetwork = useWalletStore(state => state.network);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  const safeChainId = normalizeChainId(chainId);
-  const chainSymbol = getChainName(safeChainId, currentNetwork);
-  const logoUrl = getChainLogoUrl(safeChainId, currentNetwork);
+  const chainSymbol = getChainName(chainId);
+  const logoUrl = getChainLogoUrl(chainId);
 
   const handleCopy = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -63,7 +60,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
                 <button onClick={() => handleCopy(transaction.hash, 'hash')} className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors">
                   {copiedField === 'hash' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                 </button>
-                <a href={getExplorerUrl(safeChainId, currentNetwork, 'tx', transaction.hash)} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors">
+                <a href={getExplorerUrl(chainId, 'tx', transaction.hash)} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors">
                   <ExternalLink size={14} />
                 </a>
               </div>
@@ -72,7 +69,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary">Block</span>
               <a
-                href={getExplorerUrl(safeChainId, currentNetwork, 'block', String(parseInt(transaction.blockNum, 16)))}
+                href={getExplorerUrl(chainId, 'block', String(parseInt(transaction.blockNum, 16)))}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm font-mono text-brand-primary hover:underline flex items-center gap-1"

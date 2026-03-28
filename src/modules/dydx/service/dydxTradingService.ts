@@ -20,13 +20,14 @@ import { dydxWalletService } from './dydxWalletService';
 
 const TRADING_CONFIG = {
   DEFAULT_SLIPPAGE: 0.05,
-  SHORT_TERM_BLOCKS: 20,
+  SHORT_BLOCK_FORWARD: 19,
+  SHORT_BLOCK_WINDOW: 20,
+  SHORT_TERM_BLOCKS: 19,
   DEFAULT_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
   CLOSE_POSITION_SLIPPAGE: 0.03,
   MAX_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
 } as const;
 
-// Conditional order types that require a trigger price
 const CONDITIONAL_ORDER_TYPES = new Set([
   'STOP_MARKET',
   'STOP_LIMIT',
@@ -34,10 +35,8 @@ const CONDITIONAL_ORDER_TYPES = new Set([
   'TAKE_PROFIT_LIMIT',
 ]);
 
-// These conditional types execute as market (IOC) when triggered
 const MARKET_CONDITIONAL_TYPES = new Set(['STOP_MARKET', 'TAKE_PROFIT_MARKET']);
 
-// SDK order flags: 0 = SHORT_TERM, 32 = LONG_TERM, 64 = CONDITIONAL
 const SHORT_TERM_FLAG = 0;
 
 type OrderCategory = {
@@ -47,10 +46,7 @@ type OrderCategory = {
 };
 
 class DydxTradingService {
-  // Random start avoids duplicate clientIds across page reloads
   private clientIdCounter = Math.floor(Math.random() * 0x7fffffff);
-
-  // Core wallet/client helpers 
 
   private async getClientAndWallet() {
     const client = await dydxWalletService.getCompositeClient();
@@ -59,8 +55,6 @@ class DydxTradingService {
     const localWallet = this.getSigningWallet();
     return { client, address, localWallet };
   }
-
-  //Place order 
 
   async placeOrder(params: PlaceOrderParams, marketInfo?: MarketData) {
     try {
@@ -84,7 +78,6 @@ class DydxTradingService {
       }
       price = this.roundPrice(price, marketInfo.tickSize!);
 
-      // Isolated subaccounts (number >= 128) need enough equity before order placement
       if (subaccountNumber >= 128 && params.leverage) {
         await this.ensureIsolatedSubaccountEquity({
           subaccountNumber,
@@ -130,6 +123,13 @@ class DydxTradingService {
       };
     } catch (error: any) {
       console.error('Order placement error:', error);
+
+      const subaccountNumber =
+        params.subaccountNumber ?? dydxWalletService.getActiveSubaccountNumber();
+      if (subaccountNumber >= 128) {
+        this.sweepIsolatedSubaccountAsync(subaccountNumber);
+      }
+
       return {
         success: false,
         error: error.message || 'Unknown error',
@@ -139,25 +139,29 @@ class DydxTradingService {
     }
   }
 
-  // Close position
-
   async closePosition(position: Position, marketInfo?: MarketData) {
     try {
       const closingSide: OrderSideEnum =
         position.side.toUpperCase().trim() === 'LONG' ? 'SELL' : 'BUY';
 
-      return await this.placeOrder(
+      const result = await this.placeOrder(
         {
           market: position.market,
           side: closingSide,
           type: 'MARKET',
           size: Math.abs(parseFloat(position.size)),
-          reduceOnly: false, // reduce-only is disabled on dYdX
+          reduceOnly: false,
           slippageTolerance: TRADING_CONFIG.CLOSE_POSITION_SLIPPAGE,
           subaccountNumber: position.subaccountNumber,
         },
         marketInfo
       );
+
+      if (result.success && position.subaccountNumber !== undefined && position.subaccountNumber >= 128) {
+        this.sweepIsolatedSubaccountAsync(position.subaccountNumber);
+      }
+
+      return result;
     } catch (error: any) {
       console.error('Close position error:', error);
       return {
@@ -169,7 +173,16 @@ class DydxTradingService {
     }
   }
 
-  // Cancel single order
+  private sweepIsolatedSubaccountAsync(subaccountNumber: number): void {
+    (async () => {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        await dydxSubaccountService.sweepSubaccountToCross(subaccountNumber);
+      } catch (err: any) {
+        console.error(`[dydxTradingService] Post-close sweep failed for subaccount ${subaccountNumber}:`, err.message);
+      }
+    })();
+  }
 
   async cancelOrder(order: any) {
     try {
@@ -209,6 +222,11 @@ class DydxTradingService {
         goodTilTimeInSeconds
       );
 
+      const subaccountNumber = order.subaccountNumber ?? dydxWalletService.getSubaccountNumber();
+      if (subaccountNumber >= 128) {
+        this.sweepIsolatedSubaccountAsync(subaccountNumber);
+      }
+
       return {
         success: true,
         transactionHash: this.extractHash(result.hash),
@@ -223,9 +241,6 @@ class DydxTradingService {
       };
     }
   }
-
-  // Cancel all open orders
-  // Short-term orders batch into one tx; long-term/conditional go one-by-one (SDK limitation).
 
   async cancelAllOrders(orders: any[]) {
     if (!orders.length) return { success: true, results: [], cancelled: 0, failed: 0 };
@@ -242,15 +257,12 @@ class DydxTradingService {
 
       const results: any[] = [];
 
-      // Batch cancel all short-term orders in a single tx
       const shortTermPromise = (async () => {
         if (!shortTermOrders.length) return;
 
-        // Get current block height once for the whole batch
-        const height = await client.validatorClient.get.latestBlockHeight();
-        const goodTilBlock = height + TRADING_CONFIG.SHORT_TERM_BLOCKS;
+        const height = await this.getFreshBlockHeight(client);
+        const goodTilBlock = height + TRADING_CONFIG.SHORT_BLOCK_FORWARD;
 
-        // Group by market ticker — required shape for batchCancelShortTermOrdersWithMarketId
         const byMarket = new Map<string, number[]>();
         for (const order of shortTermOrders) {
           const market = order.ticker || order.clobPairId;
@@ -275,7 +287,6 @@ class DydxTradingService {
             hash: this.extractHash(result.hash),
           });
         } catch (err: any) {
-          // Batch failed — fall back to individual cancels so we don't leave orders open
           console.warn('Batch cancel failed, falling back to individual cancels:', err.message);
           const fallbacks = await Promise.allSettled(
             shortTermOrders.map(o => this.cancelOrder(o))
@@ -290,7 +301,6 @@ class DydxTradingService {
         }
       })();
 
-      // Stateful orders cancel in parallel — each is its own tx, no SDK batching available
       const statefulPromises = statefulOrders.map(order =>
         this.cancelOrder(order)
           .then(r => results.push({ type: 'stateful', clientId: order.clientId, ...r }))
@@ -298,6 +308,15 @@ class DydxTradingService {
       );
 
       await Promise.all([shortTermPromise, ...statefulPromises]);
+
+      const isolatedSubaccounts = new Set(
+        orders
+          .map(o => o.subaccountNumber)
+          .filter((n): n is number => n != null && n >= 128)
+      );
+      for (const subaccountNumber of isolatedSubaccounts) {
+        this.sweepIsolatedSubaccountAsync(subaccountNumber);
+      }
 
       const failed = results.filter(r => !r.success).length;
       const cancelled = results.filter(r => r.success).length;
@@ -321,9 +340,6 @@ class DydxTradingService {
       };
     }
   }
-
-  // Close all open positions
-  // Each position fires its own market order in parallel (can't batch — different subaccounts/blocks).
 
   async closeAllPositions(
     positions: Position[],
@@ -355,8 +371,6 @@ class DydxTradingService {
       results,
     };
   }
-
-  // Set triggers (TP/SL)
 
   async setTriggers(position: Position, triggers: TriggerParams, marketInfo?: MarketData) {
     const closingSide: OrderSideEnum =
@@ -409,8 +423,6 @@ class DydxTradingService {
     }
   }
 
-
-  // Pulled out of placeOrder handles isolated margin top-up + on-chain verification
   private async ensureIsolatedSubaccountEquity({
     subaccountNumber,
     size,
@@ -432,7 +444,6 @@ class DydxTradingService {
     const notionalValue = size * oraclePrice;
     const requiredMargin = notionalValue / params.leverage!;
 
-    // Long-term (stateful) orders need a minimum of 20.1 USDC equity
     const isLongTermOrder = !orderCategory.isMarket;
     const targetEquity = isLongTermOrder ? Math.max(requiredMargin, 20.1) : requiredMargin;
     const targetEquityWithBuffer = targetEquity * 1.05;
@@ -450,7 +461,6 @@ class DydxTradingService {
     }
   }
 
-  // Polls indexer until the transferred equity is reflected — chain state can lag
   private async verifyEquityAfterTransfer({
     address,
     subaccount,
@@ -460,12 +470,12 @@ class DydxTradingService {
     subaccount: any;
     targetEquityWithBuffer: number;
   }) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     const indexer = dydxWalletService.getIndexerClient();
     let verified = false;
 
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       try {
         const subaccountResponse = await indexer.account.getSubaccount(
           address,
@@ -478,7 +488,7 @@ class DydxTradingService {
         }
       } catch { }
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 600));
     }
 
     if (!verified) {
@@ -486,6 +496,12 @@ class DydxTradingService {
         'Transfer completed but equity not yet reflected. Please try again in a few seconds.'
       );
     }
+  }
+
+  private async getFreshBlockHeight(client: any): Promise<number> {
+    await client.validatorClient.get.latestBlockHeight();
+    await new Promise(r => setTimeout(r, 200));
+    return client.validatorClient.get.latestBlockHeight();
   }
 
   private async placeMarketOrder(
@@ -496,8 +512,8 @@ class DydxTradingService {
     price: number,
     size: number
   ) {
-    const height = await client.validatorClient.get.latestBlockHeight();
-    const goodTilBlock = height + TRADING_CONFIG.SHORT_TERM_BLOCKS;
+    const height = await this.getFreshBlockHeight(client);
+    const goodTilBlock = height + TRADING_CONFIG.SHORT_BLOCK_FORWARD;
     const side = this.normalizeToOrderSide(params.side);
 
     return client.placeShortTermOrder(
@@ -531,7 +547,6 @@ class DydxTradingService {
 
     const side = this.normalizeToOrderSide(params.side);
 
-    // Market conditionals (stop market / take profit market) use IOC execution
     const isMarketConditional = MARKET_CONDITIONAL_TYPES.has(params.type.toUpperCase());
     const execution = isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT;
 
@@ -571,7 +586,6 @@ class DydxTradingService {
 
     let timeInForce = OrderTimeInForce.GTT;
     if (params.timeInForce === 'IOC') timeInForce = OrderTimeInForce.IOC;
-    // Reduce-only forces IOC to avoid resting on the book
     if (params.reduceOnly) timeInForce = OrderTimeInForce.IOC;
 
     const side = this.normalizeToOrderSide(params.side);
@@ -592,8 +606,6 @@ class DydxTradingService {
       undefined
     );
   }
-
-  //Utilities
 
   private validateReduceOnlyConstraints(params: PlaceOrderParams, _orderCategory: any) {
     if (!params.reduceOnly) return;
@@ -648,7 +660,6 @@ class DydxTradingService {
         ? parseFloat(orderbook.asks[0].price)
         : parseFloat(orderbook.bids[0].price);
 
-    // Buy fills against asks (slippage up), sell fills against bids (slippage down)
     return normalized === 'BUY'
       ? basePrice * (1 + tolerance)
       : basePrice * (1 - tolerance);
@@ -656,13 +667,11 @@ class DydxTradingService {
 
   private roundPrice(value: number, tickSize: string): number {
     const tick = parseFloat(tickSize);
-    // toFixed prevents floating-point drift (e.g. 0.1 tick → 0.10000000000000001)
     const decimals = (tickSize.split('.')[1] ?? '').length;
     return parseFloat((Math.round(value / tick) * tick).toFixed(decimals));
   }
 
   private generateClientId(): number {
-    // Wrap within signed 32-bit range — dYdX chain requirement
     this.clientIdCounter = (this.clientIdCounter + 1) % 0x7fffffff;
     return this.clientIdCounter;
   }

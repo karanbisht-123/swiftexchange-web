@@ -14,7 +14,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
-import { getEVMChains } from '../../utils/Chainregistry';
+import { getEVMChains } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
@@ -449,8 +449,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         disabled={isChainSwitching}
                         title={`Switch to ${chain.name}`}
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 border ${isSelected
-                            ? 'btn-primary border-transparent shadow-md'
-                            : 'btn-secondary hover:bg-tertiary border-color'
+                          ? 'btn-primary border-transparent shadow-md'
+                          : 'btn-secondary hover:bg-tertiary border-color'
                           }`}
                       >
                         <img
@@ -548,8 +548,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     inputMode="decimal"
                     pattern="^[0-9]*[.,]?[0-9]*$"
                     className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0')
-                        ? 'text-red-500'
-                        : ''
+                      ? 'text-red-500'
+                      : ''
                       }`}
                     placeholder="0.00"
                     value={sellAmount}

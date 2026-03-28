@@ -1,13 +1,16 @@
-import { Edit2, Loader2, TrendingDown, TrendingUp, X, PlusCircle } from 'lucide-react';
+import { Edit2, Loader2, RefreshCw, TrendingDown, TrendingUp, X, PlusCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Notification } from '../../../../components/common/Notification';
+import { Tooltip } from '../../../../components/common/Tooltip';
+import { getIndexerClient } from '../../client/clients';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
-import { useMarkets } from '../../hooks/useMarkets';
+import { useOraclePrices } from '../../hooks/useOraclePrices';
 import { metadataService } from '../../hooks/useMetadata';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
 import useMarketStore from '../../store/marketStore';
+import { useWebSocketStore } from '../../store/websocketStore';
 import { type Position } from '../../types/trading.types';
 import {
   calculateCrossLiquidationPrice,
@@ -60,6 +63,68 @@ const PnlCell = React.memo(function PnlCell({ oraclePrice, margin, entryPrice, s
       <span>{isPositive ? '+' : ''}${formatted}</span>
       <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
     </div>
+  );
+});
+
+interface RefreshAllButtonProps {
+  markets: string[];
+  label?: boolean;
+}
+
+const RefreshAllButton = React.memo(function RefreshAllButton({ markets, label = false }: RefreshAllButtonProps) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const marketsRef = useRef(markets);
+  marketsRef.current = markets;
+
+  const handleClick = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.allSettled(
+        marketsRef.current.map(ticker =>
+          getIndexerClient()
+            .markets.getPerpetualMarkets(ticker)
+            .then((res: any) => {
+              const raw = res?.markets?.[ticker];
+              if (!raw) return;
+              useWebSocketStore.getState().updateMarket(ticker, {
+                ticker,
+                oraclePrice: raw.oraclePrice ?? '0',
+                priceChange24H: raw.priceChange24H ?? '0',
+                volume24H: raw.volume24H ?? '0',
+                openInterest: raw.openInterest ?? '0',
+                nextFundingRate: raw.nextFundingRate ?? '0',
+                lastUpdate: Date.now(),
+              });
+            })
+            .catch(() => { })
+        )
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  if (label) {
+    return (
+      <button
+        onClick={handleClick}
+        disabled={isRefreshing}
+        className="flex items-center justify-center gap-1.5 py-2 px-3 bg-secondary hover:bg-hover border border-color text-muted hover:text-primary rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+        {isRefreshing ? 'Refreshing...' : 'Refresh P&L'}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={isRefreshing}
+      className="p-0.5 hover:bg-secondary rounded text-muted hover:text-primary transition-all disabled:opacity-40"
+    >
+      <RefreshCw size={9} className={isRefreshing ? 'animate-spin' : ''} />
+    </button>
   );
 });
 
@@ -232,13 +297,11 @@ const PositionCard = React.memo(function PositionCard({
 
         <div className="flex items-center gap-1.5">
           <div
-            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
-              }`}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isShort ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'}`}
           >
             {isShort ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
             {position.side}
           </div>
-
           <button
             onClick={() => onEdit(position)}
             disabled={isClosing}
@@ -304,7 +367,9 @@ const PositionCard = React.memo(function PositionCard({
         </div>
 
         <div className="flex flex-col gap-0.5">
-          <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Unrealized P&L</span>
+          <span className="text-muted text-[9px] uppercase tracking-wide font-medium flex items-center gap-1">
+            Unrealized P&L
+          </span>
           <PnlCell
             oraclePrice={oraclePrice}
             margin={metrics.margin}
@@ -441,7 +506,6 @@ const PositionsPanel: React.FC = () => {
   const { closePosition, closeAllPositions, setTriggers, isSettingTriggers, orderError, clearOrderError } = useDydxTrading();
   const { childSubaccounts } = useSubaccounts();
   const marketCache = useMarketStore(state => state.marketCache);
-  const { getMarket } = useMarkets();
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
@@ -469,17 +533,7 @@ const PositionsPanel: React.FC = () => {
     [positions]
   );
 
-  const oraclePrices = useMemo(() => {
-    const result: Record<string, number> = {};
-    for (const market of activeMarkets) {
-      const marketData = getMarket(market);
-      if (marketData?.oraclePrice) {
-        const price = parseFloat(marketData.oraclePrice);
-        if (price > 0) result[market] = price;
-      }
-    }
-    return result;
-  }, [activeMarkets, getMarket]);
+  const oraclePrices = useOraclePrices(activeMarkets);
 
   const visiblePositions = useMemo(
     () => positions.filter(p => !hiddenPositions.has(p.market)),
@@ -781,7 +835,14 @@ const PositionsPanel: React.FC = () => {
               <th className="p-2 border-b border-color text-[10px]">Type</th>
               <th className="p-2 border-b border-color text-right text-[10px]">Size</th>
               <th className="p-2 border-b border-color text-right text-[10px]">Value</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">P&L</th>
+              <th className="p-2 border-b border-color text-right text-[10px]">
+                <div className="flex items-center justify-end gap-1">
+                  P&L
+                  <Tooltip content="Refresh oracle prices to update P&L" position="bottom">
+                    <RefreshAllButton markets={activeMarkets} />
+                  </Tooltip>
+                </div>
+              </th>
               <th className="p-2 border-b border-color text-right text-[10px]">Margin</th>
               <th className="p-2 border-b border-color text-right text-[10px]">Avg. Open</th>
               <th className="p-2 border-b border-color text-right text-[10px]">Oracle</th>
@@ -835,20 +896,23 @@ const PositionsPanel: React.FC = () => {
       </div>
 
       <div className="md:hidden space-y-1.5 p-2">
-        {visiblePositions.length > 1 && (
-          <button
-            onClick={handleCloseAll}
-            disabled={isClosingAll || !!closingMarket}
-            className="w-full flex items-center justify-center gap-1.5 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800/40 text-red-400 hover:text-red-300 rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {isClosingAll ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <X size={12} />
-            )}
-            {isClosingAll ? 'Closing all positions...' : `Close All Positions (${visiblePositions.length})`}
-          </button>
-        )}
+        <div className="flex gap-2">
+          {visiblePositions.length > 1 && (
+            <button
+              onClick={handleCloseAll}
+              disabled={isClosingAll || !!closingMarket}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800/40 text-red-400 hover:text-red-300 rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isClosingAll ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <X size={12} />
+              )}
+              {isClosingAll ? 'Closing...' : `Close All (${visiblePositions.length})`}
+            </button>
+          )}
+          <RefreshAllButton markets={activeMarkets} label />
+        </div>
 
         {positions.map(position => {
           if (hiddenPositions.has(position.market)) return null;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 import { validateAddress } from '../../../validator/AddressValidator';
-import { getEVMChains } from '../../evm/utils/Chainregistry';
+import { getEVMChains } from '../../walletconnect/config/chains';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
@@ -95,7 +95,7 @@ Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
     if (navigator.share) {
       try {
         await navigator.share({ title: `My ${currentAsset?.value} address`, text });
-      } catch {}
+      } catch { }
     } else {
       try {
         await navigator.clipboard.writeText(text);

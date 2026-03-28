@@ -5,6 +5,7 @@ import { useMarkets } from '../../hooks/useMarkets';
 import { tradesState } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
 import { useLivePriceStore } from '../../store/useLivePriceStore';
+import { useWebSocketStore } from '../../store/websocketStore';
 import MarketSelectorModal from './MarketSelectorModal';
 import { Tooltip } from '../../../../components/common/Tooltip';
 import {
@@ -113,9 +114,6 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
   const annualized = formatAnnualizedFundingRate(marketData.nextFundingRate);
   const isPositive = parseFloat(marketData.nextFundingRate) >= 0;
 
-  // const imf = Number(marketData.initialMarginFraction);
-  // const mmf = Number(marketData.maintenanceMarginFraction);
-
   return (
     <div className="grid grid-cols-2 bg-secondary border-t border-color">
       <div className="flex flex-col p-3 border-r border-b border-color">
@@ -175,6 +173,10 @@ const MarketSwitcher: React.FC = () => {
   const livePrice = livePriceData?.price || null;
   const livePriceSide = livePriceData?.side || null;
 
+  const wsOraclePrice = useWebSocketStore(
+    state => state.markets.get(selectedMarket)?.oraclePrice
+  );
+
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const marketData = getMarket(selectedMarket) || {
@@ -190,6 +192,8 @@ const MarketSwitcher: React.FC = () => {
     maintenanceMarginFraction: '0',
   };
 
+  const liveOraclePrice = wsOraclePrice ?? marketData.oraclePrice;
+
   const countdown = useFundingCountdown();
 
   const snapshotPrice = tradesState.get(selectedMarket)?.trades[0]?.price;
@@ -201,7 +205,7 @@ const MarketSwitcher: React.FC = () => {
         : '--';
 
   const priceChange = parseFloat(marketData.priceChange24H);
-  const oraclePrice = parseFloat(marketData.oraclePrice);
+  const oraclePrice = parseFloat(liveOraclePrice);
   const priceChangePercentage =
     oraclePrice > 0 && priceChange ? ((priceChange / oraclePrice) * 100).toFixed(2) : '0';
 
@@ -214,9 +218,8 @@ const MarketSwitcher: React.FC = () => {
   const isFundingPositive = parseFloat(marketData.nextFundingRate) >= 0;
 
   const imf = Number(marketData.initialMarginFraction);
-
   const maxLeverage = imf > 0 ? `${(1 / imf).toFixed(2)}×` : '-';
-  const leverageTooltip = "Maximum allowed leverage for this market. To limit risk, maximum leverage decreases linearly with position size after a certain threshold."
+  const leverageTooltip = "Maximum allowed leverage for this market. To limit risk, maximum leverage decreases linearly with position size after a certain threshold.";
 
   return (
     <>
@@ -299,7 +302,7 @@ const MarketSwitcher: React.FC = () => {
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Oracle Price</span>
               <AnimatedValue
-                value={`$${parseFloat(marketData.oraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
+                value={`$${parseFloat(liveOraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
                 className="font-medium text-primary"
               />
             </div>

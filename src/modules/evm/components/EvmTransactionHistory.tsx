@@ -20,15 +20,14 @@ import {
   useLocalTransactions,
 } from '../hook/useLocalTransactions';
 import {
-  type ChainType,
   type TransactionItem,
   getEvmTransactionHistory,
 } from '../service/EvmTransactionService';
-import { getChainName, getExplorerUrl, normalizeChainId } from '../utils/Chainregistry';
+import { MAINNET_CHAINS, TESTNET_CHAINS, getChainName, getExplorerUrl } from '../utils/Chainregistry';
 import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
 
-type ViewType = 'recent' | ChainType | 'stellar';
+type ViewType = 'recent' | 'stellar' | number;
 
 const STATUS_STYLES: Record<LocalTransactionWithStatus['status'], string> = {
   pending: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500',
@@ -76,6 +75,8 @@ const EvmTransactionHistory: React.FC = () => {
   const hasEvm = Boolean(walletAddress);
   const hasStellar = Boolean(stellarWallet);
 
+  const availableChains = currentNetwork === 'mainnet' ? MAINNET_CHAINS : TESTNET_CHAINS;
+
   const defaultView: ViewType = hasEvm ? 'recent' : hasStellar ? 'stellar' : 'recent';
 
   const [selectedView, setSelectedView] = useState<ViewType>(defaultView);
@@ -99,13 +100,13 @@ const EvmTransactionHistory: React.FC = () => {
   } = useLocalTransactions();
 
   useEffect(() => {
-    if (walletAddress && selectedView !== 'recent' && selectedView !== 'stellar') {
+    if (walletAddress && typeof selectedView === 'number') {
       fetchHistory();
     }
   }, [walletAddress, selectedView]);
 
   const fetchHistory = async () => {
-    if (!walletAddress || selectedView === 'recent' || selectedView === 'stellar') return;
+    if (!walletAddress || typeof selectedView !== 'number') return;
     setLoading(true);
     setError(null);
     setSelectedTx(null);
@@ -113,7 +114,7 @@ const EvmTransactionHistory: React.FC = () => {
     setReceivedPageKey(null);
     setHasNextPage(false);
     try {
-      const response = await getEvmTransactionHistory(walletAddress, selectedView as ChainType, currentNetwork);
+      const response = await getEvmTransactionHistory(walletAddress, selectedView, currentNetwork);
       setHistoryData(response.data);
       setSentPageKey(response.pagination.nextSentPageKey);
       setReceivedPageKey(response.pagination.nextReceivedPageKey);
@@ -126,12 +127,12 @@ const EvmTransactionHistory: React.FC = () => {
   };
 
   const loadMoreHistory = async () => {
-    if (!walletAddress || selectedView === 'recent' || selectedView === 'stellar' || !hasNextPage || loadingMore) return;
+    if (!walletAddress || typeof selectedView !== 'number' || !hasNextPage || loadingMore) return;
     setLoadingMore(true);
     try {
       const response = await getEvmTransactionHistory(
         walletAddress,
-        selectedView as ChainType,
+        selectedView,
         currentNetwork,
         sentPageKey ?? undefined,
         receivedPageKey ?? undefined,
@@ -190,18 +191,15 @@ const EvmTransactionHistory: React.FC = () => {
             Recent
             {hasPendingTransactions && <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />}
           </button>
-          <button
-            onClick={() => switchView('eth')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'eth' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
-          >
-            ETH
-          </button>
-          <button
-            onClick={() => switchView('bsc')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'bsc' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
-          >
-            BNB
-          </button>
+          {availableChains.map(chain => (
+            <button
+              key={chain.chainId}
+              onClick={() => switchView(chain.chainId)}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
+            >
+              {chain.nativeCurrency.symbol}
+            </button>
+          ))}
         </>
       )}
       {hasStellar && (
@@ -254,7 +252,6 @@ const EvmTransactionHistory: React.FC = () => {
 
         {localTransactions.map(tx => {
           const isSelected = selectedLocalTx?.hash === tx.hash;
-          const safeChainId = normalizeChainId(tx.chainId);
           const statusStyle = STATUS_STYLES[tx.status];
           const label = tx.description || `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
 
@@ -271,7 +268,7 @@ const EvmTransactionHistory: React.FC = () => {
                   <div className="font-bold text-primary text-base flex items-center gap-2">
                     {label}
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
-                      {getChainName(safeChainId, currentNetwork)}
+                      {getChainName(tx.chainId)}
                     </span>
                   </div>
                   <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
@@ -304,7 +301,6 @@ const EvmTransactionHistory: React.FC = () => {
 
   const renderLocalTxDetails = () => {
     if (!selectedLocalTx) return null;
-    const safeChainId = normalizeChainId(selectedLocalTx.chainId);
     const statusStyle = STATUS_STYLES[selectedLocalTx.status];
 
     return (
@@ -319,7 +315,7 @@ const EvmTransactionHistory: React.FC = () => {
           {[
             { label: 'Type', value: selectedLocalTx.type, className: 'capitalize' },
             { label: 'Description', value: selectedLocalTx.description || '-' },
-            { label: 'Chain', value: getChainName(safeChainId, currentNetwork) },
+            { label: 'Chain', value: getChainName(selectedLocalTx.chainId) },
             { label: 'Transaction Hash', value: selectedLocalTx.hash, className: 'font-mono text-sm break-all' },
             ...(selectedLocalTx.blockNumber ? [{ label: 'Block Number', value: String(selectedLocalTx.blockNumber) }] : []),
             ...(selectedLocalTx.gasUsed ? [{ label: 'Gas Used', value: String(selectedLocalTx.gasUsed) }] : []),
@@ -331,7 +327,7 @@ const EvmTransactionHistory: React.FC = () => {
             </div>
           ))}
           <a
-            href={getExplorerUrl(safeChainId, currentNetwork, 'tx', selectedLocalTx.hash)}
+            href={getExplorerUrl(selectedLocalTx.chainId, 'tx', selectedLocalTx.hash)}
             target="_blank"
             rel="noopener noreferrer"
             className="block w-full text-center px-4 py-3 rounded-xl bg-brand-primary/10 text-brand-primary font-semibold text-sm hover:bg-brand-primary/20 transition-colors mt-6"
@@ -339,7 +335,7 @@ const EvmTransactionHistory: React.FC = () => {
             View on Explorer ↗
           </a>
         </div>
-      </div>
+      </div >
     );
   };
 
@@ -373,7 +369,7 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<SearchX size={32} />}
           title="No Transactions Found"
-          description={`You haven't made any transactions on the ${selectedView === 'bsc' ? 'BNB' : 'ETH'} network yet.`}
+          description={`No transactions found for ${typeof selectedView === 'number' ? getChainName(selectedView) : selectedView}.`}
         />
       );
     }

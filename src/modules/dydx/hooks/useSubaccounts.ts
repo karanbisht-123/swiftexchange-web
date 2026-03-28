@@ -38,6 +38,7 @@ export const useSubaccounts = () => {
   const childSubaccounts = useMemo(() => {
     return parentData?.childSubaccounts || [];
   }, [parentData?.childSubaccounts]);
+
   const crossSubaccount = useMemo(() => {
     return (
       childSubaccounts.find(c => c.subaccountNumber < SUBACCOUNT_CONSTANTS.ISOLATED_START) || null

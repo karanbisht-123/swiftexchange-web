@@ -94,7 +94,7 @@ class WebSocketManager {
 
   private throttleMap = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly THROTTLE_INTERVALS: Record<string, number> = {
-    v4_markets: 500,
+    v4_markets: 50,
     v4_candles: 0,
     v4_block_height: 1000,
     v4_trades: 0,
@@ -106,9 +106,9 @@ class WebSocketManager {
   private readonly CHANNEL_STALE_THRESHOLDS: Record<string, number> = {
     v4_trades: 45000,
     v4_orderbook: 45000,
-    v4_markets: 90000,
+    v4_markets: 50000,
     v4_candles: 90000,
-    v4_parent_subaccounts: 60000,
+    v4_parent_subaccounts: 50000,
     v4_block_height: 60000,
   };
 

@@ -754,7 +754,7 @@ export const useWebSocketStore = create<WebSocketState>()(
 
         const newMap = new Map(state.markets);
         newMap.set(ticker, next);
-        return { markets: newMap };
+        return { markets: newMap, updateTrigger: state.updateTrigger + 1 };
       });
     },
 
@@ -791,7 +791,9 @@ export const useWebSocketStore = create<WebSocketState>()(
           }
         }
 
-        return hasAnyChange ? { markets: newMap } : {};
+        return hasAnyChange
+          ? { markets: newMap, updateTrigger: state.updateTrigger + 1 }
+          : {};
       });
     },
 
