@@ -173,6 +173,7 @@ const MarketSwitcher: React.FC = () => {
   const livePrice = livePriceData?.price || null;
   const livePriceSide = livePriceData?.side || null;
 
+
   const wsOraclePrice = useWebSocketStore(
     state => state.markets.get(selectedMarket)?.oraclePrice
   );
@@ -191,6 +192,7 @@ const MarketSwitcher: React.FC = () => {
     initialMarginFraction: '0.05',
     maintenanceMarginFraction: '0',
   };
+
 
   const liveOraclePrice = wsOraclePrice ?? marketData.oraclePrice;
 
@@ -301,6 +303,7 @@ const MarketSwitcher: React.FC = () => {
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Oracle Price</span>
+              {/* liveOraclePrice comes from websocketStore — live WS updates applied */}
               <AnimatedValue
                 value={`$${parseFloat(liveOraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
                 className="font-medium text-primary"

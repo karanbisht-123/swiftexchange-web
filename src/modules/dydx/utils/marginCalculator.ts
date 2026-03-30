@@ -1,5 +1,6 @@
 export interface AccountBalance {
-  equity: string;
+  totalEquity: string;
+  crossEquity: string;
   freeCollateral: string;
   marginUsage?: string;
 }
@@ -39,7 +40,7 @@ export const calculateCurrentMargin = (balance: AccountBalance | null): MarginCa
     };
   }
 
-  const equity = parseFloat(balance.equity || '0');
+  const equity = parseFloat(balance.totalEquity || '0');
   const freeCollateral = parseFloat(balance.freeCollateral || '0');
   const totalMarginRequired = equity - freeCollateral;
 

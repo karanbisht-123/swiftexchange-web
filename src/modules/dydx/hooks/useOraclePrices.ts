@@ -1,19 +1,36 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useMemo } from 'react';
 
 import { getIndexerClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
 
+
 export function useOraclePrices(markets: string[]): Record<string, number> {
     const storeMarkets = useWebSocketStore((state) => state.markets);
+    const marketsKey = markets.join(',');
 
-    const prices: Record<string, number> = {};
-    for (const ticker of markets) {
-        const raw = storeMarkets.get(ticker)?.oraclePrice;
-        const parsed = raw ? parseFloat(raw) : 0;
-        if (parsed > 0) prices[ticker] = parsed;
-    }
+    return useMemo(() => {
+        const prices: Record<string, number> = {};
+        for (const ticker of markets) {
+            const raw = storeMarkets.get(ticker)?.oraclePrice;
+            const parsed = raw ? parseFloat(raw) : 0;
+            if (parsed > 0) prices[ticker] = parsed;
+        }
+        return prices;
+    }, [storeMarkets, marketsKey]);
+}
 
-    return prices;
+
+export function useOraclePrice(ticker: string): number {
+    const oraclePrice = useWebSocketStore(
+        useCallback(
+            (state) => {
+                const raw = state.markets.get(ticker)?.oraclePrice;
+                return raw ? parseFloat(raw) : 0;
+            },
+            [ticker]
+        )
+    );
+    return oraclePrice;
 }
 
 export function useRefreshMarket(ticker: string) {

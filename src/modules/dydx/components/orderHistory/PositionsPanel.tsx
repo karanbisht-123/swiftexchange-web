@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Notification } from '../../../../components/common/Notification';
 import { Tooltip } from '../../../../components/common/Tooltip';
+import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { getIndexerClient } from '../../client/clients';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
@@ -75,6 +76,7 @@ const RefreshAllButton = React.memo(function RefreshAllButton({ markets, label =
   const [isRefreshing, setIsRefreshing] = useState(false);
   const marketsRef = useRef(markets);
   marketsRef.current = markets;
+
 
   const handleClick = useCallback(async () => {
     setIsRefreshing(true);
@@ -516,6 +518,9 @@ const PositionsPanel: React.FC = () => {
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [newPositionsCount, setNewPositionsCount] = useState(0);
 
+  const [positionToClose, setPositionToClose] = useState<Position | null>(null);
+  const [isCloseAllConfirmOpen, setIsCloseAllConfirmOpen] = useState(false);
+
   const prevPositionsLengthRef = useRef(positions.length);
   const newPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -644,33 +649,44 @@ const PositionsPanel: React.FC = () => {
   );
 
   const handleClose = useCallback(
-    async (position: Position) => {
-      if (!window.confirm(`Close ${position.market} position?`)) return;
-
-      setClosingMarket(position.market);
-
-      try {
-        const result = await closePosition(position);
-
-        if (result.success) {
-          setHiddenPositions(prev => new Set(prev).add(position.market));
-          showNotification(`Position ${position.market} closed successfully!`, 'success');
-          setTimeout(refreshPositions, 1000);
-        } else {
-          showNotification(result.userMessage || 'Failed to close position', 'error');
-        }
-      } catch (error: any) {
-        showNotification(error.message || 'Failed to close position', 'error');
-      } finally {
-        setClosingMarket(null);
-      }
+    (position: Position) => {
+      setPositionToClose(position);
     },
-    [closePosition, refreshPositions, showNotification]
+    []
   );
 
-  const handleCloseAll = useCallback(async () => {
+  const executeClose = useCallback(async () => {
+    const position = positionToClose;
+    if (!position) return;
+
+    setPositionToClose(null);
+    setClosingMarket(position.market);
+
+    try {
+      const result = await closePosition(position);
+
+      if (result.success) {
+        setHiddenPositions(prev => new Set(prev).add(position.market));
+        showNotification(`Position ${position.market} closed successfully!`, 'success');
+        setTimeout(refreshPositions, 1000);
+      } else {
+        showNotification(result.userMessage || 'Failed to close position', 'error');
+      }
+    } catch (error: any) {
+      showNotification(error.message || 'Failed to close position', 'error');
+    } finally {
+      setClosingMarket(null);
+    }
+  }, [positionToClose, closePosition, refreshPositions, showNotification]);
+
+  const handleCloseAll = useCallback(() => {
     if (visiblePositions.length === 0) return;
-    if (!window.confirm(`Close all ${visiblePositions.length} open position${visiblePositions.length > 1 ? 's' : ''}?`)) return;
+    setIsCloseAllConfirmOpen(true);
+  }, [visiblePositions.length]);
+
+  const executeCloseAll = useCallback(async () => {
+    setIsCloseAllConfirmOpen(false);
+    if (visiblePositions.length === 0) return;
 
     setIsClosingAll(true);
 
@@ -956,6 +972,30 @@ const PositionsPanel: React.FC = () => {
           marketIcon={getMarketIcon(addMarginPosition.market)}
         />
       )}
+
+      <ConfirmationModal
+        isOpen={!!positionToClose}
+        title="Close Position"
+        message={
+          positionToClose
+            ? `Are you sure you want to close your ${positionToClose.market} position?`
+            : ''
+        }
+        confirmText="Close Position"
+        confirmButtonType="danger"
+        onConfirm={executeClose}
+        onCancel={() => setPositionToClose(null)}
+      />
+
+      <ConfirmationModal
+        isOpen={isCloseAllConfirmOpen}
+        title="Close All Positions"
+        message={`Are you sure you want to close all ${visiblePositions.length} open position${visiblePositions.length > 1 ? 's' : ''}?`}
+        confirmText="Close All"
+        confirmButtonType="danger"
+        onConfirm={executeCloseAll}
+        onCancel={() => setIsCloseAllConfirmOpen(false)}
+      />
     </div>
   );
 };

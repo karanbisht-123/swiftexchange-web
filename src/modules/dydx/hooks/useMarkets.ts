@@ -37,6 +37,7 @@ export function useMarkets(): UseMarketsReturn {
   const subscribeToAllMarkets = useWebSocketStore(state => state.subscribeToAllMarkets);
   const unsubscribeFromAllMarkets = useWebSocketStore(state => state.unsubscribeFromAllMarkets);
   const isConnected = useWebSocketStore(state => state.isConnected);
+
   const storeMarkets = useWebSocketStore(state => state.markets);
 
   useEffect(() => {
@@ -91,25 +92,26 @@ export function useMarkets(): UseMarketsReturn {
 
       storeMarkets.forEach((marketData, ticker) => {
         const existing = updated[ticker];
-        if (existing) {
-          const needsUpdate =
-            existing.oraclePrice !== marketData.oraclePrice ||
-            existing.volume24H !== marketData.volume24H ||
-            existing.nextFundingRate !== marketData.nextFundingRate ||
-            existing.openInterest !== marketData.openInterest ||
-            existing.priceChange24H !== marketData.priceChange24H;
+        if (!existing) return;
 
-          if (needsUpdate) {
-            updated[ticker] = {
-              ...existing,
-              oraclePrice: marketData.oraclePrice ?? existing.oraclePrice,
-              priceChange24H: marketData.priceChange24H ?? existing.priceChange24H,
-              volume24H: marketData.volume24H ?? existing.volume24H,
-              nextFundingRate: marketData.nextFundingRate ?? existing.nextFundingRate,
-              openInterest: marketData.openInterest ?? existing.openInterest,
-            };
-            hasChanges = true;
-          }
+        const needsUpdate =
+          existing.oraclePrice !== marketData.oraclePrice ||
+          existing.volume24H !== marketData.volume24H ||
+          existing.nextFundingRate !== marketData.nextFundingRate ||
+          existing.openInterest !== marketData.openInterest ||
+          existing.priceChange24H !== marketData.priceChange24H;
+
+        if (needsUpdate) {
+          updated[ticker] = {
+            ...existing,
+            // only overwrite fields the WS actually provided (non-zero)
+            oraclePrice: marketData.oraclePrice || existing.oraclePrice,
+            priceChange24H: marketData.priceChange24H || existing.priceChange24H,
+            volume24H: marketData.volume24H || existing.volume24H,
+            nextFundingRate: marketData.nextFundingRate || existing.nextFundingRate,
+            openInterest: marketData.openInterest || existing.openInterest,
+          };
+          hasChanges = true;
         }
       });
 
@@ -180,12 +182,18 @@ export function useMarkets(): UseMarketsReturn {
         }),
       ]);
 
+      console.log(marketsResponse, "marketsResponse")
+      console.log(feeDiscountsResponse, "feeDiscountsResponse")
       if (!isMountedRef.current) return;
 
       const zeroFeeClobPairIds = new Set<number>();
+      const now = Date.now();
       if (feeDiscountsResponse?.params) {
         feeDiscountsResponse.params.forEach((param: any) => {
-          if (param.chargePpm === 0) {
+          const start = new Date(param.startTime).getTime();
+          const end = new Date(param.endTime).getTime();
+
+          if (param.chargePpm === 0 && now >= start && now <= end) {
             zeroFeeClobPairIds.add(param.clobPairId);
           }
         });
@@ -204,7 +212,32 @@ export function useMarkets(): UseMarketsReturn {
       setMarkets(marketsMap);
       setIsLoading(false);
       hasInitialDataRef.current = true;
+
+
       useMarketStore.getState().updateMarketCache(marketsMap);
+
+
+      // Seed WS store oracle prices so live market selectors work from the first render
+      const oracleSeed: Record<string, string> = {};
+      const imfSeed: Record<string, Partial<import('../store/websocketStore').MarketData>> = {};
+
+      for (const [ticker, market] of Object.entries(marketsMap)) {
+        if (market.oraclePrice && market.oraclePrice !== '0') {
+          oracleSeed[ticker] = market.oraclePrice;
+        }
+        // Seed IMF so selectPortfolioMetrics uses real values, not the 5% fallback
+        if ((market as any).initialMarginFraction) {
+          imfSeed[ticker] = {
+            initialMarginFraction: (market as any).initialMarginFraction,
+          };
+        }
+      }
+      if (Object.keys(oracleSeed).length > 0) {
+        useWebSocketStore.getState().updateOraclePrices(oracleSeed);
+      }
+      if (Object.keys(imfSeed).length > 0) {
+        useWebSocketStore.getState().updateMarkets(imfSeed as any);
+      }
 
       if (tickers.length > 0) {
         metadataService.preloadBatch(tickers);
@@ -228,12 +261,10 @@ export function useMarkets(): UseMarketsReturn {
 
   useEffect(() => {
     isMountedRef.current = true;
-
     fetchInitialMarketData();
 
     return () => {
       isMountedRef.current = false;
-
       if (metadataUpdateTimerRef.current) {
         clearTimeout(metadataUpdateTimerRef.current);
         metadataUpdateTimerRef.current = null;

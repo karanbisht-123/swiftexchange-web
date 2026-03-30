@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { dydxTradingService } from '../service/dydxTradingService';
 import { dydxWalletService } from '../service/dydxWalletService';
 import useMarketStore from '../store/marketStore';
+import { useWebSocketStore } from '../store/websocketStore';
 import {
   type OpenOrder,
   type OrderResult,
@@ -37,7 +38,7 @@ export const useDydxTrading = () => {
   const clearOrderError = useCallback(() => setOrderError(null), []);
 
   const placeOrder = useCallback(
-    async (params: PlaceOrderParams): Promise<OrderResult> => {
+    async (params: PlaceOrderParams, optimisticMarginRequired = 0): Promise<OrderResult> => {
       if (!canTrade || !address) {
         const msg = 'Wallet not connected or no active subaccount';
         setOrderError(msg);
@@ -55,6 +56,9 @@ export const useDydxTrading = () => {
 
         if (result.success) {
           triggerTradeRefresh('order');
+          if (optimisticMarginRequired > 0) {
+            useWebSocketStore.getState().applyOptimisticMarginDeduction(optimisticMarginRequired);
+          }
         }
 
         return result;
@@ -115,6 +119,10 @@ export const useDydxTrading = () => {
 
         if (result.success) {
           triggerTradeRefresh('close');
+          // Closing a position releases the locked margin — clear the optimistic deduction
+          // so the Available Balance is no longer artificially reduced while waiting for
+          // the WS block confirmation that will bring the canonical server freeCollateral.
+          useWebSocketStore.getState().clearOptimisticDelta();
         }
 
         return result;

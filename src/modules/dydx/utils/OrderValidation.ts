@@ -84,7 +84,7 @@ function validateAccountBalance(
   marketData: MarketData,
   orderType?: string
 ): OrderValidationResult {
-  const equity = parseFloat(balance.equity || '0');
+  const equity = parseFloat(balance.totalEquity || '0');
   const freeCollateral = parseFloat(balance.freeCollateral || '0');
   if (equity < TRADING_CONSTRAINTS.MIN_TRADING_EQUITY) {
     return createError(
