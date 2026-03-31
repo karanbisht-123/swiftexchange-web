@@ -1,10 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-import QRCode from 'qrcode';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { validateAddress } from '../../../validator/AddressValidator';
-import { getEVMChains } from '../../walletconnect/config/chains';
-import { getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
@@ -15,10 +12,9 @@ import {
 
 export const useReceiveAssets = () => {
   const { connectedWallets } = useWalletConnect();
-
   const currentNetwork = useWalletStore(state => state.network);
-
   const [selectedAssetValue, setSelectedAssetValue] = useState<string>('');
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   const assets: ReceiveAsset[] = useMemo(() => {
     const evm = getEVMChains(currentNetwork).map(assetFromEVM);
@@ -51,26 +47,6 @@ export const useReceiveAssets = () => {
     });
   }, [walletAddress, currentAsset]);
 
-  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (walletAddress && qrCanvasRef.current && isAddressValid) {
-      const canvas = qrCanvasRef.current;
-      const context = canvas.getContext('2d');
-      if (context) {
-        context.clearRect(0, 0, canvas.width, canvas.height);
-      }
-
-      QRCode.toCanvas(
-        canvas,
-        walletAddress,
-        { width: 192, margin: 2, color: { dark: '#000', light: '#fff' } },
-        err => err && console.error(err)
-      );
-    }
-  }, [walletAddress, isAddressValid]);
-
-  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
-
   const handleCopy = useCallback(async () => {
     if (!walletAddress || !isAddressValid) return;
     try {
@@ -85,12 +61,7 @@ export const useReceiveAssets = () => {
 
   const handleShare = useCallback(async () => {
     if (!walletAddress || !isAddressValid) return;
-    const text = `Send ${currentAsset?.value} to my wallet:
-
-Address: ${walletAddress}
-Network: ${currentAsset?.network}
-
-Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
+    const text = `Send ${currentAsset?.value} to my wallet:\n\nAddress: ${walletAddress}\nNetwork: ${currentAsset?.network}\n\nOnly send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
 
     if (navigator.share) {
       try {
@@ -119,7 +90,6 @@ Only send ${currentAsset?.value} on the ${currentAsset?.network} network!`;
     isWalletTypeConnected: !!currentAsset && !!connectedWallets[currentAsset.walletType],
     handleCopy,
     handleShare,
-    qrCanvasRef,
     copyFeedback,
   };
 };

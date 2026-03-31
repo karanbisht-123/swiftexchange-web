@@ -61,6 +61,7 @@ export const useEvmSwap = ({
     quoteLoading: false,
   });
 
+  const activeSwapId = useRef<string | null>(null);
   const quoteAbortController = useRef<AbortController | null>(null);
 
   const updateState = useCallback((updates: Partial<UseEvmSwapState>) => {
@@ -161,10 +162,6 @@ export const useEvmSwap = ({
         if (sellAsset.address === buyAsset.address) {
           throw new Error('Cannot swap same token');
         }
-        const currentSellBalance = sellAsset.balance || '0';
-        if (parseFloat(request.amount) > parseFloat(currentSellBalance)) {
-          throw new Error(`Insufficient ${sellAsset.symbol} balance`);
-        }
 
         const quoteResponse = await fetchEvmQuote(chainId, request, sellAsset, buyAsset);
 
@@ -197,6 +194,8 @@ export const useEvmSwap = ({
         throw new Error('Invalid sender address');
       }
 
+      const swapId = Date.now().toString();
+      activeSwapId.current = swapId;
       updateState({ loading: true, error: null, txHash: null });
 
       try {
@@ -213,16 +212,20 @@ export const useEvmSwap = ({
           getProvider
         );
 
-        updateState({ txHash: hash, loading: false });
-
-        // Store in localStorage for monitoring
+        // Record in history regardless of whether the UI was cancelled
         addLocalTransaction({
           hash,
           chainId,
           type: 'swap',
           timestamp: Date.now(),
           description: `Swap ${sellAsset.symbol} → ${buyAsset.symbol}`,
+          status: 'pending',
         });
+
+        // Only update UI if this is still the active swap
+        if (activeSwapId.current === swapId) {
+          updateState({ txHash: hash, loading: false });
+        }
 
         setTimeout(() => {
           updateTokenBalances(sellAsset, buyAsset);
@@ -231,7 +234,20 @@ export const useEvmSwap = ({
         return hash;
       } catch (err: any) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to perform swap';
-        updateState({ error: errorMsg, loading: false, txHash: null });
+        
+        // If it failed but wasn't explicitly cancelled by user, update UI error
+        if (activeSwapId.current === swapId) {
+          addLocalTransaction({
+            hash: `failed-${Date.now()}`,
+            chainId,
+            type: 'swap',
+            timestamp: Date.now(),
+            description: `Swap ${sellAsset.symbol} → ${buyAsset.symbol}`,
+            status: 'failed',
+          });
+          updateState({ error: errorMsg, loading: false, txHash: null });
+        }
+        
         throw new Error(errorMsg);
       }
     },
@@ -239,6 +255,7 @@ export const useEvmSwap = ({
   );
 
   const reset = useCallback(() => {
+    activeSwapId.current = null;
     if (quoteAbortController.current) {
       quoteAbortController.current.abort();
     }

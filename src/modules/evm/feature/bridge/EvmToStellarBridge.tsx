@@ -1,11 +1,15 @@
 import {
-  AlertCircle,
   ArrowRight,
+  AlertCircle,
+  ArrowUpDown,
   CheckCircle,
+  CheckCircle2,
+  ChevronDown,
   Clock,
   CreditCard,
+  ExternalLink,
   Loader2,
-  RefreshCw,
+  TrendingUp,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -82,7 +86,7 @@ const STELLAR_USDC_ICON = 'https://coin-images.coingecko.com/coins/images/6319/l
 const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }) => {
   const navigate = useNavigate();
 
-  const { connectedWallets, getProvider, openModal } = useWalletConnect();
+  const { connectedWallets, getProvider } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
 
   const evmWallet = connectedWallets[WalletType.EVM];
@@ -98,7 +102,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
     evmChains
       .filter(chain => chain.available)
       .map(chain => ({
-        id: chain.slug === 'eth' ? 'ETH' : chain.slug.toUpperCase(),
+        id: chain.slug === 'eth' ? 'ETH' : (chain.slug === 'bsc' ? 'BNB' : chain.slug.toUpperCase()),
         chainId: chain.chainId,
         name: chain.name,
         symbol: chain.nativeCurrency.symbol,
@@ -108,7 +112,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
   );
 
   const [selectedNetworkId, setSelectedNetworkId] = useState<string>(
-    supportedNetworks[0]?.id || 'ETH'
+    supportedNetworks.find(n => n.id === 'BNB') ? 'BNB' : (supportedNetworks[0]?.id || 'ETH')
   );
   const [selectedToken, setSelectedToken] = useState<TokenType>('USDT');
   const [selectedFeeType, setSelectedFeeType] = useState<FeeType>('stablecoin');
@@ -121,8 +125,42 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
   const [txStatus, setTxStatus] = useState<TxStatus>('idle');
   const [quoteData, setQuoteData] = useState<QuoteData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+
+  const errorRef = useRef<HTMLDivElement>(null);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const parseError = (err: string | null) => {
+    if (!err) return null;
+
+    const balanceMatch = err.match(/Insufficient (\w+) balance\. Have: ([\d.]+).*, Need: ~?([\d.]+)/i);
+    if (balanceMatch) {
+      return {
+        type: 'insufficient_balance',
+        asset: balanceMatch[1],
+        have: balanceMatch[2],
+        need: balanceMatch[3],
+        message: `You need more ${balanceMatch[1]} to cover the bridge fee and gas.`,
+      };
+    }
+
+    const gasMatch = err.match(/You do not have enough (\w+) to cover the gas fees/i);
+    if (gasMatch) {
+      return {
+        type: 'insufficient_balance',
+        asset: gasMatch[1],
+        message: `You do not have enough ${gasMatch[1]} to cover the network gas fees for this transaction.`,
+      };
+    }
+
+    return {
+      type: 'general',
+      message: err,
+    };
+  };
+
+  const parsedError = parseError(error);
 
   const currentChainConfig = useMemo(() => {
     return evmChains.find(c => c.chainId === supportedNetworks.find(n => n.id === selectedNetworkId)?.chainId);
@@ -197,6 +235,12 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       setIsChainSwitching(false);
     }
   }, [provider, currentChainId, evmChains, supportedNetworks]);
+
+  useEffect(() => {
+    if (parsedError && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [parsedError]);
 
   const fetchBalance = useCallback(async () => {
     if (!evmAddress || !provider || !currentChainConfig) {
@@ -281,9 +325,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
   }, [amount, fetchQuote, isChainSwitching]);
 
   const parsedAmount = parseFloat(amount) || 0;
-  const hasBalance = parseFloat(tokenBalance) > 0;
   const hasInsufficientBalance = parsedAmount > parseFloat(tokenBalance);
-  const isAmountTooSmall = parsedAmount > 0 && parsedAmount < 0.01;
   const isValidAmount = parsedAmount >= 0.01 && !hasInsufficientBalance;
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -305,17 +347,39 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
     setAmount(value);
   };
 
-  const handleMaxClick = () => {
-    const max = parseFloat(tokenBalance);
-    if (max > 0) setAmount(max.toFixed(6).replace(/\.?0+$/, ''));
+  const handleMaxClick = async () => {
+    if (!evmAddress || !provider || !currentChainConfig) return;
+
+    try {
+      const chain = getChainById(selectedChainId);
+      if (!chain) return;
+
+      const isNative = selectedToken === (currentChainConfig.nativeCurrency.symbol);
+      const tokenAddress = selectedToken === 'USDT' ? chain.tokens.USDT : chain.tokens.USDC;
+
+      if (isNative) {
+        const balance = await provider.getBalance(evmAddress);
+        const gasBuffer = ethers.parseEther('0.01');
+        if (balance > gasBuffer) {
+          const maxAmount = balance - gasBuffer;
+          setAmount(ethers.formatEther(maxAmount));
+        } else {
+          setAmount('0');
+        }
+      } else if (tokenAddress) {
+        const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const [balance, decimals] = await Promise.all([
+          contract.balanceOf(evmAddress),
+          contract.decimals()
+        ]);
+        setAmount(ethers.formatUnits(balance, decimals));
+      }
+    } catch (err) {
+      console.error('Failed to get max balance:', err);
+    }
   };
 
-  const handleSwapNow = () =>
-    navigate(ROUTES.TRADING_EVM_SWAP, {
-      state: { selectedAsset, action: 'swap', network: selectedNetworkId, token: selectedToken },
-    });
 
-  const handleBuyNow = () => navigate(ROUTES.TRADING_EVM_FIAT);
 
   const sendTransaction = async (bridgeTx: BridgeTransaction): Promise<string> => {
     if (!provider) throw new Error('Wallet not connected');
@@ -394,14 +458,11 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
       if (transferTx) {
         setTxStatus('transferring');
-        await sendTransaction(transferTx);
+        const hash = await sendTransaction(transferTx);
+        setTxHash(hash);
       }
 
       setTxStatus('success');
-      setTimeout(() => {
-        setTxStatus('idle');
-        navigate(ROUTES.DASHBOARD);
-      }, 2000);
     } catch (err: any) {
       setTxStatus('error');
       setError(err.message || 'Transaction failed');
@@ -427,278 +488,379 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
         </div>
       )}
 
-      <div className="p-5 space-y-5 overflow-y-auto flex-1">
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="text-xs text-muted mb-2 block font-medium uppercase tracking-wide">
-              Source Token
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {['USDT', 'USDC'].map((id) => (
-                <button
-                  key={id}
-                  onClick={() => setSelectedToken(id as TokenType)}
-                  disabled={isChainSwitching}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all border ${selectedToken === id
-                      ? 'btn-primary border-transparent'
-                      : 'bg-tertiary text-secondary border-color hover:border-brand-primary'
-                    }`}
-                >
-                  <img src={getIconUrl(id, currentChainConfig)} alt={id} className="w-5 h-5 rounded-full" />
-                  {id}
-                </button>
-              ))}
+      <div className="p-5 space-y-4 overflow-y-auto flex-1">
+        {txHash && currentChainConfig && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
+            <div className="card max-w-md w-full animate-slide-up rounded-t-3xl sm:rounded-2xl border-t-4 border-green-500 shadow-2xl m-0 sm:m-4">
+              <div className="flex items-center justify-center pt-8 pb-4">
+
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-lg">
+                    <CheckCircle2 className="w-12 h-12 text-white" strokeWidth={2.5} />
+                  </div>
+                  <div className="absolute -inset-2 bg-green-400/20 rounded-full blur-xl animate-pulse"></div>
+                </div>
+              </div>
+
+              <div className="px-6 pb-6">
+                <h3 className="text-2xl font-bold text-center mb-2 text-primary">
+                  Bridge Initiated!
+                </h3>
+                <p className="text-secondary text-center mb-1 text-sm">
+                  Your assets are being transferred
+                </p>
+                <p className="text-center text-xs font-medium text-green-600 mb-6 font-mono">
+                  to Stellar Network
+                </p>
+
+                <div className="bg-tertiary rounded-lg p-3 mb-6 border border-color">
+                  <p className="text-xs text-muted mb-1 text-center">Transaction Hash</p>
+                  <p className="font-mono text-xs text-center text-primary break-all">
+                    {txHash.slice(0, 10)}...{txHash.slice(-8)}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <a
+                    href={`${currentChainConfig.blockExplorerUrl}/tx/${txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary w-full flex items-center justify-center gap-2 text-base py-3"
+                  >
+                    View on Explorer
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  <button
+                    onClick={() => {
+                      setTxHash(null);
+                      setTxStatus('idle');
+                      setAmount('');
+                      navigate(ROUTES.DASHBOARD);
+                    }}
+                    className="w-full py-3 text-secondary hover:text-primary font-bold transition-colors"
+                  >
+                    Back to Dashboard
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card py-4 relative">
+          <div className="flex flex-wrap items-center justify-start gap-4 px-2">
+            {supportedNetworks.map((net) => {
+              const isSelected = selectedNetworkId === net.id;
+              return (
+                <div key={net.id} className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={() => handleChainSwitch(net.id)}
+                    disabled={isChainSwitching}
+                    title={`Switch to ${net.name}`}
+                    className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${isSelected
+                      ? 'bg-brand/10 border-brand shadow-lg scale-110'
+                      : 'bg-secondary border-color hover:border-brand/40 hover:bg-tertiary'
+                      }`}
+                  >
+                    <img
+                      src={net.icon}
+                      alt={net.name}
+                      className={`w-9 h-9 rounded-full bg-white shadow-sm ring-1 ${isSelected ? 'ring-brand' : 'ring-transparent'}`}
+                    />
+                  </button>
+                  <span className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}>
+                    {net.id}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="relative p-0 bg-transparent border-0 shadow-none space-y-1">
+          {/* You Pay Section */}
+          <div className="bg-tertiary rounded-2xl p-4 border border-color">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-bold text-primary">You Pay</label>
+              <button
+                onClick={handleMaxClick}
+                className="text-xs font-bold text-brand hover:text-brand-hover transition-colors px-2.5 py-1 rounded-md bg-brand/5 hover:bg-brand/10"
+                disabled={isChainSwitching}
+              >
+                MAX
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative">
+                  <img
+                    src={getIconUrl(selectedToken, currentChainConfig)}
+                    alt={selectedToken}
+                    className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
+                  />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-secondary border border-color flex items-center justify-center overflow-hidden">
+                    <img src={currentChainConfig?.nativeCurrency.logoURI} alt="" className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div className="relative group">
+                  <select
+                    value={selectedToken}
+                    onChange={(e) => setSelectedToken(e.target.value as TokenType)}
+                    disabled={isChainSwitching}
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
+                  >
+                    <option value="USDT">USDT</option>
+                    <option value="USDC">USDC</option>
+                  </select>
+                  <button className="flex items-center gap-2 bg-secondary/80 hover:bg-secondary border border-color hover:border-brand/50 rounded-full px-3 py-1.5 transition-all min-w-[100px] justify-between">
+                    <span className="font-bold text-lg text-primary">{selectedToken}</span>
+                    <ChevronDown className="w-4 h-4 text-muted group-hover:text-primary transition-colors" />
+                  </button>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                inputMode="decimal"
+                className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${hasInsufficientBalance ? 'text-red-500' : ''}`}
+                placeholder="0.00"
+                value={amount}
+                onChange={handleAmountChange}
+                disabled={isChainSwitching}
+              />
+            </div>
+
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted font-medium">
+                Balance: {isLoadingBalance ? <Loader2 className="w-3 h-3 animate-spin inline ml-1" /> : <span className="text-primary font-bold">{parseFloat(tokenBalance).toFixed(4)}</span>}
+              </span>
+              {hasInsufficientBalance && (
+                <span className="text-red-500 font-bold animate-pulse flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Insufficient Balance
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="flex-1">
-            <label className="text-xs text-muted mb-2 block font-medium uppercase tracking-wide">
-              Network
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {supportedNetworks.map((net) => (
-                <button
-                  key={net.id}
-                  onClick={() => handleChainSwitch(net.id)}
-                  disabled={isChainSwitching}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all border ${selectedNetworkId === net.id
-                      ? 'btn-primary border-transparent'
-                      : 'bg-tertiary text-secondary border-color hover:border-brand-primary'
-                    }`}
-                >
-                  <img src={net.icon} alt={net.symbol} className="w-5 h-5 rounded-full" />
-                  {net.symbol}
-                </button>
-              ))}
+          {/* Divider */}
+          <div className="relative h-3 my-2 z-10 flex justify-center items-center">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+              <div className="w-10 h-10 rounded-xl bg-secondary border border-color flex items-center justify-center shadow-md">
+                <ArrowUpDown className="w-5 h-5 text-muted" strokeWidth={2.5} />
+              </div>
+            </div>
+          </div>
+
+          {/* You Receive Section */}
+          <div className="bg-tertiary rounded-2xl p-4 border border-color">
+            <label className="block text-sm font-bold text-primary mb-3">You Receive (Stellar)</label>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative">
+                  <img
+                    src={STELLAR_USDC_ICON}
+                    alt="USDC"
+                    className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
+                  />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#08020d] border border-white/10 flex items-center justify-center overflow-hidden">
+                    <img src="https://stellar.org/favicon.ico" alt="Stellar" className="w-3 h-3" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 bg-secondary/50 border border-color/50 rounded-full px-4 py-1.5 min-w-[100px] justify-center opacity-80 cursor-default">
+                  <span className="font-bold text-lg text-primary">USDC</span>
+                </div>
+              </div>
+
+              <div className="flex-1 text-right text-2xl font-bold min-w-0">
+                {isLoadingQuote ? (
+                  <Loader2 className="w-5 h-5 animate-spin ml-auto text-muted" />
+                ) : (
+                  <span className="text-primary truncate block">
+                    {quoteData ? parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4) : '0.00'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-brand/5 rounded-md text-brand font-bold">
+                <Clock className="w-3 h-3" />
+                <span>{quoteData ? formatTime(quoteData.quotes.completionTime) : '...'}</span>
+              </div>
+              <span className="badge bg-brand/10 text-brand font-bold px-2 py-0.5 text-[10px] rounded-md border border-brand/20">
+                STELLAR NETWORK
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <img src={getIconUrl(selectedToken, currentChainConfig)} alt={selectedToken} className="w-10 h-10 rounded-full" />
-              <div>
-                <span className="text-sm text-muted">Available on {currentChainConfig?.name}</span>
-                <div className="font-bold text-lg text-primary">
-                  {isLoadingBalance ? (
-                    <Loader2 size={18} className="animate-spin inline mt-1" />
+        {quoteData && !isLoadingQuote && (
+          <div className="card p-5 space-y-3 rounded-2xl border-color/40 shadow-sm animate-slide-up">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Exchange Rate</span>
+              <div className="bg-brand/5 px-2 py-1 rounded text-brand font-bold text-xs">
+                1 {selectedToken} ≈ {parseFloat(quoteData.quotes.conversionRate).toFixed(4)} USDC
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Minimum Received</span>
+              <span className="text-primary font-bold">{parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4)} USDC</span>
+            </div>
+
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Slippage Tolerance</span>
+              <span className="text-primary font-bold">{quoteData.quotes.slippageTolerance}%</span>
+            </div>
+
+            <div className="divider opacity-30 my-1" />
+
+            <div>
+              <label className="text-[10px] text-muted mb-2 block font-bold uppercase tracking-widest flex items-center gap-2 opacity-70">
+                <TrendingUp className="w-3 h-3" />
+                Relayer Fee
+              </label>
+              <div className="flex gap-2">
+                {(['native', 'stablecoin'] as FeeType[]).map((feeType) => {
+                  const isSelected = selectedFeeType === feeType;
+                  return (
+                    <button
+                      key={feeType}
+                      onClick={() => setSelectedFeeType(feeType)}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border flex flex-col items-center gap-1.5 ${isSelected
+                        ? 'bg-brand/10 border-brand text-brand shadow-sm'
+                        : 'bg-secondary/50 text-secondary border-color hover:border-brand/30'
+                        }`}
+                    >
+                      <img
+                        src={feeType === 'native' ? currentChainConfig?.nativeCurrency.logoURI : getIconUrl(selectedToken, currentChainConfig)}
+                        alt=""
+                        className="w-4 h-4 rounded-full bg-white ring-1 ring-black/5"
+                      />
+                      <span>
+                        {feeType === 'native'
+                          ? `${parseFloat(quoteData.quotes.fee.native.amount).toFixed(5)} ${quoteData.quotes.fee.native.symbol}`
+                          : `${parseFloat(quoteData.quotes.fee.stablecoin.amount).toFixed(3)} ${quoteData.quotes.fee.stablecoin.symbol}`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {parsedError && (
+          <div ref={errorRef} className="mt-4 animate-slide-up">
+            <div className={`relative overflow-hidden rounded-2xl border-2 shadow-lg transition-all ${parsedError.type === 'insufficient_balance'
+              ? 'bg-orange-500/10 border-orange-500/20'
+              : 'bg-red-500/10 border-red-500/20'
+              }`}>
+              <div className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className={`p-2.5 rounded-xl shrink-0 ${parsedError.type === 'insufficient_balance'
+                    ? 'bg-orange-500/20 text-orange-600'
+                    : 'bg-red-500/20 text-red-600'
+                    }`}>
+                    <AlertCircle className="w-6 h-6" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`text-lg font-bold mb-1 ${parsedError.type === 'insufficient_balance' ? 'text-orange-900' : 'text-red-900'
+                      }`}>
+                      {parsedError.type === 'insufficient_balance' ? 'Balance Required' : 'Transaction Error'}
+                    </h4>
+                    <p className={`text-sm leading-relaxed ${parsedError.type === 'insufficient_balance' ? 'text-orange-800/80' : 'text-red-800/80'
+                      }`}>
+                      {parsedError.message}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3">
+                  {parsedError.type === 'insufficient_balance' ? (
+                    <>
+                      <button
+                        onClick={() => navigate(ROUTES.TRADING_EVM_FIAT)}
+                        className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-3"
+                      >
+                        <CreditCard className="w-5 h-5" />
+                        Buy {parsedError.asset} with Fiat
+                      </button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => navigate(ROUTES.TRADING_EVM_SWAP)}
+                          className="bg-white/10 hover:bg-white/20 text-orange-900 font-bold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-orange-500/20"
+                        >
+                          <ArrowUpDown className="w-4 h-4" />
+                          Swap
+                        </button>
+                        <button
+                          onClick={() => setError(null)}
+                          className="bg-orange-900/10 hover:bg-orange-900/20 text-orange-900 font-bold py-3 px-4 rounded-xl transition-all"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </>
                   ) : (
-                    `${parseFloat(tokenBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selectedToken}`
+                    <button
+                      onClick={() => setError(null)}
+                      className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95"
+                    >
+                      Dismiss
+                    </button>
                   )}
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        <div className="pt-2">
+          <StellarActiveGuard onSkip={() => { }}>
             <button
-              onClick={fetchBalance}
-              disabled={isChainSwitching}
-              className="p-2 hover:bg-hover rounded-xl transition-colors border border-transparent hover:border-color"
+              onClick={handleProceed}
+              disabled={
+                !quoteData ||
+                !isValidAmount ||
+                isLoadingQuote ||
+                isChainSwitching ||
+                isPreparingBridge ||
+                txStatus === 'success'
+              }
+              className={`btn w-full btn-lg gap-2 py-4 text-lg rounded-2xl shadow-xl shadow-brand/10 hover:scale-[1.02] active:scale-[0.98] transition-all ${txStatus === 'success' ? 'btn-success' : 'btn-primary'}`}
             >
-              <RefreshCw size={18} className={`text-muted ${isLoadingBalance ? 'animate-spin' : ''}`} />
+              {txStatus === 'success' ? (
+                <>
+                  <CheckCircle size={22} /> Bridge Complete!
+                </>
+              ) : txStatus === 'approving' ? (
+                <>
+                  <Loader2 size={22} className="animate-spin" /> Approving Token...
+                </>
+              ) : txStatus === 'transferring' ? (
+                <>
+                  <Loader2 size={22} className="animate-spin" /> Bridging to Stellar...
+                </>
+              ) : txStatus === 'preparing' ? (
+                <>
+                  <Loader2 size={22} className="animate-spin" /> Preparing Transaction...
+                </>
+              ) : isLoadingQuote ? (
+                <>
+                  <Loader2 size={22} className="animate-spin" /> Getting Quote...
+                </>
+              ) : (
+                <>
+                  Bridge to Stellar <ArrowRight size={22} />
+                </>
+              )}
             </button>
-          </div>
-          <div className="flex gap-3 mt-2">
-            <button onClick={handleSwapNow} disabled={isChainSwitching} className="flex-1 btn btn-sm btn-secondary gap-2 rounded-xl">
-              <RefreshCw size={14} /> Swap
-            </button>
-            <button onClick={handleBuyNow} disabled={isChainSwitching} className="flex-1 btn btn-sm btn-success gap-2 rounded-xl">
-              <CreditCard size={14} /> Buy
-            </button>
-          </div>
+          </StellarActiveGuard>
         </div>
-
-        {!evmAddress && (
-          <div className="card p-6 text-center border-warning bg-warning-bg">
-            <AlertCircle size={36} className="mx-auto mb-3 text-warning" />
-            <p className="font-semibold text-primary mb-2 text-lg">Wallet Not Connected</p>
-            <p className="text-muted text-sm mb-5">
-              Please connect your EVM wallet to start bridging tokens to Stellar.
-            </p>
-            <button onClick={() => openModal()} className="btn btn-primary w-full gap-2 rounded-xl py-3">
-              <CreditCard size={18} /> Connect Wallet
-            </button>
-          </div>
-        )}
-
-        {!hasBalance && !isLoadingBalance && !isChainSwitching && evmAddress && (
-          <div className="card p-6 text-center border-warning bg-warning-bg">
-            <AlertCircle size={36} className="mx-auto mb-3 text-warning" />
-            <p className="font-semibold text-primary mb-2 text-lg">No {selectedToken} Balance</p>
-            <p className="text-muted text-sm mb-5">
-              You don't have {selectedToken} on {currentChainConfig?.name}. Swap or buy to get started.
-            </p>
-            <div className="flex gap-3">
-              <button onClick={handleSwapNow} className="btn btn-primary flex-1 gap-2 rounded-xl py-3">
-                <RefreshCw size={18} /> Swap
-              </button>
-              <button onClick={handleBuyNow} className="btn btn-success flex-1 gap-2 rounded-xl py-3">
-                <CreditCard size={18} /> Buy
-              </button>
-            </div>
-          </div>
-        )}
-
-        {hasBalance && (
-          <div className="space-y-5 animate-slide-up">
-            <div className="card p-5 bg-tertiary">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-muted font-medium">Amount to Bridge</label>
-                <button onClick={handleMaxClick} className="text-xs btn-primary py-1 px-3 rounded-md font-semibold hover:opacity-90">
-                  MAX
-                </button>
-              </div>
-              <div className="relative mt-2">
-                <input
-                  type="text"
-                  value={amount}
-                  onChange={handleAmountChange}
-                  placeholder="0.00"
-                  className="input text-3xl font-bold pr-24 py-3 bg-transparent border-none shadow-none focus:ring-0 w-full"
-                  disabled={isChainSwitching}
-                />
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-2 bg-secondary py-1.5 px-3 rounded-xl border border-color">
-                  <img src={getIconUrl(selectedToken, currentChainConfig)} alt={selectedToken} className="w-6 h-6 rounded-full" />
-                  <span className="text-primary font-bold">{selectedToken}</span>
-                </div>
-              </div>
-              {hasInsufficientBalance && amount && (
-                <p className="text-danger text-sm mt-2 flex items-center gap-1">
-                  <AlertCircle size={14} /> Insufficient balance
-                </p>
-              )}
-              {isAmountTooSmall && (
-                <p className="text-danger text-sm mt-2 flex items-center gap-1">
-                  <AlertCircle size={14} /> Minimum amount is 0.01
-                </p>
-              )}
-            </div>
-
-            <div className="card p-5 border-brand-primary/20 bg-brand-primary/5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <img src={STELLAR_USDC_ICON} alt="USDC" className="w-10 h-10 rounded-full" />
-                  <div>
-                    <span className="text-xs font-semibold text-brand-primary block uppercase tracking-wide">
-                      You Receive on Stellar
-                    </span>
-                    <span className="font-bold text-primary text-2xl mt-0.5 block">
-                      {isLoadingQuote ? (
-                        <Loader2 size={24} className="animate-spin" />
-                      ) : quoteData ? (
-                        `~${parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4)} USDC`
-                      ) : amount && parseFloat(amount) > 0 ? (
-                        '...'
-                      ) : (
-                        '0.00 USDC'
-                      )}
-                    </span>
-                  </div>
-                </div>
-                <span className="badge bg-brand text-white font-bold px-3 py-1">Stellar</span>
-              </div>
-            </div>
-
-            {quoteData && !isLoadingQuote && (
-              <div className="card p-5 space-y-4">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted font-medium">Rate</span>
-                  <span className="text-primary font-bold">
-                    1 {selectedToken} ≈ {parseFloat(quoteData.quotes.conversionRate).toFixed(4)} USDC
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted font-medium">Slippage Tolerance</span>
-                  <span className="text-primary font-bold">{quoteData.quotes.slippageTolerance}%</span>
-                </div>
-                <div className="divider my-2" />
-                <div>
-                  <label className="text-xs text-muted mb-3 block font-medium uppercase tracking-wide">
-                    Pay Relayer Fee With
-                  </label>
-                  <div className="flex gap-3">
-                    {(['native', 'stablecoin'] as FeeType[]).map((feeType) => (
-                      <button
-                        key={feeType}
-                        onClick={() => setSelectedFeeType(feeType)}
-                        className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all border ${selectedFeeType === feeType
-                            ? 'btn-primary border-transparent'
-                            : 'bg-tertiary text-secondary border-color hover:border-brand'
-                          }`}
-                      >
-                        <div className="flex items-center justify-center gap-2">
-                          <img
-                            src={feeType === 'native' ? currentChainConfig?.nativeCurrency.logoURI : getIconUrl(selectedToken, currentChainConfig)}
-                            alt=""
-                            className="w-5 h-5 rounded-full"
-                          />
-                          <span>
-                            {feeType === 'native'
-                              ? `${parseFloat(quoteData.quotes.fee.native.amount).toFixed(5)} ${quoteData.quotes.fee.native.symbol}`
-                              : `${parseFloat(quoteData.quotes.fee.stablecoin.amount).toFixed(3)} ${quoteData.quotes.fee.stablecoin.symbol}`}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-sm bg-tertiary p-3 rounded-lg mt-2">
-                  <span className="text-muted flex items-center gap-1.5 font-medium">
-                    <Clock size={16} /> Estimated Time
-                  </span>
-                  <span className="text-primary font-bold">{formatTime(quoteData.quotes.completionTime)}</span>
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className="card bg-danger-bg text-danger p-4 text-sm flex items-center gap-2 font-medium">
-                <AlertCircle size={18} /> {error}
-              </div>
-            )}
-
-            <StellarActiveGuard onSkip={() => { }}>
-              <button
-                onClick={handleProceed}
-                disabled={
-                  !quoteData ||
-                  !isValidAmount ||
-                  isLoadingQuote ||
-                  isChainSwitching ||
-                  isPreparingBridge ||
-                  txStatus === 'success'
-                }
-                className={`btn w-full btn-lg gap-2 py-4 text-lg rounded-xl mt-2 ${txStatus === 'success' ? 'btn-success' : 'btn-primary'}`}
-              >
-                {txStatus === 'success' ? (
-                  <>
-                    <CheckCircle size={22} /> Bridge Complete!
-                  </>
-                ) : txStatus === 'approving' ? (
-                  <>
-                    <Loader2 size={22} className="animate-spin" /> Approving Token...
-                  </>
-                ) : txStatus === 'transferring' ? (
-                  <>
-                    <Loader2 size={22} className="animate-spin" /> Bridging to Stellar...
-                  </>
-                ) : txStatus === 'preparing' ? (
-                  <>
-                    <Loader2 size={22} className="animate-spin" /> Preparing Transaction...
-                  </>
-                ) : isLoadingQuote ? (
-                  <>
-                    <Loader2 size={22} className="animate-spin" /> Getting Best Quote...
-                  </>
-                ) : (
-                  <>
-                    Bridge to Stellar <ArrowRight size={22} />
-                  </>
-                )}
-              </button>
-            </StellarActiveGuard>
-          </div>
-        )}
       </div>
     </>
   );

@@ -10,6 +10,7 @@ export interface LocalTransaction {
   type: TransactionType;
   timestamp: number;
   description?: string;
+  status?: 'pending' | 'success' | 'failed';
 }
 
 export const getLocalTransactions = (): LocalTransaction[] => {

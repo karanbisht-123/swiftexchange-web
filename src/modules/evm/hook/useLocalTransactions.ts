@@ -10,7 +10,7 @@ import {
   removeLocalTransaction,
 } from '../service/localTransactionService';
 
-export type TransactionStatus = 'pending' | 'confirmed' | 'failed';
+export type TransactionStatus = 'pending' | 'success' | 'failed';
 
 export interface LocalTransactionWithStatus extends LocalTransaction {
   status: TransactionStatus;
@@ -38,6 +38,9 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
     async (tx: LocalTransaction): Promise<LocalTransactionWithStatus> => {
       try {
         const provider = getProvider(WalletType.EVM);
+        if (tx.status === 'failed' || tx.hash.startsWith('failed-')) {
+          return { ...tx, status: 'failed' };
+        }
         if (!provider) {
           return { ...tx, status: 'pending' };
         }
@@ -49,7 +52,7 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
           return { ...tx, status: 'pending' };
         }
 
-        const status: TransactionStatus = receipt.status === 1 ? 'confirmed' : 'failed';
+        const status: TransactionStatus = receipt.status === 1 ? 'success' : 'failed';
 
         return {
           ...tx,

@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { metadataService } from '../../hooks/useMetadata';
-import { type TrackedOrder } from '../../store/websocketStore';
+import { type TrackedOrder, isMarketOrder } from '../../store/websocketStore';
 import { dydxTradingService } from '../../service/dydxTradingService';
 import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 
@@ -128,7 +128,27 @@ const OpenOrdersPanel: React.FC = () => {
     [icons]
   );
 
-  const getStatusBadge = useCallback((status: string) => {
+  const getStatusBadge = useCallback((order: TrackedOrder) => {
+    const status = order.status;
+    // Show resolution feedback for market orders still in their grace window
+    if (isMarketOrder(order)) {
+      if (status === 'FILLED') {
+        return (
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">
+            <CheckCircle className="w-3 h-3" />
+            <span>Filled</span>
+          </div>
+        );
+      }
+      if (status === 'BEST_EFFORT_CANCELED' || status === 'CANCELED') {
+        return (
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            <span>Canceling...</span>
+          </div>
+        );
+      }
+    }
     switch (status) {
       case 'BEST_EFFORT_OPENED':
         return (
@@ -236,6 +256,7 @@ const OpenOrdersPanel: React.FC = () => {
               const size = parseFloat(order.size);
               const fillPercent = size > 0 ? (filled / size) * 100 : 0;
               const isPending = order.status === 'BEST_EFFORT_OPENED';
+              const isMarket = isMarketOrder(order);
 
               return (
                 <tr
@@ -254,7 +275,7 @@ const OpenOrdersPanel: React.FC = () => {
                     </div>
                   </td>
 
-                  <td className="px-4 py-3 text-center">{getStatusBadge(order.status)}</td>
+                  <td className="px-4 py-3 text-center">{getStatusBadge(order)}</td>
 
                   <td className="px-4 py-3 text-center">
                     <span className="px-2 py-0.5 bg-secondary text-primary rounded text-xs">
@@ -306,21 +327,23 @@ const OpenOrdersPanel: React.FC = () => {
                   </td>
 
                   <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => handleCancel(order)}
-                      disabled={isCancelling}
-                      className={`p-1.5 rounded transition-colors ${isCancelling
-                        ? 'bg-secondary cursor-not-allowed'
-                        : 'bg-red-600 hover:bg-red-500 text-white'
-                        }`}
-                      title="Cancel order"
-                    >
-                      {isCancelling ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <X className="w-4 h-4" />
-                      )}
-                    </button>
+                    {!isMarket && (
+                      <button
+                        onClick={() => handleCancel(order)}
+                        disabled={isCancelling}
+                        className={`p-1.5 rounded transition-colors ${isCancelling
+                          ? 'bg-secondary cursor-not-allowed'
+                          : 'bg-red-600 hover:bg-red-500 text-white'
+                          }`}
+                        title="Cancel order"
+                      >
+                        {isCancelling ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <X className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -336,6 +359,7 @@ const OpenOrdersPanel: React.FC = () => {
           const filled = parseFloat(order.totalOptimisticFilled || '0');
           const size = parseFloat(order.size);
           const fillPercent = size > 0 ? (filled / size) * 100 : 0;
+          const isMarket = isMarketOrder(order);
 
           return (
             <div
@@ -369,24 +393,27 @@ const OpenOrdersPanel: React.FC = () => {
                     {order.side}
                   </span>
 
-                  <button
-                    onClick={() => handleCancel(order)}
-                    disabled={isCancelling}
-                    className={`p-1.5 rounded transition-colors ${isCancelling
-                      ? 'bg-primary cursor-not-allowed'
-                      : 'bg-red-600 hover:bg-red-500 text-white'
-                      }`}
-                  >
-                    {isCancelling ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <X className="w-3 h-3" />
-                    )}
-                  </button>
+                  {/* Cancel button — hidden for market orders (IOC, cannot be cancelled) */}
+                  {!isMarket && (
+                    <button
+                      onClick={() => handleCancel(order)}
+                      disabled={isCancelling}
+                      className={`p-1.5 rounded transition-colors ${isCancelling
+                        ? 'bg-primary cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-500 text-white'
+                        }`}
+                    >
+                      {isCancelling ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <X className="w-3 h-3" />
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="mb-2">{getStatusBadge(order.status)}</div>
+              <div className="mb-2">{getStatusBadge(order)}</div>
 
               <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
                 <div className="flex flex-col gap-0.5">

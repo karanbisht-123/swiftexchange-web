@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import * as StellarSDK from '@stellar/stellar-sdk';
+
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { ERROR_MESSAGES } from '../constants/tradeTransactionConstants';
 import { TradeTransactionService } from '../service/tradeTransactionService';
@@ -7,6 +10,9 @@ import type { ActiveOffer, CompletedTrade, Pagination } from '../types/tradeTran
 
 interface UseTradeTransactionProps {
   userAddress?: string;
+}
+export function dispatchStellarOrderPlaced() {
+  window.dispatchEvent(new CustomEvent('stellar:order-placed'));
 }
 
 export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
@@ -27,6 +33,16 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+
+
+  const [newOfferIds, setNewOfferIds] = useState<Set<string>>(new Set());
+  const [removingOfferIds, setRemovingOfferIds] = useState<Set<string>>(new Set());
+
+
+  const offersStreamRef = useRef<(() => void) | null>(null);
+  const tradesStreamRef = useRef<(() => void) | null>(null);
+  const mountedRef = useRef(true);
 
   const fetchActiveOffers = useCallback(
     async (cursor?: string) => {
@@ -44,13 +60,33 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
           10,
           cursor
         );
-        setActiveOffers(prev => (cursor ? [...prev, ...offers] : offers));
+        if (!mountedRef.current) return;
+        setActiveOffers(prev => {
+          if (cursor) return [...prev, ...offers];
+          const existingIds = new Set(prev.map(o => o.id));
+          const freshIds = offers.filter(o => !existingIds.has(o.id)).map(o => o.id);
+          if (freshIds.length > 0) {
+            setNewOfferIds(s => new Set([...s, ...freshIds]));
+            setTimeout(() => {
+              if (mountedRef.current) {
+                setNewOfferIds(s => {
+                  const next = new Set(s);
+                  freshIds.forEach(id => next.delete(id));
+                  return next;
+                });
+              }
+            }, 2000);
+          }
+          return offers;
+        });
         setActivePagination({ cursor: nextCursor, hasMore });
       } catch (err) {
-        setError(ERROR_MESSAGES.LOAD_ACTIVE_OFFERS_FAILED);
-        console.error('Failed to fetch active offers:', err);
+        if (mountedRef.current) {
+          setError(ERROR_MESSAGES.LOAD_ACTIVE_OFFERS_FAILED);
+          console.error('Failed to fetch active offers:', err);
+        }
       } finally {
-        setIsLoading(false);
+        if (mountedRef.current) setIsLoading(false);
       }
     },
     [userAddress, service]
@@ -72,42 +108,167 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
           10,
           cursor
         );
+        if (!mountedRef.current) return;
         setCompletedTrades(prev => (cursor ? [...prev, ...trades] : trades));
         setCompletedPagination({ cursor: nextCursor, hasMore });
       } catch (err) {
-        setError(ERROR_MESSAGES.LOAD_COMPLETED_TRADES_FAILED);
-        console.error('Failed to fetch completed trades:', err);
+        if (mountedRef.current) {
+          setError(ERROR_MESSAGES.LOAD_COMPLETED_TRADES_FAILED);
+          console.error('Failed to fetch completed trades:', err);
+        }
       } finally {
-        setIsLoading(false);
+        if (mountedRef.current) setIsLoading(false);
       }
     },
     [userAddress, service]
   );
 
+
+  const startStreaming = useCallback(() => {
+    if (!userAddress || !StellarSDK.StrKey.isValidEd25519PublicKey(userAddress)) return;
+
+    offersStreamRef.current?.();
+    tradesStreamRef.current?.();
+    offersStreamRef.current = null;
+    tradesStreamRef.current = null;
+
+    try {
+      const config = getStellarConfig(currentNetwork);
+      const serverOptions: any = {};
+      if (config.horizonUrl.startsWith('http://')) serverOptions.allowHttp = true;
+      const server = new StellarSDK.Horizon.Server(config.horizonUrl, serverOptions);
+
+      try {
+        const closeOffers = server
+          .offers()
+          .forAccount(userAddress)
+          .cursor('now')
+          .stream({
+            onmessage: () => {
+              if (!mountedRef.current) return;
+              fetchActiveOffers();
+            },
+            onerror: () => {
+              if (mountedRef.current) setIsStreaming(false);
+            },
+          }) as unknown as () => void;
+
+        offersStreamRef.current = closeOffers;
+      } catch {
+
+      }
+
+
+      try {
+        const closeTrades = server
+          .trades()
+          .forAccount(userAddress)
+          .cursor('now')
+          .stream({
+            onmessage: () => {
+              if (!mountedRef.current) return;
+              fetchCompletedTrades();
+            },
+            onerror: () => {
+              if (mountedRef.current) setIsStreaming(false);
+            },
+          }) as unknown as () => void;
+
+        tradesStreamRef.current = closeTrades;
+      } catch {
+      }
+
+      if (mountedRef.current) setIsStreaming(true);
+    } catch (err) {
+      console.warn('[useTradeTransaction] SSE streaming failed, polling fallback active:', err);
+      if (mountedRef.current) setIsStreaming(false);
+    }
+  }, [userAddress, currentNetwork, fetchActiveOffers, fetchCompletedTrades]);
+
+
+  useEffect(() => {
+    if (isStreaming || !userAddress) return;
+    const interval = setInterval(() => {
+      fetchActiveOffers();
+      fetchCompletedTrades();
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [isStreaming, userAddress, fetchActiveOffers, fetchCompletedTrades]);
+
+
+  useEffect(() => {
+    const handler = () => {
+      setTimeout(() => {
+        fetchActiveOffers();
+        fetchCompletedTrades();
+      }, 1500);
+    };
+    window.addEventListener('stellar:order-placed', handler);
+    return () => window.removeEventListener('stellar:order-placed', handler);
+  }, [fetchActiveOffers, fetchCompletedTrades]);
+
+
+  useEffect(() => {
+    mountedRef.current = true;
+    if (userAddress) {
+      fetchActiveOffers();
+      fetchCompletedTrades();
+      startStreaming();
+    }
+    return () => {
+      mountedRef.current = false;
+      offersStreamRef.current?.();
+      tradesStreamRef.current?.();
+    };
+  }, [userAddress]);
+
+
+  useEffect(() => {
+    if (userAddress) startStreaming();
+  }, [currentNetwork]);
+
   const cancelOffer = useCallback(
     async (offer: ActiveOffer, walletProvider: any) => {
-      if (!userAddress) {
-        throw new Error(ERROR_MESSAGES.NO_WALLET_CONNECTED);
-      }
+      if (!userAddress) throw new Error(ERROR_MESSAGES.NO_WALLET_CONNECTED);
+      if (!walletProvider) throw new Error('Wallet provider not available');
 
-      if (!walletProvider) {
-        throw new Error('Wallet provider not available');
-      }
 
-      setIsLoading(true);
+      setRemovingOfferIds(prev => new Set([...prev, offer.id]));
+      setTimeout(() => {
+        if (mountedRef.current) {
+          setActiveOffers(prev => prev.filter(o => o.id !== offer.id));
+          setRemovingOfferIds(prev => {
+            const next = new Set(prev);
+            next.delete(offer.id);
+            return next;
+          });
+        }
+      }, 400);
+
       setError(null);
 
       try {
         const tx = await service.buildCancelOfferTransaction(userAddress, offer);
         const txHash = await service.executeCancelOfferWithWalletConnect(tx, walletProvider);
-        await fetchActiveOffers();
+
+        setTimeout(() => fetchActiveOffers(), 2000);
         return txHash;
       } catch (err) {
-        setError(ERROR_MESSAGES.CANCEL_OFFER_FAILED);
+
+        if (mountedRef.current) {
+          setRemovingOfferIds(prev => {
+            const next = new Set(prev);
+            next.delete(offer.id);
+            return next;
+          });
+          setActiveOffers(prev => {
+            if (prev.some(o => o.id === offer.id)) return prev;
+            return [offer, ...prev];
+          });
+          setError(ERROR_MESSAGES.CANCEL_OFFER_FAILED);
+        }
         console.error('Failed to cancel offer:', err);
         throw err;
-      } finally {
-        setIsLoading(false);
       }
     },
     [userAddress, service, fetchActiveOffers]
@@ -115,17 +276,10 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
 
   const editOffer = useCallback(
     async (offer: ActiveOffer, walletProvider: any, newAmount: string, newPrice: string) => {
-      if (!userAddress) {
-        throw new Error(ERROR_MESSAGES.NO_WALLET_CONNECTED);
-      }
-
-      if (!walletProvider) {
-        throw new Error('Wallet provider not available');
-      }
-
-      if (parseFloat(newAmount) <= 0 || parseFloat(newPrice) <= 0) {
+      if (!userAddress) throw new Error(ERROR_MESSAGES.NO_WALLET_CONNECTED);
+      if (!walletProvider) throw new Error('Wallet provider not available');
+      if (parseFloat(newAmount) <= 0 || parseFloat(newPrice) <= 0)
         throw new Error('Amount and price must be positive');
-      }
 
       setIsLoading(true);
       setError(null);
@@ -133,25 +287,18 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
       try {
         const tx = await service.buildEditOfferTransaction(userAddress, offer, newAmount, newPrice);
         const txHash = await service.executeEditOfferWithWalletConnect(tx, walletProvider);
-        await fetchActiveOffers();
+        setTimeout(() => fetchActiveOffers(), 2000);
         return txHash;
       } catch (err) {
         setError('Failed to edit offer');
         console.error('Failed to edit offer:', err);
         throw err;
       } finally {
-        setIsLoading(false);
+        if (mountedRef.current) setIsLoading(false);
       }
     },
     [userAddress, service, fetchActiveOffers]
   );
-
-  useEffect(() => {
-    if (userAddress) {
-      fetchActiveOffers();
-      fetchCompletedTrades();
-    }
-  }, [userAddress, fetchActiveOffers, fetchCompletedTrades]);
 
   const reset = useCallback(() => {
     setActiveOffers([]);
@@ -168,6 +315,9 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
     completedPagination,
     isLoading,
     error,
+    isStreaming,
+    newOfferIds,
+    removingOfferIds,
     fetchActiveOffers,
     fetchCompletedTrades,
     cancelOffer,

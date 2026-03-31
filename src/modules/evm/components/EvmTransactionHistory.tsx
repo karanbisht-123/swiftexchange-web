@@ -31,13 +31,13 @@ type ViewType = 'recent' | 'stellar' | number;
 
 const STATUS_STYLES: Record<LocalTransactionWithStatus['status'], string> = {
   pending: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500',
-  confirmed: 'bg-green-500/10 border-green-500/20 text-green-500',
+  success: 'bg-green-500/10 border-green-500/20 text-green-500',
   failed: 'bg-red-500/10 border-red-500/20 text-red-500',
 };
 
 const StatusIcon: React.FC<{ status: LocalTransactionWithStatus['status'] }> = ({ status }) => {
   if (status === 'pending') return <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />;
-  if (status === 'confirmed') return <CheckCircle className="w-5 h-5 text-green-500" />;
+  if (status === 'success') return <CheckCircle className="w-5 h-5 text-green-500" />;
   return <XCircle className="w-5 h-5 text-red-500" />;
 };
 

@@ -146,9 +146,16 @@ export type PartialSubaccountUpdate = Omit<Partial<ParentSubaccountData>, 'order
 
 const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED']);
 const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
-const TERMINAL_GRACE_MS = 6_000;
+const MARKET_ORDER_GRACE_MS = 2_500;
 const MAX_ORDERS = 150;
 const MAX_FILLS = 150;
+
+export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' | 'orderFlags'>): boolean {
+  return (
+    order.type === 'MARKET' ||
+    (order.timeInForce === 'IOC' && order.orderFlags === '0')
+  );
+}
 const UNSUB_DELAY_MS = 5_000;
 
 interface WebSocketState {
@@ -313,7 +320,9 @@ function evictOrders(
 
   for (const order of orderMap.values()) {
     if (TERMINAL_STATUSES.has(order.status)) {
-      if (now - (order._terminalAt ?? now) < TERMINAL_GRACE_MS) kept.push(order);
+      if (isMarketOrder(order) && now - (order._terminalAt ?? now) < MARKET_ORDER_GRACE_MS) {
+        kept.push(order);
+      }
       continue;
     }
 
@@ -979,7 +988,10 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
   const now = Date.now();
   return data.orders.filter(o => {
     if (OPEN_STATUSES.has(o.status)) return true;
-    if (TERMINAL_STATUSES.has(o.status)) return now - (o._terminalAt ?? now) < TERMINAL_GRACE_MS;
+    // Only give market orders the 2.5 s grace window; cancel/fill on limit orders = instant removal.
+    if (TERMINAL_STATUSES.has(o.status) && isMarketOrder(o)) {
+      return now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS;
+    }
     return false;
   });
 }
@@ -987,7 +999,8 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
 export function selectRecentlyTerminalOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
   const now = Date.now();
+  // Mirrors selectOpenAndGraceOrders: only market orders enter the grace window.
   return data.orders.filter(
-    o => TERMINAL_STATUSES.has(o.status) && now - (o._terminalAt ?? now) < TERMINAL_GRACE_MS
+    o => TERMINAL_STATUSES.has(o.status) && isMarketOrder(o) && now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS
   );
 }

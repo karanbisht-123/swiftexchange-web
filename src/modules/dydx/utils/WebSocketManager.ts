@@ -625,13 +625,12 @@ class WebSocketManager {
       if (!this.pongReceived) {
         this.missedPongs++;
         if (this.missedPongs >= this.MAX_MISSED_PONGS) {
-          // dYdX server stopped responding — close and let the reconnect logic handle it
           console.warn(
             `[WS] ${this.missedPongs} missed pongs — closing connection to force reconnect`
           );
           this.missedPongs = 0;
-          this.pongReceived = true; // reset so startPing on reconnect is clean
-          this.ws?.close(1001, 'missed pongs');
+          this.pongReceived = true;
+          this.ws?.close(1000, 'missed pongs');
           return;
         }
       } else {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import * as StellarSDK from '@stellar/stellar-sdk';
 
@@ -23,6 +23,10 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
   const [trades, setTrades] = useState<RecentTrade[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Track which trade IDs are "new" so UI can animate them in
+  const [newTradeIds, setNewTradeIds] = useState<Set<string>>(new Set());
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const mountedRef = useRef(true);
 
   const fetchTrades = useCallback(async () => {
     if (!baseAsset || !counterAsset) return;
@@ -51,7 +55,6 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
 
       const formattedTrades: RecentTrade[] = tradeResponse.records.map((record: any) => {
         const isBuy = !record.base_is_seller;
-
         return {
           id: record.id,
           time: record.ledger_close_time,
@@ -61,20 +64,49 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
         };
       });
 
+      if (!mountedRef.current) return;
+
+      // Flash newly seen trades
+      const freshIds = formattedTrades
+        .filter(t => !knownIdsRef.current.has(t.id))
+        .map(t => t.id);
+
+      if (freshIds.length > 0 && knownIdsRef.current.size > 0) {
+        setNewTradeIds(new Set(freshIds));
+        setTimeout(() => {
+          if (mountedRef.current) setNewTradeIds(new Set());
+        }, 2000);
+      }
+
+      formattedTrades.forEach(t => knownIdsRef.current.add(t.id));
       setTrades(formattedTrades);
     } catch (err) {
       console.error('Failed to fetch recent trades:', err);
-      setError('Failed to load recent trades');
+      if (mountedRef.current) setError('Failed to load recent trades');
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) setIsLoading(false);
     }
   }, [baseAsset, counterAsset, currentNetwork]);
 
+  // Initial fetch + 5 s polling (reduced from 15 s)
   useEffect(() => {
+    mountedRef.current = true;
     fetchTrades();
-    const interval = setInterval(fetchTrades, 15000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchTrades, 5000);
+    return () => {
+      clearInterval(interval);
+      mountedRef.current = false;
+    };
   }, [fetchTrades]);
 
-  return { trades, isLoading, error, refresh: fetchTrades };
+  // Also refresh immediately when an order is placed
+  useEffect(() => {
+    const handler = () => {
+      setTimeout(() => fetchTrades(), 1500);
+    };
+    window.addEventListener('stellar:order-placed', handler);
+    return () => window.removeEventListener('stellar:order-placed', handler);
+  }, [fetchTrades]);
+
+  return { trades, isLoading, error, newTradeIds, refresh: fetchTrades };
 };

@@ -1,15 +1,18 @@
 import {
   AlertCircle,
   ArrowRight,
+  ArrowUpDown,
   CheckCircle,
+  CheckCircle2,
+  ChevronDown,
   Clock,
+  CreditCard,
   ExternalLink,
   Loader2,
-  RefreshCw,
   TrendingUp,
-  Wallet,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { ChainSymbol, FeePaymentMethod, Messenger } from '@allbridge/bridge-core-sdk';
 
@@ -28,6 +31,7 @@ import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { getChainsForNetwork } from '../../utils/Chainregistry';
+import { ROUTES } from '../../../../constants/routes';
 
 const getIconUrl = (symbol: string, chainConfig?: any): string => {
   if (symbol === 'STELLAR' || symbol === 'XLM') {
@@ -58,6 +62,7 @@ type DestTokenType = 'USDC' | 'USDT';
 type TxStatus = 'idle' | 'preparing' | 'signing' | 'success' | 'error';
 
 const STELLAR_EXPLORER = 'https://stellar.expert/explorer/public/tx/';
+const STELLAR_USDC_ICON = 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
 
 const FEE_METHOD_MAP: Record<FeePayType, FeePaymentMethod> = {
   native: FeePaymentMethod.WITH_NATIVE_CURRENCY,
@@ -69,111 +74,13 @@ const fmt = (v: string | number, dp = 4): string => {
   return isNaN(n) ? '0.00' : n.toFixed(dp);
 };
 
-const shortAddr = (addr: string): string => (addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '—');
-
-const fmtTime = (ms: number): string => {
-  if (!ms || ms <= 0) return 'Unknown';
-  const secs = Math.round(ms / 1_000);
-  if (secs < 60) return `~${secs}s`;
-  const mins = Math.round(ms / 60_000);
-  return mins === 1 ? '~1 min' : `~${mins} min`;
+const formatTime = (ms: number): string => {
+  const minutes = Math.floor(ms / 60000);
+  return minutes > 0 ? `~${minutes} min` : '< 1 min';
 };
-
-let xlmPriceUsd = 0;
-const fetchXlmPrice = async (): Promise<number> => {
-  if (xlmPriceUsd > 0) return xlmPriceUsd;
-  try {
-    const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd');
-    const d = await r.json();
-    xlmPriceUsd = d?.stellar?.usd ?? 0;
-  } catch {
-    xlmPriceUsd = 0;
-  }
-  return xlmPriceUsd;
-};
-
-const toUsd = (amount: string, price: number): string => {
-  const n = parseFloat(amount);
-  if (!n || !price) return '';
-  return `≈ $${(n * price).toFixed(3)}`;
-};
-
-const isWalletConnectProvider = (p: any): boolean =>
-  !!(p?.client && p?.session && typeof p.client.request === 'function');
-
-const Divider = () => <div className="h-px bg-color w-full" />
-
-const InfoRow = ({
-  icon,
-  label,
-  value,
-  valueClass = '',
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  valueClass?: string;
-}) => (
-  <div className="flex items-center justify-between text-sm">
-    <span className="text-muted font-medium flex items-center gap-1.5">
-      {icon}
-      {label}
-    </span>
-    <span className={`font-semibold text-primary text-right ${valueClass}`}>{value}</span>
-  </div>
-);
-
-const PillGroup = <T extends string>({
-  label,
-  items,
-  active,
-  disabled: globalDisabled,
-  disabledIds,
-  onChange,
-  renderItem,
-}: {
-  label: string;
-  items: { id: T;[k: string]: any }[];
-  active: T;
-  disabled?: boolean;
-  disabledIds?: T[];
-  onChange: (id: T) => void;
-  renderItem: (item: { id: T;[k: string]: any }, isActive: boolean) => React.ReactNode;
-}) => (
-  <div className="flex-1 min-w-0">
-    <p className="text-[10px] text-muted font-semibold uppercase tracking-widest mb-1.5 px-0.5">
-      {label}
-    </p>
-    <div className="flex gap-1.5">
-      {items.map(item => {
-        const isActive = item.id === active;
-        const isDisabled = globalDisabled || disabledIds?.includes(item.id);
-        return (
-          <button
-            key={item.id}
-            onClick={() => !isDisabled && onChange(item.id)}
-            disabled={isDisabled}
-            className={`
-              relative flex-1 flex items-center justify-center gap-1.5
-              py-2 px-2 rounded-xl border text-xs font-semibold transition-all duration-150
-              ${isActive
-                ? 'btn-primary border-transparent'
-                : isDisabled
-                  ? 'bg-tertiary text-muted border-color opacity-40 cursor-not-allowed'
-                  : 'bg-tertiary text-secondary border-color hover:border-brand-primary/40'
-              }
-            `}
-          >
-            {renderItem(item, isActive)}
-            {isActive && <span className="absolute top-1 right-1 w-1 h-1 rounded-full bg-white/60" />}
-          </button>
-        );
-      })}
-    </div>
-  </div>
-);
 
 const StellarToEvmBridge: React.FC = () => {
+  const navigate = useNavigate();
   const currentNetwork = useWalletStore((s: any) => s.network) as 'mainnet' | 'testnet';
   const isMainnet = currentNetwork === 'mainnet';
 
@@ -195,11 +102,9 @@ const StellarToEvmBridge: React.FC = () => {
 
   const [usdcBalance, setUsdcBalance] = useState('0');
   const [isLoadingBalance, setLoadingBal] = useState(false);
-  const [xlmPrice, setXlmPrice] = useState(0);
 
   const [amount, setAmount] = useState('');
   const [quoteData, setQuoteData] = useState<QuoteResult | null>(null);
-  const [isLoadingTokens, setLoadingTkns] = useState(true);
   const [isLoadingQuote, setLoadingQuote] = useState(false);
 
   const [txStatus, setTxStatus] = useState<TxStatus>('idle');
@@ -207,17 +112,39 @@ const StellarToEvmBridge: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   const currentChainConfig = useMemo(() => {
     return evmChains.find(c =>
-      (selectedNetwork === 'BNB' && c.slug === 'bsc') ||
+      (selectedNetwork === 'BNB' && (c.slug === 'bsc' || c.slug === 'bnb')) ||
       (selectedNetwork === 'ETH' && c.slug === 'eth')
     );
   }, [evmChains, selectedNetwork]);
 
+  const parseError = (err: string | null) => {
+    if (!err) return null;
+
+    if (err.toLowerCase().includes('underfunded') || err.toLowerCase().includes('insufficient')) {
+      return {
+        type: 'insufficient_balance',
+        asset: 'XLM/USDC',
+        message: 'Your Stellar account has insufficient funds to cover the bridge amount or fees.',
+      };
+    }
+
+    return {
+      type: 'general',
+      message: err,
+    };
+  };
+
+  const parsedError = parseError(error);
+
   useEffect(() => {
-    fetchXlmPrice().then(setXlmPrice);
-  }, []);
+    if (parsedError && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [parsedError]);
 
   useEffect(() => {
     resetAllbridgeSdk();
@@ -226,7 +153,6 @@ const StellarToEvmBridge: React.FC = () => {
     setDestToken(null);
     setQuoteData(null);
     setError(null);
-    setLoadingTkns(true);
     getSupportedTokens()
       .then(supported => {
         setTokens(supported);
@@ -235,7 +161,6 @@ const StellarToEvmBridge: React.FC = () => {
         setSourceToken(src ?? null);
       })
       .catch(() => setError('Failed to load tokens. Please refresh.'))
-      .finally(() => setLoadingTkns(false));
   }, [currentNetwork]);
 
   const fetchBalance = useCallback(async () => {
@@ -259,7 +184,7 @@ const StellarToEvmBridge: React.FC = () => {
   useEffect(() => {
     if (!tokens.length) return;
     const chainSym = selectedNetwork === 'BNB' ? ChainSymbol.BSC : ChainSymbol.ETH;
-    const dest = tokens.find((t: any) => t.chainSymbol === chainSym && t.symbol === selectedDestToken);
+    const dest = tokens.find((t: any) => t.chainSymbol === chainSym && (t.symbol === selectedDestToken));
     setDestToken(dest ?? null);
     setQuoteData(null);
   }, [selectedNetwork, selectedDestToken, tokens]);
@@ -396,12 +321,6 @@ const StellarToEvmBridge: React.FC = () => {
       setTxHash(hash);
       setTxStatus('success');
       fetchBalance();
-      setTimeout(() => {
-        setTxStatus('idle');
-        setAmount('');
-        setQuoteData(null);
-        setTxHash(null);
-      }, 10000);
     } catch (err: any) {
       setTxStatus('error');
       setError(err.message || 'Transaction failed or was rejected.');
@@ -410,348 +329,398 @@ const StellarToEvmBridge: React.FC = () => {
 
   const parsedAmount = parseFloat(amount) || 0;
   const parsedBalance = parseFloat(usdcBalance) || 0;
-  const isTooSmall = parsedAmount > 0 && parsedAmount < 0.01;
   const isInsufficient = parsedAmount > 0 && parsedAmount > parsedBalance;
   const isValidAmount = parsedAmount >= 0.01 && !isInsufficient;
   const canProceed = !!quoteData && isValidAmount && !isLoadingQuote && txStatus !== 'preparing' && txStatus !== 'signing' && txStatus !== 'success';
 
-  const feeOptions = quoteData?.feeOptions;
-  const stablecoinUnavailable = !!feeOptions && !feeOptions.stablecoin;
-  const nativeFeeUsd = feeOptions ? toUsd(feeOptions.native.float, xlmPrice) : '';
-  const stablecoinFeeUsd = feeOptions?.stablecoin ? `≈ $${parseFloat(feeOptions.stablecoin.float).toFixed(3)}` : '';
+  const isWalletConnectProvider = (p: any): boolean =>
+    !!(p?.client && p?.session && typeof p.client.request === 'function');
+
+  const supportedDestNetworks = useMemo(() => [
+    { id: 'BNB' as NetworkType, name: 'BNB Chain', icon: evmChains.find(c => c.slug === 'bsc')?.nativeCurrency.logoURI || '' },
+    { id: 'ETH' as NetworkType, name: 'Ethereum', icon: evmChains.find(c => c.slug === 'eth')?.nativeCurrency.logoURI || '' },
+  ], [evmChains]);
 
   return (
-    <div className="flex flex-col gap-3 p-4 overflow-y-auto flex-1 animate-fadeIn">
-      <div className="flex gap-3">
-        <PillGroup
-          label="Network"
-          items={[
-            { id: 'BNB', name: 'BNB Chain', chainSymbol: ChainSymbol.BSC },
-            { id: 'ETH', name: 'Ethereum', chainSymbol: ChainSymbol.ETH },
-          ]}
-          active={selectedNetwork}
-          disabled={isLoadingTokens || txStatus === 'preparing' || txStatus === 'signing'}
-          onChange={id => {
-            setNetwork(id as NetworkType);
-            setError(null);
-          }}
-          renderItem={(item, isActive) => {
-            const itemConfig = evmChains.find(c =>
-              (item.id === 'BNB' && c.slug === 'bsc') ||
-              (item.id === 'ETH' && c.slug === 'eth')
-            );
-            return (
-              <>
-                <img src={getIconUrl(item.id, itemConfig)} alt={item.id} className="w-4 h-4 rounded-full shrink-0" />
-                <span className={isActive ? '' : 'text-secondary'}>{item.id}</span>
-              </>
-            );
-          }}
-        />
-        <PillGroup
-          label="Receive Token"
-          items={[
-            { id: 'USDC', label: 'USD Coin' },
-            { id: 'USDT', label: 'Tether USD' },
-          ]}
-          active={selectedDestToken}
-          disabled={isLoadingTokens || txStatus === 'preparing' || txStatus === 'signing'}
-          disabledIds={[
-            { id: 'USDC', label: 'USD Coin' },
-            { id: 'USDT', label: 'Tether USD' },
-          ].filter(dt => !tokens.some(t => t.chainSymbol === (selectedNetwork === 'BNB' ? ChainSymbol.BSC : ChainSymbol.ETH) && t.symbol === dt.id)).map(dt => dt.id)}
-          onChange={id => {
-            setDestSym(id as DestTokenType);
-            setError(null);
-          }}
-          renderItem={(item, isActive) => (
-            <>
-              <img src={getIconUrl(item.id, currentChainConfig)} alt={item.id} className="w-4 h-4 rounded-full shrink-0" />
-              <span className={isActive ? '' : 'text-secondary'}>{item.id}</span>
-            </>
-          )}
-        />
-      </div>
+    <>
+      <div className="p-5 space-y-4 overflow-y-auto flex-1">
+        {txHash && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
+            <div className="card max-w-md w-full animate-slide-up rounded-t-3xl sm:rounded-2xl border-t-4 border-green-500 shadow-2xl m-0 sm:m-4">
+              <div className="flex items-center justify-center pt-8 pb-4">
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-lg">
+                    <CheckCircle2 className="w-12 h-12 text-white" strokeWidth={2.5} />
+                  </div>
+                  <div className="absolute -inset-2 bg-green-400/20 rounded-full blur-xl animate-pulse"></div>
+                </div>
+              </div>
 
-      {isLoadingTokens && (
-        <div className="card p-5 flex items-center justify-center gap-3 text-muted rounded-2xl">
-          <Loader2 size={18} className="animate-spin text-brand" />
-          <span className="text-sm">Loading bridge tokens…</span>
-        </div>
-      )}
+              <div className="px-6 pb-6">
+                <h3 className="text-2xl font-bold text-center mb-2 text-primary">
+                  Bridge Submitted!
+                </h3>
+                <p className="text-secondary text-center mb-1 text-sm">
+                  Assets traveling from Stellar
+                </p>
+                <p className="text-center text-xs font-medium text-green-600 mb-6 font-mono uppercase tracking-widest">
+                  to {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'}
+                </p>
 
-      {!isLoadingTokens && (
-        <>
-          <div className="card p-4 bg-tertiary rounded-2xl">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted font-semibold uppercase tracking-wide">You Send</span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted">
-                  {isLoadingBalance ? (
-                    <Loader2 size={10} className="animate-spin inline" />
-                  ) : (
-                    <span className="text-primary font-semibold">
-                      {parseFloat(usdcBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDC
-                    </span>
-                  )}
-                </span>
-                <button onClick={fetchBalance} disabled={isLoadingBalance} className="p-0.5 hover:bg-hover rounded transition-colors">
-                  <RefreshCw size={11} className={`text-muted ${isLoadingBalance ? 'animate-spin' : ''}`} />
-                </button>
+                <div className="bg-tertiary rounded-lg p-3 mb-6 border border-color">
+                  <p className="text-xs text-muted mb-1 text-center font-semibold">Transaction Hash</p>
+                  <p className="font-mono text-xs text-center text-primary break-all">
+                    {txHash.slice(0, 12)}...{txHash.slice(-10)}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <a
+                    href={`${STELLAR_EXPLORER}${txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary w-full flex items-center justify-center gap-2 text-base py-3 rounded-2xl shadow-lg"
+                  >
+                    View on Explorer
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  <button
+                    onClick={() => {
+                      setTxHash(null);
+                      setTxStatus('idle');
+                      setAmount('');
+                      navigate(ROUTES.DASHBOARD);
+                    }}
+                    className="w-full py-3 text-secondary hover:text-primary font-bold transition-colors"
+                  >
+                    Back to Dashboard
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+          </div>
+        )}
+
+        <div className="card p-4 relative">
+          <div className="flex flex-wrap items-center justify-start gap-4 px-2">
+            {supportedDestNetworks.map((net) => {
+              const isSelected = selectedNetwork === net.id;
+              return (
+                <div key={net.id} className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={() => setNetwork(net.id)}
+                    disabled={txStatus === 'preparing' || txStatus === 'signing'}
+                    title={`Switch to ${net.name}`}
+                    className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${isSelected
+                      ? 'bg-brand/10 border-brand shadow-lg scale-110'
+                      : 'bg-secondary border-color hover:border-brand/40 hover:bg-tertiary'
+                      }`}
+                  >
+                    <img
+                      src={net.icon}
+                      alt={net.name}
+                      className={`w-9 h-9 rounded-full bg-white shadow-sm ring-1 ${isSelected ? 'ring-brand' : 'ring-transparent'}`}
+                    />
+                  </button>
+                  <span className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}>
+                    {net.id}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className=" relative p-0 bg-transparent border-0 shadow-none space-y-1">
+          {/* You Pay Section */}
+          <div className="bg-tertiary rounded-2xl p-4 border border-color">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-bold text-primary">You Pay (Stellar)</label>
+              <button
+                onClick={handleMax}
+                className="text-xs font-bold text-brand hover:text-brand-hover transition-colors px-2.5 py-1 rounded-md bg-brand/5 hover:bg-brand/10"
+              >
+                MAX
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative">
+                  <img
+                    src={STELLAR_USDC_ICON}
+                    alt="USDC"
+                    className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
+                  />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#08020d] border border-white/10 flex items-center justify-center overflow-hidden">
+                    <img src="https://stellar.org/favicon.ico" alt="Stellar" className="w-3 h-3" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 bg-secondary border border-color rounded-full px-4 py-1.5 min-w-[100px] justify-center shadow-sm">
+                  <span className="font-bold text-lg text-primary">USDC</span>
+                </div>
+              </div>
+
               <input
                 type="text"
                 inputMode="decimal"
+                className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${isInsufficient ? 'text-red-500' : ''}`}
+                placeholder="0.00"
                 value={amount}
                 onChange={handleAmountChange}
-                placeholder="0.00"
                 disabled={txStatus === 'preparing' || txStatus === 'signing'}
-                className="input flex-1 text-2xl font-bold bg-transparent border-none shadow-none focus:ring-0 p-0 min-w-0"
               />
-              <div className="flex items-center gap-1.5 bg-secondary border border-color py-1.5 px-2.5 rounded-xl shrink-0">
-                <img src={getIconUrl('USDC')} alt="USDC" className="w-5 h-5 rounded-full" />
-                <div className="leading-tight">
-                  <div className="text-xs font-bold text-primary">USDC</div>
-                  <div className="text-[9px] text-muted flex items-center gap-0.5">
-                    <img src={getIconUrl('STELLAR')} alt="" className="w-2.5 h-2.5 rounded-full" />
-                    Stellar
-                  </div>
-                </div>
-              </div>
             </div>
-            <div className="flex items-center justify-between mt-1.5">
-              <div className="flex items-center gap-2">
-                {parsedAmount > 0 && !isTooSmall && !isInsufficient && (
-                  <span className="text-[11px] text-muted">≈ ${fmt(parsedAmount, 2)} USD</span>
-                )}
-                {isTooSmall && <span className="text-danger text-[11px] flex items-center gap-1 font-medium"><AlertCircle size={11} /> Min 0.01</span>}
-                {isInsufficient && <span className="text-danger text-[11px] flex items-center gap-1 font-medium"><AlertCircle size={11} /> Insufficient balance</span>}
-              </div>
-              {parsedBalance > 0 && (
-                <button onClick={handleMax} className="text-[11px] text-brand-accent hover:text-brand-primary transition-colors font-bold px-1.5 py-0.5 rounded bg-brand-primary/10">
-                  MAX
-                </button>
+
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted font-medium">
+                Balance: {isLoadingBalance ? <Loader2 className="w-3 h-3 animate-spin inline ml-1" /> : <span className="text-primary font-bold">{parseFloat(usdcBalance).toFixed(4)}</span>}
+              </span>
+              {isInsufficient && (
+                <span className="text-red-500 font-bold animate-pulse flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Insufficient Balance
+                </span>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 px-1">
-            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-brand-primary/25 to-transparent" />
-            <div className="flex items-center gap-1.5 bg-brand-primary/10 border border-brand-primary/20 px-2.5 py-1 rounded-full">
-              <img src={getIconUrl('STELLAR')} alt="" className="w-3.5 h-3.5 rounded-full" />
-              <ArrowRight size={10} className="text-brand-primary" />
-              <span className="text-[10px] font-semibold text-brand-primary">Allbridge</span>
-              <ArrowRight size={10} className="text-brand-primary" />
-              <img src={getIconUrl(selectedNetwork, currentChainConfig)} alt="" className="w-3.5 h-3.5 rounded-full" />
-            </div>
-            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-brand-primary/25 to-transparent" />
-          </div>
-
-          <div className="card p-4 border border-brand-primary/25 bg-gradient-to-br from-brand-primary/5 to-brand-primary/10 rounded-2xl">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-brand-primary">You Receive</span>
-              <div className="flex items-center gap-1 bg-brand-primary/15 border border-brand-primary/25 px-2 py-0.5 rounded-lg">
-                <img src={getIconUrl(selectedNetwork, currentChainConfig)} alt={selectedNetwork} className="w-3 h-3 rounded-full" />
-                <span className="text-[10px] font-semibold text-brand-primary">
-                  {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'}
-                </span>
+          {/* Divider */}
+          <div className="relative h-3  my-2 z-10 flex justify-center items-center">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+              <div className="w-10 h-10 rounded-xl bg-secondary border border-color flex items-center justify-center shadow-md">
+                <ArrowUpDown className="w-5 h-5 text-muted" strokeWidth={2.5} />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <div className="text-2xl font-bold text-primary leading-none">
-                  {isLoadingQuote ? (
-                    <div className="flex items-center gap-2">
-                      <Loader2 size={18} className="animate-spin text-brand" />
-                      <span className="text-base text-muted">Calculating…</span>
-                    </div>
-                  ) : quoteData ? (
-                    `${fmt(quoteData.amountToBeReceived)} ${selectedDestToken}`
-                  ) : parsedAmount > 0 ? (
-                    <span className="text-muted text-xl">…</span>
+          </div>
+
+          {/* You Receive Section */}
+          <div className="bg-tertiary rounded-2xl p-4 border border-color">
+            <label className="block text-sm font-bold text-primary mb-3">You Receive on {selectedNetwork}</label>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative">
+                  <img
+                    src={getIconUrl(selectedDestToken, currentChainConfig)}
+                    alt={selectedDestToken}
+                    className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
+                  />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-secondary border border-color flex items-center justify-center overflow-hidden">
+                    <img src={currentChainConfig?.nativeCurrency.logoURI} alt="" className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div className="relative group">
+                  <select
+                    value={selectedDestToken}
+                    onChange={(e) => setDestSym(e.target.value as DestTokenType)}
+                    disabled={txStatus === 'preparing' || txStatus === 'signing'}
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
+                  >
+                    <option value="USDC">USDC</option>
+                    <option value="USDT">USDT</option>
+                  </select>
+                  <button className="flex items-center gap-2 bg-secondary/80 hover:bg-secondary border border-color hover:border-brand/50 rounded-full px-3 py-1.5 transition-all min-w-[100px] justify-between shadow-sm">
+                    <span className="font-bold text-lg text-primary">{selectedDestToken}</span>
+                    <ChevronDown className="w-4 h-4 text-muted group-hover:text-primary transition-colors" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 text-right text-2xl font-bold min-w-0">
+                {isLoadingQuote ? (
+                  <Loader2 className="w-5 h-5 animate-spin ml-auto text-muted" />
+                ) : (
+                  <span className="text-primary truncate block">
+                    {quoteData ? fmt(quoteData.amountToBeReceived) : '0.00'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-brand/5 rounded-md text-brand font-bold">
+                <Clock className="w-3 h-3" />
+                <span>{quoteData ? formatTime(quoteData.transferTimeMs) : '...'}</span>
+              </div>
+              <span className="badge bg-brand/10 text-brand font-bold px-2 py-0.5 text-[10px] rounded-md border border-brand/20">
+                {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {quoteData && !isLoadingQuote && (
+          <div className="card p-5 space-y-3 rounded-2xl border-color/40 shadow-sm animate-slide-up">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Exchange Rate</span>
+              <div className="bg-brand/5 px-2 py-1 rounded text-brand font-bold text-xs">
+                1 USDC ≈ {quoteData.exchangeRate} {selectedDestToken}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Minimum Received</span>
+              <span className="text-primary font-bold">{fmt(quoteData.amountToBeReceived)} {selectedDestToken}</span>
+            </div>
+
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Network Fee</span>
+              <span className="text-primary font-bold">Standard Stellar Fee</span>
+            </div>
+
+            <div className="divider opacity-30 my-1" />
+
+            <div>
+              <label className="text-[10px] text-muted mb-2 block font-bold uppercase tracking-widest flex items-center gap-2 opacity-70">
+                <TrendingUp className="w-3 h-3" />
+                Relayer Fee
+              </label>
+              <div className="flex gap-2">
+                {(['native', 'stablecoin'] as FeePayType[]).map((feeType) => {
+                  const isSelected = feePayType === feeType;
+                  const feeOptions = quoteData.feeOptions;
+                  const isStablecoinOption = feeType === 'stablecoin';
+                  const isAvailable = isStablecoinOption ? !!feeOptions.stablecoin : true;
+
+                  if (isStablecoinOption && !isAvailable) return null;
+
+                  return (
+                    <button
+                      key={feeType}
+                      onClick={() => setFeePayType(feeType)}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border flex flex-col items-center gap-1.5 ${isSelected
+                        ? 'bg-brand/10 border-brand text-brand shadow-sm'
+                        : 'bg-secondary/50 text-secondary border-color hover:border-brand/30'
+                        }`}
+                    >
+                      <img
+                        src={feeType === 'native' ? 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png' : STELLAR_USDC_ICON}
+                        alt=""
+                        className="w-4 h-4 rounded-full bg-white ring-1 ring-black/5"
+                      />
+                      <span>
+                        {feeType === 'native'
+                          ? `${feeOptions.native.float} XLM`
+                          : `${feeOptions.stablecoin?.float} USDC`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {parsedError && (
+          <div ref={errorRef} className="mt-4 animate-slide-up">
+            <div className={`relative overflow-hidden rounded-2xl border-2 shadow-lg transition-all ${parsedError.type === 'insufficient_balance'
+              ? 'bg-orange-500/10 border-orange-500/20'
+              : 'bg-red-500/10 border-red-500/20'
+              }`}>
+              <div className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className={`p-2.5 rounded-xl shrink-0 ${parsedError.type === 'insufficient_balance'
+                    ? 'bg-orange-500/20 text-orange-600'
+                    : 'bg-red-500/20 text-red-600'
+                    }`}>
+                    <AlertCircle className="w-6 h-6" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`text-lg font-bold mb-1 ${parsedError.type === 'insufficient_balance' ? 'text-orange-900' : 'text-red-900'
+                      }`}>
+                      {parsedError.type === 'insufficient_balance' ? 'Balance Required' : 'Bridge Error'}
+                    </h4>
+                    <p className={`text-sm leading-relaxed ${parsedError.type === 'insufficient_balance' ? 'text-orange-800/80' : 'text-red-800/80'
+                      }`}>
+                      {parsedError.message}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3">
+                  {parsedError.type === 'insufficient_balance' ? (
+                    <>
+                      <button
+                        onClick={() => navigate(ROUTES.TRADING_EVM_FIAT)}
+                        className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-3"
+                      >
+                        <CreditCard size={20} />
+                        Buy with Fiat
+                      </button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => navigate(ROUTES.TRADING_EVM_SWAP)}
+                          className="bg-white/10 hover:bg-white/20 text-orange-900 font-bold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-orange-500/20"
+                        >
+                          <ArrowUpDown className="w-4 h-4" />
+                          Swap
+                        </button>
+                        <button
+                          onClick={() => setError(null)}
+                          className="bg-orange-900/10 hover:bg-orange-900/20 text-orange-900 font-bold py-3 px-4 rounded-xl transition-all"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </>
                   ) : (
-                    <span className="text-muted">0.00 {selectedDestToken}</span>
+                    <button
+                      onClick={() => setError(null)}
+                      className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95"
+                    >
+                      Dismiss
+                    </button>
                   )}
                 </div>
-                {quoteData && !isLoadingQuote && (
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-[11px] text-muted flex items-center gap-1">
-                      <TrendingUp size={10} />1 USDC ≈ {quoteData.exchangeRate} {selectedDestToken}
-                    </span>
-                    <span className="text-[11px] text-muted">≈ ${fmt(quoteData.amountToBeReceived, 2)} USD</span>
-                  </div>
-                )}
               </div>
-              <img src={getIconUrl(selectedDestToken, currentChainConfig)} alt={selectedDestToken} className="w-9 h-9 rounded-full shrink-0" />
             </div>
           </div>
+        )}
 
-          {quoteData && !isLoadingQuote && (
-            <div className="card p-3.5 rounded-2xl space-y-2.5">
-              <InfoRow icon={<Clock size={13} />} label="Estimated Time" value={fmtTime(quoteData.transferTimeMs)} valueClass="text-brand-primary" />
-              <InfoRow icon={<TrendingUp size={13} />} label="Rate" value={`1 USDC ≈ ${quoteData.exchangeRate} ${selectedDestToken}`} />
-
-              <Divider />
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] text-muted font-semibold uppercase tracking-widest">Pay Relayer Fee</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setFeePayType('native')}
-                    className={`flex items-center justify-between gap-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${feePayType === 'native' ? 'btn-primary border-transparent' : 'bg-tertiary text-secondary border-color hover:border-brand-primary/40'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <img src={getIconUrl('XLM')} alt="XLM" className="w-4 h-4 rounded-full" />
-                    </div>
-                    <div className="text-right leading-tight ml-1">
-                      <div className="font-bold tabular-nums">{feeOptions!.native.float}</div>
-                      {nativeFeeUsd && <div className={`text-[9px] font-normal ${feePayType === 'native' ? 'opacity-70' : 'text-muted'}`}>{nativeFeeUsd}</div>}
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => !stablecoinUnavailable && setFeePayType('stablecoin')}
-                    disabled={stablecoinUnavailable}
-                    className={`flex items-center justify-between gap-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${feePayType === 'stablecoin'
-                      ? 'btn-primary border-transparent'
-                      : stablecoinUnavailable
-                        ? 'bg-tertiary text-muted border-color opacity-40 cursor-not-allowed'
-                        : 'bg-tertiary text-secondary border-color hover:border-brand-primary/40'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <img src={getIconUrl('USDC')} alt="USDC" className="w-4 h-4 rounded-full" />
-                    </div>
-                    <div className="text-right leading-tight ml-1">
-                      {stablecoinUnavailable ? (
-                        <div className="font-bold text-[10px]">N/A</div>
-                      ) : (
-                        <>
-                          <div className="font-bold tabular-nums">{feeOptions!.stablecoin!.float}</div>
-                          {stablecoinFeeUsd && <div className={`text-[9px] font-normal ${feePayType === 'stablecoin' ? 'opacity-70' : 'text-muted'}`}>{stablecoinFeeUsd}</div>}
-                        </>
-                      )}
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              <Divider />
-
-              <InfoRow label="From" value={<span className="font-mono text-xs" title={stellarAddress}>{shortAddr(stellarAddress)}</span>} />
-              <InfoRow label="To" value={<span className="font-mono text-xs" title={evmAddress}>{shortAddr(evmAddress)}</span>} />
-            </div>
-          )}
-
-          {error && txStatus !== 'success' && (
-            <div className="card bg-danger-bg border border-danger/20 p-3.5 rounded-2xl flex items-start gap-2.5">
-              <AlertCircle size={15} className="text-danger shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-danger text-xs font-semibold">Error</p>
-                <p className="text-danger/80 text-[11px] mt-0.5 break-words">{error}</p>
-              </div>
-              {txStatus === 'error' && (
-                <button onClick={() => { setError(null); setTxStatus('idle'); }} className="shrink-0 p-1 hover:bg-danger/10 rounded-lg">
-                  <RefreshCw size={12} className="text-danger" />
-                </button>
-              )}
-            </div>
-          )}
-
-          {txStatus === 'success' && txHash && (
-            <div className="card bg-success-bg border border-success/25 p-3.5 rounded-2xl space-y-2.5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-success/15 flex items-center justify-center shrink-0">
-                  <CheckCircle size={16} className="text-success" />
-                </div>
-                <div>
-                  <p className="text-success font-bold text-sm">Bridge Submitted!</p>
-                  <p className="text-success/70 text-xs">
-                    {selectedDestToken} arrives on {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'} in {fmtTime(quoteData?.transferTimeMs ?? 0)}
-                  </p>
-                </div>
-              </div>
-              <a href={`${STELLAR_EXPLORER}${txHash}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between w-full bg-success/10 hover:bg-success/15 border border-success/20 px-3 py-2 rounded-xl transition-colors group">
-                <span className="font-mono text-xs text-success truncate max-w-[200px]">{txHash}</span>
-                <ExternalLink size={12} className="text-success shrink-0 ml-2 group-hover:translate-x-0.5 transition-transform" />
-              </a>
-            </div>
-          )}
-
+        <div className="pt-2">
           {!stellarAddress ? (
-            <div className="card p-4 rounded-2xl border border-warning/30 bg-warning-bg text-center">
-              <div className="w-10 h-10 rounded-xl bg-warning/15 flex items-center justify-center mx-auto mb-2.5">
-                <Wallet size={20} className="text-warning" />
-              </div>
-              <p className="font-bold text-primary text-sm mb-1">Stellar Wallet Required</p>
-              <p className="text-muted text-xs mb-3">Connect Freighter, Lobstr or another Stellar wallet.</p>
-              <button onClick={() => openModal()} className="btn btn-primary w-full py-2.5 rounded-xl font-semibold text-sm">
-                Connect Stellar Wallet
-              </button>
-            </div>
+            <button onClick={() => openModal()} className="btn btn-primary w-full py-4 text-lg rounded-2xl shadow-xl shadow-brand/10 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+              <CreditCard size={22} /> Connect Stellar Wallet
+            </button>
           ) : !evmAddress ? (
-            <div className="card p-4 rounded-2xl border border-warning/30 bg-warning-bg text-center">
-              <div className="w-10 h-10 rounded-xl bg-warning/15 flex items-center justify-center mx-auto mb-2.5">
-                <Wallet size={20} className="text-warning" />
-              </div>
-              <p className="font-bold text-primary text-sm mb-1">EVM Wallet Required</p>
-              <p className="text-muted text-xs mb-3">
-                Connect a {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'} wallet to receive {selectedDestToken}.
-              </p>
-              <button onClick={() => openModal()} className="btn btn-primary w-full py-2.5 rounded-xl font-semibold text-sm">
-                Connect EVM Wallet
-              </button>
-            </div>
+            <button onClick={() => openModal()} className="btn btn-primary w-full py-4 text-lg rounded-2xl shadow-xl shadow-brand/10 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+              <CreditCard size={22} /> Connect EVM Wallet
+            </button>
           ) : (
             <StellarActiveGuard onSkip={() => { }}>
               <button
                 onClick={handleProceed}
                 disabled={!canProceed}
-                className={`btn w-full gap-2 py-3.5 text-sm font-bold rounded-2xl transition-all ${txStatus === 'success' ? 'btn-success' : 'btn-primary disabled:opacity-50 disabled:cursor-not-allowed'}`}
+                className={`btn w-full btn-lg gap-2 py-4 text-lg rounded-2xl shadow-xl shadow-brand/10 hover:scale-[1.02] active:scale-[0.98] transition-all ${txStatus === 'success' ? 'btn-success' : 'btn-primary disabled:opacity-50 disabled:grayscale'}`}
               >
-                {txStatus === 'preparing' ? (
+                {txStatus === 'success' ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> Preparing Transaction…
+                    <CheckCircle size={22} /> Bridge Complete!
                   </>
                 ) : txStatus === 'signing' ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> Sign in Wallet…
+                    <Loader2 size={22} className="animate-spin" /> Signing Transaction...
                   </>
-                ) : txStatus === 'success' ? (
+                ) : txStatus === 'preparing' ? (
                   <>
-                    <CheckCircle size={18} /> Bridged Successfully!
+                    <Loader2 size={22} className="animate-spin" /> Preparing Bridge...
                   </>
                 ) : isLoadingQuote ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> Getting Quote…
+                    <Loader2 size={22} className="animate-spin" /> Getting Quote...
                   </>
-                ) : !isValidAmount || !quoteData ? (
-                  <>Enter Amount to Continue</>
                 ) : (
                   <>
-                    Bridge to {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'} <ArrowRight size={18} />
+                    Bridge to {selectedNetwork} <ArrowRight size={22} />
                   </>
                 )}
               </button>
-
-              {canProceed && quoteData && (
-                <p className="text-center text-[11px] text-muted mt-1.5">
-                  Fee:{' '}
-                  <span className="font-semibold text-primary">
-                    {feePayType === 'native'
-                      ? `${feeOptions!.native.float} XLM ${nativeFeeUsd}`
-                      : `${feeOptions!.stablecoin?.float} USDC ${stablecoinFeeUsd}`}
-                  </span>{' '}
-                  · Sign once in your Stellar wallet
-                </p>
-              )}
             </StellarActiveGuard>
           )}
-        </>
-      )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 };
 
