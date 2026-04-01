@@ -231,24 +231,28 @@ export const useDydxData = (): UseDydxDataReturn => {
           }
         });
 
+        // ── Rebuild openPerpetualPositions from scratch ─────────────────────
+        // The API returns ONLY currently-open positions, so anything missing
+        // from this response has been closed. We must replace positions
+        // wholesale (not merge) so closed positions disappear from the UI.
+        //
+        // Strategy: build a fresh map keyed by (subaccountNumber → market),
+        // preserving any extra live WS PnL data that exists for still-open positions.
+        const freshBySubNum = new Map<number, Record<string, any>>();
+
         positionsData.forEach((pos: any) => {
           const subNum = pos.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
-          if (!newChildMap.has(subNum)) {
-            newChildMap.set(subNum, {
-              subaccountNumber: subNum,
-              address: existing.address,
-              equity: '0',
-              freeCollateral: '0',
-              openPerpetualPositions: {},
-              assetPositions: {},
-              marginEnabled: true,
-              updatedAtHeight: '0',
-              latestProcessedBlockHeight: '0',
-            });
-          }
-          const child = newChildMap.get(subNum)!;
-          const existingPos = child.openPerpetualPositions[pos.market];
-          child.openPerpetualPositions[pos.market] = existingPos ? { ...existingPos, ...pos } : pos;
+          if (!freshBySubNum.has(subNum)) freshBySubNum.set(subNum, {});
+          // Keep live WS PnL fields where they exist, but API data wins for structural fields.
+          const wsPos = newChildMap.get(subNum)?.openPerpetualPositions?.[pos.market];
+          freshBySubNum.get(subNum)![pos.market] = wsPos ? { ...wsPos, ...pos } : pos;
+        });
+
+        // Apply: every child gets its positions replaced by the fresh API set.
+        // Children absent from the API response get an empty positions map —
+        // any closed position in them is now gone.
+        newChildMap.forEach((child, subNum) => {
+          child.openPerpetualPositions = freshBySubNum.get(subNum) ?? {};
         });
 
         const crossSub = subaccountsData.find(s => (s.subaccountNumber ?? 0) === 0);
@@ -261,7 +265,13 @@ export const useDydxData = (): UseDydxDataReturn => {
           lastUpdate: Date.now(),
         });
 
-        return { parentSubaccounts: newMap, updateTrigger: state.updateTrigger + 1 };
+        // Fresh freeCollateral just arrived from the server — clear any pending
+        // optimistic deduction so we don't double-count it.
+        return {
+          parentSubaccounts: newMap,
+          optimisticFreeCollateralDelta: 0,
+          updateTrigger: state.updateTrigger + 1,
+        };
       });
     } catch (err) {
       console.error('[useDydxData] Positions refresh failed:', err);

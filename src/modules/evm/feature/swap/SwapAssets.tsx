@@ -8,18 +8,21 @@ import {
   Loader2,
   TrendingUp,
   Wallet,
+  XCircle,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { ethers } from 'ethers';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
-import { getEVMChains } from '../../utils/Chainregistry';
+import { getEVMChains } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { useEvmSwap } from '../../hook/useEvmSwap';
 import { determineSwapType } from '../../utils/evmSwapUtils';
+import { ROUTES } from '../../../../constants/routes';
 import AssetSelectionModal from './AssetSelectionModal';
 
 interface SwapAssetsProps {
@@ -55,6 +58,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const openAssetModal = (type: 'sell' | 'buy') => setAssetModalOpen(type);
   const closeAssetModal = () => setAssetModalOpen(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   const {
     quote,
@@ -80,6 +84,39 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const networkConfig = evmChains.find(chain => chain.chainId === selectedChainId) || null;
 
+  const parseError = (err: string | null) => {
+    if (!err) return null;
+
+
+    const balanceMatch = err.match(/Insufficient (\w+) balance\. Have: ([\d.]+).*, Need: ~?([\d.]+)/i);
+    if (balanceMatch) {
+      return {
+        type: 'insufficient_balance',
+        asset: balanceMatch[1],
+        have: balanceMatch[2],
+        need: balanceMatch[3],
+        message: `You need more ${balanceMatch[1]} to cover the swap and gas fees.`,
+      };
+    }
+
+    // Pattern for \"You do not have enough [ASSET] to cover the gas fees\"
+    const gasMatch = err.match(/You do not have enough (\w+) to cover the gas fees/i);
+    if (gasMatch) {
+      return {
+        type: 'insufficient_balance',
+        asset: gasMatch[1],
+        message: `You do not have enough ${gasMatch[1]} to cover the network gas fees for this transaction.`,
+      };
+    }
+
+    return {
+      type: 'general',
+      message: err,
+    };
+  };
+
+  const parsedError = parseError(error);
+
   useEffect(() => {
     if (currentChainId && (currentChainId === 1 || currentChainId === 56)) {
       setSelectedChainId(currentChainId);
@@ -99,6 +136,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, location.pathname, navigate]);
+
+  useEffect(() => {
+    if (parsedError && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [parsedError]);
 
   useEffect(() => {
     if (selectedChainId) {
@@ -128,6 +171,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     senderAddress,
     isChainSwitching,
     updateTokenBalances,
+    assets.length,
   ]);
 
   useEffect(() => {
@@ -217,11 +261,37 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fetchSwapQuote]);
 
   const handleMaxAmount = useCallback(() => {
-    if (selectedSellAsset) {
-      const balance = parseFloat(selectedSellAsset.balance || '0');
-      const maxAmount = selectedSellAsset.isNative ? Math.max(0, balance - 0.01) : balance;
+    if (selectedSellAsset && selectedSellAsset.balance !== undefined) {
+      try {
+        const decimals = selectedSellAsset.decimals || 18;
+        // Parse current balance to raw BigInt units
+        const balanceBN = ethers.parseUnits(selectedSellAsset.balance, decimals);
 
-      setSellAmount(maxAmount.toString());
+        if (balanceBN === BigInt(0)) {
+          setSellAmount('0');
+          return;
+        }
+
+        let maxAmountBN = balanceBN;
+        if (selectedSellAsset.isNative) {
+          // Subtract a safety buffer only if the balance is large enough
+          // This avoids the "ghosting" effect where small balances result in 0
+          const bufferBN = ethers.parseUnits('0.006', decimals);
+          maxAmountBN = balanceBN > bufferBN ? balanceBN - bufferBN : balanceBN;
+        }
+
+        const formatted = ethers.formatUnits(maxAmountBN, decimals);
+        // Clean up string representation (remove trailing zeros and unnecessary decimal point)
+        const cleanAmount = formatted.replace(/\.?0+$/, '');
+        setSellAmount(cleanAmount === '' ? '0' : cleanAmount);
+      } catch (err) {
+        console.error('Max calculation failed:', err);
+        // Secure fallback to basic float if BigInt parse fails
+        const balance = parseFloat(selectedSellAsset.balance);
+        const buffer = selectedSellAsset.isNative ? 0.005 : 0;
+        const maxAmount = Math.max(0, balance - buffer);
+        setSellAmount(maxAmount === 0 ? '0' : maxAmount.toFixed(6).replace(/\.?0+$/, ''));
+      }
     }
   }, [selectedSellAsset]);
 
@@ -346,6 +416,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return parseFloat(balance).toFixed(Math.min(decimals, 6));
   };
 
+
   return (
     <PageLayout
       title="Token Swap"
@@ -435,34 +506,39 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             )}
 
             <div className="flex flex-col items-start gap-3">
-              <span className="text-xs font-semibold text-secondary px-1">Select Chain:</span>
-
               <div className="flex flex-wrap items-center justify-start gap-3 w-full">
                 {evmChains
                   .filter(chain => chain.chainId === 1 || chain.chainId === 56)
                   .map(chain => {
                     const isSelected = selectedChainId === chain.chainId;
                     return (
-                      <button
-                        key={chain.chainId}
-                        onClick={() => handleChainSelect(chain.chainId)}
-                        disabled={isChainSwitching}
-                        title={`Switch to ${chain.name}`}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 border ${isSelected
-                            ? 'btn-primary border-transparent shadow-md'
-                            : 'btn-secondary hover:bg-tertiary border-color'
-                          }`}
-                      >
-                        <img
-                          src={chain.logoUrl}
-                          alt={chain.name}
-                          className="w-5 h-5 rounded-full bg-white"
-                          onError={e => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                        <span className="font-semibold">{chain.nativeCurrency.symbol}</span>
-                      </button>
+                      <div key={chain.chainId} className="flex flex-col items-center gap-2">
+                        <button
+                          onClick={() => handleChainSelect(chain.chainId)}
+                          disabled={isChainSwitching}
+                          title={`Switch to ${chain.name}`}
+                          className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${isSelected
+                            ? 'bg-brand/10 border-brand shadow-lg scale-110'
+                            : 'bg-secondary border-color hover:border-brand/40 hover:bg-tertiary'
+                            }`}
+                        >
+                          <img
+                            src={chain.logoUrl}
+                            alt={chain.name}
+                            className={`w-9 h-9 rounded-full bg-white shadow-sm ring-1 ${isSelected ? 'ring-brand' : 'ring-transparent'
+                              }`}
+                            onError={e => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </button>
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'
+                            }`}
+                        >
+                          {chain.name}
+                        </span>
+                      </div>
                     );
                   })}
               </div>
@@ -548,8 +624,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     inputMode="decimal"
                     pattern="^[0-9]*[.,]?[0-9]*$"
                     className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0')
-                        ? 'text-red-500'
-                        : ''
+                      ? 'text-red-500'
+                      : ''
                       }`}
                     placeholder="0.00"
                     value={sellAmount}
@@ -788,39 +864,52 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         )}
         {isConnected && (
-          <button
-            onClick={handleSwap}
-            className={`w-full btn-lg font-bold py-4 rounded-xl shadow-lg transition-all transform active:scale-95 ${isSwapDisabled ? 'btn-secondary opacity-70' : 'btn-primary hover:shadow-xl'}`}
-            disabled={isSwapDisabled}
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Processing...
-              </span>
-            ) : !isConnected ? (
-              'Connect Wallet'
-            ) : isChainSwitching ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Switching Network...
-              </span>
-            ) : !senderAddress ? (
-              'No Wallet Address'
-            ) : sellAssetSymbol === buyAssetSymbol && sellAssetSymbol !== '' ? (
-              'Select Different Tokens'
-            ) : !sellAmount ? (
-              'Enter Amount'
-            ) : parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0') ? (
-              'Insufficient Balance'
-            ) : isFetchingAssets ? (
-              'Fetching Assets...'
-            ) : !quote ? (
-              'Get Quote'
-            ) : (
-              'Swap Now'
+          <div className="space-y-4">
+            <button
+              onClick={handleSwap}
+              className={`w-full btn-lg font-bold py-4 rounded-xl shadow-lg transition-all transform active:scale-95 ${isSwapDisabled ? 'btn-secondary opacity-70' : 'btn-primary hover:shadow-xl'}`}
+              disabled={isSwapDisabled}
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Processing...
+                </span>
+              ) : !isConnected ? (
+                'Connect Wallet'
+              ) : isChainSwitching ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Switching Network...
+                </span>
+              ) : !sellAmount || parseFloat(sellAmount) <= 0 ? (
+                'Enter Amount'
+              ) : quoteLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Fetching best price...
+                </span>
+              ) : isFetchingAssets ? (
+                'Loading Assets...'
+              ) : parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0') ? (
+                'Insufficient Balance'
+              ) : !quote ? (
+                'No Route Found'
+              ) : (
+                'Swap Now'
+              )}
+            </button>
+
+            {loading && (
+              <button
+                onClick={reset}
+                className="w-full text-center text-sm text-secondary hover:text-primary transition-colors flex items-center justify-center gap-2 group py-1"
+              >
+                <XCircle className="w-4 h-4 text-muted group-hover:text-red-500 transition-colors" opacity={0.7} />
+                <span>Cancel Request</span>
+              </button>
             )}
-          </button>
+          </div>
         )}
 
         <AssetSelectionModal
@@ -840,14 +929,84 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           isLoading={isFetchingAssets}
         />
 
-        {error && (
-          <div className="card bg-danger-bg bg-red-200 border-2 border-red-300 animate-slide-up">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h4 className="font-semibold text-red-900 mb-1">Transaction Error</h4>
-                <p className="text-sm text-red-700">{error}</p>
+        {parsedError && (
+          <div ref={errorRef} className="mt-6 animate-slide-up">
+            <div className={`relative overflow-hidden rounded-2xl border-2 shadow-lg transition-all ${parsedError.type === 'insufficient_balance'
+              ? 'bg-orange-500/10 border-orange-500/20'
+              : 'bg-red-500/10 border-red-500/20'
+              }`}>
+              {/* Close Button */}
+              <button
+                onClick={reset}
+                className="absolute top-3 right-3 p-1 hover:bg-black/5 rounded-full transition-colors"
+                title="Dismiss error"
+              >
+                <XCircle className="w-5 h-5 text-secondary opacity-50 hover:opacity-100" />
+              </button>
+
+              <div className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className={`p-3 rounded-xl ${parsedError.type === 'insufficient_balance' ? 'bg-orange-500/20' : 'bg-red-500/20'
+                    }`}>
+                    {parsedError.type === 'insufficient_balance' ? (
+                      <Wallet className="w-6 h-6 text-orange-600" />
+                    ) : (
+                      <AlertCircle className="w-6 h-6 text-red-600" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-1 pr-6">
+                    <h4 className={`text-lg font-bold ${parsedError.type === 'insufficient_balance' ? 'text-orange-900' : 'text-red-900'
+                      }`}>
+                      {parsedError.type === 'insufficient_balance' ? 'Insufficient Balance' : 'Transaction Error'}
+                    </h4>
+                    <p className={`text-sm leading-relaxed ${parsedError.type === 'insufficient_balance' ? 'text-orange-800/80' : 'text-red-800/80'
+                      }`}>
+                      {parsedError.message}
+                    </p>
+
+                    {/* {parsedError.type === 'insufficient_balance' && (
+                      <div className="mt-4 grid grid-cols-2 gap-3 bg-white/40 rounded-xl p-3 border border-orange-500/10 text-xs">
+                        <div>
+                          <span className="block text-orange-800/60 uppercase tracking-wider font-bold mb-1">Available</span>
+                          <span className="text-orange-900 font-mono text-sm">{parseFloat(parsedError.have || '0').toFixed(18)} {parsedError.asset}</span>
+                        </div>
+                        <div>
+                          <span className="block text-orange-800/60 uppercase tracking-wider font-bold mb-1">Required</span>
+                          <span className="text-orange-900 font-mono text-sm">~{parseFloat(parsedError.need || '0').toFixed(18)} {parsedError.asset}</span>
+                        </div>
+                      </div>
+                    )} */}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                  {parsedError.type === 'insufficient_balance' ? (
+                    <button
+                      onClick={() => navigate(ROUTES.TRADING_EVM_FIAT)}
+                      className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      Top Up {parsedError.asset}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={reset}
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      Try Again
+                    </button>
+                  )}
+                  <button
+                    onClick={reset}
+                    className="flex-1 bg-white/50 hover:bg-white/80 text-secondary font-bold py-3 px-6 rounded-xl border border-color shadow-sm transition-all active:scale-95 sm:max-w-[120px]"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
+
+              <div className={`h-1 w-full mt-auto ${parsedError.type === 'insufficient_balance' ? 'bg-orange-600/30' : 'bg-red-600/30'
+                }`} />
             </div>
           </div>
         )}

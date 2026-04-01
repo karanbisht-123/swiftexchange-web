@@ -201,11 +201,11 @@ class DydxWalletService {
         throw new Error('Withdraw amount must be greater than 0');
       }
 
-      const recipient = toAddress || address; // Send to self if no address is provided
+      const recipient = toAddress || address;
 
       const result = await client.validatorClient.post.withdraw(
         subaccount,
-        0, // Asset ID 0 for USDC
+        0,
         Long.fromString(amountInQuantums.toString()),
         recipient
       );

@@ -66,6 +66,7 @@ export interface MarketData {
   volume24H: string;
   openInterest: string;
   nextFundingRate: string;
+  initialMarginFraction: string;
   lastUpdate: number;
 }
 
@@ -144,13 +145,17 @@ export type PartialSubaccountUpdate = Omit<Partial<ParentSubaccountData>, 'order
 };
 
 const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED']);
-
 const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
-
-const TERMINAL_GRACE_MS = 6_000;
-
+const MARKET_ORDER_GRACE_MS = 2_500;
 const MAX_ORDERS = 150;
 const MAX_FILLS = 150;
+
+export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' | 'orderFlags'>): boolean {
+  return (
+    order.type === 'MARKET' ||
+    (order.timeInForce === 'IOC' && order.orderFlags === '0')
+  );
+}
 const UNSUB_DELAY_MS = 5_000;
 
 interface WebSocketState {
@@ -180,9 +185,15 @@ interface WebSocketState {
   subscribeToCandles: (market: string, resolution: string) => void;
   unsubscribeFromCandles: (market: string, resolution: string) => void;
 
+  optimisticFreeCollateralDelta: number;
+  applyOptimisticMarginDeduction: (amount: number) => void;
+  clearOptimisticDelta: () => void;
+
   updateParentSubaccount: (key: string, data: PartialSubaccountUpdate, msgId?: number) => void;
   updateMarket: (ticker: string, data: Partial<MarketData>) => void;
   updateMarkets: (updates: Record<string, Partial<MarketData>>) => void;
+
+  updateOraclePrices: (updates: Record<string, string>) => void;
   updateTrades: (market: string, data: Partial<TradeData>) => void;
   updateCandles: (key: string, data: Partial<CandleData>) => void;
   cleanup: () => void;
@@ -309,7 +320,9 @@ function evictOrders(
 
   for (const order of orderMap.values()) {
     if (TERMINAL_STATUSES.has(order.status)) {
-      if (now - (order._terminalAt ?? now) < TERMINAL_GRACE_MS) kept.push(order);
+      if (isMarketOrder(order) && now - (order._terminalAt ?? now) < MARKET_ORDER_GRACE_MS) {
+        kept.push(order);
+      }
       continue;
     }
 
@@ -344,11 +357,40 @@ function mergeFills(existing: any[], incoming: any[]): any[] {
     .slice(0, MAX_FILLS);
 }
 
+
+function parseOraclePriceBatch(contents: any[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const batch of contents) {
+    if (batch?.oraclePrices) {
+      for (const [ticker, priceData] of Object.entries(batch.oraclePrices as Record<string, any>)) {
+        if (priceData?.oraclePrice) {
+          result[ticker] = priceData.oraclePrice;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+
+function parseMarketBatch(contents: any[]): Record<string, Partial<MarketData>> {
+  const result: Record<string, Partial<MarketData>> = {};
+  for (const batch of contents) {
+    if (batch?.markets) {
+      for (const [ticker, data] of Object.entries(batch.markets as Record<string, any>)) {
+        result[ticker] = data;
+      }
+    }
+  }
+  return result;
+}
+
 export const useWebSocketStore = create<WebSocketState>()(
   subscribeWithSelector((set, get) => ({
     isConnected: false,
     connectionId: null,
     updateTrigger: 0,
+    optimisticFreeCollateralDelta: 0,
     parentSubaccounts: new Map(),
     markets: new Map(),
     trades: new Map(),
@@ -610,8 +652,10 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleSubscribe(`market_${ticker}`, set, () => {
         const socketClient = getSocketClient();
         return socketClient.subscribeToMarkets((data: any) => {
-          if (data.contents?.markets?.[ticker]) {
-            const m = data.contents.markets[ticker];
+          if (!data?.contents) return;
+          const contents = data.contents;
+          if (contents.markets?.[ticker]) {
+            const m = contents.markets[ticker];
             get().updateMarket(ticker, {
               ticker,
               oraclePrice: m.oraclePrice,
@@ -622,6 +666,12 @@ export const useWebSocketStore = create<WebSocketState>()(
               nextFundingRate: m.nextFundingRate,
               lastUpdate: Date.now(),
             });
+          }
+          if (Array.isArray(contents)) {
+            const oraclePrices = parseOraclePriceBatch(contents);
+            if (oraclePrices[ticker]) {
+              get().updateOraclePrices({ [ticker]: oraclePrices[ticker] });
+            }
           }
         });
       });
@@ -635,8 +685,21 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleSubscribe('markets_all', set, () => {
         const socketClient = getSocketClient();
         return socketClient.subscribeToMarkets((data: any) => {
-          if (data.contents?.markets) {
-            get().updateMarkets(data.contents.markets);
+          if (!data?.contents) return;
+          const contents = data.contents;
+          if (contents.markets) {
+            get().updateMarkets(contents.markets);
+            return;
+          }
+          if (Array.isArray(contents)) {
+            const oraclePrices = parseOraclePriceBatch(contents);
+            if (Object.keys(oraclePrices).length > 0) {
+              get().updateOraclePrices(oraclePrices);
+            }
+            const marketUpdates = parseMarketBatch(contents);
+            if (Object.keys(marketUpdates).length > 0) {
+              get().updateMarkets(marketUpdates);
+            }
           }
         });
       });
@@ -675,6 +738,14 @@ export const useWebSocketStore = create<WebSocketState>()(
 
     unsubscribeFromCandles: (market, resolution) => {
       handleUnsubscribe(`candles_${market}_${resolution}`, set);
+    },
+
+    applyOptimisticMarginDeduction: (amount) => {
+      set(s => ({ optimisticFreeCollateralDelta: s.optimisticFreeCollateralDelta + amount }));
+    },
+
+    clearOptimisticDelta: () => {
+      set({ optimisticFreeCollateralDelta: 0 });
     },
 
     updateParentSubaccount: (key, data, msgId = 0) => {
@@ -729,8 +800,13 @@ export const useWebSocketStore = create<WebSocketState>()(
           finalOrders.length !== existing.orders.length ||
           finalFills.length !== existing.fills.length;
 
+        // When the server sends a confirmed freeCollateral value, our optimistic
+        // estimate is no longer needed — let server truth win.
+        const clearOptimistic = data.freeCollateral !== undefined;
+
         return {
           parentSubaccounts: newMap,
+          optimisticFreeCollateralDelta: clearOptimistic ? 0 : state.optimisticFreeCollateralDelta,
           updateTrigger: hasChanges ? state.updateTrigger + 1 : state.updateTrigger,
         };
       });
@@ -754,7 +830,7 @@ export const useWebSocketStore = create<WebSocketState>()(
 
         const newMap = new Map(state.markets);
         newMap.set(ticker, next);
-        return { markets: newMap };
+        return { markets: newMap, updateTrigger: state.updateTrigger + 1 };
       });
     },
 
@@ -767,7 +843,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         for (const [ticker, m] of Object.entries(updates)) {
           const existing = newMap.get(ticker);
           const next: MarketData = {
-            ...(existing ?? { ticker, trades24H: '0', lastUpdate: 0 }),
+            ...(existing ?? { ticker, trades24H: '0', initialMarginFraction: '0.05', lastUpdate: 0 }),
             ticker,
             oraclePrice: m.oraclePrice ?? existing?.oraclePrice ?? '0',
             priceChange24H: m.priceChange24H ?? existing?.priceChange24H ?? '0',
@@ -775,6 +851,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             openInterest: m.openInterest ?? existing?.openInterest ?? '0',
             nextFundingRate: m.nextFundingRate ?? existing?.nextFundingRate ?? '0',
             trades24H: m.trades24H ?? existing?.trades24H ?? '0',
+            initialMarginFraction: (m as any).initialMarginFraction ?? existing?.initialMarginFraction ?? '0.05',
             lastUpdate: now,
           };
 
@@ -791,7 +868,30 @@ export const useWebSocketStore = create<WebSocketState>()(
           }
         }
 
-        return hasAnyChange ? { markets: newMap } : {};
+        return hasAnyChange
+          ? { markets: newMap, updateTrigger: state.updateTrigger + 1 }
+          : {};
+      });
+    },
+
+
+    updateOraclePrices: (updates: Record<string, string>) => {
+      set((state) => {
+        const now = Date.now();
+        let hasAnyChange = false;
+        const newMap = new Map(state.markets);
+
+        for (const [ticker, oraclePrice] of Object.entries(updates)) {
+          const existing = newMap.get(ticker);
+          if (!existing || existing.oraclePrice === oraclePrice) continue;
+
+          newMap.set(ticker, { ...existing, oraclePrice, lastUpdate: now });
+          hasAnyChange = true;
+        }
+
+        return hasAnyChange
+          ? { markets: newMap, updateTrigger: state.updateTrigger + 1 }
+          : {};
       });
     },
 
@@ -832,6 +932,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         subscriptionCounts: new Map(),
         unsubTimers: new Map(),
         updateTrigger: 0,
+        optimisticFreeCollateralDelta: 0,
       });
     },
   }))
@@ -845,12 +946,52 @@ export function selectOpenOrders(data: ParentSubaccountData | undefined): Tracke
   return data.orders.filter(o => OPEN_STATUSES.has(o.status));
 }
 
+
+/**
+ * Compute portfolio display metrics from a parentSubaccount WS snapshot.
+ *
+ * @param data           The parentSubaccount store entry.
+ * @param optimisticDelta Extra margin already sent to chain but not yet confirmed
+ *                        by the WS stream (e.g. just after placeOrder succeeds).
+ *                        Applied as a temporary deduction against freeCollateral so
+ *                        the Available Balance UI updates *immediately* rather than
+ *                        waiting 1–3 s for block consensus.
+ */
+export function selectPortfolioMetrics(
+  data: ParentSubaccountData | undefined,
+  optimisticDelta = 0
+): { portfolioValue: number; availableBalance: number; marginUsagePercent: number } | null {
+  if (!data || !data.lastUpdate) return null;
+
+  const crossChild = data.childSubaccounts.find(c => c.subaccountNumber === 0);
+
+  // dYdX server equity already includes all unrealised PnL — trust it directly.
+  const portfolioValue = parseFloat(data.equity || crossChild?.equity || '0');
+  if (!isFinite(portfolioValue) || portfolioValue <= 0) return null;
+
+  // freeCollateral = equity − Σ(initialMarginRequired) across all open positions.
+  // This is the canonical "available to trade" figure; we just need to subtract any
+  // margin that has been sent to chain but whose WS confirmation is still pending.
+  const serverFreeCollateral = parseFloat(
+    crossChild?.freeCollateral || data.freeCollateral || '0'
+  );
+  const availableBalance = Math.max(0, serverFreeCollateral - optimisticDelta);
+
+  const marginUsed = portfolioValue - availableBalance;
+  const marginUsagePercent = portfolioValue > 0 ? (marginUsed / portfolioValue) * 100 : 0;
+
+  return { portfolioValue, availableBalance, marginUsagePercent };
+}
+
 export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
   const now = Date.now();
   return data.orders.filter(o => {
     if (OPEN_STATUSES.has(o.status)) return true;
-    if (TERMINAL_STATUSES.has(o.status)) return now - (o._terminalAt ?? now) < TERMINAL_GRACE_MS;
+    // Only give market orders the 2.5 s grace window; cancel/fill on limit orders = instant removal.
+    if (TERMINAL_STATUSES.has(o.status) && isMarketOrder(o)) {
+      return now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS;
+    }
     return false;
   });
 }
@@ -858,7 +999,8 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
 export function selectRecentlyTerminalOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
   const now = Date.now();
+  // Mirrors selectOpenAndGraceOrders: only market orders enter the grace window.
   return data.orders.filter(
-    o => TERMINAL_STATUSES.has(o.status) && now - (o._terminalAt ?? now) < TERMINAL_GRACE_MS
+    o => TERMINAL_STATUSES.has(o.status) && isMarketOrder(o) && now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS
   );
 }

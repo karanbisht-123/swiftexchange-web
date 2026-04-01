@@ -9,6 +9,8 @@ interface TransactionDetailsSheetProps {
   isOpen: boolean;
   onClose: () => void;
   chainId: number;
+  incoming?: boolean;
+  isSelf?: boolean;
 }
 
 const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
@@ -16,6 +18,8 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
   isOpen,
   onClose,
   chainId,
+  incoming,
+  isSelf,
 }) => {
   if (!isOpen) return null;
 
@@ -30,7 +34,7 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
           </button>
         </div>
         <div className="flex-1 overflow-hidden p-4 bg-primary/50">
-          <TransactionDetailsView transaction={transaction} chainId={chainId} />
+          <TransactionDetailsView transaction={transaction} chainId={chainId} incoming={incoming} isSelf={isSelf} />
         </div>
       </div>
     </div>

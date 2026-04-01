@@ -9,6 +9,7 @@ import {
   Fuel,
   Loader2,
   X,
+  ArrowRight,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -25,11 +26,6 @@ interface DydxWithdrawModalProps {
 }
 
 const WITHDRAW_STORAGE_KEY = 'dydx_withdraw_in_progress';
-
-/**
- * Derived from the single source of truth in skipBridgeUtils.
- * Never hardcode this separately — the two must stay in sync.
- */
 const ESTIMATED_GAS_FEE_USDC = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6;
 
 interface PersistedWithdrawState {
@@ -42,7 +38,102 @@ interface PersistedWithdrawState {
 const formatCurr = (val: number) => `$${val.toFixed(2)}`;
 const formatPct = (val: number) => `${val.toFixed(2)}%`;
 
-// Main Modal
+const STEPS = [
+  { key: 'checking_gas', label: 'Prepare', sublabel: 'Gas & validation' },
+  { key: 'signing', label: 'Sign', sublabel: 'Settle on dYdX' },
+  { key: 'ibc_to_noble', label: 'Noble', sublabel: 'IBC transfer' },
+  { key: 'waiting_noble', label: 'Confirm', sublabel: 'Noble chain' },
+  { key: 'bridging', label: 'Bridge', sublabel: 'Reach Ethereum' },
+] as const;
+
+const ROUTE = ['dYdX', 'Noble', 'Ethereum'] as const;
+
+const StepTracker: React.FC<{ currentStep: string; isActive: boolean }> = ({ currentStep, isActive }) => {
+  const stepKeys = STEPS.map(s => s.key);
+  const currentIdx = stepKeys.indexOf(currentStep as typeof stepKeys[number]);
+  const fillPct = currentIdx < 0 ? 0 : (currentIdx / (STEPS.length - 1)) * 100;
+
+  return (
+    <div className="w-full">
+      <div className="relative pb-10">
+        <div className="absolute top-[18px] left-[10%] right-[10%] h-[2px] bg-color rounded-full z-0" />
+        <div
+          className="absolute top-[18px] left-[10%] h-[2px] bg-brand rounded-full z-0 transition-all duration-700 ease-out"
+          style={{ width: `${fillPct * 0.8}%` }}
+        />
+        <div className="relative z-10 flex justify-between">
+          {STEPS.map((s, i) => {
+            const isPast = currentIdx > i;
+            const isCurrent = currentIdx === i;
+            return (
+              <div key={s.key} className="flex flex-col items-center gap-2" style={{ width: `${100 / STEPS.length}%` }}>
+                <div
+                  className={[
+                    'w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all duration-500',
+                    isPast ? 'bg-brand border-brand' :
+                      isCurrent ? 'bg-secondary border-brand' :
+                        'bg-secondary border-color',
+                  ].join(' ')}
+                  style={isCurrent ? { boxShadow: '0 0 0 4px rgba(99,102,241,0.15)' } : undefined}
+                >
+                  {isPast ? (
+                    <svg className="w-[14px] h-[14px] text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : isCurrent && isActive ? (
+                    <Loader2 className="w-[14px] h-[14px] text-brand animate-spin" />
+                  ) : (
+                    <span className={`text-[11px] font-semibold ${i > currentIdx ? 'text-muted' : 'text-brand'}`}>{i + 1}</span>
+                  )}
+                </div>
+                <div className="text-center px-0.5">
+                  <div className={`text-[11px] font-semibold leading-none mb-0.5 ${isCurrent ? 'text-brand' : isPast ? 'text-secondary' : 'text-muted'
+                    }`}>{s.label}</div>
+                  <div className="text-[10px] text-muted leading-none hidden sm:block opacity-70">{s.sublabel}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const RoutePill: React.FC = () => (
+  <div className="flex items-center gap-1.5 text-[11px] text-muted bg-secondary border border-color rounded-full px-3 py-1.5 w-fit mx-auto">
+    {ROUTE.map((chain, i) => (
+      <React.Fragment key={chain}>
+        <span className={i === 0 ? 'text-secondary font-medium' : i === ROUTE.length - 1 ? 'text-brand font-medium' : ''}>{chain}</span>
+        {i < ROUTE.length - 1 && <ArrowRight className="w-2.5 h-2.5 opacity-40" />}
+      </React.Fragment>
+    ))}
+  </div>
+);
+
+/**
+ * ModalShell
+ * - Mobile  : bottom sheet, slides up, rounded top corners, max-h 90dvh
+ * - Desktop : centered modal, all rounded corners, max-h 640px
+ * The shell uses flex-col so the header stays fixed and only the inner
+ * content area scrolls — the modal never grows taller than the cap.
+ */
+const ModalShell: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({ onClose, children }) => (
+  <div
+    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4"
+    onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+  >
+    <div className={[
+      'bg-secondary w-full sm:max-w-[440px]',
+      'rounded-t-2xl sm:rounded-2xl',
+      'border border-color shadow-2xl font-sans',
+      'flex flex-col',
+      'max-h-[90dvh] sm:max-h-[640px]',
+    ].join(' ')}>
+      {children}
+    </div>
+  </div>
+);
 
 export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, onClose }) => {
   const {
@@ -68,10 +159,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     errorRetryable,
   } = useDydxWithdraw();
 
-  //  Local state
-  const [fromSubaccount, setFromSubaccount] = useState<any>(
-    SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
-  );
+  const [fromSubaccount, setFromSubaccount] = useState<any>(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
   const [amount, setAmount] = useState('');
   const [success, setSuccess] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -80,18 +168,13 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     try {
       const raw = localStorage.getItem(WITHDRAW_STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   });
 
-  // Persist withdraw state across refreshes
   useEffect(() => {
     if (isWithdrawing && amount) {
       const state: PersistedWithdrawState = {
-        step,
-        stepLabel,
-        amount,
+        step, stepLabel, amount,
         startedAt: persistedState?.startedAt ?? Date.now(),
       };
       localStorage.setItem(WITHDRAW_STORAGE_KEY, JSON.stringify(state));
@@ -109,8 +192,8 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   const showProgressScreen = isWithdrawing || (persistedState !== null && step === 'idle');
   const activeStepLabel = isWithdrawing ? stepLabel : (persistedState?.stepLabel ?? '');
   const activeAmount = isWithdrawing ? amount : (persistedState?.amount ?? '');
+  const activeStep = isWithdrawing ? step : (persistedState?.step ?? '');
 
-  // Reset form on open
   useEffect(() => {
     if (isOpen && !showProgressScreen) {
       setAmount('');
@@ -120,29 +203,23 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     }
   }, [isOpen]);
 
-  // Balance calculations
   const sourceBalance = useMemo(() => {
-    if (fromSubaccount === SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT && crossSubaccount) {
+    if (fromSubaccount === SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT && crossSubaccount)
       return parseFloat(crossSubaccount.freeCollateral);
-    }
     const source = childSubaccounts.find(c => c.subaccountNumber === fromSubaccount);
     return source ? parseFloat(source.freeCollateral) : 0;
   }, [childSubaccounts, crossSubaccount, fromSubaccount]);
 
   const amountValue = parseFloat(amount) || 0;
-
   const amountValidation = validateWithdrawAmount(amountValue, sourceBalance, 1, 0.01);
-
   const baseFee = 0.05;
   const actualWithdrawAmount = Math.max(0, amountValue - baseFee);
-
   const freeCollateralBefore = sourceBalance;
   const freeCollateralAfter = Math.max(0, sourceBalance - amountValue);
   const equityBefore = parseFloat(totalEquity) || 0;
   const globalFreeCol = parseFloat(globalFreeCollateral) || 0;
   const equityAfter = Math.max(0, equityBefore - amountValue);
-  const marginUsageAfter =
-    equityAfter > 0 ? ((equityBefore - globalFreeCol) / equityAfter) * 100 : 0;
+  const marginUsageAfter = equityAfter > 0 ? ((equityBefore - globalFreeCol) / equityAfter) * 100 : 0;
 
   const handleCopy = () => {
     if (!evmAddress) return;
@@ -151,30 +228,19 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const handleSetMax = () => {
-    setAmount(Math.max(0, sourceBalance - 0.01).toFixed(6));
-  };
+  const handleSetMax = () => setAmount(Math.max(0, sourceBalance - 0.01).toFixed(6));
 
   const handleWithdraw = useCallback(async () => {
     if (!amountValidation.valid) return;
     clearWithdrawError();
     setSuccess(false);
-
     const result = await withdraw(amountValue.toString(), fromSubaccount, evmAddress);
-
     if (result.success) {
       localStorage.removeItem(WITHDRAW_STORAGE_KEY);
       setPersistedState(null);
       setSuccess(true);
     }
-  }, [
-    amountValidation.valid,
-    withdraw,
-    amountValue,
-    fromSubaccount,
-    evmAddress,
-    clearWithdrawError,
-  ]);
+  }, [amountValidation.valid, withdraw, amountValue, fromSubaccount, evmAddress, clearWithdrawError]);
 
   const handleDismissProgress = () => {
     if (!isWithdrawing) {
@@ -185,357 +251,273 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
 
   if (!isOpen) return null;
 
+  // ── Progress screen ──────────────────────────────────────────────────────────
   if (showProgressScreen) {
     const elapsedMinutes = persistedState
       ? Math.floor((Date.now() - persistedState.startedAt) / 60_000)
       : 0;
 
-    const steps: Array<{ key: string; label: string }> = [
-      { key: 'checking_gas', label: 'Preparing withdrawal' },
-      { key: 'signing', label: 'Sign & settle on dYdX' },
-      { key: 'ibc_to_noble', label: 'Send to Noble chain' },
-      { key: 'waiting_noble', label: 'Wait for Noble' },
-      { key: 'bridging', label: 'Bridge to Ethereum' },
-    ];
-    const stepOrder = steps.map(s => s.key);
-    const currentIdx = stepOrder.indexOf(step);
-
     return (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div className="bg-secondary rounded-2xl border border-color w-full max-w-[440px] shadow-2xl overflow-hidden font-sans">
-          <div className="flex items-center justify-between p-5 pb-3">
-            <h3 className="text-xl font-medium text-primary">Withdraw</h3>
-            <button
-              onClick={onClose}
-              className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
-            >
-              <X className="w-5 h-5" />
-            </button>
+      <ModalShell onClose={onClose}>
+        {/* Fixed header — never scrolls */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0 border-b border-color">
+          <div className="flex items-center gap-2.5">
+            {isWithdrawing
+              ? <Loader2 className="w-4 h-4 text-brand animate-spin" />
+              : <Clock className="w-4 h-4 text-brand" />
+            }
+            <h3 className="text-base font-semibold text-primary">Withdrawal In Progress</h3>
           </div>
-
-          <div className="px-5 pb-6 flex flex-col items-center text-center gap-5">
-            <div className="w-16 h-16 rounded-full bg-brand/10 flex items-center justify-center mt-2">
-              {isWithdrawing ? (
-                <Loader2 className="w-8 h-8 text-brand animate-spin" />
-              ) : (
-                <Clock className="w-8 h-8 text-brand" />
-              )}
-            </div>
-
-            <div>
-              <div className="text-lg font-semibold text-primary mb-1">Withdrawal In Progress</div>
-              <div className="text-sm text-muted leading-relaxed">
-                {isWithdrawing
-                  ? 'Please keep this tab open. Your withdrawal is being processed across multiple chains.'
-                  : 'A withdrawal was started in this session. It may still be processing on-chain.'}
-              </div>
-            </div>
-
-            {/* Amount + status */}
-            <div className="w-full rounded-xl border border-color bg-tertiary px-4 py-3 space-y-2.5">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted">Amount</span>
-                <span className="text-sm font-semibold text-primary">
-                  ${parseFloat(activeAmount || '0').toFixed(2)} USDC
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted">Status</span>
-                <div className="flex items-center gap-1.5">
-                  {isWithdrawing && <Loader2 className="w-3.5 h-3.5 text-brand animate-spin" />}
-                  <span className="text-sm text-brand font-medium">
-                    {activeStepLabel || 'Processing…'}
-                  </span>
-                </div>
-              </div>
-              {!isWithdrawing && elapsedMinutes > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted">Started</span>
-                  <span className="text-sm text-secondary">{elapsedMinutes}m ago</span>
-                </div>
-              )}
-            </div>
-
-            {/* Step timeline */}
-            {isWithdrawing && (
-              <div className="w-full rounded-xl border border-color bg-tertiary px-4 py-3 space-y-2">
-                <p className="text-xs text-muted font-medium uppercase tracking-wider mb-1 text-left">
-                  Steps
-                </p>
-                {steps.map((s, i) => {
-                  const isPast = currentIdx > i;
-                  const isCurrent = currentIdx === i;
-                  if (!isPast && !isCurrent && i > currentIdx + 1) return null;
-                  return (
-                    <div key={s.key} className="flex items-center gap-2 text-left">
-                      {isPast ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
-                      ) : isCurrent ? (
-                        <Loader2 className="w-3.5 h-3.5 text-brand animate-spin shrink-0" />
-                      ) : (
-                        <div className="w-3.5 h-3.5 rounded-full border border-muted shrink-0" />
-                      )}
-                      <span
-                        className={`text-sm ${
-                          isCurrent
-                            ? 'text-brand font-medium'
-                            : isPast
-                              ? 'text-muted line-through'
-                              : 'text-muted'
-                        }`}
-                      >
-                        {s.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Error */}
-            {withdrawError && (
-              <div className="w-full p-3 bg-danger-bg border border-danger rounded-xl flex items-start gap-2 text-left">
-                <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm text-danger font-medium mb-0.5">
-                    {step === 'error' ? 'Withdrawal failed' : 'Error'}
-                  </p>
-                  <p className="text-xs text-danger/80">{withdrawError}</p>
-                </div>
-              </div>
-            )}
-
-            <p className="text-xs text-muted leading-relaxed">
-              Funds travel dYdX → Noble → Ethereum. This typically takes 3–10 minutes. You can close
-              this modal — the transaction continues on-chain.
-            </p>
-
-            {!isWithdrawing && (
-              <button
-                onClick={handleDismissProgress}
-                className="w-full py-3 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors"
-              >
-                Start a new withdrawal
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-secondary rounded-2xl border border-color w-full max-w-[440px] shadow-2xl overflow-hidden font-sans">
-        <div className="flex items-center justify-between p-5 pb-3">
-          <h3 className="text-xl font-medium text-primary">Withdraw</h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
-          >
+          <button onClick={onClose} className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="px-5 pb-5 space-y-4">
-          {/* ── Destination address ───────── */}
-          <div className="p-4 rounded-xl border border-color bg-tertiary">
-            <div className="text-xs text-muted mb-1">Destination</div>
-            <div className="flex items-start justify-between">
-              <div className="overflow-hidden pr-4">
-                <div className="text-primary font-medium text-[15px] truncate">
-                  {evmAddress
-                    ? `${evmAddress.slice(0, 18)}...${evmAddress.slice(-4)}`
-                    : 'Connect EVM Wallet'}
-                </div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="text-xs text-muted font-mono">
-                    {evmAddress ? `${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)}` : '0x…'}
-                  </span>
-                  <button
-                    onClick={handleCopy}
-                    className="text-muted hover:text-primary transition-colors"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
-                  {isCopied && <span className="text-[10px] text-success">Copied!</span>}
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 px-5 py-5 flex flex-col gap-4">
+          {/* Amount card */}
+          <div className="rounded-xl border border-color bg-tertiary p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-xs text-muted mb-0.5">Withdrawing</div>
+                <div className="text-2xl font-bold text-primary tracking-tight">
+                  ${parseFloat(activeAmount || '0').toFixed(2)}
+                  <span className="text-sm font-normal text-muted ml-1.5">USDC</span>
                 </div>
               </div>
-              <button className="flex items-center gap-2 bg-secondary hover:bg-hover transition-colors pl-2.5 pr-2 py-1.5 rounded-lg border border-color">
-                <img
-                  src="https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=029"
-                  alt="ETH"
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-primary">Ethereum</span>
-                <ChevronRight className="w-4 h-4 text-muted" />
-              </button>
+              <div className="text-right">
+                <div className="text-xs text-muted mb-0.5">Status</div>
+                <div className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 ${isWithdrawing ? 'bg-brand/10 text-brand' : 'bg-warning/10 text-warning'
+                  }`}>
+                  {isWithdrawing && <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block shrink-0" />}
+                  {activeStepLabel || 'Processing…'}
+                </div>
+              </div>
             </div>
+            <RoutePill />
           </div>
 
-          {/* ── Amount input ── */}
-          <div className="p-4 rounded-xl border border-color bg-tertiary">
-            <div className="flex justify-between items-center mb-2">
-              <div className="text-xs text-muted">
-                Amount &bull;{' '}
-                <span className="text-secondary">${sourceBalance.toFixed(2)} Available</span>
-              </div>
-              <button
-                onClick={handleSetMax}
-                className="text-xs font-medium text-brand hover:opacity-80 transition-colors"
-              >
-                Max
-              </button>
-            </div>
-            <input
-              type="text"
-              value={amount}
-              onChange={e => {
-                const val = e.target.value;
-                if (val === '' || /^\d*\.?\d*$/.test(val)) setAmount(val);
-              }}
-              placeholder="0.00"
-              className="w-full bg-transparent text-primary text-2xl font-medium focus:outline-none placeholder-muted"
-            />
-            {amountValidation.error && amountValue > 0 && (
-              <div className="flex items-center gap-1.5 mt-2">
-                <AlertCircle className="w-3.5 h-3.5 text-danger shrink-0" />
-                <p className="text-xs text-danger">{amountValidation.error}</p>
-              </div>
-            )}
+          {/* Step tracker */}
+          <div className="rounded-xl border border-color bg-tertiary px-4 pt-4 pb-1">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted mb-3">Progress</p>
+            <StepTracker currentStep={activeStep} isActive={isWithdrawing} />
           </div>
 
-          {/* ── Summary rows ── */}
-          <div className="space-y-3 pt-1">
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-muted">You'll receive</span>
-              <span className="text-sm text-primary font-medium">
-                {formatCurr(actualWithdrawAmount)}
-              </span>
+          {!isWithdrawing && elapsedMinutes > 0 && (
+            <div className="flex items-center gap-2 text-xs text-muted bg-tertiary border border-color rounded-lg px-3 py-2">
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              Started {elapsedMinutes} minute{elapsedMinutes !== 1 ? 's' : ''} ago — may still be processing on-chain.
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-muted">Free Collateral</span>
-              <div className="text-sm font-medium text-primary flex items-center gap-2">
-                <span className="text-secondary">{formatCurr(freeCollateralBefore)}</span>
-                <span className="text-muted">→</span>
-                <span>{formatCurr(freeCollateralAfter)}</span>
-              </div>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-muted">Margin Usage</span>
-              <span className="text-sm text-primary font-medium">
-                {formatPct(marginUsageAfter)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-muted">Equity</span>
-              <div className="text-sm font-medium text-primary flex items-center gap-2">
-                <span className="text-secondary">{formatCurr(equityBefore)}</span>
-                <span className="text-muted">→</span>
-                <span>{formatCurr(equityAfter)}</span>
-              </div>
-            </div>
+          )}
 
-            {/* ── Gas fee row — informational only ────*/}
-            <div className="flex justify-between items-center border-t border-color pt-3">
-              <div className="flex items-center gap-1.5">
-                <Fuel className="w-3.5 h-3.5 text-muted" />
-                <span className="text-sm text-muted">Network Fee</span>
-              </div>
-              <span className="text-sm text-secondary">
-                ~${ESTIMATED_GAS_FEE_USDC.toFixed(4)} USDC
-              </span>
-            </div>
-          </div>
-
-          {/* ── Error banner ── */}
           {withdrawError && (
             <div className="p-3 bg-danger-bg border border-danger rounded-xl flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm text-danger font-medium mb-0.5">Transaction failed</p>
+                <p className="text-sm text-danger font-medium mb-0.5">
+                  {step === 'error' ? 'Withdrawal failed' : 'Error'}
+                </p>
                 <p className="text-xs text-danger/80">{withdrawError}</p>
-                {errorRetryable && (
-                  <button
-                    onClick={handleWithdraw}
-                    className="mt-2 text-xs text-brand underline hover:no-underline"
-                  >
-                    Try again
-                  </button>
-                )}
               </div>
             </div>
           )}
 
-          {/* ── Success block ─ */}
-          {success && (
-            <div className="flex flex-col items-center text-center gap-3 py-4">
-              <div className="w-12 h-12 rounded-full bg-success-bg flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6 text-success" />
-              </div>
-              <div>
-                <div className="text-base font-semibold text-primary mb-0.5">
-                  Withdrawal Submitted!
-                </div>
-                {withdrawnAmount && (
-                  <div className="text-sm text-muted">
-                    ${withdrawnAmount.toFixed(2)} USDC is on its way
-                  </div>
-                )}
-              </div>
-              {withdrawTxHash && (
-                <a
-                  href={`https://www.mintscan.io/dydx/txs/${withdrawTxHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs text-brand hover:underline"
-                >
-                  View transaction <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-              <div className="flex gap-2 w-full">
-                <button
-                  onClick={() => {
-                    reset();
-                    setSuccess(false);
-                    setAmount('');
-                  }}
-                  className="flex-1 py-2.5 border border-color rounded-xl text-sm font-medium text-primary hover:bg-hover transition-colors"
-                >
-                  Withdraw Again
-                </button>
-                <button
-                  onClick={onClose}
-                  className="flex-1 py-2.5 btn btn-primary rounded-xl text-sm font-semibold"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          )}
+          <p className="text-[11px] text-muted text-center leading-relaxed">
+            dYdX → Noble → Ethereum · typically 3–10 min · safe to close
+          </p>
 
-          {!success && (
+          {!isWithdrawing && (
             <button
-              onClick={handleWithdraw}
-              disabled={isWithdrawing || !amountValidation.valid || !evmAddress}
-              className="w-full py-3.5 btn btn-primary rounded-xl font-medium text-[15px] transition-all bg-brand text-white hover:opacity-90 disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+              onClick={handleDismissProgress}
+              className="w-full py-3 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors"
             >
-              {isWithdrawing ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {stepLabel}
-                </>
-              ) : !evmAddress ? (
-                'Connect EVM Wallet'
-              ) : (
-                'Withdraw'
-              )}
+              Start a new withdrawal
             </button>
           )}
-
-          <div className="h-2" />
         </div>
+      </ModalShell>
+    );
+  }
+
+  // ── Main form ────────────────────────────────────────────────────────────────
+  return (
+    <ModalShell onClose={onClose}>
+      {/* Fixed header */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0 border-b border-color">
+        <h3 className="text-xl font-medium text-primary">Withdraw</h3>
+        <button onClick={onClose} className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover">
+          <X className="w-5 h-5" />
+        </button>
       </div>
-    </div>
+
+      {/* Scrollable body */}
+      <div className="overflow-y-auto flex-1 px-5 py-5 space-y-4">
+        {/* Destination */}
+        <div className="p-4 rounded-xl border border-color bg-tertiary">
+          <div className="text-xs text-muted mb-1">Destination</div>
+          <div className="flex items-start justify-between">
+            <div className="overflow-hidden pr-4">
+              <div className="text-primary font-medium text-[15px] truncate">
+                {evmAddress
+                  ? `${evmAddress.slice(0, 18)}...${evmAddress.slice(-4)}`
+                  : 'Connect EVM Wallet'}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-xs text-muted font-mono">
+                  {evmAddress ? `${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)}` : '0x…'}
+                </span>
+                <button onClick={handleCopy} className="text-muted hover:text-primary transition-colors">
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+                {isCopied && <span className="text-[10px] text-success">Copied!</span>}
+              </div>
+            </div>
+            <button className="flex items-center gap-2 bg-secondary hover:bg-hover transition-colors pl-2.5 pr-2 py-1.5 rounded-lg border border-color">
+              <img
+                src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png"
+                alt="ETH"
+                className="w-4 h-4"
+              />
+              <span className="text-sm font-medium text-primary">Ethereum</span>
+              <ChevronRight className="w-4 h-4 text-muted" />
+            </button>
+          </div>
+        </div>
+
+        {/* Amount input */}
+        <div className="p-4 rounded-xl border border-color bg-tertiary">
+          <div className="flex justify-between items-center mb-2">
+            <div className="text-xs text-muted">
+              Amount &bull;{' '}
+              <span className="text-secondary">${sourceBalance.toFixed(2)} Available</span>
+            </div>
+            <button onClick={handleSetMax} className="text-xs font-medium text-brand hover:opacity-80 transition-colors">
+              Max
+            </button>
+          </div>
+          <input
+            type="text"
+            value={amount}
+            onChange={e => {
+              const val = e.target.value;
+              if (val === '' || /^\d*\.?\d*$/.test(val)) setAmount(val);
+            }}
+            placeholder="0.00"
+            className="w-full bg-transparent text-primary text-2xl font-medium focus:outline-none placeholder-muted"
+          />
+          {amountValidation.error && amountValue > 0 && (
+            <div className="flex items-center gap-1.5 mt-2">
+              <AlertCircle className="w-3.5 h-3.5 text-danger shrink-0" />
+              <p className="text-xs text-danger">{amountValidation.error}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Summary rows */}
+        <div className="space-y-3 pt-1">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-muted">You'll receive</span>
+            <span className="text-sm text-primary font-medium">{formatCurr(actualWithdrawAmount)}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-muted">Free Collateral</span>
+            <div className="text-sm font-medium text-primary flex items-center gap-2">
+              <span className="text-secondary">{formatCurr(freeCollateralBefore)}</span>
+              <span className="text-muted">→</span>
+              <span>{formatCurr(freeCollateralAfter)}</span>
+            </div>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-muted">Margin Usage</span>
+            <span className="text-sm text-primary font-medium">{formatPct(marginUsageAfter)}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-muted">Equity</span>
+            <div className="text-sm font-medium text-primary flex items-center gap-2">
+              <span className="text-secondary">{formatCurr(equityBefore)}</span>
+              <span className="text-muted">→</span>
+              <span>{formatCurr(equityAfter)}</span>
+            </div>
+          </div>
+          <div className="flex justify-between items-center border-t border-color pt-3">
+            <div className="flex items-center gap-1.5">
+              <Fuel className="w-3.5 h-3.5 text-muted" />
+              <span className="text-sm text-muted">Network Fee</span>
+            </div>
+            <span className="text-sm text-secondary">~${ESTIMATED_GAS_FEE_USDC.toFixed(4)} USDC</span>
+          </div>
+        </div>
+
+        {/* Error */}
+        {withdrawError && (
+          <div className="p-3 bg-danger-bg border border-danger rounded-xl flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm text-danger font-medium mb-0.5">Transaction failed</p>
+              <p className="text-xs text-danger/80">{withdrawError}</p>
+              {errorRetryable && (
+                <button onClick={handleWithdraw} className="mt-2 text-xs text-brand underline hover:no-underline">
+                  Try again
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Success */}
+        {success && (
+          <div className="flex flex-col items-center text-center gap-3 py-4">
+            <div className="w-12 h-12 rounded-full bg-success-bg flex items-center justify-center">
+              <CheckCircle2 className="w-6 h-6 text-success" />
+            </div>
+            <div>
+              <div className="text-base font-semibold text-primary mb-0.5">Withdrawal Submitted!</div>
+              {withdrawnAmount && (
+                <div className="text-sm text-muted">${withdrawnAmount.toFixed(2)} USDC is on its way</div>
+              )}
+            </div>
+            {withdrawTxHash && (
+              <a
+                href={`https://www.mintscan.io/noble/tx/${withdrawTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-brand hover:underline"
+              >
+                View transaction <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={() => { reset(); setSuccess(false); setAmount(''); }}
+                className="flex-1 py-2.5 border border-color rounded-xl text-sm font-medium text-primary hover:bg-hover transition-colors"
+              >
+                Withdraw Again
+              </button>
+              <button onClick={onClose} className="flex-1 py-2.5 btn btn-primary rounded-xl text-sm font-semibold">
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!success && (
+          <button
+            onClick={handleWithdraw}
+            disabled={isWithdrawing || !amountValidation.valid || !evmAddress}
+            className="w-full py-3.5 btn btn-primary rounded-xl font-medium text-[15px] transition-all bg-brand text-white hover:opacity-90 disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+          >
+            {isWithdrawing ? (
+              <><Loader2 className="w-5 h-5 animate-spin" />{stepLabel}</>
+            ) : !evmAddress ? (
+              'Connect EVM Wallet'
+            ) : (
+              'Withdraw'
+            )}
+          </button>
+        )}
+
+        <div className="h-2" />
+      </div>
+    </ModalShell>
   );
 };

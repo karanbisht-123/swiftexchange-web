@@ -169,7 +169,7 @@ export interface BridgeTransactionRequest {
   destinationAddress: string;
   sourceToken: string;
   destinationToken: string;
-  walletType: 'ETH' | 'BNB';
+  walletType: any;
 }
 
 export interface BridgeTxData {

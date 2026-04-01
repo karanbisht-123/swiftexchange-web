@@ -72,18 +72,7 @@ export interface TokenBalanceState {
   error: string | null;
 }
 
-/**
- * Reusable hook to fetch an EVM token (or native ETH) balance.
- *
- * - Uses `rpcManager` for round-robin RPC fallback
- * - Debounces input changes (300ms)
- * - Pass `refreshTrigger` (e.g. a txHash) to trigger a refetch after a tx
- *
- * @param chainId       - EVM chain ID
- * @param walletAddress - User's EVM wallet address
- * @param tokenAddress  - ERC-20 contract address, or '0xeeee…eeee' for native ETH
- * @param refreshTrigger - Optional value that triggers a refetch when it changes (e.g. txHash)
- */
+
 export function useTokenBalance(
   chainId: number | undefined,
   walletAddress: string | undefined,
@@ -135,7 +124,6 @@ export function useTokenBalance(
     }
   }, [chainId, walletAddress, tokenAddress]);
 
-  // Debounced auto-fetch whenever inputs change
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(doFetch, 300);
@@ -144,10 +132,8 @@ export function useTokenBalance(
     };
   }, [doFetch]);
 
-  // Re-fetch when a transaction completes (e.g. refreshTrigger = txHash)
   useEffect(() => {
     if (!refreshTrigger) return;
-    // Small delay to let the chain mine the tx before polling
     const timer = setTimeout(doFetch, 3_000);
     return () => clearTimeout(timer);
   }, [refreshTrigger, doFetch]);

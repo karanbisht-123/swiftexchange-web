@@ -11,6 +11,7 @@ import {
   getStellarConfig,
 } from '../config/chains';
 import { walletService } from '../services/walletService';
+import { usePortfolioStore } from '../store/portfolioStore';
 
 export type WalletType = 'evm' | 'cosmos' | 'stellar';
 
@@ -87,7 +88,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isRestoringSession: false,
     sessionLastPingAt: {},
 
-    // Connect a single wallet type via extension or single-namespace WalletConnect
     connectWallet: async (type, walletId) => {
       if (get().connectedWallets[type]) return;
 
@@ -99,8 +99,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }));
 
       try {
-        console.log(`[WalletStore] Attempting to connect ${type} wallet: ${walletId}`);
-
         const session =
           type === 'stellar'
             ? await walletService.connectStellar(walletId)
@@ -124,10 +122,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           dydxAddress: session.dydxAddress,
         };
 
-        // Keep modal open if EVM connected but dYdX not yet derived
         const keepModalOpen = type === 'evm' && !session.dydxAddress;
-
-        console.log(`[WalletStore] Successfully connected ${type} wallet: ${walletId}`);
 
         set(state => ({
           connectedWallets: { ...state.connectedWallets, [type]: wallet },
@@ -138,10 +133,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           isModalOpen: keepModalOpen,
         }));
       } catch (error: any) {
-        console.error(`[WalletStore] Failed to connect ${type} wallet: ${walletId}`, {
-          message: error.message,
-          stack: error.stack,
-        });
         set(state => ({
           connectionStatus: {
             ...state.connectionStatus,
@@ -155,8 +146,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }
     },
 
-    // Connect EVM (required) + Stellar (optional) in a single WalletConnect session.
-    // Updates whichever wallet types were returned by the wallet.
     connectUnified: async walletId => {
       set(state => ({
         connectionStatus: {
@@ -166,7 +155,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }));
 
       try {
-        console.log(`[WalletStore] Attempting to connect multichain connection: ${walletId}`);
         const result = await walletService.connectUnified(walletId);
 
         const walletUpdates: Partial<Record<WalletType, ConnectedWallet>> = {};
@@ -195,20 +183,12 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         const keepModalOpen = !!result.evm && !result.evm.dydxAddress;
 
-        console.log(
-          `[WalletStore] Multichain connection completed. Got EVM: ${!!result.evm}, Stellar: ${!!result.stellar}`
-        );
-
         set(state => ({
           connectedWallets: { ...state.connectedWallets, ...walletUpdates },
           connectionStatus: { ...state.connectionStatus, ...statusUpdates },
           isModalOpen: keepModalOpen,
         }));
       } catch (error: any) {
-        console.error(`[WalletStore] Failed multichain connection for ${walletId}:`, {
-          message: error.message,
-          stack: error.stack,
-        });
         set(state => ({
           connectionStatus: {
             ...state.connectionStatus,
@@ -234,11 +214,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }));
 
       try {
-        console.log('[WalletStore] Initiating dYdX derivation...');
-
         const dydx = await walletService.deriveDydx();
-
-        console.log('[WalletStore] Successfully derived dYdX address');
 
         set(state => ({
           connectedWallets: {
@@ -252,10 +228,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           isModalOpen: false,
         }));
       } catch (error: any) {
-        console.error('[WalletStore] Failed to derive dYdX address:', {
-          message: error.message,
-          stack: error.stack,
-        });
         set(state => ({
           connectionStatus: {
             ...state.connectionStatus,
@@ -268,6 +240,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
     disconnect: async type => {
       await walletService.disconnect(type);
+
       set(state => {
         const { [type]: _wallet, ...remainingWallets } = state.connectedWallets;
         const { [type]: _status, ...remainingStatus } = state.connectionStatus;
@@ -278,6 +251,13 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           sessionLastPingAt: remainingPings,
         };
       });
+
+      if (type === 'evm') {
+        usePortfolioStore.getState().clearAssetsByType('evm');
+      } else if (type === 'stellar') {
+        usePortfolioStore.getState().clearAssetsByType('stellar');
+      }
+
       listenerInitialized = false;
     },
 
@@ -286,17 +266,12 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       set({ isRestoringSession: true });
 
       try {
-        console.log('[WalletStore] Initializing session restoration');
-
         const sessions = await walletService.restoreSessions();
 
         if (!sessions.length) {
-          console.log('[WalletStore] No sessions restored');
           set({ isRestoringSession: false });
           return;
         }
-
-        console.log(`[WalletStore] Restored ${sessions.length} sessions`);
 
         const wallets: Partial<Record<WalletType, ConnectedWallet>> = {};
         const status: Partial<Record<WalletType, WalletConnectionStatus>> = {};
@@ -324,10 +299,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         set({ connectedWallets: wallets, connectionStatus: status, isRestoringSession: false });
       } catch (error: any) {
-        console.error('[WalletStore] Failed to restore sessions:', {
-          message: error.message,
-          stack: error.stack,
-        });
         set({ isRestoringSession: false });
       }
     },
@@ -335,6 +306,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     setNetwork: async network => {
       if (network === get().network) return;
       await walletService.setNetwork(network);
+      usePortfolioStore.getState().clearAssets();
       set({
         network,
         connectedWallets: {},
@@ -383,6 +355,13 @@ export const initWalletListener = async () => {
               sessionLastPingAt: remainingPings,
             };
           });
+
+          if (type === 'evm') {
+            usePortfolioStore.getState().clearAssetsByType('evm');
+          } else if (type === 'stellar') {
+            usePortfolioStore.getState().clearAssetsByType('stellar');
+          }
+
           return;
         }
 
@@ -441,10 +420,6 @@ export const initWalletListener = async () => {
     });
   }
 };
-
-// ---------------------------------------------------------------------------
-// Selectors
-// ---------------------------------------------------------------------------
 
 export const selectConnectedWallet = (type: WalletType) => (state: WalletState) =>
   state.connectedWallets[type];

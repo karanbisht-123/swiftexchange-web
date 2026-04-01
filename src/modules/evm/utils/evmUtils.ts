@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-import { getEVMChains } from './Chainregistry';
+import { getEVMChains } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { rpcManager } from './rpcProvider';
 

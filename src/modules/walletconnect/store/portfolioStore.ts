@@ -2,8 +2,8 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { ethers } from 'ethers';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-
-import { ERC20_ABI, getTokenAddressesForChain } from '../../../config/tokenConfig';
+import { ERC20_ABI } from '../../../abi/Erc20AbI';
+import { getAssetsForChain, getTokenAddressesForChain } from '../../evm/utils/Chainregistry';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { type NetworkType, getEVMChains, getStellarConfig } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
@@ -46,11 +46,11 @@ interface PortfolioActions {
   updateAsset: (asset: Asset) => void;
   getAssetBalance: (chainId: number, symbol: string) => number;
   clearAssets: () => void;
+  clearAssetsByType: (chainType: 'evm' | 'stellar') => void;
   enrichPrices: () => Promise<void>;
 }
 
 const CACHE_TTL = 60000;
-
 const MIN_FETCH_INTERVAL = 30000;
 
 export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
@@ -91,32 +91,33 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
       set({ assets: [], lastFetched: 0 });
     },
 
+    clearAssetsByType: (chainType: 'evm' | 'stellar') => {
+      set(state => ({
+        assets: state.assets.filter(a => a.chainType !== chainType),
+        lastFetched: 0,
+      }));
+    },
+
     fetchAssets: async (connectedWallets, network, force = false) => {
       const state = get();
       const now = Date.now();
 
       if (state.isFetching) {
-        console.log('[PortfolioStore] Already fetching, skipping');
         return;
       }
 
       if (!force && now - state.lastFetched < CACHE_TTL && state.network === network) {
-        console.log('[PortfolioStore] Using cached data, age:', now - state.lastFetched, 'ms');
         return;
       }
 
       if (!force && now - state.lastFetched < MIN_FETCH_INTERVAL) {
-        console.log('[PortfolioStore] Too soon since last fetch, skipping');
         return;
       }
 
-      console.log('[PortfolioStore] Fetching portfolio data...');
       set({ isLoading: true, isFetching: true, network, hasError: false, errorMessage: null });
 
       const evmAddr = connectedWallets[WalletType.EVM]?.address;
       const stellarAddr = connectedWallets[WalletType.STELLAR]?.address;
-      console.log(evmAddr, 'evmAddr');
-      console.log(stellarAddr, 'stellarAddr');
 
       if (state.network !== network) {
         set({ assets: [] });
@@ -129,15 +130,12 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         const fetchPromises: Promise<void>[] = [];
 
         if (stellarAddr) {
-          console.log('stellar bloc active for blance featching ');
           fetchPromises.push(
             (async () => {
               try {
                 const config = getStellarConfig(network as NetworkType);
                 const server = new StellarSdk.Horizon.Server(config.horizonUrl);
                 const acc = await server.loadAccount(stellarAddr);
-
-                console.log(acc, 'stellar account');
 
                 for (const b of acc.balances) {
                   const balanceNum = parseFloat(b.balance);
@@ -158,17 +156,12 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                   }
                 }
               } catch (err: any) {
-                // Stellar accounts that have never been funded return a 404.
                 const isNotFound =
                   err?.response?.status === 404 ||
                   err?.status === 404 ||
                   (typeof err?.message === 'string' && err.message.includes('404'));
 
-                if (isNotFound) {
-                  console.info(
-                    '[PortfolioStore] Stellar account not yet activated (no funds) – skipping.'
-                  );
-                } else {
+                if (!isNotFound) {
                   fetchFailed = true;
                   console.warn('[PortfolioStore] Stellar fetch failed:', err);
                 }
@@ -186,15 +179,21 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                 try {
                   const urls = [chain.rpcUrl, ...(chain.fallbackRpcUrls || [])];
 
-                  console.log(urls, 'urls evm rpc');
                   const bal = await rpcManager.fetchWithFallback(chain.chainId, urls, p =>
                     p.getBalance(evmAddr)
                   );
-                  console.log(bal, 'balance evm');
                   const balanceNum = parseFloat(ethers.formatEther(bal));
 
                   if (balanceNum > 0) {
-                    const meta = await portfolioUtils.getAssetMetadata(chain.nativeCurrency.symbol);
+                    const nativeIcon = chain.nativeCurrency.logoURI;
+                    const meta = nativeIcon
+                      ? {
+                        id: chain.nativeCurrency.coingeckoId,
+                        name: chain.nativeCurrency.name,
+                        image: nativeIcon,
+                      }
+                      : await portfolioUtils.getAssetMetadata(chain.nativeCurrency.symbol);
+
                     updateAsset({
                       id: `${chain.chainId}-native`,
                       symbol: chain.nativeCurrency.symbol,
@@ -211,6 +210,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                   }
 
                   const tokens = getTokenAddressesForChain(chain.chainId);
+                  const registryAssets = getAssetsForChain(chain.chainId);
+
                   const tokenPromises = Object.entries(tokens).map(async ([symbol, address]) => {
                     try {
                       const [tokenBal, dec] = await rpcManager.fetchWithFallback(
@@ -227,7 +228,19 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                       const tokenBalanceNum = parseFloat(ethers.formatUnits(tokenBal, dec));
 
                       if (tokenBalanceNum > 0) {
-                        const meta = await portfolioUtils.getAssetMetadata(symbol);
+                        const registryAsset = registryAssets.find(
+                          a => a.symbol.toUpperCase() === symbol.toUpperCase()
+                        );
+
+                        const meta =
+                          registryAsset?.logoURI
+                            ? {
+                              id: registryAsset.coingeckoId ?? symbol.toLowerCase(),
+                              name: registryAsset.name,
+                              image: registryAsset.logoURI,
+                            }
+                            : await portfolioUtils.getAssetMetadata(symbol);
+
                         updateAsset({
                           id: `${chain.chainId}-${symbol}`,
                           symbol,
@@ -241,7 +254,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                           chainType: 'evm',
                         });
                       }
-                    } catch {}
+                    } catch { }
                   });
 
                   await Promise.allSettled(tokenPromises);
@@ -262,9 +275,9 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           lastFetched: Date.now(),
           ...(fetchFailed
             ? {
-                hasError: true,
-                errorMessage: 'Some network fetches failed. Data might be incomplete.',
-              }
+              hasError: true,
+              errorMessage: 'Some network fetches failed. Data might be incomplete.',
+            }
             : {}),
         });
       }

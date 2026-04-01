@@ -43,7 +43,8 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
   selectedMarket,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
-  const { livePrice } = useTrades(selectedMarket, 50);
+  const { trades } = useTrades(selectedMarket, 50);
+  const livePrice = trades.length > 0 ? parseFloat(trades[0].price) : null;
   const { balance } = useDydxWallet();
 
   const calculations = useMemo(() => {
@@ -88,7 +89,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
       return parsed > 0 ? parsed : 0;
     })();
 
-    const accountEquity = balance ? parseFloat(balance.equity) : 0;
+    const accountEquity = balance ? parseFloat(balance.totalEquity) : 0;
 
     const effectiveLeverage = Math.min(
       leverage > 0 ? leverage : storedLeverage > 0 ? storedLeverage : maxLeverage,

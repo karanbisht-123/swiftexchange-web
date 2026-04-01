@@ -1,7 +1,7 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
-import { type ChainType, type NetworkType, chainTypeToId } from '../utils/Chainregistry';
+import { type NetworkType, CHAIN_REGISTRY } from '../utils/Chainregistry';
 
-export type { ChainType };
+export type ChainType = number;
 
 export interface TransactionItem {
   blockNum: string;
@@ -9,19 +9,19 @@ export interface TransactionItem {
   hash: string;
   from: string;
   to: string;
-  value: number;
+  value: number | null;
   erc721TokenId: string | null;
-  erc1155Metadata: any[];
+  erc1155Metadata: any[] | null;
   tokenId: string | null;
-  asset: string;
+  asset: string | null;
   category: string;
   rawContract: {
-    value: string;
+    value: string | null;
     address: string | null;
-    decimal: string;
+    decimal: string | null;
   };
   metadata: any | null;
-  formattedAmount: string;
+  formattedAmount: string | null;
   chainId: number;
 }
 
@@ -40,12 +40,21 @@ export interface TransactionHistoryResponse {
 
 export const getEvmTransactionHistory = async (
   address: string,
-  chain: ChainType,
+  chainId: ChainType,
   network: NetworkType,
   sentPageKey?: string,
   receivedPageKey?: string
 ): Promise<TransactionHistoryResponse> => {
-  let endpoint = `/transaction-history/${address}/${chain}`;
+  const chain = CHAIN_REGISTRY.find(
+    (c) => c.chainId === chainId && c.networkType === network
+  );
+
+  if (!chain) {
+    throw new Error(`Unsupported chain: chainId=${chainId} network=${network}`);
+  }
+
+  let endpoint = `/transaction-history/${address}/${chain.slug}`;
+
   if (sentPageKey || receivedPageKey) {
     const params = new URLSearchParams();
     if (sentPageKey) params.append('sentPageKey', sentPageKey);
@@ -55,11 +64,13 @@ export const getEvmTransactionHistory = async (
 
   const response = await fetchApiResponseFromProxy<TransactionHistoryResponse>(endpoint, 'GET');
 
-  const resolvedChainId = chainTypeToId(chain, network);
-  const data = (response.data.data ?? []).map(tx => ({
+  const data: TransactionItem[] = (response.data.data ?? []).map((tx) => ({
     ...tx,
-    chainId: resolvedChainId,
+    chainId,
   }));
 
-  return { ...response.data, data };
+  return {
+    pagination: response.data.pagination,
+    data,
+  };
 };

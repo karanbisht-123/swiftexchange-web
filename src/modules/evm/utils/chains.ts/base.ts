@@ -1,0 +1,66 @@
+import type { ChainConfig } from '../Chainregistry';
+
+const base: ChainConfig = {
+    chainId: 8453,
+    name: 'Base',
+    networkType: 'mainnet',
+    available: false,
+    slug: 'base',
+    rpcUrl: 'https://mainnet.base.org',
+    fallbackRpcUrls: ['https://base.drpc.org', 'https://1rpc.io/base'],
+    blockExplorerUrl: 'https://basescan.org',
+    nativeCurrency: {
+        name: 'Ether',
+        symbol: 'ETH',
+        decimals: 18,
+        logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png',
+        wrappedAddress: '0x4200000000000000000000000000000000000006',
+        coingeckoId: 'ethereum',
+    },
+    logoURI: 'https://coin-images.coingecko.com/coins/images/31061/large/base.webp',
+    coingeckoPlatform: 'base',
+    tokenListSource: 'uniswap',
+    swapRouterAddress: '0x2626664c2603336E57B271c5C0b26F421741e481',
+    tokens: {
+        USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        DAI: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
+        WETH: '0x4200000000000000000000000000000000000006',
+    },
+    assets: [
+        {
+            asset: 'c8453_t0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            type: 'ERC20',
+            address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            name: 'USD Coin',
+            symbol: 'USDC',
+            decimals: 6,
+            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/logo.png',
+            coingeckoId: 'usd-coin',
+            pairs: [],
+        },
+        {
+            asset: 'c8453_t0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
+            type: 'ERC20',
+            address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
+            name: 'Dai Stablecoin',
+            symbol: 'DAI',
+            decimals: 18,
+            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb/logo.png',
+            coingeckoId: 'dai',
+            pairs: [],
+        },
+        {
+            asset: 'c8453_t0x4200000000000000000000000000000000000006',
+            type: 'ERC20',
+            address: '0x4200000000000000000000000000000000000006',
+            name: 'Wrapped Ether',
+            symbol: 'WETH',
+            decimals: 18,
+            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x4200000000000000000000000000000000000006/logo.png',
+            coingeckoId: 'weth',
+            pairs: [],
+        },
+    ],
+};
+
+export default base;

@@ -31,23 +31,23 @@ const BridgePage: React.FC = () => {
       maxWidth="lg"
       onBack={() => navigate(-1)}
     >
-      <div className="bg-secondary p-1 rounded-xl flex mb-6">
+      <div className="bg-tertiary p-1.5 rounded-2xl flex mb-8 border border-color shadow-inner">
         <button
           onClick={() => setActiveTab('EVM_TO_STELLAR')}
-          className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-colors ${
+          className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${
             activeTab === 'EVM_TO_STELLAR'
-              ? 'bg-primary text-secondary shadow-sm'
-              : 'text-muted hover:text-primary'
+              ? 'bg-primary text-secondary shadow-lg scale-[1.02] z-10'
+              : 'text-muted hover:text-primary hover:bg-secondary/50'
           }`}
         >
           EVM to Stellar
         </button>
         <button
           onClick={() => setActiveTab('STELLAR_TO_EVM')}
-          className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-colors ${
+          className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${
             activeTab === 'STELLAR_TO_EVM'
-              ? 'bg-primary text-secondary shadow-sm'
-              : 'text-muted hover:text-primary'
+              ? 'bg-primary text-secondary shadow-lg scale-[1.02] z-10'
+              : 'text-muted hover:text-primary hover:bg-secondary/50'
           }`}
         >
           Stellar to EVM

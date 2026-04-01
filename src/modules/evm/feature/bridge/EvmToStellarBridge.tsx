@@ -1,21 +1,27 @@
 import {
   AlertCircle,
-  ArrowRight,
+  ArrowUpDown,
   CheckCircle,
+  CheckCircle2,
+  ChevronDown,
   Clock,
   CreditCard,
+  ExternalLink,
   Loader2,
-  RefreshCw,
+  TrendingUp,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
 import { ethers } from 'ethers';
-
-import { getConfigByChainId } from '../../../../config/swapConfigs';
+import { ERC20_ABI } from '../../../../abi/Erc20AbI';
 import { ROUTES } from '../../../../constants/routes';
 import StellarActiveGuard from '../../../walletconnect/components/StellarActiveGuard';
-import { getEVMChains } from '../../../walletconnect/config/chains';
+import {
+  getChainById,
+  getChainsForNetwork,
+  type ChainConfig,
+  type WellKnownTokens,
+} from '../../utils/Chainregistry';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
@@ -37,27 +43,9 @@ interface Asset {
   chainId?: number;
 }
 
-type NetworkType = 'ETH' | 'BNB';
 type TokenType = 'USDT' | 'USDC';
 type FeeType = 'native' | 'stablecoin';
-
-const ICONS = {
-  ETH: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
-  BNB: 'https://tokens.pancakeswap.finance/images/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c.png',
-  USDT: 'https://coin-images.coingecko.com/coins/images/325/large/Tether.png',
-  USDC: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png',
-  STELLAR_USDC: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png',
-};
-
-const NETWORKS: { id: NetworkType; name: string; chainId: number }[] = [
-  { id: 'ETH', name: 'Ethereum', chainId: 1 },
-  { id: 'BNB', name: 'BNB Chain', chainId: 56 },
-];
-
-const TOKENS: { id: TokenType; name: string }[] = [
-  { id: 'USDT', name: 'Tether USD' },
-  { id: 'USDC', name: 'USD Coin' },
-];
+type TxStatus = 'idle' | 'preparing' | 'approving' | 'transferring' | 'success' | 'error';
 
 interface QuoteData {
   quotes: {
@@ -76,142 +64,185 @@ interface EvmToStellarBridgeProps {
   selectedAsset?: Asset;
 }
 
+const getIconUrl = (symbol: string, chainConfig?: ChainConfig): string => {
+  if (!chainConfig) return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
+
+  if (symbol === chainConfig.nativeCurrency.symbol) {
+    return chainConfig.nativeCurrency.logoURI;
+  }
+
+  const tokenAddress = chainConfig.tokens[symbol as keyof WellKnownTokens];
+  if (tokenAddress) {
+    const asset = chainConfig.assets.find(a => a.address.toLowerCase() === tokenAddress.toLowerCase());
+    if (asset?.logoURI) return asset.logoURI;
+  }
+
+  return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
+};
+
+const STELLAR_USDC_ICON = 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
+
 const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }) => {
   const navigate = useNavigate();
 
-  const { connectedWallets, getProvider, openModal } = useWalletConnect();
+  const { connectedWallets, getProvider } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
+
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const evmAddress = evmWallet?.address;
   const stellarAddress = stellarWallet?.address;
-
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
   const provider = getProvider(WalletType.EVM);
 
-  const evmChains = getEVMChains(currentNetwork);
+  const evmChains: ChainConfig[] = getChainsForNetwork(currentNetwork);
 
-  const initialNetwork = useMemo((): NetworkType => {
-    if (selectedAsset?.chainId === 56) return 'BNB';
-    if (selectedAsset?.chainId === 1) return 'ETH';
-    if (currentChainId === 56) return 'BNB';
-    return 'ETH';
-  }, [selectedAsset?.chainId, currentChainId]);
+  const supportedNetworks = useMemo(() =>
+    evmChains
+      .filter(chain => chain.available)
+      .map(chain => ({
+        id: chain.slug === 'eth' ? 'ETH' : (chain.slug === 'bsc' ? 'BNB' : chain.slug.toUpperCase()),
+        chainId: chain.chainId,
+        name: chain.name,
+        symbol: chain.nativeCurrency.symbol,
+        icon: chain.nativeCurrency.logoURI,
+      })),
+    [evmChains]
+  );
 
-  const initialToken = useMemo((): TokenType => {
-    const symbol = selectedAsset?.symbol?.toUpperCase();
-    if (symbol === 'USDC') return 'USDC';
-    return 'USDT';
-  }, [selectedAsset?.symbol]);
-
-  const [selectedNetwork, setSelectedNetwork] = useState<NetworkType>(initialNetwork);
-  const [selectedToken, setSelectedToken] = useState<TokenType>(initialToken);
+  const [selectedNetworkId, setSelectedNetworkId] = useState<string>(
+    supportedNetworks.find(n => n.id === 'BNB') ? 'BNB' : (supportedNetworks[0]?.id || 'ETH')
+  );
+  const [selectedToken, setSelectedToken] = useState<TokenType>('USDT');
   const [selectedFeeType, setSelectedFeeType] = useState<FeeType>('stablecoin');
-  const [amount, setAmount] = useState<string>('');
-  const [tokenBalance, setTokenBalance] = useState<string>('0');
+  const [amount, setAmount] = useState('');
+  const [tokenBalance, setTokenBalance] = useState('0');
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
   const [isChainSwitching, setIsChainSwitching] = useState(false);
   const [isPreparingBridge, setIsPreparingBridge] = useState(false);
-  const [txStatus, setTxStatus] = useState<
-    'idle' | 'preparing' | 'approving' | 'transferring' | 'success' | 'error'
-  >('idle');
+  const [txStatus, setTxStatus] = useState<TxStatus>('idle');
   const [quoteData, setQuoteData] = useState<QuoteData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+
+  const errorRef = useRef<HTMLDivElement>(null);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const selectedChainId = useMemo(() => {
-    return NETWORKS.find(n => n.id === selectedNetwork)?.chainId || 1;
-  }, [selectedNetwork]);
+
+  const parseError = (err: string | null) => {
+    if (!err) return null;
+
+    const balanceMatch = err.match(/Insufficient (\w+) balance\. Have: ([\d.]+).*, Need: ~?([\d.]+)/i);
+    if (balanceMatch) {
+      return {
+        type: 'insufficient_balance',
+        asset: balanceMatch[1],
+        have: balanceMatch[2],
+        need: balanceMatch[3],
+        message: `You need more ${balanceMatch[1]} to cover the bridge fee and gas.`,
+      };
+    }
+
+    const gasMatch = err.match(/You do not have enough (\w+) to cover the gas fees/i);
+    if (gasMatch) {
+      return {
+        type: 'insufficient_balance',
+        asset: gasMatch[1],
+        message: `You do not have enough ${gasMatch[1]} to cover the network gas fees for this transaction.`,
+      };
+    }
+
+    return {
+      type: 'general',
+      message: err,
+    };
+  };
+
+  const parsedError = parseError(error);
+
+  const currentChainConfig = useMemo(() => {
+    return evmChains.find(c => c.chainId === supportedNetworks.find(n => n.id === selectedNetworkId)?.chainId);
+  }, [evmChains, supportedNetworks, selectedNetworkId]);
+
+  const selectedChainId = currentChainConfig?.chainId || 1;
 
   useEffect(() => {
-    if (selectedAsset) {
-      if (selectedAsset.chainId === 56) {
-        setSelectedNetwork('BNB');
-      } else if (selectedAsset.chainId === 1) {
-        setSelectedNetwork('ETH');
-      }
-      const symbol = selectedAsset.symbol?.toUpperCase();
-      if (symbol === 'USDC') {
-        setSelectedToken('USDC');
-      } else if (symbol === 'USDT') {
-        setSelectedToken('USDT');
-      }
-      setAmount('');
-      setQuoteData(null);
-      setError(null);
+    if (!selectedAsset) return;
+
+    const assetChainId = selectedAsset.chainId;
+    const matchingNetwork = supportedNetworks.find(n => n.chainId === assetChainId);
+
+    if (matchingNetwork) {
+      setSelectedNetworkId(matchingNetwork.id);
     }
-  }, [selectedAsset]);
 
-  const handleChainSwitch = useCallback(
-    async (newNetwork: NetworkType) => {
-      const newChainId = NETWORKS.find(n => n.id === newNetwork)?.chainId || 1;
-      if (currentChainId === newChainId) {
-        setSelectedNetwork(newNetwork);
-        return;
-      }
+    const symbol = selectedAsset.symbol?.toUpperCase();
+    if (symbol === 'USDC' || symbol === 'USDT') {
+      setSelectedToken(symbol as TokenType);
+    }
 
-      if (!provider) {
-        setSelectedNetwork(newNetwork);
-        return;
-      }
+    setAmount('');
+    setQuoteData(null);
+    setError(null);
+  }, [selectedAsset, supportedNetworks]);
 
-      setIsChainSwitching(true);
-      setError(null);
+  const handleChainSwitch = useCallback(async (newNetworkId: string) => {
+    const networkConfig = supportedNetworks.find(n => n.id === newNetworkId);
+    if (!networkConfig || !provider) return;
 
-      try {
-        console.log('[EvmToStellarBridge] Switching to chain:', newChainId);
+    const newChainId = networkConfig.chainId;
 
-        await provider.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: `0x${newChainId.toString(16)}` }],
-        });
+    if (currentChainId === newChainId) {
+      setSelectedNetworkId(newNetworkId);
+      return;
+    }
 
-        console.log('[EvmToStellarBridge] Chain switch successful');
-        setSelectedNetwork(newNetwork);
-      } catch (switchError: any) {
-        console.log(
-          '[EvmToStellarBridge] Chain switch error:',
-          switchError.code,
-          switchError.message
-        );
+    setIsChainSwitching(true);
+    setError(null);
 
-        if (switchError.code === 4902) {
-          const networkConfig = evmChains.find(c => c.chainId === newChainId);
-          if (networkConfig) {
-            try {
-              await provider.request({
-                method: 'wallet_addEthereumChain',
-                params: [
-                  {
-                    chainId: `0x${newChainId.toString(16)}`,
-                    chainName: networkConfig.name,
-                    nativeCurrency: networkConfig.nativeCurrency,
-                    rpcUrls: [networkConfig.rpcUrl, ...(networkConfig.fallbackRpcUrls || [])],
-                    blockExplorerUrls: [networkConfig.blockExplorerUrl],
-                  },
-                ],
-              });
-              setSelectedNetwork(newNetwork);
-            } catch (addError: any) {
-              console.log('[EvmToStellarBridge] User rejected adding chain:', addError.message);
-              setError('Failed to add network');
-            }
+    try {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${newChainId.toString(16)}` }],
+      });
+      setSelectedNetworkId(newNetworkId);
+    } catch (switchError: any) {
+      if (switchError.code === 4902) {
+        const chainConfig = evmChains.find(c => c.chainId === newChainId);
+        if (chainConfig) {
+          try {
+            await provider.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: `0x${newChainId.toString(16)}`,
+                chainName: chainConfig.name,
+                nativeCurrency: chainConfig.nativeCurrency,
+                rpcUrls: [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])],
+                blockExplorerUrls: [chainConfig.blockExplorerUrl],
+              }],
+            });
+            setSelectedNetworkId(newNetworkId);
+          } catch {
+            setError('Failed to add network');
           }
-        } else if (switchError.code === 4001) {
-          console.log('[EvmToStellarBridge] User rejected chain switch');
-        } else {
-          setError('Failed to switch network');
         }
-      } finally {
-        setIsChainSwitching(false);
+      } else if (switchError.code !== 4001) {
+        setError('Failed to switch network');
       }
-    },
-    [provider, currentChainId, evmChains]
-  );
+    } finally {
+      setIsChainSwitching(false);
+    }
+  }, [provider, currentChainId, evmChains, supportedNetworks]);
+
+  useEffect(() => {
+    if (parsedError && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [parsedError]);
 
   const fetchBalance = useCallback(async () => {
-    if (!evmAddress || !provider) {
+    if (!evmAddress || !provider || !currentChainConfig) {
       setTokenBalance('0');
       return;
     }
@@ -220,63 +251,39 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
     setError(null);
 
     try {
-      const config = getConfigByChainId(selectedChainId);
-      if (!config) {
-        console.log('[EvmToStellarBridge] No config for chainId:', selectedChainId);
+      const chain = getChainById(selectedChainId);
+      if (!chain) return;
+
+      const tokenAddress = selectedToken === 'USDT' ? chain.tokens.USDT : chain.tokens.USDC;
+      if (!tokenAddress) {
         setTokenBalance('0');
-        setIsLoadingBalance(false);
-        return;
-      }
-      const chainConfig = evmChains.find(c => c.chainId === selectedChainId);
-      if (!chainConfig) {
-        setTokenBalance('0');
-        setIsLoadingBalance(false);
         return;
       }
 
-      const urls = [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])];
-      const tokenAddress = selectedToken === 'USDT' ? config.usdt : config.usdc;
-
-      console.log(
-        '[EvmToStellarBridge] Fetching balance for',
-        selectedToken,
-        'on chain',
-        selectedChainId,
-        'address:',
-        tokenAddress
-      );
-
-      const erc20Abi = [
-        'function balanceOf(address) view returns (uint256)',
-        'function decimals() view returns (uint8)',
-      ];
+      const urls = [currentChainConfig.rpcUrl, ...(currentChainConfig.fallbackRpcUrls || [])];
 
       const { balance, decimals } = await rpcManager.fetchWithFallback(
         selectedChainId,
         urls,
-        async p => {
-          const contract = new ethers.Contract(tokenAddress, erc20Abi, p);
+        async (p) => {
+          const contract = new ethers.Contract(tokenAddress, ERC20_ABI, p);
           const [b, d] = await Promise.all([contract.balanceOf(evmAddress), contract.decimals()]);
           return { balance: b, decimals: d };
         }
       );
 
-      const formatted = ethers.formatUnits(balance, decimals);
-      console.log('[EvmToStellarBridge] Balance:', formatted, selectedToken);
-      setTokenBalance(formatted);
+      setTokenBalance(ethers.formatUnits(balance, decimals));
     } catch (err: any) {
       console.error('[EvmToStellarBridge] Balance fetch failed:', err);
       setTokenBalance('0');
     } finally {
       setIsLoadingBalance(false);
     }
-  }, [evmAddress, provider, selectedChainId, selectedToken, evmChains]);
+  }, [evmAddress, provider, selectedChainId, selectedToken, currentChainConfig]);
 
   useEffect(() => {
-    if (evmAddress && !isChainSwitching) {
-      fetchBalance();
-    }
-  }, [fetchBalance, evmAddress, selectedNetwork, selectedToken, isChainSwitching]);
+    if (evmAddress && !isChainSwitching) fetchBalance();
+  }, [fetchBalance, evmAddress, selectedNetworkId, selectedToken, isChainSwitching]);
 
   const fetchQuote = useCallback(
     async (amountValue: string) => {
@@ -290,17 +297,16 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       setError(null);
 
       try {
-        const response = await getBridgeQuote(amountValue, selectedNetwork, selectedToken);
+        const response = await getBridgeQuote(amountValue, selectedNetworkId, selectedToken);
         setQuoteData(response);
       } catch (err: any) {
-        console.error('Quote fetch failed:', err);
         setError(err.message || 'Failed to fetch quote');
         setQuoteData(null);
       } finally {
         setIsLoadingQuote(false);
       }
     },
-    [selectedNetwork, selectedToken]
+    [selectedNetworkId, selectedToken]
   );
 
   useEffect(() => {
@@ -317,125 +323,72 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
     };
   }, [amount, fetchQuote, isChainSwitching]);
 
-  const hasBalance = parseFloat(tokenBalance) > 0;
   const parsedAmount = parseFloat(amount) || 0;
   const hasInsufficientBalance = parsedAmount > parseFloat(tokenBalance);
-  const isAmountTooSmall = parsedAmount > 0 && parsedAmount < 0.01;
   const isValidAmount = parsedAmount >= 0.01 && !hasInsufficientBalance;
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value;
-
     if (value === '') {
       setAmount('');
       return;
     }
-
     if (!/^[0-9.]*$/.test(value)) return;
 
     const parts = value.split('.');
     if (parts.length > 2) return;
-
     if (parts[0].length > 1 && parts[0].startsWith('0') && !value.startsWith('0.')) {
-      value = parts[0].replace(/^0+/, '') || '0';
-      if (parts[1] !== undefined) value += '.' + parts[1];
+      value = (parts[0].replace(/^0+/, '') || '0') + (parts[1] !== undefined ? '.' + parts[1] : '');
     }
-
-    if (parts[1] && parts[1].length > 6) {
-      value = parts[0] + '.' + parts[1].slice(0, 6);
-    }
-
-    if (parseFloat(value) > 999999999) return;
+    if (parts[1] && parts[1].length > 6) value = parts[0] + '.' + parts[1].slice(0, 6);
+    if (parseFloat(value) > 999_999_999) return;
 
     setAmount(value);
   };
 
-  const handleMaxClick = () => {
-    const maxBalance = parseFloat(tokenBalance);
-    if (maxBalance > 0) {
-      setAmount(maxBalance.toFixed(6).replace(/\.?0+$/, ''));
-    }
-  };
-
-  const handleSwapNow = () => {
-    navigate(ROUTES.TRADING_EVM_SWAP, {
-      state: { selectedAsset, action: 'swap', network: selectedNetwork, token: selectedToken },
-    });
-  };
-
-  const handleBuyNow = () => {
-    navigate(ROUTES.TRADING_EVM_FIAT);
-  };
-
-  const handleProceed = async () => {
-    if (!quoteData || !isValidAmount || !provider || !stellarAddress || !evmAddress) return;
-
-    setIsPreparingBridge(true);
-    setTxStatus('preparing');
-    setError(null);
+  const handleMaxClick = async () => {
+    if (!evmAddress || !provider || !currentChainConfig) return;
 
     try {
-      console.log('[EvmToStellarBridge] Preparing bridge transaction');
+      const chain = getChainById(selectedChainId);
+      if (!chain) return;
 
-      const bridgeResponse = await prepareBridgeTransaction({
-        amount,
-        feePayType: selectedFeeType,
-        fromAddress: evmAddress,
-        destinationAddress: stellarAddress,
-        sourceToken: selectedToken,
-        destinationToken: 'USDC',
-        walletType: selectedNetwork,
-      });
+      const isNative = selectedToken === (currentChainConfig.nativeCurrency.symbol);
+      const tokenAddress = selectedToken === 'USDT' ? chain.tokens.USDT : chain.tokens.USDC;
+      const urls = [currentChainConfig.rpcUrl, ...(currentChainConfig.fallbackRpcUrls || [])];
 
-      console.log('[EvmToStellarBridge] Bridge response:', bridgeResponse);
-
-      const { needsApproval, transactions } = bridgeResponse;
-
-      if (needsApproval && transactions.length >= 2) {
-        const approveTx = transactions.find(tx => tx.type === 'approve');
-        const transferTx = transactions.find(tx => tx.type === 'transfer');
-
-        if (approveTx) {
-          setTxStatus('approving');
-          console.log('[EvmToStellarBridge] Sending approval transaction');
-          await sendTransaction(approveTx);
+      if (isNative) {
+        const balance = await rpcManager.fetchWithFallback(selectedChainId, urls, (p) => p.getBalance(evmAddress));
+        const gasBuffer = ethers.parseEther('0.01');
+        if (balance > gasBuffer) {
+          const maxAmount = balance - gasBuffer;
+          setAmount(ethers.formatEther(maxAmount));
+        } else {
+          setAmount('0');
         }
-
-        if (transferTx) {
-          setTxStatus('transferring');
-          console.log('[EvmToStellarBridge] Sending transfer transaction');
-          await sendTransaction(transferTx);
-        }
-      } else {
-        const transferTx = transactions.find(tx => tx.type === 'transfer');
-        if (transferTx) {
-          setTxStatus('transferring');
-          console.log('[EvmToStellarBridge] Sending transfer transaction (no approval needed)');
-          await sendTransaction(transferTx);
-        }
+      } else if (tokenAddress) {
+        const { balance, decimals } = await rpcManager.fetchWithFallback(
+          selectedChainId,
+          urls,
+          async (p) => {
+            const contract = new ethers.Contract(tokenAddress, ERC20_ABI, p);
+            const [b, d] = await Promise.all([contract.balanceOf(evmAddress), contract.decimals()]);
+            return { balance: b, decimals: d };
+          }
+        );
+        setAmount(ethers.formatUnits(balance, decimals));
       }
-
-      setTxStatus('success');
-      console.log('[EvmToStellarBridge] Bridge completed successfully');
-
-      setTimeout(() => {
-        setTxStatus('idle');
-        navigate(ROUTES.DASHBOARD);
-      }, 2000);
-    } catch (err: any) {
-      console.error('[EvmToStellarBridge] Bridge failed:', err);
-      setTxStatus('error');
-      setError(err.message || 'Transaction failed');
-    } finally {
-      setIsPreparingBridge(false);
+    } catch (err) {
+      console.error('Failed to get max balance:', err);
     }
   };
+
+
 
   const sendTransaction = async (bridgeTx: BridgeTransaction): Promise<string> => {
     if (!provider) throw new Error('Wallet not connected');
 
     const { transaction, txMeta } = bridgeTx;
-
     const txParams: any = {
       from: transaction.from,
       to: transaction.to,
@@ -451,46 +404,75 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       txParams.gasPrice = `0x${BigInt(txMeta.feeData.gasPrice).toString(16)}`;
     }
 
-    console.log('[EvmToStellarBridge] Sending tx:', txParams);
-
-    const txHash = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [txParams],
-    });
-
-    console.log('[EvmToStellarBridge] Tx hash:', txHash);
-
+    const txHash = await provider.request({ method: 'eth_sendTransaction', params: [txParams] });
     await waitForTransaction(txHash);
     return txHash;
   };
 
   const waitForTransaction = async (txHash: string): Promise<void> => {
-    const chainConfig = evmChains.find(c => c.chainId === selectedChainId);
+    const chainConfig = evmChains.find((c) => c.chainId === selectedChainId);
     if (!chainConfig) throw new Error('Chain config not found');
 
     const urls = [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])];
 
-    let attempts = 0;
-    const maxAttempts = 60; // 5 minutes max
-
-    while (attempts < maxAttempts) {
+    for (let attempt = 0; attempt < 60; attempt++) {
       try {
-        const receipt = await rpcManager.fetchWithFallback(selectedChainId, urls, p =>
+        const receipt = await rpcManager.fetchWithFallback(selectedChainId, urls, (p) =>
           p.getTransactionReceipt(txHash)
         );
         if (receipt) {
           if (receipt.status === 0) throw new Error('Transaction reverted');
-          console.log('[EvmToStellarBridge] Tx confirmed:', txHash);
           return;
         }
       } catch (err) {
         console.warn('[EvmToStellarBridge] Error fetching receipt', err);
       }
-      await new Promise(r => setTimeout(r, 2000));
-      attempts++;
+      await new Promise((r) => setTimeout(r, 2000));
     }
 
     throw new Error('Transaction confirmation timeout');
+  };
+
+  const handleProceed = async () => {
+    if (!quoteData || !isValidAmount || !provider || !stellarAddress || !evmAddress) return;
+
+    setIsPreparingBridge(true);
+    setTxStatus('preparing');
+    setError(null);
+
+    try {
+      const bridgeResponse = await prepareBridgeTransaction({
+        amount,
+        feePayType: selectedFeeType,
+        fromAddress: evmAddress,
+        destinationAddress: stellarAddress,
+        sourceToken: selectedToken,
+        destinationToken: 'USDC',
+        walletType: selectedNetworkId,
+      });
+
+      const { needsApproval, transactions } = bridgeResponse;
+      const approveTx = transactions.find((tx) => tx.type === 'approve');
+      const transferTx = transactions.find((tx) => tx.type === 'transfer');
+
+      if (needsApproval && approveTx) {
+        setTxStatus('approving');
+        await sendTransaction(approveTx);
+      }
+
+      if (transferTx) {
+        setTxStatus('transferring');
+        const hash = await sendTransaction(transferTx);
+        setTxHash(hash);
+      }
+
+      setTxStatus('success');
+    } catch (err: any) {
+      setTxStatus('error');
+      setError(err.message || 'Transaction failed');
+    } finally {
+      setIsPreparingBridge(false);
+    }
   };
 
   const formatTime = (ms: number) => {
@@ -510,339 +492,417 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
         </div>
       )}
 
-      <div className="p-5 space-y-5 overflow-y-auto flex-1">
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="text-xs text-muted mb-2 block font-medium uppercase tracking-wide">
-              Source Token
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {TOKENS.map(token => (
-                <button
-                  key={token.id}
-                  onClick={() => setSelectedToken(token.id)}
-                  disabled={isChainSwitching}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all border ${
-                    selectedToken === token.id
-                      ? 'btn-primary border-transparent'
-                      : 'bg-tertiary text-secondary border-color hover:border-brand-primary'
-                  }`}
-                >
-                  <img src={ICONS[token.id]} alt={token.id} className="w-5 h-5 rounded-full" />
-                  {token.id}
-                </button>
-              ))}
+      <div className="p-5 space-y-4 overflow-y-auto flex-1">
+        {txHash && currentChainConfig && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
+            <div className="card max-w-md w-full animate-slide-up rounded-t-3xl sm:rounded-2xl border-t-4 border-green-500 shadow-2xl m-0 sm:m-4">
+              <div className="flex items-center justify-center pt-8 pb-4">
+
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-lg">
+                    <CheckCircle2 className="w-12 h-12 text-white" strokeWidth={2.5} />
+                  </div>
+                  <div className="absolute -inset-2 bg-green-400/20 rounded-full blur-xl animate-pulse"></div>
+                </div>
+              </div>
+
+              <div className="px-6 pb-6">
+                <h3 className="text-2xl font-bold text-center mb-2 text-primary">
+                  Bridge Initiated!
+                </h3>
+                <p className="text-secondary text-center mb-1 text-sm">
+                  Your assets are being transferred
+                </p>
+                <p className="text-center text-xs font-medium text-green-600 mb-6 font-mono">
+                  to Stellar Network
+                </p>
+
+                <div className="bg-tertiary rounded-lg p-3 mb-6 border border-color">
+                  <p className="text-xs text-muted mb-1 text-center">Transaction Hash</p>
+                  <p className="font-mono text-xs text-center text-primary break-all">
+                    {txHash.slice(0, 10)}...{txHash.slice(-8)}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <a
+                    href={`${currentChainConfig.blockExplorerUrl}/tx/${txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary w-full flex items-center justify-center gap-2 text-base py-3"
+                  >
+                    View on Explorer
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  <button
+                    onClick={() => {
+                      setTxHash(null);
+                      setTxStatus('idle');
+                      setAmount('');
+                      navigate(ROUTES.DASHBOARD);
+                    }}
+                    className="w-full py-3 text-secondary hover:text-primary font-bold transition-colors"
+                  >
+                    Back to Dashboard
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="flex-1">
-            <label className="text-xs text-muted mb-2 block font-medium uppercase tracking-wide">
-              Network
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {NETWORKS.map(network => (
+        )}
+
+        <div className="card py-4 relative">
+          <div className="flex flex-wrap items-center justify-start gap-4 px-2">
+            {supportedNetworks.map((net) => {
+              const isSelected = selectedNetworkId === net.id;
+              return (
+                <div key={net.id} className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={() => handleChainSwitch(net.id)}
+                    disabled={isChainSwitching}
+                    title={`Switch to ${net.name}`}
+                    className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${isSelected
+                      ? 'bg-brand/10 border-brand shadow-lg scale-110'
+                      : 'bg-secondary border-color hover:border-brand/40 hover:bg-tertiary'
+                      }`}
+                  >
+                    <img
+                      src={net.icon}
+                      alt={net.name}
+                      className={`w-9 h-9 rounded-full bg-white shadow-sm ring-1 ${isSelected ? 'ring-brand' : 'ring-transparent'}`}
+                    />
+                  </button>
+                  <span className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}>
+                    {net.id}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="relative p-0 bg-transparent border-0 shadow-none space-y-1">
+          {/* You Pay Section */}
+          <div className="bg-tertiary rounded-2xl p-4 border border-color">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-bold text-primary">You Pay</label>
+              <button
+                onClick={handleMaxClick}
+                className="text-xs font-bold text-brand hover:text-brand-hover transition-colors px-2.5 py-1 rounded-md bg-brand/5 hover:bg-brand/10"
+                disabled={isChainSwitching}
+              >
+                MAX
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative">
+                  <img
+                    src={getIconUrl(selectedToken, currentChainConfig)}
+                    alt={selectedToken}
+                    className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
+                  />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-secondary border border-color flex items-center justify-center overflow-hidden">
+                    <img src={currentChainConfig?.nativeCurrency.logoURI} alt="" className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div className="relative group">
+                  <select
+                    value={selectedToken}
+                    onChange={(e) => setSelectedToken(e.target.value as TokenType)}
+                    disabled={isChainSwitching}
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
+                  >
+                    <option value="USDT">USDT</option>
+                    <option value="USDC">USDC</option>
+                  </select>
+                  <button className="flex items-center gap-2 bg-secondary/80 hover:bg-secondary border border-color hover:border-brand/50 rounded-full px-3 py-1.5 transition-all min-w-[100px] justify-between">
+                    <span className="font-bold text-lg text-primary">{selectedToken}</span>
+                    <ChevronDown className="w-4 h-4 text-muted group-hover:text-primary transition-colors" />
+                  </button>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                inputMode="decimal"
+                className={`input flex-1 text-right text-2xl font-bold bg-transparent border-none p-0 focus:ring-0 min-w-0 ${hasInsufficientBalance ? 'text-red-500' : ''}`}
+                placeholder="0.00"
+                value={amount}
+                onChange={handleAmountChange}
+                disabled={isChainSwitching}
+              />
+            </div>
+
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted font-medium">
+                Balance: {isLoadingBalance ? <Loader2 className="w-3 h-3 animate-spin inline ml-1" /> : <span className="text-primary font-bold">{parseFloat(tokenBalance).toFixed(4)}</span>}
+              </span>
+              {hasInsufficientBalance && (
                 <button
-                  key={network.id}
-                  onClick={() => handleChainSwitch(network.id)}
-                  disabled={isChainSwitching}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all border ${
-                    selectedNetwork === network.id
-                      ? 'btn-primary border-transparent'
-                      : 'bg-tertiary text-secondary border-color hover:border-brand-primary'
-                  }`}
+                  onClick={() => errorRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                  className="text-red-500 font-bold animate-pulse flex items-center gap-1 hover:underline"
                 >
-                  <img src={ICONS[network.id]} alt={network.id} className="w-5 h-5 rounded-full" />
-                  {network.id}
+                  <AlertCircle className="w-3 h-3" />
+                  Insufficient Balance
                 </button>
-              ))}
+              )}
+            </div>
+          </div>
+
+
+          {(parseFloat(tokenBalance) === 0 || hasInsufficientBalance) && !isPreparingBridge && (
+            <div className="animate-in fade-in -mt-4 slide-in-from-top-1 duration-500 mb-2 ">
+              <div className="bg-gradient-to-br from-brand/5 via-tertiary to-blue-500/5  rounded-2xl rounded-t-none p-4 shadow-sm relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-brand/10 transition-colors" />
+                <div className="relative z-10 flex items-center justify-between gap-4">
+                  <div className="flex flex-col py-2">
+                    <h4 className="text-sm font-bold text-primary">Refill {selectedToken}</h4>
+                    <p className="text-[10px] text-muted font-medium uppercase tracking-wider opacity-70">To bridge to Stellar</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0 mt-2">
+                    <button
+                      onClick={() => navigate(ROUTES.TRADING_EVM_FIAT)}
+                      className="flex items-center justify-center gap-2 py-3 px-3 rounded-lg  border border-color hover:border-brand/40 hover:bg-tertiary transition-all text-[11px] font-bold "
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-emerald-500 group-hover/btn:scale-110 transition-transform" />
+                      Top Up
+                    </button>
+                    <button
+                      onClick={() => navigate(ROUTES.TRADING_EVM_SWAP)}
+                      className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg btn btn-primary  hover:border-brand/40 hover:bg-tertiary transition-all text-white font-bold  "
+                    >
+                      <ArrowUpDown className="w-3.5 h-3.5 text-white group-hover/btn:scale-110 transition-transform" />
+                      Swap
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+
+          <div className="relative h-3 my-2 z-10 flex justify-center items-center">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+              <div className="w-10 h-10 rounded-xl bg-secondary border border-color flex items-center justify-center shadow-md">
+                <ArrowUpDown className="w-5 h-5 text-muted" strokeWidth={2.5} />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-tertiary rounded-2xl p-4 border border-color">
+            <label className="block text-sm font-bold text-primary mb-3">You Receive (Stellar)</label>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative">
+                  <img
+                    src={STELLAR_USDC_ICON}
+                    alt="USDC"
+                    className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
+                  />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#08020d] border border-white/10 flex items-center justify-center overflow-hidden">
+                    <img src="https://stellar.org/favicon.ico" alt="Stellar" className="w-3 h-3" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 bg-secondary/50 border border-color/50 rounded-full px-4 py-1.5 min-w-[100px] justify-center opacity-80 cursor-default">
+                  <span className="font-bold text-lg text-primary">USDC</span>
+                </div>
+              </div>
+
+              <div className="flex-1 text-right text-2xl font-bold min-w-0">
+                {isLoadingQuote ? (
+                  <Loader2 className="w-5 h-5 animate-spin ml-auto text-muted" />
+                ) : (
+                  <span className="text-primary truncate block">
+                    {quoteData ? parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4) : '0.00'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-brand/5 rounded-md text-brand font-bold">
+                <Clock className="w-3 h-3" />
+                <span>{quoteData ? formatTime(quoteData.quotes.completionTime) : '...'}</span>
+              </div>
+              <span className="badge bg-brand/10 text-brand font-bold px-2 py-0.5 text-[10px] rounded-md border border-brand/20">
+                STELLAR NETWORK
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <img
-                src={ICONS[selectedToken]}
-                alt={selectedToken}
-                className="w-10 h-10 rounded-full"
-              />
-              <div>
-                <span className="text-sm text-muted">Available on {selectedNetwork}</span>
-                <div className="font-bold text-lg text-primary">
-                  {isLoadingBalance ? (
-                    <Loader2 size={18} className="animate-spin inline mt-1" />
+        {quoteData && !isLoadingQuote && (
+          <div className="card p-5 space-y-3 rounded-2xl border-color/40 shadow-sm animate-slide-up">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Exchange Rate</span>
+              <div className="bg-brand/5 px-2 py-1 rounded text-brand font-bold text-xs">
+                1 {selectedToken} ≈ {parseFloat(quoteData.quotes.conversionRate).toFixed(4)} USDC
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Minimum Received</span>
+              <span className="text-primary font-bold">{parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4)} USDC</span>
+            </div>
+
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-secondary font-medium">Slippage Tolerance</span>
+              <span className="text-primary font-bold">{quoteData.quotes.slippageTolerance}%</span>
+            </div>
+
+            <div className="divider opacity-30 my-1" />
+
+            <div>
+              <label className="text-[10px] text-muted mb-2 block font-bold uppercase tracking-widest flex items-center gap-2 opacity-70">
+                <TrendingUp className="w-3 h-3" />
+                Relayer Fee
+              </label>
+              <div className="flex gap-2">
+                {(['native', 'stablecoin'] as FeeType[]).map((feeType) => {
+                  const isSelected = selectedFeeType === feeType;
+                  return (
+                    <button
+                      key={feeType}
+                      onClick={() => setSelectedFeeType(feeType)}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border flex flex-col items-center gap-1.5 ${isSelected
+                        ? 'bg-brand/10 border-brand text-brand shadow-sm'
+                        : 'bg-secondary/50 text-secondary border-color hover:border-brand/30'
+                        }`}
+                    >
+                      <img
+                        src={feeType === 'native' ? currentChainConfig?.nativeCurrency.logoURI : getIconUrl(selectedToken, currentChainConfig)}
+                        alt=""
+                        className="w-4 h-4 rounded-full bg-white ring-1 ring-black/5"
+                      />
+                      <span>
+                        {feeType === 'native'
+                          ? `${parseFloat(quoteData.quotes.fee.native.amount).toFixed(5)} ${quoteData.quotes.fee.native.symbol}`
+                          : `${parseFloat(quoteData.quotes.fee.stablecoin.amount).toFixed(3)} ${quoteData.quotes.fee.stablecoin.symbol}`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {parsedError && (
+          <div ref={errorRef} className="mt-4 animate-slide-up">
+            <div className={`relative overflow-hidden rounded-2xl border-2 shadow-lg transition-all ${parsedError.type === 'insufficient_balance'
+              ? 'bg-orange-500/10 border-orange-500/20'
+              : 'bg-red-500/10 border-red-500/20'
+              }`}>
+              <div className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className={`p-2.5 rounded-xl shrink-0 ${parsedError.type === 'insufficient_balance'
+                    ? 'bg-orange-500/20 text-orange-600'
+                    : 'bg-red-500/20 text-red-600'
+                    }`}>
+                    <AlertCircle className="w-6 h-6" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`text-lg font-bold mb-1 ${parsedError.type === 'insufficient_balance' ? 'text-orange-900' : 'text-red-900'
+                      }`}>
+                      {parsedError.type === 'insufficient_balance' ? 'Balance Required' : 'Transaction Error'}
+                    </h4>
+                    <p className={`text-sm leading-relaxed ${parsedError.type === 'insufficient_balance' ? 'text-orange-800/80' : 'text-red-800/80'
+                      }`}>
+                      {parsedError.message}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3">
+                  {parsedError.type === 'insufficient_balance' ? (
+                    <>
+                      <button
+                        onClick={() => navigate(ROUTES.TRADING_EVM_FIAT)}
+                        className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-3"
+                      >
+                        <CreditCard className="w-5 h-5" />
+                        Buy {parsedError.asset} with Fiat
+                      </button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => navigate(ROUTES.TRADING_EVM_SWAP)}
+                          className="bg-white/10 hover:bg-white/20 text-orange-900 font-bold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-orange-500/20"
+                        >
+                          <ArrowUpDown className="w-4 h-4" />
+                          Swap
+                        </button>
+                        <button
+                          onClick={() => setError(null)}
+                          className="bg-orange-900/10 hover:bg-orange-900/20 text-orange-900 font-bold py-3 px-4 rounded-xl transition-all"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </>
                   ) : (
-                    `${parseFloat(tokenBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selectedToken}`
+                    <button
+                      onClick={() => setError(null)}
+                      className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95"
+                    >
+                      Dismiss
+                    </button>
                   )}
                 </div>
               </div>
             </div>
-            <button
-              onClick={fetchBalance}
-              disabled={isChainSwitching}
-              className="p-2 hover:bg-hover rounded-xl transition-colors border border-transparent hover:border-color"
-            >
-              <RefreshCw
-                size={18}
-                className={`text-muted ${isLoadingBalance ? 'animate-spin' : ''}`}
-              />
-            </button>
-          </div>
-          <div className="flex gap-3 mt-2">
-            <button
-              onClick={handleSwapNow}
-              className="flex-1 btn btn-sm btn-secondary gap-2 rounded-xl"
-              disabled={isChainSwitching}
-            >
-              <RefreshCw size={14} />
-              Swap
-            </button>
-            <button
-              onClick={handleBuyNow}
-              className="flex-1 btn btn-sm btn-success gap-2 rounded-xl"
-              disabled={isChainSwitching}
-            >
-              <CreditCard size={14} />
-              Buy
-            </button>
-          </div>
-        </div>
-
-        {!evmAddress && (
-          <div className="card p-6 text-center border-warning bg-warning-bg">
-            <AlertCircle size={36} className="mx-auto mb-3 text-warning" />
-            <p className="font-semibold text-primary mb-2 text-lg">Wallet Not Connected</p>
-            <p className="text-muted text-sm mb-5">
-              Please connect your EVM wallet to start bridging tokens to Stellar.
-            </p>
-            <button
-              onClick={() => openModal()}
-              className="btn btn-primary w-full gap-2 rounded-xl py-3"
-            >
-              <CreditCard size={18} />
-              Connect Wallet
-            </button>
           </div>
         )}
 
-        {!hasBalance && !isLoadingBalance && !isChainSwitching && evmAddress && (
-          <div className="card p-6 text-center border-warning bg-warning-bg">
-            <AlertCircle size={36} className="mx-auto mb-3 text-warning" />
-            <p className="font-semibold text-primary mb-2 text-lg">No {selectedToken} Balance</p>
-            <p className="text-muted text-sm mb-5">
-              You don't have {selectedToken} on {selectedNetwork}. Swap or buy to get started.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={handleSwapNow}
-                className="btn btn-primary flex-1 gap-2 rounded-xl py-3"
-              >
-                <RefreshCw size={18} />
-                Swap
-              </button>
-              <button
-                onClick={handleBuyNow}
-                className="btn btn-success flex-1 gap-2 rounded-xl py-3"
-              >
-                <CreditCard size={18} />
-                Buy
-              </button>
-            </div>
-          </div>
-        )}
-
-        {hasBalance && (
-          <div className="space-y-5 animate-slide-up">
-            <div className="card p-5 bg-tertiary">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-muted font-medium">Amount to Bridge</label>
-                <button
-                  onClick={handleMaxClick}
-                  className="text-xs btn-primary py-1 px-3 rounded-md font-semibold hover:opacity-90"
-                >
-                  MAX
-                </button>
-              </div>
-              <div className="relative mt-2">
-                <input
-                  type="text"
-                  value={amount}
-                  onChange={handleAmountChange}
-                  placeholder="0.00"
-                  className="input text-3xl font-bold pr-24 py-3 bg-transparent border-none shadow-none focus:ring-0 w-full"
-                  disabled={isChainSwitching}
-                />
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-2 bg-secondary py-1.5 px-3 rounded-xl border border-color">
-                  <img
-                    src={ICONS[selectedToken]}
-                    alt={selectedToken}
-                    className="w-6 h-6 rounded-full"
-                  />
-                  <span className="text-primary font-bold">{selectedToken}</span>
-                </div>
-              </div>
-              {hasInsufficientBalance && amount && (
-                <p className="text-danger text-sm mt-2 flex items-center gap-1">
-                  <AlertCircle size={14} /> Insufficient balance
-                </p>
-              )}
-              {isAmountTooSmall && (
-                <p className="text-danger text-sm mt-2 flex items-center gap-1">
-                  <AlertCircle size={14} /> Minimum amount is 0.01
-                </p>
-              )}
-            </div>
-
-            <div className="card p-5 border-brand-primary/20 bg-brand-primary/5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <img src={ICONS.STELLAR_USDC} alt="USDC" className="w-10 h-10 rounded-full" />
-                  <div>
-                    <span className="text-xs font-semibold text-brand-primary block uppercase tracking-wide">
-                      You Receive on Stellar
-                    </span>
-                    <span className="font-bold text-primary text-2xl mt-0.5 block">
-                      {isLoadingQuote ? (
-                        <Loader2 size={24} className="animate-spin" />
-                      ) : quoteData ? (
-                        `~${parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4)} USDC`
-                      ) : amount && parseFloat(amount) > 0 ? (
-                        '...'
-                      ) : (
-                        '0.00 USDC'
-                      )}
-                    </span>
-                  </div>
-                </div>
-                <span className="badge bg-brand text-white font-bold px-3 py-1">Stellar</span>
-              </div>
-            </div>
-
-            {quoteData && !isLoadingQuote && (
-              <div className="card p-5 space-y-4">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted font-medium">Rate</span>
-                  <span className="text-primary font-bold">
-                    1 {selectedToken} ≈ {parseFloat(quoteData.quotes.conversionRate).toFixed(4)}{' '}
-                    USDC
-                  </span>
-                </div>
-
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted font-medium">Slippage Tolerance</span>
-                  <span className="text-primary font-bold">
-                    {quoteData.quotes.slippageTolerance}%
-                  </span>
-                </div>
-
-                <div className="divider my-2" />
-                <div>
-                  <label className="text-xs text-muted mb-3 block font-medium uppercase tracking-wide">
-                    Pay Relayer Fee With
-                  </label>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setSelectedFeeType('native')}
-                      className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all border ${
-                        selectedFeeType === 'native'
-                          ? 'btn-primary border-transparent'
-                          : 'bg-tertiary text-secondary border-color hover:border-brand'
-                      }`}
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        <img src={ICONS[selectedNetwork]} alt="" className="w-5 h-5 rounded-full" />
-                        <span>
-                          {parseFloat(quoteData.quotes.fee.native.amount).toFixed(5)}{' '}
-                          {quoteData.quotes.fee.native.symbol}
-                        </span>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setSelectedFeeType('stablecoin')}
-                      className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all border ${
-                        selectedFeeType === 'stablecoin'
-                          ? 'btn-primary border-transparent'
-                          : 'bg-tertiary text-secondary border-color hover:border-brand'
-                      }`}
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        <img src={ICONS[selectedToken]} alt="" className="w-5 h-5 rounded-full" />
-                        <span>
-                          {parseFloat(quoteData.quotes.fee.stablecoin.amount).toFixed(3)}{' '}
-                          {quoteData.quotes.fee.stablecoin.symbol}
-                        </span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-sm bg-tertiary p-3 rounded-lg mt-2">
-                  <span className="text-muted flex items-center gap-1.5 font-medium">
-                    <Clock size={16} />
-                    Estimated Time
-                  </span>
-                  <span className="text-primary font-bold">
-                    {formatTime(quoteData.quotes.completionTime)}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className="card bg-danger-bg text-danger p-4 text-sm flex items-center gap-2 font-medium">
-                <AlertCircle size={18} />
-                {error}
-              </div>
-            )}
-
-            <StellarActiveGuard onSkip={() => {}}>
-              <button
-                onClick={handleProceed}
-                disabled={
-                  !quoteData ||
-                  !isValidAmount ||
-                  isLoadingQuote ||
-                  isChainSwitching ||
-                  isPreparingBridge ||
-                  txStatus === 'success'
-                }
-                className={`btn w-full btn-lg gap-2 py-4 text-lg rounded-xl mt-2 ${txStatus === 'success' ? 'btn-success' : 'btn-primary'}`}
-              >
+        <div className="pt-2">
+          <StellarActiveGuard onSkip={() => { }}>
+            <button
+              onClick={handleProceed}
+              disabled={
+                !quoteData ||
+                !isValidAmount ||
+                isLoadingQuote ||
+                isChainSwitching ||
+                isPreparingBridge ||
+                txStatus === 'success'
+              }
+              className={`btn w-full btn-lg gap-2 py-4 text-lg rounded-2xl shadow-xl shadow-brand/10 hover:scale-[1.02] active:scale-[0.98] transition-all ${txStatus === 'success' ? 'btn-success' : 'btn-primary disabled:opacity-50 disabled:grayscale'}`}
+            >
+              <div className="flex items-center justify-center gap-2 relative z-10">
                 {txStatus === 'success' ? (
                   <>
-                    <CheckCircle size={22} />
-                    Bridge Complete!
+                    <CheckCircle size={22} className="animate-in zoom-in duration-300" /> Bridge Complete!
                   </>
                 ) : txStatus === 'approving' ? (
                   <>
-                    <Loader2 size={22} className="animate-spin" />
-                    Approving Token...
+                    <Loader2 size={22} className="animate-spin" /> Approving Token...
                   </>
                 ) : txStatus === 'transferring' ? (
                   <>
-                    <Loader2 size={22} className="animate-spin" />
-                    Bridging to Stellar...
+                    <Loader2 size={22} className="animate-spin" /> Bridging to Stellar...
                   </>
                 ) : txStatus === 'preparing' ? (
                   <>
-                    <Loader2 size={22} className="animate-spin" />
-                    Preparing Transaction...
+                    <Loader2 size={22} className="animate-spin" /> Preparing Transaction...
                   </>
                 ) : isLoadingQuote ? (
                   <>
-                    <Loader2 size={22} className="animate-spin" />
-                    Getting Best Quote...
+                    <Loader2 size={22} className="animate-spin" /> Getting Quote...
                   </>
                 ) : (
                   <>
                     Bridge to Stellar
-                    <ArrowRight size={22} />
                   </>
                 )}
-              </button>
-            </StellarActiveGuard>
-          </div>
-        )}
+              </div>
+              {isValidAmount && txStatus !== 'success' && (
+                <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 -translate-x-full group-hover:animate-shimmer" />
+              )}
+            </button>
+          </StellarActiveGuard>
+        </div>
       </div>
     </>
   );

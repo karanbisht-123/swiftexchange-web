@@ -94,7 +94,7 @@ class WebSocketManager {
 
   private throttleMap = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly THROTTLE_INTERVALS: Record<string, number> = {
-    v4_markets: 500,
+    v4_markets: 50,
     v4_candles: 0,
     v4_block_height: 1000,
     v4_trades: 0,
@@ -103,13 +103,29 @@ class WebSocketManager {
     v4_parent_subaccounts: 0,
   };
 
+  // ── Stale-channel detection ──────────────────────────────────────────────
+  // These thresholds trigger a re-subscribe if a channel goes quiet for too long.
+  //
+  // IMPORTANT: v4_parent_subaccounts and v4_subaccounts are intentionally
+  // EXCLUDED here. Those channels only send data when there is actual account
+  // activity (new order, fill, funding, etc.). When the user is idle there are
+  // NO updates — that is expected behaviour, not a stale channel.
+  //
+  // Connection liveness is guaranteed by TWO independent mechanisms:
+  //   1. RFC 6455 protocol-level ping/pong: dYdX server → ping frame every 30 s;
+  //      the browser's native WebSocket API auto-replies with a pong frame.
+  //   2. Application-level { type:"ping" } / { type:"pong" } sent by our
+  //      startPing() every 30 s — we close + reconnect if server stops replying.
+  //
+  // Market/block-height channels always stream data, so lastMessageTime stays
+  // fresh and the overall CONNECTION_TIMEOUT health check never trips.
   private readonly CHANNEL_STALE_THRESHOLDS: Record<string, number> = {
-    v4_trades: 45000,
-    v4_orderbook: 45000,
-    v4_markets: 90000,
-    v4_candles: 90000,
-    v4_parent_subaccounts: 60000,
-    v4_block_height: 60000,
+    v4_trades: 60_000,
+    v4_orderbook: 60_000,
+    v4_markets: 60_000,
+    v4_candles: 120_000,
+    v4_block_height: 60_000,
+    // v4_subaccounts / v4_parent_subaccounts intentionally omitted
   };
 
   private readonly HIGH_PRIORITY_CHANNELS = new Set([
@@ -605,17 +621,27 @@ class WebSocketManager {
 
     this.pingInterval = setInterval(() => {
       if (!this.isConnected()) return;
+
       if (!this.pongReceived) {
-        this.missedPongs = Math.min(this.missedPongs + 1, this.MAX_MISSED_PONGS);
+        this.missedPongs++;
+        if (this.missedPongs >= this.MAX_MISSED_PONGS) {
+          console.warn(
+            `[WS] ${this.missedPongs} missed pongs — closing connection to force reconnect`
+          );
+          this.missedPongs = 0;
+          this.pongReceived = true;
+          this.ws?.close(1000, 'missed pongs');
+          return;
+        }
+      } else {
+        this.missedPongs = 0;
       }
 
       this.pongReceived = false;
       try {
-
         this.ws!.send(JSON.stringify({ type: 'ping' }));
       } catch (error) {
         console.error('[WS] Ping send failed:', error);
-
         this.ws?.close();
       }
     }, this.PING_INTERVAL);

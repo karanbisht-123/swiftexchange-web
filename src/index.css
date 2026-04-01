@@ -441,6 +441,7 @@
    UTILITIES
 -------------------------- */
 @layer utilities {
+
   /* Borders */
   .border-color {
     border-color: var(--color-border);
@@ -664,8 +665,29 @@
   }
 }
 
+@keyframes pulseSubtle {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.85;
+    transform: scale(0.98);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .animate-pulse-once {
   animation: pulseOnce 0.5s ease-in-out;
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 3s ease-in-out infinite;
 }
 
 .hide-scrollbar::-webkit-scrollbar {

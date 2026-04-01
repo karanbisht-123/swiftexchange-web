@@ -97,6 +97,7 @@ class DydxSubaccountService {
 
     return nextNumber;
   }
+
   validateIsolatedEquity(
     subaccountNumber: number,
     childSubaccounts: Array<{
@@ -167,6 +168,62 @@ class DydxSubaccountService {
     };
   }
 
+  async sweepSubaccountToCross(
+    subaccountNumber: number
+  ): Promise<{ success: boolean; swept: number; error?: string }> {
+    try {
+      const indexerClient = dydxWalletService.getIndexerClient();
+      const address = dydxWalletService.getAddress();
+
+      if (!address) throw new Error('Wallet not connected');
+
+      let equity = 0;
+      let freeCollateral = 0;
+      let hasPositions = false;
+
+      try {
+        const subaccountResponse = await indexerClient.account.getSubaccount(
+          address,
+          subaccountNumber
+        );
+        equity = parseFloat(subaccountResponse.subaccount?.equity || '0');
+        freeCollateral = parseFloat(subaccountResponse.subaccount?.freeCollateral || '0');
+        const positions = subaccountResponse.subaccount?.openPerpetualPositions || {};
+        hasPositions = Object.keys(positions).length > 0;
+      } catch {
+        return { success: true, swept: 0 };
+      }
+
+      if (hasPositions) {
+        return { success: false, swept: 0, error: 'Subaccount still has open positions' };
+      }
+
+      if (equity <= 0.01) {
+        return { success: true, swept: 0 };
+      }
+
+      const sweepAmount = freeCollateral > 0 ? freeCollateral : equity;
+      if (sweepAmount <= 0.01) {
+        return { success: true, swept: 0 };
+      }
+
+      const result = await this.transfer(
+        subaccountNumber,
+        SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT,
+        sweepAmount.toFixed(6)
+      );
+
+      if (result.success) {
+        return { success: true, swept: sweepAmount };
+      }
+
+      return { success: false, swept: 0, error: result.error };
+    } catch (error: any) {
+      console.error('[dydxSubaccountService] sweepSubaccountToCross failed:', error);
+      return { success: false, swept: 0, error: error.message };
+    }
+  }
+
   async ensureIsolatedEquity(
     targetSubaccount: number,
     requiredAmount: number
@@ -177,16 +234,29 @@ class DydxSubaccountService {
 
       if (!address) throw new Error('Wallet not connected');
 
-      let currentEquity = 0;
-      try {
-        const subaccountResponse = await indexerClient.account.getSubaccount(
-          address,
-          targetSubaccount
-        );
-        currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
-      } catch (err: any) {
-        currentEquity = 0;
-      }
+      const [currentEquityResult, crossCollateralResult] = await Promise.allSettled([
+        (async () => {
+          try {
+            const subaccountResponse = await indexerClient.account.getSubaccount(
+              address,
+              targetSubaccount
+            );
+            return parseFloat(subaccountResponse.subaccount?.equity || '0');
+          } catch {
+            return 0;
+          }
+        })(),
+        (async () => {
+          const crossSubResponse = await indexerClient.account.getSubaccount(
+            address,
+            SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
+          );
+          return parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
+        })(),
+      ]);
+
+      const currentEquity =
+        currentEquityResult.status === 'fulfilled' ? currentEquityResult.value : 0;
 
       if (currentEquity >= requiredAmount) {
         return { success: true, transferredAmount: 0 };
@@ -197,27 +267,21 @@ class DydxSubaccountService {
         return { success: true, transferredAmount: 0 };
       }
 
-      let crossFreeCollateral = 0;
-      try {
-        const crossSubResponse = await indexerClient.account.getSubaccount(
-          address,
-          SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
-        );
-        crossFreeCollateral = parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
-
-        if (crossFreeCollateral < shortfall) {
-          return {
-            success: false,
-            transferredAmount: 0,
-            error: `Insufficient free collateral in Cross Margin. Need $${shortfall.toFixed(2)}, available $${crossFreeCollateral.toFixed(2)}`,
-          };
-        }
-      } catch (err: any) {
-        console.error('[dydxSubaccountService] Failed to check cross margin balance:', err.message);
+      if (crossCollateralResult.status === 'rejected') {
         return {
           success: false,
           transferredAmount: 0,
-          error: `Failed to verify cross margin balance: ${err.message}`,
+          error: `Failed to verify cross margin balance: ${crossCollateralResult.reason?.message}`,
+        };
+      }
+
+      const crossFreeCollateral = crossCollateralResult.value;
+
+      if (crossFreeCollateral < shortfall) {
+        return {
+          success: false,
+          transferredAmount: 0,
+          error: `Insufficient free collateral in Cross Margin. Need $${shortfall.toFixed(2)}, available $${crossFreeCollateral.toFixed(2)}`,
         };
       }
 
@@ -260,7 +324,6 @@ class DydxSubaccountService {
       const subPositions = positions.filter(p => p.subaccountNumber === subNumber);
       if (subPositions.length === 0) return;
 
-      // Calculate total required margin for all positions in this subaccount (should be 1 for isolated)
       let totalMinRequired = 0;
       subPositions.forEach(p => {
         const mktData = marketCache[p.market];
@@ -268,13 +331,11 @@ class DydxSubaccountService {
         const mmf = mktData?.maintenanceMarginFraction ? parseFloat(mktData.maintenanceMarginFraction) : 0.03;
         const size = Math.abs(parseFloat(p.size));
         const notional = size * oraclePrice;
-        
-        // Safety buffer of 1.10
         totalMinRequired += notional * mmf * 1.10;
       });
 
       const transferable = Math.max(0, equity - totalMinRequired);
-      
+
       if (transferable > 0) {
         eligible.push({
           value: subNumber,
@@ -298,30 +359,27 @@ class DydxSubaccountService {
         return await this.transfer(fromSubaccount, toSubaccount, amount);
       }
 
-      // Both are isolated subaccounts, try direct transfer
       const directResult = await this.transfer(fromSubaccount, toSubaccount, amount);
-      
+
       if (directResult.success) {
         return directResult;
       }
-      
-      // If direct transfer fails, attempt 2-hop routing via cross (subaccount 0)
+
       console.warn('[dydxSubaccountService] Direct isolated transfer failed, attempting 2-hop routing', directResult.error);
-      
+
       const toCrossResult = await this.transfer(fromSubaccount, 0, amount);
       if (!toCrossResult.success) {
         return toCrossResult;
       }
-      
+
       const toDestResult = await this.transfer(0, toSubaccount, amount);
       if (!toDestResult.success) {
-        // If the second hop fails, the funds are stuck in cross
         return {
           ...toDestResult,
           error: `Partial transfer failure: Funds moved to Cross but failed to reach destination. ${toDestResult.error}`
         };
       }
-      
+
       return {
         success: true,
         transactionHash: toDestResult.transactionHash,

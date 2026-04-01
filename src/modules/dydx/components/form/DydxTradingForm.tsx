@@ -7,6 +7,7 @@ import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useMarkets } from '../../hooks/useMarkets';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
 import useMarketStore from '../../store/marketStore';
+import useOrderPreviewStore from '../../store/orderPreviewStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
 import {
@@ -91,6 +92,9 @@ export const DydxTradingForm: React.FC = () => {
   const { balance } = useDydxWallet();
   const { placeOrder, isPlacingOrder, orderError, clearOrderError, canTrade } = useDydxTrading();
   const { activeSubaccountNumber, getNextIsolatedSubaccount, childSubaccounts } = useSubaccounts();
+  // Margin preview published by OrderReceipt — used for optimistic balance deduction
+  // and the mobile projected-balance display.
+  const pendingMarginRequired = useOrderPreviewStore(s => s.pendingMarginRequired);
 
   const [orderType, setOrderType] = useState<OrderTypeEnum>('LIMIT');
   const [side, setSide] = useState<OrderSideEnum>('BUY');
@@ -441,6 +445,9 @@ export const DydxTradingForm: React.FC = () => {
       }
     }
 
+    // Pass the margin estimate so useDydxTrading can immediately deduct it from
+    // freeCollateral in the store, giving instant balance feedback without waiting
+    // for the WS block confirmation (1–3 s).
     const result = await placeOrder({
       market: selectedMarket,
       side,
@@ -458,7 +465,7 @@ export const DydxTradingForm: React.FC = () => {
       leverage,
       takeProfitPrice: finalTpPrice,
       stopLossPrice: finalSlPrice,
-    });
+    }, pendingMarginRequired);
 
     if (result.success) {
       addNotification(
@@ -515,7 +522,7 @@ export const DydxTradingForm: React.FC = () => {
                 </span>
                 <span className="text-base text-sm font-semibold text-white">
                   $
-                  {Number(balance.equity).toLocaleString('en-US', {
+                  {Number(balance.totalEquity).toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}
@@ -524,13 +531,30 @@ export const DydxTradingForm: React.FC = () => {
               <div className="w-px h-8 bg-gray-700/50" />
               <div className="flex flex-col">
                 <span className="text-[8px] uppercase tracking-wider text-gray-500">Available</span>
-                <span className="text-base text-sm font-semibold text-emerald-400">
-                  $
-                  {Number(balance.freeCollateral).toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
+                {pendingMarginRequired > 0 ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-medium text-gray-400 line-through opacity-60">
+                      ${Number(balance.freeCollateral).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    <span className="text-xs text-gray-400">→</span>
+                    <span className="text-sm font-semibold text-emerald-400">
+                      ${Math.max(0, Number(balance.freeCollateral) - pendingMarginRequired).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-base text-sm font-semibold text-emerald-400">
+                    ${Number(balance.freeCollateral).toLocaleString('en-US', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                )}
               </div>
             </div>
           </div>

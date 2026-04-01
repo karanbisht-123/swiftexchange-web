@@ -14,7 +14,7 @@ import type {
 } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
-import { getEVMChains } from '../../evm/utils/Chainregistry';
+import { getEVMChains } from '../../walletconnect/config/chains';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
@@ -460,7 +460,7 @@ export const useSendAsset = (onBack?: () => void) => {
     console.log(label);
     try {
       await navigator.clipboard.writeText(text);
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {

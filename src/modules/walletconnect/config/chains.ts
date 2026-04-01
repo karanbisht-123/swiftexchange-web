@@ -4,6 +4,8 @@ export interface EVMChainConfig {
   rpcUrl: string;
   fallbackRpcUrls?: string[];
   nativeCurrency: {
+    coingeckoId: any;
+    logoURI: any;
     name: string;
     symbol: string;
     decimals: number;
@@ -38,9 +40,28 @@ export interface StellarChainConfig {
 
 export type NetworkType = 'mainnet' | 'testnet';
 
-import { getEVMChains as getRegistryEVMChains } from '../../evm/utils/Chainregistry';
 
-export const EVM_CHAINS_MAINNET: EVMChainConfig[] = getRegistryEVMChains('mainnet');
+import { getChainsForNetwork } from '../../evm/utils/Chainregistry';
+
+export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
+  const chains = getChainsForNetwork(network);
+
+  return chains.map((c) => ({
+    chainId: c.chainId,
+    name: c.name,
+    rpcUrl: c.rpcUrl,
+    fallbackRpcUrls: c.fallbackRpcUrls,
+    nativeCurrency: {
+      name: c.nativeCurrency.name,
+      symbol: c.nativeCurrency.symbol,
+      decimals: c.nativeCurrency.decimals,
+      coingeckoId: c.nativeCurrency.coingeckoId,
+      logoURI: c.nativeCurrency.logoURI,
+    },
+    blockExplorerUrl: c.blockExplorerUrl,
+    logoUrl: c.logoURI || "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png" || '',
+  }));
+};
 
 export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
   {
@@ -83,8 +104,6 @@ export const STELLAR_CONFIG_MAINNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-export const EVM_CHAINS_TESTNET: EVMChainConfig[] = getRegistryEVMChains('testnet');
-
 export const COSMOS_CHAINS_TESTNET: CosmosChainConfig[] = [
   {
     chainId: 'dydx-testnet-4',
@@ -126,10 +145,6 @@ export const STELLAR_CONFIG_TESTNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
-  return network === 'mainnet' ? EVM_CHAINS_MAINNET : EVM_CHAINS_TESTNET;
-};
-
 export const getCosmosChains = (network: NetworkType): CosmosChainConfig[] => {
   return network === 'mainnet' ? COSMOS_CHAINS_MAINNET : COSMOS_CHAINS_TESTNET;
 };
@@ -154,7 +169,7 @@ export const buildUnifiedNamespaces = (
   requiredNamespaces: Record<string, unknown>;
   optionalNamespaces: Record<string, unknown>;
 } => {
-  const evmChains = getEVMChains(network).map(c => `eip155:${c.chainId}`);
+  const evmChains = getEVMChains(network).map((c) => `eip155:${c.chainId}`);
   const stellarConfig = getStellarConfig(network);
   const stellarChain = `stellar:${stellarConfig.chainId}`;
 
