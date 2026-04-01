@@ -8,6 +8,7 @@ import {
   Clock,
   Info,
   Loader2,
+  RefreshCw,
   X,
   Zap,
 } from 'lucide-react';
@@ -19,16 +20,12 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { useSubaccounts } from '../hooks/useSubaccounts';
 import {
-  clearPendingTx,
-  loadPendingTx,
-  savePendingTx,
   useTransactionTracker,
+  useTransactionStore,
 } from '../hooks/useTransactionTracker';
 import { TransactionTracker } from './TransactionTracker';
 import { validateDepositAmount } from '../utils/inputValidation';
 import { NATIVE_WALLET_GAS_RESERVE_USD } from '../utils/skipBridgeUtils';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ModalStep = 'form' | 'select_token' | 'tracker';
 
@@ -38,8 +35,6 @@ interface DydxDepositModalProps {
   initialAsset?: Asset | null;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const PRIORITY_SYMBOLS = ['USDC', 'USDT', 'ETH'];
 
 const CHAIN_ICONS: Record<string, string> = {
@@ -47,13 +42,7 @@ const CHAIN_ICONS: Record<string, string> = {
   BNB: 'https://tokens.pancakeswap.finance/images/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c.png',
 };
 
-/**
- * The bridge route display: source chain → Noble → dYdX
- * Mirrors the withdrawal modal's RoutePill pattern.
- */
 const DEPOSIT_ROUTE = ['Your Wallet', 'Noble', 'dYdX'] as const;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getChainIconUrl = (asset: Asset): string | undefined => {
   if (asset.chainId === 1) return CHAIN_ICONS.ETH;
@@ -62,8 +51,6 @@ const getChainIconUrl = (asset: Asset): string | undefined => {
   if (asset.chainName?.includes('BNB')) return CHAIN_ICONS.BNB;
   return undefined;
 };
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 const AssetIcon = ({ asset, size = 'md' }: { asset: Asset; size?: 'sm' | 'md' }) => {
   const chainIcon = getChainIconUrl(asset);
@@ -126,9 +113,6 @@ const AssetRow = ({
   );
 };
 
-/**
- * Mirrors the withdrawal modal's RoutePill — shows the hop chain path.
- */
 const RoutePill: React.FC = () => (
   <div className="flex items-center gap-1.5 text-[11px] text-muted bg-secondary border border-color rounded-full px-3 py-1.5 w-fit mx-auto">
     {DEPOSIT_ROUTE.map((chain, i) => (
@@ -150,10 +134,6 @@ const RoutePill: React.FC = () => (
   </div>
 );
 
-/**
- * Deposit progress steps — mirrors StepTracker in the withdrawal modal.
- * Maps to `DepositStep` from `useDydxDeposit`.
- */
 const DEPOSIT_STEPS = [
   { key: 'routing', label: 'Route', sublabel: 'Find best path' },
   { key: 'signing_evm', label: 'Sign', sublabel: 'Approve in wallet' },
@@ -161,7 +141,7 @@ const DEPOSIT_STEPS = [
   { key: 'transferring', label: 'dYdX', sublabel: 'Enter account' },
 ] as const;
 
-type DepositProgressStep = typeof DEPOSIT_STEPS[number]['key'];
+type DepositProgressStep = (typeof DEPOSIT_STEPS)[number]['key'];
 
 const DepositStepTracker: React.FC<{ currentStep: string; isActive: boolean }> = ({
   currentStep,
@@ -174,9 +154,7 @@ const DepositStepTracker: React.FC<{ currentStep: string; isActive: boolean }> =
   return (
     <div className="w-full">
       <div className="relative pb-10">
-        {/* Track */}
         <div className="absolute top-[18px] left-[10%] right-[10%] h-[2px] bg-color rounded-full z-0" />
-        {/* Fill */}
         <div
           className="absolute top-[18px] left-[10%] h-[2px] bg-brand rounded-full z-0 transition-all duration-700 ease-out"
           style={{ width: `${fillPct * 0.8}%` }}
@@ -200,9 +178,7 @@ const DepositStepTracker: React.FC<{ currentStep: string; isActive: boolean }> =
                         ? 'bg-secondary border-brand'
                         : 'bg-secondary border-color',
                   ].join(' ')}
-                  style={
-                    isCurrent ? { boxShadow: '0 0 0 4px rgba(99,102,241,0.15)' } : undefined
-                  }
+                  style={isCurrent ? { boxShadow: '0 0 0 4px rgba(99,102,241,0.15)' } : undefined}
                 >
                   {isPast ? (
                     <CheckCircle2 className="w-[14px] h-[14px] text-white" />
@@ -241,10 +217,6 @@ const DepositStepTracker: React.FC<{ currentStep: string; isActive: boolean }> =
   );
 };
 
-/**
- * ModalShell — bottom sheet on mobile, centered modal on desktop.
- * Mirrors DydxWithdrawModal's ModalShell exactly.
- */
 const ModalShell: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({
   onClose,
   children,
@@ -268,8 +240,6 @@ const ModalShell: React.FC<{ onClose: () => void; children: React.ReactNode }> =
     </div>
   </div>
 );
-
-// ─── Main modal ───────────────────────────────────────────────────────────────
 
 export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   isOpen,
@@ -298,41 +268,29 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const evmChainId = Number(evmWallet?.chainId ?? 1);
 
-  // ── Modal navigation ────────────────────────────────────────────────────────
   const [modalStep, setModalStep] = useState<ModalStep>('form');
 
-  // ── Form state ──────────────────────────────────────────────────────────────
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [amount, setAmount] = useState('');
   const [goFast, setGoFast] = useState(false);
   const [slippage, setSlippage] = useState('1');
   const [showVolatilityWarning, setShowVolatilityWarning] = useState(true);
 
-  // ── Tracker state ───────────────────────────────────────────────────────────
-  // Initialise directly from localStorage so there is no render-cycle race.
-  const [trackerTxHash, setTrackerTxHash] = useState<string | null>(() => loadPendingTx()?.txHash ?? null);
-  const [trackerChainId, setTrackerChainId] = useState<string | null>(() => loadPendingTx()?.chainId ?? null);
+  const store = useTransactionStore();
+  const tracker = useTransactionTracker('deposit');
+  
+  const trackerTxHash = tracker.txHash;
+  const trackerChainId = tracker.chainId;
+  const withdrawTxStatus = store.withdrawTx?.status;
 
-  const tracker = useTransactionTracker(trackerTxHash, trackerChainId);
+  const hasPendingTracker = !!trackerTxHash && tracker.hasPolledOnce && !tracker.isTerminal;
+  const isDepositLocked = hasPendingTracker || withdrawTxStatus === 'pending';
 
-  /**
-   * Whether a tracked transfer is still in-flight.
-   * We treat the tracker as "pending" until it has actually resolved to a
-   * terminal state — not just until it returns the default EMPTY_RESULT
-   * (which has isTerminal: false before polling starts).
-   *
-   * We guard with `!!trackerTxHash` so we never lock when there's no tx.
-   */
-  const hasPendingTracker = !!trackerTxHash && !tracker.isTerminal;
-
-  // ── Routing to tracker on open ──────────────────────────────────────────────
-  // Use a ref so this runs only once per open event, not on every re-render.
-  const hasRoutedOnOpenRef = useRef(false);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
-      // Reset everything when modal closes.
-      hasRoutedOnOpenRef.current = false;
+      wasOpenRef.current = false;
       setModalStep('form');
       setAmount('');
       setSelectedAsset(null);
@@ -343,24 +301,16 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
       return;
     }
 
-    if (hasRoutedOnOpenRef.current) return;
-    hasRoutedOnOpenRef.current = true;
+    if (wasOpenRef.current) return;
+    wasOpenRef.current = true;
 
-    // On first open, check for a persisted pending tx.
-    const pending = loadPendingTx();
-    if (pending) {
-      setTrackerTxHash(pending.txHash);
-      setTrackerChainId(pending.chainId);
-      // We route to tracker unconditionally here. The tracker itself will
-      // immediately start polling and expose isTerminal = true if the tx has
-      // already completed, at which point the Done/Dismiss button appears.
+    if (store.depositTx) {
       setModalStep('tracker');
     }
 
     checkPendingDeposit();
   }, [isOpen, reset, checkPendingDeposit]);
 
-  // ── Asset selection defaults ─────────────────────────────────────────────────
   useEffect(() => {
     if (isOpen) {
       if (initialAsset) {
@@ -373,7 +323,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     }
   }, [isOpen, assets, initialAsset]);
 
-  // ── Route fetching ───────────────────────────────────────────────────────────
   useEffect(() => {
     const parsed = parseFloat(amount);
     if (selectedAsset && parsed > 0) {
@@ -384,7 +333,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     }
   }, [amount, selectedAsset, getRoute, evmChainId, goFast]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────────
   const handleSelectAsset = useCallback((asset: Asset) => {
     setSelectedAsset(asset);
     setAmount('');
@@ -410,22 +358,17 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
     if (result.txHash) {
       const cid = String(evmChainId);
-      setTrackerTxHash(result.txHash);
-      setTrackerChainId(cid);
-      savePendingTx({ txHash: result.txHash, chainId: cid, startedAt: Date.now() });
+      store.setDepositTx({ txHash: result.txHash, chainId: cid, startedAt: Date.now(), status: 'pending' });
       setModalStep('tracker');
     }
-  }, [selectedAsset, amount, deposit, evmChainId, goFast, slippage]);
+  }, [selectedAsset, amount, deposit, evmChainId, goFast, slippage, store]);
 
   const handleDismissTracker = useCallback(() => {
-    clearPendingTx();
-    setTrackerTxHash(null);
-    setTrackerChainId(null);
-  }, []);
+    store.clearDepositTx();
+  }, [store]);
 
   const handleShowTracker = useCallback(() => setModalStep('tracker'), []);
 
-  // ── Derived values ───────────────────────────────────────────────────────────
   const sortedAssets = useMemo(() => {
     return [...assets].sort((a, b) => {
       const aIdx = PRIORITY_SYMBOLS.indexOf(a.symbol.toUpperCase());
@@ -438,7 +381,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   }, [assets]);
 
   const yourTokens = useMemo(() => sortedAssets.filter(a => (a.balance || 0) > 0), [sortedAssets]);
-  const otherTokens = useMemo(() => sortedAssets.filter(a => (a.balance || 0) === 0), [sortedAssets]);
+  const otherTokens = useMemo(
+    () => sortedAssets.filter(a => (a.balance || 0) === 0),
+    [sortedAssets]
+  );
 
   const amountValue = parseFloat(amount) || 0;
   const walletBalance = selectedAsset?.balance || 0;
@@ -458,20 +404,16 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   );
 
   const equityAfter = parseFloat(totalEquity) + (route?.receivedAmount ?? displayUsd);
-  const isDepositLocked = hasPendingTracker;
 
-  // Auto-disable goFast if amount is too low.
   useEffect(() => {
     if (displayUsd > 0 && displayUsd < 20 && goFast) setGoFast(false);
   }, [displayUsd, goFast]);
 
   if (!isOpen) return null;
 
-  // ── TRACKER SCREEN ──────────────────────────────────────────────────────────
   if (modalStep === 'tracker') {
     return (
       <ModalShell onClose={onClose}>
-        {/* Fixed header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0 border-b border-color">
           <div className="flex items-center gap-2.5">
             {hasPendingTracker ? (
@@ -481,32 +423,34 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             )}
             <h3 className="text-base font-semibold text-primary">Transfer Status</h3>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {tracker.isTerminal && (
+              <button
+                onClick={tracker.refresh}
+                className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
+                title="Refresh status"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 px-5 py-5 flex flex-col gap-4">
-          {/* Amount card — if we have route data */}
           {trackerTxHash && (
             <div className="rounded-xl border border-color bg-tertiary p-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <div className="text-xs text-muted mb-0.5">Depositing</div>
                   <div className="text-2xl font-bold text-primary tracking-tight">
-                    {amount ? (
-                      <>
-                        {parseFloat(amount).toLocaleString(undefined, {
-                          maximumFractionDigits: 6,
-                        })}
-                        <span className="text-sm font-normal text-muted ml-1.5">
-                          {selectedAsset?.symbol ?? 'USDC'}
-                        </span>
-                      </>
+                    {store.depositTx ? (
+                      <span className="text-base text-muted font-normal">Active Progress</span>
                     ) : (
                       <span className="text-base text-muted font-normal">In Progress</span>
                     )}
@@ -525,11 +469,13 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                     {hasPendingTracker && (
                       <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block shrink-0" />
                     )}
-                    {hasPendingTracker
-                      ? stepLabel || 'Bridging…'
-                      : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
-                        ? 'Completed'
-                        : 'Failed'}
+                    {!tracker.hasPolledOnce
+                      ? 'Indexing…'
+                      : hasPendingTracker
+                        ? 'Bridging…'
+                        : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
+                          ? 'Completed'
+                          : 'Failed'}
                   </div>
                 </div>
               </div>
@@ -537,8 +483,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </div>
           )}
 
-          {/* Step tracker — shown while deposit hook is still running */}
-          {isLoading && (
+          {isLoading && !trackerTxHash && (
             <div className="rounded-xl border border-color bg-tertiary px-4 pt-4 pb-1">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted mb-3">
                 Progress
@@ -547,7 +492,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </div>
           )}
 
-          {/* Skip cross-chain tracker */}
           {trackerTxHash && trackerChainId && (
             <TransactionTracker
               txHash={trackerTxHash}
@@ -562,11 +506,27 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             />
           )}
 
+          {!tracker.hasPolledOnce && trackerTxHash && (
+            <div className="flex items-center gap-3 py-3 px-4 rounded-xl bg-brand/5 border border-brand/20">
+              <Loader2 className="w-4 h-4 text-brand animate-spin flex-shrink-0" />
+              <div className="text-sm text-muted">Waiting for Skip to index the transaction…</div>
+            </div>
+          )}
+
+          {tracker.isError && !hasPendingTracker && (
+            <button
+              onClick={tracker.refresh}
+              className="w-full py-2.5 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh status
+            </button>
+          )}
+
           <p className="text-[11px] text-muted text-center leading-relaxed">
             Safe to close — we'll track progress in the background.
           </p>
 
-          {/* Terminal actions */}
           {tracker.isTerminal && (
             <button
               onClick={() => {
@@ -579,8 +539,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </button>
           )}
 
-          {/* Back to form while still pending (non-locked state) */}
-          {!tracker.isTerminal && !isLoading && (
+          {!tracker.isTerminal && !isLoading && tracker.hasPolledOnce && (
             <button
               onClick={() => setModalStep('form')}
               className="w-full py-3 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors"
@@ -593,11 +552,9 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     );
   }
 
-  // ── TOKEN SELECTOR SCREEN ───────────────────────────────────────────────────
   if (modalStep === 'select_token') {
     return (
       <ModalShell onClose={onClose}>
-        {/* Fixed header */}
         <div className="flex items-center gap-3 px-5 pt-5 pb-3 shrink-0 border-b border-color">
           <button
             onClick={() => setModalStep('form')}
@@ -608,7 +565,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           <h3 className="text-lg font-semibold text-primary">Select token</h3>
         </div>
 
-        {/* Scrollable list */}
         <div className="overflow-y-auto flex-1 pb-4 px-3">
           {yourTokens.length > 0 && (
             <div className="mb-4 mt-2">
@@ -656,10 +612,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     );
   }
 
-  // ── MAIN FORM SCREEN ────────────────────────────────────────────────────────
   return (
     <ModalShell onClose={onClose}>
-      {/* Fixed header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0 border-b border-color">
         <h3 className="text-xl font-medium text-primary flex items-center gap-2">
           Deposit
@@ -685,11 +639,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
         </div>
       </div>
 
-      {/* Scrollable body */}
       <div className="overflow-y-auto flex-1 px-5 py-5 space-y-3">
-
-        {/* Pending transfer banner */}
-        {isDepositLocked && (
+        {hasPendingTracker && withdrawTxStatus !== 'pending' && (
           <div className="flex items-start gap-3 p-3 bg-brand/5 border border-brand/20 rounded-xl">
             <Loader2 className="w-4 h-4 text-brand animate-spin flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
@@ -708,7 +659,18 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {/* Amount + token selector */}
+        {withdrawTxStatus === 'pending' && (
+          <div className="flex items-start gap-3 p-3 bg-danger/10 border border-danger/20 rounded-xl">
+            <Activity className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-danger">Withdrawal in progress</div>
+              <div className="text-xs text-danger/80 mt-0.5">
+                You cannot initiate a deposit while a withdrawal is currently processing.
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="p-4 rounded-xl border border-color bg-tertiary">
           <div className="flex justify-between items-start mb-3">
             <div className="flex-1 mr-3">
@@ -766,7 +728,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           )}
         </div>
 
-        {/* Go Fast toggle */}
         <div className="flex items-center justify-between px-1">
           <label
             className={`flex items-center gap-2 ${displayUsd > 0 && displayUsd < 20 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
@@ -789,7 +750,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           )}
         </div>
 
-        {/* Slippage */}
         <div className="p-4 rounded-xl border border-color bg-tertiary">
           <div className="flex justify-between items-center">
             <Tooltip
@@ -832,7 +792,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           )}
         </div>
 
-        {/* Route summary */}
         {route && amountValue > 0 && (
           <div className="rounded-xl border border-color bg-tertiary px-4 py-3 space-y-2.5">
             <div className="flex justify-between items-center">
@@ -906,7 +865,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {/* Deposit error */}
         {depositError && (
           <div className="p-3 bg-danger-bg border border-danger rounded-xl flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
@@ -914,7 +872,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {/* Volatility warning */}
         {showVolatilityWarning && (
           <div className="flex items-start gap-3 p-3 bg-brand/10 border border-brand/30 rounded-xl relative">
             <AlertTriangle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
@@ -934,7 +891,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {/* CTA */}
         <button
           onClick={handleDeposit}
           disabled={isLoading || !amountValidation.valid || !evmAddress || isDepositLocked}

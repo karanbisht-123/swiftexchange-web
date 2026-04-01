@@ -14,11 +14,9 @@ import {
   DYDX_CHAIN_ID,
   DYDX_USDC_DENOM,
   NATIVE_WALLET_GAS_RESERVE_USD,
-  NATIVE_WALLET_GAS_RESERVE_UUSDC,
   buildCosmosSigner,
   buildEvmSigner,
   buildUserAddresses,
-  computeDepositSplit,
   dydxToNoble,
   fetchDydxWalletUsdcBalance,
 } from '../utils/skipBridgeUtils';
@@ -29,6 +27,8 @@ const MIN_SUBACCOUNT_DEPOSIT_UUSDC = 10_000;
 
 const DYDX_POLL_TIMEOUT_MS = 180_000;
 const DYDX_POLL_INTERVAL_MS = 5_000;
+
+const GAS_RESERVE_UUSDC = Math.round(NATIVE_WALLET_GAS_RESERVE_USD * 1_000_000);
 
 export type DepositStep =
   | 'idle'
@@ -44,6 +44,24 @@ export interface DepositRoute {
   fee: number;
   receivedAmount: number;
   usdAmountOut: string;
+}
+
+/**
+ * Computes how much to keep in the dYdX wallet (gas reserve) and how much to
+ * deposit into the subaccount.
+ *
+ * Rule:
+ *   - Always keep exactly GAS_RESERVE_UUSDC (≈ $1.50) in the wallet.
+ *   - If the current wallet balance already covers the reserve, deposit only
+ *     the excess above the reserve.
+ *   - If depositing would leave the wallet under the reserve, keep the reserve
+ *     first and deposit only the remainder.
+ *   - Never deposit a negative or dust amount.
+ */
+function computeSplit(walletBalanceUusdc: number): { keepUusdc: number; depositUusdc: number } {
+  const keep = GAS_RESERVE_UUSDC;
+  const deposit = Math.max(0, walletBalanceUusdc - keep);
+  return { keepUusdc: keep, depositUusdc: deposit };
 }
 
 async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): Promise<number> {
@@ -62,7 +80,7 @@ async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): 
 
   throw new Error(
     `Timed out waiting for bridged funds on dYdX chain. ` +
-      `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
+    `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
   );
 }
 
@@ -165,6 +183,7 @@ export const useDydxDeposit = () => {
             'Skip route returned no requiredChainAddresses -- cannot build userAddresses.'
           );
         }
+
         const userAddresses = buildUserAddresses(requiredChainIds, { evmAddress, dydxAddress });
         console.log('[deposit] requiredChainAddresses:', requiredChainIds);
         console.log('[deposit] userAddresses:', userAddresses);
@@ -191,32 +210,30 @@ export const useDydxDeposit = () => {
             setTxHash(hash);
             setStep('pending_bridge');
           },
-          // onTransactionTracked: async ({ txHash: hash, chainId: cid }) =>
-          //   console.log(`[deposit] tracked on ${cid}: ${hash}`),
-          // onTransactionCompleted: async ({ txHash: hash, chainId: cid, status }) =>
-          //   console.log(`[deposit] completed on ${cid}: ${hash}`, status),
-          // onApproveAllowance: async (approvalInfo: any) =>
-          //   console.log(
-          //     `[deposit] ERC-20 approval ${approvalInfo.status} for ${approvalInfo.allowance?.tokenContract}`
-          //   ),
         });
 
         setStep('transferring');
 
         const expectedAmountUusdc = parseInt(rawRoute.amountOut ?? '0', 10);
-        const minExpectedUusdc = Math.floor(expectedAmountUusdc * 0.9);
+        const minExpectedUusdc = Math.max(
+          Math.floor(expectedAmountUusdc * 0.9),
+          GAS_RESERVE_UUSDC + MIN_SUBACCOUNT_DEPOSIT_UUSDC
+        );
 
         const walletBalance = await waitForDydxWalletBalance(dydxAddress, minExpectedUusdc);
         console.log('[deposit] dYdX wallet balance confirmed:', walletBalance, 'uusdc');
 
-        const { keepUusdc, depositUusdc } = computeDepositSplit(walletBalance);
+        const { keepUusdc, depositUusdc } = computeSplit(walletBalance);
 
-        console.log(`[deposit] wallet=${walletBalance} keep=${keepUusdc} deposit=${depositUusdc}`);
+        console.log(
+          `[deposit] wallet=${walletBalance} keep=${keepUusdc} deposit=${depositUusdc} ` +
+          `(reserve=${GAS_RESERVE_UUSDC} uusdc)`
+        );
 
         if (depositUusdc < MIN_SUBACCOUNT_DEPOSIT_UUSDC) {
           console.warn(
             `[deposit] depositUusdc (${depositUusdc}) below dust threshold -- ` +
-              `skipping subaccount deposit. Wallet gas reserve funded.`
+            `skipping subaccount deposit. Wallet gas reserve funded.`
           );
           setDepositedAmount(0);
           await new Promise(r => setTimeout(r, 1_000));
@@ -232,7 +249,13 @@ export const useDydxDeposit = () => {
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
 
-        await client.validatorClient.post.deposit(subaccount, 0, Long.fromNumber(depositUusdc));
+        await client.validatorClient.post.deposit(
+          subaccount,
+          0,
+          Long.fromNumber(Math.floor(depositUusdc))
+        );
+
+        console.log(`[deposit] deposited ${depositUusdc} uusdc to subaccount`);
 
         setDepositedAmount(depositUusdc / 1e6);
         await new Promise(r => setTimeout(r, 2_000));
@@ -312,7 +335,7 @@ export const useDydxDeposit = () => {
       try {
         const walletBal = await fetchDydxWalletUsdcBalance(dydxAddress);
         const total = BigInt(walletBal);
-        const reserve = BigInt(NATIVE_WALLET_GAS_RESERVE_UUSDC);
+        const reserve = BigInt(GAS_RESERVE_UUSDC);
         if (total > reserve) setPendingDydxQuantums((total - reserve).toString());
       } catch (e) {
         console.warn('[deposit] dYdX balance check failed:', e);
@@ -364,5 +387,6 @@ export const useDydxDeposit = () => {
     isLoading: step !== 'idle' && step !== 'success' && step !== 'error',
     MIN_DEPOSIT_USDC,
     NATIVE_WALLET_GAS_RESERVE_USD,
+    GAS_RESERVE_UUSDC,
   };
 };

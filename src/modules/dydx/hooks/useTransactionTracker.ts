@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export type OverallState =
   | 'STATE_UNKNOWN'
@@ -55,52 +56,60 @@ export interface TxTrackerResult {
   isError: boolean;
   errorMessage: string | null;
   isTerminal: boolean;
+  hasPolledOnce: boolean;
+  refresh: () => void;
+  txHash: string | null;
+  chainId: string | null;
 }
 
-
-
 const SKIP_STATUS_URL = 'https://api.skip.build/v2/tx/status';
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = 8_000;
 const TERMINAL_STATES: OverallState[] = [
   'STATE_COMPLETED_SUCCESS',
   'STATE_COMPLETED_ERROR',
   'STATE_ABANDONED',
 ];
 
-export const LS_PENDING_TX_KEY = 'swiftex_pending_skip_tx';
-
 export interface PendingTxInfo {
-  txHash: string;
-  chainId: string;
+  txHash: string | null;
+  chainId: string | null;
   startedAt: number;
+  status: 'pending' | 'success' | 'failed';
+  amount?: string;
+  stepLabel?: string;
+  isPreBridge?: boolean;
 }
 
-
-
-export function savePendingTx(info: PendingTxInfo): void {
-  try {
-    localStorage.setItem(LS_PENDING_TX_KEY, JSON.stringify(info));
-  } catch {
-  }
+interface TransactionStore {
+  depositTx: PendingTxInfo | null;
+  withdrawTx: PendingTxInfo | null;
+  setDepositTx: (tx: PendingTxInfo | null) => void;
+  setWithdrawTx: (tx: PendingTxInfo | null) => void;
+  clearDepositTx: () => void;
+  clearWithdrawTx: () => void;
 }
 
-export function loadPendingTx(): PendingTxInfo | null {
-  try {
-    const raw = localStorage.getItem(LS_PENDING_TX_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as PendingTxInfo;
-  } catch {
-    return null;
-  }
-}
+export const useTransactionStore = create<TransactionStore>()(
+  persist(
+    (set) => ({
+      depositTx: null,
+      withdrawTx: null,
+      setDepositTx: (tx) => set({ depositTx: tx }),
+      setWithdrawTx: (tx) => set({ withdrawTx: tx }),
+      clearDepositTx: () => set({ depositTx: null }),
+      clearWithdrawTx: () => set({ withdrawTx: null }),
+    }),
+    {
+      name: 'swiftex_pending_skip_txs_v2',
+    }
+  )
+);
 
-export function clearPendingTx(): void {
-  try {
-    localStorage.removeItem(LS_PENDING_TX_KEY);
-  } catch {
-  }
-}
-
+// Backward compatibility or legacy support, leaving empty shells so other missing imports don't crash
+export const LS_PENDING_TX_KEY = 'swiftex_pending_skip_tx_v2';
+export function savePendingTx(info: any): void { }
+export function loadPendingTx(): any | null { return null; }
+export function clearPendingTx(): void { }
 
 interface RawPacketTx {
   chain_id?: string;
@@ -134,11 +143,16 @@ interface RawStatusResponse {
   error?: { message?: string } | null;
 }
 
-
 function parsePacket(raw?: RawPacket | null): Packet | null {
   if (!raw) return null;
   const toTx = (t?: RawPacketTx | null): PacketTx | null =>
-    t ? { chain_id: t.chain_id ?? '', tx_hash: t.tx_hash ?? '', explorer_link: t.explorer_link ?? '' } : null;
+    t
+      ? {
+        chain_id: t.chain_id ?? '',
+        tx_hash: t.tx_hash ?? '',
+        explorer_link: t.explorer_link ?? '',
+      }
+      : null;
   return {
     send_tx: toTx(raw.send_tx),
     receive_tx: toTx(raw.receive_tx),
@@ -160,8 +174,7 @@ function parseSteps(raw: RawTransferStep[] = []): TransferStep[] {
   }));
 }
 
-
-const EMPTY_RESULT: TxTrackerResult = {
+const EMPTY_RESULT: Omit<TxTrackerResult, 'refresh'> = {
   overallState: 'STATE_UNKNOWN',
   steps: [],
   activeStepIndex: null,
@@ -170,15 +183,33 @@ const EMPTY_RESULT: TxTrackerResult = {
   isError: false,
   errorMessage: null,
   isTerminal: false,
+  hasPolledOnce: false,
+  txHash: null,
+  chainId: null,
 };
 
 export function useTransactionTracker(
-  txHash: string | null,
-  chainId: string | null
+  type: 'deposit' | 'withdraw'
 ): TxTrackerResult {
-  const [result, setResult] = useState<TxTrackerResult>(EMPTY_RESULT);
+  const store = useTransactionStore();
+  const txInfo = type === 'deposit' ? store.depositTx : store.withdrawTx;
+  const txHash = txInfo?.txHash || null;
+  const chainId = txInfo?.chainId || null;
+
+  const [result, setResult] = useState<Omit<TxTrackerResult, 'refresh'>>({
+    ...EMPTY_RESULT,
+    txHash,
+    chainId
+  });
+  
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const isTerminalRef = useRef(false);
+
+  // Sync internal state with external txHash changes
+  useEffect(() => {
+    setResult((prev) => ({ ...prev, txHash, chainId }));
+  }, [txHash, chainId]);
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -191,70 +222,108 @@ export function useTransactionTracker(
     }
   }, []);
 
-  const poll = useCallback(async () => {
-    if (!txHash || !chainId) return;
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    try {
-      const res = await fetch(SKIP_STATUS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx_hash: txHash, chain_id: chainId }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        if (res.status === 404) return;
-        throw new Error(`Skip status API returned ${res.status}`);
-      }
-
-      const data: RawStatusResponse = await res.json();
-      const state: OverallState = data.state ?? 'STATE_UNKNOWN';
-      const steps = parseSteps(data.transfer_sequence);
-      const activeStepIndex = data.next_blocking_transfer?.transfer_sequence_index ?? null;
-      const releaseRaw = data.transfer_asset_release;
-      const assetRelease: AssetRelease | null = releaseRaw
-        ? { chain_id: releaseRaw.chain_id ?? '', denom: releaseRaw.denom ?? '', released: releaseRaw.released ?? false }
-        : null;
-      const isTerminal = TERMINAL_STATES.includes(state);
-
-      setResult({
-        overallState: state,
-        steps,
-        activeStepIndex,
-        assetRelease,
-        isLoading: !isTerminal,
-        isError: state === 'STATE_COMPLETED_ERROR' || state === 'STATE_ABANDONED',
-        errorMessage: data.error?.message ?? null,
-        isTerminal,
-      });
-
-      if (isTerminal) {
-        stopPolling();
-        if (state === 'STATE_COMPLETED_SUCCESS') {
-          clearPendingTx();
-        }
-      }
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
-      console.warn('[useTransactionTracker] poll error:', err);
-      setResult(prev => ({
-        ...prev,
-        isError: true,
-        errorMessage: err.message ?? 'Network error polling transaction status',
-      }));
+  const updateStoreStatus = useCallback((status: 'pending' | 'success' | 'failed') => {
+    if (!txInfo) return;
+    const updated = { ...txInfo, status };
+    if (type === 'deposit') {
+      store.setDepositTx(updated);
+    } else {
+      store.setWithdrawTx(updated);
     }
-  }, [txHash, chainId, stopPolling]);
+  }, [txInfo, type, store]);
+
+  const poll = useCallback(
+    async (isManual = false) => {
+      if (!txHash || !chainId) return;
+      if (isTerminalRef.current && !isManual) return;
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const url = new URL(SKIP_STATUS_URL);
+        url.searchParams.append('chain_id', chainId);
+        url.searchParams.append('tx_hash', txHash);
+
+        const res = await fetch(url.toString(), {
+          method: 'GET',
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          if (res.status === 404 || res.status === 400) {
+            setResult(prev => ({ ...prev, hasPolledOnce: true }));
+            return;
+          }
+          throw new Error(`Skip status API returned ${res.status}`);
+        }
+
+        const data: RawStatusResponse = await res.json();
+        const state: OverallState = data.state ?? 'STATE_UNKNOWN';
+        const steps = parseSteps(data.transfer_sequence);
+        const activeStepIndex = data.next_blocking_transfer?.transfer_sequence_index ?? null;
+        const releaseRaw = data.transfer_asset_release;
+        const assetRelease: AssetRelease | null = releaseRaw
+          ? {
+            chain_id: releaseRaw.chain_id ?? '',
+            denom: releaseRaw.denom ?? '',
+            released: releaseRaw.released ?? false,
+          }
+          : null;
+        const isTerminal = TERMINAL_STATES.includes(state);
+
+        isTerminalRef.current = isTerminal;
+
+        setResult(prev => ({
+          ...prev,
+          overallState: state,
+          steps,
+          activeStepIndex,
+          assetRelease,
+          isLoading: !isTerminal,
+          isError: state === 'STATE_COMPLETED_ERROR' || state === 'STATE_ABANDONED',
+          errorMessage: data.error?.message ?? null,
+          isTerminal,
+          hasPolledOnce: true,
+        }));
+
+        if (isTerminal) {
+          stopPolling();
+          if (state === 'STATE_COMPLETED_SUCCESS') {
+            updateStoreStatus('success');
+          } else {
+            updateStoreStatus('failed');
+          }
+        } else {
+          updateStoreStatus('pending');
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn('[useTransactionTracker] poll error:', err);
+        setResult(prev => ({
+          ...prev,
+          hasPolledOnce: true,
+          isError: true,
+          errorMessage: err.message ?? 'Network error polling transaction status',
+        }));
+      }
+    },
+    [txHash, chainId, stopPolling, updateStoreStatus]
+  );
+
+  const refresh = useCallback(() => {
+    poll(true);
+  }, [poll]);
 
   useEffect(() => {
     if (!txHash || !chainId) {
       stopPolling();
-      setResult(EMPTY_RESULT);
+      isTerminalRef.current = false;
+      setResult({ ...EMPTY_RESULT, txHash, chainId });
       return;
     }
 
+    isTerminalRef.current = false;
     setResult(prev => ({
       ...prev,
       overallState: 'STATE_SUBMITTED',
@@ -262,15 +331,14 @@ export function useTransactionTracker(
       isError: false,
       errorMessage: null,
       isTerminal: false,
+      hasPolledOnce: false,
     }));
 
-    savePendingTx({ txHash, chainId, startedAt: Date.now() });
-
     poll();
-    intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
+    intervalRef.current = setInterval(() => poll(), POLL_INTERVAL_MS);
 
     return stopPolling;
   }, [txHash, chainId, poll, stopPolling]);
 
-  return result;
+  return { ...result, refresh };
 }
