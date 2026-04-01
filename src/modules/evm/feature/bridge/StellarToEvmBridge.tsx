@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  ArrowRight,
   ArrowUpDown,
   CheckCircle,
   CheckCircle2,
@@ -712,7 +711,7 @@ const StellarToEvmBridge: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    Bridge to {selectedNetwork} <ArrowRight size={22} />
+                    Bridge to {selectedNetwork}
                   </>
                 )}
               </button>

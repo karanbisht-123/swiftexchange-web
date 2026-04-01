@@ -1,5 +1,4 @@
 import {
-  ArrowRight,
   AlertCircle,
   ArrowUpDown,
   CheckCircle,
@@ -356,9 +355,10 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
       const isNative = selectedToken === (currentChainConfig.nativeCurrency.symbol);
       const tokenAddress = selectedToken === 'USDT' ? chain.tokens.USDT : chain.tokens.USDC;
+      const urls = [currentChainConfig.rpcUrl, ...(currentChainConfig.fallbackRpcUrls || [])];
 
       if (isNative) {
-        const balance = await provider.getBalance(evmAddress);
+        const balance = await rpcManager.fetchWithFallback(selectedChainId, urls, (p) => p.getBalance(evmAddress));
         const gasBuffer = ethers.parseEther('0.01');
         if (balance > gasBuffer) {
           const maxAmount = balance - gasBuffer;
@@ -367,11 +367,15 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
           setAmount('0');
         }
       } else if (tokenAddress) {
-        const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-        const [balance, decimals] = await Promise.all([
-          contract.balanceOf(evmAddress),
-          contract.decimals()
-        ]);
+        const { balance, decimals } = await rpcManager.fetchWithFallback(
+          selectedChainId,
+          urls,
+          async (p) => {
+            const contract = new ethers.Contract(tokenAddress, ERC20_ABI, p);
+            const [b, d] = await Promise.all([contract.balanceOf(evmAddress), contract.decimals()]);
+            return { balance: b, decimals: d };
+          }
+        );
         setAmount(ethers.formatUnits(balance, decimals));
       }
     } catch (err) {
@@ -636,15 +640,49 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
                 Balance: {isLoadingBalance ? <Loader2 className="w-3 h-3 animate-spin inline ml-1" /> : <span className="text-primary font-bold">{parseFloat(tokenBalance).toFixed(4)}</span>}
               </span>
               {hasInsufficientBalance && (
-                <span className="text-red-500 font-bold animate-pulse flex items-center gap-1">
+                <button
+                  onClick={() => errorRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                  className="text-red-500 font-bold animate-pulse flex items-center gap-1 hover:underline"
+                >
                   <AlertCircle className="w-3 h-3" />
                   Insufficient Balance
-                </span>
+                </button>
               )}
             </div>
           </div>
 
-          {/* Divider */}
+
+          {(parseFloat(tokenBalance) === 0 || hasInsufficientBalance) && !isPreparingBridge && (
+            <div className="animate-in fade-in -mt-4 slide-in-from-top-1 duration-500 mb-2 ">
+              <div className="bg-gradient-to-br from-brand/5 via-tertiary to-blue-500/5  rounded-2xl rounded-t-none p-4 shadow-sm relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-brand/10 transition-colors" />
+                <div className="relative z-10 flex items-center justify-between gap-4">
+                  <div className="flex flex-col py-2">
+                    <h4 className="text-sm font-bold text-primary">Refill {selectedToken}</h4>
+                    <p className="text-[10px] text-muted font-medium uppercase tracking-wider opacity-70">To bridge to Stellar</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0 mt-2">
+                    <button
+                      onClick={() => navigate(ROUTES.TRADING_EVM_FIAT)}
+                      className="flex items-center justify-center gap-2 py-3 px-3 rounded-lg  border border-color hover:border-brand/40 hover:bg-tertiary transition-all text-[11px] font-bold "
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-emerald-500 group-hover/btn:scale-110 transition-transform" />
+                      Top Up
+                    </button>
+                    <button
+                      onClick={() => navigate(ROUTES.TRADING_EVM_SWAP)}
+                      className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg btn btn-primary  hover:border-brand/40 hover:bg-tertiary transition-all text-white font-bold  "
+                    >
+                      <ArrowUpDown className="w-3.5 h-3.5 text-white group-hover/btn:scale-110 transition-transform" />
+                      Swap
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+
           <div className="relative h-3 my-2 z-10 flex justify-center items-center">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
               <div className="w-10 h-10 rounded-xl bg-secondary border border-color flex items-center justify-center shadow-md">
@@ -653,7 +691,6 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
             </div>
           </div>
 
-          {/* You Receive Section */}
           <div className="bg-tertiary rounded-2xl p-4 border border-color">
             <label className="block text-sm font-bold text-primary mb-3">You Receive (Stellar)</label>
 
@@ -831,32 +868,37 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
                 isPreparingBridge ||
                 txStatus === 'success'
               }
-              className={`btn w-full btn-lg gap-2 py-4 text-lg rounded-2xl shadow-xl shadow-brand/10 hover:scale-[1.02] active:scale-[0.98] transition-all ${txStatus === 'success' ? 'btn-success' : 'btn-primary'}`}
+              className={`btn w-full btn-lg gap-2 py-4 text-lg rounded-2xl shadow-xl shadow-brand/10 hover:scale-[1.02] active:scale-[0.98] transition-all ${txStatus === 'success' ? 'btn-success' : 'btn-primary disabled:opacity-50 disabled:grayscale'}`}
             >
-              {txStatus === 'success' ? (
-                <>
-                  <CheckCircle size={22} /> Bridge Complete!
-                </>
-              ) : txStatus === 'approving' ? (
-                <>
-                  <Loader2 size={22} className="animate-spin" /> Approving Token...
-                </>
-              ) : txStatus === 'transferring' ? (
-                <>
-                  <Loader2 size={22} className="animate-spin" /> Bridging to Stellar...
-                </>
-              ) : txStatus === 'preparing' ? (
-                <>
-                  <Loader2 size={22} className="animate-spin" /> Preparing Transaction...
-                </>
-              ) : isLoadingQuote ? (
-                <>
-                  <Loader2 size={22} className="animate-spin" /> Getting Quote...
-                </>
-              ) : (
-                <>
-                  Bridge to Stellar <ArrowRight size={22} />
-                </>
+              <div className="flex items-center justify-center gap-2 relative z-10">
+                {txStatus === 'success' ? (
+                  <>
+                    <CheckCircle size={22} className="animate-in zoom-in duration-300" /> Bridge Complete!
+                  </>
+                ) : txStatus === 'approving' ? (
+                  <>
+                    <Loader2 size={22} className="animate-spin" /> Approving Token...
+                  </>
+                ) : txStatus === 'transferring' ? (
+                  <>
+                    <Loader2 size={22} className="animate-spin" /> Bridging to Stellar...
+                  </>
+                ) : txStatus === 'preparing' ? (
+                  <>
+                    <Loader2 size={22} className="animate-spin" /> Preparing Transaction...
+                  </>
+                ) : isLoadingQuote ? (
+                  <>
+                    <Loader2 size={22} className="animate-spin" /> Getting Quote...
+                  </>
+                ) : (
+                  <>
+                    Bridge to Stellar
+                  </>
+                )}
+              </div>
+              {isValidAmount && txStatus !== 'success' && (
+                <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 -translate-x-full group-hover:animate-shimmer" />
               )}
             </button>
           </StellarActiveGuard>

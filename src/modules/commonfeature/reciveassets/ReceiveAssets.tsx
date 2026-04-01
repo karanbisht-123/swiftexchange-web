@@ -23,13 +23,26 @@ const truncateAddress = (address: string, chars = 10) => {
 
 const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handleShare }: QRCardProps) => {
   const canInteract = !!walletAddress && isAddressValid;
+
   const canvasCallbackRef = useCallback(
     (canvas: HTMLCanvasElement | null) => {
       if (!canvas || !walletAddress || !isAddressValid) return;
+
+      const size = 200;
+      canvas.width = size;
+      canvas.height = size;
+      canvas.style.width = `${size}px`;
+      canvas.style.height = `${size}px`;
+
       QRCode.toCanvas(
         canvas,
         walletAddress,
-        { width: 200, margin: 2, color: { dark: '#000000', light: '#ffffff' } },
+        {
+          width: size,
+          margin: 2,
+          errorCorrectionLevel: 'H', // High correction needed because logo covers center
+          color: { dark: '#000000', light: '#ffffff' },
+        },
         err => { if (err) console.error('QR error:', err); }
       );
     },
@@ -40,7 +53,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
     <div className="card card-premium flex flex-col items-center p-6 gap-6 shadow-xl">
       {canInteract ? (
         <div className="relative w-56 h-56 bg-white rounded-3xl p-4 shadow-xl ring-1 ring-border animate-scale-in flex items-center justify-center">
-          <canvas ref={canvasCallbackRef} className="w-full h-full rounded-2xl" />
+          <canvas ref={canvasCallbackRef} className="rounded-2xl" />
           {currentAsset?.logo && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="bg-white rounded-full p-1.5 shadow-xl ring-2 ring-border overflow-hidden">
@@ -89,7 +102,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
             onClick={handleCopy}
             disabled={!canInteract}
             aria-label="Copy wallet address"
-            className="btn btn-ghost absolute right-2 top-1/2 -translate-y-1/2 p-1.5 p-3 rounded-md hover:bg-bg-overlay transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="btn btn-ghost absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md hover:bg-bg-overlay transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <Copy className="w-4 h-4 text-text-muted" />
           </button>
@@ -147,14 +160,11 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
       hasFooter={false}
     >
       <div className="space-y-6">
-
-
         {copyFeedback && (
           <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg animate-fade-in">
             {copyFeedback}
           </div>
         )}
-
 
         {!isConnected && (
           <div className="bg-warning-light border-warning p-4 text-sm text-warning-dark animate-fade-in rounded-lg border">
@@ -205,6 +215,7 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                 </div>
               </div>
             </div>
+
             {!isWalletTypeConnected && (
               <div className="card card-bordered bg-warning-light border-warning p-4 text-sm text-warning-dark animate-fade-in">
                 <p className="font-semibold">Wallet Type Not Connected</p>
@@ -219,6 +230,7 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                 </button>
               </div>
             )}
+
             {isWalletTypeConnected && walletAddress && !isAddressValid && (
               <div className="card card-bordered bg-danger-light border-danger p-4 text-sm text-danger-dark animate-fade-in">
                 <p className="font-semibold">Invalid Address</p>

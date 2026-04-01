@@ -9,19 +9,19 @@ export interface TransactionItem {
   hash: string;
   from: string;
   to: string;
-  value: number;
+  value: number | null;
   erc721TokenId: string | null;
-  erc1155Metadata: any[];
+  erc1155Metadata: any[] | null;
   tokenId: string | null;
-  asset: string;
+  asset: string | null;
   category: string;
   rawContract: {
-    value: string;
+    value: string | null;
     address: string | null;
-    decimal: string;
+    decimal: string | null;
   };
   metadata: any | null;
-  formattedAmount: string;
+  formattedAmount: string | null;
   chainId: number;
 }
 

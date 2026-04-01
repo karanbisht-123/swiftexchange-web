@@ -3,13 +3,16 @@ import React, { useState } from 'react';
 
 import { type TransactionItem } from '../service/EvmTransactionService';
 import { getChainLogoUrl, getChainName, getExplorerUrl } from '../utils/Chainregistry';
+import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 
 interface TransactionDetailsViewProps {
   transaction: TransactionItem;
   chainId: number;
+  incoming?: boolean;
+  isSelf?: boolean;
 }
 
-const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transaction, chainId }) => {
+const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transaction, chainId, incoming = false, isSelf = false }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const chainSymbol = getChainName(chainId);
@@ -34,11 +37,11 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
           )}
         </div>
         <div className="text-3xl font-bold text-primary tracking-tight">
-          {parseFloat(transaction.formattedAmount).toFixed(6)}{' '}
-          <span className="text-lg text-muted font-medium">{transaction.asset}</span>
+          {getDisplayAmountWithSign(formatTxAmount(transaction), incoming, isSelf)}{' '}
+          <span className="text-lg text-muted font-medium">{formatAssetName(transaction)}</span>
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${transaction?.formattedAmount?.startsWith('-') ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-tertiary text-primary">
             Success
           </span>
           <span className="text-xs text-muted font-medium bg-tertiary px-2 py-0.5 rounded-full">
@@ -58,7 +61,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
                   {transaction.hash.slice(0, 6)}...{transaction.hash.slice(-4)}
                 </span>
                 <button onClick={() => handleCopy(transaction.hash, 'hash')} className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors">
-                  {copiedField === 'hash' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  {copiedField === 'hash' ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
                 </button>
                 <a href={getExplorerUrl(chainId, 'tx', transaction.hash)} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors">
                   <ExternalLink size={14} />
@@ -81,7 +84,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
 
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary">Status</span>
-              <div className="flex items-center gap-1.5 text-green-500 text-sm font-medium">
+              <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
                 <Check size={14} /> Confirmed
               </div>
             </div>
@@ -96,7 +99,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
             <div className="flex justify-between items-center">
               <span className="text-xs text-muted font-semibold uppercase">From</span>
               <button onClick={() => handleCopy(transaction.from, 'from')} className="p-1 hover:bg-hover rounded text-muted hover:text-primary transition-colors">
-                {copiedField === 'from' ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                {copiedField === 'from' ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
               </button>
             </div>
             <div className="font-mono text-sm text-primary break-all">{transaction.from}</div>
@@ -112,7 +115,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
             <div className="flex justify-between items-center">
               <span className="text-xs text-muted font-semibold uppercase">To</span>
               <button onClick={() => handleCopy(transaction.to, 'to')} className="p-1 hover:bg-hover rounded text-muted hover:text-primary transition-colors">
-                {copiedField === 'to' ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                {copiedField === 'to' ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
               </button>
             </div>
             <div className="font-mono text-sm text-primary break-all">{transaction.to}</div>
@@ -126,8 +129,8 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({ transac
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-tertiary/30 p-3 rounded-lg">
               <span className="text-xs text-muted block mb-1">Raw Value</span>
-              <span className="text-sm font-mono text-primary truncate block" title={transaction.rawContract.value}>
-                {transaction.rawContract.value}
+              <span className="text-sm font-mono text-primary truncate block" title={transaction.rawContract.value ?? undefined}>
+                {transaction.rawContract.value ?? '—'}
               </span>
             </div>
             <div className="bg-tertiary/30 p-3 rounded-lg">

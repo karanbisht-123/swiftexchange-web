@@ -23,7 +23,9 @@ import {
   type TransactionItem,
   getEvmTransactionHistory,
 } from '../service/EvmTransactionService';
+import { formatBlockNumber } from '../utils/blockNumber';
 import { MAINNET_CHAINS, TESTNET_CHAINS, getChainName, getExplorerUrl } from '../utils/Chainregistry';
+import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
 
@@ -148,8 +150,7 @@ const EvmTransactionHistory: React.FC = () => {
     }
   };
 
-  const isIncoming = (tx: TransactionItem) =>
-    Boolean(walletAddress && tx.to.toLowerCase() === walletAddress.toLowerCase());
+
 
   const handleTxClick = (tx: TransactionItem) => {
     setSelectedTx(tx);
@@ -189,7 +190,9 @@ const EvmTransactionHistory: React.FC = () => {
             className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${selectedView === 'recent' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
           >
             Recent
-            {hasPendingTransactions && <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />}
+            {hasPendingTransactions && (
+              <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+            )}
           </button>
           {availableChains.map(chain => (
             <button
@@ -253,15 +256,25 @@ const EvmTransactionHistory: React.FC = () => {
         {localTransactions.map(tx => {
           const isSelected = selectedLocalTx?.hash === tx.hash;
           const statusStyle = STATUS_STYLES[tx.status];
-          const label = tx.description || `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
+          const label =
+            tx.description ||
+            `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
 
           return (
             <div
               key={tx.hash}
-              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${isSelected ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20' : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'}`}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${isSelected
+                  ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
+                  : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
+                }`}
             >
-              <button onClick={() => handleLocalTxClick(tx)} className="flex items-center gap-4 flex-1 text-left">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border ${statusStyle}`}>
+              <button
+                onClick={() => handleLocalTxClick(tx)}
+                className="flex items-center gap-4 flex-1 text-left"
+              >
+                <div
+                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border ${statusStyle}`}
+                >
                   <StatusIcon status={tx.status} />
                 </div>
                 <div>
@@ -281,11 +294,16 @@ const EvmTransactionHistory: React.FC = () => {
                 </div>
               </button>
               <div className="flex items-center gap-2">
-                <span className={`text-xs font-semibold px-2 py-1 rounded-full capitalize ${statusStyle}`}>
+                <span
+                  className={`text-xs font-semibold px-2 py-1 rounded-full capitalize ${statusStyle}`}
+                >
                   {tx.status}
                 </span>
                 <button
-                  onClick={e => { e.stopPropagation(); removeTransaction(tx.hash); }}
+                  onClick={e => {
+                    e.stopPropagation();
+                    removeTransaction(tx.hash);
+                  }}
                   className="p-2 rounded-lg bg-tertiary hover:bg-red-500/10 text-muted hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                   title="Remove"
                 >
@@ -307,7 +325,9 @@ const EvmTransactionHistory: React.FC = () => {
       <div className="h-full bg-secondary rounded-2xl p-6 overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-bold text-primary">Transaction Details</h3>
-          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full capitalize ${statusStyle}`}>
+          <span
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full capitalize ${statusStyle}`}
+          >
             {selectedLocalTx.status}
           </span>
         </div>
@@ -316,9 +336,17 @@ const EvmTransactionHistory: React.FC = () => {
             { label: 'Type', value: selectedLocalTx.type, className: 'capitalize' },
             { label: 'Description', value: selectedLocalTx.description || '-' },
             { label: 'Chain', value: getChainName(selectedLocalTx.chainId) },
-            { label: 'Transaction Hash', value: selectedLocalTx.hash, className: 'font-mono text-sm break-all' },
-            ...(selectedLocalTx.blockNumber ? [{ label: 'Block Number', value: String(selectedLocalTx.blockNumber) }] : []),
-            ...(selectedLocalTx.gasUsed ? [{ label: 'Gas Used', value: String(selectedLocalTx.gasUsed) }] : []),
+            {
+              label: 'Transaction Hash',
+              value: selectedLocalTx.hash,
+              className: 'font-mono text-sm break-all',
+            },
+            ...(selectedLocalTx.blockNumber
+              ? [{ label: 'Block Number', value: String(selectedLocalTx.blockNumber) }]
+              : []),
+            ...(selectedLocalTx.gasUsed
+              ? [{ label: 'Gas Used', value: String(selectedLocalTx.gasUsed) }]
+              : []),
             { label: 'Time', value: new Date(selectedLocalTx.timestamp).toLocaleString() },
           ].map(({ label, value, className }) => (
             <div key={label}>
@@ -335,7 +363,7 @@ const EvmTransactionHistory: React.FC = () => {
             View on Explorer ↗
           </a>
         </div>
-      </div >
+      </div>
     );
   };
 
@@ -369,7 +397,8 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<SearchX size={32} />}
           title="No Transactions Found"
-          description={`No transactions found for ${typeof selectedView === 'number' ? getChainName(selectedView) : selectedView}.`}
+          description={`No transactions found for ${typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
+            }.`}
         />
       );
     }
@@ -377,27 +406,45 @@ const EvmTransactionHistory: React.FC = () => {
     return (
       <div className="space-y-3 overflow-y-auto pb-4 lg:pb-0">
         {historyData.map(tx => {
-          const incoming = isIncoming(tx);
+          const isSelf = Boolean(tx.from.toLowerCase() === tx.to.toLowerCase());
+          const incoming = !isSelf && Boolean(walletAddress && tx.to.toLowerCase() === walletAddress.toLowerCase());
+          
+          let actionLabel = 'Sent';
+          let Icon = ArrowUpRight;
+          if (isSelf) {
+            actionLabel = 'Self Transfer';
+            Icon = RefreshCw;
+          } else if (incoming) {
+            actionLabel = 'Received';
+            Icon = ArrowDownLeft;
+          }
+
           const isSelected = selectedTx?.uniqueId === tx.uniqueId;
           return (
             <button
               key={tx.uniqueId}
               onClick={() => handleTxClick(tx)}
-              className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${isSelected ? 'border' : 'hover:bg-tertiary/50'}`}
+              className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${isSelected ? 'border' : 'hover:bg-tertiary/50'
+                }`}
             >
               <div className="flex items-center gap-4">
-                <div className={`lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border ${incoming ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-brand-primary/10 border-brand-primary/20 text-gray-600'}`}>
-                  {incoming ? <ArrowDownLeft size={24} /> : <ArrowUpRight size={24} />}
+                <div className="lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border bg-tertiary border-color text-muted">
+                  <Icon size={24} />
                 </div>
                 <div>
                   <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-1">
-                    {incoming ? 'Received' : 'Sent'} {tx.asset}
+                    {actionLabel} {formatAssetName(tx)}
                     <span className="lg:text-md text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
                       {tx.category}
                     </span>
                   </div>
+                  {/* Block number display — BigInt-safe via formatBlockNumber */}
                   <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
-                    <span className="opacity-75">{tx.blockNum ? `Block #${parseInt(tx.blockNum, 16)}` : 'Pending'}</span>
+                    <span className="opacity-75">
+                      {tx.blockNum
+                        ? `Block #${formatBlockNumber(tx.blockNum)}` // ✅ e.g. "Block #22,100,004"
+                        : 'Pending'}
+                    </span>
                     <span className="w-1 h-1 rounded-full bg-muted/40" />
                     <span className="truncate max-w-[100px]">
                       {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
@@ -406,11 +453,11 @@ const EvmTransactionHistory: React.FC = () => {
                 </div>
               </div>
               <div className="text-right">
-                <div className={`font-bold font-mono text-base ${incoming ? 'text-green-500' : 'text-primary'}`}>
-                  {incoming ? '+' : ''}{parseFloat(tx.formattedAmount).toFixed(6)}
+                <div className="font-bold font-mono text-base text-primary">
+                  {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
                 </div>
                 <div className="text-xs text-muted mt-1 font-medium bg-tertiary/50 px-2 py-0.5 rounded ml-auto w-fit">
-                  {tx.asset}
+                  {formatAssetName(tx)}
                 </div>
               </div>
             </button>
@@ -422,7 +469,14 @@ const EvmTransactionHistory: React.FC = () => {
             disabled={loadingMore}
             className="w-full py-3 mt-4 rounded-xl border border-color bg-tertiary hover:bg-tertiary/80 text-primary font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loadingMore ? <><Loader2 size={16} className="animate-spin" />Loading...</> : 'Load More'}
+            {loadingMore ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Loading...
+              </>
+            ) : (
+              'Load More'
+            )}
           </button>
         )}
       </div>
@@ -431,10 +485,16 @@ const EvmTransactionHistory: React.FC = () => {
 
   const isStellarView = selectedView === 'stellar';
 
+  const isTxSelf = Boolean(selectedTx && selectedTx.from.toLowerCase() === selectedTx.to.toLowerCase());
+  const isTxIncoming = !isTxSelf && Boolean(walletAddress && selectedTx?.to.toLowerCase() === walletAddress.toLowerCase());
+
   return (
     <PageLayout title="Transactions" headerActions={HeaderActions} maxWidth="7xl">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative items-start">
-        <div className={`${isStellarView ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'} flex flex-col`}>
+        <div
+          className={`${isStellarView ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'
+            } flex flex-col`}
+        >
           {isStellarView
             ? <AllTransactionsUI embedded />
             : selectedView === 'recent'
@@ -450,7 +510,7 @@ const EvmTransactionHistory: React.FC = () => {
               </div>
             ) : selectedTx ? (
               <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-                <TransactionDetailsView transaction={selectedTx} chainId={selectedTx.chainId} />
+                <TransactionDetailsView transaction={selectedTx} chainId={selectedTx.chainId} incoming={isTxIncoming} isSelf={isTxSelf} />
               </div>
             ) : (
               <div className="h-full bg-secondary/30 border border-dashed border-color rounded-2xl flex flex-col items-center justify-center text-center p-8">
@@ -458,7 +518,9 @@ const EvmTransactionHistory: React.FC = () => {
                   <SearchX size={32} />
                 </div>
                 <h3 className="text-lg font-bold text-muted mb-2">No Transaction Selected</h3>
-                <p className="text-sm text-muted/70">Select a transaction from the list on the left to view its full details here.</p>
+                <p className="text-sm text-muted/70">
+                  Select a transaction from the list on the left to view its full details here.
+                </p>
               </div>
             )}
           </div>
@@ -471,6 +533,8 @@ const EvmTransactionHistory: React.FC = () => {
           isOpen={isSheetOpen}
           onClose={() => setIsSheetOpen(false)}
           chainId={selectedTx.chainId}
+          incoming={isTxIncoming}
+          isSelf={isTxSelf}
         />
       )}
     </PageLayout>
