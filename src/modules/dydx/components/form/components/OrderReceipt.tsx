@@ -96,7 +96,11 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
       maxLeverage
     );
 
-    const initialMarginRequired = notional / effectiveLeverage;
+    let initialMarginRequired = notional / effectiveLeverage;
+
+    if (marginMode === 'ISOLATED' && orderType !== 'MARKET') {
+      initialMarginRequired = Math.max(initialMarginRequired, 20);
+    }
 
     const isMaker =
       orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';

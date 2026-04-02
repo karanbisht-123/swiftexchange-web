@@ -1,5 +1,5 @@
 import { ArrowLeft, Check, Copy, CreditCard } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
   Asset,
@@ -16,6 +16,9 @@ import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
+import { signAndSubmitTransaction } from '../../utils/transactionService';
+import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+import StellarTransactionModal from '../modals/StellarTransactionModal';
 
 interface DisplayAsset {
   name: string;
@@ -41,6 +44,12 @@ const StellarSendReceive: React.FC<StellarSendReceiveProps> = ({ asset, userAddr
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [isCopied, setIsCopied] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [txModal, setTxModal] = useState<{
+    isOpen: boolean;
+    status: 'success' | 'error';
+    hash?: string;
+    error?: string;
+  }>({ isOpen: false, status: 'success' });
 
   const currentNetwork = useWalletStore(state => state.network);
   const { getProvider } = useWalletConnect();
@@ -102,24 +111,38 @@ const StellarSendReceive: React.FC<StellarSendReceiveProps> = ({ asset, userAddr
 
       const transaction = transactionBuilder.build();
 
-      const result = await provider.request({
-        method: 'stellar_signAndSubmitXDR',
-        params: {
-          xdr: transaction.toXDR(),
-          network: currentNetwork.toUpperCase(),
-          networkPassphrase,
-        },
+      const result = await signAndSubmitTransaction({
+        xdr: transaction.toXDR(),
+        network: currentNetwork,
+        networkPassphrase,
+        provider,
       });
 
-      if (result?.status === 'success') {
-        alert('Transaction Sent Successfully!');
-        onBack();
+      if (result.success) {
+        addLocalTransaction({
+          hash: result.hash || '',
+          chainId: 9000000,
+          type: 'send',
+          timestamp: Date.now(),
+          description: `Sent ${amount} ${asset.ticker} to ${destination.slice(0, 4)}...${destination.slice(-4)}`,
+          status: 'success',
+        });
+
+        setTxModal({
+          isOpen: true,
+          status: 'success',
+          hash: result.hash,
+        });
       } else {
-        throw new Error('Transaction failed');
+        throw new Error(result.error || 'Transaction failed');
       }
     } catch (error: any) {
       console.error(error);
-      alert(error?.message || 'Transaction failed');
+      setTxModal({
+        isOpen: true,
+        status: 'error',
+        error: error?.message || 'Transaction failed',
+      });
     } finally {
       setIsSending(false);
     }
@@ -278,6 +301,18 @@ const StellarSendReceive: React.FC<StellarSendReceiveProps> = ({ asset, userAddr
           </div>
         )}
       </div>
+
+      <StellarTransactionModal
+        isOpen={txModal.isOpen}
+        onClose={() => {
+          setTxModal(prev => ({ ...prev, isOpen: false }));
+          if (txModal.status === 'success') onBack();
+        }}
+        status={txModal.status}
+        type="Send"
+        hash={txModal.hash}
+        error={txModal.error}
+      />
     </div>
   );
 };

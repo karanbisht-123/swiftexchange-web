@@ -123,7 +123,7 @@ export async function executeSwap(
       const signer = await ethersProvider.getSigner();
 
       for (const tx of transactions) {
-        const txParams: Record<string, any> = {
+        const txParams: any = {
           from: tx.from || senderAddress,
           to: tx.to,
           data: tx.data,
@@ -131,8 +131,9 @@ export async function executeSwap(
         };
 
         if (tx.gasLimit || tx.gas) {
-          txParams.gasLimit = BigInt((tx.gasLimit || tx.gas) as string);
+          txParams.gasLimit = BigInt((tx.gasLimit ?? tx.gas) as any);
         }
+
         if (tx.maxFeePerGas) {
           txParams.maxFeePerGas = BigInt(tx.maxFeePerGas as string);
         }
@@ -140,7 +141,16 @@ export async function executeSwap(
           txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas as string);
         }
 
+        console.log('[executeSwap] Sending transaction with params:', {
+          ...txParams,
+          value: txParams.value.toString(),
+          gasLimit: txParams.gasLimit?.toString(),
+          maxFeePerGas: txParams.maxFeePerGas?.toString(),
+          maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
+        });
+
         const txResponse = await signer.sendTransaction(txParams);
+
         const receipt = await txResponse.wait();
 
         if (!receipt || receipt.status === 0) {
@@ -172,12 +182,22 @@ export async function executeSwap(
         }
       }
 
-      const tx = {
+      const tx: any = {
+        from: senderAddress,
         to: txData.to,
         data: txData.data,
         value: txData.value ? BigInt(txData.value) : 0n,
-        from: senderAddress,
       };
+
+      if ((txData as any).gasLimit || (txData as any).gas) {
+        tx.gasLimit = BigInt(((txData as any).gasLimit ?? (txData as any).gas) as any);
+      }
+
+      console.log('[executeSwap] Sending fallback transaction with params:', {
+        ...tx,
+        value: tx.value.toString(),
+        gasLimit: tx.gasLimit?.toString(),
+      });
 
       const txResponse = await signer.sendTransaction(tx);
       const receipt = await txResponse.wait();

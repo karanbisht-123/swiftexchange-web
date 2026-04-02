@@ -1,11 +1,16 @@
+import React, { useEffect } from 'react';
 import { type NetworkType } from '../config/chains';
 import { useWalletStore } from '../store/walletConnectStore';
 
 const NetworkSwitch: React.FC = () => {
   const network = useWalletStore(state => state.network);
-  const setNetwork = useWalletStore(state => state.setNetwork);
+  const setNetwork = useWalletStore(state => state.setNetwork);  useEffect(() => {
+    const storedNetwork = localStorage.getItem('network');
+    if (!storedNetwork) {
+      localStorage.setItem('network', network);
+    }
+  }, [network]);
 
-  // console.log('[NetworkSwitch] Current network:', network);
 
   const handleNetworkChange = async (newNetwork: NetworkType) => {
     if (newNetwork === network) return;

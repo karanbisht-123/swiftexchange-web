@@ -29,7 +29,8 @@ export function validateOrderSize(
   mode: CurrencyMode,
   balance?: any | null,
   leverage: number = 1,
-  orderType?: string
+  orderType?: string,
+  marginMode?: MarginMode
 ): OrderValidationResult {
   if (!marketData) {
     return createError('Market data not available');
@@ -39,6 +40,24 @@ export function validateOrderSize(
     return createError('Please enter a valid order size');
   }
   const { baseAmount, usdAmount } = conversion;
+
+  if (marginMode === 'ISOLATED' && orderType && orderType !== 'MARKET') {
+    const requiredMargin = usdAmount / leverage;
+    if (requiredMargin < 20) {
+      const minRequiredUsd = 20 * leverage;
+      if (mode === 'USD') {
+        return createError(
+          `Minimum ISOLATED margin is $20. At ${leverage}x leverage, minimum order size is $${minRequiredUsd.toFixed(2)}`
+        );
+      } else {
+        const minBase = minRequiredUsd / parseFloat(marketData.oraclePrice || '1');
+        return createError(
+          `Minimum ISOLATED margin is $20. At ${leverage}x leverage, minimum order size is ${minBase.toFixed(getPriceDecimals(marketData.stepSize || '0.0001'))} ${marketData.baseAsset} (~$${minRequiredUsd.toFixed(2)})`
+        );
+      }
+    }
+  }
+
   const minSizeValidation = validateMinimumSize(marketData, baseAmount);
   if (!minSizeValidation.isValid) {
     return minSizeValidation;

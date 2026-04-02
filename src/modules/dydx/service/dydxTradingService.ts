@@ -6,6 +6,7 @@ import {
   OrderType,
   SubaccountInfo,
 } from '@dydxprotocol/v4-client-js';
+import Long from "long"
 
 import { walletService } from '../../walletconnect/services/walletService';
 import {
@@ -14,18 +15,23 @@ import {
   type PlaceOrderParams,
   type Position,
   type TriggerParams,
+  SUBACCOUNT_CONSTANTS,
 } from '../types/trading.types';
 import { dydxSubaccountService } from './dydxSubaccountService';
 import { dydxWalletService } from './dydxWalletService';
 
 const TRADING_CONFIG = {
   DEFAULT_SLIPPAGE: 0.05,
-  SHORT_BLOCK_FORWARD: 19,
+  SHORT_BLOCK_FORWARD: 18,
   SHORT_BLOCK_WINDOW: 20,
   SHORT_TERM_BLOCKS: 19,
   DEFAULT_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
   CLOSE_POSITION_SLIPPAGE: 0.03,
   MAX_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
+  ISOLATED_FEE_BUFFER: 0.20,
+
+  TRANSFER_CONFIRM_POLL_MS: 800,
+  TRANSFER_CONFIRM_MAX_ATTEMPTS: 45,
 } as const;
 
 const CONDITIONAL_ORDER_TYPES = new Set([
@@ -78,31 +84,50 @@ class DydxTradingService {
       }
       price = this.roundPrice(price, marketInfo.tickSize!);
 
-      if (subaccountNumber >= 128 && params.leverage) {
-        await this.ensureIsolatedSubaccountEquity({
-          subaccountNumber,
-          size,
-          marketInfo,
-          params,
-          address,
-          subaccount,
-          orderCategory,
-        });
-      }
-
       const triggerPrice = params.triggerPrice
         ? this.roundPrice(params.triggerPrice, marketInfo.tickSize!)
         : undefined;
 
-      let result;
-      if (orderCategory.isMarket) {
-        result = await this.placeMarketOrder(client, subaccount, params, clientId, price, size);
-      } else if (orderCategory.isConditional) {
-        result = await this.placeConditionalOrder(
-          client, subaccount, params, clientId, price, size, triggerPrice
-        );
+      let transferAmount: number | null = null;
+      if (subaccountNumber >= 128 && params.leverage) {
+        transferAmount = await this.getRequiredTransferAmount({
+          client,
+          address,
+          subaccountNumber,
+          size,
+          marketInfo,
+          params,
+          orderCategory,
+        });
+      }
+
+      let result: any;
+
+      if (transferAmount !== null) {
+        result = await this.placeOrderWithAtomicTransfer({
+          client,
+          subaccount,
+          localWallet,
+          params,
+          clientId,
+          price,
+          size,
+          triggerPrice,
+          orderCategory,
+          transferAmount,
+          address,
+          subaccountNumber,
+        });
       } else {
-        result = await this.placeLimitOrder(client, subaccount, params, clientId, price, size);
+        if (orderCategory.isMarket) {
+          result = await this.placeMarketOrder(client, subaccount, params, clientId, price, size);
+        } else if (orderCategory.isConditional) {
+          result = await this.placeConditionalOrder(
+            client, subaccount, params, clientId, price, size, triggerPrice
+          );
+        } else {
+          result = await this.placeLimitOrder(client, subaccount, params, clientId, price, size);
+        }
       }
 
       return {
@@ -138,6 +163,212 @@ class DydxTradingService {
       };
     }
   }
+
+  private async getRequiredTransferAmount({
+    client: _client,
+    address,
+    subaccountNumber,
+    size,
+    marketInfo,
+    params,
+    orderCategory,
+  }: {
+    client: any;
+    address: string;
+    subaccountNumber: number;
+    size: number;
+    marketInfo: MarketData;
+    params: PlaceOrderParams;
+    orderCategory: OrderCategory;
+  }): Promise<number | null> {
+    const oraclePrice = parseFloat(marketInfo.oraclePrice);
+    const notionalValue = size * oraclePrice;
+    const requiredMargin = notionalValue / params.leverage!;
+
+    const isLongTermOrder = !orderCategory.isMarket;
+    const targetEquity = isLongTermOrder ? Math.max(requiredMargin, 20.1) : requiredMargin;
+    const targetEquityWithBuffer = targetEquity * (1 + TRADING_CONFIG.ISOLATED_FEE_BUFFER);
+
+    const indexer = dydxWalletService.getIndexerClient();
+    let currentEquity = 0;
+    try {
+      const subaccountResponse = await indexer.account.getSubaccount(address, subaccountNumber);
+      currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
+    } catch {
+      currentEquity = 0;
+    }
+
+    if (currentEquity >= targetEquityWithBuffer) return null;
+
+    const shortfall = targetEquityWithBuffer - currentEquity;
+
+    let crossFreeCollateral = 0;
+    try {
+      const crossSubResponse = await indexer.account.getSubaccount(
+        address,
+        SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
+      );
+      crossFreeCollateral = parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
+    } catch (e: any) {
+      throw new Error(`Failed to read cross margin balance: ${e.message}`);
+    }
+
+    if (crossFreeCollateral < shortfall) {
+      throw new Error(
+        `Insufficient free collateral in Cross Margin. Need $${shortfall.toFixed(2)}, available $${crossFreeCollateral.toFixed(2)}`
+      );
+    }
+
+    console.log(`[atomic] Transfer needed: $${shortfall.toFixed(2)} cross→isolated(${subaccountNumber})`);
+    return shortfall;
+  }
+
+  private async placeOrderWithAtomicTransfer({
+    client,
+    subaccount,
+    localWallet,
+    params,
+    clientId,
+    price,
+    size,
+    triggerPrice,
+    orderCategory,
+    transferAmount,
+    address,
+    subaccountNumber,
+  }: {
+    client: any;
+    subaccount: any;
+    localWallet: any;
+    params: PlaceOrderParams;
+    clientId: number;
+    price: number;
+    size: number;
+    triggerPrice?: number;
+    orderCategory: OrderCategory;
+    transferAmount: number;
+    address?: string;
+    subaccountNumber: number;
+  }) {
+    if (orderCategory.isMarket) {
+      console.log(`[atomic] Market+isolated: sending transfer tx first ($${transferAmount.toFixed(2)} → subaccount ${subaccountNumber})`);
+
+      const sourceSubaccountNumber = SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT;
+      const sourceSubaccount = SubaccountInfo.forLocalWallet(localWallet, sourceSubaccountNumber);
+
+      const assetId = 0;
+      const amountInBaseUnits = Math.round(transferAmount * 1_000_000);
+
+      const transferResult = await client.validatorClient.post.transfer(
+        sourceSubaccount,
+        address!,
+        subaccountNumber,
+        assetId,
+        new Long(amountInBaseUnits)
+      );
+
+      console.log(`[atomic] Transfer tx broadcast: ${this.extractHash(transferResult.hash)}`);
+
+      const walletAddress = address ?? dydxWalletService.getAddress()!;
+      await this.waitForTransferToLand(walletAddress, subaccountNumber, transferAmount);
+      const height = await this.getFreshBlockHeight(client);
+      const goodTilBlock = height + TRADING_CONFIG.SHORT_BLOCK_FORWARD;
+
+      console.log(`[atomic] Transfer confirmed → placing short-term order at block ${height} | goodTilBlock = ${goodTilBlock}`);
+
+      return client.placeShortTermOrder(
+        subaccount,
+        params.market,
+        this.normalizeToOrderSide(params.side),
+        price,
+        size,
+        clientId,
+        goodTilBlock,
+        OrderTimeInForce.IOC,
+        params.reduceOnly || false
+      );
+    }
+
+    const safeDuration = Math.min(
+      params.goodTilTimeInSeconds || TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS,
+      TRADING_CONFIG.MAX_STATEFUL_EXPIRY_SECONDS
+    );
+    const isMarketConditional = MARKET_CONDITIONAL_TYPES.has(params.type.toUpperCase());
+    let timeInForce = OrderTimeInForce.GTT;
+    if (params.timeInForce === 'IOC') timeInForce = OrderTimeInForce.IOC;
+    if (params.reduceOnly || isMarketConditional) timeInForce = OrderTimeInForce.IOC;
+
+    const orderPayload = {
+      subaccountNumber,
+      marketId: params.market,
+      type: this.mapOrderType(params.type),
+      side: this.normalizeToOrderSide(params.side),
+      price,
+      size,
+      clientId,
+      timeInForce,
+      goodTilTimeInSeconds: safeDuration,
+      execution: isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT,
+      postOnly: params.postOnly || false,
+      reduceOnly: params.reduceOnly || false,
+      triggerPrice: triggerPrice ?? 0,
+    };
+
+    console.log(`[atomic] Transfer+stateful order via bulkCancelAndTransferAndPlaceStatefulOrders`);
+    const result = await client.bulkCancelAndTransferAndPlaceStatefulOrders(
+      subaccount,
+      [],
+      {
+        sourceSubaccountNumber: SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT,
+        recipientSubaccountNumber: subaccountNumber,
+        transferAmount: transferAmount.toFixed(6),
+      },
+      [orderPayload]
+    );
+
+    console.log(`[atomic] Transfer+order tx: ${this.extractHash(result.hash)}`);
+    return result;
+  }
+
+  private async waitForTransferToLand(
+    address: string,
+    subaccountNumber: number,
+    minEquity: number
+  ): Promise<void> {
+    const indexer = dydxWalletService.getIndexerClient();
+    const { TRANSFER_CONFIRM_POLL_MS, TRANSFER_CONFIRM_MAX_ATTEMPTS } = TRADING_CONFIG;
+
+    for (let attempt = 1; attempt <= TRANSFER_CONFIRM_MAX_ATTEMPTS; attempt++) {
+      await new Promise(r => setTimeout(r, TRANSFER_CONFIRM_POLL_MS));
+
+      try {
+        const resp = await indexer.account.getSubaccount(address, subaccountNumber);
+        const equity = parseFloat(resp.subaccount?.equity || '0');
+        const freeCollateral = parseFloat(resp.subaccount?.freeCollateral || '0');
+
+        console.log(`[atomic] Poll ${attempt}/${TRANSFER_CONFIRM_MAX_ATTEMPTS}: equity=$${equity.toFixed(2)}, freeCollateral=$${freeCollateral.toFixed(2)} (need >= $${minEquity.toFixed(2)})`);
+
+        // ← IMPROVED CHECK: use freeCollateral (most reliable for transfers)
+        if (equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99) {
+          console.log(`[atomic] Transfer confirmed on-chain after ${attempt} poll(s)`);
+          return;
+        }
+      } catch (e: any) {
+        console.warn(`[atomic] Poll ${attempt} indexer error: ${e.message}`);
+      }
+    }
+
+    throw new Error(
+      `Transfer of $${minEquity.toFixed(2)} to isolated subaccount ${subaccountNumber} did not confirm within ` +
+      `${(TRANSFER_CONFIRM_MAX_ATTEMPTS * TRANSFER_CONFIRM_POLL_MS / 1000).toFixed(0)}s. Try again.`
+    );
+  }
+  private async getFreshBlockHeight(client: any): Promise<number> {
+    const height = await client.validatorClient.get.latestBlockHeight();
+    console.log(`[fresh-height] Latest block: ${height}`);
+    return height;
+  }
+
 
   async closePosition(position: Position, marketInfo?: MarketData) {
     try {
@@ -186,12 +417,9 @@ class DydxTradingService {
 
   async cancelOrder(order: any) {
     try {
-      const { client, address, localWallet } = await this.getClientAndWallet();
-      const subaccount = {
-        address,
-        subaccountNumber: dydxWalletService.getSubaccountNumber(),
-        signingWallet: localWallet,
-      };
+      const { client, localWallet } = await this.getClientAndWallet();
+      const orderSubaccountNumber = this.getOrderSubaccountNumber(order);
+      const subaccount = SubaccountInfo.forLocalWallet(localWallet, orderSubaccountNumber);
 
       const clientId = parseInt(order.clientId);
       const orderFlags = parseInt(order.orderFlags);
@@ -222,9 +450,8 @@ class DydxTradingService {
         goodTilTimeInSeconds
       );
 
-      const subaccountNumber = order.subaccountNumber ?? dydxWalletService.getSubaccountNumber();
-      if (subaccountNumber >= 128) {
-        this.sweepIsolatedSubaccountAsync(subaccountNumber);
+      if (orderSubaccountNumber >= 128) {
+        this.sweepIsolatedSubaccountAsync(orderSubaccountNumber);
       }
 
       return {
@@ -382,7 +609,6 @@ class DydxTradingService {
       if (triggers.takeProfit?.enabled && triggers.takeProfit?.price) {
         const type =
           triggers.takeProfit.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
-
         results.takeProfit = await this.placeOrder(
           {
             market: position.market,
@@ -400,7 +626,6 @@ class DydxTradingService {
 
       if (triggers.stopLoss?.enabled && triggers.stopLoss?.price) {
         const type = triggers.stopLoss.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
-
         results.stopLoss = await this.placeOrder(
           {
             market: position.market,
@@ -421,87 +646,6 @@ class DydxTradingService {
       console.error('Error setting triggers:', error);
       return { success: false, error: error.message, results };
     }
-  }
-
-  private async ensureIsolatedSubaccountEquity({
-    subaccountNumber,
-    size,
-    marketInfo,
-    params,
-    address,
-    subaccount,
-    orderCategory,
-  }: {
-    subaccountNumber: number;
-    size: number;
-    marketInfo: MarketData;
-    params: PlaceOrderParams;
-    address: string;
-    subaccount: any;
-    orderCategory: OrderCategory;
-  }) {
-    const oraclePrice = parseFloat(marketInfo.oraclePrice);
-    const notionalValue = size * oraclePrice;
-    const requiredMargin = notionalValue / params.leverage!;
-
-    const isLongTermOrder = !orderCategory.isMarket;
-    const targetEquity = isLongTermOrder ? Math.max(requiredMargin, 20.1) : requiredMargin;
-    const targetEquityWithBuffer = targetEquity * 1.05;
-
-    const equityResult = await dydxSubaccountService.ensureIsolatedEquity(
-      subaccountNumber,
-      targetEquityWithBuffer
-    );
-    if (!equityResult.success) {
-      throw new Error(equityResult.error || 'Failed to ensure isolated equity');
-    }
-
-    if (equityResult.transferredAmount > 0) {
-      await this.verifyEquityAfterTransfer({ address, subaccount, targetEquityWithBuffer });
-    }
-  }
-
-  private async verifyEquityAfterTransfer({
-    address,
-    subaccount,
-    targetEquityWithBuffer,
-  }: {
-    address: string;
-    subaccount: any;
-    targetEquityWithBuffer: number;
-  }) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const indexer = dydxWalletService.getIndexerClient();
-    let verified = false;
-
-    for (let attempt = 0; attempt < 8; attempt++) {
-      try {
-        const subaccountResponse = await indexer.account.getSubaccount(
-          address,
-          subaccount.subaccountNumber
-        );
-        const currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
-        if (currentEquity >= targetEquityWithBuffer * 0.95) {
-          verified = true;
-          break;
-        }
-      } catch { }
-
-      await new Promise(resolve => setTimeout(resolve, 600));
-    }
-
-    if (!verified) {
-      throw new Error(
-        'Transfer completed but equity not yet reflected. Please try again in a few seconds.'
-      );
-    }
-  }
-
-  private async getFreshBlockHeight(client: any): Promise<number> {
-    await client.validatorClient.get.latestBlockHeight();
-    await new Promise(r => setTimeout(r, 200));
-    return client.validatorClient.get.latestBlockHeight();
   }
 
   private async placeMarketOrder(
@@ -546,7 +690,6 @@ class DydxTradingService {
     );
 
     const side = this.normalizeToOrderSide(params.side);
-
     const isMarketConditional = MARKET_CONDITIONAL_TYPES.has(params.type.toUpperCase());
     const execution = isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT;
 
@@ -699,6 +842,8 @@ class DydxTradingService {
 
   private getUserFriendlyError(error: any): string {
     const msg = error.message || error.toString();
+    if (msg.includes('NewlyUndercollateralized'))
+      return 'Insufficient collateral for this order. Please reduce size or increase margin.';
     if (msg.includes('insufficient')) return 'Insufficient balance';
     if (msg.includes('9003') || msg.includes('reduce-only') || msg.includes('Reduce-only'))
       return 'Reduce-only is currently disabled on dYdX. Using regular market orders instead.';
@@ -707,6 +852,8 @@ class DydxTradingService {
     if (msg.includes('Mnemonic not found')) return 'Wallet session expired - please reconnect';
     if (msg.includes('StatefulOrderTimeWindow'))
       return 'Order expiry time is too far in the future. Maximum is 28 days.';
+    if (msg.includes('did not confirm within'))
+      return 'Transfer took too long to confirm. Please try again.';
     return msg;
   }
 
@@ -716,8 +863,19 @@ class DydxTradingService {
       msg.includes('network') ||
       msg.includes('timeout') ||
       msg.includes('connection') ||
-      msg.includes('Indexer not available')
+      msg.includes('Indexer not available') ||
+      msg.includes('did not confirm within')
     );
+  }
+
+  private getOrderSubaccountNumber(order: any): number {
+    if (typeof order.subaccountNumber === 'number') return order.subaccountNumber;
+    if (typeof order.subaccountId === 'string' && order.subaccountId.includes('/')) {
+      const parts = order.subaccountId.split('/');
+      const parsed = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return dydxWalletService.getSubaccountNumber();
   }
 }
 

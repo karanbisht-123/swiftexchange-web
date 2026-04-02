@@ -7,6 +7,7 @@ import type {
   SwapQuote,
   TokenInfo,
 } from '../types/ammSwap.types';
+import { signAndSubmitTransaction } from '../utils/transactionService';
 
 export class AmmSwapService {
   private server: StellarSDK.Horizon.Server;
@@ -310,94 +311,23 @@ export class AmmSwapService {
     }
   }
 
-  private isWalletConnectProvider(provider: any): boolean {
-    return !!(provider.client && provider.session && typeof provider.client.request === 'function');
-  }
 
   async executeSwapWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
-    try {
-      console.log('Preparing Stellar swap transaction via WalletConnect...');
+    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+    const network = isMainnet ? 'mainnet' : 'testnet';
 
-      if (!transaction.xdr) {
-        console.error('Missing XDR data');
-        throw new Error('Stellar transaction requires XDR data');
-      }
+    const result = await signAndSubmitTransaction({
+      xdr: transaction.xdr,
+      network,
+      networkPassphrase: this.networkPassphrase,
+      provider: walletProvider,
+    });
 
-      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-      const network = isMainnet ? 'pubnet' : 'TESTNET';
-
-      const signParams = {
-        xdr: transaction.xdr,
-        networkPassphrase: this.networkPassphrase,
-        network,
-      };
-
-      console.log('Stellar swap sign params:', signParams);
-
-      let result: any;
-
-      if (this.isWalletConnectProvider(walletProvider)) {
-        console.log('Using WalletConnect client.request() for Stellar swap');
-
-        const topic = walletProvider.session?.topic;
-        if (!topic) {
-          console.error('No WalletConnect session topic found');
-          throw new Error('No active WalletConnect session for Stellar wallet');
-        }
-
-        const chainCAIP = `stellar:${network}`;
-
-        console.log('WalletConnect request params:', {
-          topic,
-          chainId: chainCAIP,
-          method: 'stellar_signAndSubmitXDR',
-        });
-
-        result = await walletProvider.client.request({
-          topic,
-          chainId: chainCAIP,
-          request: {
-            method: 'stellar_signAndSubmitXDR',
-            params: signParams,
-          },
-        });
-      } else {
-        console.log('Using direct provider.request() for Stellar swap');
-        result = await walletProvider.request({
-          method: 'stellar_signAndSubmitXDR',
-          params: signParams,
-        });
-      }
-
-      console.log('WalletConnect provider response:', result);
-      if (result?.status === 'success' || result?.hash || result?.signedXDR) {
-        console.log('Stellar swap transaction successful!');
-        return result.hash || result.transactionHash || 'stellar_submitted';
-      }
-
-      if (typeof result === 'string') {
-        console.log('Stellar swap returned string hash');
-        return result;
-      }
-
-      console.error('Stellar swap failed - unexpected response:', result);
-      throw new Error('Stellar transaction failed - unexpected response format');
-    } catch (error: any) {
-      console.error('Failed to execute swap via WalletConnect:', {
-        message: error.message,
-        code: error.code,
-        fullError: error,
-      });
-
-      if (error?.response?.data?.extras?.result_codes) {
-        const codes = error.response.data.extras.result_codes;
-        throw new Error(`Swap failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
-      }
-
-      throw new Error(
-        `Swap execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    if (result.success && result.hash) {
+      return result.hash;
     }
+
+    throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
   }
 
   private assetsEqual(a: StellarSDK.Asset, b: StellarSDK.Asset): boolean {

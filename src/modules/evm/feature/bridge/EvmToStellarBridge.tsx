@@ -12,16 +12,12 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+
 import { ethers } from 'ethers';
+
 import { ERC20_ABI } from '../../../../abi/Erc20AbI';
 import { ROUTES } from '../../../../constants/routes';
 import StellarActiveGuard from '../../../walletconnect/components/StellarActiveGuard';
-import {
-  getChainById,
-  getChainsForNetwork,
-  type ChainConfig,
-  type WellKnownTokens,
-} from '../../utils/Chainregistry';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
@@ -30,6 +26,13 @@ import {
   getBridgeQuote,
   prepareBridgeTransaction,
 } from '../../service/evmSwapService';
+import { addLocalTransaction } from '../../service/localTransactionService';
+import {
+  type ChainConfig,
+  type WellKnownTokens,
+  getChainById,
+  getChainsForNetwork,
+} from '../../utils/Chainregistry';
 import { rpcManager } from '../../utils/rpcProvider';
 
 interface Asset {
@@ -73,7 +76,9 @@ const getIconUrl = (symbol: string, chainConfig?: ChainConfig): string => {
 
   const tokenAddress = chainConfig.tokens[symbol as keyof WellKnownTokens];
   if (tokenAddress) {
-    const asset = chainConfig.assets.find(a => a.address.toLowerCase() === tokenAddress.toLowerCase());
+    const asset = chainConfig.assets.find(
+      a => a.address.toLowerCase() === tokenAddress.toLowerCase()
+    );
     if (asset?.logoURI) return asset.logoURI;
   }
 
@@ -92,28 +97,54 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const evmAddress = evmWallet?.address;
   const stellarAddress = stellarWallet?.address;
-  const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
   const provider = getProvider(WalletType.EVM);
 
-  const evmChains: ChainConfig[] = getChainsForNetwork(currentNetwork);
+  const evmChains = useMemo(() => getChainsForNetwork(currentNetwork), [currentNetwork]);
 
-  const supportedNetworks = useMemo(() =>
-    evmChains
-      .filter(chain => chain.available)
-      .map(chain => ({
-        id: chain.slug === 'eth' ? 'ETH' : (chain.slug === 'bsc' ? 'BNB' : chain.slug.toUpperCase()),
-        chainId: chain.chainId,
-        name: chain.name,
-        symbol: chain.nativeCurrency.symbol,
-        icon: chain.nativeCurrency.logoURI,
-      })),
+  const supportedNetworks = useMemo(
+    () =>
+      evmChains
+        .filter(chain => chain.available)
+        .map(chain => ({
+          id:
+            chain.slug === 'eth' ? 'ETH' : chain.slug === 'bsc' ? 'BNB' : chain.slug.toUpperCase(),
+          chainId: chain.chainId,
+          name: chain.name,
+          symbol: chain.nativeCurrency.symbol,
+          icon: chain.nativeCurrency.logoURI,
+        })),
     [evmChains]
   );
 
-  const [selectedNetworkId, setSelectedNetworkId] = useState<string>(
-    supportedNetworks.find(n => n.id === 'BNB') ? 'BNB' : (supportedNetworks[0]?.id || 'ETH')
-  );
-  const [selectedToken, setSelectedToken] = useState<TokenType>('USDT');
+  const initialChainId = useMemo(() => {
+    if (selectedAsset?.chainId) return selectedAsset.chainId;
+    const ethChain = evmChains.find(c => c.slug === 'eth');
+    if (ethChain) return ethChain.chainId;
+    const bscChain = evmChains.find(c => c.slug === 'bsc');
+    if (bscChain) return bscChain.chainId;
+    return supportedNetworks[0]?.chainId || 1;
+  }, [selectedAsset, evmChains, supportedNetworks]);
+
+  const [selectedChainId, setSelectedChainId] = useState<number>(initialChainId);
+
+  const currentChainConfig = useMemo(() => {
+    return evmChains.find(c => c.chainId === selectedChainId);
+  }, [evmChains, selectedChainId]);
+
+  const selectedNetworkId = useMemo(() => {
+    if (!currentChainConfig) return 'ETH';
+    if (currentChainConfig.slug === 'eth') return 'ETH';
+    if (currentChainConfig.slug === 'bsc') return 'BNB';
+    return currentChainConfig.slug.toUpperCase();
+  }, [currentChainConfig]);
+
+  const [selectedToken, setSelectedToken] = useState<TokenType>(() => {
+    if (selectedAsset?.symbol) {
+      const sym = selectedAsset.symbol.toUpperCase();
+      if (sym === 'USDC' || sym === 'USDT') return sym as TokenType;
+    }
+    return 'USDT';
+  });
   const [selectedFeeType, setSelectedFeeType] = useState<FeeType>('stablecoin');
   const [amount, setAmount] = useState('');
   const [tokenBalance, setTokenBalance] = useState('0');
@@ -129,11 +160,14 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
   const errorRef = useRef<HTMLDivElement>(null);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const initializedAssetIdRef = useRef<string | null>(null);
 
   const parseError = (err: string | null) => {
     if (!err) return null;
 
-    const balanceMatch = err.match(/Insufficient (\w+) balance\. Have: ([\d.]+).*, Need: ~?([\d.]+)/i);
+    const balanceMatch = err.match(
+      /Insufficient (\w+) balance\. Have: ([\d.]+).*, Need: ~?([\d.]+)/i
+    );
     if (balanceMatch) {
       return {
         type: 'insufficient_balance',
@@ -161,20 +195,16 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
   const parsedError = parseError(error);
 
-  const currentChainConfig = useMemo(() => {
-    return evmChains.find(c => c.chainId === supportedNetworks.find(n => n.id === selectedNetworkId)?.chainId);
-  }, [evmChains, supportedNetworks, selectedNetworkId]);
-
-  const selectedChainId = currentChainConfig?.chainId || 1;
+  const currentChainIdFromWallet = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
 
   useEffect(() => {
-    if (!selectedAsset) return;
+    if (!selectedAsset || initializedAssetIdRef.current === selectedAsset.id) return;
 
+    initializedAssetIdRef.current = selectedAsset.id;
     const assetChainId = selectedAsset.chainId;
-    const matchingNetwork = supportedNetworks.find(n => n.chainId === assetChainId);
 
-    if (matchingNetwork) {
-      setSelectedNetworkId(matchingNetwork.id);
+    if (assetChainId) {
+      setSelectedChainId(assetChainId);
     }
 
     const symbol = selectedAsset.symbol?.toUpperCase();
@@ -187,53 +217,55 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
     setError(null);
   }, [selectedAsset, supportedNetworks]);
 
-  const handleChainSwitch = useCallback(async (newNetworkId: string) => {
-    const networkConfig = supportedNetworks.find(n => n.id === newNetworkId);
-    if (!networkConfig || !provider) return;
+  const handleChainSwitch = useCallback(
+    async (newChainId: number) => {
+      if (!provider) return;
 
-    const newChainId = networkConfig.chainId;
-
-    if (currentChainId === newChainId) {
-      setSelectedNetworkId(newNetworkId);
-      return;
-    }
-
-    setIsChainSwitching(true);
-    setError(null);
-
-    try {
-      await provider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${newChainId.toString(16)}` }],
-      });
-      setSelectedNetworkId(newNetworkId);
-    } catch (switchError: any) {
-      if (switchError.code === 4902) {
-        const chainConfig = evmChains.find(c => c.chainId === newChainId);
-        if (chainConfig) {
-          try {
-            await provider.request({
-              method: 'wallet_addEthereumChain',
-              params: [{
-                chainId: `0x${newChainId.toString(16)}`,
-                chainName: chainConfig.name,
-                nativeCurrency: chainConfig.nativeCurrency,
-                rpcUrls: [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])],
-                blockExplorerUrls: [chainConfig.blockExplorerUrl],
-              }],
-            });
-            setSelectedNetworkId(newNetworkId);
-          } catch {
-            setError('Failed to add network');
-          }
-        }
-      } else if (switchError.code !== 4001) {
-        setError('Failed to switch network');
+      if (currentChainIdFromWallet === newChainId) {
+        setSelectedChainId(newChainId);
+        return;
       }
-    } finally {
-      setIsChainSwitching(false);
-    }
-  }, [provider, currentChainId, evmChains, supportedNetworks]);
+
+      setIsChainSwitching(true);
+      setError(null);
+
+      try {
+        await provider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: `0x${newChainId.toString(16)}` }],
+        });
+        setSelectedChainId(newChainId);
+      } catch (switchError: any) {
+        if (switchError.code === 4902) {
+          const chainConfig = evmChains.find(c => c.chainId === newChainId);
+          if (chainConfig) {
+            try {
+              await provider.request({
+                method: 'wallet_addEthereumChain',
+                params: [
+                  {
+                    chainId: `0x${newChainId.toString(16)}`,
+                    chainName: chainConfig.name,
+                    nativeCurrency: chainConfig.nativeCurrency,
+                    rpcUrls: [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])],
+                    blockExplorerUrls: [chainConfig.blockExplorerUrl],
+                  },
+                ],
+              });
+              setSelectedChainId(newChainId);
+            } catch {
+              setError('Failed to add network');
+            }
+          }
+        } else if (switchError.code !== 4001) {
+          setError('Failed to switch network');
+        }
+      } finally {
+        setIsChainSwitching(false);
+      }
+    },
+    [provider, currentChainIdFromWallet, evmChains]
+  );
 
   useEffect(() => {
     if (parsedError && errorRef.current) {
@@ -265,7 +297,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       const { balance, decimals } = await rpcManager.fetchWithFallback(
         selectedChainId,
         urls,
-        async (p) => {
+        async p => {
           const contract = new ethers.Contract(tokenAddress, ERC20_ABI, p);
           const [b, d] = await Promise.all([contract.balanceOf(evmAddress), contract.decimals()]);
           return { balance: b, decimals: d };
@@ -283,7 +315,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
   useEffect(() => {
     if (evmAddress && !isChainSwitching) fetchBalance();
-  }, [fetchBalance, evmAddress, selectedNetworkId, selectedToken, isChainSwitching]);
+  }, [fetchBalance, evmAddress, selectedChainId, selectedToken, isChainSwitching]);
 
   const fetchQuote = useCallback(
     async (amountValue: string) => {
@@ -353,12 +385,14 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       const chain = getChainById(selectedChainId);
       if (!chain) return;
 
-      const isNative = selectedToken === (currentChainConfig.nativeCurrency.symbol);
+      const isNative = selectedToken === currentChainConfig.nativeCurrency.symbol;
       const tokenAddress = selectedToken === 'USDT' ? chain.tokens.USDT : chain.tokens.USDC;
       const urls = [currentChainConfig.rpcUrl, ...(currentChainConfig.fallbackRpcUrls || [])];
 
       if (isNative) {
-        const balance = await rpcManager.fetchWithFallback(selectedChainId, urls, (p) => p.getBalance(evmAddress));
+        const balance = await rpcManager.fetchWithFallback(selectedChainId, urls, p =>
+          p.getBalance(evmAddress)
+        );
         const gasBuffer = ethers.parseEther('0.01');
         if (balance > gasBuffer) {
           const maxAmount = balance - gasBuffer;
@@ -370,7 +404,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
         const { balance, decimals } = await rpcManager.fetchWithFallback(
           selectedChainId,
           urls,
-          async (p) => {
+          async p => {
             const contract = new ethers.Contract(tokenAddress, ERC20_ABI, p);
             const [b, d] = await Promise.all([contract.balanceOf(evmAddress), contract.decimals()]);
             return { balance: b, decimals: d };
@@ -383,8 +417,6 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
     }
   };
 
-
-
   const sendTransaction = async (bridgeTx: BridgeTransaction): Promise<string> => {
     if (!provider) throw new Error('Wallet not connected');
 
@@ -394,7 +426,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       to: transaction.to,
       value: `0x${BigInt(transaction.value).toString(16)}`,
       data: transaction.data,
-      gas: `0x${parseInt(txMeta.gasLimit).toString(16)}`,
+      gasLimit: `0x${parseInt(txMeta.gasLimit).toString(16)}`,
     };
 
     if (txMeta.feeData.maxFeePerGas && txMeta.feeData.maxPriorityFeePerGas) {
@@ -410,14 +442,14 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
   };
 
   const waitForTransaction = async (txHash: string): Promise<void> => {
-    const chainConfig = evmChains.find((c) => c.chainId === selectedChainId);
+    const chainConfig = evmChains.find(c => c.chainId === selectedChainId);
     if (!chainConfig) throw new Error('Chain config not found');
 
     const urls = [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])];
 
     for (let attempt = 0; attempt < 60; attempt++) {
       try {
-        const receipt = await rpcManager.fetchWithFallback(selectedChainId, urls, (p) =>
+        const receipt = await rpcManager.fetchWithFallback(selectedChainId, urls, p =>
           p.getTransactionReceipt(txHash)
         );
         if (receipt) {
@@ -427,7 +459,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       } catch (err) {
         console.warn('[EvmToStellarBridge] Error fetching receipt', err);
       }
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 2000));
     }
 
     throw new Error('Transaction confirmation timeout');
@@ -452,8 +484,8 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       });
 
       const { needsApproval, transactions } = bridgeResponse;
-      const approveTx = transactions.find((tx) => tx.type === 'approve');
-      const transferTx = transactions.find((tx) => tx.type === 'transfer');
+      const approveTx = transactions.find(tx => tx.type === 'approve');
+      const transferTx = transactions.find(tx => tx.type === 'transfer');
 
       if (needsApproval && approveTx) {
         setTxStatus('approving');
@@ -464,12 +496,31 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
         setTxStatus('transferring');
         const hash = await sendTransaction(transferTx);
         setTxHash(hash);
+
+        addLocalTransaction({
+          hash,
+          chainId: selectedChainId,
+          type: 'bridge',
+          timestamp: Date.now(),
+          description: `Bridge ${amount} ${selectedToken} (EVM) → USDC (Stellar)`,
+          status: 'pending',
+        });
       }
 
       setTxStatus('success');
     } catch (err: any) {
       setTxStatus('error');
-      setError(err.message || 'Transaction failed');
+      const errorMsg = err.message || 'Transaction failed';
+      setError(errorMsg);
+
+      addLocalTransaction({
+        hash: `failed-${Date.now()}`,
+        chainId: selectedChainId,
+        type: 'bridge',
+        timestamp: Date.now(),
+        description: `Bridge ${amount} ${selectedToken} (EVM) → USDC (Stellar)`,
+        status: 'failed',
+      });
     } finally {
       setIsPreparingBridge(false);
     }
@@ -497,7 +548,6 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
           <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
             <div className="card max-w-md w-full animate-slide-up rounded-t-3xl sm:rounded-2xl border-t-4 border-green-500 shadow-2xl m-0 sm:m-4">
               <div className="flex items-center justify-center pt-8 pb-4">
-
                 <div className="relative">
                   <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-lg">
                     <CheckCircle2 className="w-12 h-12 text-white" strokeWidth={2.5} />
@@ -553,18 +603,19 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
         <div className="card py-4 relative">
           <div className="flex flex-wrap items-center justify-start gap-4 px-2">
-            {supportedNetworks.map((net) => {
-              const isSelected = selectedNetworkId === net.id;
+            {supportedNetworks.map(net => {
+              const isSelected = selectedChainId === net.chainId;
               return (
-                <div key={net.id} className="flex flex-col items-center gap-2">
+                <div key={net.chainId} className="flex flex-col items-center gap-2">
                   <button
-                    onClick={() => handleChainSwitch(net.id)}
+                    onClick={() => handleChainSwitch(net.chainId)}
                     disabled={isChainSwitching}
                     title={`Switch to ${net.name}`}
-                    className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${isSelected
-                      ? 'bg-brand/10 border-brand shadow-lg scale-110'
-                      : 'bg-secondary border-color hover:border-brand/40 hover:bg-tertiary'
-                      }`}
+                    className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${
+                      isSelected
+                        ? 'bg-brand/10 border-brand shadow-lg scale-110'
+                        : 'bg-secondary border-color hover:border-brand/40 hover:bg-tertiary'
+                    }`}
                   >
                     <img
                       src={net.icon}
@@ -572,7 +623,9 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
                       className={`w-9 h-9 rounded-full bg-white shadow-sm ring-1 ${isSelected ? 'ring-brand' : 'ring-transparent'}`}
                     />
                   </button>
-                  <span className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}>
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}
+                  >
                     {net.id}
                   </span>
                 </div>
@@ -604,13 +657,17 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
                     className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
                   />
                   <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-secondary border border-color flex items-center justify-center overflow-hidden">
-                    <img src={currentChainConfig?.nativeCurrency.logoURI} alt="" className="w-3.5 h-3.5" />
+                    <img
+                      src={currentChainConfig?.nativeCurrency.logoURI}
+                      alt=""
+                      className="w-3.5 h-3.5"
+                    />
                   </div>
                 </div>
                 <div className="relative group">
                   <select
                     value={selectedToken}
-                    onChange={(e) => setSelectedToken(e.target.value as TokenType)}
+                    onChange={e => setSelectedToken(e.target.value as TokenType)}
                     disabled={isChainSwitching}
                     className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
                   >
@@ -637,7 +694,14 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
             <div className="flex justify-between items-center text-xs">
               <span className="text-muted font-medium">
-                Balance: {isLoadingBalance ? <Loader2 className="w-3 h-3 animate-spin inline ml-1" /> : <span className="text-primary font-bold">{parseFloat(tokenBalance).toFixed(4)}</span>}
+                Balance:{' '}
+                {isLoadingBalance ? (
+                  <Loader2 className="w-3 h-3 animate-spin inline ml-1" />
+                ) : (
+                  <span className="text-primary font-bold">
+                    {parseFloat(tokenBalance).toFixed(4)}
+                  </span>
+                )}
               </span>
               {hasInsufficientBalance && (
                 <button
@@ -651,7 +715,6 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
             </div>
           </div>
 
-
           {(parseFloat(tokenBalance) === 0 || hasInsufficientBalance) && !isPreparingBridge && (
             <div className="animate-in fade-in -mt-4 slide-in-from-top-1 duration-500 mb-2 ">
               <div className="bg-gradient-to-br from-brand/5 via-tertiary to-blue-500/5  rounded-2xl rounded-t-none p-4 shadow-sm relative overflow-hidden group">
@@ -659,7 +722,9 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
                 <div className="relative z-10 flex items-center justify-between gap-4">
                   <div className="flex flex-col py-2">
                     <h4 className="text-sm font-bold text-primary">Refill {selectedToken}</h4>
-                    <p className="text-[10px] text-muted font-medium uppercase tracking-wider opacity-70">To bridge to Stellar</p>
+                    <p className="text-[10px] text-muted font-medium uppercase tracking-wider opacity-70">
+                      To bridge to Stellar
+                    </p>
                   </div>
                   <div className="flex gap-2 shrink-0 mt-2">
                     <button
@@ -682,7 +747,6 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
             </div>
           )}
 
-
           <div className="relative h-3 my-2 z-10 flex justify-center items-center">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
               <div className="w-10 h-10 rounded-xl bg-secondary border border-color flex items-center justify-center shadow-md">
@@ -692,7 +756,9 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
           </div>
 
           <div className="bg-tertiary rounded-2xl p-4 border border-color">
-            <label className="block text-sm font-bold text-primary mb-3">You Receive (Stellar)</label>
+            <label className="block text-sm font-bold text-primary mb-3">
+              You Receive (Stellar)
+            </label>
 
             <div className="flex items-center gap-3 mb-3">
               <div className="flex items-center gap-2 shrink-0">
@@ -745,7 +811,9 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
             <div className="flex justify-between items-center text-sm">
               <span className="text-secondary font-medium">Minimum Received</span>
-              <span className="text-primary font-bold">{parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4)} USDC</span>
+              <span className="text-primary font-bold">
+                {parseFloat(quoteData.quotes.minimumAmountOut).toFixed(4)} USDC
+              </span>
             </div>
 
             <div className="flex justify-between items-center text-sm">
@@ -761,19 +829,24 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
                 Relayer Fee
               </label>
               <div className="flex gap-2">
-                {(['native', 'stablecoin'] as FeeType[]).map((feeType) => {
+                {(['native', 'stablecoin'] as FeeType[]).map(feeType => {
                   const isSelected = selectedFeeType === feeType;
                   return (
                     <button
                       key={feeType}
                       onClick={() => setSelectedFeeType(feeType)}
-                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border flex flex-col items-center gap-1.5 ${isSelected
-                        ? 'bg-brand/10 border-brand text-brand shadow-sm'
-                        : 'bg-secondary/50 text-secondary border-color hover:border-brand/30'
-                        }`}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border flex flex-col items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-brand/10 border-brand text-brand shadow-sm'
+                          : 'bg-secondary/50 text-secondary border-color hover:border-brand/30'
+                      }`}
                     >
                       <img
-                        src={feeType === 'native' ? currentChainConfig?.nativeCurrency.logoURI : getIconUrl(selectedToken, currentChainConfig)}
+                        src={
+                          feeType === 'native'
+                            ? currentChainConfig?.nativeCurrency.logoURI
+                            : getIconUrl(selectedToken, currentChainConfig)
+                        }
                         alt=""
                         className="w-4 h-4 rounded-full bg-white ring-1 ring-black/5"
                       />
@@ -792,25 +865,43 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
 
         {parsedError && (
           <div ref={errorRef} className="mt-4 animate-slide-up">
-            <div className={`relative overflow-hidden rounded-2xl border-2 shadow-lg transition-all ${parsedError.type === 'insufficient_balance'
-              ? 'bg-orange-500/10 border-orange-500/20'
-              : 'bg-red-500/10 border-red-500/20'
-              }`}>
+            <div
+              className={`relative overflow-hidden rounded-2xl border-2 shadow-lg transition-all ${
+                parsedError.type === 'insufficient_balance'
+                  ? 'bg-orange-500/10 border-orange-500/20'
+                  : 'bg-red-500/10 border-red-500/20'
+              }`}
+            >
               <div className="p-5">
                 <div className="flex items-start gap-4">
-                  <div className={`p-2.5 rounded-xl shrink-0 ${parsedError.type === 'insufficient_balance'
-                    ? 'bg-orange-500/20 text-orange-600'
-                    : 'bg-red-500/20 text-red-600'
-                    }`}>
+                  <div
+                    className={`p-2.5 rounded-xl shrink-0 ${
+                      parsedError.type === 'insufficient_balance'
+                        ? 'bg-orange-500/20 text-orange-600'
+                        : 'bg-red-500/20 text-red-600'
+                    }`}
+                  >
                     <AlertCircle className="w-6 h-6" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className={`text-lg font-bold mb-1 ${parsedError.type === 'insufficient_balance' ? 'text-orange-900' : 'text-red-900'
-                      }`}>
-                      {parsedError.type === 'insufficient_balance' ? 'Balance Required' : 'Transaction Error'}
+                    <h4
+                      className={`text-lg font-bold mb-1 ${
+                        parsedError.type === 'insufficient_balance'
+                          ? 'text-orange-900'
+                          : 'text-red-900'
+                      }`}
+                    >
+                      {parsedError.type === 'insufficient_balance'
+                        ? 'Balance Required'
+                        : 'Transaction Error'}
                     </h4>
-                    <p className={`text-sm leading-relaxed ${parsedError.type === 'insufficient_balance' ? 'text-orange-800/80' : 'text-red-800/80'
-                      }`}>
+                    <p
+                      className={`text-sm leading-relaxed ${
+                        parsedError.type === 'insufficient_balance'
+                          ? 'text-orange-800/80'
+                          : 'text-red-800/80'
+                      }`}
+                    >
                       {parsedError.message}
                     </p>
                   </div>
@@ -857,7 +948,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
         )}
 
         <div className="pt-2">
-          <StellarActiveGuard onSkip={() => { }}>
+          <StellarActiveGuard onSkip={() => {}}>
             <button
               onClick={handleProceed}
               disabled={
@@ -873,7 +964,8 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
               <div className="flex items-center justify-center gap-2 relative z-10">
                 {txStatus === 'success' ? (
                   <>
-                    <CheckCircle size={22} className="animate-in zoom-in duration-300" /> Bridge Complete!
+                    <CheckCircle size={22} className="animate-in zoom-in duration-300" /> Bridge
+                    Complete!
                   </>
                 ) : txStatus === 'approving' ? (
                   <>
@@ -892,9 +984,7 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
                     <Loader2 size={22} className="animate-spin" /> Getting Quote...
                   </>
                 ) : (
-                  <>
-                    Bridge to Stellar
-                  </>
+                  <>Bridge to Stellar</>
                 )}
               </div>
               {isValidAmount && txStatus !== 'success' && (

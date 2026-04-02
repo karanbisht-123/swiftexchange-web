@@ -165,12 +165,12 @@ const StepRow: React.FC<{
       <div className="flex-shrink-0 mt-0.5">
         <div
           className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${isActive
-              ? 'border-brand bg-brand/15 shadow-sm shadow-brand/30'
-              : isDone
-                ? 'border-success bg-success-bg'
-                : step.state === 'TRANSFER_FAILURE'
-                  ? 'border-danger bg-danger-bg'
-                  : 'border-color bg-tertiary'
+            ? 'border-brand bg-brand/15 shadow-sm shadow-brand/30'
+            : isDone
+              ? 'border-success bg-success-bg'
+              : step.state === 'TRANSFER_FAILURE'
+                ? 'border-danger bg-danger-bg'
+                : 'border-color bg-tertiary'
             }`}
         >
           {isActive ? (
@@ -297,8 +297,8 @@ export const TransactionTracker: React.FC<TransactionTrackerProps> = ({
       {assetRelease && (
         <div
           className={`rounded-xl border px-4 py-3 flex items-center gap-3 ${assetRelease.released
-              ? 'bg-success-bg border-success/30'
-              : 'bg-tertiary border-color'
+            ? 'bg-success-bg border-success/30'
+            : 'bg-tertiary border-color'
             }`}
         >
           {assetRelease.released ? (

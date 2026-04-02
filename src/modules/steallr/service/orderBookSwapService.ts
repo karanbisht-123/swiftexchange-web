@@ -6,6 +6,7 @@ import type {
   LargeOrderTransaction,
   TokenInfo,
 } from '../types/orderBookSwap.types';
+import { signAndSubmitTransaction } from '../utils/transactionService';
 
 export class OrderBookSwapService {
   private server: StellarSDK.Horizon.Server;
@@ -161,97 +162,25 @@ export class OrderBookSwapService {
     }
   }
 
-  private isWalletConnectProvider(provider: any): boolean {
-    return !!(provider.client && provider.session && typeof provider.client.request === 'function');
-  }
-
   async executeOrderWithWalletConnect(
     transaction: LargeOrderTransaction,
     walletProvider: any
   ): Promise<string> {
-    try {
-      console.log('Preparing Stellar order transaction via WalletConnect...');
+    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+    const network = isMainnet ? 'mainnet' : 'testnet';
 
-      if (!transaction.xdr) {
-        console.error('Missing XDR data');
-        throw new Error('Stellar transaction requires XDR data');
-      }
+    const result = await signAndSubmitTransaction({
+      xdr: transaction.xdr,
+      network,
+      networkPassphrase: this.networkPassphrase,
+      provider: walletProvider,
+    });
 
-      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-      const network = isMainnet ? 'pubnet' : 'TESTNET';
-
-      const signParams = {
-        xdr: transaction.xdr,
-        networkPassphrase: this.networkPassphrase,
-        network,
-      };
-
-      console.log('Stellar order sign params:', signParams);
-
-      let result: any;
-      if (this.isWalletConnectProvider(walletProvider)) {
-        console.log('Using WalletConnect client.request() for Stellar order');
-
-        const topic = walletProvider.session?.topic;
-        if (!topic) {
-          console.error('No WalletConnect session topic found');
-          throw new Error('No active WalletConnect session for Stellar wallet');
-        }
-
-        const chainCAIP = `stellar:${network}`;
-
-        console.log('WalletConnect request params:', {
-          topic,
-          chainId: chainCAIP,
-          method: 'stellar_signAndSubmitXDR',
-        });
-
-        result = await walletProvider.client.request({
-          topic,
-          chainId: chainCAIP,
-          request: {
-            method: 'stellar_signAndSubmitXDR',
-            params: signParams,
-          },
-        });
-      } else {
-        console.log('Using direct provider.request() for Stellar order');
-        result = await walletProvider.request({
-          method: 'stellar_signAndSubmitXDR',
-          params: signParams,
-        });
-      }
-
-      console.log('WalletConnect provider response:', result);
-
-      if (result?.status === 'success' || result?.hash || result?.signedXDR) {
-        console.log('Stellar order transaction successful!');
-        return result.hash || result.transactionHash || 'stellar_submitted';
-      }
-
-      if (typeof result === 'string') {
-        console.log('Stellar order returned string hash');
-        return result;
-      }
-
-      console.error('Stellar order failed - unexpected response:', result);
-      throw new Error('Stellar transaction failed - unexpected response format');
-    } catch (error: any) {
-      console.error('Failed to execute order via WalletConnect:', {
-        message: error.message,
-        code: error.code,
-        fullError: error,
-      });
-
-      if (error?.response?.data?.extras?.result_codes) {
-        const codes = error.response.data.extras.result_codes;
-        throw new Error(`Order failed: ${codes.transaction} - ${codes.operations?.join(', ')}`);
-      }
-
-      throw new Error(
-        `Order execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    if (result.success && result.hash) {
+      return result.hash;
     }
+
+    throw new Error(`Order execution failed: ${result.error || 'Unknown error'}`);
   }
 
   async getOrderBook(selling: StellarSDK.Asset, buying: StellarSDK.Asset, limit: number = 20) {

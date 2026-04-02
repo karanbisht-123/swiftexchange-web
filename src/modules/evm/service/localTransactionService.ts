@@ -2,7 +2,7 @@ const STORAGE_KEY = 'swiftex_local_transactions';
 const MAX_TRANSACTIONS = 30;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval';
+export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval' | 'trustline' | 'claim' | 'orderbook';
 
 export interface LocalTransaction {
   hash: string;
@@ -11,6 +11,8 @@ export interface LocalTransaction {
   timestamp: number;
   description?: string;
   status?: 'pending' | 'success' | 'failed';
+  blockNumber?: number;
+  gasUsed?: string;
 }
 
 export const getLocalTransactions = (): LocalTransaction[] => {
@@ -44,6 +46,19 @@ export const addLocalTransaction = (tx: LocalTransaction): void => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
   } catch (error) {
     console.error('Failed to add local transaction:', error);
+  }
+};
+
+export const updateLocalTransactionStatus = (hash: string, status: 'success' | 'failed', blockNumber?: number, gasUsed?: string): void => {
+  try {
+    const transactions = getLocalTransactions();
+    const index = transactions.findIndex(tx => tx.hash.toLowerCase() === hash.toLowerCase());
+    if (index !== -1) {
+      transactions[index] = { ...transactions[index], status, blockNumber, gasUsed };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+    }
+  } catch (error) {
+    console.error('Failed to update local transaction status:', error);
   }
 };
 

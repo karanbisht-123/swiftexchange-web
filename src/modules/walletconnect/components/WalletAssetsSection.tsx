@@ -75,7 +75,7 @@ const AssetRow = memo(
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="relative shrink-0">
               <img src={asset.image} className="w-12 h-12 rounded-full " alt={asset.symbol} />
-              <div className="absolute -bottom-1 -right-1 w-5 h-5  rounded-full flex items-center bg-primary justify-center border border-color">
+              <div className="absolute -bottom-1 -right-1 w-5 h-5  rounded-full flex items-center bg-gray-100 justify-center border border-color">
                 {getChainIcon(asset) ? (
                   <img
                     src={getChainIcon(asset)}
@@ -218,8 +218,8 @@ const WalletAssetsSection = () => {
               {!hasLoadingPrices && assets.length > 0 && (
                 <div
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${isPositive
-                      ? 'bg-success-bg bg-green-600 text-white'
-                      : 'bg-danger-bg bg-red-600 text-white'
+                    ? 'bg-success-bg bg-green-600 text-white'
+                    : 'bg-danger-bg bg-red-600 text-white'
                     }`}
                 >
                   {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}

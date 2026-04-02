@@ -16,14 +16,13 @@ export function parseSwapError(error: any): string {
     error?.code === 4001 ||
     error?.code === 'ACTION_REJECTED' ||
     errorMessageLower.includes('user rejected') ||
-    (errorMessageLower.includes('rejected by user') &&
-      !errorMessageLower.includes('invalid transaction key')) ||
-    (errorMessageLower.includes('transaction rejected') &&
-      !errorMessageLower.includes('invalid transaction key'))
+    errorMessageLower.includes('rejected by user') ||
+    errorMessageLower.includes('transaction rejected')
   ) {
-    if (!errorMessageLower.includes('invalid transaction key')) {
-      return 'Transaction was cancelled during confirmation.';
+    if (errorMessageLower.includes('invalid transaction key')) {
+      return `Wallet Error: ${message}. This is likely a compatibility issue with your wallet app's transaction handling.`;
     }
+    return 'Transaction was cancelled during confirmation.';
   }
 
   if (

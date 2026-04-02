@@ -2,7 +2,6 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   Clock,
@@ -10,7 +9,6 @@ import {
   Loader2,
   RefreshCw,
   X,
-  Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -20,12 +18,15 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { useSubaccounts } from '../hooks/useSubaccounts';
 import {
-  useTransactionTracker,
+  getIsDepositPending,
+  useHasActivePendingDeposit,
+  useHasActivePendingWithdraw,
   useTransactionStore,
+  useTransactionTracker,
 } from '../hooks/useTransactionTracker';
-import { TransactionTracker } from './TransactionTracker';
 import { validateDepositAmount } from '../utils/inputValidation';
 import { NATIVE_WALLET_GAS_RESERVE_USD } from '../utils/skipBridgeUtils';
+import { TransactionTracker } from './TransactionTracker';
 
 type ModalStep = 'form' | 'select_token' | 'tracker';
 
@@ -87,8 +88,9 @@ const AssetRow = ({
   return (
     <button
       onClick={() => onSelect(asset)}
-      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${isSelected ? 'bg-brand/10 border border-brand/30' : 'hover:bg-hover'
-        }`}
+      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${
+        isSelected ? 'bg-brand/10 border border-brand/30' : 'hover:bg-hover'
+      }`}
     >
       <div className="flex items-center gap-3">
         <AssetIcon asset={asset} />
@@ -134,89 +136,6 @@ const RoutePill: React.FC = () => (
   </div>
 );
 
-const DEPOSIT_STEPS = [
-  { key: 'routing', label: 'Route', sublabel: 'Find best path' },
-  { key: 'signing_evm', label: 'Sign', sublabel: 'Approve in wallet' },
-  { key: 'pending_bridge', label: 'Bridge', sublabel: 'Cross-chain hop' },
-  { key: 'transferring', label: 'dYdX', sublabel: 'Enter account' },
-] as const;
-
-type DepositProgressStep = (typeof DEPOSIT_STEPS)[number]['key'];
-
-const DepositStepTracker: React.FC<{ currentStep: string; isActive: boolean }> = ({
-  currentStep,
-  isActive,
-}) => {
-  const stepKeys = DEPOSIT_STEPS.map(s => s.key);
-  const currentIdx = stepKeys.indexOf(currentStep as DepositProgressStep);
-  const fillPct = currentIdx < 0 ? 0 : (currentIdx / (DEPOSIT_STEPS.length - 1)) * 100;
-
-  return (
-    <div className="w-full">
-      <div className="relative pb-10">
-        <div className="absolute top-[18px] left-[10%] right-[10%] h-[2px] bg-color rounded-full z-0" />
-        <div
-          className="absolute top-[18px] left-[10%] h-[2px] bg-brand rounded-full z-0 transition-all duration-700 ease-out"
-          style={{ width: `${fillPct * 0.8}%` }}
-        />
-        <div className="relative z-10 flex justify-between">
-          {DEPOSIT_STEPS.map((s, i) => {
-            const isPast = currentIdx > i;
-            const isCurrent = currentIdx === i;
-            return (
-              <div
-                key={s.key}
-                className="flex flex-col items-center gap-2"
-                style={{ width: `${100 / DEPOSIT_STEPS.length}%` }}
-              >
-                <div
-                  className={[
-                    'w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all duration-500',
-                    isPast
-                      ? 'bg-brand border-brand'
-                      : isCurrent
-                        ? 'bg-secondary border-brand'
-                        : 'bg-secondary border-color',
-                  ].join(' ')}
-                  style={isCurrent ? { boxShadow: '0 0 0 4px rgba(99,102,241,0.15)' } : undefined}
-                >
-                  {isPast ? (
-                    <CheckCircle2 className="w-[14px] h-[14px] text-white" />
-                  ) : isCurrent && isActive ? (
-                    s.key === 'pending_bridge' ? (
-                      <Zap className="w-[14px] h-[14px] text-brand" />
-                    ) : (
-                      <Loader2 className="w-[14px] h-[14px] text-brand animate-spin" />
-                    )
-                  ) : (
-                    <span
-                      className={`text-[11px] font-semibold ${i > currentIdx ? 'text-muted' : 'text-brand'
-                        }`}
-                    >
-                      {i + 1}
-                    </span>
-                  )}
-                </div>
-                <div className="text-center px-0.5">
-                  <div
-                    className={`text-[11px] font-semibold leading-none mb-0.5 ${isCurrent ? 'text-brand' : isPast ? 'text-secondary' : 'text-muted'
-                      }`}
-                  >
-                    {s.label}
-                  </div>
-                  <div className="text-[10px] text-muted leading-none hidden sm:block opacity-70">
-                    {s.sublabel}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const ModalShell: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({
   onClose,
   children,
@@ -241,6 +160,8 @@ const ModalShell: React.FC<{ onClose: () => void; children: React.ReactNode }> =
   </div>
 );
 
+const AUTO_CLEAR_DELAY_MS = 10_000;
+
 export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   isOpen,
   onClose,
@@ -258,7 +179,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     reset,
     checkPendingDeposit,
     isCheckingPending,
-    step: depositStep,
     stepLabel,
     error: depositError,
     route,
@@ -267,31 +187,58 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   } = useDydxDeposit();
 
   const evmChainId = Number(evmWallet?.chainId ?? 1);
+  const store = useTransactionStore();
+  const depositIsPending = useHasActivePendingDeposit();
+  const withdrawIsPending = useHasActivePendingWithdraw();
+  const isDepositLocked = depositIsPending || withdrawIsPending;
 
-  const [modalStep, setModalStep] = useState<ModalStep>('form');
+  const [modalStep, setModalStep] = useState<ModalStep>(() =>
+    getIsDepositPending() ? 'tracker' : 'form'
+  );
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [amount, setAmount] = useState('');
+
+  const activeStepLabel = isLoading ? stepLabel : (store.depositTx?.stepLabel ?? '');
+  const activeAmount = isLoading ? amount : (store.depositTx?.amount ?? '');
+  const activeAssetSymbol = isLoading
+    ? selectedAsset?.symbol
+    : (store.depositTx?.assetSymbol ?? '');
   const [goFast, setGoFast] = useState(false);
   const [slippage, setSlippage] = useState('1');
   const [showVolatilityWarning, setShowVolatilityWarning] = useState(true);
 
-  const store = useTransactionStore();
   const tracker = useTransactionTracker('deposit');
-  
   const trackerTxHash = tracker.txHash;
   const trackerChainId = tracker.chainId;
-  const withdrawTxStatus = store.withdrawTx?.status;
-
   const hasPendingTracker = !!trackerTxHash && tracker.hasPolledOnce && !tracker.isTerminal;
-  const isDepositLocked = hasPendingTracker || withdrawTxStatus === 'pending';
+
+  useEffect(() => {
+    if (!isOpen || modalStep !== 'tracker') return;
+    // Debug: log tracker/store state when tracker view is active
+    // Remove this after troubleshooting
+    // eslint-disable-next-line no-console
+    console.log('[DydxDepositModal] debug tracker:', { tracker, depositTx: store.depositTx });
+  }, [isOpen, modalStep, tracker, store.depositTx]);
+
+  const autoClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!tracker.isTerminal || !store.depositTx) return;
+
+    autoClearRef.current = setTimeout(() => {
+      store.clearDepositTx();
+    }, AUTO_CLEAR_DELAY_MS);
+
+    return () => {
+      if (autoClearRef.current) clearTimeout(autoClearRef.current);
+    };
+  }, [tracker.isTerminal, store.depositTx]);
 
   const wasOpenRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
       wasOpenRef.current = false;
-      setModalStep('form');
       setAmount('');
       setSelectedAsset(null);
       setGoFast(false);
@@ -300,26 +247,31 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
       reset();
       return;
     }
-
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
 
-    if (store.depositTx) {
-      setModalStep('tracker');
-    }
+    const shouldShowTracker = getIsDepositPending();
+    setModalStep(shouldShowTracker ? 'tracker' : 'form');
 
     checkPendingDeposit();
   }, [isOpen, reset, checkPendingDeposit]);
 
   useEffect(() => {
-    if (isOpen) {
-      if (initialAsset) {
-        setSelectedAsset(initialAsset);
-      } else if (assets.length > 0 && !selectedAsset) {
-        const usdc = assets.find(a => a.symbol.toUpperCase() === 'USDC');
-        const eth = assets.find(a => a.symbol.toUpperCase() === 'ETH');
-        setSelectedAsset(usdc || eth || assets[0]);
-      }
+    if (!isOpen) return;
+    const shouldShowTracker = getIsDepositPending();
+    if (shouldShowTracker && modalStep === 'form') {
+      setModalStep('tracker');
+    }
+  }, [isOpen, depositIsPending, modalStep]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (initialAsset) {
+      setSelectedAsset(initialAsset);
+    } else if (assets.length > 0 && !selectedAsset) {
+      const usdc = assets.find(a => a.symbol.toUpperCase() === 'USDC');
+      const eth = assets.find(a => a.symbol.toUpperCase() === 'ETH');
+      setSelectedAsset(usdc || eth || assets[0]);
     }
   }, [isOpen, assets, initialAsset]);
 
@@ -348,22 +300,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const handleDeposit = useCallback(async () => {
     if (!selectedAsset || !amount) return;
-    const result = await deposit(
-      selectedAsset.symbol,
-      parseFloat(amount),
-      evmChainId,
-      goFast,
-      slippage || '1'
-    );
-
-    if (result.txHash) {
-      const cid = String(evmChainId);
-      store.setDepositTx({ txHash: result.txHash, chainId: cid, startedAt: Date.now(), status: 'pending' });
-      setModalStep('tracker');
-    }
-  }, [selectedAsset, amount, deposit, evmChainId, goFast, slippage, store]);
+    await deposit(selectedAsset.symbol, parseFloat(amount), evmChainId, goFast, slippage || '1');
+  }, [selectedAsset, amount, deposit, evmChainId, goFast, slippage]);
 
   const handleDismissTracker = useCallback(() => {
+    if (autoClearRef.current) clearTimeout(autoClearRef.current);
     store.clearDepositTx();
   }, [store]);
 
@@ -402,7 +343,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     usdEquivalent,
     MIN_DEPOSIT_USDC
   );
-
   const equityAfter = parseFloat(totalEquity) + (route?.receivedAmount ?? displayUsd);
 
   useEffect(() => {
@@ -448,29 +388,28 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <div className="text-xs text-muted mb-0.5">Depositing</div>
-                  <div className="text-2xl font-bold text-primary tracking-tight">
-                    {store.depositTx ? (
-                      <span className="text-base text-muted font-normal">Active Progress</span>
-                    ) : (
-                      <span className="text-base text-muted font-normal">In Progress</span>
-                    )}
+                  <div className="text-lg font-semibold text-primary tracking-tight">
+                    {activeAmount
+                      ? `${activeAmount} ${activeAssetSymbol}`
+                      : 'In Progress'}
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-xs text-muted mb-0.5">Status</div>
                   <div
-                    className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 ${hasPendingTracker
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 ${
+                      hasPendingTracker
                         ? 'bg-brand/10 text-brand'
                         : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
                           ? 'bg-success-bg text-success'
                           : 'bg-danger-bg text-danger'
-                      }`}
+                    }`}
                   >
                     {hasPendingTracker && (
                       <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block shrink-0" />
                     )}
                     {!tracker.hasPolledOnce
-                      ? 'Indexing…'
+                      ? (trackerTxHash ? 'Indexing…' : 'Signing…')
                       : hasPendingTracker
                         ? 'Bridging…'
                         : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
@@ -483,12 +422,20 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </div>
           )}
 
-          {isLoading && !trackerTxHash && (
+          {(isLoading || (store.depositTx && !trackerTxHash)) && (
             <div className="rounded-xl border border-color bg-tertiary px-4 pt-4 pb-1">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted mb-3">
-                Progress
+                Current Step
               </p>
-              <DepositStepTracker currentStep={depositStep} isActive={isLoading} />
+              <div className="flex items-center gap-3 pb-3">
+                <div className="w-8 h-8 rounded-full bg-brand/10 flex items-center justify-center">
+                  <Activity className="w-4 h-4 text-brand animate-pulse" />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-primary">{activeStepLabel}</div>
+                  <div className="text-[10px] text-muted">Awaiting confirmation...</div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -506,13 +453,19 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             />
           )}
 
-          {!tracker.hasPolledOnce && trackerTxHash && (
-            <div className="flex items-center gap-3 py-3 px-4 rounded-xl bg-brand/5 border border-brand/20">
-              <Loader2 className="w-4 h-4 text-brand animate-spin flex-shrink-0" />
-              <div className="text-sm text-muted">Waiting for Skip to index the transaction…</div>
-            </div>
-          )}
-
+          {trackerTxHash &&
+            !tracker.hasPolledOnce &&
+            !tracker.isTerminal &&
+            store.depositTx?.status === 'pending' && (
+              <div className="flex items-center gap-3 py-3 px-4 rounded-xl bg-brand/5 border border-brand/20">
+                <Loader2 className="w-4 h-4 text-brand animate-spin flex-shrink-0" />
+                <div className="text-sm text-muted">
+                  {tracker.overallState === 'STATE_SUBMITTED'
+                    ? 'Waiting for Skip to index the transaction…'
+                    : 'Checking status…'}
+                </div>
+              </div>
+            )}
           {tracker.isError && !hasPendingTracker && (
             <button
               onClick={tracker.refresh}
@@ -583,7 +536,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               </div>
             </div>
           )}
-
           {otherTokens.length > 0 && (
             <div>
               <div className="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-2">
@@ -601,7 +553,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               </div>
             </div>
           )}
-
           {assets.length === 0 && (
             <div className="py-8 text-center text-sm text-muted">
               No assets found in connected wallets
@@ -623,8 +574,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           {trackerTxHash && (
             <button
               onClick={handleShowTracker}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors
-                text-brand border-brand/30 bg-brand/5 hover:bg-brand/15"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors text-brand border-brand/30 bg-brand/5 hover:bg-brand/15"
             >
               <Activity className="w-3.5 h-3.5" />
               {hasPendingTracker ? 'Tracking…' : 'View transfer'}
@@ -640,14 +590,13 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
       </div>
 
       <div className="overflow-y-auto flex-1 px-5 py-5 space-y-3">
-        {hasPendingTracker && withdrawTxStatus !== 'pending' && (
+        {depositIsPending && !withdrawIsPending && (
           <div className="flex items-start gap-3 p-3 bg-brand/5 border border-brand/20 rounded-xl">
             <Loader2 className="w-4 h-4 text-brand animate-spin flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-primary">Transfer in progress</div>
+              <div className="text-sm font-semibold text-primary">Deposit in progress</div>
               <div className="text-xs text-muted mt-0.5">
-                Your previous deposit is still crossing chains. New deposits are locked until it
-                completes.
+                Your deposit is still crossing chains. A new deposit is locked until it completes.
               </div>
             </div>
             <button
@@ -659,13 +608,13 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {withdrawTxStatus === 'pending' && (
+        {withdrawIsPending && (
           <div className="flex items-start gap-3 p-3 bg-danger/10 border border-danger/20 rounded-xl">
             <Activity className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-danger">Withdrawal in progress</div>
               <div className="text-xs text-danger/80 mt-0.5">
-                You cannot initiate a deposit while a withdrawal is currently processing.
+                You cannot deposit while a withdrawal is processing. Please wait for it to complete.
               </div>
             </div>
           </div>
@@ -703,14 +652,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               <ChevronDown className="w-4 h-4 text-muted" />
             </button>
           </div>
-
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted">
               {displayUsd > 0 && !isStable
-                ? `≈ $${displayUsd.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}`
+                ? `≈ $${displayUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                 : null}
             </span>
             <button
@@ -718,11 +663,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               disabled={isLoading}
               className="text-xs text-muted hover:text-primary transition-colors disabled:opacity-50"
             >
-              {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 6 })} held
-              &bull; <span className="text-brand font-medium">Max</span>
+              {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 6 })} held &bull;{' '}
+              <span className="text-brand font-medium">Max</span>
             </button>
           </div>
-
           {amountValidation.error && amountValue > 0 && (
             <p className="text-xs text-danger mt-1.5">{amountValidation.error}</p>
           )}
@@ -730,8 +674,9 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
         <div className="flex items-center justify-between px-1">
           <label
-            className={`flex items-center gap-2 ${displayUsd > 0 && displayUsd < 20 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-              } select-none`}
+            className={`flex items-center gap-2 ${
+              displayUsd > 0 && displayUsd < 20 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+            } select-none`}
           >
             <input
               type="checkbox"
@@ -792,6 +737,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           )}
         </div>
 
+        {/* Route Summary */}
         {route && amountValue > 0 && (
           <div className="rounded-xl border border-color bg-tertiary px-4 py-3 space-y-2.5">
             <div className="flex justify-between items-center">
@@ -805,10 +751,9 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                 USDC
               </span>
             </div>
-
             <div className="flex justify-between items-center">
               <Tooltip
-                content={`dYdX keeps ~$${NATIVE_WALLET_GAS_RESERVE_USD.toFixed(2)} USDC in your wallet to pay network fees for withdrawals. This is required by the dYdX protocol.`}
+                content={`dYdX keeps ~$${NATIVE_WALLET_GAS_RESERVE_USD.toFixed(2)} USDC in your wallet to pay network fees for withdrawals.`}
                 position="top"
               >
                 <span className="text-sm text-muted flex items-center gap-1 cursor-help">
@@ -820,7 +765,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                 ~${NATIVE_WALLET_GAS_RESERVE_USD.toFixed(2)} USDC
               </span>
             </div>
-
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted">Account after</span>
               <div className="text-sm font-medium text-primary flex items-center gap-1.5">
@@ -841,7 +785,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                 </span>
               </div>
             </div>
-
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-1.5 text-sm text-muted">
                 <Clock className="w-3.5 h-3.5" />
@@ -849,7 +792,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               </div>
               <span className="text-sm text-secondary">{route.estimatedTime}</span>
             </div>
-
             {route.fee > 0 && (
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted">Bridge fee</span>

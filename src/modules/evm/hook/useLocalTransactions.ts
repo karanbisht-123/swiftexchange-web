@@ -8,6 +8,7 @@ import {
   type LocalTransaction,
   getLocalTransactions,
   removeLocalTransaction,
+  updateLocalTransactionStatus,
 } from '../service/localTransactionService';
 
 export type TransactionStatus = 'pending' | 'success' | 'failed';
@@ -26,7 +27,8 @@ interface UseLocalTransactionsReturn {
   hasPendingTransactions: boolean;
 }
 
-const REFRESH_INTERVAL = 20000;
+const REFRESH_INTERVAL = 60000;
+const STELLAR_CHAIN_ID = 9000000;
 
 export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const { getProvider } = useWalletConnect();
@@ -37,28 +39,66 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const fetchTransactionStatus = useCallback(
     async (tx: LocalTransaction): Promise<LocalTransactionWithStatus> => {
       try {
-        const provider = getProvider(WalletType.EVM);
         if (tx.status === 'failed' || tx.hash.startsWith('failed-')) {
           return { ...tx, status: 'failed' };
         }
-        if (!provider) {
-          return { ...tx, status: 'pending' };
+        if (tx.status === 'success') {
+          return { ...tx, status: 'success' };
         }
 
-        const ethersProvider = new ethers.BrowserProvider(provider);
-        const receipt = await ethersProvider.getTransactionReceipt(tx.hash);
+        let newStatus: TransactionStatus = 'pending';
+        let blockNumber: number | undefined;
+        let gasUsed: string | undefined;
 
-        if (!receipt) {
-          return { ...tx, status: 'pending' };
+        if (tx.chainId === STELLAR_CHAIN_ID) {
+          try {
+            const isMainnet = localStorage.getItem('network') === 'mainnet';
+            const horizonBase = isMainnet ? 'https://horizon.stellar.org' : 'https://horizon-testnet.stellar.org';
+            const res = await fetch(`${horizonBase}/transactions/${tx.hash}`);
+
+            console.log('res stellar ------', res);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.successful) {
+                newStatus = 'success';
+                blockNumber = data.ledger;
+              } else {
+                newStatus = 'failed';
+              }
+            } else if (res.status === 404) {
+              newStatus = 'pending';
+            }
+          } catch (e) {
+            console.error('Stellar polling failed:', e);
+            newStatus = 'pending';
+          }
+        } else {
+          const provider = getProvider(WalletType.EVM);
+          if (!provider) return { ...tx, status: 'pending' };
+
+          const ethersProvider = new ethers.BrowserProvider(provider);
+          const receipt = await ethersProvider.getTransactionReceipt(tx.hash);
+
+          console.log('receipt', receipt);
+
+          if (!receipt) {
+            return { ...tx, status: 'pending' };
+          }
+
+          newStatus = receipt.status === 1 ? 'success' : 'failed';
+          blockNumber = receipt.blockNumber;
+          gasUsed = receipt.gasUsed.toString();
         }
 
-        const status: TransactionStatus = receipt.status === 1 ? 'success' : 'failed';
+        if (newStatus !== 'pending' && (!tx.status || tx.status === 'pending')) {
+          updateLocalTransactionStatus(tx.hash, newStatus, blockNumber, gasUsed);
+        }
 
         return {
           ...tx,
-          status,
-          blockNumber: receipt.blockNumber,
-          gasUsed: receipt.gasUsed.toString(),
+          status: newStatus,
+          blockNumber: blockNumber ?? tx.blockNumber,
+          gasUsed: gasUsed ?? tx.gasUsed,
         };
       } catch (error) {
         console.error(`Failed to fetch status for tx ${tx.hash}:`, error);

@@ -112,6 +112,7 @@ export interface PositionPnl {
 export interface TrackedOrder {
   id: string;
   subaccountId?: string;
+  subaccountNumber?: number;
   clientId?: string;
   clobPairId?: string;
   side: 'BUY' | 'SELL';
@@ -146,7 +147,7 @@ export type PartialSubaccountUpdate = Omit<Partial<ParentSubaccountData>, 'order
 
 const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED']);
 const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
-const MARKET_ORDER_GRACE_MS = 2_500;
+const MARKET_ORDER_GRACE_MS = 3_500;
 const MAX_ORDERS = 150;
 const MAX_FILLS = 150;
 
@@ -156,6 +157,15 @@ export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' |
     (order.timeInForce === 'IOC' && order.orderFlags === '0')
   );
 }
+
+function shouldKeepGracePeriod(order: TrackedOrder, now: number): boolean {
+  if (!TERMINAL_STATUSES.has(order.status)) return false;
+
+  if (isMarketOrder(order)) return true;
+
+  return order.status === 'BEST_EFFORT_CANCELED' || order.status === 'REJECTED';
+}
+
 const UNSUB_DELAY_MS = 5_000;
 
 interface WebSocketState {
@@ -281,6 +291,7 @@ const handleUnsubscribe = (
   });
 };
 
+
 function mergeOrders(
   existing: Map<string, TrackedOrder>,
   incoming: any[],
@@ -297,14 +308,15 @@ function mergeOrders(
     if (prev && prev._msgId > msgId) continue;
 
     const isTerminal = TERMINAL_STATUSES.has(raw.status);
+    const prevWasTerminal = prev ? TERMINAL_STATUSES.has(prev.status) : false;
+
+    const terminalAt = prevWasTerminal ? prev!._terminalAt : isTerminal ? now : undefined;
 
     next.set(id, {
       ...prev,
       ...raw,
       _msgId: msgId,
-      _terminalAt: isTerminal
-        ? (prev && TERMINAL_STATUSES.has(prev.status) ? prev._terminalAt : now)
-        : undefined,
+      _terminalAt: terminalAt,
     } as TrackedOrder);
   }
 
@@ -320,8 +332,10 @@ function evictOrders(
 
   for (const order of orderMap.values()) {
     if (TERMINAL_STATUSES.has(order.status)) {
-      if (isMarketOrder(order) && now - (order._terminalAt ?? now) < MARKET_ORDER_GRACE_MS) {
-        kept.push(order);
+      if (shouldKeepGracePeriod(order, now)) {
+        if (now - (order._terminalAt ?? now) < MARKET_ORDER_GRACE_MS) {
+          kept.push(order);
+        }
       }
       continue;
     }
@@ -947,16 +961,6 @@ export function selectOpenOrders(data: ParentSubaccountData | undefined): Tracke
 }
 
 
-/**
- * Compute portfolio display metrics from a parentSubaccount WS snapshot.
- *
- * @param data           The parentSubaccount store entry.
- * @param optimisticDelta Extra margin already sent to chain but not yet confirmed
- *                        by the WS stream (e.g. just after placeOrder succeeds).
- *                        Applied as a temporary deduction against freeCollateral so
- *                        the Available Balance UI updates *immediately* rather than
- *                        waiting 1–3 s for block consensus.
- */
 export function selectPortfolioMetrics(
   data: ParentSubaccountData | undefined,
   optimisticDelta = 0
@@ -965,13 +969,8 @@ export function selectPortfolioMetrics(
 
   const crossChild = data.childSubaccounts.find(c => c.subaccountNumber === 0);
 
-  // dYdX server equity already includes all unrealised PnL — trust it directly.
   const portfolioValue = parseFloat(data.equity || crossChild?.equity || '0');
   if (!isFinite(portfolioValue) || portfolioValue <= 0) return null;
-
-  // freeCollateral = equity − Σ(initialMarginRequired) across all open positions.
-  // This is the canonical "available to trade" figure; we just need to subtract any
-  // margin that has been sent to chain but whose WS confirmation is still pending.
   const serverFreeCollateral = parseFloat(
     crossChild?.freeCollateral || data.freeCollateral || '0'
   );
@@ -988,7 +987,6 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
   const now = Date.now();
   return data.orders.filter(o => {
     if (OPEN_STATUSES.has(o.status)) return true;
-    // Only give market orders the 2.5 s grace window; cancel/fill on limit orders = instant removal.
     if (TERMINAL_STATUSES.has(o.status) && isMarketOrder(o)) {
       return now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS;
     }
@@ -999,7 +997,6 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
 export function selectRecentlyTerminalOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
   const now = Date.now();
-  // Mirrors selectOpenAndGraceOrders: only market orders enter the grace window.
   return data.orders.filter(
     o => TERMINAL_STATUSES.has(o.status) && isMarketOrder(o) && now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS
   );

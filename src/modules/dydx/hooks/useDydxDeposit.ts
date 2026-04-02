@@ -20,8 +20,9 @@ import {
   dydxToNoble,
   fetchDydxWalletUsdcBalance,
 } from '../utils/skipBridgeUtils';
+import { useTransactionStore } from '../hooks/useTransactionTracker';
 
-export const MIN_DEPOSIT_USDC = 3;
+export const MIN_DEPOSIT_USDC = 1;
 
 const MIN_SUBACCOUNT_DEPOSIT_UUSDC = 10_000;
 
@@ -46,22 +47,30 @@ export interface DepositRoute {
   usdAmountOut: string;
 }
 
+
 /**
- * Computes how much to keep in the dYdX wallet (gas reserve) and how much to
- * deposit into the subaccount.
+ * Compute how much of `incomingUusdc` (freshly bridged, already in the native
+ * wallet) should be kept for gas vs deposited to the subaccount.
  *
- * Rule:
- *   - Always keep exactly GAS_RESERVE_UUSDC (≈ $1.50) in the wallet.
- *   - If the current wallet balance already covers the reserve, deposit only
- *     the excess above the reserve.
- *   - If depositing would leave the wallet under the reserve, keep the reserve
- *     first and deposit only the remainder.
- *   - Never deposit a negative or dust amount.
+ * Rule (mirrors dYdX's own fund-allocation logic):
+ *   - The native wallet must hold at least GAS_RESERVE_UUSDC (~$1.24) to pay
+ *     fees for future withdrawals.
+ *   - We consume only the *shortfall* from the incoming amount — if the wallet
+ *     was already funded before the bridge arrived, we deposit everything.
+ *
+ * @param incomingUusdc      Amount that just arrived via bridge (walletAfter - walletBefore)
+ * @param preExistingUusdc   Balance the wallet held BEFORE the bridge landed
  */
-function computeSplit(walletBalanceUusdc: number): { keepUusdc: number; depositUusdc: number } {
-  const keep = GAS_RESERVE_UUSDC;
-  const deposit = Math.max(0, walletBalanceUusdc - keep);
-  return { keepUusdc: keep, depositUusdc: deposit };
+function computeSplit(
+  incomingUusdc: number,
+  preExistingUusdc: number,
+): { keepUusdc: number; depositUusdc: number } {
+  // How much more do we still need to reach the gas reserve target?
+  const shortfall = Math.max(0, GAS_RESERVE_UUSDC - preExistingUusdc);
+  // Never retain more than what just arrived
+  const keepUusdc = Math.min(shortfall, incomingUusdc);
+  const depositUusdc = Math.max(0, incomingUusdc - keepUusdc);
+  return { keepUusdc, depositUusdc };
 }
 
 async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): Promise<number> {
@@ -143,6 +152,10 @@ export const useDydxDeposit = () => {
       setTxHash(null);
       setDepositedAmount(null);
 
+      let capturedAssetSymbol = assetSymbol;
+      let capturedAmount = amountHuman.toString();
+      let bridgeTxHash = '';
+
       try {
         const storeState = useWalletStore.getState();
         const evmWallet = storeState.connectedWallets.evm;
@@ -196,7 +209,20 @@ export const useDydxDeposit = () => {
         if (!rawSigner) throw new Error('No offline signer on localWallet');
 
         setStep('signing_evm');
-        let bridgeTxHash = '';
+
+        //  "pending" entry in the store BEFORE signing 
+        // This ensures tracking survives modal close/refresh immediately.
+        useTransactionStore.getState().setDepositTx({
+          txHash: null,
+          chainId: String(chainId),
+          startedAt: Date.now(),
+          status: 'pending',
+          amount: capturedAmount,
+          assetSymbol: capturedAssetSymbol,
+          stepLabel: 'Sign in wallet...',
+        });
+
+        setStep('signing_evm');
 
         await executeRoute({
           route: rawRoute,
@@ -209,31 +235,51 @@ export const useDydxDeposit = () => {
             bridgeTxHash = hash;
             setTxHash(hash);
             setStep('pending_bridge');
+
+            // Update the existing entry with the actual hash 
+            const current = useTransactionStore.getState().depositTx;
+            useTransactionStore.getState().setDepositTx({
+              txHash: hash,
+              chainId: String(cid),
+              startedAt: current?.startedAt ?? Date.now(),
+              status: 'pending',
+              amount: capturedAmount,
+              assetSymbol: capturedAssetSymbol,
+              stepLabel: 'Bridging funds...',
+            });
           },
         });
 
         setStep('transferring');
+        let preExistingWalletUusdc = 0;
+        try {
+          preExistingWalletUusdc = await fetchDydxWalletUsdcBalance(dydxAddress);
+        } catch {
+          preExistingWalletUusdc = 0;
+        }
+        console.log(`[deposit] pre-existing wallet balance: ${preExistingWalletUusdc} uusdc`);
 
         const expectedAmountUusdc = parseInt(rawRoute.amountOut ?? '0', 10);
-        const minExpectedUusdc = Math.max(
-          Math.floor(expectedAmountUusdc * 0.9),
-          GAS_RESERVE_UUSDC + MIN_SUBACCOUNT_DEPOSIT_UUSDC
+        const minPollTarget = Math.max(
+          preExistingWalletUusdc + Math.floor(expectedAmountUusdc * 0.9),
+          GAS_RESERVE_UUSDC + MIN_SUBACCOUNT_DEPOSIT_UUSDC,
         );
 
-        const walletBalance = await waitForDydxWalletBalance(dydxAddress, minExpectedUusdc);
-        console.log('[deposit] dYdX wallet balance confirmed:', walletBalance, 'uusdc');
+        const walletBalanceAfter = await waitForDydxWalletBalance(dydxAddress, minPollTarget);
+        console.log('[deposit] dYdX wallet balance after bridge:', walletBalanceAfter, 'uusdc');
+        const incomingUusdc = Math.max(0, walletBalanceAfter - preExistingWalletUusdc);
 
-        const { keepUusdc, depositUusdc } = computeSplit(walletBalance);
+        const { keepUusdc, depositUusdc } = computeSplit(incomingUusdc, preExistingWalletUusdc);
 
         console.log(
-          `[deposit] wallet=${walletBalance} keep=${keepUusdc} deposit=${depositUusdc} ` +
-          `(reserve=${GAS_RESERVE_UUSDC} uusdc)`
+          `[deposit] incoming=${incomingUusdc} keep=${keepUusdc} deposit=${depositUusdc} ` +
+          `preExisting=${preExistingWalletUusdc} reserve=${GAS_RESERVE_UUSDC} uusdc`
         );
 
         if (depositUusdc < MIN_SUBACCOUNT_DEPOSIT_UUSDC) {
           console.warn(
-            `[deposit] depositUusdc (${depositUusdc}) below dust threshold -- ` +
-            `skipping subaccount deposit. Wallet gas reserve funded.`
+            `[deposit] depositUusdc (${depositUusdc}) below dust threshold — ` +
+            `gas reserve funded, skipping subaccount deposit.`
           );
           setDepositedAmount(0);
           await new Promise(r => setTimeout(r, 1_000));
@@ -248,14 +294,13 @@ export const useDydxDeposit = () => {
           localWallet,
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
-
         await client.validatorClient.post.deposit(
           subaccount,
           0,
           Long.fromNumber(Math.floor(depositUusdc))
         );
 
-        console.log(`[deposit] deposited ${depositUusdc} uusdc to subaccount`);
+        console.log(`[deposit] deposited ${depositUusdc} uusdc to subaccount (kept ${keepUusdc} uusdc for gas)`);
 
         setDepositedAmount(depositUusdc / 1e6);
         await new Promise(r => setTimeout(r, 2_000));
@@ -265,6 +310,11 @@ export const useDydxDeposit = () => {
       } catch (err: any) {
         console.error('[deposit] error:', err);
         const classified = classifyBridgeError(err);
+
+        if (!bridgeTxHash) {
+          useTransactionStore.getState().clearDepositTx();
+        }
+
         setError(classified.message);
         setErrorRetryable(classified.retryable);
         setStep('error');

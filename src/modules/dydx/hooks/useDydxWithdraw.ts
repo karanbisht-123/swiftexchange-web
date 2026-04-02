@@ -36,8 +36,6 @@ const DYDX_USDC_IBC_DENOM = 'ibc/8E27BA2D5493AF5636760E354E46004562C46AB7EC0CC4C
 const IBC_MAX_RETRIES = 10;
 const IBC_RETRY_DELAY_MS = 3_000;
 
-
-
 export type WithdrawStep =
   | 'idle'
   | 'routing'
@@ -254,6 +252,11 @@ export const useDydxWithdraw = () => {
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
 
+        // ── Minimum-balance handling (same-transaction top-up) ─────────────
+        // Check how much USDC the native wallet currently holds.
+        // If it's below the required gas reserve (~$1.24), we pull the shortfall
+        // OUT of the subaccount in the same withdraw() call — no separate tx.
+        // This matches dYdX's internal fund-allocation approach.
         const walletUusdc = await fetchDydxWalletUsdcBalance(dydxAddress);
         const shortfallUusdc = Math.max(0, NATIVE_WALLET_GAS_RESERVE_UUSDC - walletUusdc);
 
@@ -263,6 +266,9 @@ export const useDydxWithdraw = () => {
           `shortfall=${shortfallUusdc} uusdc`
         );
 
+        // withdrawQuantums = user's requested amount + whatever the wallet still
+        // needs to reach the gas reserve.  The gas-reserve portion stays in the
+        // native wallet; only amountInQuantums continues to Noble → EVM.
         const withdrawQuantums = amountInQuantums + shortfallUusdc;
 
         setStep('signing');
@@ -274,9 +280,12 @@ export const useDydxWithdraw = () => {
         );
         setTxHash(formatTxHash((withdrawResult as any)?.hash));
 
+        // Wait for the withdrawal to settle in the native wallet
         {
           const POLL_INTERVAL_MS = 3_000;
           const POLL_TIMEOUT_MS = 60_000;
+          // We expect the wallet balance to grow by at least shortfallUusdc
+          // (the user's amountInQuantums will be sent onwards via IBC).
           const requiredWalletBalance = walletUusdc + shortfallUusdc;
           const deadline = Date.now() + POLL_TIMEOUT_MS;
 
@@ -311,6 +320,8 @@ export const useDydxWithdraw = () => {
           value: {
             sourcePort: DYDX_TO_NOBLE_PORT,
             sourceChannel: DYDX_TO_NOBLE_CHANNEL,
+            // IBC transfer only sends the user's requested amount — the
+            // shortfallUusdc stays in the native wallet as the gas reserve.
             token: { denom: DYDX_USDC_IBC_DENOM, amount: amountInQuantums.toString() },
             sender: dydxAddress,
             receiver: nobleAddress,
