@@ -123,7 +123,7 @@ const createSocketClient = () => {
       address: string,
       subaccountNumber: number,
       handler: MessageHandler,
-      batched = false
+      batched = true
     ) =>
       webSocketManager.subscribe(
         'v4_parent_subaccounts',

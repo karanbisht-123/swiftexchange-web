@@ -117,6 +117,9 @@ export const DydxWalletConnect: React.FC = () => {
 
   const updateTrigger = useWebSocketStore(s => s.updateTrigger);
   const optimisticDelta = useWebSocketStore(s => s.optimisticFreeCollateralDelta);
+  // Subscribe to live market data so selectPortfolioMetrics can compute real
+  // per-market IMF margin usage instead of falling back to a hardcoded value.
+  const marketsMap = useWebSocketStore(s => s.markets);
   const parentKey = address ? `parent_subaccount_${address}_0` : null;
   const parentData = useWebSocketStore(
     useCallback(
@@ -135,22 +138,42 @@ export const DydxWalletConnect: React.FC = () => {
   //   return 0;
   // }, [parentData?.childSubaccounts]);
 
-  const activeSubaccountNumber = 0;
+  // Collect leverages from localStorage for all active positions to ensure the 
+  // Portfolio summary margin matches the Positions table margin.
+  const leveragesMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (!parentData?.childSubaccounts) return map;
+
+    parentData.childSubaccounts.forEach(child => {
+      const positions = Object.keys(child.openPerpetualPositions || {});
+      positions.forEach(ticker => {
+        const marketKey = `dydx_leverage_${ticker}`;
+        const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
+        if (saved) {
+          const parsed = parseFloat(saved);
+          if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
+        }
+      });
+    });
+    return map;
+  }, [parentData, updateTrigger]);
+
+  // const activeSubaccountNumber = 0;
 
   const marginMetrics = useMemo(
-    () => selectPortfolioMetrics(parentData, optimisticDelta, activeSubaccountNumber),
-    [parentData, optimisticDelta, activeSubaccountNumber]
+    () => selectPortfolioMetrics(parentData, optimisticDelta, marketsMap, leveragesMap),
+    [parentData, optimisticDelta, marketsMap, leveragesMap]
   );
 
   const pendingMarginRequired = useOrderPreviewStore(s => s.pendingMarginRequired);
 
   const projectedMarginUsagePercent = useMemo(() => {
     if (!marginMetrics || pendingMarginRequired <= 0) return null;
-    const { portfolioValue, marginUsagePercent } = marginMetrics;
-    if (portfolioValue <= 0) return null;
-    const currentMarginUsed = (marginUsagePercent / 100) * portfolioValue;
+    const { crossEquity, marginUsagePercent } = marginMetrics;
+    if (crossEquity <= 0) return null;
+    const currentMarginUsed = (marginUsagePercent / 100) * crossEquity;
     const projectedMarginUsed = currentMarginUsed + pendingMarginRequired;
-    return Math.max(0, Math.min((projectedMarginUsed / portfolioValue) * 100, 100));
+    return Math.max(0, Math.min((projectedMarginUsed / crossEquity) * 100, 100));
   }, [marginMetrics, pendingMarginRequired]);
 
   const projectedAvailableBalance = useMemo(() => {
@@ -298,9 +321,12 @@ export const DydxWalletConnect: React.FC = () => {
       {marginMetrics ? (
         <div className="space-y-1.5">
 
-          {/* Portfolio Value */}
+          {/* Portfolio Value = sum of ALL children (cross + isolated) */}
           <div className="flex justify-between items-center">
-            <Tooltip content="Total equity value of your account." position="left">
+            <Tooltip
+              content="Total equity across all subaccounts (cross margin + isolated positions)."
+              position="left"
+            >
               <span className="text-xs text-muted">Portfolio Value</span>
             </Tooltip>
             <span className="text-base font-semibold text-primary text-sm">
@@ -308,10 +334,10 @@ export const DydxWalletConnect: React.FC = () => {
             </span>
           </div>
 
-          {/* Available Balance */}
+          {/* Available Balance = cross child freeCollateral only */}
           <div className="flex justify-between items-center">
             <Tooltip
-              content="Amount of collateral that is available to trade or withdraw from your cross margin account."
+              content="Free collateral in your cross margin account. Isolated positions use separate ring-fenced accounts and do not affect this balance."
               position="left"
             >
               <span className="text-xs text-muted">Available Balance</span>
@@ -333,10 +359,10 @@ export const DydxWalletConnect: React.FC = () => {
             )}
           </div>
 
-          {/* Margin Used */}
+          {/* Margin Used — cross account only */}
           <div className="flex justify-between items-center">
             <Tooltip
-              content="Percentage of your total cross margin used by open positions."
+              content="Portion of your cross margin equity locked as position margin. Isolated positions are excluded."
               position="left"
             >
               <span className="text-xs text-muted">Margin Used</span>
@@ -361,28 +387,50 @@ export const DydxWalletConnect: React.FC = () => {
                   />
                 </svg>
               </div>
-              <span
-                className={`text-sm font-semibold ${(projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
-                  ? 'text-danger'
-                  : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
-                    ? 'text-warning'
-                    : 'text-success'
-                  }`}
-              >
-                {projectedMarginUsagePercent !== null ? (
-                  <>
-                    <span className="text-muted">
-                      {formatPercent(marginMetrics.marginUsagePercent)}%
-                    </span>
-                    {' → '}
-                    {formatPercent(projectedMarginUsagePercent)}%
-                  </>
-                ) : (
-                  <>{formatPercent(marginMetrics.marginUsagePercent)}%</>
+              <div className="flex flex-col items-end">
+                <span
+                  className={`text-sm font-semibold leading-none ${(projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
+                    ? 'text-danger'
+                    : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
+                      ? 'text-warning'
+                      : 'text-success'
+                    }`}
+                >
+                  {projectedMarginUsagePercent !== null ? (
+                    <>
+                      <span className="text-muted">
+                        {formatPercent(marginMetrics.marginUsagePercent)}%
+                      </span>
+                      {' → '}
+                      {formatPercent(projectedMarginUsagePercent)}%
+                    </>
+                  ) : (
+                    <>{formatPercent(marginMetrics.marginUsagePercent)}%</>
+                  )}
+                </span>
+                {marginMetrics.marginUsed > 0 && (
+                  <span className="text-[10px] text-muted leading-none mt-0.5">
+                    ${formatCurrency(marginMetrics.marginUsed)} used
+                  </span>
                 )}
-              </span>
+              </div>
             </div>
           </div>
+
+          {/* Isolated equity summary (only shown when there are isolated positions) */}
+          {marginMetrics.isolatedEquity > 0 && (
+            <div className="flex justify-between items-center">
+              <Tooltip
+                content="Equity locked in isolated margin positions. These funds are ring-fenced and do not affect your cross margin available balance."
+                position="left"
+              >
+                <span className="text-xs text-muted">Isolated Locked</span>
+              </Tooltip>
+              <span className="text-sm font-medium text-muted">
+                ${formatCurrency(marginMetrics.isolatedEquity)}
+              </span>
+            </div>
+          )}
 
           {marginMetrics.marginUsagePercent > 70 && (
             <div

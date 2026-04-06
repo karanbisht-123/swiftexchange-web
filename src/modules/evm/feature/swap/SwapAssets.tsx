@@ -44,6 +44,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [sellAmount, setSellAmount] = useState<string>('');
   const [slippageTolerance, setSlippageTolerance] = useState<number>(0.5);
   const [showDetails, setShowDetails] = useState<boolean>(true);
+
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
   const [preSelectedAsset, setPreSelectedAsset] = useState<{
     symbol: string;
@@ -56,8 +57,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
-
-
 
   const {
     quote,
@@ -81,8 +80,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const selectedSellAsset = assets.find(a => a.symbol === sellAssetSymbol);
   const selectedBuyAsset = assets.find(a => a.symbol === buyAssetSymbol);
   const networkConfig = getChainById(selectedChainId);
-
-
 
   useEffect(() => {
     if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
@@ -117,9 +114,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return () => clearTimeout(timer);
   }, []);
 
+
   useEffect(() => {
     if (selectedChainId) {
-      setIsChainSwitching(true);
       setSellAmount('');
       if (!preSelectedAsset) {
         setSellAssetSymbol('');
@@ -127,7 +124,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       }
       reset();
       fetchTokenList();
-      setTimeout(() => setIsChainSwitching(false), 500);
     }
   }, [selectedChainId, reset, fetchTokenList, preSelectedAsset]);
 
@@ -144,7 +140,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     assets.length,
   ]);
 
-  // Default asset selection 
+
   useEffect(() => {
     if (assets.length > 0 && !sellAssetSymbol && !buyAssetSymbol && !isChainSwitching) {
       if (preSelectedAsset) {
@@ -177,7 +173,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       !selectedBuyAsset ||
       !sellAmount ||
       parseFloat(sellAmount) <= 0 ||
-      sellAssetSymbol === buyAssetSymbol ||
+      selectedSellAsset.address.toLowerCase() === selectedBuyAsset.address.toLowerCase() ||
       isChainSwitching
     ) {
       return;
@@ -208,9 +204,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       await fetchQuote(quoteRequest, selectedSellAsset, selectedBuyAsset);
     } catch (err) {
+      // Superseded / cancelled quotes are not errors — swallow them here
+      if (
+        err instanceof Error &&
+        (err.message === 'Quote request cancelled' || err.message === 'Quote request superseded')
+      ) {
+        return;
+      }
       console.error('Quote fetch failed:', err);
     }
-  }, [selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchQuote, isChainSwitching]);
+  }, [selectedSellAsset, selectedBuyAsset, sellAmount, fetchQuote, isChainSwitching]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -265,7 +268,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       setTimeout(() => setIsRefreshing(false), 800);
     }
   }, [isConnected, isChainSwitching, selectedSellAsset, selectedBuyAsset, updateTokenBalances]);
-
   const handleChainSelect = useCallback(async (newChainId: number) => {
     if (newChainId === selectedChainId) return;
 
@@ -298,8 +300,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     ? parseFloat(quote.outputAmount).toFixed(Math.min(selectedBuyAsset?.decimals || 6, 6))
     : '0.00';
 
-  const isInsufficientBalance = parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0');
+  const isInsufficientBalance =
+    !!sellAmount && parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0');
   const isErrorState = error || isInsufficientBalance;
+
   return (
     <PageLayout
       title="Token Swap"
@@ -329,8 +333,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             </div>
           )}
-
-          {/* You Pay Section - Consistent with You Receive */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-sm font-bold uppercase tracking-wider text-muted">You Pay</label>
@@ -406,7 +408,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             </button>
           </div>
 
-          {/* You Receive Section - Now perfectly consistent with You Pay */}
+          {/* You Receive Section */}
           <div className="space-y-3">
             <label className="text-sm font-bold uppercase tracking-wider text-muted">You Receive</label>
 
@@ -581,7 +583,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 <h4 className="text-lg font-bold text-red-900">Transaction Failed</h4>
                 <p className="text-sm text-red-800 line-clamp-3">{error}</p>
                 <div className="flex gap-3 pt-2">
-                  <button onClick={reset} className="btn-secondary py-2 text-xs">TRY AGAIN</button>
+                  {/* <button onClick={reset} className="btn-secondary py-2 text-xs">TRY AGAIN</button> */}
                   {error.toLowerCase().includes('insufficient') && (
                     <button onClick={() => navigate(ROUTES.TRADING_EVM_FIAT)} className="btn-primary py-2 text-xs bg-red-600 hover:bg-red-700">TOP UP</button>
                   )}

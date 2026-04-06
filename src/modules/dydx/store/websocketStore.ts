@@ -4,7 +4,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { getSocketClient } from '../client/clients';
 import { webSocketManager } from '../utils/WebSocketManager';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+//Types 
 
 export interface ChildSubaccount {
   address: string;
@@ -161,8 +161,8 @@ const UNSUB_DELAY_MS = 3_000;
 const MAX_ORDERS = 150;
 const MAX_FILLS = 150;
 
-// default IMF used when the server hasn't sent one yet
-const DEFAULT_INITIAL_MARGIN_FRACTION = '0.05';
+// Isolated subaccount numbers start at this value (dYdX protocol constant)
+const ISOLATED_SUBACCOUNT_START = 128;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -173,29 +173,46 @@ export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' |
   );
 }
 
-// market orders and ambiguous cancels keep a short grace window so the UI doesn't flicker
+
 function shouldKeepGracePeriod(order: TrackedOrder): boolean {
   if (!TERMINAL_STATUSES.has(order.status)) return false;
   if (isMarketOrder(order)) return true;
   return order.status === 'BEST_EFFORT_CANCELED' || order.status === 'REJECTED';
 }
 
-/**
- * Recomputes equity and freeCollateral for a child subaccount that has no open
- * perpetual positions. In that case the entire balance is USDC collateral, so
- * equity = freeCollateral = USDC asset position size.
- *
- * For subaccounts WITH open perp positions the server sends explicit equity/
- * freeCollateral values inside perpetualPosition updates, so we leave those alone.
- */
-function recomputeChildEquityFromAssets(child: ChildSubaccount): void {
-  const hasOpenPerps = Object.keys(child.openPerpetualPositions).length > 0;
-  if (hasOpenPerps) return;
 
+function recomputeChildEquity(child: ChildSubaccount): void {
   const usdcSize = parseFloat(child.assetPositions['USDC']?.size ?? '0');
-  const newEquity = Math.max(0, usdcSize).toFixed(6);
-  child.equity = newEquity;
-  child.freeCollateral = newEquity;
+  const openPerps = Object.values(child.openPerpetualPositions);
+
+
+  if (openPerps.length === 0 && usdcSize === 0) {
+    child.equity = '0.000000';
+    child.freeCollateral = '0.000000';
+    return;
+  }
+
+  if (openPerps.length === 0) {
+    // No open positions: equity = freeCollateral = USDC balance
+    const newEquity = Math.max(0, usdcSize).toFixed(6);
+    child.equity = newEquity;
+    child.freeCollateral = newEquity; // safe — no margin locked
+    return;
+  }
+
+  // equity = USDC_collateral + unrealizedPnl + netFunding
+  // We update equity only; freeCollateral is computed by selectPortfolioMetrics
+  // using live oracle + real market IMF or leverage settings.
+  const totalUnrealized = openPerps.reduce(
+    (sum, pos) => sum + parseFloat(pos.unrealizedPnl ?? '0'),
+    0
+  );
+  const totalFunding = openPerps.reduce(
+    (sum, pos) => sum + parseFloat(pos.netFunding ?? '0'),
+    0
+  );
+  const equity = Math.max(0, usdcSize + totalUnrealized + totalFunding);
+  child.equity = equity.toFixed(6);
 }
 
 // ─── State interface ──────────────────────────────────────────────────────────
@@ -466,7 +483,36 @@ function parseMarketBatch(contents: any[]): Record<string, Partial<MarketData>> 
   return result;
 }
 
-// ─── Store ────────────────────────────────────────────────────────────────────
+// ─── Parent equity recomputation ──────────────────────────────────────────────
+
+/**
+ * Recomputes parent-level equity and freeCollateral after child updates:
+ *
+ *   portfolioValue / totalEquity = sum of all child equities
+ *   availableBalance / freeCollateral = cross child (subaccountNumber 0) freeCollateral
+ *
+ * This mirrors the dYdX UI where:
+ *   - "Portfolio Value" shows the total across ALL accounts (cross + isolated)
+ *   - "Available Balance" = cross account free collateral only
+ */
+function recomputeParentFromChildren(
+  children: ChildSubaccount[],
+  existingFreeCollateral: string
+): { equity: string; freeCollateral: string } {
+  const totalEquity = children.reduce(
+    (sum, c) => sum + parseFloat(c.equity || '0'),
+    0
+  );
+  const crossChild = children.find(c => c.subaccountNumber === 0);
+  const freeCollateral = crossChild?.freeCollateral ?? existingFreeCollateral;
+
+  return {
+    equity: totalEquity.toFixed(6),
+    freeCollateral,
+  };
+}
+
+// Store 
 
 export const useWebSocketStore = create<WebSocketState>()(
   subscribeWithSelector((set, get) => ({
@@ -484,8 +530,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     subscriptionCounts: new Map(),
     unsubTimers: new Map(),
 
-    // ── Subaccount subscription ──────────────────────────────────────────────
-
+    // Subaccount subscription
     subscribeToParentSubaccount: (address, subaccountNumber) => {
       const key = `parent_subaccount_${address}_${subaccountNumber}`;
 
@@ -500,7 +545,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           const contents = data.contents;
           const updates: PartialSubaccountUpdate = { lastUpdate: Date.now() };
 
-          // ── Initial snapshot ────────────────────────────────────────────
+          // Initial snapshot
           if (messageType === 'subscribed' && contents.subaccount) {
             const sub = contents.subaccount;
 
@@ -522,7 +567,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                 latestProcessedBlockHeight: child.latestProcessedBlockHeight ?? '0',
               }));
 
-              // seed positionPnl from snapshot so selectors have data immediately
+              // seed positionPnl from snapshot 
               const initialPnl = new Map(get().positionPnl);
               sub.childSubaccounts.forEach((child: any) => {
                 Object.values(child.openPerpetualPositions ?? {}).forEach((pos: any) => {
@@ -555,7 +600,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             return;
           }
 
-          // ── Incremental batch / single update ───────────────────────────
+          // Incremental batch / single update 
           if (messageType === 'channel_batch_data' || messageType === 'channel_data') {
             const batches: any[] = Array.isArray(contents) ? contents : [contents];
             const batchSubNum: number = data.subaccountNumber ?? 0;
@@ -573,10 +618,11 @@ export const useWebSocketStore = create<WebSocketState>()(
             const pnlUpdates = new Map<string, PositionPnl>();
             const closedMarkets: string[] = [];
             let hasChildUpdate = false;
+            let hasPerpUpdate = false;
             let hasAssetUpdate = false;
 
             for (const batch of batches) {
-              // perpetual position updates
+              //  perpetual position updates
               if (Array.isArray(batch.perpetualPositions)) {
                 for (const pos of batch.perpetualPositions) {
                   const subNum: number = pos.subaccountNumber ?? batchSubNum;
@@ -604,6 +650,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                   if (isClosed) {
                     delete child.openPerpetualPositions[pos.market];
                     hasChildUpdate = true;
+                    hasPerpUpdate = true;
                     pnlUpdates.set(pos.market, {
                       unrealizedPnl: '0',
                       realizedPnl: pos.realizedPnl ?? '0',
@@ -612,7 +659,6 @@ export const useWebSocketStore = create<WebSocketState>()(
                     closedMarkets.push(pos.market);
                   } else {
                     const existing = child.openPerpetualPositions[pos.market];
-                    // PnL-only update: don't overwrite structural fields like size/entry
                     const isPnlOnly =
                       existing &&
                       pos.unrealizedPnl !== undefined &&
@@ -628,11 +674,12 @@ export const useWebSocketStore = create<WebSocketState>()(
 
                     child.openPerpetualPositions[pos.market] = merged;
                     if (!isPnlOnly) hasChildUpdate = true;
+                    hasPerpUpdate = true;
 
                     pnlUpdates.set(pos.market, {
-                      unrealizedPnl: merged.unrealizedPnl,
-                      realizedPnl: merged.realizedPnl,
-                      netFunding: merged.netFunding,
+                      unrealizedPnl: merged.unrealizedPnl ?? '0',
+                      realizedPnl: merged.realizedPnl ?? '0',
+                      netFunding: merged.netFunding ?? '0',
                     });
                   }
 
@@ -674,15 +721,6 @@ export const useWebSocketStore = create<WebSocketState>()(
                   hasChildUpdate = true;
                   hasAssetUpdate = true;
                 }
-
-                // FIX: After processing all asset positions in this batch, recompute
-                // equity/freeCollateral for any child that has no open perp positions.
-                // dYdX's incremental WS messages never send explicit equity/freeCollateral
-                // fields — they only send assetPositions deltas. For pure-collateral
-                // subaccounts (no open perps), equity === freeCollateral === USDC size.
-                for (const child of updatedChildren) {
-                  recomputeChildEquityFromAssets(child);
-                }
               }
 
               if (Array.isArray(batch.orders)) {
@@ -693,6 +731,16 @@ export const useWebSocketStore = create<WebSocketState>()(
               }
               if (Array.isArray(batch.fills)) allFills.push(...batch.fills);
               if (batch.blockHeight) updates.blockHeight = batch.blockHeight;
+            }
+
+            // Recompute child equity after all batch items processed
+            // Do this AFTER all perpetual + asset updates so we have the
+            // correct picture of both USDC collateral and open perp PnL.
+            if (hasAssetUpdate || hasPerpUpdate) {
+              for (const child of updatedChildren) {
+                recomputeChildEquity(child);
+              }
+              hasChildUpdate = true;
             }
 
             if (pnlUpdates.size > 0 || closedMarkets.length > 0) {
@@ -707,29 +755,27 @@ export const useWebSocketStore = create<WebSocketState>()(
             if (hasChildUpdate) {
               updates.childSubaccounts = updatedChildren;
 
-              // FIX: When asset positions changed, recompute parent equity as the
-              // sum of all child equities and update freeCollateral from cross child (subaccount 0).
-              // This is the only way to keep the sidebar balances in sync because dYdX
-              // never sends parent-level equity/freeCollateral in incremental messages.
-              if (hasAssetUpdate) {
-                const totalEquity = updatedChildren.reduce(
-                  (sum, c) => sum + parseFloat(c.equity || '0'),
-                  0
-                );
-                const crossChild = updatedChildren.find(c => c.subaccountNumber === 0);
-                updates.equity = totalEquity.toFixed(6);
-                updates.freeCollateral = crossChild?.freeCollateral ?? currentData.freeCollateral;
-              }
+              // Recompute parent-level metrics:
+              //   portfolioValue (equity) = sum of ALL children
+              //   availableBalance (freeCollateral) = cross child's freeCollateral
+              const { equity, freeCollateral } = recomputeParentFromChildren(
+                updatedChildren,
+                currentData.freeCollateral
+              );
+              updates.equity = equity;
+              updates.freeCollateral = freeCollateral;
             }
 
-            if (allOrders.length > 0) updates.orders = allOrders;
+            if (allOrders.length > 0) {
+              updates.orders = allOrders;
+              // Clear optimistic delta once the server acknowledges order changes
+              get().clearOptimisticDelta();
+            }
             if (allFills.length > 0) updates.fills = allFills;
 
             get().updateParentSubaccount(key, updates, msgId);
             return;
           }
-
-          // ── Fallback: other message types with subaccount payload ───────
           if (contents.subaccount) {
             const sub = contents.subaccount;
             updates.address = sub.address;
@@ -773,7 +819,6 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleUnsubscribe(`parent_subaccount_${address}_${subaccountNumber}`, set);
     },
 
-    // ── Market subscriptions ──────────────────────────────────────────────────
 
     subscribeToMarket: (ticker) => {
       handleSubscribe(`market_${ticker}`, set, () => {
@@ -837,7 +882,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleUnsubscribe('markets_all', set);
     },
 
-    // ── Trades & Candles ──────────────────────────────────────────────────────
+    // Trades & Candles
 
     subscribeToTrades: (market) => {
       handleSubscribe(`trades_${market}`, set, () => {
@@ -870,7 +915,6 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleUnsubscribe(`candles_${market}_${resolution}`, set);
     },
 
-    // ── Optimistic collateral ─────────────────────────────────────────────────
 
     applyOptimisticMarginDeduction: (amount) => {
       set(s => ({ optimisticFreeCollateralDelta: s.optimisticFreeCollateralDelta + amount }));
@@ -880,7 +924,6 @@ export const useWebSocketStore = create<WebSocketState>()(
       set({ optimisticFreeCollateralDelta: 0 });
     },
 
-    // ── Core update reducers ──────────────────────────────────────────────────
 
     updateParentSubaccount: (key, data, msgId = 0) => {
       set((state) => {
@@ -980,7 +1023,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             ...(existing ?? {
               ticker,
               trades24H: '0',
-              initialMarginFraction: DEFAULT_INITIAL_MARGIN_FRACTION,
+              initialMarginFraction: '0',
               lastUpdate: 0,
             }),
             ticker,
@@ -990,7 +1033,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             openInterest: m.openInterest ?? existing?.openInterest ?? '0',
             nextFundingRate: m.nextFundingRate ?? existing?.nextFundingRate ?? '0',
             trades24H: m.trades24H ?? existing?.trades24H ?? '0',
-            initialMarginFraction: (m as any).initialMarginFraction ?? existing?.initialMarginFraction ?? DEFAULT_INITIAL_MARGIN_FRACTION,
+            initialMarginFraction: (m as any).initialMarginFraction ?? existing?.initialMarginFraction ?? '0',
             lastUpdate: now,
           };
 
@@ -1000,7 +1043,8 @@ export const useWebSocketStore = create<WebSocketState>()(
             existing.volume24H !== next.volume24H ||
             existing.nextFundingRate !== next.nextFundingRate ||
             existing.openInterest !== next.openInterest ||
-            existing.priceChange24H !== next.priceChange24H
+            existing.priceChange24H !== next.priceChange24H ||
+            existing.initialMarginFraction !== next.initialMarginFraction
           ) {
             newMap.set(ticker, next);
             hasAnyChange = true;
@@ -1049,7 +1093,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       });
     },
 
-    // ── Cleanup ───────────────────────────────────────────────────────────────
+    // Cleanup
 
     cleanup: () => {
       const { subscriptionRefs, unsubTimers } = get();
@@ -1078,12 +1122,12 @@ export const useWebSocketStore = create<WebSocketState>()(
   }))
 );
 
-// ─── Connection bridge ────────────────────────────────────────────────────────
+
 
 webSocketManager.onConnect(() => useWebSocketStore.setState({ isConnected: true }));
 webSocketManager.onDisconnect(() => useWebSocketStore.setState({ isConnected: false }));
 
-// ─── Selectors ────────────────────────────────────────────────────────────────
+
 
 export function selectOpenOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
@@ -1093,47 +1137,90 @@ export function selectOpenOrders(data: ParentSubaccountData | undefined): Tracke
 
 export function selectPortfolioMetrics(
   data: ParentSubaccountData | undefined,
-  optimisticDelta = 0,
-  connectedSubaccountNumber = 0,
-): { portfolioValue: number; availableBalance: number; marginUsagePercent: number } | null {
+  optimisticDelta: number = 0,
+  // connectedSubaccountNumber: number = 0,
+  marketsSnapshot?: Map<string, MarketData>,
+  leverages: Record<string, number> = {},
+): {
+  portfolioValue: number;
+  availableBalance: number;
+  crossEquity: number;
+  crossFreeCollateral: number;
+  marginUsed: number;
+  marginUsagePercent: number;
+  isolatedEquity: number;
+} | null {
   if (!data || !data.lastUpdate) return null;
 
-  console.log(data, "data fro subaccounts")
-  const equity = parseFloat(data.equity || '0');
-  if (equity <= 0) return null;
+  let crossEquityValue = 0;
+  let crossMarginUsed = 0;
+  let isolatedEquitySum = 0;
 
-  const portfolioValue = equity;
+  (data.childSubaccounts ?? []).forEach(child => {
+    let childEquity = 0;
 
-  // Cross subaccount (subaccountNumber === 0) drives Available Balance and Margin Used.
-  // Isolated subaccounts (>= 128) manage their own margin independently.
-  const crossChild = data.childSubaccounts?.find(c => c.subaccountNumber === 0);
-  const crossFreeCollateral = crossChild
-    ? parseFloat(crossChild.freeCollateral || '0')
-    : parseFloat(data.freeCollateral || '0');
-  const crossEquity = crossChild
-    ? parseFloat(crossChild.equity || '0')
-    : equity;
+    Object.values(child.assetPositions || {}).forEach(asset => {
+      const size = parseFloat(asset.size || '0');
+      const isShort = asset.side === 'SHORT';
+      childEquity += isShort ? -size : size;
+    });
 
-  const adjustedCrossFree = Math.max(0, crossFreeCollateral - optimisticDelta);
-  const crossMarginUsed = crossEquity - adjustedCrossFree;
-  const marginUsagePercent = crossEquity > 0
-    ? Math.max(0, (crossMarginUsed / crossEquity) * 100)
-    : 0;
+    Object.values(child.openPerpetualPositions || {}).forEach(pos => {
+      const mktData = marketsSnapshot?.get(pos.market);
+      if (!mktData) return;
+      const size = parseFloat(pos.size || '0');
+      const oraclePrice = parseFloat(mktData.oraclePrice || '0');
 
-  let availableBalance: number;
-  if (connectedSubaccountNumber >= 128) {
-    const isolatedChild = data.childSubaccounts?.find(
-      c => c.subaccountNumber === connectedSubaccountNumber
-    );
-    availableBalance = Math.max(
-      0,
-      parseFloat(isolatedChild?.freeCollateral || '0') - optimisticDelta
-    );
-  } else {
-    availableBalance = adjustedCrossFree;
+      const posValue = size * oraclePrice;
+      childEquity += posValue;
+
+      if (child.subaccountNumber === 0) {
+        const leverage = (pos.leverage ? parseFloat(pos.leverage) : 0) || leverages[pos.market] || 0;
+        if (leverage > 0) {
+          crossMarginUsed += (Math.abs(size) * oraclePrice) / leverage;
+        } else {
+          const imf = parseFloat(mktData.initialMarginFraction || '0.05');
+          crossMarginUsed += Math.abs(size) * oraclePrice * imf;
+        }
+      }
+    });
+
+    if (child.subaccountNumber === 0) {
+      crossEquityValue = childEquity;
+    } else if (child.subaccountNumber >= ISOLATED_SUBACCOUNT_START) {
+      isolatedEquitySum += childEquity;
+    }
+  });
+
+  const openCrossOrders = (data.orders || []).filter(
+    (o: any) => o.subaccountNumber === 0 && (o.status === 'OPEN' || o.status === 'BEST_EFFORT_OPENED')
+  );
+  for (const order of openCrossOrders) {
+    const pair = (order as any).ticker || (order as any).clobPairId;
+    if (!pair) continue;
+    const indexPair = pair.replace('-', '');
+    let mktData = marketsSnapshot?.get(pair) || marketsSnapshot?.get(indexPair);
+    if (!mktData) continue;
+    const absSize = Math.abs(parseFloat(order.size || '0'));
+    const oraclePrice = parseFloat(mktData.oraclePrice || '0');
+    const imf = parseFloat(mktData.initialMarginFraction || '0.05');
+    crossMarginUsed += absSize * oraclePrice * imf;
   }
 
-  return { portfolioValue, availableBalance, marginUsagePercent };
+  const availableBalance = Math.max(0, crossEquityValue - crossMarginUsed - optimisticDelta);
+  const marginUsagePercent = crossEquityValue > 0
+    ? Math.min(100, Math.max(0, (crossMarginUsed / crossEquityValue) * 100))
+    : 0;
+
+  return {
+    portfolioValue: crossEquityValue + isolatedEquitySum,
+    availableBalance,
+    crossEquity: crossEquityValue,
+    crossFreeCollateral: availableBalance,
+    marginUsed: crossMarginUsed,
+    marginUsagePercent,
+    isolatedEquity: isolatedEquitySum,
+  };
 }
 
 export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
@@ -1148,7 +1235,6 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
   });
 }
 
-// Recently terminal market orders — used to show fill flash in the UI
 export function selectRecentlyTerminalOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
   const now = Date.now();

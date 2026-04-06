@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ethers } from 'ethers';
 
@@ -64,8 +64,18 @@ export const useEvmSwap = ({
 
   const activeSwapId = useRef<string | null>(null);
   const quoteAbortController = useRef<AbortController | null>(null);
+  const latestQuoteRequestId = useRef<number>(0);
+  const isMounted = useRef<boolean>(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      quoteAbortController.current?.abort();
+    };
+  }, []);
 
   const updateState = useCallback((updates: Partial<UseEvmSwapState>) => {
+    if (!isMounted.current) return;
     setState(prev => ({ ...prev, ...updates }));
   }, []);
 
@@ -76,6 +86,14 @@ export const useEvmSwap = ({
 
     try {
       const tokens = getTokensForChain(chainId);
+      if (!tokens.length) {
+        updateState({
+          error: 'No tokens available for this network',
+          assets: [],
+          isFetchingAssets: false,
+        });
+        return;
+      }
       updateState({ assets: tokens, isFetchingAssets: false });
     } catch (err) {
       console.error('Failed to load token list:', err);
@@ -91,13 +109,18 @@ export const useEvmSwap = ({
     async (sellToken?: TokenInfo, buyToken?: TokenInfo) => {
       if (!senderAddress || !chainId) return;
 
-      const provider = getProvider(WalletType.EVM);
+      let provider: any;
+      try {
+        provider = getProvider(WalletType.EVM);
+      } catch {
+        return;
+      }
       if (!provider) return;
 
       try {
         const ethersProvider = new ethers.BrowserProvider(provider);
         const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
-        
+
         if (tokensToFetch.length === 0) return;
 
         const updates = await Promise.all(
@@ -112,6 +135,8 @@ export const useEvmSwap = ({
             return { address: token.address, balance: bal };
           })
         );
+
+        if (!isMounted.current) return;
 
         setState(prev => {
           const newAssets = [...prev.assets];
@@ -129,9 +154,12 @@ export const useEvmSwap = ({
         });
       } catch (err) {
         console.error('Balance update failed:', err);
+        if (isMounted.current) {
+          updateState({ error: 'Failed to refresh balances. Please try again.' });
+        }
       }
     },
-    [chainId, senderAddress, getProvider]
+    [chainId, senderAddress, getProvider, updateState]
   );
 
   const fetchQuote = useCallback(
@@ -140,11 +168,11 @@ export const useEvmSwap = ({
       sellAsset: TokenInfo,
       buyAsset: TokenInfo
     ): Promise<SwapQuote> => {
-      if (quoteAbortController.current) {
-        quoteAbortController.current.abort();
-      }
-
+      quoteAbortController.current?.abort();
       quoteAbortController.current = new AbortController();
+
+      const requestId = ++latestQuoteRequestId.current;
+
       updateState({ quoteLoading: true, error: null, quote: null });
 
       try {
@@ -159,6 +187,9 @@ export const useEvmSwap = ({
         }
 
         const quoteResponse = await fetchEvmQuote(chainId, request, sellAsset, buyAsset);
+        if (requestId !== latestQuoteRequestId.current) {
+          return Promise.reject(new Error('Quote request superseded'));
+        }
 
         if (!quoteAbortController.current.signal.aborted) {
           updateState({ quote: quoteResponse, quoteLoading: false });
@@ -167,6 +198,10 @@ export const useEvmSwap = ({
       } catch (err: any) {
         if (err.name === 'AbortError' || quoteAbortController.current?.signal.aborted) {
           return Promise.reject(new Error('Quote request cancelled'));
+        }
+
+        if (err.message === 'Quote request superseded') {
+          return Promise.reject(err);
         }
 
         const errorMsg = parseSwapError(err);
@@ -214,21 +249,25 @@ export const useEvmSwap = ({
         });
 
         if (activeSwapId.current === swapId) {
+
+          activeSwapId.current = null;
           updateState({ txHash: hash, loading: false });
         }
-
         setTimeout(() => {
-          updateTokenBalances(sellAsset, buyAsset);
+          if (isMounted.current) {
+            updateTokenBalances(sellAsset, buyAsset);
+          }
         }, 8000);
 
         return hash;
       } catch (err: any) {
         const errorMsg = parseSwapError(err);
-        
+
         if (activeSwapId.current === swapId) {
+          activeSwapId.current = null;
           updateState({ error: errorMsg, loading: false, txHash: null });
         }
-        
+
         throw new Error(errorMsg);
       }
     },
@@ -237,9 +276,8 @@ export const useEvmSwap = ({
 
   const reset = useCallback(() => {
     activeSwapId.current = null;
-    if (quoteAbortController.current) {
-      quoteAbortController.current.abort();
-    }
+    latestQuoteRequestId.current++;
+    quoteAbortController.current?.abort();
     updateState({
       quote: null,
       txHash: null,

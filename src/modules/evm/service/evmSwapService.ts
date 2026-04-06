@@ -22,6 +22,7 @@ interface SwapTransactionRequest {
   slippageTolerance: number;
 }
 
+
 export interface SwapTransactionData {
   to: string;
   from: string;
@@ -133,6 +134,7 @@ export async function prepareSwapTransaction(
 
   if (!res.data) throw new Error('No transaction data received');
 
+
   return Array.isArray(res.data) ? res.data : [res.data];
 }
 
@@ -211,9 +213,6 @@ export async function prepareBridgeTransaction(
     walletType: request.walletType,
     feePayType: request.feePayType,
   };
-
-  console.log('[BridgeService] Endpoint:', endpoint);
-  console.log('[BridgeService] Prepare payload:', JSON.stringify(payload, null, 2));
 
   const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
 

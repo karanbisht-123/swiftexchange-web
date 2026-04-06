@@ -4,7 +4,7 @@ const base: ChainConfig = {
     chainId: 8453,
     name: 'Base',
     networkType: 'mainnet',
-    available: true,
+    available: false,
     swapEnabled: true,
     slug: 'base',
     rpcUrl: 'https://mainnet.base.org',

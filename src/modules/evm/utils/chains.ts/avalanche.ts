@@ -4,7 +4,7 @@ const avalanche: ChainConfig = {
     chainId: 43114,
     name: 'Avalanche C-Chain',
     networkType: 'mainnet',
-    available: true,
+    available: false,
     swapEnabled: true,
     slug: 'avalanche',
     rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',

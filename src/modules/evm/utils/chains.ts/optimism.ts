@@ -4,7 +4,7 @@ const optimism: ChainConfig = {
     chainId: 10,
     name: 'Optimism',
     networkType: 'mainnet',
-    available: true,
+    available: false,
     swapEnabled: true,
     slug: 'optimism',
     rpcUrl: 'https://mainnet.optimism.io',
