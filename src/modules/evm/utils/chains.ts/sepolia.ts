@@ -5,6 +5,7 @@ const sepolia: ChainConfig = {
     name: 'Sepolia',
     networkType: 'testnet',
     available: true,
+    swapEnabled: true,
     slug: 'eth',
     rpcUrl: 'https://ethereum-sepolia.publicnode.com',
     fallbackRpcUrls: [

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import { OrderBookSwapService } from '../service/orderBookSwapService';
 import type {
   LargeOrderOptions,
@@ -29,7 +30,8 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
   const [orderBook, setOrderBook] = useState<any>(null);
 
-  const currentStellarConfig = useWalletStore(state => state.currentStellarConfig);
+  const network = useWalletStore(state => state.network);
+  const currentStellarConfig = getStellarConfig(network);
   const mountedRef = useRef(true);
 
 

@@ -145,7 +145,7 @@ export const useSubaccounts = () => {
     return parentData?.freeCollateral || '0';
   }, [parentData?.freeCollateral]);
 
-  return {
+  return useMemo(() => ({
     childSubaccounts,
     crossSubaccount,
     isolatedSubaccounts,
@@ -166,6 +166,11 @@ export const useSubaccounts = () => {
     sweepToCross,
     isTransferring,
     transferError,
-    clearTransferError: useCallback(() => setTransferError(null), []),
-  };
+    clearTransferError: () => setTransferError(null),
+  }), [
+    childSubaccounts, crossSubaccount, isolatedSubaccounts, totalEquity, totalFreeCollateral,
+    selectedMarginMode, setMarginMode, activeSubaccountNumber, setActiveSubaccount,
+    getSubaccountForMarket, getNextIsolatedSubaccount, getBalance, validateIsolatedPosition,
+    transfer, sweepToCross, isTransferring, transferError
+  ]);
 };

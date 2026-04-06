@@ -125,9 +125,21 @@ export const DydxWalletConnect: React.FC = () => {
     )
   );
 
+  // const activeSubaccountNumber = useMemo(() => {
+  //   if (!parentData?.childSubaccounts) return 0;
+  //   for (const child of parentData.childSubaccounts) {
+  //     if (Object.keys(child.openPerpetualPositions || {}).length > 0) {
+  //       return child.subaccountNumber;
+  //     }
+  //   }
+  //   return 0;
+  // }, [parentData?.childSubaccounts]);
+
+  const activeSubaccountNumber = 0;
+
   const marginMetrics = useMemo(
-    () => selectPortfolioMetrics(parentData, optimisticDelta),
-    [parentData, optimisticDelta]
+    () => selectPortfolioMetrics(parentData, optimisticDelta, activeSubaccountNumber),
+    [parentData, optimisticDelta, activeSubaccountNumber]
   );
 
   const pendingMarginRequired = useOrderPreviewStore(s => s.pendingMarginRequired);
@@ -351,10 +363,10 @@ export const DydxWalletConnect: React.FC = () => {
               </div>
               <span
                 className={`text-sm font-semibold ${(projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
-                    ? 'text-danger'
-                    : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
-                      ? 'text-warning'
-                      : 'text-success'
+                  ? 'text-danger'
+                  : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
+                    ? 'text-warning'
+                    : 'text-success'
                   }`}
               >
                 {projectedMarginUsagePercent !== null ? (
@@ -375,8 +387,8 @@ export const DydxWalletConnect: React.FC = () => {
           {marginMetrics.marginUsagePercent > 70 && (
             <div
               className={`rounded p-2 text-xs flex items-start gap-2 ${marginMetrics.marginUsagePercent > 85
-                  ? 'bg-danger-bg text-danger'
-                  : 'bg-warning-bg text-warning'
+                ? 'bg-danger-bg text-danger'
+                : 'bg-warning-bg text-warning'
                 }`}
             >
               <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />

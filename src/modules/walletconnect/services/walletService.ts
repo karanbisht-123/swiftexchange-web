@@ -828,7 +828,8 @@ class WalletService {
     savedSession: WalletSession,
     hasDydxBlob: boolean
   ): Promise<WalletSession | null> {
-    const isWalletConnect = savedSession.walletId === 'walletconnect';
+    // const isWalletConnect = savedSession.walletId === 'walletconnect';
+    const isWalletConnect = savedSession.connectionMode === 'unified' || savedSession.connectionMode === 'separate';
 
     if (!isWalletConnect) {
       return this.restoreExtensionSession(type, savedSession, hasDydxBlob);

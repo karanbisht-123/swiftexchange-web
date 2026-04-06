@@ -5,6 +5,7 @@ const ethereum: ChainConfig = {
     name: 'Ethereum',
     networkType: 'mainnet',
     available: true,
+    swapEnabled: true,
     slug: 'eth',
     rpcUrl: 'https://ethereum-rpc.publicnode.com',
     fallbackRpcUrls: [

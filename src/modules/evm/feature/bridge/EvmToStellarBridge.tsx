@@ -34,6 +34,7 @@ import {
   getChainsForNetwork,
 } from '../../utils/Chainregistry';
 import { rpcManager } from '../../utils/rpcProvider';
+import { switchOrAddChain } from '../../utils/evmChainUtils';
 
 interface Asset {
   id: string;
@@ -230,41 +231,16 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
       setError(null);
 
       try {
-        await provider.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: `0x${newChainId.toString(16)}` }],
-        });
+        await switchOrAddChain(provider, newChainId);
         setSelectedChainId(newChainId);
-      } catch (switchError: any) {
-        if (switchError.code === 4902) {
-          const chainConfig = evmChains.find(c => c.chainId === newChainId);
-          if (chainConfig) {
-            try {
-              await provider.request({
-                method: 'wallet_addEthereumChain',
-                params: [
-                  {
-                    chainId: `0x${newChainId.toString(16)}`,
-                    chainName: chainConfig.name,
-                    nativeCurrency: chainConfig.nativeCurrency,
-                    rpcUrls: [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcUrls || [])],
-                    blockExplorerUrls: [chainConfig.blockExplorerUrl],
-                  },
-                ],
-              });
-              setSelectedChainId(newChainId);
-            } catch {
-              setError('Failed to add network');
-            }
-          }
-        } else if (switchError.code !== 4001) {
-          setError('Failed to switch network');
-        }
+      } catch (err: any) {
+        console.error('[EvmToStellarBridge] Failed to switch chain:', err);
+        setError(err.message || 'Failed to switch network');
       } finally {
         setIsChainSwitching(false);
       }
     },
-    [provider, currentChainIdFromWallet, evmChains]
+    [provider, currentChainIdFromWallet]
   );
 
   useEffect(() => {

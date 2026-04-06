@@ -32,6 +32,7 @@ import { useWalletStore } from '../../../walletconnect/store/walletConnectStore'
 import { getChainsForNetwork } from '../../utils/Chainregistry';
 import { ROUTES } from '../../../../constants/routes';
 import { addLocalTransaction } from '../../service/localTransactionService';
+import { switchOrAddChain } from '../../utils/evmChainUtils';
 
 const getIconUrl = (symbol: string, chainConfig?: any): string => {
   if (symbol === 'STELLAR' || symbol === 'XLM') {
@@ -116,6 +117,7 @@ const StellarToEvmBridge: React.FC = () => {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [isChainSwitching, setIsChainSwitching] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
@@ -226,6 +228,27 @@ const StellarToEvmBridge: React.FC = () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [amount, fetchQuote]);
+
+  const handleChainSwitch = useCallback(async (newChainId: number) => {
+    if (newChainId === selectedChainId) return;
+
+    if (evmAddress) {
+      setIsChainSwitching(true);
+      setError(null);
+      try {
+        const provider = getProvider(WalletType.EVM);
+        await switchOrAddChain(provider, newChainId);
+        setChainId(newChainId);
+      } catch (err: any) {
+        console.error('[StellarToEvmBridge] Failed to switch chain:', err);
+        setError(err.message || 'Failed to switch network');
+      } finally {
+        setIsChainSwitching(false);
+      }
+    } else {
+      setChainId(newChainId);
+    }
+  }, [evmAddress, selectedChainId, getProvider]);
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let v = e.target.value;
@@ -374,6 +397,15 @@ const StellarToEvmBridge: React.FC = () => {
 
   return (
     <>
+      {isChainSwitching && (
+        <div className="absolute inset-0 bg-secondary/90 z-20 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-brand mx-auto mb-2" />
+            <p className="font-medium text-primary">Switching Network...</p>
+            <p className="text-sm text-muted">Please confirm in your wallet</p>
+          </div>
+        </div>
+      )}
       <div className="p-5 space-y-4 overflow-y-auto flex-1">
         {txHash && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
@@ -439,8 +471,8 @@ const StellarToEvmBridge: React.FC = () => {
               return (
                 <div key={net.chainId} className="flex flex-col items-center gap-2">
                   <button
-                    onClick={() => setChainId(net.chainId)}
-                    disabled={txStatus === 'preparing' || txStatus === 'signing'}
+                    onClick={() => handleChainSwitch(net.chainId)}
+                    disabled={txStatus === 'preparing' || txStatus === 'signing' || isChainSwitching}
                     title={`Switch to ${net.name}`}
                     className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${isSelected
                       ? 'bg-brand/10 border-brand shadow-lg scale-110'

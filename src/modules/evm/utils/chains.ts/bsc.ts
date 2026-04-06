@@ -5,6 +5,7 @@ const bsc: ChainConfig = {
     name: 'BNB Smart Chain',
     networkType: 'mainnet',
     available: true,
+    swapEnabled: true,
     slug: 'bsc',
     rpcUrl: 'https://bsc.publicnode.com',
     fallbackRpcUrls: [

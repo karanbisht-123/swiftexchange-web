@@ -26,8 +26,12 @@ export interface OrderMarginImpact {
 
 /**
  * Calculate current account-level margin metrics from balance.
- * Equity = Q + Σ(Si × Pi)  →  provided by dYdX as `equity`
- * Free Collateral = Equity − Total Initial Margin Requirement
+ *
+ * Formula (from dYdX docs):
+ *   Equity            = Q + Σ(Si × Pi)          — provided by dYdX as `totalEquity`
+ *   TIMR              = Σ|Si × Pi × IMFi|        — implied: equity − freeCollateral
+ *   Free collateral   = Equity − TIMR            — provided by dYdX as `freeCollateral`
+ *   Margin used %     = TIMR / Equity × 100
  */
 export const calculateCurrentMargin = (balance: AccountBalance | null): MarginCalculation => {
   if (!balance) {
@@ -42,26 +46,26 @@ export const calculateCurrentMargin = (balance: AccountBalance | null): MarginCa
 
   const equity = parseFloat(balance.totalEquity || '0');
   const freeCollateral = parseFloat(balance.freeCollateral || '0');
-  const totalMarginRequired = equity - freeCollateral;
+  const totalMarginRequired = Math.max(0, equity - freeCollateral);
 
-  let marginUsagePercent = 0;
-  if (equity > 0) {
-    marginUsagePercent = (totalMarginRequired / equity) * 100;
-  }
+  const marginUsagePercent =
+    equity > 0 ? Math.max(0, Math.min(100, (totalMarginRequired / equity) * 100)) : 0;
 
   return {
     portfolioValue: equity,
     availableBalance: freeCollateral,
     marginUsed: totalMarginRequired,
-    marginUsagePercent: Math.max(0, Math.min(100, marginUsagePercent)),
+    marginUsagePercent,
     totalMarginRequired,
   };
 };
 
 /**
- * Calculate the Initial Margin Requirement for a single position.
- * IMR = |S × P × I|
- * S = size, P = price, I = initialMarginFraction
+ * Initial Margin Requirement for a single position.
+ * IMR = |S × P × IMF|
+ *   S   = position size (positive)
+ *   P   = oracle / execution price
+ *   IMF = initial margin fraction (e.g. 0.05 for 20× max leverage)
  */
 export const calculateInitialMarginRequired = (
   size: number,
@@ -72,8 +76,9 @@ export const calculateInitialMarginRequired = (
 };
 
 /**
- * Calculate the Maintenance Margin Requirement for a single position.
- * MMR = |S × P × M|
+ * Maintenance Margin Requirement for a single position.
+ * MMR = |S × P × MMF|
+ *   MMF = maintenance margin fraction (e.g. 0.03)
  */
 export const calculateMaintenanceMarginRequired = (
   size: number,
@@ -84,8 +89,15 @@ export const calculateMaintenanceMarginRequired = (
 };
 
 /**
- * Calculate post-order margin impact for the receipt display.
- * Uses IMF-based formula: IMR = |size × price × imf|
+ * Post-order margin impact — used by the order receipt preview.
+ *
+ * How it works:
+ *   notional          = |size × price|
+ *   IMR               = notional × IMF   (margin locked for this order)
+ *   newFreeCollateral = currentFree − IMR
+ *   newMarginUsed     = equity − newFreeCollateral
+ *   newMarginUsage %  = newMarginUsed / equity × 100
+
  */
 export const calculateOrderMarginImpact = (
   currentEquity: number,
@@ -97,21 +109,23 @@ export const calculateOrderMarginImpact = (
 ): OrderMarginImpact => {
   const notionalValue = Math.abs(orderSize * orderPrice);
   const initialMarginRequired = Math.abs(orderSize * orderPrice * initialMarginFraction);
+
+  // MMR is typically 60% of IMR on dYdX (MMF ≈ 0.6 × IMF for major markets)
   const maintenanceMarginRequired = initialMarginRequired * 0.6;
 
   const newAvailableBalance = currentFree - initialMarginRequired;
-  const newMarginUsed = currentEquity - newAvailableBalance;
+  const newMarginUsed = currentEquity - Math.max(0, newAvailableBalance);
 
-  let newMarginUsage = 0;
-  if (currentEquity > 0) {
-    newMarginUsage = (newMarginUsed / currentEquity) * 100;
-  }
+  const newMarginUsage =
+    currentEquity > 0
+      ? Math.max(0, Math.min(100, (newMarginUsed / currentEquity) * 100))
+      : 0;
 
   return {
     initialMarginRequired,
     maintenanceMarginRequired,
     newAvailableBalance: Math.max(0, newAvailableBalance),
-    newMarginUsage: Math.max(0, Math.min(100, newMarginUsage)),
+    newMarginUsage,
     newMarginUsed: Math.max(0, newMarginUsed),
     notionalValue,
     canAfford: newAvailableBalance >= 0,
@@ -120,9 +134,17 @@ export const calculateOrderMarginImpact = (
 };
 
 /**
- * Calculate liquidation price for an ISOLATED position.
- * p' = (e − s × p) / (|s| × MMF − s)
- * e = subaccount equity, s = signed size, p = entry price
+ * Liquidation price for an ISOLATED position.
+ *
+ * Formula: p' = (e − s×p) / (|s|×MMF − s)
+ *   e   = subaccount equity (= collateral allocated to this isolated sub)
+ *   s   = signed size: positive for LONG, negative for SHORT
+ *   p   = entry price
+ *   MMF = maintenance margin fraction
+ *
+ * Example (LONG 0.5 ETH at $3000, equity $150, MMF 0.03):
+ *   s = 0.5, p = 3000, e = 150
+ *   p' = (150 − 0.5×3000) / (0.5×0.03 − 0.5) = (150−1500)/(0.015−0.5) = −1350/−0.485 ≈ $2,783
  */
 export const calculateIsolatedLiquidationPrice = (
   size: number,
@@ -139,9 +161,21 @@ export const calculateIsolatedLiquidationPrice = (
 };
 
 /**
- * Calculate liquidation price for a CROSS position.
- * p' = (e − s × p − MMR_o) / (|s| × MMF − s)
- * MMR_o = maintenance margin of all OTHER positions in the subaccount
+ * Liquidation price for a CROSS position.
+ *
+ * Formula: p' = (e − s×p − MMR_o) / (|s|×MMF − s)
+ *   e     = total cross account equity
+ *   s     = signed size of THIS position (positive = long)
+ *   p     = entry price of THIS position
+ *   MMR_o = maintenance margin of all OTHER positions in the cross account
+ *   MMF   = maintenance margin fraction for THIS market
+ *
+ * When there is only one position, pass otherPositionsMMR = 0.
+ * The receipt preview always passes 0 (conservative single-position estimate).
+ *
+ * Example (LONG 0.5 ETH at $3000, equity $1000, MMF 0.03, no other positions):
+ *   s = 0.5, p = 3000, e = 1000, MMR_o = 0
+ *   p' = (1000 − 0.5×3000 − 0) / (0.5×0.03 − 0.5) = (1000−1500)/( 0.015−0.5) = −500/−0.485 ≈ $1,031
  */
 export const calculateCrossLiquidationPrice = (
   size: number,
@@ -158,6 +192,11 @@ export const calculateCrossLiquidationPrice = (
   return Math.max(0, numerator / denominator);
 };
 
+/**
+ * Maximum order size given available balance, price, and leverage.
+ * maxNotional = availableBalance × leverage
+ * maxSize     = maxNotional / price
+ */
 export const calculateMaxOrderSize = (
   availableBalance: number,
   price: number,
@@ -168,6 +207,7 @@ export const calculateMaxOrderSize = (
   return maxNotional / price;
 };
 
+
 export const getLiquidationRiskLevel = (
   marginUsage: number
 ): 'low' | 'medium' | 'high' | 'critical' => {
@@ -177,33 +217,18 @@ export const getLiquidationRiskLevel = (
   return 'critical';
 };
 
+
 export const getMarginUsageColors = (usage: number) => {
   if (usage >= 85) {
-    return {
-      text: 'text-red-500',
-      bg: 'bg-red-500',
-      border: 'border-red-500',
-    };
+    return { text: 'text-red-500', bg: 'bg-red-500', border: 'border-red-500' };
   }
   if (usage >= 70) {
-    return {
-      text: 'text-orange-500',
-      bg: 'bg-orange-500',
-      border: 'border-orange-500',
-    };
+    return { text: 'text-orange-500', bg: 'bg-orange-500', border: 'border-orange-500' };
   }
   if (usage >= 50) {
-    return {
-      text: 'text-yellow-500',
-      bg: 'bg-yellow-500',
-      border: 'border-yellow-500',
-    };
+    return { text: 'text-yellow-500', bg: 'bg-yellow-500', border: 'border-yellow-500' };
   }
-  return {
-    text: 'text-green-500',
-    bg: 'bg-green-500',
-    border: 'border-green-500',
-  };
+  return { text: 'text-green-500', bg: 'bg-green-500', border: 'border-green-500' };
 };
 
 export const formatCurrency = (value: number, decimals: number = 2): string => {
@@ -218,8 +243,9 @@ export const formatPercent = (value: number, decimals: number = 2): string => {
 };
 
 /**
- * Calculate the Minimum Required Margin for holding a position.
- * MMR = (Notional Value × Maintenance Margin Fraction) × Safety Buffer
+ * Minimum margin required to hold a position safely.
+ * Adds a safety buffer on top of the maintenance margin requirement.
+ * Default buffer 1.10 = 10% above MMR so the UI warns before liquidation.
  */
 export const getMinimumRequiredMargin = (
   notionalValue: number,
@@ -230,7 +256,8 @@ export const getMinimumRequiredMargin = (
 };
 
 /**
- * Calculate the Transferable Amount for a subaccount.
+ * Maximum amount transferable out of a subaccount without triggering liquidation.
+ * transferable = equity − minimumRequiredMargin
  */
 export const getTransferableAmount = (
   equity: number,

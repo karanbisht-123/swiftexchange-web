@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { getEVMChains } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { rpcManager } from './rpcProvider';
+import { SendErcAbi } from '../../../abi/SendErcAbi';
 
 export type EVMNetworkConfig = {
   chainId: number;
@@ -90,7 +91,9 @@ export async function estimateEVMFees(
   networkKey: NetworkKey,
   from: string,
   to: string,
-  amount: string
+  amount: string,
+  tokenAddress?: string,
+  tokenDecimals?: number
 ): Promise<{
   gasLimit?: string;
   gasPrice?: string;
@@ -101,18 +104,29 @@ export async function estimateEVMFees(
 }> {
   const { rpcUrl, fallbackRpcUrls, chainId } = getEVMNetworkConfig(networkKey);
   const urls = [rpcUrl, ...(fallbackRpcUrls || [])];
-  const defaultGasLimit = BigInt(21000);
+  const defaultGasLimit = tokenAddress ? BigInt(65000) : BigInt(21000);
   const defaultGasPrice = BigInt(20000000000);
 
   try {
-    const amountInWei = ethers.parseEther(amount);
+    const amountParsed = tokenAddress ? ethers.parseUnits(amount, tokenDecimals || 18) : ethers.parseEther(amount);
 
     const { gasLimit, feeData } = await rpcManager.fetchWithFallback(chainId, urls, async p => {
-      const gl = await p.estimateGas({
-        from,
-        to,
-        value: amountInWei,
-      });
+      let gl;
+      if (tokenAddress) {
+          const iface = new ethers.Interface(SendErcAbi);
+          const data = iface.encodeFunctionData('transfer', [to, amountParsed]);
+          gl = await p.estimateGas({
+              from,
+              to: tokenAddress,
+              data,
+          });
+      } else {
+          gl = await p.estimateGas({
+            from,
+            to,
+            value: amountParsed,
+          });
+      }
       const fd = await p.getFeeData();
       return { gasLimit: BigInt(gl), feeData: fd };
     });

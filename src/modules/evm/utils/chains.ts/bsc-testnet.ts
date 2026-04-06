@@ -5,6 +5,7 @@ const bscTestnet: ChainConfig = {
     name: 'BNB Smart Chain Testnet',
     networkType: 'testnet',
     available: true,
+    swapEnabled: true,
     slug: 'bsc',
     rpcUrl: 'https://bsc-testnet-rpc.publicnode.com',
     fallbackRpcUrls: [

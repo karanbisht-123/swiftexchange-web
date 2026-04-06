@@ -131,7 +131,7 @@ const OpenOrdersPanel: React.FC = () => {
           </div>
         );
       }
-      if (status === 'BEST_EFFORT_CANCELED' || status === 'CANCELED') {
+      if (status === 'BEST_EFFORT_CANCELED') {
         return (
           <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs">
             <Loader2 className="w-3 h-3 animate-spin" />
@@ -139,9 +139,17 @@ const OpenOrdersPanel: React.FC = () => {
           </div>
         );
       }
+      if (status === 'CANCELED') {
+        return (
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded text-xs">
+            <X className="w-3 h-3" />
+            <span>Canceled</span>
+          </div>
+        );
+      }
     }
 
-    if (status === 'BEST_EFFORT_CANCELED' || status === 'REJECTED') {
+    if (status === 'REJECTED') {
       return (
         <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
           <X className="w-3 h-3" />

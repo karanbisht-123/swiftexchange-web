@@ -19,6 +19,7 @@ const LOGO_MAP: Record<string, string> = {
 export type ReceiveAsset = {
   value: string;
   label: string;
+  symbol: string;
   logo: string;
   network: string;
   chainId: string | number;
@@ -29,6 +30,7 @@ export type ReceiveAsset = {
 export const assetFromEVM = (c: EVMChainConfig): ReceiveAsset => ({
   value: c.nativeCurrency.symbol,
   label: `${c.name} (${c.nativeCurrency.symbol})`,
+  symbol: c.nativeCurrency.symbol,
   logo: LOGO_MAP[c.nativeCurrency.symbol] ?? '',
   network: c.name,
   chainId: c.chainId,
@@ -41,6 +43,7 @@ export const assetFromCosmos = (c: CosmosChainConfig): ReceiveAsset => {
   return {
     value: primary.coinDenom,
     label: `${c.chainName} (${primary.coinDenom})`,
+    symbol: primary.coinDenom,
     logo: LOGO_MAP[primary.coinDenom] ?? '',
     network: c.chainName,
     chainId: c.chainId,
@@ -52,6 +55,7 @@ export const assetFromCosmos = (c: CosmosChainConfig): ReceiveAsset => {
 export const assetFromStellar = (c: StellarChainConfig): ReceiveAsset => ({
   value: 'XLM',
   label: 'Stellar (XLM)',
+  symbol: 'XLM',
   logo: LOGO_MAP.XLM,
   network: c.network === 'PUBLIC' ? 'Stellar Mainnet' : 'Stellar Testnet',
   chainId: 'stellar:' + (c.network === 'PUBLIC' ? 'pubnet' : 'testnet'),

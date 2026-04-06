@@ -16,11 +16,8 @@ export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): Sw
   const isBuyNative = buyAsset.isNative;
   const isSellUsdc = sellAsset.symbol.toUpperCase() === 'USDC';
   const isBuyUsdc = buyAsset.symbol.toUpperCase() === 'USDC';
-
   if (isSellNative && isBuyUsdc) return 'EthToUsdc';
   if (isSellUsdc && isBuyNative) return 'UsdcToWeth';
-  if (isSellNative && !isBuyUsdc) return 'EthToToken';
-  if (!isSellNative && isBuyNative) return 'TokenToEth';
   return 'TokenToToken';
 }
 

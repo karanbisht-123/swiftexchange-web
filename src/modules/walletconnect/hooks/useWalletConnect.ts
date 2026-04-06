@@ -8,6 +8,7 @@ import {
   selectIsAnyWalletConnected,
   useWalletStore,
 } from '../store/walletConnectStore';
+import { getEVMChains, getCosmosChains, getStellarConfig } from '../config/chains';
 
 export const useWalletConnect = () => {
   const connectedWallets = useWalletStore(state => state.connectedWallets);
@@ -292,9 +293,10 @@ export const useInstalledWallets = () => {
 export const useWalletNetwork = () => {
   const network = useWalletStore(state => state.network);
   const setNetwork = useWalletStore(state => state.setNetwork);
-  const availableEVMChains = useWalletStore(state => state.availableEVMChains);
-  const availableCosmosChains = useWalletStore(state => state.availableCosmosChains);
-  const currentStellarConfig = useWalletStore(state => state.currentStellarConfig);
+
+  const availableEVMChains = useMemo(() => getEVMChains(network), [network]);
+  const availableCosmosChains = useMemo(() => getCosmosChains(network), [network]);
+  const currentStellarConfig = useMemo(() => getStellarConfig(network), [network]);
 
   const switchNetwork = useCallback(
     async (newNetwork: 'mainnet' | 'testnet') => {
