@@ -15,6 +15,8 @@ import {
   signAndSubmitTrustline,
   truncateAddress,
 } from '../../utils/assetUtils/assetUtils';
+import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+import StellarTransactionModal from '../modals/StellarTransactionModal';
 
 interface UnifiedAssetsProps {
   userAddress?: string;
@@ -145,9 +147,15 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
   const stellarAddress = connectedWallets[WalletType.STELLAR]?.address || userAddress || '';
   const provider = getProvider(WalletType.STELLAR);
 
-  const { balances, loading, server } = useStellarBalances(stellarAddress);
+  const { balances, loading, server, refetch } = useStellarBalances(stellarAddress);
   const [searchTerm, setSearchTerm] = useState('');
   const [trustlineProcessing, setTrustlineProcessing] = useState<string | null>(null);
+  const [txModal, setTxModal] = useState<{
+    isOpen: boolean;
+    status: 'success' | 'error';
+    hash?: string;
+    error?: string;
+  }>({ isOpen: false, status: 'success' });
 
   const allAssets = useMemo(() => {
     const assetsMap = new Map<string, DisplayAsset>();
@@ -200,11 +208,8 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
   });
 
   const handleAddTrustline = async (asset: DisplayAsset) => {
-    if (!server || !stellarAddress || !provider) {
-      alert('Please connect your wallet first');
-      return;
-    }
-
+    if (!server || !stellarAddress || !provider) return;
+    
     setTrustlineProcessing(`${asset.code}-${asset.issuer}`);
 
     try {
@@ -222,13 +227,32 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       const result = await signAndSubmitTrustline(xdr, currentNetwork, networkPassphrase, provider);
 
       if (result.success) {
-        setTimeout(() => window.location.reload(), 1500);
+        addLocalTransaction({
+          hash: result.transactionHash || '',
+          chainId: 9000000,
+          type: 'trustline',
+          timestamp: Date.now(),
+          description: `Added trustline for ${asset.code}`,
+          status: 'success',
+        });
+
+        setTxModal({
+          isOpen: true,
+          status: 'success',
+          hash: result.transactionHash,
+        });
+
+        refetch();
       } else {
         throw new Error(result.error);
       }
     } catch (err: any) {
       console.error('Trustline error:', err);
-      alert(err?.message || 'Failed to add trustline. Please try again.');
+      setTxModal({
+        isOpen: true,
+        status: 'error',
+        error: err?.message || 'Failed to add trustline. Please try again.',
+      });
     } finally {
       setTrustlineProcessing(null);
     }
@@ -330,6 +354,20 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
           </p>
         </div>
       )}
+
+      <StellarTransactionModal
+        isOpen={txModal.isOpen}
+        onClose={() => {
+          setTxModal(prev => ({ ...prev, isOpen: false }));
+          if (txModal.status === 'success') {
+            // Success-specific follow-up could go here if needed 
+          }
+        }}
+        status={txModal.status}
+        type="Swap"
+        hash={txModal.hash}
+        error={txModal.error}
+      />
     </div>
   );
 };

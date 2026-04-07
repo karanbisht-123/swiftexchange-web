@@ -36,24 +36,6 @@ const DYDX_USDC_IBC_DENOM = 'ibc/8E27BA2D5493AF5636760E354E46004562C46AB7EC0CC4C
 const IBC_MAX_RETRIES = 10;
 const IBC_RETRY_DELAY_MS = 3_000;
 
-/**
- * HOW GAS WORKS ON dYdX:
- *
- * Gas is paid from the native wallet (bank module) in USDC (uusdc denom).
- * post.withdraw() and post.deposit() use zeroFee=true internally -- they cost
- * NO gas from the native wallet. Only IBC MsgTransfer costs real gas.
- * So we fold the IBC gas amount into the single withdraw tx:
- *   withdrawQuantums = userAmount + shortfall
- * After settlement, shortfall stays in the native wallet to pay for the IBC tx.
- * The user only bridges userAmount to Noble.
- * There is NO separate auto top-up step -- that would require its own gas tx,
- * creating a circular dependency. The fold approach is the correct pattern,
- * matching what the official dYdX frontend does.
- *
- * NATIVE_WALLET_GAS_RESERVE_UUSDC = 20000 uusdc ($0.02) -- 6x the actual IBC fee (~$0.003)
- * for a generous buffer. Exported from skipBridgeUtils so UI stays in sync.
- */
-
 export type WithdrawStep =
   | 'idle'
   | 'routing'
@@ -96,7 +78,7 @@ async function waitForNobleBalance(
 
   throw new Error(
     `Timed out waiting for Noble funds. ` +
-      `Check https://www.mintscan.io/noble/address/${nobleAddress}`
+    `Check https://www.mintscan.io/noble/address/${nobleAddress}`
   );
 }
 
@@ -113,6 +95,8 @@ export const useDydxWithdraw = () => {
   const [error, setError] = useState<string | null>(null);
   const [errorRetryable, setErrorRetryable] = useState(true);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [bridgeTxHash, setBridgeTxHash] = useState<string | null>(null);
+  const [bridgeTxChainId, setBridgeTxChainId] = useState<string | null>(null);
   const [nobleBalance, setNobleBalance] = useState<number>(0);
   const [withdrawnAmount, setWithdrawnAmount] = useState<number | null>(null);
 
@@ -126,7 +110,8 @@ export const useDydxWithdraw = () => {
       evmAddress: string,
       evmWallet: any,
       destChainId: number | undefined,
-      rawSigner: any
+      rawSigner: any,
+      onBridgeTxHash: (hash: string, chainId: string) => void
     ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
       const chainId = destChainId ?? Number(evmWallet?.chainId ?? 1);
       const destAssetDenom = USDC_EVM_CONTRACTS[chainId] ?? USDC_EVM_CONTRACTS[1];
@@ -162,7 +147,7 @@ export const useDydxWithdraw = () => {
       if (safeAmountIn <= 0) {
         throw new Error(
           `Noble balance (${nobleBalUusdc} uusdc) too low to cover bridge fees ` +
-            `(~${feeBuffer} uusdc). Need at least ${feeBuffer + 1} uusdc.`
+          `(~${feeBuffer} uusdc). Need at least ${feeBuffer + 1} uusdc.`
         );
       }
 
@@ -180,7 +165,9 @@ export const useDydxWithdraw = () => {
         nobleAddress,
       });
 
-      let bridgeTxHash = '';
+      let finalBridgeTxHash = '';
+      let finalBridgeChainId = '';
+
       await executeRoute({
         route: rawRoute,
         userAddresses,
@@ -188,20 +175,20 @@ export const useDydxWithdraw = () => {
         getEvmSigner: buildEvmSigner(evmAddress, walletService.getProvider('evm')),
         slippageTolerancePercent: '1',
         onTransactionBroadcast: async ({ chainId: cid, txHash: hash }: any) => {
-          bridgeTxHash = hash;
+          finalBridgeTxHash = hash;
+          finalBridgeChainId = String(cid);
+          setBridgeTxHash(hash);
+          setBridgeTxChainId(String(cid));
           setTxHash(hash);
+          onBridgeTxHash(hash, String(cid));
           console.log(`[bridge] broadcast on ${cid}: ${hash}`);
         },
-        // onTransactionTracked: async ({ chainId: cid, txHash: hash }: any) =>
-        //   console.log(`[bridge] tracked on ${cid}: ${hash}`),
-        // onTransactionCompleted: async ({ chainId: cid, txHash: hash, status }: any) =>
-        //   console.log(`[bridge] completed on ${cid}: ${hash}`, status),
       } as any);
 
       setStep('pending');
       await new Promise(r => setTimeout(r, 2_000));
       setStep('success');
-      return { success: true, transactionHash: bridgeTxHash };
+      return { success: true, transactionHash: finalBridgeTxHash };
     },
     []
   );
@@ -216,6 +203,8 @@ export const useDydxWithdraw = () => {
       setError(null);
       setErrorRetryable(true);
       setTxHash(null);
+      setBridgeTxHash(null);
+      setBridgeTxChainId(null);
       setNobleBalance(0);
       setWithdrawnAmount(null);
 
@@ -263,15 +252,23 @@ export const useDydxWithdraw = () => {
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
 
+        // ── Minimum-balance handling (same-transaction top-up) ─────────────
+        // Check how much USDC the native wallet currently holds.
+        // If it's below the required gas reserve (~$1.24), we pull the shortfall
+        // OUT of the subaccount in the same withdraw() call — no separate tx.
+        // This matches dYdX's internal fund-allocation approach.
         const walletUusdc = await fetchDydxWalletUsdcBalance(dydxAddress);
         const shortfallUusdc = Math.max(0, NATIVE_WALLET_GAS_RESERVE_UUSDC - walletUusdc);
 
         console.log(
           `[gas] wallet=${walletUusdc} uusdc | ` +
-            `reserve=${NATIVE_WALLET_GAS_RESERVE_UUSDC} uusdc | ` +
-            `shortfall=${shortfallUusdc} uusdc`
+          `reserve=${NATIVE_WALLET_GAS_RESERVE_UUSDC} uusdc | ` +
+          `shortfall=${shortfallUusdc} uusdc`
         );
 
+        // withdrawQuantums = user's requested amount + whatever the wallet still
+        // needs to reach the gas reserve.  The gas-reserve portion stays in the
+        // native wallet; only amountInQuantums continues to Noble → EVM.
         const withdrawQuantums = amountInQuantums + shortfallUusdc;
 
         setStep('signing');
@@ -283,9 +280,12 @@ export const useDydxWithdraw = () => {
         );
         setTxHash(formatTxHash((withdrawResult as any)?.hash));
 
+        // Wait for the withdrawal to settle in the native wallet
         {
           const POLL_INTERVAL_MS = 3_000;
           const POLL_TIMEOUT_MS = 60_000;
+          // We expect the wallet balance to grow by at least shortfallUusdc
+          // (the user's amountInQuantums will be sent onwards via IBC).
           const requiredWalletBalance = walletUusdc + shortfallUusdc;
           const deadline = Date.now() + POLL_TIMEOUT_MS;
 
@@ -307,7 +307,7 @@ export const useDydxWithdraw = () => {
           if (!settled) {
             throw new Error(
               `Withdrawal did not reflect in native wallet within ${POLL_TIMEOUT_MS / 1000}s. ` +
-                `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
+              `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
             );
           }
         }
@@ -320,6 +320,8 @@ export const useDydxWithdraw = () => {
           value: {
             sourcePort: DYDX_TO_NOBLE_PORT,
             sourceChannel: DYDX_TO_NOBLE_CHANNEL,
+            // IBC transfer only sends the user's requested amount — the
+            // shortfallUusdc stays in the native wallet as the gas reserve.
             token: { denom: DYDX_USDC_IBC_DENOM, amount: amountInQuantums.toString() },
             sender: dydxAddress,
             receiver: nobleAddress,
@@ -375,7 +377,11 @@ export const useDydxWithdraw = () => {
           evmAddress,
           evmWallet,
           destChainId,
-          rawSigner
+          rawSigner,
+          (hash, chainId) => {
+            setBridgeTxHash(hash);
+            setBridgeTxChainId(chainId);
+          }
         );
       } catch (err: any) {
         console.error('[withdraw] error:', err);
@@ -396,6 +402,8 @@ export const useDydxWithdraw = () => {
     ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
       setError(null);
       setTxHash(null);
+      setBridgeTxHash(null);
+      setBridgeTxChainId(null);
 
       try {
         const storeState = useWalletStore.getState();
@@ -429,7 +437,11 @@ export const useDydxWithdraw = () => {
           evmAddress,
           evmWallet,
           destChainId,
-          rawSigner
+          rawSigner,
+          (hash, chainId) => {
+            setBridgeTxHash(hash);
+            setBridgeTxChainId(chainId);
+          }
         );
       } catch (err: any) {
         const message = err.message ?? 'Recovery failed';
@@ -447,6 +459,8 @@ export const useDydxWithdraw = () => {
     setError(null);
     setErrorRetryable(true);
     setTxHash(null);
+    setBridgeTxHash(null);
+    setBridgeTxChainId(null);
     setNobleBalance(0);
     setWithdrawnAmount(null);
   }, []);
@@ -474,6 +488,8 @@ export const useDydxWithdraw = () => {
     error,
     errorRetryable,
     txHash,
+    bridgeTxHash,
+    bridgeTxChainId,
     nobleBalance,
     withdrawnAmount,
     isWithdrawing,

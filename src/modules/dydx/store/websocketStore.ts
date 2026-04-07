@@ -4,6 +4,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { getSocketClient } from '../client/clients';
 import { webSocketManager } from '../utils/WebSocketManager';
 
+//Types 
 
 export interface ChildSubaccount {
   address: string;
@@ -112,6 +113,7 @@ export interface PositionPnl {
 export interface TrackedOrder {
   id: string;
   subaccountId?: string;
+  subaccountNumber?: number;
   clientId?: string;
   clobPairId?: string;
   side: 'BUY' | 'SELL';
@@ -140,15 +142,29 @@ export type RawOrder = Omit<TrackedOrder, '_msgId' | '_terminalAt'> & {
   _terminalAt?: number;
 };
 
+// orders get special merge logic so we omit them and re-type explicitly
 export type PartialSubaccountUpdate = Omit<Partial<ParentSubaccountData>, 'orders'> & {
   orders?: RawOrder[];
 };
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED']);
 const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
-const MARKET_ORDER_GRACE_MS = 2_500;
+
+// how long a filled/cancelled market order stays visible in the UI
+const MARKET_ORDER_GRACE_MS = 1_500;
+
+// delayed unsubscribe prevents churn on fast mount/unmount cycles
+const UNSUB_DELAY_MS = 3_000;
+
 const MAX_ORDERS = 150;
 const MAX_FILLS = 150;
+
+// Isolated subaccount numbers start at this value (dYdX protocol constant)
+const ISOLATED_SUBACCOUNT_START = 128;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' | 'orderFlags'>): boolean {
   return (
@@ -156,7 +172,50 @@ export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' |
     (order.timeInForce === 'IOC' && order.orderFlags === '0')
   );
 }
-const UNSUB_DELAY_MS = 5_000;
+
+
+function shouldKeepGracePeriod(order: TrackedOrder): boolean {
+  if (!TERMINAL_STATUSES.has(order.status)) return false;
+  if (isMarketOrder(order)) return true;
+  return order.status === 'BEST_EFFORT_CANCELED' || order.status === 'REJECTED';
+}
+
+
+function recomputeChildEquity(child: ChildSubaccount): void {
+  const usdcSize = parseFloat(child.assetPositions['USDC']?.size ?? '0');
+  const openPerps = Object.values(child.openPerpetualPositions);
+
+
+  if (openPerps.length === 0 && usdcSize === 0) {
+    child.equity = '0.000000';
+    child.freeCollateral = '0.000000';
+    return;
+  }
+
+  if (openPerps.length === 0) {
+    // No open positions: equity = freeCollateral = USDC balance
+    const newEquity = Math.max(0, usdcSize).toFixed(6);
+    child.equity = newEquity;
+    child.freeCollateral = newEquity; // safe — no margin locked
+    return;
+  }
+
+  // equity = USDC_collateral + unrealizedPnl + netFunding
+  // We update equity only; freeCollateral is computed by selectPortfolioMetrics
+  // using live oracle + real market IMF or leverage settings.
+  const totalUnrealized = openPerps.reduce(
+    (sum, pos) => sum + parseFloat(pos.unrealizedPnl ?? '0'),
+    0
+  );
+  const totalFunding = openPerps.reduce(
+    (sum, pos) => sum + parseFloat(pos.netFunding ?? '0'),
+    0
+  );
+  const equity = Math.max(0, usdcSize + totalUnrealized + totalFunding);
+  child.equity = equity.toFixed(6);
+}
+
+// State interface 
 
 interface WebSocketState {
   isConnected: boolean;
@@ -169,6 +228,7 @@ interface WebSocketState {
   candles: Map<string, CandleData>;
   positionPnl: Map<string, PositionPnl>;
 
+  // ref-counting so multiple components can share one WS channel
   activeSubscriptions: Set<string>;
   subscriptionRefs: Map<string, () => void>;
   subscriptionCounts: Map<string, number>;
@@ -192,50 +252,59 @@ interface WebSocketState {
   updateParentSubaccount: (key: string, data: PartialSubaccountUpdate, msgId?: number) => void;
   updateMarket: (ticker: string, data: Partial<MarketData>) => void;
   updateMarkets: (updates: Record<string, Partial<MarketData>>) => void;
-
   updateOraclePrices: (updates: Record<string, string>) => void;
   updateTrades: (market: string, data: Partial<TradeData>) => void;
   updateCandles: (key: string, data: Partial<CandleData>) => void;
   cleanup: () => void;
 }
 
+/**
+ * Opens a new WS channel (or reuses an existing one) and increments ref count.
+ * subscribeFn is called OUTSIDE the state setter to avoid side-effects inside Zustand updaters.
+ */
 const handleSubscribe = (
   key: string,
   set: (fn: (s: WebSocketState) => Partial<WebSocketState>) => void,
   subscribeFn: () => (() => void) | void
 ) => {
+  let shouldOpen = false;
+  let hasTimer = false;
+
   set((state) => {
-    const { activeSubscriptions, subscriptionCounts, unsubTimers, subscriptionRefs } = state;
+    const { activeSubscriptions, subscriptionCounts, unsubTimers } = state;
     const count = subscriptionCounts.get(key) ?? 0;
     const newCounts = new Map(subscriptionCounts).set(key, count + 1);
 
-    const timer = unsubTimers.get(key);
-    if (timer) {
-      clearTimeout(timer);
+    // cancel any pending delayed-unsubscribe for this key
+    if (unsubTimers.has(key)) {
+      clearTimeout(unsubTimers.get(key)!);
       const newTimers = new Map(unsubTimers);
       newTimers.delete(key);
+      hasTimer = true;
       return { subscriptionCounts: newCounts, unsubTimers: newTimers };
     }
 
-    if (activeSubscriptions.has(key)) return { subscriptionCounts: newCounts };
+    if (!activeSubscriptions.has(key)) shouldOpen = true;
+    return { subscriptionCounts: newCounts };
+  });
 
+  // call subscribeFn outside the setter to prevent re-entrant side-effects
+  if (shouldOpen && !hasTimer) {
     try {
       const unsubscribe = subscribeFn();
       if (typeof unsubscribe === 'function') {
-        return {
-          activeSubscriptions: new Set(activeSubscriptions).add(key),
-          subscriptionRefs: new Map(subscriptionRefs).set(key, unsubscribe),
-          subscriptionCounts: newCounts,
-        };
+        set((state) => ({
+          activeSubscriptions: new Set(state.activeSubscriptions).add(key),
+          subscriptionRefs: new Map(state.subscriptionRefs).set(key, unsubscribe),
+        }));
       }
     } catch (error) {
       console.error(`[WSStore] Failed to subscribe to ${key}:`, error);
     }
-
-    return { subscriptionCounts: newCounts };
-  });
+  }
 };
 
+// Decrements ref count and schedules delayed unsubscribe once count hits zero
 const handleUnsubscribe = (
   key: string,
   set: (fn: (s: WebSocketState) => Partial<WebSocketState>) => void
@@ -244,6 +313,7 @@ const handleUnsubscribe = (
     const { subscriptionCounts, unsubTimers } = state;
     const count = subscriptionCounts.get(key) ?? 0;
 
+    // still other subscribers — just decrement
     if (count > 1) {
       return { subscriptionCounts: new Map(subscriptionCounts).set(key, count - 1) };
     }
@@ -251,8 +321,10 @@ const handleUnsubscribe = (
     const newCounts = new Map(subscriptionCounts);
     newCounts.delete(key);
 
+    // delay actual teardown so a remounting component reuses the channel
     const timer = setTimeout(() => {
       set((inner) => {
+        // another subscriber appeared during the delay — abort teardown
         if (inner.subscriptionCounts.has(key)) return {};
 
         const refs = new Map(inner.subscriptionRefs);
@@ -281,9 +353,15 @@ const handleUnsubscribe = (
   });
 };
 
+// Order helpers 
+
+/**
+ * Merges incoming raw orders into the existing map.
+ * Skips updates with a stale msgId to handle out-of-order delivery.
+ */
 function mergeOrders(
   existing: Map<string, TrackedOrder>,
-  incoming: any[],
+  incoming: RawOrder[],
   msgId: number,
   now: number
 ): Map<string, TrackedOrder> {
@@ -294,23 +372,32 @@ function mergeOrders(
     if (!id) continue;
 
     const prev = next.get(id);
-    if (prev && prev._msgId > msgId) continue;
+    if (prev && prev._msgId > msgId) continue; // stale update, skip
 
     const isTerminal = TERMINAL_STATUSES.has(raw.status);
+    const prevWasTerminal = prev ? TERMINAL_STATUSES.has(prev.status) : false;
+
+    // if status is no longer terminal, clear the timestamp so grace logic is reset
+    const terminalAt = !isTerminal
+      ? undefined
+      : prevWasTerminal
+        ? prev!._terminalAt
+        : now;
 
     next.set(id, {
       ...prev,
       ...raw,
       _msgId: msgId,
-      _terminalAt: isTerminal
-        ? (prev && TERMINAL_STATUSES.has(prev.status) ? prev._terminalAt : now)
-        : undefined,
+      _terminalAt: terminalAt,
     } as TrackedOrder);
   }
 
   return next;
 }
 
+/**
+ * Removes expired orders and caps the list to MAX_ORDERS.
+ */
 function evictOrders(
   orderMap: Map<string, TrackedOrder>,
   currentBlock: number,
@@ -320,13 +407,20 @@ function evictOrders(
 
   for (const order of orderMap.values()) {
     if (TERMINAL_STATUSES.has(order.status)) {
-      if (isMarketOrder(order) && now - (order._terminalAt ?? now) < MARKET_ORDER_GRACE_MS) {
-        kept.push(order);
+      // keep market orders briefly so the UI can show a filled flash
+      if (shouldKeepGracePeriod(order)) {
+        if (now - (order._terminalAt ?? now) < MARKET_ORDER_GRACE_MS) {
+          kept.push(order);
+        }
       }
+      // non-grace terminal orders (regular CANCELED/FILLED limit orders) are dropped immediately
       continue;
     }
 
     if (currentBlock > 0 && order.goodTilBlock && parseInt(order.goodTilBlock, 10) < currentBlock) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug(`[WSStore] Evicting expired order ${order.id} (gtb ${order.goodTilBlock} < block ${currentBlock})`);
+      }
       continue;
     }
 
@@ -342,21 +436,24 @@ function evictOrders(
     .slice(0, MAX_ORDERS);
 }
 
+// Merges fills by id, keeps the newest version of each, caps at MAX_FILLS
 function mergeFills(existing: any[], incoming: any[]): any[] {
   const fillMap = new Map<string, any>(existing.map(f => [f.id, f]));
 
   for (const fill of incoming) {
     const ex = fillMap.get(fill.id);
-    if (!ex || (fill.createdAt && new Date(fill.createdAt) >= new Date(ex.createdAt))) {
+    // compare ISO strings lexicographically — avoids Date construction per fill
+    if (!ex || (fill.createdAt && fill.createdAt >= ex.createdAt)) {
       fillMap.set(fill.id, fill);
     }
   }
 
   return Array.from(fillMap.values())
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
     .slice(0, MAX_FILLS);
 }
 
+// ─── Market batch parsers ──────────────────────────────────────────────────────
 
 function parseOraclePriceBatch(contents: any[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -372,7 +469,6 @@ function parseOraclePriceBatch(contents: any[]): Record<string, string> {
   return result;
 }
 
-
 function parseMarketBatch(contents: any[]): Record<string, Partial<MarketData>> {
   const result: Record<string, Partial<MarketData>> = {};
   for (const batch of contents) {
@@ -384,6 +480,37 @@ function parseMarketBatch(contents: any[]): Record<string, Partial<MarketData>> 
   }
   return result;
 }
+
+// ─── Parent equity recomputation ──────────────────────────────────────────────
+
+/**
+ * Recomputes parent-level equity and freeCollateral after child updates:
+ *
+ *   portfolioValue / totalEquity = sum of all child equities
+ *   availableBalance / freeCollateral = cross child (subaccountNumber 0) freeCollateral
+ *
+ * This mirrors the dYdX UI where:
+ *   - "Portfolio Value" shows the total across ALL accounts (cross + isolated)
+ *   - "Available Balance" = cross account free collateral only
+ */
+function recomputeParentFromChildren(
+  children: ChildSubaccount[],
+  existingFreeCollateral: string
+): { equity: string; freeCollateral: string } {
+  const totalEquity = children.reduce(
+    (sum, c) => sum + parseFloat(c.equity || '0'),
+    0
+  );
+  const crossChild = children.find(c => c.subaccountNumber === 0);
+  const freeCollateral = crossChild?.freeCollateral ?? existingFreeCollateral;
+
+  return {
+    equity: totalEquity.toFixed(6),
+    freeCollateral,
+  };
+}
+
+// Store 
 
 export const useWebSocketStore = create<WebSocketState>()(
   subscribeWithSelector((set, get) => ({
@@ -401,6 +528,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     subscriptionCounts: new Map(),
     unsubTimers: new Map(),
 
+    // Subaccount subscription
     subscribeToParentSubaccount: (address, subaccountNumber) => {
       const key = `parent_subaccount_${address}_${subaccountNumber}`;
 
@@ -413,8 +541,9 @@ export const useWebSocketStore = create<WebSocketState>()(
           const msgId: number = data.message_id ?? 0;
           const messageType: string = data.type;
           const contents = data.contents;
-          const updates: Partial<ParentSubaccountData> = { lastUpdate: Date.now() };
+          const updates: PartialSubaccountUpdate = { lastUpdate: Date.now() };
 
+          // Initial snapshot
           if (messageType === 'subscribed' && contents.subaccount) {
             const sub = contents.subaccount;
 
@@ -436,6 +565,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                 latestProcessedBlockHeight: child.latestProcessedBlockHeight ?? '0',
               }));
 
+              // seed positionPnl from snapshot 
               const initialPnl = new Map(get().positionPnl);
               sub.childSubaccounts.forEach((child: any) => {
                 Object.values(child.openPerpetualPositions ?? {}).forEach((pos: any) => {
@@ -453,7 +583,11 @@ export const useWebSocketStore = create<WebSocketState>()(
 
             if (contents.orders !== undefined) {
               updates.orders = (Array.isArray(contents.orders) ? contents.orders : []).map(
-                (o: any) => ({ ...o, _msgId: 0 })
+                (o: any): RawOrder => ({
+                  ...o,
+                  _msgId: 0,
+                  subaccountNumber: o.subaccountNumber ?? data.subaccountNumber ?? subaccountNumber,
+                })
               );
             }
             if (contents.fills !== undefined) updates.fills = Array.isArray(contents.fills) ? contents.fills : [];
@@ -464,6 +598,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             return;
           }
 
+          // Incremental batch / single update 
           if (messageType === 'channel_batch_data' || messageType === 'channel_data') {
             const batches: any[] = Array.isArray(contents) ? contents : [contents];
             const batchSubNum: number = data.subaccountNumber ?? 0;
@@ -476,13 +611,16 @@ export const useWebSocketStore = create<WebSocketState>()(
               assetPositions: { ...child.assetPositions },
             }));
 
-            const allOrders: any[] = [];
+            const allOrders: RawOrder[] = [];
             const allFills: any[] = [];
             const pnlUpdates = new Map<string, PositionPnl>();
             const closedMarkets: string[] = [];
-            let hasPositionChange = false;
+            let hasChildUpdate = false;
+            let hasPerpUpdate = false;
+            let hasAssetUpdate = false;
 
             for (const batch of batches) {
+              //  perpetual position updates
               if (Array.isArray(batch.perpetualPositions)) {
                 for (const pos of batch.perpetualPositions) {
                   const subNum: number = pos.subaccountNumber ?? batchSubNum;
@@ -501,7 +639,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                       latestProcessedBlockHeight: batch.blockHeight ?? '0',
                     });
                     idx = updatedChildren.length - 1;
-                    hasPositionChange = true;
+                    hasChildUpdate = true;
                   }
 
                   const child = updatedChildren[idx];
@@ -509,7 +647,8 @@ export const useWebSocketStore = create<WebSocketState>()(
 
                   if (isClosed) {
                     delete child.openPerpetualPositions[pos.market];
-                    hasPositionChange = true;
+                    hasChildUpdate = true;
+                    hasPerpUpdate = true;
                     pnlUpdates.set(pos.market, {
                       unrealizedPnl: '0',
                       realizedPnl: pos.realizedPnl ?? '0',
@@ -526,33 +665,19 @@ export const useWebSocketStore = create<WebSocketState>()(
                       pos.side === undefined;
 
                     const merged = isPnlOnly
-                      ? {
-                        ...existing,
-                        unrealizedPnl: pos.unrealizedPnl ?? existing.unrealizedPnl,
-                        realizedPnl: pos.realizedPnl ?? existing.realizedPnl,
-                        netFunding: pos.netFunding ?? existing.netFunding,
-                      }
+                      ? { ...existing, ...pos }
                       : existing
-                        ? {
-                          ...existing,
-                          ...pos,
-                          unrealizedPnl: pos.unrealizedPnl ?? existing.unrealizedPnl ?? '0',
-                          realizedPnl: pos.realizedPnl ?? existing.realizedPnl ?? '0',
-                          netFunding: pos.netFunding ?? existing.netFunding ?? '0',
-                          entryPrice: pos.entryPrice ?? existing.entryPrice ?? '0',
-                          size: pos.size ?? existing.size ?? '0',
-                          side: pos.side ?? existing.side,
-                          subaccountNumber: subNum,
-                        }
+                        ? { ...existing, ...pos, subaccountNumber: subNum }
                         : { ...pos, subaccountNumber: subNum };
 
                     child.openPerpetualPositions[pos.market] = merged;
-                    if (!isPnlOnly) hasPositionChange = true;
+                    if (!isPnlOnly) hasChildUpdate = true;
+                    hasPerpUpdate = true;
 
                     pnlUpdates.set(pos.market, {
-                      unrealizedPnl: merged.unrealizedPnl,
-                      realizedPnl: merged.realizedPnl,
-                      netFunding: merged.netFunding,
+                      unrealizedPnl: merged.unrealizedPnl ?? '0',
+                      realizedPnl: merged.realizedPnl ?? '0',
+                      netFunding: merged.netFunding ?? '0',
                     });
                   }
 
@@ -561,6 +686,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                 }
               }
 
+              // asset position updates
               if (Array.isArray(batch.assetPositions)) {
                 for (const asset of batch.assetPositions) {
                   const subNum: number = asset.subaccountNumber ?? batchSubNum;
@@ -582,17 +708,37 @@ export const useWebSocketStore = create<WebSocketState>()(
                   }
 
                   const child = updatedChildren[idx];
-                  if (parseFloat(asset.size ?? '0') === 0) {
+                  const newSize = parseFloat(asset.size ?? '0');
+
+                  if (newSize === 0) {
                     delete child.assetPositions[asset.symbol];
                   } else {
                     child.assetPositions[asset.symbol] = { ...asset, subaccountNumber: subNum };
                   }
+
+                  hasChildUpdate = true;
+                  hasAssetUpdate = true;
                 }
               }
 
-              if (Array.isArray(batch.orders)) allOrders.push(...batch.orders);
+              if (Array.isArray(batch.orders)) {
+                allOrders.push(...batch.orders.map((o: any): RawOrder => ({
+                  ...o,
+                  subaccountNumber: o.subaccountNumber ?? batchSubNum,
+                })));
+              }
               if (Array.isArray(batch.fills)) allFills.push(...batch.fills);
               if (batch.blockHeight) updates.blockHeight = batch.blockHeight;
+            }
+
+            // Recompute child equity after all batch items processed
+            // Do this AFTER all perpetual + asset updates so we have the
+            // correct picture of both USDC collateral and open perp PnL.
+            if (hasAssetUpdate || hasPerpUpdate) {
+              for (const child of updatedChildren) {
+                recomputeChildEquity(child);
+              }
+              hasChildUpdate = true;
             }
 
             if (pnlUpdates.size > 0 || closedMarkets.length > 0) {
@@ -604,14 +750,30 @@ export const useWebSocketStore = create<WebSocketState>()(
               });
             }
 
-            if (hasPositionChange) updates.childSubaccounts = updatedChildren;
-            if (allOrders.length > 0) updates.orders = allOrders as any;
+            if (hasChildUpdate) {
+              updates.childSubaccounts = updatedChildren;
+
+              // Recompute parent-level metrics:
+              //   portfolioValue (equity) = sum of ALL children
+              //   availableBalance (freeCollateral) = cross child's freeCollateral
+              const { equity, freeCollateral } = recomputeParentFromChildren(
+                updatedChildren,
+                currentData.freeCollateral
+              );
+              updates.equity = equity;
+              updates.freeCollateral = freeCollateral;
+            }
+
+            if (allOrders.length > 0) {
+              updates.orders = allOrders;
+              // Clear optimistic delta once the server acknowledges order changes
+              get().clearOptimisticDelta();
+            }
             if (allFills.length > 0) updates.fills = allFills;
 
             get().updateParentSubaccount(key, updates, msgId);
             return;
           }
-
           if (contents.subaccount) {
             const sub = contents.subaccount;
             updates.address = sub.address;
@@ -634,7 +796,14 @@ export const useWebSocketStore = create<WebSocketState>()(
             }
           }
 
-          if (contents.orders !== undefined) updates.orders = Array.isArray(contents.orders) ? contents.orders : ([] as any);
+          if (contents.orders !== undefined) {
+            updates.orders = (Array.isArray(contents.orders) ? contents.orders : []).map(
+              (o: any): RawOrder => ({
+                ...o,
+                subaccountNumber: o.subaccountNumber ?? data.subaccountNumber ?? subaccountNumber,
+              })
+            );
+          }
           if (contents.fills !== undefined) updates.fills = Array.isArray(contents.fills) ? contents.fills : [];
           if (contents.transfers !== undefined) updates.transfers = Array.isArray(contents.transfers) ? contents.transfers : [];
           if (contents.blockHeight) updates.blockHeight = contents.blockHeight;
@@ -648,12 +817,14 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleUnsubscribe(`parent_subaccount_${address}_${subaccountNumber}`, set);
     },
 
+
     subscribeToMarket: (ticker) => {
       handleSubscribe(`market_${ticker}`, set, () => {
         const socketClient = getSocketClient();
         return socketClient.subscribeToMarkets((data: any) => {
           if (!data?.contents) return;
           const contents = data.contents;
+
           if (contents.markets?.[ticker]) {
             const m = contents.markets[ticker];
             get().updateMarket(ticker, {
@@ -667,6 +838,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               lastUpdate: Date.now(),
             });
           }
+
           if (Array.isArray(contents)) {
             const oraclePrices = parseOraclePriceBatch(contents);
             if (oraclePrices[ticker]) {
@@ -687,19 +859,18 @@ export const useWebSocketStore = create<WebSocketState>()(
         return socketClient.subscribeToMarkets((data: any) => {
           if (!data?.contents) return;
           const contents = data.contents;
+
           if (contents.markets) {
             get().updateMarkets(contents.markets);
             return;
           }
+
           if (Array.isArray(contents)) {
             const oraclePrices = parseOraclePriceBatch(contents);
-            if (Object.keys(oraclePrices).length > 0) {
-              get().updateOraclePrices(oraclePrices);
-            }
+            if (Object.keys(oraclePrices).length > 0) get().updateOraclePrices(oraclePrices);
+
             const marketUpdates = parseMarketBatch(contents);
-            if (Object.keys(marketUpdates).length > 0) {
-              get().updateMarkets(marketUpdates);
-            }
+            if (Object.keys(marketUpdates).length > 0) get().updateMarkets(marketUpdates);
           }
         });
       });
@@ -708,6 +879,8 @@ export const useWebSocketStore = create<WebSocketState>()(
     unsubscribeFromAllMarkets: () => {
       handleUnsubscribe('markets_all', set);
     },
+
+    // Trades & Candles
 
     subscribeToTrades: (market) => {
       handleSubscribe(`trades_${market}`, set, () => {
@@ -740,6 +913,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleUnsubscribe(`candles_${market}_${resolution}`, set);
     },
 
+
     applyOptimisticMarginDeduction: (amount) => {
       set(s => ({ optimisticFreeCollateralDelta: s.optimisticFreeCollateralDelta + amount }));
     },
@@ -747,6 +921,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     clearOptimisticDelta: () => {
       set({ optimisticFreeCollateralDelta: 0 });
     },
+
 
     updateParentSubaccount: (key, data, msgId = 0) => {
       set((state) => {
@@ -769,7 +944,7 @@ export const useWebSocketStore = create<WebSocketState>()(
 
         const mergedOrderMap =
           data.orders !== undefined && data.orders.length > 0
-            ? mergeOrders(orderMap, data.orders as any[], msgId, now)
+            ? mergeOrders(orderMap, data.orders, msgId, now)
             : orderMap;
 
         const currentBlock = parseInt(data.blockHeight ?? existing.blockHeight ?? '0', 10);
@@ -800,8 +975,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           finalOrders.length !== existing.orders.length ||
           finalFills.length !== existing.fills.length;
 
-        // When the server sends a confirmed freeCollateral value, our optimistic
-        // estimate is no longer needed — let server truth win.
+        // receiving a real freeCollateral value means server has caught up — clear optimistic offset
         const clearOptimistic = data.freeCollateral !== undefined;
 
         return {
@@ -817,6 +991,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         const existing = state.markets.get(ticker);
         const next = { ...existing, ...data, lastUpdate: Date.now() } as MarketData;
 
+        // skip render if nothing meaningful changed
         if (
           existing &&
           existing.oraclePrice === next.oraclePrice &&
@@ -843,7 +1018,12 @@ export const useWebSocketStore = create<WebSocketState>()(
         for (const [ticker, m] of Object.entries(updates)) {
           const existing = newMap.get(ticker);
           const next: MarketData = {
-            ...(existing ?? { ticker, trades24H: '0', initialMarginFraction: '0.05', lastUpdate: 0 }),
+            ...(existing ?? {
+              ticker,
+              trades24H: '0',
+              initialMarginFraction: '0',
+              lastUpdate: 0,
+            }),
             ticker,
             oraclePrice: m.oraclePrice ?? existing?.oraclePrice ?? '0',
             priceChange24H: m.priceChange24H ?? existing?.priceChange24H ?? '0',
@@ -851,7 +1031,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             openInterest: m.openInterest ?? existing?.openInterest ?? '0',
             nextFundingRate: m.nextFundingRate ?? existing?.nextFundingRate ?? '0',
             trades24H: m.trades24H ?? existing?.trades24H ?? '0',
-            initialMarginFraction: (m as any).initialMarginFraction ?? existing?.initialMarginFraction ?? '0.05',
+            initialMarginFraction: (m as any).initialMarginFraction ?? existing?.initialMarginFraction ?? '0',
             lastUpdate: now,
           };
 
@@ -861,7 +1041,8 @@ export const useWebSocketStore = create<WebSocketState>()(
             existing.volume24H !== next.volume24H ||
             existing.nextFundingRate !== next.nextFundingRate ||
             existing.openInterest !== next.openInterest ||
-            existing.priceChange24H !== next.priceChange24H
+            existing.priceChange24H !== next.priceChange24H ||
+            existing.initialMarginFraction !== next.initialMarginFraction
           ) {
             newMap.set(ticker, next);
             hasAnyChange = true;
@@ -873,7 +1054,6 @@ export const useWebSocketStore = create<WebSocketState>()(
           : {};
       });
     },
-
 
     updateOraclePrices: (updates: Record<string, string>) => {
       set((state) => {
@@ -911,6 +1091,8 @@ export const useWebSocketStore = create<WebSocketState>()(
       });
     },
 
+    // Cleanup
+
     cleanup: () => {
       const { subscriptionRefs, unsubTimers } = get();
 
@@ -938,8 +1120,12 @@ export const useWebSocketStore = create<WebSocketState>()(
   }))
 );
 
+
+
 webSocketManager.onConnect(() => useWebSocketStore.setState({ isConnected: true }));
 webSocketManager.onDisconnect(() => useWebSocketStore.setState({ isConnected: false }));
+
+
 
 export function selectOpenOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
@@ -947,40 +1133,92 @@ export function selectOpenOrders(data: ParentSubaccountData | undefined): Tracke
 }
 
 
-/**
- * Compute portfolio display metrics from a parentSubaccount WS snapshot.
- *
- * @param data           The parentSubaccount store entry.
- * @param optimisticDelta Extra margin already sent to chain but not yet confirmed
- *                        by the WS stream (e.g. just after placeOrder succeeds).
- *                        Applied as a temporary deduction against freeCollateral so
- *                        the Available Balance UI updates *immediately* rather than
- *                        waiting 1–3 s for block consensus.
- */
 export function selectPortfolioMetrics(
   data: ParentSubaccountData | undefined,
-  optimisticDelta = 0
-): { portfolioValue: number; availableBalance: number; marginUsagePercent: number } | null {
+  optimisticDelta: number = 0,
+  // connectedSubaccountNumber: number = 0,
+  marketsSnapshot?: Map<string, MarketData>,
+  leverages: Record<string, number> = {},
+): {
+  portfolioValue: number;
+  availableBalance: number;
+  crossEquity: number;
+  crossFreeCollateral: number;
+  marginUsed: number;
+  marginUsagePercent: number;
+  isolatedEquity: number;
+} | null {
   if (!data || !data.lastUpdate) return null;
 
-  const crossChild = data.childSubaccounts.find(c => c.subaccountNumber === 0);
+  let crossEquityValue = 0;
+  let crossMarginUsed = 0;
+  let isolatedEquitySum = 0;
 
-  // dYdX server equity already includes all unrealised PnL — trust it directly.
-  const portfolioValue = parseFloat(data.equity || crossChild?.equity || '0');
-  if (!isFinite(portfolioValue) || portfolioValue <= 0) return null;
+  (data.childSubaccounts ?? []).forEach(child => {
+    let childEquity = 0;
 
-  // freeCollateral = equity − Σ(initialMarginRequired) across all open positions.
-  // This is the canonical "available to trade" figure; we just need to subtract any
-  // margin that has been sent to chain but whose WS confirmation is still pending.
-  const serverFreeCollateral = parseFloat(
-    crossChild?.freeCollateral || data.freeCollateral || '0'
+    Object.values(child.assetPositions || {}).forEach(asset => {
+      const size = parseFloat(asset.size || '0');
+      const isShort = asset.side === 'SHORT';
+      childEquity += isShort ? -size : size;
+    });
+
+    Object.values(child.openPerpetualPositions || {}).forEach(pos => {
+      const mktData = marketsSnapshot?.get(pos.market);
+      if (!mktData) return;
+      const size = parseFloat(pos.size || '0');
+      const oraclePrice = parseFloat(mktData.oraclePrice || '0');
+
+      const posValue = size * oraclePrice;
+      childEquity += posValue;
+
+      if (child.subaccountNumber === 0) {
+        const leverage = (pos.leverage ? parseFloat(pos.leverage) : 0) || leverages[pos.market] || 0;
+        if (leverage > 0) {
+          crossMarginUsed += (Math.abs(size) * oraclePrice) / leverage;
+        } else {
+          const imf = parseFloat(mktData.initialMarginFraction || '0.05');
+          crossMarginUsed += Math.abs(size) * oraclePrice * imf;
+        }
+      }
+    });
+
+    if (child.subaccountNumber === 0) {
+      crossEquityValue = childEquity;
+    } else if (child.subaccountNumber >= ISOLATED_SUBACCOUNT_START) {
+      isolatedEquitySum += childEquity;
+    }
+  });
+
+  const openCrossOrders = (data.orders || []).filter(
+    (o: any) => o.subaccountNumber === 0 && (o.status === 'OPEN' || o.status === 'BEST_EFFORT_OPENED')
   );
-  const availableBalance = Math.max(0, serverFreeCollateral - optimisticDelta);
+  for (const order of openCrossOrders) {
+    const pair = (order as any).ticker || (order as any).clobPairId;
+    if (!pair) continue;
+    const indexPair = pair.replace('-', '');
+    let mktData = marketsSnapshot?.get(pair) || marketsSnapshot?.get(indexPair);
+    if (!mktData) continue;
+    const absSize = Math.abs(parseFloat(order.size || '0'));
+    const oraclePrice = parseFloat(mktData.oraclePrice || '0');
+    const imf = parseFloat(mktData.initialMarginFraction || '0.05');
+    crossMarginUsed += absSize * oraclePrice * imf;
+  }
 
-  const marginUsed = portfolioValue - availableBalance;
-  const marginUsagePercent = portfolioValue > 0 ? (marginUsed / portfolioValue) * 100 : 0;
+  const availableBalance = Math.max(0, crossEquityValue - crossMarginUsed - optimisticDelta);
+  const marginUsagePercent = crossEquityValue > 0
+    ? Math.min(100, Math.max(0, (crossMarginUsed / crossEquityValue) * 100))
+    : 0;
 
-  return { portfolioValue, availableBalance, marginUsagePercent };
+  return {
+    portfolioValue: crossEquityValue + isolatedEquitySum,
+    availableBalance,
+    crossEquity: crossEquityValue,
+    crossFreeCollateral: availableBalance,
+    marginUsed: crossMarginUsed,
+    marginUsagePercent,
+    isolatedEquity: isolatedEquitySum,
+  };
 }
 
 export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
@@ -988,8 +1226,7 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
   const now = Date.now();
   return data.orders.filter(o => {
     if (OPEN_STATUSES.has(o.status)) return true;
-    // Only give market orders the 2.5 s grace window; cancel/fill on limit orders = instant removal.
-    if (TERMINAL_STATUSES.has(o.status) && isMarketOrder(o)) {
+    if (o.status === 'FILLED' && isMarketOrder(o)) {
       return now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS;
     }
     return false;
@@ -999,7 +1236,6 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
 export function selectRecentlyTerminalOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
   const now = Date.now();
-  // Mirrors selectOpenAndGraceOrders: only market orders enter the grace window.
   return data.orders.filter(
     o => TERMINAL_STATUSES.has(o.status) && isMarketOrder(o) && now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS
   );

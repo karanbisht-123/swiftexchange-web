@@ -45,39 +45,32 @@ export const buildTrustlineTransaction = async (params: TrustlineParams): Promis
   return transaction.toXDR();
 };
 
+import { signAndSubmitTransaction } from '../transactionService';
+
 export const signAndSubmitTrustline = async (
   xdr: string,
   network: string,
   networkPassphrase: string,
   provider: any
 ): Promise<TrustlineResult> => {
-  try {
-    const result = await provider.request({
-      method: 'stellar_signAndSubmitXDR',
-      params: {
-        xdr,
-        network: network.toUpperCase(),
-        networkPassphrase,
-      },
-    });
+  const result = await signAndSubmitTransaction({
+    xdr,
+    network,
+    networkPassphrase,
+    provider,
+  });
 
-    if (result?.status === 'success') {
-      return {
-        success: true,
-        transactionHash: result.hash,
-      };
-    }
-
+  if (result.success) {
     return {
-      success: false,
-      error: 'Transaction was not successful',
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      error: error?.message || 'Failed to sign and submit transaction',
+      success: true,
+      transactionHash: result.hash,
     };
   }
+
+  return {
+    success: false,
+    error: result.error || 'Failed to sign and submit transaction',
+  };
 };
 
 export const formatAssetBalance = (balance: string): string => {

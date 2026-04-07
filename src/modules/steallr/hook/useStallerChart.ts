@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import { StellarChartService } from '../service/stellarChartService';
 import type {
   ChartAssetPair,
@@ -40,7 +41,8 @@ export function useStellarChart({
   const [isPolling, setIsPolling] = useState<boolean>(false);
 
   // Retrieve current Stellar configuration and network state from the central store
-  const currentStellarConfig = useWalletStore(state => state.currentStellarConfig);
+  const network = useWalletStore(state => state.network);
+  const currentStellarConfig = getStellarConfig(network);
   const initialNetwork = useWalletStore.getState().network;
 
   // Initialize currentNetwork with the store's initial network state

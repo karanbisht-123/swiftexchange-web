@@ -14,21 +14,23 @@ import {
   DYDX_CHAIN_ID,
   DYDX_USDC_DENOM,
   NATIVE_WALLET_GAS_RESERVE_USD,
-  NATIVE_WALLET_GAS_RESERVE_UUSDC,
   buildCosmosSigner,
   buildEvmSigner,
   buildUserAddresses,
-  computeDepositSplit,
   dydxToNoble,
   fetchDydxWalletUsdcBalance,
 } from '../utils/skipBridgeUtils';
+import { useTransactionStore } from '../hooks/useTransactionTracker';
+import { type NotificationType } from '../../../components/common/Notification';
 
-export const MIN_DEPOSIT_USDC = 3;
+export const MIN_DEPOSIT_USDC = 1;
 
 const MIN_SUBACCOUNT_DEPOSIT_UUSDC = 10_000;
 
 const DYDX_POLL_TIMEOUT_MS = 180_000;
 const DYDX_POLL_INTERVAL_MS = 5_000;
+
+const GAS_RESERVE_UUSDC = Math.round(NATIVE_WALLET_GAS_RESERVE_USD * 1_000_000);
 
 export type DepositStep =
   | 'idle'
@@ -44,6 +46,21 @@ export interface DepositRoute {
   fee: number;
   receivedAmount: number;
   usdAmountOut: string;
+}
+
+interface DepositNotification {
+  type: NotificationType;
+  title: string;
+  message: string;
+}
+function computeSplit(
+  incomingUusdc: number,
+  preExistingUusdc: number,
+): { keepUusdc: number; depositUusdc: number } {
+  const shortfall = Math.max(0, GAS_RESERVE_UUSDC - preExistingUusdc);
+  const keepUusdc = Math.min(shortfall, incomingUusdc);
+  const depositUusdc = Math.max(0, incomingUusdc - keepUusdc);
+  return { keepUusdc, depositUusdc };
 }
 
 async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): Promise<number> {
@@ -62,7 +79,7 @@ async function waitForDydxWalletBalance(dydxAddress: string, minUusdc: number): 
 
   throw new Error(
     `Timed out waiting for bridged funds on dYdX chain. ` +
-      `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
+    `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
   );
 }
 
@@ -77,7 +94,8 @@ export const useDydxDeposit = () => {
   const [pendingNobleQuantums, setPendingNobleQuantums] = useState<string | null>(null);
   const [pendingDydxQuantums, setPendingDydxQuantums] = useState<string | null>(null);
   const [isCheckingPending, setIsCheckingPending] = useState(false);
-
+  const [notification, setNotification] = useState<DepositNotification | null>(null);
+  const clearNotification = useCallback(() => setNotification(null), []);
   const getRoute = useCallback(
     async (
       assetSymbol: string,
@@ -125,6 +143,10 @@ export const useDydxDeposit = () => {
       setTxHash(null);
       setDepositedAmount(null);
 
+      let capturedAssetSymbol = assetSymbol;
+      let capturedAmount = amountHuman.toString();
+      let bridgeTxHash = '';
+
       try {
         const storeState = useWalletStore.getState();
         const evmWallet = storeState.connectedWallets.evm;
@@ -165,6 +187,7 @@ export const useDydxDeposit = () => {
             'Skip route returned no requiredChainAddresses -- cannot build userAddresses.'
           );
         }
+
         const userAddresses = buildUserAddresses(requiredChainIds, { evmAddress, dydxAddress });
         console.log('[deposit] requiredChainAddresses:', requiredChainIds);
         console.log('[deposit] userAddresses:', userAddresses);
@@ -177,7 +200,18 @@ export const useDydxDeposit = () => {
         if (!rawSigner) throw new Error('No offline signer on localWallet');
 
         setStep('signing_evm');
-        let bridgeTxHash = '';
+
+        useTransactionStore.getState().setDepositTx({
+          txHash: null,
+          chainId: String(chainId),
+          startedAt: Date.now(),
+          status: 'pending',
+          amount: capturedAmount,
+          assetSymbol: capturedAssetSymbol,
+          stepLabel: 'Sign in wallet...',
+        });
+
+        setStep('signing_evm');
 
         await executeRoute({
           route: rawRoute,
@@ -190,33 +224,50 @@ export const useDydxDeposit = () => {
             bridgeTxHash = hash;
             setTxHash(hash);
             setStep('pending_bridge');
+
+            const current = useTransactionStore.getState().depositTx;
+            useTransactionStore.getState().setDepositTx({
+              txHash: hash,
+              chainId: String(cid),
+              startedAt: current?.startedAt ?? Date.now(),
+              status: 'pending',
+              amount: capturedAmount,
+              assetSymbol: capturedAssetSymbol,
+              stepLabel: 'Bridging funds...',
+            });
           },
-          // onTransactionTracked: async ({ txHash: hash, chainId: cid }) =>
-          //   console.log(`[deposit] tracked on ${cid}: ${hash}`),
-          // onTransactionCompleted: async ({ txHash: hash, chainId: cid, status }) =>
-          //   console.log(`[deposit] completed on ${cid}: ${hash}`, status),
-          // onApproveAllowance: async (approvalInfo: any) =>
-          //   console.log(
-          //     `[deposit] ERC-20 approval ${approvalInfo.status} for ${approvalInfo.allowance?.tokenContract}`
-          //   ),
         });
 
         setStep('transferring');
+        let preExistingWalletUusdc = 0;
+        try {
+          preExistingWalletUusdc = await fetchDydxWalletUsdcBalance(dydxAddress);
+        } catch {
+          preExistingWalletUusdc = 0;
+        }
+        console.log(`[deposit] pre-existing wallet balance: ${preExistingWalletUusdc} uusdc`);
 
         const expectedAmountUusdc = parseInt(rawRoute.amountOut ?? '0', 10);
-        const minExpectedUusdc = Math.floor(expectedAmountUusdc * 0.9);
+        const minPollTarget = Math.max(
+          preExistingWalletUusdc + Math.floor(expectedAmountUusdc * 0.9),
+          GAS_RESERVE_UUSDC + MIN_SUBACCOUNT_DEPOSIT_UUSDC,
+        );
 
-        const walletBalance = await waitForDydxWalletBalance(dydxAddress, minExpectedUusdc);
-        console.log('[deposit] dYdX wallet balance confirmed:', walletBalance, 'uusdc');
+        const walletBalanceAfter = await waitForDydxWalletBalance(dydxAddress, minPollTarget);
+        console.log('[deposit] dYdX wallet balance after bridge:', walletBalanceAfter, 'uusdc');
+        const incomingUusdc = Math.max(0, walletBalanceAfter - preExistingWalletUusdc);
 
-        const { keepUusdc, depositUusdc } = computeDepositSplit(walletBalance);
+        const { keepUusdc, depositUusdc } = computeSplit(incomingUusdc, preExistingWalletUusdc);
 
-        console.log(`[deposit] wallet=${walletBalance} keep=${keepUusdc} deposit=${depositUusdc}`);
+        console.log(
+          `[deposit] incoming=${incomingUusdc} keep=${keepUusdc} deposit=${depositUusdc} ` +
+          `preExisting=${preExistingWalletUusdc} reserve=${GAS_RESERVE_UUSDC} uusdc`
+        );
 
         if (depositUusdc < MIN_SUBACCOUNT_DEPOSIT_UUSDC) {
           console.warn(
-            `[deposit] depositUusdc (${depositUusdc}) below dust threshold -- ` +
-              `skipping subaccount deposit. Wallet gas reserve funded.`
+            `[deposit] depositUusdc (${depositUusdc}) below dust threshold — ` +
+            `gas reserve funded, skipping subaccount deposit.`
           );
           setDepositedAmount(0);
           await new Promise(r => setTimeout(r, 1_000));
@@ -231,10 +282,23 @@ export const useDydxDeposit = () => {
           localWallet,
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
+        await client.validatorClient.post.deposit(
+          subaccount,
+          0,
+          Long.fromNumber(Math.floor(depositUusdc))
+        );
 
-        await client.validatorClient.post.deposit(subaccount, 0, Long.fromNumber(depositUusdc));
+        console.log(`[deposit] deposited ${depositUusdc} uusdc to subaccount (kept ${keepUusdc} uusdc for gas)`);
 
         setDepositedAmount(depositUusdc / 1e6);
+        setNotification({
+          type: 'success',
+          title: 'Deposit Complete',
+          message: `${(depositUusdc / 1e6).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} USDC added to your trading account.`,
+        });
         await new Promise(r => setTimeout(r, 2_000));
         setStep('success');
 
@@ -242,6 +306,15 @@ export const useDydxDeposit = () => {
       } catch (err: any) {
         console.error('[deposit] error:', err);
         const classified = classifyBridgeError(err);
+
+        if (!bridgeTxHash) {
+          useTransactionStore.getState().clearDepositTx();
+        }
+        setNotification({
+          type: 'error',
+          title: 'Deposit Failed',
+          message: classified.message,
+        });
         setError(classified.message);
         setErrorRetryable(classified.retryable);
         setStep('error');
@@ -312,7 +385,7 @@ export const useDydxDeposit = () => {
       try {
         const walletBal = await fetchDydxWalletUsdcBalance(dydxAddress);
         const total = BigInt(walletBal);
-        const reserve = BigInt(NATIVE_WALLET_GAS_RESERVE_UUSDC);
+        const reserve = BigInt(GAS_RESERVE_UUSDC);
         if (total > reserve) setPendingDydxQuantums((total - reserve).toString());
       } catch (e) {
         console.warn('[deposit] dYdX balance check failed:', e);
@@ -364,5 +437,8 @@ export const useDydxDeposit = () => {
     isLoading: step !== 'idle' && step !== 'success' && step !== 'error',
     MIN_DEPOSIT_USDC,
     NATIVE_WALLET_GAS_RESERVE_USD,
+    GAS_RESERVE_UUSDC,
+    notification,
+    clearNotification,
   };
 };

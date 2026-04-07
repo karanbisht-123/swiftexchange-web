@@ -35,13 +35,14 @@ function cheapHash(obj: unknown): number {
   let h = 5381;
   for (let i = 0; i < Math.min(str.length, 512); i++) {
     h = ((h << 5) + h) ^ str.charCodeAt(i);
-    h = h >>> 0; // keep 32-bit unsigned
+    h = h >>> 0;
   }
   return h;
 }
 
 class WebSocketManager {
   private static instance: WebSocketManager;
+
   private ws: WebSocket | null = null;
   private connectionId: string | null = null;
   private currentWsUrl: string | null = null;
@@ -63,22 +64,16 @@ class WebSocketManager {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly FLUSH_INTERVAL = 100;
 
-
   private rafId: number | null = null;
   private pendingHandlerCalls: Array<{ handler: MessageHandler; data: WebSocketMessage }> = [];
   private readonly MAX_BATCH_SIZE = 100;
+
   private lastMessageTime = 0;
   private tabHiddenAt: number | null = null;
+
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private readonly HEALTH_CHECK_INTERVAL = 15000;
   private readonly CONNECTION_TIMEOUT = 300_000;
-
-  private pingInterval: ReturnType<typeof setInterval> | null = null;
-  private readonly PING_INTERVAL = 30_000;
-  private pongReceived = true;
-  private missedPongs = 0;
-  private readonly MAX_MISSED_PONGS = 2;
-
 
   private disconnectNotifyTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly DISCONNECT_NOTIFY_DELAY = 3000;
@@ -90,7 +85,6 @@ class WebSocketManager {
   private readonly CACHE_CLEANUP_INTERVAL = 60000;
   private readonly CACHE_TTL = 5000;
   private cacheCleanupTimer: ReturnType<typeof setInterval> | null = null;
-
 
   private throttleMap = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly THROTTLE_INTERVALS: Record<string, number> = {
@@ -104,21 +98,6 @@ class WebSocketManager {
   };
 
   // ── Stale-channel detection ──────────────────────────────────────────────
-  // These thresholds trigger a re-subscribe if a channel goes quiet for too long.
-  //
-  // IMPORTANT: v4_parent_subaccounts and v4_subaccounts are intentionally
-  // EXCLUDED here. Those channels only send data when there is actual account
-  // activity (new order, fill, funding, etc.). When the user is idle there are
-  // NO updates — that is expected behaviour, not a stale channel.
-  //
-  // Connection liveness is guaranteed by TWO independent mechanisms:
-  //   1. RFC 6455 protocol-level ping/pong: dYdX server → ping frame every 30 s;
-  //      the browser's native WebSocket API auto-replies with a pong frame.
-  //   2. Application-level { type:"ping" } / { type:"pong" } sent by our
-  //      startPing() every 30 s — we close + reconnect if server stops replying.
-  //
-  // Market/block-height channels always stream data, so lastMessageTime stays
-  // fresh and the overall CONNECTION_TIMEOUT health check never trips.
   private readonly CHANNEL_STALE_THRESHOLDS: Record<string, number> = {
     v4_trades: 60_000,
     v4_orderbook: 60_000,
@@ -159,7 +138,6 @@ class WebSocketManager {
   private readonly handleVisibilityChange = (): void => {
     if (document.hidden) {
       this.tabHiddenAt = Date.now();
-      this.stopPing();
       return;
     }
 
@@ -171,15 +149,10 @@ class WebSocketManager {
 
     if (!this.currentWsUrl) return;
 
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.startPing();
-      try {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
-      } catch {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      if (!this.isConnecting && !this.isReconnecting) {
         this.connect(this.currentWsUrl).catch(console.error);
       }
-    } else if (!this.isConnecting && !this.isReconnecting) {
-      this.connect(this.currentWsUrl).catch(console.error);
     }
   };
 
@@ -218,15 +191,10 @@ class WebSocketManager {
           this.isReconnecting = false;
           this.lastMessageTime = Date.now();
           this.tabHiddenAt = null;
-          this.pongReceived = true;
-          this.missedPongs = 0;
           this.serverSubscriptions.clear();
           this.subscriptionInProgress.clear();
           this.messageCache.clear();
           this.resubscribeAll();
-          if (typeof document === 'undefined' || !document.hidden) {
-            this.startPing();
-          }
           if (this.disconnectNotifyTimer !== null) {
             clearTimeout(this.disconnectNotifyTimer);
             this.disconnectNotifyTimer = null;
@@ -256,7 +224,6 @@ class WebSocketManager {
           this.connectionId = null;
           this.isConnecting = false;
           this.connectPromise = null;
-          this.stopPing();
           this.serverSubscriptions.clear();
           this.subscriptionInProgress.clear();
 
@@ -284,7 +251,6 @@ class WebSocketManager {
   }
 
   private async disconnect(): Promise<void> {
-    this.stopPing();
     this.isReconnecting = false;
     this.reconnectAttempts = this.MAX_RECONNECT_ATTEMPTS;
 
@@ -499,11 +465,7 @@ class WebSocketManager {
         return;
       }
 
-      if (data.type === 'pong') {
-        this.pongReceived = true;
-        this.missedPongs = 0;
-        return;
-      }
+      // Removed pong handling - dYdX v4 uses only protocol-level ping/pong
 
       if (data.type === 'channel_data' || data.type === 'channel_batch_data') {
         const subscriptionKey = data.id ? `${data.channel}_${data.id}` : data.channel;
@@ -533,6 +495,7 @@ class WebSocketManager {
       console.error('[WS] Message parse error:', error);
     }
   }
+
   private isDuplicateMessage(key: string, data: WebSocketMessage): boolean {
     const hash = cheapHash(data.contents);
     const cached = this.messageCache.get(key);
@@ -590,7 +553,6 @@ class WebSocketManager {
       return;
     }
 
-
     if (this.rafId !== null) return;
 
     this.rafId = requestAnimationFrame(() => {
@@ -606,6 +568,7 @@ class WebSocketManager {
       if (this.pendingHandlerCalls.length > 0) this.scheduleHandlerExecution();
     });
   }
+
   private scheduleDisconnectNotification(): void {
     if (this.disconnectNotifyTimer !== null) return;
     this.disconnectNotifyTimer = setTimeout(() => {
@@ -614,44 +577,6 @@ class WebSocketManager {
         this.notifyDisconnectionHandlers();
       }
     }, this.DISCONNECT_NOTIFY_DELAY);
-  }
-
-  private startPing(): void {
-    this.stopPing();
-
-    this.pingInterval = setInterval(() => {
-      if (!this.isConnected()) return;
-
-      if (!this.pongReceived) {
-        this.missedPongs++;
-        if (this.missedPongs >= this.MAX_MISSED_PONGS) {
-          console.warn(
-            `[WS] ${this.missedPongs} missed pongs — closing connection to force reconnect`
-          );
-          this.missedPongs = 0;
-          this.pongReceived = true;
-          this.ws?.close(1000, 'missed pongs');
-          return;
-        }
-      } else {
-        this.missedPongs = 0;
-      }
-
-      this.pongReceived = false;
-      try {
-        this.ws!.send(JSON.stringify({ type: 'ping' }));
-      } catch (error) {
-        console.error('[WS] Ping send failed:', error);
-        this.ws?.close();
-      }
-    }, this.PING_INTERVAL);
-  }
-
-  private stopPing(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
   }
 
   private startHealthCheck(): void {
@@ -671,7 +596,6 @@ class WebSocketManager {
           return;
         }
       }
-
 
       if (!tabIsHidden) {
         this.subscriptionStats.forEach((stats, key) => {
@@ -791,9 +715,6 @@ class WebSocketManager {
         (sum, set) => sum + set.size,
         0
       ),
-      pingActive: this.pingInterval !== null,
-      pongReceived: this.pongReceived,
-      missedPongs: this.missedPongs,
       cacheSize: this.messageCache.size,
       activeThrottles: this.throttleMap.size,
       totalMessagesReceived: this.totalMessagesReceived,
@@ -841,19 +762,15 @@ class WebSocketManager {
       this.flushTimer = null;
     }
 
-
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
 
-    this.stopPing();
     this.pendingHandlerCalls = [];
     this.isConnecting = false;
     this.isReconnecting = false;
     this.connectionId = null;
-    this.pongReceived = true;
-    this.missedPongs = 0;
     this.tabHiddenAt = null;
   }
 
@@ -865,7 +782,6 @@ class WebSocketManager {
     this.messageQueue = [];
     this.messageCache.clear();
     this.subscriptionStats.clear();
-
 
     this.throttleMap.forEach(timer => clearTimeout(timer));
     this.throttleMap.clear();

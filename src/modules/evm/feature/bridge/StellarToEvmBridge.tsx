@@ -31,6 +31,8 @@ import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect'
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { getChainsForNetwork } from '../../utils/Chainregistry';
 import { ROUTES } from '../../../../constants/routes';
+import { addLocalTransaction } from '../../service/localTransactionService';
+import { switchOrAddChain } from '../../utils/evmChainUtils';
 
 const getIconUrl = (symbol: string, chainConfig?: any): string => {
   if (symbol === 'STELLAR' || symbol === 'XLM') {
@@ -56,7 +58,6 @@ const getIconUrl = (symbol: string, chainConfig?: any): string => {
   return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
 };
 
-type NetworkType = 'ETH' | 'BNB';
 type DestTokenType = 'USDC' | 'USDT';
 type TxStatus = 'idle' | 'preparing' | 'signing' | 'success' | 'error';
 
@@ -88,14 +89,20 @@ const StellarToEvmBridge: React.FC = () => {
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const evmWallet = connectedWallets[WalletType.EVM];
-  const stellarAddress = stellarWallet?.address ?? '';
-  const evmAddress = evmWallet?.address ?? '';
+  const stellarAddress = stellarWallet?.address;
+  const evmAddress = evmWallet?.address;
 
   const [tokens, setTokens] = useState<any[]>([]);
   const [sourceToken, setSourceToken] = useState<any>(null);
   const [destinationToken, setDestToken] = useState<any>(null);
 
-  const [selectedNetwork, setNetwork] = useState<NetworkType>('BNB');
+  const [selectedChainId, setChainId] = useState<number>(() => {
+    const eth = evmChains.find(c => c.slug === 'eth');
+    if (eth) return eth.chainId;
+    const bsc = evmChains.find(c => c.slug === 'bsc');
+    if (bsc) return bsc.chainId;
+    return evmChains[0]?.chainId || 1;
+  });
   const [selectedDestToken, setDestSym] = useState<DestTokenType>('USDC');
   const [feePayType, setFeePayType] = useState<FeePayType>('native');
 
@@ -110,15 +117,13 @@ const StellarToEvmBridge: React.FC = () => {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [isChainSwitching, setIsChainSwitching] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
   const currentChainConfig = useMemo(() => {
-    return evmChains.find(c =>
-      (selectedNetwork === 'BNB' && (c.slug === 'bsc' || c.slug === 'bnb')) ||
-      (selectedNetwork === 'ETH' && c.slug === 'eth')
-    );
-  }, [evmChains, selectedNetwork]);
+    return evmChains.find(c => c.chainId === selectedChainId);
+  }, [evmChains, selectedChainId]);
 
   const parseError = (err: string | null) => {
     if (!err) return null;
@@ -181,12 +186,13 @@ const StellarToEvmBridge: React.FC = () => {
   }, [fetchBalance]);
 
   useEffect(() => {
-    if (!tokens.length) return;
-    const chainSym = selectedNetwork === 'BNB' ? ChainSymbol.BSC : ChainSymbol.ETH;
+    if (!tokens.length || !currentChainConfig) return;
+    const slug = currentChainConfig.slug;
+    const chainSym = slug === 'bsc' ? ChainSymbol.BSC : slug === 'eth' ? ChainSymbol.ETH : slug.toUpperCase() as ChainSymbol;
     const dest = tokens.find((t: any) => t.chainSymbol === chainSym && (t.symbol === selectedDestToken));
     setDestToken(dest ?? null);
     setQuoteData(null);
-  }, [selectedNetwork, selectedDestToken, tokens]);
+  }, [currentChainConfig, selectedDestToken, tokens]);
 
   const fetchQuote = useCallback(
     async (val: string) => {
@@ -222,6 +228,27 @@ const StellarToEvmBridge: React.FC = () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [amount, fetchQuote]);
+
+  const handleChainSwitch = useCallback(async (newChainId: number) => {
+    if (newChainId === selectedChainId) return;
+
+    if (evmAddress) {
+      setIsChainSwitching(true);
+      setError(null);
+      try {
+        const provider = getProvider(WalletType.EVM);
+        await switchOrAddChain(provider, newChainId);
+        setChainId(newChainId);
+      } catch (err: any) {
+        console.error('[StellarToEvmBridge] Failed to switch chain:', err);
+        setError(err.message || 'Failed to switch network');
+      } finally {
+        setIsChainSwitching(false);
+      }
+    } else {
+      setChainId(newChainId);
+    }
+  }, [evmAddress, selectedChainId, getProvider]);
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let v = e.target.value;
@@ -319,10 +346,34 @@ const StellarToEvmBridge: React.FC = () => {
       const hash = await signAndSubmitXdr(rawXdr);
       setTxHash(hash);
       setTxStatus('success');
+
+      if (currentChainConfig) {
+        addLocalTransaction({
+          hash,
+          chainId: 9000000,
+          type: 'bridge',
+          timestamp: Date.now(),
+          description: `Bridge ${amount} USDC (Stellar) → ${selectedDestToken} (${currentChainConfig.name})`,
+          status: 'pending',
+        });
+      }
+
       fetchBalance();
     } catch (err: any) {
       setTxStatus('error');
-      setError(err.message || 'Transaction failed or was rejected.');
+      const errorMsg = err.message || 'Transaction failed or was rejected.';
+      setError(errorMsg);
+
+      if (currentChainConfig) {
+        addLocalTransaction({
+          hash: `failed-${Date.now()}`,
+          chainId: 9000000,
+          type: 'bridge',
+          timestamp: Date.now(),
+          description: `Bridge ${amount} USDC (Stellar) → ${selectedDestToken} (${currentChainConfig.name})`,
+          status: 'failed',
+        });
+      }
     }
   };
 
@@ -335,13 +386,26 @@ const StellarToEvmBridge: React.FC = () => {
   const isWalletConnectProvider = (p: any): boolean =>
     !!(p?.client && p?.session && typeof p.client.request === 'function');
 
-  const supportedDestNetworks = useMemo(() => [
-    { id: 'BNB' as NetworkType, name: 'BNB Chain', icon: evmChains.find(c => c.slug === 'bsc')?.nativeCurrency.logoURI || '' },
-    { id: 'ETH' as NetworkType, name: 'Ethereum', icon: evmChains.find(c => c.slug === 'eth')?.nativeCurrency.logoURI || '' },
-  ], [evmChains]);
+  const supportedDestNetworks = useMemo(() => {
+    return evmChains.map(chain => ({
+      chainId: chain.chainId,
+      name: chain.name,
+      symbol: chain.slug === 'bsc' ? 'BNB' : chain.slug === 'eth' ? 'ETH' : chain.slug.toUpperCase(),
+      icon: chain.nativeCurrency.logoURI,
+    }));
+  }, [evmChains]);
 
   return (
     <>
+      {isChainSwitching && (
+        <div className="absolute inset-0 bg-secondary/90 z-20 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-brand mx-auto mb-2" />
+            <p className="font-medium text-primary">Switching Network...</p>
+            <p className="text-sm text-muted">Please confirm in your wallet</p>
+          </div>
+        </div>
+      )}
       <div className="p-5 space-y-4 overflow-y-auto flex-1">
         {txHash && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fade-in">
@@ -363,7 +427,7 @@ const StellarToEvmBridge: React.FC = () => {
                   Assets traveling from Stellar
                 </p>
                 <p className="text-center text-xs font-medium text-green-600 mb-6 font-mono uppercase tracking-widest">
-                  to {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'}
+                  to {currentChainConfig?.name || 'EVM Network'}
                 </p>
 
                 <div className="bg-tertiary rounded-lg p-3 mb-6 border border-color">
@@ -403,12 +467,12 @@ const StellarToEvmBridge: React.FC = () => {
         <div className="card p-4 relative">
           <div className="flex flex-wrap items-center justify-start gap-4 px-2">
             {supportedDestNetworks.map((net) => {
-              const isSelected = selectedNetwork === net.id;
+              const isSelected = selectedChainId === net.chainId;
               return (
-                <div key={net.id} className="flex flex-col items-center gap-2">
+                <div key={net.chainId} className="flex flex-col items-center gap-2">
                   <button
-                    onClick={() => setNetwork(net.id)}
-                    disabled={txStatus === 'preparing' || txStatus === 'signing'}
+                    onClick={() => handleChainSwitch(net.chainId)}
+                    disabled={txStatus === 'preparing' || txStatus === 'signing' || isChainSwitching}
                     title={`Switch to ${net.name}`}
                     className={`w-14 h-14 rounded-full transition-all duration-300 border flex items-center justify-center ${isSelected
                       ? 'bg-brand/10 border-brand shadow-lg scale-110'
@@ -422,7 +486,7 @@ const StellarToEvmBridge: React.FC = () => {
                     />
                   </button>
                   <span className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}>
-                    {net.id}
+                    {net.symbol}
                   </span>
                 </div>
               );
@@ -495,7 +559,7 @@ const StellarToEvmBridge: React.FC = () => {
 
           {/* You Receive Section */}
           <div className="bg-tertiary rounded-2xl p-4 border border-color">
-            <label className="block text-sm font-bold text-primary mb-3">You Receive on {selectedNetwork}</label>
+            <label className="block text-sm font-bold text-primary mb-3">You Receive on {currentChainConfig?.name || 'EVM'}</label>
 
             <div className="flex items-center gap-3 mb-3">
               <div className="flex items-center gap-2 shrink-0">
@@ -543,7 +607,7 @@ const StellarToEvmBridge: React.FC = () => {
                 <span>{quoteData ? formatTime(quoteData.transferTimeMs) : '...'}</span>
               </div>
               <span className="badge bg-brand/10 text-brand font-bold px-2 py-0.5 text-[10px] rounded-md border border-brand/20">
-                {selectedNetwork === 'BNB' ? 'BNB Chain' : 'Ethereum'}
+                {currentChainConfig?.name || 'EVM NETWORK'}
               </span>
             </div>
           </div>
@@ -711,7 +775,7 @@ const StellarToEvmBridge: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    Bridge to {selectedNetwork}
+                    Bridge to {currentChainConfig?.name || 'EVM'}
                   </>
                 )}
               </button>

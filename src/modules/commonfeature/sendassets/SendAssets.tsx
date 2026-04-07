@@ -1,16 +1,18 @@
-import { AlertCircle, Copy, Info, Loader2 } from 'lucide-react';
+import { AlertCircle, Copy, Info, Loader2, ChevronRight } from 'lucide-react';
 import React, { useCallback, useMemo } from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
 import TransactionSuccess from '../../transction/component/TransactionSuccess';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { useSendAsset } from '../hook/useSendassets';
+import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 
 interface SendCryptoProps {
   onBack?: () => void;
 }
 
 const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
+  const { openAssetSelector } = useAssetSelectorModal();
   const {
     recipientAddress,
     setRecipientAddress,
@@ -18,8 +20,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     setAmount,
     memo,
     setMemo,
-    selectedAssetValue,
-    setSelectedAssetValue,
     balance,
     isFetchingBalance,
     transactionState,
@@ -34,7 +34,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     handleRetryTransaction,
     copyToClipboard,
     formError,
-    assets,
   } = useSendAsset(onBack);
 
   const handleRecipientChange = useCallback(
@@ -56,13 +55,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       setMemo(e.target.value);
     },
     [setMemo]
-  );
-
-  const handleAssetChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      setSelectedAssetValue(e.target.value);
-    },
-    [setSelectedAssetValue]
   );
 
   const handleCopySender = useCallback(() => {
@@ -100,17 +92,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   }, [formError, senderAddress, isEstimatingFees, amount, isFetchingBalance]);
 
   const explorerUrl = useMemo(() => {
-    if (!currentAsset?.chainId || !transactionState.txHash) return '';
-
-    const baseUrls: Record<string, string> = {
-      Ethereum: 'https://etherscan.io',
-      Sepolia: 'https://sepolia.etherscan.io',
-      Polygon: 'https://polygonscan.com',
-      'Polygon Amoy': 'https://amoy.polygonscan.com',
-    };
-
-    const baseUrl = baseUrls[currentAsset.network] || '';
-    return baseUrl ? `${baseUrl}/tx/${transactionState.txHash}` : '';
+    if (!currentAsset?.blockExplorerUrl || !transactionState.txHash) return '';
+    return `${currentAsset.blockExplorerUrl}/tx/${transactionState.txHash}`;
   }, [currentAsset, transactionState.txHash]);
 
   const TransactionReview = useMemo(() => {
@@ -159,7 +142,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             <div>
               <label className="block text-sm font-medium text-secondary mb-2">Amount</label>
               <div className="text-lg font-bold text-primary">
-                {amount} {currentAsset.value}
+                {amount} {currentAsset.symbol}
               </div>
             </div>
 
@@ -217,7 +200,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <div>
                 <span className="text-muted block mb-1">Network Fee</span>
                 <div className="font-semibold text-primary">
-                  {estimatedFees?.totalCost || '0'} {currentAsset.value}
+                  {estimatedFees?.totalCost || '0'} {currentAsset.symbol}
                 </div>
               </div>
             </div>
@@ -228,7 +211,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <span className="text-base font-semibold text-secondary">Total Cost</span>
               <span className="text-xl font-bold text-primary">
                 {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals)}{' '}
-                {currentAsset.value}
+                {currentAsset.symbol}
               </span>
             </div>
           </div>
@@ -336,7 +319,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                     ) : (
                       `${balance.toLocaleString(undefined, {
                         maximumFractionDigits: currentAsset.decimals,
-                      })} ${currentAsset.value}`
+                      })} ${currentAsset.symbol}`
                     )}
                   </div>
                 )}
@@ -352,6 +335,42 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
+        <button 
+          onClick={() => openAssetSelector('SEND')}
+          className="card group hover:border-brand-primary active:scale-[0.98] transition-all text-left w-full p-0 overflow-hidden"
+        >
+          <div className="flex items-center justify-between p-4">
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                {currentAsset?.logo ? (
+                  <img src={currentAsset.logo} alt="" className="w-12 h-12 rounded-full shadow-sm" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-tertiary flex items-center justify-center text-sm font-bold text-secondary border border-color">
+                    {currentAsset?.symbol.slice(0, 2)}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <div className="font-bold text-lg text-primary">{currentAsset?.symbol}</div>
+                  <ChevronRight size={16} className="text-muted group-hover:text-brand-primary group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <div className="text-xs text-muted font-medium">{currentAsset?.network}</div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-muted mb-1 font-medium">Available Balance</div>
+              <div className="font-bold text-primary">
+                {isFetchingBalance ? (
+                   <div className="h-5 w-24 bg-tertiary animate-pulse rounded ml-auto" />
+                ) : (
+                   `${balance.toLocaleString(undefined, { maximumFractionDigits: currentAsset?.decimals ?? 6 })} ${currentAsset?.symbol}`
+                )}
+              </div>
+            </div>
+          </div>
+        </button>
+
         <div className="card">
           <label
             htmlFor="recipientAddress"
@@ -362,12 +381,11 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           <input
             type="text"
             id="recipientAddress"
-            className={`input ${
-              (formError && formError.includes('Recipient address')) ||
+            className={`input ${(formError && formError.includes('Recipient address')) ||
               (formError && formError.includes('Invalid recipient'))
-                ? 'input-danger'
-                : ''
-            }`}
+              ? 'input-danger'
+              : ''
+              }`}
             placeholder={currentAsset?.type === 'stellar' ? 'G...' : '0x...'}
             value={recipientAddress}
             onChange={handleRecipientChange}
@@ -376,68 +394,31 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         </div>
 
         <div className="card">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="amount" className="block text-sm font-semibold text-primary mb-3">
-                Amount
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  id="amount"
-                  className={`input pr-16 ${
-                    formError &&
-                    (formError.includes('balance') || formError.includes('Amount must'))
-                      ? 'input-danger'
-                      : ''
-                  }`}
-                  placeholder="0.0"
-                  value={amount}
-                  onChange={handleAmountChange}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={handleMaxClick}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 btn-ghost btn-sm"
-                >
-                  MAX
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="asset" className="block text-sm font-semibold text-primary mb-3">
-                Asset
-              </label>
-              <div className="relative">
-                <select
-                  id="asset"
-                  className="input appearance-none pr-12"
-                  value={selectedAssetValue}
-                  onChange={handleAssetChange}
-                >
-                  {assets.map(assetOption => (
-                    <option key={assetOption.value} value={assetOption.value}>
-                      {assetOption.label}
-                    </option>
-                  ))}
-                </select>
-                {currentAsset && (
-                  <div className="absolute right-10 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <img
-                      src={currentAsset.logo}
-                      alt={currentAsset.label}
-                      className="w-6 h-6 rounded-full"
-                      onError={e => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
+          <label htmlFor="amount" className="block text-sm font-semibold text-primary mb-3">
+            Amount
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              inputMode="decimal"
+              id="amount"
+              className={`input pr-16 ${formError &&
+                (formError.includes('balance') || formError.includes('Amount must'))
+                ? 'input-danger'
+                : ''
+                }`}
+              placeholder="0.0"
+              value={amount}
+              onChange={handleAmountChange}
+              required
+            />
+            <button
+              type="button"
+              onClick={handleMaxClick}
+              className="absolute right-2 top-1/2 -translate-y-1/2 btn-ghost btn-sm font-bold text-brand"
+            >
+              MAX
+            </button>
           </div>
         </div>
 
@@ -472,7 +453,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   {parseFloat(amount).toLocaleString(undefined, {
                     maximumFractionDigits: currentAsset.decimals > 10 ? 8 : currentAsset.decimals,
                   })}{' '}
-                  {currentAsset.value}
+                  {currentAsset.symbol}
                 </span>
               </div>
 
@@ -488,7 +469,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                           currentAsset.baseFee.toFixed(
                             currentAsset.decimals > 10 ? 8 : currentAsset.decimals
                           )}{' '}
-                        {currentAsset.value}
+                        {currentAsset.symbol}
                       </span>
                       {estimatedFees?.isEstimated && (
                         <span className="block text-xs text-yellow-600">~Estimated</span>
@@ -512,7 +493,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   {totalAmount.toLocaleString(undefined, {
                     maximumFractionDigits: currentAsset.decimals > 10 ? 8 : currentAsset.decimals,
                   })}{' '}
-                  {currentAsset.value}
+                  {currentAsset.symbol}
                 </span>
               </div>
             </div>

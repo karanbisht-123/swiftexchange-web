@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { getStellarConfig } from '../../walletconnect/config/chains';
 import { AmmSwapService } from '../service/ammSwapService';
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
 
@@ -20,7 +21,8 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
   const [slippageTolerance, setSlippageTolerance] = useState(1);
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
 
-  const { currentStellarConfig } = useWalletStore();
+  const network = useWalletStore(state => state.network);
+  const currentStellarConfig = getStellarConfig(network);
 
   useEffect(() => {
     try {

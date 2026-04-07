@@ -61,6 +61,7 @@ const amoy: ChainConfig = {
             logoURI: 'https://coin-images.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
         },
     },
+    swapEnabled: false
 };
 
 export default amoy;

@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-
+import { useSearchParams } from 'react-router-dom';
+import { SendErcAbi } from '../../../abi/SendErcAbi';
+// getNativeBalance 
 import { validateAddress } from '../../../validator/AddressValidator';
-import { estimateEVMFees, getNativeBalance } from '../../evm/service/evmService';
+import { estimateEVMFees } from '../../evm/service/evmService';
 import { addLocalTransaction } from '../../evm/service/localTransactionService';
 import {
   estimateStellarFees,
   getStellarBalance,
   sendCryptoStellarBuild,
+  fetchStellarAccountAssets,
 } from '../../steallr/service/stellarService';
 import type {
   StellarSendTransaction,
@@ -20,9 +23,13 @@ import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type ReceiveAsset,
-  assetFromEVM,
   assetFromStellar,
 } from '../../walletconnect/utils/assetFromChain';
+import { getTokensForChain, fetchSingleTokenBalance } from '../../evm/service/tokenListService';
+import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { ethers } from 'ethers';
+import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
 
 interface TransactionState {
   txHash: string | null;
@@ -35,6 +42,9 @@ interface EnhancedReceiveAsset extends ReceiveAsset {
   networkKey: number | string;
   decimals: number;
   baseFee: number;
+  tokenAddress?: string;
+  isNative?: boolean;
+  blockExplorerUrl?: string;
 }
 
 const isUserRejection = (error: any): boolean => {
@@ -103,26 +113,116 @@ const enhanceAsset = (asset: ReceiveAsset): EnhancedReceiveAsset => {
     ...asset,
     type,
     networkKey,
-    decimals,
+    decimals: (asset as any).decimals !== undefined ? (asset as any).decimals : decimals,
     baseFee,
   };
 };
 
 export const useSendAsset = (onBack?: () => void) => {
-  const { connectedWallets } = useWalletConnect();
+  const { connectedWallets, getProvider } = useWalletConnect();
   const { sendTransaction, canHandleTransaction, getSessionInfo } = useTransactionRouter();
 
   const currentNetwork = useWalletStore(state => state.network);
+  const [stellarWalletAssets, setStellarWalletAssets] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchStellarAssets = async () => {
+      const address = connectedWallets[WalletType.STELLAR]?.address;
+      if (address) {
+        const assets = await fetchStellarAccountAssets(address);
+        setStellarWalletAssets(assets);
+      } else {
+        setStellarWalletAssets([]);
+      }
+    };
+    fetchStellarAssets();
+  }, [connectedWallets[WalletType.STELLAR]?.address]);
 
   const rawAssets: ReceiveAsset[] = useMemo(() => {
-    const evm = getEVMChains(currentNetwork).map(assetFromEVM);
-    const stellar = [assetFromStellar(getStellarConfig(currentNetwork))];
-    return [...evm, ...stellar];
-  }, [currentNetwork]);
+    const evmChains = getEVMChains(currentNetwork);
+    const evmAssets: ReceiveAsset[] = [];
 
-  const assets: EnhancedReceiveAsset[] = useMemo(() => {
+    for (const chain of evmChains) {
+      const tokens = getTokensForChain(chain.chainId);
+      for (const token of tokens) {
+        evmAssets.push({
+          value: token.address ? `${token.symbol}-${chain.chainId}-${token.address}` : `${token.symbol}-${chain.chainId}`,
+          label: `${token.symbol} (${chain.name})`,
+          symbol: token.symbol,
+          logo: token.logoURI || chain.logoUrl || '',
+          network: chain.name,
+          chainId: chain.chainId,
+          addressType: 'evm',
+          walletType: WalletType.EVM,
+          tokenAddress: token.address,
+          decimals: token.decimals,
+          isNative: token.isNative,
+          blockExplorerUrl: chain.blockExplorerUrl,
+        } as any);
+      }
+    }
+
+    const stellarConfigs = getStellarConfig(currentNetwork);
+
+    const stellarAssets: ReceiveAsset[] = [assetFromStellar(stellarConfigs)];
+    stellarAssets[0].value = stellarAssets[0].symbol + '-stellar';
+    (stellarAssets[0] as any).isNative = true; // Ensure XLM is treated as native
+
+    if (stellarWalletAssets.length > 0) {
+      for (const asset of stellarWalletAssets) {
+        if (asset.isNative) continue;
+        stellarAssets.push({
+          value: `${asset.code}-stellar-${asset.issuer}`,
+          label: `${asset.code} (Stellar)`,
+          symbol: asset.code,
+          logo: '',
+          network: 'Stellar',
+          chainId: stellarConfigs.chainId,
+          addressType: 'stellar',
+          walletType: WalletType.STELLAR,
+          tokenAddress: asset.issuer,
+          decimals: 7,
+          isNative: false,
+          blockExplorerUrl: 'https://stellar.expert/explorer/public',
+        } as any);
+      }
+    }
+
+    return [...evmAssets, ...stellarAssets];
+  }, [currentNetwork, stellarWalletAssets, connectedWallets]);
+
+  const allAssets: EnhancedReceiveAsset[] = useMemo(() => {
     return rawAssets.map(enhanceAsset);
   }, [rawAssets]);
+
+  const availableChains = useMemo(() => {
+    const chains: Array<{ id: number | 'stellar' | 'all'; name: string }> = [{ id: 'all', name: 'All Networks' }];
+    const seen = new Set<string | number>();
+
+    rawAssets.forEach(a => {
+      const id = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId;
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        chains.push({
+          id: id as any,
+          name: a.network,
+        });
+      }
+    });
+
+    return chains;
+  }, [rawAssets]);
+
+  const [searchParams] = useSearchParams();
+  const [selectedChainId, setSelectedChainId] = useState<number | 'stellar' | 'all'>('all');
+
+  const assets = useMemo(() => {
+    if (selectedChainId === 'all') return allAssets;
+    return allAssets.filter(a => {
+      const id = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId;
+      return id === selectedChainId;
+    });
+  }, [allAssets, selectedChainId]);
 
   const [recipientAddress, setRecipientAddress] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
@@ -140,16 +240,52 @@ export const useSendAsset = (onBack?: () => void) => {
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
+  // URL driven initialization
   useEffect(() => {
-    if (assets.length && !assets.some(a => a.value === selectedAssetValue)) {
+    if (allAssets.length === 0) return;
+
+    const assetSymbol = searchParams.get('asset');
+    const chainIdParam = searchParams.get('chainId');
+
+    if (assetSymbol && chainIdParam) {
+      const targetChainId = chainIdParam === 'stellar' ? 'stellar' : parseInt(chainIdParam);
+      
+      const match = allAssets.find(a => {
+        const aChainId = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId;
+        return a.symbol === assetSymbol && aChainId === targetChainId;
+      });
+
+      if (match) {
+        setSelectedAssetValue(match.value);
+        setSelectedChainId(targetChainId);
+      }
+    } else if (!selectedAssetValue && assets.length > 0) {
       setSelectedAssetValue(assets[0].value);
     }
-  }, [assets, selectedAssetValue]);
+  }, [allAssets, searchParams, selectedAssetValue, assets]);
+
+  // Automatic Chain Switching
+  useEffect(() => {
+    const assetSymbol = searchParams.get('asset');
+    const chainIdParam = searchParams.get('chainId');
+
+    if (assetSymbol && chainIdParam && chainIdParam !== 'stellar') {
+      const targetChainId = parseInt(chainIdParam);
+      const provider = getProvider(WalletType.EVM);
+      
+      if (provider && !isNaN(targetChainId)) {
+        switchOrAddChain(provider, targetChainId).catch(err => {
+          console.error('Failed to switch chain:', err);
+        });
+      }
+    }
+  }, [searchParams, getProvider]);
 
   const currentAsset = useMemo(
-    () => assets.find(a => a.value === selectedAssetValue),
-    [assets, selectedAssetValue]
+    () => allAssets.find(a => a.value === selectedAssetValue),
+    [allAssets, selectedAssetValue]
   );
+
   const senderAddress = useMemo(() => {
     if (!currentAsset) return null;
     const walletInfo = connectedWallets[currentAsset.walletType];
@@ -176,9 +312,18 @@ export const useSendAsset = (onBack?: () => void) => {
         let balStr: string;
 
         if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
-          balStr = await getNativeBalance(currentAsset.networkKey, senderAddress);
+          const config = getEVMNetworkConfig(currentAsset.networkKey);
+          const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+          balStr = await fetchSingleTokenBalance(
+            senderAddress,
+            provider,
+            currentAsset.tokenAddress || '',
+            currentAsset.isNative || false,
+            currentAsset.decimals
+          );
         } else if (currentAsset.type === 'stellar') {
-          balStr = await getStellarBalance('native', senderAddress);
+          const assetKey = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
+          balStr = await getStellarBalance(assetKey, senderAddress);
         } else {
           balStr = '0';
         }
@@ -220,7 +365,9 @@ export const useSendAsset = (onBack?: () => void) => {
             currentAsset.networkKey,
             senderAddress,
             recipientAddress,
-            amount
+            amount,
+            currentAsset.isNative ? undefined : currentAsset.tokenAddress,
+            currentAsset.decimals
           );
         } else if (currentAsset.type === 'stellar' && typeof currentAsset.networkKey === 'string') {
           fees = await estimateStellarFees();
@@ -336,14 +483,27 @@ export const useSendAsset = (onBack?: () => void) => {
       let transactionRequest: TransactionRequest;
 
       if (currentAsset.type === 'evm') {
+        let data: string | undefined = memo || undefined;
+        let toAddress = recipientAddress;
+        let sendAmount = amount;
+
+        if (!currentAsset.isNative && currentAsset.tokenAddress) {
+          const iface = new ethers.Interface(SendErcAbi);
+          const amountParsed = ethers.parseUnits(amount, currentAsset.decimals);
+          data = iface.encodeFunctionData('transfer', [recipientAddress, amountParsed]);
+          toAddress = currentAsset.tokenAddress;
+          console.log(toAddress, 'toAddress');
+          sendAmount = '0';
+        }
+
         transactionRequest = {
           type: 'evm',
           network: currentAsset.network,
           networkKey: currentAsset.networkKey as number,
           from: senderAddress,
-          to: recipientAddress,
-          amount,
-          data: memo || undefined,
+          to: toAddress,
+          amount: sendAmount,
+          data: data,
         };
       } else if (currentAsset.type === 'stellar') {
         const options: StellarTransactionOptions = {};
@@ -352,7 +512,12 @@ export const useSendAsset = (onBack?: () => void) => {
           senderAddress,
           recipientAddress,
           amount,
-          options
+          options,
+          {
+            code: currentAsset.symbol,
+            issuer: currentAsset.tokenAddress,
+            isNative: currentAsset.isNative
+          }
         );
         const networkPassphrase =
           currentNetwork === 'testnet'
@@ -497,6 +662,9 @@ export const useSendAsset = (onBack?: () => void) => {
     copyToClipboard,
     formError,
     assets,
+    availableChains,
+    selectedChainId,
+    setSelectedChainId,
     onBack,
   };
 };

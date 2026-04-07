@@ -24,9 +24,17 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const checkAccountActivation = async () => {
+  const checkAccountActivation = async (force = false) => {
     if (!stellarWallet?.address) {
       setAccountActive(false);
+      return;
+    }
+
+    const cacheKey = `stellar_active_${stellarWallet.address}_${currentNetwork}`;
+    
+    // Skip API call if already known to be active and not forced
+    if (!force && localStorage.getItem(cacheKey) === 'true') {
+      setAccountActive(true);
       return;
     }
 
@@ -39,6 +47,11 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
     try {
       const account = await horizon.loadAccount(stellarWallet.address);
       const hasPositiveBalance = account.balances.some(b => parseFloat(b.balance) > 0);
+      
+      if (hasPositiveBalance) {
+        localStorage.setItem(cacheKey, 'true');
+      }
+      
       setAccountActive(hasPositiveBalance);
     } catch (err: any) {
       if (err?.response?.status === 404) {
@@ -53,7 +66,7 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
   };
 
   useEffect(() => {
-    checkAccountActivation();
+    checkAccountActivation(false);
   }, [stellarWallet?.address, currentNetwork]);
 
   if (!isStellarConnected) {
@@ -147,7 +160,7 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
           </button>
 
           <button
-            onClick={checkAccountActivation}
+            onClick={() => checkAccountActivation(true)}
             disabled={isLoading}
             className="btn btn-secondary btn-lg aspect-square p-0 flex items-center justify-center min-w-[56px]"
             title="Refresh"

@@ -1,8 +1,8 @@
 import { ethers } from 'ethers';
-
 import { ERC20_ABI } from '../../../abi/Erc20AbI';
 import PancakeTokens from '../../../data/swap/PancakeList.json';
 import UniswapTokens from '../../../data/swap/UniswapList.json';
+import { CHAIN_REGISTRY, getChainById } from '../utils/Chainregistry';
 
 export interface TokenInfo {
   chainId: number;
@@ -15,41 +15,12 @@ export interface TokenInfo {
   isNative?: boolean;
 }
 
-interface ChainNativeConfig {
+export interface ChainNativeConfig {
   symbol: string;
   name: string;
   decimals: number;
   logoURI: string;
 }
-
-const NATIVE_TOKEN_CONFIG: Record<number, ChainNativeConfig> = {
-  1: {
-    symbol: 'ETH',
-    name: 'Ethereum',
-    decimals: 18,
-    logoURI:
-      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png',
-  },
-  56: {
-    symbol: 'BNB',
-    name: 'BNB',
-    decimals: 18,
-    logoURI:
-      'https://tokens.pancakeswap.finance/images/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c.png',
-  },
-  11155111: {
-    symbol: 'ETH',
-    name: 'Sepolia ETH',
-    decimals: 18,
-    logoURI: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
-  },
-  97: {
-    symbol: 'BNB',
-    name: 'Test BNB',
-    decimals: 18,
-    logoURI: 'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
-  },
-};
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ZERO_ADDRESS_UPPER = '0X0000000000000000000000000000000000000000';
@@ -60,18 +31,33 @@ function isNativeAddress(address: string): boolean {
 }
 
 export function getTokensForChain(chainId: number): TokenInfo[] {
-  console.log('getTokensForChain', chainId);
+  const chainConfig = getChainById(chainId);
+  if (!chainConfig) return [];
+
   let rawTokens: any[] = [];
-  if (chainId === 1 || chainId === 11155111) {
+  if (chainConfig.tokenListSource === 'uniswap') {
     rawTokens = UniswapTokens;
-  } else if (chainId === 56 || chainId === 97) {
+  } else if (chainConfig.tokenListSource === 'pancakeswap') {
     rawTokens = PancakeTokens;
   }
 
-  const mappedTokens = rawTokens
+  // Combine with chain-specific assets and filter by chainId
+  const combinedTokens = [...(chainConfig.assets || []), ...rawTokens].filter(
+    t => t.chainId === chainId || !t.chainId
+  );
+
+  const uniqueTokensMap = new Map<string, any>();
+  for (const t of combinedTokens) {
+    const addr = t.address?.toLowerCase();
+    if (addr && !uniqueTokensMap.has(addr)) {
+      uniqueTokensMap.set(addr, t);
+    }
+  }
+
+  const mappedTokens: TokenInfo[] = Array.from(uniqueTokensMap.values())
     .filter(t => !isNativeAddress(t.address))
     .map(t => ({
-      chainId: t.chainId || chainId,
+      chainId: chainId,
       address: t.address,
       name: t.name,
       symbol: t.symbol,
@@ -81,15 +67,14 @@ export function getTokensForChain(chainId: number): TokenInfo[] {
       isNative: false,
     }));
 
-  const nativeConfig = NATIVE_TOKEN_CONFIG[chainId];
-  if (nativeConfig) {
+  if (chainConfig.nativeCurrency) {
     const nativeAsset: TokenInfo = {
       chainId,
       address: ethers.ZeroAddress,
-      name: nativeConfig.name,
-      symbol: nativeConfig.symbol,
-      decimals: nativeConfig.decimals,
-      logoURI: nativeConfig.logoURI,
+      name: chainConfig.nativeCurrency.name,
+      symbol: chainConfig.nativeCurrency.symbol,
+      decimals: chainConfig.nativeCurrency.decimals,
+      logoURI: chainConfig.nativeCurrency.logoURI,
       balance: undefined,
       isNative: true,
     };
@@ -107,15 +92,7 @@ export async function fetchSingleTokenBalance(
   decimals = 18
 ): Promise<string> {
   try {
-    if (isNative) {
-      console.log(
-        'fetchSingleTokenBalance',
-        walletAddress,
-        provider,
-        tokenAddress,
-        isNative,
-        decimals
-      );
+    if (isNative || isNativeAddress(tokenAddress)) {
       const balance = await provider.getBalance(walletAddress);
       return ethers.formatEther(balance);
     }
@@ -130,17 +107,31 @@ export async function fetchSingleTokenBalance(
 }
 
 export function getNativeTokenConfig(chainId: number): ChainNativeConfig | undefined {
-  return NATIVE_TOKEN_CONFIG[chainId];
+  const chainConfig = getChainById(chainId);
+  if (!chainConfig) return undefined;
+  return {
+    symbol: chainConfig.nativeCurrency.symbol,
+    name: chainConfig.nativeCurrency.name,
+    decimals: chainConfig.nativeCurrency.decimals,
+    logoURI: chainConfig.nativeCurrency.logoURI,
+  };
 }
 
 export function isChainSupported(chainId: number): boolean {
-  return chainId in NATIVE_TOKEN_CONFIG;
+  const chain = getChainById(chainId);
+  return !!chain && chain.available;
+}
+
+export function isSwapEnabled(chainId: number): boolean {
+  const chain = getChainById(chainId);
+  return !!chain && chain.available && chain.swapEnabled;
 }
 
 export function getSupportedChainIds(): number[] {
-  return Object.keys(NATIVE_TOKEN_CONFIG).map(Number);
+  return CHAIN_REGISTRY.filter(c => c.available).map(c => c.chainId);
 }
 
-// export function clearTokenListCache(): void {
+export function getSwapEnabledChainIds(): number[] {
+  return CHAIN_REGISTRY.filter(c => c.available && c.swapEnabled).map(c => c.chainId);
+}
 
-// }

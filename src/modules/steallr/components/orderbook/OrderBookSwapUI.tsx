@@ -14,6 +14,8 @@ import { useLargeOrderStore } from '../../store/orderBookSwapStore';
 import StellarTradingChart from '../chart/StellarTradingChart';
 import LastTrades from '../tradescreen/LastTrades';
 import OrderBook from './OrderBook';
+import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+import StellarTransactionModal from '../modals/StellarTransactionModal';
 
 const TOKEN_ICONS: Record<string, string> = {
   XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
@@ -35,6 +37,12 @@ interface Toast {
 const OrderBookSwapUI = () => {
   const [orderStatus, setOrderStatus] = useState<'pending' | 'success' | 'error' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [txModal, setTxModal] = useState<{
+    isOpen: boolean;
+    status: 'success' | 'error';
+    hash?: string;
+    error?: string;
+  }>({ isOpen: false, status: 'success' });
   const [activeTab, setActiveTab] = useState<'overview' | 'orderBook' | 'trades'>('overview');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -120,28 +128,38 @@ const OrderBookSwapUI = () => {
 
       const txHash = await executeOrderWithWalletConnect(tx, provider);
 
-      addTransaction({
-        ...tx,
-        status: 'success',
-        txHash,
+      addLocalTransaction({
+        hash: txHash,
+        chainId: 9000000,
+        type: 'orderbook',
         timestamp: Date.now(),
+        description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
+        status: 'success',
+      });
+
+      setTxModal({
+        isOpen: true,
+        status: 'success',
+        hash: txHash,
       });
 
       setOrderStatus('success');
-      pushToast('Order placed — watching for fill...', 'success');
-
-      // Refresh order book immediately (no setTimeout)
       refreshOrderBook();
 
+      // No reload or forced timeout here; modal handles navigation
       setTimeout(() => {
         setOrderStatus(null);
         reset();
       }, 3000);
-    } catch (err) {
+    } catch (err: any) {
       setOrderStatus('error');
-      const message = err instanceof Error ? err.message : ERROR_MESSAGES.ORDER_FAILED;
+      const message = err?.message || ERROR_MESSAGES.ORDER_FAILED;
       setErrorMessage(message);
-      pushToast(message, 'error');
+      setTxModal({
+        isOpen: true,
+        status: 'error',
+        error: message,
+      });
       console.error('Order failed:', message);
     }
   }, [
@@ -515,6 +533,15 @@ const OrderBookSwapUI = () => {
           </div>
         </div>
       </div>
+
+      <StellarTransactionModal
+        isOpen={txModal.isOpen}
+        onClose={() => setTxModal(prev => ({ ...prev, isOpen: false }))}
+        status={txModal.status}
+        type="Order"
+        hash={txModal.hash}
+        error={txModal.error}
+      />
     </>
   );
 };

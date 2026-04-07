@@ -1,5 +1,5 @@
-import { AlertCircle, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { AlertCircle, RefreshCw, TrendingDown, TrendingUp, Wallet, MoreHorizontal } from 'lucide-react';
+import { memo, useMemo, useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../../constants/routes';
@@ -54,15 +54,77 @@ const calculatePortfolioChange = (assets: Asset[]): number => {
   return weightedChange / totalValue;
 };
 
+const AssetMoreActions = ({ onSend, onReceive }: { onSend: () => void; onReceive: () => void }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        className={`btn btn-secondary btn-sm p-1.5 rounded-md transition-colors ${isOpen ? 'bg-tertiary' : ''}`}
+      >
+        <MoreHorizontal size={18} className="text-primary" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1 w-32 bg-secondary border border-color rounded-xl shadow-premium z-20 flex flex-col py-1 animate-slide-up origin-top-right">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen(false);
+              onReceive();
+            }}
+            className="px-4 py-2 text-left text-sm font-medium hover:bg-hover active:bg-tertiary transition-colors text-primary"
+          >
+            Receive
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen(false);
+              onSend();
+            }}
+            className="px-4 py-2 text-left text-sm font-medium hover:bg-hover active:bg-tertiary transition-colors text-primary"
+          >
+            Send
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AssetRow = memo(
   ({
     asset,
     onTrade,
     onPerp,
+    onSend,
+    onReceive,
   }: {
     asset: Asset;
     onTrade: (asset: Asset) => void;
     onPerp: (asset: Asset) => void;
+    onSend: (asset: Asset) => void;
+    onReceive: (asset: Asset) => void;
   }) => {
     const isPriceLoading = asset.current_price === 0;
     const usdValue = (asset.balance || 0) * (asset.current_price || 0);
@@ -75,7 +137,7 @@ const AssetRow = memo(
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="relative shrink-0">
               <img src={asset.image} className="w-12 h-12 rounded-full " alt={asset.symbol} />
-              <div className="absolute -bottom-1 -right-1 w-5 h-5  rounded-full flex items-center bg-primary justify-center border border-color">
+              <div className="absolute -bottom-1 -right-1 w-5 h-5  rounded-full flex items-center bg-gray-100 justify-center border border-color">
                 {getChainIcon(asset) ? (
                   <img
                     src={getChainIcon(asset)}
@@ -132,26 +194,28 @@ const AssetRow = memo(
               </div>
             </div>
 
-            {(canTrade || canPrep) && (
-              <div className="flex items-center gap-2">
-                {canTrade && (
-                  <button
-                    onClick={() => onTrade(asset)}
-                    className="btn btn-primary btn-sm rounded-md"
-                  >
-                    Spot
-                  </button>
-                )}
-                {canPrep && (
-                  <button
-                    onClick={() => onPerp(asset)}
-                    className="btn btn-primary btn-sm rounded-md"
-                  >
-                    Prep
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {canTrade && (
+                <button
+                  onClick={() => onTrade(asset)}
+                  className="btn btn-primary btn-sm rounded-md"
+                >
+                  Spot
+                </button>
+              )}
+              {canPrep && (
+                <button
+                  onClick={() => onPerp(asset)}
+                  className="btn btn-primary btn-sm rounded-md"
+                >
+                  Prep
+                </button>
+              )}
+              <AssetMoreActions 
+                onSend={() => onSend(asset)} 
+                onReceive={() => onReceive(asset)} 
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -188,6 +252,16 @@ const WalletAssetsSection = () => {
     navigate(ROUTES.BRIDGE, { state: { selectedAsset: asset } });
   };
 
+  const handleSend = (asset: Asset) => {
+    const chainId = asset.chainType === 'stellar' ? 'stellar' : asset.chainId;
+    navigate(`${ROUTES.SEND}?asset=${asset.symbol}&chainId=${chainId}`);
+  };
+
+  const handleReceive = (asset: Asset) => {
+    const chainId = asset.chainType === 'stellar' ? 'stellar' : asset.chainId;
+    navigate(`${ROUTES.RECEIVE}?asset=${asset.symbol}&chainId=${chainId}`);
+  };
+
   const handlePerp = (asset: Asset) => {
     setSelectedAsset(asset);
     setIsDepositModalOpen(true);
@@ -218,8 +292,8 @@ const WalletAssetsSection = () => {
               {!hasLoadingPrices && assets.length > 0 && (
                 <div
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${isPositive
-                      ? 'bg-success-bg bg-green-600 text-white'
-                      : 'bg-danger-bg bg-red-600 text-white'
+                    ? 'bg-success-bg bg-green-600 text-white'
+                    : 'bg-danger-bg bg-red-600 text-white'
                     }`}
                 >
                   {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
@@ -283,7 +357,14 @@ const WalletAssetsSection = () => {
             </div>
           ) : (
             assets.map(asset => (
-              <AssetRow key={asset.id} asset={asset} onTrade={handleTrade} onPerp={handlePerp} />
+              <AssetRow
+                key={asset.id}
+                asset={asset}
+                onTrade={handleTrade}
+                onPerp={handlePerp}
+                onSend={handleSend}
+                onReceive={handleReceive}
+              />
             ))
           )}
         </div>

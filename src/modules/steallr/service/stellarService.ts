@@ -14,15 +14,32 @@ export async function getStellarBalance(assetType: string, from: string): Promis
   const currentNetwork = useWalletStore.getState().network;
   const config = getStellarConfig(currentNetwork);
 
-  console.log(config, 'stellar config');
-  console.log(from, 'hii i am from ');
-
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   try {
     const account = await server.loadAccount(from);
-    console.log(account);
-    const balance = account.balances.find(b => b.asset_type === assetType)?.balance ?? '0';
-    console.log(balance, 'stellar balance');
+    let balance = '0';
+    if (assetType === 'native') {
+        const nativeBalanceObj = account.balances.find(b => b.asset_type === 'native');
+        if (nativeBalanceObj) {
+            const nativeBalance = parseFloat(nativeBalanceObj.balance);
+            const baseReserve = 0.5; // XLM
+            const subentryCount = account.subentry_count;
+            const totalReserve = (2 + subentryCount) * baseReserve;
+            const liabilities = parseFloat((nativeBalanceObj as any).selling_liabilities || '0');
+            
+            const available = Math.max(0, nativeBalance - totalReserve - liabilities);
+            balance = available.toString();
+        } else {
+            balance = '0';
+        }
+    } else {
+        // For non-native, look for code and issuer match
+        // assetType should be code:issuer
+        const [code, issuer] = assetType.split(':');
+        balance = account.balances.find(b => 
+            (b as any).asset_code === code && (b as any).asset_issuer === issuer
+        )?.balance ?? '0';
+    }
     return balance;
   } catch (error) {
     console.error('Failed to fetch Stellar balance:', error);
@@ -30,11 +47,43 @@ export async function getStellarBalance(assetType: string, from: string): Promis
   }
 }
 
+export async function fetchStellarAccountAssets(address: string): Promise<any[]> {
+    const currentNetwork = useWalletStore.getState().network;
+    const config = getStellarConfig(currentNetwork);
+    const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+
+    try {
+        const account = await server.loadAccount(address);
+        return account.balances.map(b => {
+            if (b.asset_type === 'native') {
+                return {
+                    code: 'XLM',
+                    issuer: '',
+                    balance: b.balance,
+                    isNative: true,
+                    type: 'native'
+                };
+            }
+            return {
+                code: (b as any).asset_code,
+                issuer: (b as any).asset_issuer,
+                balance: b.balance,
+                isNative: false,
+                type: b.asset_type
+            };
+        });
+    } catch (error) {
+        console.error('Failed to fetch Stellar assets:', error);
+        return [];
+    }
+}
+
 export async function sendCryptoStellarBuild(
   from: string,
   to: string,
   amount: string,
-  options: StellarTransactionOptions = {}
+  options: StellarTransactionOptions = {},
+  asset: { code: string; issuer?: string; isNative?: boolean } = { code: 'XLM', isNative: true }
 ): Promise<StellarSendTransaction> {
   const currentNetwork = useWalletStore.getState().network;
   const config = getStellarConfig(currentNetwork);
@@ -67,10 +116,17 @@ export async function sendCryptoStellarBuild(
     networkPassphrase,
   });
 
+  let stellarAsset: StellarSDK.Asset;
+  if (asset.isNative || asset.code === 'XLM') {
+    stellarAsset = StellarSDK.Asset.native();
+  } else {
+    stellarAsset = new StellarSDK.Asset(asset.code, asset.issuer!);
+  }
+
   txBuilder.addOperation(
     StellarSDK.Operation.payment({
       destination: to,
-      asset: StellarSDK.Asset.native(),
+      asset: stellarAsset,
       amount: stellarAmount,
     })
   );
@@ -90,7 +146,7 @@ export async function sendCryptoStellarBuild(
     from,
     to,
     amount: stellarAmount,
-    asset: 'XLM',
+    asset: asset.code,
     network: config.network,
     chainId: `stellar:${config.chainId}`,
     sequence: sourceAccount.sequenceNumber(),
@@ -98,7 +154,7 @@ export async function sendCryptoStellarBuild(
       {
         type: 'payment',
         destination: to,
-        asset: 'native',
+        asset: asset.isNative ? 'native' : asset.code,
         amount: stellarAmount,
       },
     ],

@@ -1,11 +1,12 @@
 import { useCallback } from 'react';
-import { Copy, Share2 } from 'lucide-react';
+import { Copy, Share2, ChevronRight } from 'lucide-react';
 import QRCode from 'qrcode';
 
 import PageLayout from '../../../components/layout/PageLayout';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useReceiveAssets } from '../hook/useReceiveassets';
+import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 
 interface QRCardProps {
   walletAddress: string;
@@ -40,7 +41,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
         {
           width: size,
           margin: 2,
-          errorCorrectionLevel: 'H', // High correction needed because logo covers center
+          errorCorrectionLevel: 'H',
           color: { dark: '#000000', light: '#ffffff' },
         },
         err => { if (err) console.error('QR error:', err); }
@@ -87,7 +88,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
 
       <div className="w-full">
         <p className="text-xs font-semibold text-text-secondary text-center mb-2">
-          Your {currentAsset?.value} Address
+          Your {currentAsset?.value.split('-')[0]} Address
         </p>
         <div
           className={[
@@ -133,9 +134,6 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
 
 const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
   const {
-    assets,
-    selectedAssetValue,
-    setSelectedAssetValue,
     currentAsset,
     walletAddress,
     isAddressValid,
@@ -147,6 +145,7 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
   } = useReceiveAssets();
 
   const { openModal } = useWalletConnect();
+  const { openAssetSelector } = useAssetSelectorModal();
 
   const qrCardProps = { walletAddress, isAddressValid, currentAsset, handleCopy, handleShare };
 
@@ -181,46 +180,40 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
 
         {isConnected && (
           <>
-            <div className="card p-4">
-              <label htmlFor="asset" className="block text-sm font-semibold text-text-primary mb-2">
-                Select Cryptocurrency
-              </label>
-              <div className="relative">
-                <select
-                  id="asset"
-                  className="input input-primary w-full rounded-lg text-base cursor-pointer appearance-none pr-12"
-                  value={selectedAssetValue}
-                  onChange={e => setSelectedAssetValue(e.target.value)}
-                >
-                  {assets.map(assetOption => (
-                    <option key={assetOption.value} value={assetOption.value}>
-                      {assetOption.label}
-                    </option>
-                  ))}
-                </select>
-                {currentAsset && (
-                  <div className="absolute right-12 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <img
-                      src={currentAsset.logo}
-                      alt={`${currentAsset.label} logo`}
-                      className="h-8 w-8 rounded-full"
-                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    />
+            <button
+              onClick={() => openAssetSelector('RECEIVE')}
+              className="card bg-secondary/50 group hover:border-brand-primary active:scale-[0.98] transition-all text-left w-full p-0 overflow-hidden"
+            >
+              <div className="flex items-center justify-between p-4">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    {currentAsset?.logo ? (
+                      <img src={currentAsset.logo} alt="" className="w-12 h-12 rounded-full shadow-sm" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-tertiary flex items-center justify-center text-sm font-bold text-secondary border border-color">
+                        {currentAsset?.label?.slice(0, 2)}
+                      </div>
+                    )}
                   </div>
-                )}
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-muted">
-                  <svg className="fill-current h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                    <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-                  </svg>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="font-bold text-lg text-primary">{currentAsset?.label}</div>
+                      <ChevronRight size={16} className="text-muted group-hover:text-brand-primary group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                    <div className="text-xs text-muted font-medium">{currentAsset?.network}</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted mb-0.5">Receiving</div>
                 </div>
               </div>
-            </div>
+            </button>
 
             {!isWalletTypeConnected && (
               <div className="card card-bordered bg-warning-light border-warning p-4 text-sm text-warning-dark animate-fade-in">
-                <p className="font-semibold">Wallet Type Not Connected</p>
-                <p className="mb-3">
-                  Please connect a {currentAsset?.network} wallet to receive {currentAsset?.value}.
+                <p className="font-semibold text-warning">Wallet Type Not Connected</p>
+                <p className="mb-3 text-secondary">
+                  Please connect a {currentAsset?.network} wallet to receive {currentAsset?.label}.
                 </p>
                 <button
                   onClick={openModal}
@@ -233,8 +226,8 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
 
             {isWalletTypeConnected && walletAddress && !isAddressValid && (
               <div className="card card-bordered bg-danger-light border-danger p-4 text-sm text-danger-dark animate-fade-in">
-                <p className="font-semibold">Invalid Address</p>
-                <p>
+                <p className="font-semibold text-danger">Invalid Address</p>
+                <p className="text-secondary">
                   No valid {currentAsset?.network} address found. Please ensure the wallet supports{' '}
                   {currentAsset?.network}.
                 </p>

@@ -1,6 +1,6 @@
 
 
-export type NetworkKey = 'ethereum' | 'bsc' | 'polygon' | 'sepolia' | 'bscTestnet' | 'amoy';
+export type NetworkKey = 'ethereum' | 'bsc' | 'arbitrum' | 'polygon' | 'optimism' | 'avalanche' | 'base' | 'sepolia' | 'bscTestnet' | 'amoy';
 
 export type NetworkType = 'mainnet' | 'testnet';
 
@@ -51,6 +51,7 @@ export interface ChainConfig {
     name: string;
     networkType: NetworkType;
     available: boolean;
+    swapEnabled: boolean;
     slug: string;
     rpcUrl: string;
     fallbackRpcUrls?: string[];
@@ -93,6 +94,10 @@ export function getChainBySlug(slug: string, networkType: NetworkType): ChainCon
 
 export function getChainsForNetwork(networkType: NetworkType): ChainConfig[] {
     return CHAIN_REGISTRY.filter((c) => c.networkType === networkType && c.available);
+}
+
+export function getSwapEnabledChains(networkType: NetworkType): ChainConfig[] {
+    return CHAIN_REGISTRY.filter((c) => c.networkType === networkType && c.available && c.swapEnabled);
 }
 
 export const MAINNET_CHAINS = getChainsForNetwork('mainnet');

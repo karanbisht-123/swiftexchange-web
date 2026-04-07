@@ -22,6 +22,7 @@ interface SwapTransactionRequest {
   slippageTolerance: number;
 }
 
+
 export interface SwapTransactionData {
   to: string;
   from: string;
@@ -80,15 +81,12 @@ function buildQuotePayload(request: SwapQuoteRequest, chainId: number) {
 }
 
 export async function getSwapQuote(chainId: number, request: SwapQuoteRequest): Promise<SwapQuote> {
-  console.log('[SwapService] Fetching quote, network:', isMainnet() ? 'mainnet' : 'testnet');
-
   const endpoint = getSwapEndpoint(chainId, 'quote');
   const payload = buildQuotePayload(request, chainId);
 
-  console.log('[SwapService] Endpoint:', endpoint);
-  console.log('[SwapService] Payload:', JSON.stringify(payload, null, 2));
-
   const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
+
+  if (!res.data) throw new Error('No quote data received');
 
   return {
     inputAmount: res.data.inputAmount || request.amount,
@@ -107,8 +105,6 @@ export async function getSwapQuote(chainId: number, request: SwapQuoteRequest): 
 export async function prepareSwapTransaction(
   request: SwapTransactionRequest
 ): Promise<SwapTransactionData[]> {
-  console.log('[SwapService] Prepare swap tx, network:', isMainnet() ? 'mainnet' : 'testnet');
-
   const endpoint = getSwapEndpoint(request.chainId, 'prepare');
 
   let payload: any;
@@ -134,15 +130,12 @@ export async function prepareSwapTransaction(
     payload = request;
   }
 
-  console.log('[SwapService] Prepare payload:', JSON.stringify(payload, null, 2));
-
   const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
 
-  const transactions: SwapTransactionData[] = Array.isArray(res.data) ? res.data : [res.data];
+  if (!res.data) throw new Error('No transaction data received');
 
-  console.log('[SwapService] Prepared transactions:', transactions.length);
 
-  return transactions;
+  return Array.isArray(res.data) ? res.data : [res.data];
 }
 
 export async function getBridgeQuote(
@@ -220,9 +213,6 @@ export async function prepareBridgeTransaction(
     walletType: request.walletType,
     feePayType: request.feePayType,
   };
-
-  console.log('[BridgeService] Endpoint:', endpoint);
-  console.log('[BridgeService] Prepare payload:', JSON.stringify(payload, null, 2));
 
   const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
 

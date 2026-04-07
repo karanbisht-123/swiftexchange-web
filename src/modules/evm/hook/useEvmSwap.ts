@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ethers } from 'ethers';
 
@@ -11,6 +11,7 @@ import {
   getTokensForChain,
 } from '../service/tokenListService';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
+import { parseSwapError } from '../utils/swapErrorHandler';
 
 interface UseEvmSwapProps {
   chainId: number;
@@ -63,22 +64,20 @@ export const useEvmSwap = ({
 
   const activeSwapId = useRef<string | null>(null);
   const quoteAbortController = useRef<AbortController | null>(null);
-
-  const updateState = useCallback((updates: Partial<UseEvmSwapState>) => {
-    setState(prev => ({ ...prev, ...updates }));
+  const latestQuoteRequestId = useRef<number>(0);
+  const isMounted = useRef<boolean>(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      quoteAbortController.current?.abort();
+    };
   }, []);
 
-  const validateSenderAddress = useCallback((): boolean => {
-    if (!senderAddress) {
-      updateState({ error: 'No wallet address provided' });
-      return false;
-    }
-    if (!ethers.isAddress(senderAddress)) {
-      updateState({ error: 'Invalid wallet address format' });
-      return false;
-    }
-    return true;
-  }, [senderAddress, updateState]);
+  const updateState = useCallback((updates: Partial<UseEvmSwapState>) => {
+    if (!isMounted.current) return;
+    setState(prev => ({ ...prev, ...updates }));
+  }, []);
 
   const fetchTokenList = useCallback(() => {
     if (!chainId) return;
@@ -87,6 +86,14 @@ export const useEvmSwap = ({
 
     try {
       const tokens = getTokensForChain(chainId);
+      if (!tokens.length) {
+        updateState({
+          error: 'No tokens available for this network',
+          assets: [],
+          isFetchingAssets: false,
+        });
+        return;
+      }
       updateState({ assets: tokens, isFetchingAssets: false });
     } catch (err) {
       console.error('Failed to load token list:', err);
@@ -102,41 +109,57 @@ export const useEvmSwap = ({
     async (sellToken?: TokenInfo, buyToken?: TokenInfo) => {
       if (!senderAddress || !chainId) return;
 
-      const provider = getProvider(WalletType.EVM);
+      let provider: any;
+      try {
+        provider = getProvider(WalletType.EVM);
+      } catch {
+        return;
+      }
       if (!provider) return;
 
-      const ethersProvider = new ethers.BrowserProvider(provider);
+      try {
+        const ethersProvider = new ethers.BrowserProvider(provider);
+        const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
 
-      const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
-      if (tokensToFetch.length === 0) return;
-      const updates = await Promise.all(
-        tokensToFetch.map(async token => {
-          const bal = await fetchSingleTokenBalance(
-            senderAddress,
-            ethersProvider,
-            token.address,
-            !!token.isNative,
-            token.decimals
-          );
-          return { address: token.address, balance: bal };
-        })
-      );
-      setState(prev => {
-        const newAssets = [...prev.assets];
-        let hasChanges = false;
+        if (tokensToFetch.length === 0) return;
 
-        updates.forEach(({ address, balance }) => {
-          const index = newAssets.findIndex(a => a.address === address);
-          if (index !== -1 && newAssets[index].balance !== balance) {
-            newAssets[index] = { ...newAssets[index], balance };
-            hasChanges = true;
-          }
+        const updates = await Promise.all(
+          tokensToFetch.map(async token => {
+            const bal = await fetchSingleTokenBalance(
+              senderAddress,
+              ethersProvider,
+              token.address,
+              !!token.isNative,
+              token.decimals
+            );
+            return { address: token.address, balance: bal };
+          })
+        );
+
+        if (!isMounted.current) return;
+
+        setState(prev => {
+          const newAssets = [...prev.assets];
+          let hasChanges = false;
+
+          updates.forEach(({ address, balance }) => {
+            const index = newAssets.findIndex(a => a.address === address);
+            if (index !== -1 && newAssets[index].balance !== balance) {
+              newAssets[index] = { ...newAssets[index], balance };
+              hasChanges = true;
+            }
+          });
+
+          return hasChanges ? { ...prev, assets: newAssets } : prev;
         });
-
-        return hasChanges ? { ...prev, assets: newAssets } : prev;
-      });
+      } catch (err) {
+        console.error('Balance update failed:', err);
+        if (isMounted.current) {
+          updateState({ error: 'Failed to refresh balances. Please try again.' });
+        }
+      }
     },
-    [chainId, senderAddress, getProvider]
+    [chainId, senderAddress, getProvider, updateState]
   );
 
   const fetchQuote = useCallback(
@@ -145,11 +168,11 @@ export const useEvmSwap = ({
       sellAsset: TokenInfo,
       buyAsset: TokenInfo
     ): Promise<SwapQuote> => {
-      if (quoteAbortController.current) {
-        quoteAbortController.current.abort();
-      }
-
+      quoteAbortController.current?.abort();
       quoteAbortController.current = new AbortController();
+
+      const requestId = ++latestQuoteRequestId.current;
+
       updateState({ quoteLoading: true, error: null, quote: null });
 
       try {
@@ -159,11 +182,14 @@ export const useEvmSwap = ({
         if (!sellAsset || !buyAsset) {
           throw new Error('Invalid assets selected');
         }
-        if (sellAsset.address === buyAsset.address) {
+        if (sellAsset.address.toLowerCase() === buyAsset.address.toLowerCase()) {
           throw new Error('Cannot swap same token');
         }
 
         const quoteResponse = await fetchEvmQuote(chainId, request, sellAsset, buyAsset);
+        if (requestId !== latestQuoteRequestId.current) {
+          return Promise.reject(new Error('Quote request superseded'));
+        }
 
         if (!quoteAbortController.current.signal.aborted) {
           updateState({ quote: quoteResponse, quoteLoading: false });
@@ -174,7 +200,11 @@ export const useEvmSwap = ({
           return Promise.reject(new Error('Quote request cancelled'));
         }
 
-        const errorMsg = err instanceof Error ? err.message : 'Failed to fetch quote';
+        if (err.message === 'Quote request superseded') {
+          return Promise.reject(err);
+        }
+
+        const errorMsg = parseSwapError(err);
         updateState({ error: errorMsg, quoteLoading: false, quote: null });
         throw new Error(errorMsg);
       }
@@ -190,16 +220,13 @@ export const useEvmSwap = ({
       sellAmount: string,
       slippageTolerance: number
     ): Promise<string> => {
-      if (!validateSenderAddress()) {
-        throw new Error('Invalid sender address');
-      }
-
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
       updateState({ loading: true, error: null, txHash: null });
 
       try {
         if (!quote) throw new Error('No quote available');
+        if (!senderAddress) throw new Error('No wallet connected');
 
         const hash = await executeSwap(
           chainId,
@@ -212,53 +239,45 @@ export const useEvmSwap = ({
           getProvider
         );
 
-        // Record in history regardless of whether the UI was cancelled
         addLocalTransaction({
           hash,
           chainId,
           type: 'swap',
           timestamp: Date.now(),
-          description: `Swap ${sellAsset.symbol} → ${buyAsset.symbol}`,
+          description: `Swap ${sellAsset.symbol} \u2192 ${buyAsset.symbol}`,
           status: 'pending',
         });
 
-        // Only update UI if this is still the active swap
         if (activeSwapId.current === swapId) {
+
+          activeSwapId.current = null;
           updateState({ txHash: hash, loading: false });
         }
-
         setTimeout(() => {
-          updateTokenBalances(sellAsset, buyAsset);
+          if (isMounted.current) {
+            updateTokenBalances(sellAsset, buyAsset);
+          }
         }, 8000);
 
         return hash;
       } catch (err: any) {
-        const errorMsg = err instanceof Error ? err.message : 'Failed to perform swap';
-        
-        // If it failed but wasn't explicitly cancelled by user, update UI error
+        const errorMsg = parseSwapError(err);
+
         if (activeSwapId.current === swapId) {
-          addLocalTransaction({
-            hash: `failed-${Date.now()}`,
-            chainId,
-            type: 'swap',
-            timestamp: Date.now(),
-            description: `Swap ${sellAsset.symbol} → ${buyAsset.symbol}`,
-            status: 'failed',
-          });
+          activeSwapId.current = null;
           updateState({ error: errorMsg, loading: false, txHash: null });
         }
-        
+
         throw new Error(errorMsg);
       }
     },
-    [chainId, senderAddress, getProvider, updateTokenBalances, validateSenderAddress, updateState]
+    [chainId, senderAddress, getProvider, updateTokenBalances, updateState]
   );
 
   const reset = useCallback(() => {
     activeSwapId.current = null;
-    if (quoteAbortController.current) {
-      quoteAbortController.current.abort();
-    }
+    latestQuoteRequestId.current++;
+    quoteAbortController.current?.abort();
     updateState({
       quote: null,
       txHash: null,

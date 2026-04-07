@@ -3,6 +3,7 @@ import type { Horizon } from '@stellar/stellar-sdk';
 
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { signAndSubmitTransaction } from '../utils/transactionService';
 import type { ActiveOffer, CompletedTrade } from '../types/tradeTransaction.types';
 
 export class TradeTransactionService {
@@ -294,50 +295,21 @@ export class TradeTransactionService {
     walletProvider: any,
     operationType: string
   ): Promise<string> {
-    try {
-      if (!transaction.xdr) {
-        throw new Error('Stellar transaction requires XDR data');
-      }
+    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+    const network = isMainnet ? 'mainnet' : 'testnet';
 
-      const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-      const network = isMainnet ? 'MAINNET' : 'TESTNET';
+    const result = await signAndSubmitTransaction({
+      xdr: transaction.xdr,
+      network,
+      networkPassphrase: this.networkPassphrase,
+      provider: walletProvider,
+    });
 
-      const signParams = {
-        xdr: transaction.xdr,
-        networkPassphrase: this.networkPassphrase,
-        network,
-      };
-
-      console.log(`[${operationType}] Executing Stellar transaction via WalletConnect...`);
-
-      const result = await walletProvider.request({
-        method: 'stellar_signAndSubmitXDR',
-        params: signParams,
-      });
-
-      if (result.status === 'success') {
-        console.log(`[${operationType}] Transaction successful!`);
-        return result.hash || result.transactionHash || 'stellar_submitted';
-      }
-
-      throw new Error(`${operationType} failed - invalid status`);
-    } catch (error: any) {
-      console.error(`[${operationType}] Execution failed:`, {
-        message: error.message,
-        code: error.code,
-      });
-
-      if (error?.response?.data?.extras?.result_codes) {
-        const codes = error.response.data.extras.result_codes;
-        throw new Error(
-          `${operationType} failed: ${codes.transaction} - ${codes.operations?.join(', ')}`
-        );
-      }
-
-      throw new Error(
-        `${operationType} execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    if (result.success && result.hash) {
+      return result.hash;
     }
+
+    throw new Error(`${operationType} failed: ${result.error || 'Unknown error'}`);
   }
 
   async executeCancelOfferWithWalletConnect(

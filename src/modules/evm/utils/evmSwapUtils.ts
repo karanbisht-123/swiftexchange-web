@@ -16,12 +16,70 @@ export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): Sw
   const isBuyNative = buyAsset.isNative;
   const isSellUsdc = sellAsset.symbol.toUpperCase() === 'USDC';
   const isBuyUsdc = buyAsset.symbol.toUpperCase() === 'USDC';
-
   if (isSellNative && isBuyUsdc) return 'EthToUsdc';
   if (isSellUsdc && isBuyNative) return 'UsdcToWeth';
-  if (isSellNative && !isBuyUsdc) return 'EthToToken';
-  if (!isSellNative && isBuyNative) return 'TokenToEth';
   return 'TokenToToken';
+}
+
+/**
+ * Safely parse a value field from the API into a BigInt.
+ *
+ * Some APIs return:
+ *   - undefined / null         → treat as 0
+ *   - "0" (decimal string)     → BigInt(0)
+ *   - "0x0" (hex string)       → BigInt works directly
+ *   - "1000000000000000" (wei) → BigInt works directly
+ *
+ * Without this guard, `BigInt(undefined)` throws a TypeError at runtime.
+ */
+function safeValue(raw: string | undefined | null): bigint {
+  if (raw === undefined || raw === null || raw === '') return 0n;
+  try {
+    return BigInt(raw);
+  } catch {
+    return 0n;
+  }
+}
+
+/**
+ * Build a gasLimit BigInt from a transaction object returned by the API.
+ *
+ * Priority:
+ *   1. tx.gasLimit  — ethers v6 field name
+ *   2. tx.gas       — JSON-RPC / legacy field name (many DEX aggregators use this)
+ *   3. undefined    — caller will fall back to on-chain estimation
+ *
+ * We return undefined (not 0n) when neither field is present so the caller
+ * knows to estimate gas rather than pass an invalid 0 gasLimit.
+ */
+function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefined {
+  const raw = tx.gasLimit ?? tx.gas;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  try {
+    const parsed = BigInt(raw);
+    // A gasLimit of 0 is invalid — treat as absent so we fall back to estimation
+    return parsed > 0n ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Estimate gas for a transaction, adding a 20 % buffer.
+ * Returns undefined if estimation fails so the caller can decide what to do.
+ */
+async function estimateGasWithBuffer(
+  provider: ethers.BrowserProvider,
+  txParams: ethers.TransactionRequest
+): Promise<bigint | undefined> {
+  try {
+    const estimated = await provider.estimateGas(txParams);
+    // Add 20 % buffer to avoid out-of-gas on complex swaps
+    return (estimated * 120n) / 100n;
+  } catch (err) {
+    console.warn('[executeSwap] Gas estimation failed, will let wallet decide:', err);
+    return undefined;
+  }
 }
 
 export async function fetchEvmQuote(
@@ -116,44 +174,60 @@ export async function executeSwap(
       throw new Error('No transactions received from API');
     }
 
+    const ethersProvider = new ethers.BrowserProvider(provider);
+    const signer = await ethersProvider.getSigner();
+
     let lastTxHash = '';
 
     if (isMainnet()) {
-      const ethersProvider = new ethers.BrowserProvider(provider);
-      const signer = await ethersProvider.getSigner();
-
       for (const tx of transactions) {
-        const txParams: Record<string, any> = {
+        const gasLimitFromApi = safeGasLimit(tx);
+
+        const txParams: ethers.TransactionRequest = {
           from: tx.from || senderAddress,
           to: tx.to,
           data: tx.data,
-          value: tx.value ? BigInt(tx.value) : 0n,
+          value: safeValue(tx.value),
         };
+        if (gasLimitFromApi !== undefined) {
+          txParams.gasLimit = gasLimitFromApi;
+        } else {
+          const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
+          if (estimated !== undefined) {
+            txParams.gasLimit = estimated;
+          }
 
-        if (tx.gasLimit || tx.gas) {
-          txParams.gasLimit = BigInt((tx.gasLimit || tx.gas) as string);
         }
+
         if (tx.maxFeePerGas) {
-          txParams.maxFeePerGas = BigInt(tx.maxFeePerGas as string);
+          txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
         }
         if (tx.maxPriorityFeePerGas) {
-          txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas as string);
+          txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
         }
+
+        console.log('[executeSwap] Sending transaction:', {
+          to: txParams.to,
+          value: txParams.value?.toString(),
+          gasLimit: txParams.gasLimit?.toString(),
+          maxFeePerGas: txParams.maxFeePerGas?.toString(),
+          maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
+        });
 
         const txResponse = await signer.sendTransaction(txParams);
         const receipt = await txResponse.wait();
 
         if (!receipt || receipt.status === 0) {
-          throw new Error('Transaction failed');
+          throw new Error('Transaction reverted on-chain');
         }
 
         lastTxHash = txResponse.hash;
       }
     } else {
-      const ethersProvider = new ethers.BrowserProvider(provider);
-      const signer = await ethersProvider.getSigner();
+      // ── Testnet / fallback path ─────────────────────────────────────────────
       const txData = transactions[0];
 
+      // Handle ERC-20 approval if required
       if (!selectedSellAsset.isNative && (txData as any).requiresApproval) {
         const erc20Abi = [
           'function approve(address spender, uint256 amount) public returns (bool)',
@@ -172,18 +246,37 @@ export async function executeSwap(
         }
       }
 
-      const tx = {
+      // FIX (GAS): Same fix applied to the testnet/fallback path
+      const gasLimitFromApi = safeGasLimit(txData as any);
+
+      const tx: ethers.TransactionRequest = {
+        from: senderAddress,
         to: txData.to,
         data: txData.data,
-        value: txData.value ? BigInt(txData.value) : 0n,
-        from: senderAddress,
+        // FIX (VALUE): guard against undefined/null value
+        value: safeValue(txData.value),
       };
+
+      if (gasLimitFromApi !== undefined) {
+        tx.gasLimit = gasLimitFromApi;
+      } else {
+        const estimated = await estimateGasWithBuffer(ethersProvider, tx);
+        if (estimated !== undefined) {
+          tx.gasLimit = estimated;
+        }
+      }
+
+      console.log('[executeSwap] Sending fallback transaction:', {
+        to: tx.to,
+        value: tx.value?.toString(),
+        gasLimit: tx.gasLimit?.toString(),
+      });
 
       const txResponse = await signer.sendTransaction(tx);
       const receipt = await txResponse.wait();
 
       if (!receipt || receipt.status === 0) {
-        throw new Error('Transaction failed');
+        throw new Error('Transaction reverted on-chain');
       }
 
       lastTxHash = txResponse.hash;
@@ -191,7 +284,7 @@ export async function executeSwap(
 
     return lastTxHash;
   } catch (error: any) {
-    console.log(error, 'eror comeing form SwapUtils', error);
+    console.error('[executeSwap] Error:', error);
     const message = parseSwapError(error);
     throw new Error(message);
   }

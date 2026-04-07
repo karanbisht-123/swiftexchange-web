@@ -2,13 +2,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import {
-  type CosmosChainConfig,
-  type EVMChainConfig,
   type NetworkType,
-  type StellarChainConfig,
-  getCosmosChains,
-  getEVMChains,
-  getStellarConfig,
 } from '../config/chains';
 import { walletService } from '../services/walletService';
 import { usePortfolioStore } from '../store/portfolioStore';
@@ -42,9 +36,6 @@ export interface WalletState {
   connectionStatus: Partial<Record<WalletType, WalletConnectionStatus>>;
   isModalOpen: boolean;
   network: NetworkType;
-  availableEVMChains: EVMChainConfig[];
-  availableCosmosChains: CosmosChainConfig[];
-  currentStellarConfig: StellarChainConfig;
   isRestoringSession: boolean;
   sessionLastPingAt: Partial<Record<WalletType, number>>;
 }
@@ -82,9 +73,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     connectionStatus: {},
     isModalOpen: false,
     network: initialNetwork,
-    availableEVMChains: getEVMChains(initialNetwork),
-    availableCosmosChains: getCosmosChains(initialNetwork),
-    currentStellarConfig: getStellarConfig(initialNetwork),
     isRestoringSession: false,
     sessionLastPingAt: {},
 
@@ -311,9 +299,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         network,
         connectedWallets: {},
         connectionStatus: {},
-        availableEVMChains: getEVMChains(network),
-        availableCosmosChains: getCosmosChains(network),
-        currentStellarConfig: getStellarConfig(network),
       });
     },
 

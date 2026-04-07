@@ -828,7 +828,8 @@ class WalletService {
     savedSession: WalletSession,
     hasDydxBlob: boolean
   ): Promise<WalletSession | null> {
-    const isWalletConnect = savedSession.walletId === 'walletconnect';
+    // const isWalletConnect = savedSession.walletId === 'walletconnect';
+    const isWalletConnect = savedSession.connectionMode === 'unified' || savedSession.connectionMode === 'separate';
 
     if (!isWalletConnect) {
       return this.restoreExtensionSession(type, savedSession, hasDydxBlob);
@@ -1044,7 +1045,14 @@ class WalletService {
 
   private clearSessionStorage(): void {
     try {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
+      const network = localStorage.getItem('network');
+      const theme = localStorage.getItem('theme-storage');
+
+      localStorage.clear();
+
+      if (network) localStorage.setItem('network', network);
+      if (theme) localStorage.setItem('theme-storage', theme);
+
       purge();
     } catch (error) {
       console.warn('[WalletService] Session storage clear failed:', error);
