@@ -153,7 +153,7 @@ const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED',
 const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
 
 // how long a filled/cancelled market order stays visible in the UI
-const MARKET_ORDER_GRACE_MS = 2_500;
+const MARKET_ORDER_GRACE_MS = 1_500;
 
 // delayed unsubscribe prevents churn on fast mount/unmount cycles
 const UNSUB_DELAY_MS = 3_000;
@@ -215,7 +215,7 @@ function recomputeChildEquity(child: ChildSubaccount): void {
   child.equity = equity.toFixed(6);
 }
 
-// ─── State interface ──────────────────────────────────────────────────────────
+// State interface 
 
 interface WebSocketState {
   isConnected: boolean;
@@ -257,8 +257,6 @@ interface WebSocketState {
   updateCandles: (key: string, data: Partial<CandleData>) => void;
   cleanup: () => void;
 }
-
-// ─── Subscription helpers ─────────────────────────────────────────────────────
 
 /**
  * Opens a new WS channel (or reuses an existing one) and increments ref count.
@@ -355,7 +353,7 @@ const handleUnsubscribe = (
   });
 };
 
-// ─── Order helpers ────────────────────────────────────────────────────────────
+// Order helpers 
 
 /**
  * Merges incoming raw orders into the existing map.

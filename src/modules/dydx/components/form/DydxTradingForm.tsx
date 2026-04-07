@@ -466,14 +466,14 @@ export const DydxTradingForm: React.FC = () => {
         return;
       }
 
-      if (isolatedEquity < requiredMarginWithBuffer) {
-        const autoDepositAmount = requiredMarginWithBuffer - isolatedEquity;
-        addNotification(
-          'info',
-          `$${autoDepositAmount.toFixed(2)} will be auto-deposited from Cross Margin.`,
-          'Auto-Deposit'
-        );
-      }
+      // if (isolatedEquity < requiredMarginWithBuffer) {
+      //   const autoDepositAmount = requiredMarginWithBuffer - isolatedEquity;
+      //   addNotification(
+      //     'info',
+      //     `$${autoDepositAmount.toFixed(2)} will be auto-deposited from Cross Margin.`,
+      //     'Auto-Deposit'
+      //   );
+      // }
     }
 
     const result = await placeOrder(

@@ -1,16 +1,18 @@
 import { X } from 'lucide-react';
 import React from 'react';
 
+import { type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
 import { type TransactionItem } from '../service/EvmTransactionService';
 import TransactionDetailsView from './TransactionDetailsView';
 
 interface TransactionDetailsSheetProps {
-  transaction: TransactionItem;
+  transaction: TransactionItem | LocalTransactionWithStatus;
   isOpen: boolean;
   onClose: () => void;
   chainId: number;
   incoming?: boolean;
   isSelf?: boolean;
+  onRefresh?: () => void;
 }
 
 const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
@@ -20,6 +22,7 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
   chainId,
   incoming,
   isSelf,
+  onRefresh,
 }) => {
   if (!isOpen) return null;
 
@@ -34,7 +37,13 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
           </button>
         </div>
         <div className="flex-1 overflow-hidden p-4 bg-primary/50">
-          <TransactionDetailsView transaction={transaction} chainId={chainId} incoming={incoming} isSelf={isSelf} />
+          <TransactionDetailsView
+            transaction={transaction}
+            chainId={chainId}
+            incoming={incoming}
+            isSelf={isSelf}
+            onRefresh={onRefresh}
+          />
         </div>
       </div>
     </div>

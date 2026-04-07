@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { AllbridgeCoreSdk, nodeRpcUrlsDefault } from '@allbridge/bridge-core-sdk';
 import { ethers } from 'ethers';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
@@ -17,18 +18,41 @@ export interface LocalTransactionWithStatus extends LocalTransaction {
   status: TransactionStatus;
   blockNumber?: number;
   gasUsed?: string;
+  destinationHash?: string;
 }
 
 interface UseLocalTransactionsReturn {
   transactions: LocalTransactionWithStatus[];
   isLoading: boolean;
   refresh: () => void;
+  refreshTransaction: (hash: string) => Promise<void>;
   removeTransaction: (hash: string) => void;
   hasPendingTransactions: boolean;
 }
 
-const REFRESH_INTERVAL = 60000;
+const REFRESH_INTERVAL = 30000;
 const STELLAR_CHAIN_ID = 9000000;
+
+const getChainSymbol = (chainId: number): string => {
+  switch (chainId) {
+    case 1:
+      return 'ETH';
+    case 56:
+      return 'BSC';
+    case 137:
+      return 'POL';
+    case 42161:
+      return 'ARB';
+    case 10:
+      return 'OPT';
+    case 43114:
+      return 'AVA';
+    case 8453:
+      return 'BASE';
+    default:
+      return 'ETH';
+  }
+};
 
 export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const { getProvider } = useWalletConnect();
@@ -42,21 +66,65 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         if (tx.status === 'failed' || tx.hash.startsWith('failed-')) {
           return { ...tx, status: 'failed' };
         }
-        if (tx.status === 'success') {
+        if (tx.status === 'success' && tx.type !== 'bridge') {
           return { ...tx, status: 'success' };
         }
 
         let newStatus: TransactionStatus = 'pending';
         let blockNumber: number | undefined;
         let gasUsed: string | undefined;
+        let destinationHash: string | undefined;
 
-        if (tx.chainId === STELLAR_CHAIN_ID) {
+        if (tx.type === 'bridge') {
+          try {
+            const sdk = new AllbridgeCoreSdk(nodeRpcUrlsDefault);
+            const chainSymbol = getChainSymbol(tx.chainId);
+            const bridgeStatus = (await sdk.getTransferStatus(chainSymbol, tx.hash)) as any;
+
+            console.log('bridgeStatus', bridgeStatus);
+
+            if (bridgeStatus) {
+              const isSuccess = bridgeStatus.status === 'SUCCESS' || (bridgeStatus.receive && bridgeStatus.receive.txId);
+              const isFailed = bridgeStatus.status === 'FAILED';
+              const fromAddress = bridgeStatus.senderAddress || bridgeStatus.send?.sender;
+              const toAddress = bridgeStatus.recipientAddress || bridgeStatus.receive?.recipient;
+
+              if (isSuccess) {
+                newStatus = 'success';
+                destinationHash = bridgeStatus.receive?.txId || bridgeStatus.destinationTxId;
+              } else if (isFailed) {
+                newStatus = 'failed';
+              } else {
+                newStatus = 'pending';
+              }
+
+              if (newStatus !== tx.status || destinationHash !== tx.destinationHash || fromAddress !== tx.from || toAddress !== tx.to) {
+                updateLocalTransactionStatus(tx.hash, newStatus, blockNumber, gasUsed, destinationHash, fromAddress, toAddress);
+              }
+
+              return {
+                ...tx,
+                status: newStatus,
+                blockNumber: blockNumber ?? tx.blockNumber,
+                gasUsed: gasUsed ?? tx.gasUsed,
+                destinationHash: destinationHash ?? tx.destinationHash,
+                from: fromAddress ?? tx.from,
+                to: toAddress ?? tx.to,
+              };
+            }
+          } catch (e) {
+            console.error('Allbridge polling failed:', e);
+            newStatus = 'pending';
+          }
+        }
+ else if (tx.chainId === STELLAR_CHAIN_ID) {
           try {
             const isMainnet = localStorage.getItem('network') === 'mainnet';
-            const horizonBase = isMainnet ? 'https://horizon.stellar.org' : 'https://horizon-testnet.stellar.org';
+            const horizonBase = isMainnet
+              ? 'https://horizon.stellar.org'
+              : 'https://horizon-testnet.stellar.org';
             const res = await fetch(`${horizonBase}/transactions/${tx.hash}`);
 
-            console.log('res stellar ------', res);
             if (res.ok) {
               const data = await res.json();
               if (data.successful) {
@@ -74,12 +142,10 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
           }
         } else {
           const provider = getProvider(WalletType.EVM);
-          if (!provider) return { ...tx, status: 'pending' };
+          if (!provider) return { ...tx, status: (tx.status as any) || 'pending' };
 
           const ethersProvider = new ethers.BrowserProvider(provider);
           const receipt = await ethersProvider.getTransactionReceipt(tx.hash);
-
-          console.log('receipt', receipt);
 
           if (!receipt) {
             return { ...tx, status: 'pending' };
@@ -90,8 +156,8 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
           gasUsed = receipt.gasUsed.toString();
         }
 
-        if (newStatus !== 'pending' && (!tx.status || tx.status === 'pending')) {
-          updateLocalTransactionStatus(tx.hash, newStatus, blockNumber, gasUsed);
+        if (newStatus !== tx.status || destinationHash !== tx.destinationHash) {
+          updateLocalTransactionStatus(tx.hash, newStatus, blockNumber, gasUsed, destinationHash);
         }
 
         return {
@@ -99,6 +165,7 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
           status: newStatus,
           blockNumber: blockNumber ?? tx.blockNumber,
           gasUsed: gasUsed ?? tx.gasUsed,
+          destinationHash: destinationHash ?? tx.destinationHash,
         };
       } catch (error) {
         console.error(`Failed to fetch status for tx ${tx.hash}:`, error);
@@ -128,6 +195,15 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
     }
   }, [fetchTransactionStatus]);
 
+  const refreshTransaction = useCallback(async (hash: string) => {
+    const localTxs = getLocalTransactions();
+    const tx = localTxs.find(t => t.hash.toLowerCase() === hash.toLowerCase());
+    if (tx) {
+      const updatedTx = await fetchTransactionStatus(tx);
+      setTransactions(prev => prev.map(t => t.hash.toLowerCase() === hash.toLowerCase() ? updatedTx : t));
+    }
+  }, [fetchTransactionStatus]);
+
   const refresh = useCallback(() => {
     loadTransactions();
   }, [loadTransactions]);
@@ -142,7 +218,9 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   }, [loadTransactions]);
 
   useEffect(() => {
-    const hasPending = transactions.some(tx => tx.status === 'pending');
+    const hasPending = transactions.some(tx => 
+      tx.status === 'pending' || (tx.type === 'bridge' && tx.status !== 'failed' && !tx.destinationHash)
+    );
 
     if (hasPending && !intervalRef.current) {
       intervalRef.current = setInterval(() => {
@@ -167,6 +245,7 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
     transactions,
     isLoading,
     refresh,
+    refreshTransaction,
     removeTransaction: handleRemoveTransaction,
     hasPendingTransactions,
   };

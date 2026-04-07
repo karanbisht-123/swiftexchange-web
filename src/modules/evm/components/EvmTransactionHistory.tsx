@@ -24,7 +24,7 @@ import {
   getEvmTransactionHistory,
 } from '../service/EvmTransactionService';
 import { formatBlockNumber } from '../utils/blockNumber';
-import { MAINNET_CHAINS, TESTNET_CHAINS, getChainName, getExplorerUrl } from '../utils/Chainregistry';
+import { MAINNET_CHAINS, TESTNET_CHAINS, getChainName } from '../utils/Chainregistry';
 import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
@@ -97,6 +97,7 @@ const EvmTransactionHistory: React.FC = () => {
     transactions: localTransactions,
     isLoading: localLoading,
     refresh: refreshLocal,
+    refreshTransaction,
     removeTransaction,
     hasPendingTransactions,
   } = useLocalTransactions();
@@ -150,8 +151,6 @@ const EvmTransactionHistory: React.FC = () => {
     }
   };
 
-
-
   const handleTxClick = (tx: TransactionItem) => {
     setSelectedTx(tx);
     setSelectedLocalTx(null);
@@ -161,6 +160,10 @@ const EvmTransactionHistory: React.FC = () => {
   const handleLocalTxClick = (tx: LocalTransactionWithStatus) => {
     setSelectedLocalTx(tx);
     setSelectedTx(null);
+    if (window.innerWidth < 1024) setIsSheetOpen(true);
+    if (tx.status === 'pending' || tx.type === 'bridge') {
+      refreshTransaction(tx.hash);
+    }
   };
 
   const switchView = (view: ViewType) => {
@@ -247,7 +250,7 @@ const EvmTransactionHistory: React.FC = () => {
           <button
             onClick={refreshLocal}
             className="p-2 rounded-lg bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors"
-            title="Refresh"
+            title="Refresh All"
           >
             <RefreshCw size={14} className={localLoading ? 'animate-spin' : ''} />
           </button>
@@ -264,8 +267,8 @@ const EvmTransactionHistory: React.FC = () => {
             <div
               key={tx.hash}
               className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${isSelected
-                  ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
-                  : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
+                ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
+                : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
                 }`}
             >
               <button
@@ -290,6 +293,14 @@ const EvmTransactionHistory: React.FC = () => {
                     <span className="truncate max-w-[100px]">
                       {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
                     </span>
+                    {tx.type === 'bridge' && tx.destinationHash && (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-muted/40" />
+                        <span className="text-green-500 flex items-center gap-1">
+                          Ref: {tx.destinationHash.slice(0, 4)}...{tx.destinationHash.slice(-4)}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </button>
@@ -299,6 +310,16 @@ const EvmTransactionHistory: React.FC = () => {
                 >
                   {tx.status}
                 </span>
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    refreshTransaction(tx.hash);
+                  }}
+                  className="p-2 rounded-lg bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors"
+                  title="Refresh Transaction"
+                >
+                  <RefreshCw size={14} className={tx.status === 'pending' || (tx.type === 'bridge' && !tx.destinationHash) ? 'animate-spin' : ''} />
+                </button>
                 <button
                   onClick={e => {
                     e.stopPropagation();
@@ -317,55 +338,6 @@ const EvmTransactionHistory: React.FC = () => {
     );
   };
 
-  const renderLocalTxDetails = () => {
-    if (!selectedLocalTx) return null;
-    const statusStyle = STATUS_STYLES[selectedLocalTx.status];
-
-    return (
-      <div className="h-full bg-secondary rounded-2xl p-6 overflow-y-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-primary">Transaction Details</h3>
-          <span
-            className={`text-xs font-semibold px-3 py-1.5 rounded-full capitalize ${statusStyle}`}
-          >
-            {selectedLocalTx.status}
-          </span>
-        </div>
-        <div className="space-y-4">
-          {[
-            { label: 'Type', value: selectedLocalTx.type, className: 'capitalize' },
-            { label: 'Description', value: selectedLocalTx.description || '-' },
-            { label: 'Chain', value: getChainName(selectedLocalTx.chainId) },
-            {
-              label: 'Transaction Hash',
-              value: selectedLocalTx.hash,
-              className: 'font-mono text-sm break-all',
-            },
-            ...(selectedLocalTx.blockNumber
-              ? [{ label: 'Block Number', value: String(selectedLocalTx.blockNumber) }]
-              : []),
-            ...(selectedLocalTx.gasUsed
-              ? [{ label: 'Gas Used', value: String(selectedLocalTx.gasUsed) }]
-              : []),
-            { label: 'Time', value: new Date(selectedLocalTx.timestamp).toLocaleString() },
-          ].map(({ label, value, className }) => (
-            <div key={label}>
-              <p className="text-xs text-muted mb-1">{label}</p>
-              <p className={`text-primary font-medium ${className ?? ''}`}>{value}</p>
-            </div>
-          ))}
-          <a
-            href={getExplorerUrl(selectedLocalTx.chainId, 'tx', selectedLocalTx.hash)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-full text-center px-4 py-3 rounded-xl bg-brand-primary/10 text-brand-primary font-semibold text-sm hover:bg-brand-primary/20 transition-colors mt-6"
-          >
-            View on Explorer ↗
-          </a>
-        </div>
-      </div>
-    );
-  };
 
   const renderHistoryTransactions = () => {
     if (loading) {
@@ -506,7 +478,11 @@ const EvmTransactionHistory: React.FC = () => {
           <div className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-6 h-[calc(100vh-48px)]">
             {selectedView === 'recent' && selectedLocalTx ? (
               <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-                {renderLocalTxDetails()}
+                <TransactionDetailsView
+                  transaction={selectedLocalTx}
+                  chainId={selectedLocalTx.chainId}
+                  onRefresh={() => refreshTransaction(selectedLocalTx.hash)}
+                />
               </div>
             ) : selectedTx ? (
               <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
@@ -527,14 +503,15 @@ const EvmTransactionHistory: React.FC = () => {
         )}
       </div>
 
-      {selectedTx && selectedView !== 'recent' && (
+      {(selectedTx || selectedLocalTx) && (
         <TransactionDetailsSheet
-          transaction={selectedTx}
+          transaction={selectedTx || selectedLocalTx!}
           isOpen={isSheetOpen}
           onClose={() => setIsSheetOpen(false)}
-          chainId={selectedTx.chainId}
+          chainId={selectedTx?.chainId || selectedLocalTx!.chainId}
           incoming={isTxIncoming}
           isSelf={isTxSelf}
+          onRefresh={selectedLocalTx ? () => refreshTransaction(selectedLocalTx!.hash) : undefined}
         />
       )}
     </PageLayout>

@@ -21,6 +21,7 @@ import {
   fetchDydxWalletUsdcBalance,
 } from '../utils/skipBridgeUtils';
 import { useTransactionStore } from '../hooks/useTransactionTracker';
+import { type NotificationType } from '../../../components/common/Notification';
 
 export const MIN_DEPOSIT_USDC = 1;
 
@@ -47,27 +48,16 @@ export interface DepositRoute {
   usdAmountOut: string;
 }
 
-
-/**
- * Compute how much of `incomingUusdc` (freshly bridged, already in the native
- * wallet) should be kept for gas vs deposited to the subaccount.
- *
- * Rule (mirrors dYdX's own fund-allocation logic):
- *   - The native wallet must hold at least GAS_RESERVE_UUSDC (~$1.24) to pay
- *     fees for future withdrawals.
- *   - We consume only the *shortfall* from the incoming amount — if the wallet
- *     was already funded before the bridge arrived, we deposit everything.
- *
- * @param incomingUusdc      Amount that just arrived via bridge (walletAfter - walletBefore)
- * @param preExistingUusdc   Balance the wallet held BEFORE the bridge landed
- */
+interface DepositNotification {
+  type: NotificationType;
+  title: string;
+  message: string;
+}
 function computeSplit(
   incomingUusdc: number,
   preExistingUusdc: number,
 ): { keepUusdc: number; depositUusdc: number } {
-  // How much more do we still need to reach the gas reserve target?
   const shortfall = Math.max(0, GAS_RESERVE_UUSDC - preExistingUusdc);
-  // Never retain more than what just arrived
   const keepUusdc = Math.min(shortfall, incomingUusdc);
   const depositUusdc = Math.max(0, incomingUusdc - keepUusdc);
   return { keepUusdc, depositUusdc };
@@ -104,7 +94,8 @@ export const useDydxDeposit = () => {
   const [pendingNobleQuantums, setPendingNobleQuantums] = useState<string | null>(null);
   const [pendingDydxQuantums, setPendingDydxQuantums] = useState<string | null>(null);
   const [isCheckingPending, setIsCheckingPending] = useState(false);
-
+  const [notification, setNotification] = useState<DepositNotification | null>(null);
+  const clearNotification = useCallback(() => setNotification(null), []);
   const getRoute = useCallback(
     async (
       assetSymbol: string,
@@ -210,8 +201,6 @@ export const useDydxDeposit = () => {
 
         setStep('signing_evm');
 
-        //  "pending" entry in the store BEFORE signing 
-        // This ensures tracking survives modal close/refresh immediately.
         useTransactionStore.getState().setDepositTx({
           txHash: null,
           chainId: String(chainId),
@@ -236,7 +225,6 @@ export const useDydxDeposit = () => {
             setTxHash(hash);
             setStep('pending_bridge');
 
-            // Update the existing entry with the actual hash 
             const current = useTransactionStore.getState().depositTx;
             useTransactionStore.getState().setDepositTx({
               txHash: hash,
@@ -303,6 +291,14 @@ export const useDydxDeposit = () => {
         console.log(`[deposit] deposited ${depositUusdc} uusdc to subaccount (kept ${keepUusdc} uusdc for gas)`);
 
         setDepositedAmount(depositUusdc / 1e6);
+        setNotification({
+          type: 'success',
+          title: 'Deposit Complete',
+          message: `${(depositUusdc / 1e6).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} USDC added to your trading account.`,
+        });
         await new Promise(r => setTimeout(r, 2_000));
         setStep('success');
 
@@ -314,7 +310,11 @@ export const useDydxDeposit = () => {
         if (!bridgeTxHash) {
           useTransactionStore.getState().clearDepositTx();
         }
-
+        setNotification({
+          type: 'error',
+          title: 'Deposit Failed',
+          message: classified.message,
+        });
         setError(classified.message);
         setErrorRetryable(classified.retryable);
         setStep('error');
@@ -438,5 +438,7 @@ export const useDydxDeposit = () => {
     MIN_DEPOSIT_USDC,
     NATIVE_WALLET_GAS_RESERVE_USD,
     GAS_RESERVE_UUSDC,
+    notification,
+    clearNotification,
   };
 };

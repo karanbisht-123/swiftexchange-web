@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Notification } from '../../../components/common/Notification';
 
 import { Tooltip } from '../../../components/common/Tooltip';
 import { type Asset, useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
@@ -88,9 +89,8 @@ const AssetRow = ({
   return (
     <button
       onClick={() => onSelect(asset)}
-      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${
-        isSelected ? 'bg-brand/10 border border-brand/30' : 'hover:bg-hover'
-      }`}
+      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${isSelected ? 'bg-brand/10 border border-brand/30' : 'hover:bg-hover'
+        }`}
     >
       <div className="flex items-center gap-3">
         <AssetIcon asset={asset} />
@@ -184,6 +184,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     route,
     isLoading,
     MIN_DEPOSIT_USDC,
+    notification,
+    clearNotification,
   } = useDydxDeposit();
 
   const evmChainId = Number(evmWallet?.chainId ?? 1);
@@ -215,9 +217,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || modalStep !== 'tracker') return;
-    // Debug: log tracker/store state when tracker view is active
-    // Remove this after troubleshooting
-    // eslint-disable-next-line no-console
     console.log('[DydxDepositModal] debug tracker:', { tracker, depositTx: store.depositTx });
   }, [isOpen, modalStep, tracker, store.depositTx]);
 
@@ -397,13 +396,12 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                 <div className="text-right">
                   <div className="text-xs text-muted mb-0.5">Status</div>
                   <div
-                    className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 ${
-                      hasPendingTracker
-                        ? 'bg-brand/10 text-brand'
-                        : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
-                          ? 'bg-success-bg text-success'
-                          : 'bg-danger-bg text-danger'
-                    }`}
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 ${hasPendingTracker
+                      ? 'bg-brand/10 text-brand'
+                      : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
+                        ? 'bg-success-bg text-success'
+                        : 'bg-danger-bg text-danger'
+                      }`}
                   >
                     {hasPendingTracker && (
                       <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block shrink-0" />
@@ -501,6 +499,17 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </button>
           )}
         </div>
+
+        {notification && (
+          <Notification
+            type={notification.type}
+            title={notification.title}
+            message={notification.message}
+            onClose={clearNotification}
+            autoClose
+            autoCloseDuration={6000}
+          />
+        )}
       </ModalShell>
     );
   }
@@ -674,9 +683,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
         <div className="flex items-center justify-between px-1">
           <label
-            className={`flex items-center gap-2 ${
-              displayUsd > 0 && displayUsd < 20 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-            } select-none`}
+            className={`flex items-center gap-2 ${displayUsd > 0 && displayUsd < 20 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              } select-none`}
           >
             <input
               type="checkbox"

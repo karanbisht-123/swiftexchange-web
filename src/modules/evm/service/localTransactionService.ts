@@ -13,6 +13,9 @@ export interface LocalTransaction {
   status?: 'pending' | 'success' | 'failed';
   blockNumber?: number;
   gasUsed?: string;
+  destinationHash?: string;
+  from?: string;
+  to?: string;
 }
 
 export const getLocalTransactions = (): LocalTransaction[] => {
@@ -49,12 +52,28 @@ export const addLocalTransaction = (tx: LocalTransaction): void => {
   }
 };
 
-export const updateLocalTransactionStatus = (hash: string, status: 'success' | 'failed', blockNumber?: number, gasUsed?: string): void => {
+export const updateLocalTransactionStatus = (
+  hash: string,
+  status: 'pending' | 'success' | 'failed',
+  blockNumber?: number,
+  gasUsed?: string,
+  destinationHash?: string,
+  from?: string,
+  to?: string
+): void => {
   try {
     const transactions = getLocalTransactions();
     const index = transactions.findIndex(tx => tx.hash.toLowerCase() === hash.toLowerCase());
     if (index !== -1) {
-      transactions[index] = { ...transactions[index], status, blockNumber, gasUsed };
+      transactions[index] = {
+        ...transactions[index],
+        status,
+        blockNumber: blockNumber ?? transactions[index].blockNumber,
+        gasUsed: gasUsed ?? transactions[index].gasUsed,
+        destinationHash: destinationHash ?? transactions[index].destinationHash,
+        from: from ?? transactions[index].from,
+        to: to ?? transactions[index].to,
+      };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
     }
   } catch (error) {
