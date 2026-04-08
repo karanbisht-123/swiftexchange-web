@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight, ExternalLink, Search, Timer, X, } from 'lucide-react';
+import { AlertCircle, ArrowRight, ExternalLink, Search, Timer, X, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
@@ -154,25 +154,6 @@ const TradeTransactionUI = () => {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="heading-4">Trade Transactions</h2>
-              {/* Live streaming indicator */}
-              {/* <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wider"
-                style={{
-                  borderColor: isStreaming ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.1)',
-                  color: isStreaming ? 'rgb(34,197,94)' : 'var(--color-text-muted)',
-                  backgroundColor: isStreaming ? 'rgba(34,197,94,0.08)' : 'transparent',
-                }}>
-                {isStreaming ? (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    Live
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-2.5 h-2.5" />
-                    Polling
-                  </>
-                )}
-              </div> */}
             </div>
             <p className="text-muted text-sm mt-1">Manage your offers and view history</p>
           </div>
@@ -211,6 +192,18 @@ const TradeTransactionUI = () => {
         )}
 
         <div className="bg-muted/10 rounded-xl border border-white/5 overflow-hidden scrollbar-hide">
+          {/* ADDED: Loading indicator when transactions are not loaded yet */}
+          {/* Shows centered spinner on initial load (when list is still empty) so user never sees blank UI */}
+          {/* Does NOT show on "Load More" to avoid hiding existing data */}
+          {isLoading &&
+            ((activeTab === 'active' && activeOffers.length === 0) ||
+              (activeTab === 'completed' && completedTrades.length === 0)) && (
+              <div className="flex flex-col items-center justify-center py-12 border-b border-white/5">
+                <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
+                <p className="text-muted text-sm">Loading transactions...</p>
+              </div>
+            )}
+
           {activeTab === 'active' ? (
             <>
               {/* Desktop Table */}

@@ -17,6 +17,7 @@ export function formatAnnualizedFundingRate(raw: string | number): string {
 export async function fetchDydxServerTime(): Promise<number> {
     const res = await fetch('https://indexer.dydx.trade/v4/time');
     const data = await res.json();
+    // console.log(data , "--- hii i am daata")
     return new Date(data.iso).getTime();
 }
 

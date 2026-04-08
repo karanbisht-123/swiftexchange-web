@@ -32,6 +32,7 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
     userAddress: stellarAddress,
   });
 
+  console.log(isLoading, "=====================")
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
   const [dateFilter, setDateFilter] = useState<'ALL' | '7D' | '30D'>('ALL');
 
@@ -150,6 +151,14 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
       }
       return `${parseFloat(tx.price || '0').toFixed(7)} Price`;
     }
+
+    if (tx.type === 'BRIDGE') {
+      if (tx.amount && tx.amount !== 'N/A') {
+        return `${parseFloat(tx.amount).toFixed(4)} ${tx.assetCode !== 'N/A' ? tx.assetCode : ''}`.trim();
+      }
+      return tx.details || 'Contract Call';
+    }
+
     if (tx.type === 'TRUST') {
       if (tx.limit && parseFloat(tx.limit) > 0) return `Limit: ${tx.assetCode}`;
       return `Remove: ${tx.assetCode}`;
@@ -208,11 +217,10 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                 <button
                   key={d}
                   onClick={() => setDateFilter(d as any)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                    dateFilter === d
-                      ? 'bg-primary/20 text-primary'
-                      : 'text-muted hover:text-text-primary'
-                  }`}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${dateFilter === d
+                    ? 'bg-primary/20 text-primary'
+                    : 'text-muted hover:text-text-primary'
+                    }`}
                 >
                   {d === 'ALL' ? 'All Time' : d}
                 </button>
@@ -227,11 +235,10 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
           <button
             key={option.value}
             onClick={() => setFilterType(option.value)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-sm  transition-all duration-200  ${
-              filterType === option.value
-                ? 'bg-primary text-text-inverse '
-                : 'bg-white/5 text-muted border-white/5 hover:bg-white/10 hover:text-text-primary'
-            }`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-sm  transition-all duration-200  ${filterType === option.value
+              ? 'bg-primary text-text-inverse '
+              : 'bg-white/5 text-muted border-white/5 hover:bg-white/10 hover:text-text-primary'
+              }`}
           >
             {option.label}
           </button>
@@ -281,19 +288,18 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                     <td className="lg:px-6 px-2 py-4">
                       <div className="flex items-center gap-3">
                         <div
-                          className={`w-9 h-9 rounded-full flex items-center justify-center border shrink-0 ${
-                            tx.type === 'SEND'
-                              ? 'bg-warning/10 border-warning/20'
-                              : tx.type === 'RECEIVE'
-                                ? 'bg-success/10 border-success/20'
-                                : tx.type === 'TRUST'
-                                  ? 'bg-purple-400/10 border-purple-400/20'
-                                  : tx.type === 'CLAIMABLE'
-                                    ? 'bg-pink-400/10 border-pink-400/20'
-                                    : tx.type === 'BRIDGE'
-                                      ? 'bg-info/10 border-info/20'
-                                      : 'bg-primary/10 border-primary/20'
-                          }`}
+                          className={`w-9 h-9 rounded-full flex items-center justify-center border shrink-0 ${tx.type === 'SEND'
+                            ? 'bg-warning/10 border-warning/20'
+                            : tx.type === 'RECEIVE'
+                              ? 'bg-success/10 border-success/20'
+                              : tx.type === 'TRUST'
+                                ? 'bg-purple-400/10 border-purple-400/20'
+                                : tx.type === 'CLAIMABLE'
+                                  ? 'bg-pink-400/10 border-pink-400/20'
+                                  : tx.type === 'BRIDGE'
+                                    ? 'bg-info/10 border-info/20'
+                                    : 'bg-primary/10 border-primary/20'
+                            }`}
                         >
                           {getIcon(tx.type)}
                         </div>
@@ -361,19 +367,18 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
               >
                 <div className="flex items-center gap-3">
                   <div
-                    className={`lg:w-12 lg:h-12 w-8 h-8 rounded-full flex items-center justify-center border shrink-0 ${
-                      tx.type === 'SEND'
-                        ? 'bg-warning/10 border-warning/20'
-                        : tx.type === 'RECEIVE'
-                          ? 'bg-success/10 border-success/20'
-                          : tx.type === 'TRUST'
-                            ? 'bg-purple-400/10 border-purple-400/20'
-                            : tx.type === 'CLAIMABLE'
-                              ? 'bg-pink-400/10 border-pink-400/20'
-                              : tx.type === 'BRIDGE'
-                                ? 'bg-info/10 border-info/20'
-                                : 'bg-primary/10 border-primary/20'
-                    }`}
+                    className={`lg:w-12 lg:h-12 w-8 h-8 rounded-full flex items-center justify-center border shrink-0 ${tx.type === 'SEND'
+                      ? 'bg-warning/10 border-warning/20'
+                      : tx.type === 'RECEIVE'
+                        ? 'bg-success/10 border-success/20'
+                        : tx.type === 'TRUST'
+                          ? 'bg-purple-400/10 border-purple-400/20'
+                          : tx.type === 'CLAIMABLE'
+                            ? 'bg-pink-400/10 border-pink-400/20'
+                            : tx.type === 'BRIDGE'
+                              ? 'bg-info/10 border-info/20'
+                              : 'bg-primary/10 border-primary/20'
+                      }`}
                   >
                     {getIcon(tx.type)}
                   </div>

@@ -20,7 +20,7 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
   const [pagination, setPagination] = useState<{ hasMore: boolean; cursor?: string }>({
     hasMore: false,
   });
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const mapOperationToTransaction = useCallback(
@@ -83,18 +83,38 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
 
       if (op.type === 'invoke_host_function') {
         let details = 'Contract Interaction';
-        let amount = '';
-        let assetCode = '';
+        let fromAsset = 'Contract';
+        let toAsset = 'Interaction';
+        let amount = 'N/A';
+        let assetCode = 'N/A';
+
+        if (op.asset_balance_changes && op.asset_balance_changes.length > 0) {
+          const relevantChange =
+            op.asset_balance_changes.find(
+              (c: any) => c.to === accountId || c.from === accountId
+            ) ?? op.asset_balance_changes[0];
+
+          amount = relevantChange.amount ?? 'N/A';
+          assetCode =
+            relevantChange.asset_type === 'native'
+              ? 'XLM'
+              : relevantChange.asset_code ?? 'N/A';
+        }
 
         if (op.function === 'HostFunctionTypeHostFunctionTypeInvokeContract') {
           details = 'Smart Contract Call';
+          const contractId =
+            (op as any).contract_id ?? (op as any).contract ?? 'Unknown Contract';
+          if (contractId !== 'Unknown Contract') {
+            toAsset = contractId.length > 12 ? `${contractId.slice(0, 12)}...` : contractId;
+          }
         }
 
         return {
           ...base,
           type: 'BRIDGE',
-          fromAsset: 'Contract',
-          toAsset: 'Interaction',
+          fromAsset,
+          toAsset,
           amount,
           assetCode,
           details,
@@ -165,7 +185,10 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
 
   const fetchTransactions = useCallback(
     async (cursor?: string) => {
-      if (!userAddress) return;
+      if (!userAddress) {
+        setIsLoading(false);
+        return;
+      }
 
       setIsLoading(true);
       setError(null);
@@ -195,7 +218,10 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
 
   useEffect(() => {
     if (userAddress) {
+      setIsLoading(true);
       fetchTransactions();
+    } else {
+      setIsLoading(false);
     }
   }, [userAddress, fetchTransactions]);
 

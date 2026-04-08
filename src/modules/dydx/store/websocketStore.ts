@@ -5,7 +5,6 @@ import { getSocketClient } from '../client/clients';
 import { webSocketManager } from '../utils/WebSocketManager';
 
 //Types 
-
 export interface ChildSubaccount {
   address: string;
   subaccountNumber: number;
@@ -135,25 +134,30 @@ export interface TrackedOrder {
   totalOptimisticFilled?: string;
   _msgId: number;
   _terminalAt?: number;
+  _firstSeenAt?: number;   // timestamp when we first saw this order
 }
 
-export type RawOrder = Omit<TrackedOrder, '_msgId' | '_terminalAt'> & {
+export type RawOrder = Omit<TrackedOrder, '_msgId' | '_terminalAt' | '_firstSeenAt'> & {
   _msgId?: number;
   _terminalAt?: number;
+  _firstSeenAt?: number;
 };
 
-// orders get special merge logic so we omit them and re-type explicitly
 export type PartialSubaccountUpdate = Omit<Partial<ParentSubaccountData>, 'orders'> & {
   orders?: RawOrder[];
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// cosntnat for 
 
 const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED']);
 const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
 
 // how long a filled/cancelled market order stays visible in the UI
-const MARKET_ORDER_GRACE_MS = 1_500;
+const MARKET_ORDER_GRACE_MS = 3_500;
+
+// How long a new BEST_EFFORT_OPENED order waits before appearing in the UI.
+// If it gets rejected within this window, it never shows — no flicker.
+const ORDER_APPEARANCE_DELAY_MS = 800;
 
 // delayed unsubscribe prevents churn on fast mount/unmount cycles
 const UNSUB_DELAY_MS = 3_000;
@@ -164,7 +168,6 @@ const MAX_FILLS = 150;
 // Isolated subaccount numbers start at this value (dYdX protocol constant)
 const ISOLATED_SUBACCOUNT_START = 128;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' | 'orderFlags'>): boolean {
   return (
@@ -176,8 +179,9 @@ export function isMarketOrder(order: Pick<TrackedOrder, 'type' | 'timeInForce' |
 
 function shouldKeepGracePeriod(order: TrackedOrder): boolean {
   if (!TERMINAL_STATUSES.has(order.status)) return false;
-  if (isMarketOrder(order)) return true;
-  return order.status === 'BEST_EFFORT_CANCELED' || order.status === 'REJECTED';
+  // Only market orders get a brief grace period to show filled/canceled flash.
+  // Non-market rejected orders are suppressed silently via the appearance delay.
+  return isMarketOrder(order);
 }
 
 
@@ -196,7 +200,7 @@ function recomputeChildEquity(child: ChildSubaccount): void {
     // No open positions: equity = freeCollateral = USDC balance
     const newEquity = Math.max(0, usdcSize).toFixed(6);
     child.equity = newEquity;
-    child.freeCollateral = newEquity; // safe — no margin locked
+    child.freeCollateral = newEquity;
     return;
   }
 
@@ -215,8 +219,6 @@ function recomputeChildEquity(child: ChildSubaccount): void {
   child.equity = equity.toFixed(6);
 }
 
-// State interface 
-
 interface WebSocketState {
   isConnected: boolean;
   connectionId: string | null;
@@ -228,7 +230,6 @@ interface WebSocketState {
   candles: Map<string, CandleData>;
   positionPnl: Map<string, PositionPnl>;
 
-  // ref-counting so multiple components can share one WS channel
   activeSubscriptions: Set<string>;
   subscriptionRefs: Map<string, () => void>;
   subscriptionCounts: Map<string, number>;
@@ -258,10 +259,6 @@ interface WebSocketState {
   cleanup: () => void;
 }
 
-/**
- * Opens a new WS channel (or reuses an existing one) and increments ref count.
- * subscribeFn is called OUTSIDE the state setter to avoid side-effects inside Zustand updaters.
- */
 const handleSubscribe = (
   key: string,
   set: (fn: (s: WebSocketState) => Partial<WebSocketState>) => void,
@@ -353,8 +350,6 @@ const handleUnsubscribe = (
   });
 };
 
-// Order helpers 
-
 /**
  * Merges incoming raw orders into the existing map.
  * Skips updates with a stale msgId to handle out-of-order delivery.
@@ -384,11 +379,15 @@ function mergeOrders(
         ? prev!._terminalAt
         : now;
 
+    // Stamp _firstSeenAt only when we see an order for the first time
+    const firstSeenAt = prev?._firstSeenAt ?? now;
+
     next.set(id, {
       ...prev,
       ...raw,
       _msgId: msgId,
       _terminalAt: terminalAt,
+      _firstSeenAt: firstSeenAt,
     } as TrackedOrder);
   }
 
@@ -453,7 +452,6 @@ function mergeFills(existing: any[], incoming: any[]): any[] {
     .slice(0, MAX_FILLS);
 }
 
-// ─── Market batch parsers ──────────────────────────────────────────────────────
 
 function parseOraclePriceBatch(contents: any[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -509,9 +507,6 @@ function recomputeParentFromChildren(
     freeCollateral,
   };
 }
-
-// Store 
-
 export const useWebSocketStore = create<WebSocketState>()(
   subscribeWithSelector((set, get) => ({
     isConnected: false,
@@ -978,6 +973,16 @@ export const useWebSocketStore = create<WebSocketState>()(
         // receiving a real freeCollateral value means server has caught up — clear optimistic offset
         const clearOptimistic = data.freeCollateral !== undefined;
 
+        // Schedule a delayed re-render for any new BEST_EFFORT_OPENED orders.
+        // After ORDER_APPEARANCE_DELAY_MS the selector will include them if
+        // they haven't been rejected in the meantime.
+        if (data.orders?.some(o => o.status === 'BEST_EFFORT_OPENED')) {
+          setTimeout(() => {
+            const s = useWebSocketStore.getState();
+            useWebSocketStore.setState({ updateTrigger: s.updateTrigger + 1 });
+          }, ORDER_APPEARANCE_DELAY_MS + 50); // +50ms buffer
+        }
+
         return {
           parentSubaccounts: newMap,
           optimisticFreeCollateralDelta: clearOptimistic ? 0 : state.optimisticFreeCollateralDelta,
@@ -1129,7 +1134,17 @@ webSocketManager.onDisconnect(() => useWebSocketStore.setState({ isConnected: fa
 
 export function selectOpenOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
-  return data.orders.filter(o => OPEN_STATUSES.has(o.status));
+  const now = Date.now();
+  return data.orders.filter(o => {
+    if (!OPEN_STATUSES.has(o.status)) return false;
+    // BEST_EFFORT_OPENED orders are hidden for ORDER_APPEARANCE_DELAY_MS.
+    // If they get rejected within that window they never appear.
+    // Confirmed statuses (OPEN, PARTIALLY_FILLED, UNTRIGGERED) are shown immediately.
+    if (o.status === 'BEST_EFFORT_OPENED' && o._firstSeenAt) {
+      if (now - o._firstSeenAt < ORDER_APPEARANCE_DELAY_MS) return false;
+    }
+    return true;
+  });
 }
 
 
@@ -1225,7 +1240,13 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
   if (!data) return [];
   const now = Date.now();
   return data.orders.filter(o => {
-    if (OPEN_STATUSES.has(o.status)) return true;
+    if (OPEN_STATUSES.has(o.status)) {
+      // Apply appearance delay to BEST_EFFORT_OPENED
+      if (o.status === 'BEST_EFFORT_OPENED' && o._firstSeenAt) {
+        if (now - o._firstSeenAt < ORDER_APPEARANCE_DELAY_MS) return false;
+      }
+      return true;
+    }
     if (o.status === 'FILLED' && isMarketOrder(o)) {
       return now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS;
     }
