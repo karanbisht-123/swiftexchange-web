@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getIndexerClient } from '../client/clients';
 import { useWebSocketStore } from '../store/websocketStore';
-import { useTrades } from './useTrades';
 
 export type CandleResolution = '1MIN' | '5MINS' | '15MINS' | '30MINS' | '1HOUR' | '4HOURS' | '1DAY';
 
@@ -128,8 +127,6 @@ export function useRealtimeChart(
     };
   }, [market, resolution, subscribeToCandles, unsubscribeFromCandles]);
 
-  const { trades } = useTrades(market, 50);
-
   const mergedCandles = useMemo(() => {
     const liveCandles = storeCandlesData?.candles || [];
 
@@ -168,41 +165,8 @@ export function useRealtimeChart(
 
   const latestCandle = useMemo(() => {
     if (mergedCandles.length === 0) return null;
-    const current = { ...mergedCandles[mergedCandles.length - 1] };
-
-    if (trades.length > 0) {
-      const currentCandleTime = new Date(current.startedAt).getTime();
-      let addedVolume = 0;
-      let latestPrice = current.close;
-      let newHigh = parseFloat(current.high);
-      let newLow = parseFloat(current.low);
-      let hasValidTrade = false;
-      for (const trade of trades) {
-        const tradeTime = new Date(trade.createdAt).getTime();
-        if (tradeTime >= currentCandleTime) {
-          const price = parseFloat(trade.price);
-          const size = parseFloat(trade.size);
-
-          if (!hasValidTrade) {
-            latestPrice = trade.price;
-            hasValidTrade = true;
-          }
-
-          if (price > newHigh) newHigh = price;
-          if (price < newLow) newLow = price;
-          addedVolume += price * size;
-        }
-      }
-
-      if (hasValidTrade) {
-        current.close = latestPrice;
-        current.high = newHigh.toString();
-        current.low = newLow.toString();
-      }
-    }
-
-    return current;
-  }, [mergedCandles, trades]);
+    return mergedCandles[mergedCandles.length - 1];
+  }, [mergedCandles]);
 
   return {
     candles: mergedCandles,

@@ -100,6 +100,12 @@ export default function DyDxTradingChart() {
     }
   }, [candles, hasInitialData]);
 
+  useEffect(() => {
+    setHasInitialData(false);
+  }, [selectedMarket, timeframe]);
+
+  const lastDatasetIdRef = useRef('');
+
   const getThemeColors = useCallback(() => {
     if (isDark) {
       return {
@@ -125,8 +131,52 @@ export default function DyDxTradingChart() {
     };
   }, [isDark]);
 
+  const candlesRef = useRef(candles);
+  useEffect(() => {
+    candlesRef.current = candles;
+  }, [candles]);
+
+  useEffect(() => {
+    if (!seriesRef.current || candles.length === 0) return;
+
+    // Do NOT include chartType in the dataset ID to avoid race conditions during chart recreation
+    const currentDatasetId = `${selectedMarket}-${timeframe}`;
+    if (lastDatasetIdRef.current !== currentDatasetId) {
+      const colors = getThemeColors();
+      const candleData = candles
+        .map(c => ({
+          time: Math.floor(new Date(c.startedAt).getTime() / 1000) as any,
+          open: parseFloat(c.open),
+          high: parseFloat(c.high),
+          low: parseFloat(c.low),
+          close: parseFloat(c.close),
+          volume: parseFloat(c.usdVolume),
+        }))
+        .sort((a, b) => a.time - b.time);
+
+      if (chartType === 'candlestick') {
+        seriesRef.current.setData(candleData);
+      } else {
+        seriesRef.current.setData(candleData.map(c => ({ time: c.time, value: c.close })));
+      }
+
+      if (showVolume && volumeSeriesRef.current) {
+        volumeSeriesRef.current.setData(
+          candleData.map(c => ({
+            time: c.time,
+            value: c.volume,
+            color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
+          }))
+        );
+      }
+
+      chartRef.current?.timeScale().fitContent();
+      lastDatasetIdRef.current = currentDatasetId;
+    }
+  }, [candles, selectedMarket, timeframe, chartType, showVolume, getThemeColors]);
+
   const createChartInstance = useCallback(() => {
-    if (!chartContainerRef.current || candles.length === 0) return;
+    if (!chartContainerRef.current) return;
 
     const colors = getThemeColors();
     const container = chartContainerRef.current;
@@ -205,17 +255,6 @@ export default function DyDxTradingChart() {
 
     chartRef.current = chart;
 
-    const candleData = candles
-      .map(c => ({
-        time: Math.floor(new Date(c.startedAt).getTime() / 1000) as any,
-        open: parseFloat(c.open),
-        high: parseFloat(c.high),
-        low: parseFloat(c.low),
-        close: parseFloat(c.close),
-        volume: parseFloat(c.usdVolume),
-      }))
-      .sort((a, b) => a.time - b.time);
-
     if (chartType === 'candlestick') {
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
         upColor: colors.upColor,
@@ -225,7 +264,6 @@ export default function DyDxTradingChart() {
         wickUpColor: colors.upColor,
         wickDownColor: colors.downColor,
       });
-      candlestickSeries.setData(candleData);
       seriesRef.current = candlestickSeries;
     } else if (chartType === 'line') {
       const lineSeries = chart.addSeries(LineSeries, {
@@ -234,11 +272,6 @@ export default function DyDxTradingChart() {
         crosshairMarkerVisible: true,
         crosshairMarkerRadius: 4,
       });
-      const lineData = candleData.map(c => ({
-        time: c.time,
-        value: c.close,
-      }));
-      lineSeries.setData(lineData);
       seriesRef.current = lineSeries;
     } else if (chartType === 'area') {
       const areaSeries = chart.addSeries(AreaSeries, {
@@ -247,11 +280,6 @@ export default function DyDxTradingChart() {
         lineColor: '#3b82f6',
         lineWidth: 2,
       });
-      const areaData = candleData.map(c => ({
-        time: c.time,
-        value: c.close,
-      }));
-      areaSeries.setData(areaData);
       seriesRef.current = areaSeries;
     }
 
@@ -261,17 +289,41 @@ export default function DyDxTradingChart() {
         priceFormat: { type: 'volume' },
         priceScaleId: 'volume',
       });
-      const volumeData = candleData.map(c => ({
-        time: c.time,
-        value: c.volume,
-        color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
-      }));
-      volumeSeries.setData(volumeData);
       volumeSeriesRef.current = volumeSeries;
     }
 
-    chart.timeScale().fitContent();
-  }, [candles, chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
+    // Immediately populate the new series instance with current data
+    const currentCandles = candlesRef.current;
+    if (currentCandles.length > 0) {
+      const candleData = currentCandles
+        .map(c => ({
+          time: Math.floor(new Date(c.startedAt).getTime() / 1000) as any,
+          open: parseFloat(c.open),
+          high: parseFloat(c.high),
+          low: parseFloat(c.low),
+          close: parseFloat(c.close),
+          volume: parseFloat(c.usdVolume),
+        }))
+        .sort((a, b) => a.time - b.time);
+
+      if (chartType === 'candlestick') {
+        seriesRef.current?.setData(candleData);
+      } else {
+        seriesRef.current?.setData(candleData.map(c => ({ time: c.time, value: c.close })));
+      }
+
+      if (showVolume && volumeSeriesRef.current) {
+        volumeSeriesRef.current.setData(
+          candleData.map(c => ({
+            time: c.time,
+            value: c.volume,
+            color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
+          }))
+        );
+      }
+      chart.timeScale().fitContent();
+    }
+  }, [chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -570,15 +622,16 @@ export default function DyDxTradingChart() {
             </div>
           )}
 
-          {!hasInitialData && isLoading ? (
-            <InitialLoadingSpinner />
-          ) : (
-            <div
-              key={chartKey}
-              ref={chartContainerRef}
-              className="absolute inset-0 w-full h-full"
-            />
+          {!hasInitialData && isLoading && (
+            <div className="absolute inset-0 z-20">
+              <InitialLoadingSpinner />
+            </div>
           )}
+          <div
+            key={chartKey}
+            ref={chartContainerRef}
+            className={`absolute inset-0 w-full h-full ${!hasInitialData && isLoading ? 'opacity-0' : 'opacity-100'}`}
+          />
         </div>
       </div>
     );
@@ -629,11 +682,16 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        {!hasInitialData && isLoading ? (
-          <InitialLoadingSpinner />
-        ) : (
-          <div key={chartKey} ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+        {!hasInitialData && isLoading && (
+          <div className="absolute inset-0 z-20">
+            <InitialLoadingSpinner />
+          </div>
         )}
+        <div
+          key={chartKey}
+          ref={chartContainerRef}
+          className={`absolute inset-0 w-full h-full ${!hasInitialData && isLoading ? 'opacity-0' : 'opacity-100'}`}
+        />
       </div>
     </div>
   );
@@ -667,11 +725,16 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        {!hasInitialData && isLoading ? (
-          <InitialLoadingSpinner />
-        ) : (
-          <div key={chartKey} ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+        {!hasInitialData && isLoading && (
+          <div className="absolute inset-0 z-20">
+            <InitialLoadingSpinner />
+          </div>
         )}
+        <div
+          key={chartKey}
+          ref={chartContainerRef}
+          className={`absolute inset-0 w-full h-full ${!hasInitialData && isLoading ? 'opacity-0' : 'opacity-100'}`}
+        />
       </div>
     </div>
   );

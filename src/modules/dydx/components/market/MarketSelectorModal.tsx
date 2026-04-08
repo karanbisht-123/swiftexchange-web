@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type MarketData, useMarkets } from '../../hooks/useMarkets';
 import useMarketStore from '../../store/marketStore';
+import { formatMarketPrice } from '../../utils/BigNumberUtils';
 
 interface MarketSelectorModalProps {
   isOpen: boolean;
@@ -29,11 +30,7 @@ const MarketRow = memo(function MarketRow({
   const percentChange = (priceChange * 100).toFixed(2);
 
   const formatPrice = (price: string) => {
-    const num = parseFloat(price);
-    if (isNaN(num)) return '0.00';
-    return num >= 1000
-      ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+    return formatMarketPrice(price);
   };
 
   const formatVolume = (volume: string) => {

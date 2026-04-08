@@ -881,8 +881,11 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleSubscribe(`trades_${market}`, set, () => {
         const socketClient = getSocketClient();
         return socketClient.subscribeToTrades(market, (data: any) => {
-          if (data.contents?.trades) {
-            get().updateTrades(market, { market, trades: data.contents.trades, lastUpdate: Date.now() });
+          const rawTrades = Array.isArray(data.contents)
+            ? data.contents.flatMap((c: any) => c?.trades || (c?.id ? [c] : []))
+            : (data.contents?.trades || []);
+          if (rawTrades.length > 0) {
+            get().updateTrades(market, { market, trades: rawTrades, lastUpdate: Date.now() });
           }
         });
       });
@@ -897,8 +900,11 @@ export const useWebSocketStore = create<WebSocketState>()(
       handleSubscribe(key, set, () => {
         const socketClient = getSocketClient();
         return socketClient.subscribeToCandles(market, resolution, (data: any) => {
-          if (data.contents?.candles) {
-            get().updateCandles(key, { market, resolution, candles: data.contents.candles, lastUpdate: Date.now() });
+          const rawCandles = Array.isArray(data.contents)
+            ? data.contents.flatMap((c: any) => c?.candles || (c?.startedAt ? [c] : []))
+            : (data.contents?.candles || []);
+          if (rawCandles.length > 0) {
+            get().updateCandles(key, { market, resolution, candles: rawCandles, lastUpdate: Date.now() });
           }
         });
       });
