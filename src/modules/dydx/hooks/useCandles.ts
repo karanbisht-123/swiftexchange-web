@@ -28,13 +28,15 @@ interface UseRealtimeChartReturn {
   isConnected: boolean;
 }
 
+const FETCH_DEBOUNCE_MS = 300;
+
 export function useRealtimeChart(
   market: string = 'BTC-USD',
   resolution: CandleResolution = '1MIN',
   limit: number = 100
 ): UseRealtimeChartReturn {
-  // dYdX Indexer API enforces a maximum limit of 1000
   const enforcedLimit = Math.min(limit, 1000);
+
   const [snapshotCandles, setSnapshotCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,11 +45,11 @@ export function useRealtimeChart(
   const unsubscribeFromCandles = useWebSocketStore(state => state.unsubscribeFromCandles);
   const isConnected = useWebSocketStore(state => state.isConnected);
 
-  const prevConnectedRef = useRef<boolean>(false);
-  const prevMarketRef = useRef<string>(market);
-  const prevResolutionRef = useRef<CandleResolution>(resolution);
   const mountedRef = useRef(true);
 
+  const loadIdRef = useRef(0);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const candleKey = `candles_${market}_${resolution}`;
   const storeCandlesData = useWebSocketStore(state => state.candles.get(candleKey));
 
@@ -55,30 +57,25 @@ export function useRealtimeChart(
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      debounceTimerRef.current && clearTimeout(debounceTimerRef.current);
+      abortControllerRef.current?.abort();
     };
   }, []);
 
   useEffect(() => {
-    let mounted = true;
+    setSnapshotCandles([]);
+    setIsLoading(true);
+    setError(null);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    abortControllerRef.current?.abort();
+    loadIdRef.current += 1;
+    const myLoadId = loadIdRef.current;
+    debounceTimerRef.current = setTimeout(async () => {
+      if (!mountedRef.current || myLoadId !== loadIdRef.current) return;
 
-    const isReconnect = !prevConnectedRef.current && isConnected;
-    const isParamChange =
-      prevMarketRef.current !== market || prevResolutionRef.current !== resolution;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-    prevConnectedRef.current = isConnected;
-    prevMarketRef.current = market;
-    prevResolutionRef.current = resolution;
-
-    if (isParamChange) {
-      setSnapshotCandles([]);
-      setIsLoading(true);
-      setError(null);
-    } else if (isReconnect) {
-      setIsLoading(true);
-      setError(null);
-    }
-
-    const loadCandles = async () => {
       try {
         const indexerClient = getIndexerClient();
         const data = await indexerClient.markets.getPerpetualMarketCandles(
@@ -89,57 +86,62 @@ export function useRealtimeChart(
           enforcedLimit
         );
 
-        if (!mounted) return;
-
-        const fetched = data.candles || [];
-
-        if (fetched.length > 0) {
-          const sorted = [...fetched].sort(
-            (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
-          );
-          setSnapshotCandles(sorted);
-        } else {
-          setSnapshotCandles([]);
+        if (!mountedRef.current || myLoadId !== loadIdRef.current || controller.signal.aborted) {
+          return;
         }
 
-        setIsLoading(false);
+        const fetched: Candle[] = (data.candles || []).map((c: any) => ({
+          startedAt: c.startedAt,
+          ticker: c.ticker || market,
+          resolution: c.resolution || resolution,
+          low: c.low || '0',
+          high: c.high || '0',
+          open: c.open || '0',
+          close: c.close || '0',
+          baseTokenVolume: c.baseTokenVolume || '0',
+          usdVolume: c.usdVolume || '0',
+          trades: Number(c.trades) || 0,
+          startingOpenInterest: c.startingOpenInterest || '0',
+          id: c.startedAt,
+        }));
+
+        const sorted = [...fetched].sort(
+          (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+        );
+
+        setSnapshotCandles(sorted);
         setError(null);
-      } catch (err) {
-        if (!mounted) return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        if (!mountedRef.current || myLoadId !== loadIdRef.current) return;
+
         console.error('[Candles] Load error:', err);
         setError(err instanceof Error ? err.message : 'Failed to load candles');
-        setIsLoading(false);
+        setSnapshotCandles([]);
+      } finally {
+        if (mountedRef.current && myLoadId === loadIdRef.current) {
+          setIsLoading(false);
+        }
       }
-    };
-
-    loadCandles();
+    }, FETCH_DEBOUNCE_MS);
 
     return () => {
-      mounted = false;
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [market, resolution, enforcedLimit, isConnected]);
-
+  }, [market, resolution, enforcedLimit]);
   useEffect(() => {
     subscribeToCandles(market, resolution);
-
     return () => {
       unsubscribeFromCandles(market, resolution);
     };
   }, [market, resolution, subscribeToCandles, unsubscribeFromCandles]);
-
   const mergedCandles = useMemo(() => {
     const liveCandles = storeCandlesData?.candles || [];
 
-    if (liveCandles.length === 0 && snapshotCandles.length === 0) {
-      return [];
-    }
+    if (liveCandles.length === 0 && snapshotCandles.length === 0) return [];
 
     const candleMap = new Map<string, Candle>();
-
-    snapshotCandles.forEach(c => {
-      candleMap.set(c.startedAt, c);
-    });
-
+    snapshotCandles.forEach(c => candleMap.set(c.startedAt, c));
     liveCandles.forEach((c: any) => {
       candleMap.set(c.startedAt, {
         startedAt: c.startedAt,
@@ -159,7 +161,6 @@ export function useRealtimeChart(
 
     const merged = Array.from(candleMap.values());
     merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
-
     return merged.slice(-enforcedLimit);
   }, [snapshotCandles, storeCandlesData, enforcedLimit, market, resolution]);
 

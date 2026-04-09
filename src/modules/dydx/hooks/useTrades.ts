@@ -1,5 +1,3 @@
-// 
-
 
 import { useEffect, useRef, useState } from 'react';
 import { getSocketClient } from '../client/clients';

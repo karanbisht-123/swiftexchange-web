@@ -66,6 +66,13 @@ const chartTypeIcons: Record<ChartType, React.ReactNode> = {
   area: <BarChart3 className="w-4 h-4" />,
 };
 
+function isValidCandle(c: { open: number; high: number; low: number; close: number }): boolean {
+  return (
+    c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0 &&
+    isFinite(c.open) && isFinite(c.high) && isFinite(c.low) && isFinite(c.close)
+  );
+}
+
 export default function DyDxTradingChart() {
   const isDark = useTheme();
   const isMobile = useIsMobile();
@@ -91,8 +98,11 @@ export default function DyDxTradingChart() {
   const { candles, latestCandle, isLoading, error } = useRealtimeChart(
     selectedMarket,
     timeframe,
-    300
+    1000
   );
+
+  const lastDatasetIdRef = useRef('');
+  const lastBarTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (candles.length > 0 && !hasInitialData) {
@@ -102,9 +112,10 @@ export default function DyDxTradingChart() {
 
   useEffect(() => {
     setHasInitialData(false);
+    lastDatasetIdRef.current = '';
+    lastBarTimeRef.current = 0;
   }, [selectedMarket, timeframe]);
 
-  const lastDatasetIdRef = useRef('');
 
   const getThemeColors = useCallback(() => {
     if (isDark) {
@@ -136,10 +147,19 @@ export default function DyDxTradingChart() {
     candlesRef.current = candles;
   }, [candles]);
 
-  useEffect(() => {
-    if (!seriesRef.current || candles.length === 0) return;
 
-    // Do NOT include chartType in the dataset ID to avoid race conditions during chart recreation
+
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    if (candles.length === 0) {
+      seriesRef.current.setData([]);
+      if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
+      lastDatasetIdRef.current = '';
+      lastBarTimeRef.current = 0;
+      return;
+    }
+
+    // NOT include chartType in the dataset ID to avoid race conditions
     const currentDatasetId = `${selectedMarket}-${timeframe}`;
     if (lastDatasetIdRef.current !== currentDatasetId) {
       const colors = getThemeColors();
@@ -152,12 +172,24 @@ export default function DyDxTradingChart() {
           close: parseFloat(c.close),
           volume: parseFloat(c.usdVolume),
         }))
+        .filter(isValidCandle)
         .sort((a, b) => a.time - b.time);
+
+      if (candleData.length === 0) {
+        seriesRef.current.setData([]);
+        if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
+        return;
+      }
 
       if (chartType === 'candlestick') {
         seriesRef.current.setData(candleData);
       } else {
         seriesRef.current.setData(candleData.map(c => ({ time: c.time, value: c.close })));
+      }
+
+      // Track the latest bar time
+      if (candleData.length > 0) {
+        lastBarTimeRef.current = candleData[candleData.length - 1].time;
       }
 
       if (showVolume && volumeSeriesRef.current) {
@@ -291,8 +323,6 @@ export default function DyDxTradingChart() {
       });
       volumeSeriesRef.current = volumeSeries;
     }
-
-    // Immediately populate the new series instance with current data
     const currentCandles = candlesRef.current;
     if (currentCandles.length > 0) {
       const candleData = currentCandles
@@ -304,24 +334,30 @@ export default function DyDxTradingChart() {
           close: parseFloat(c.close),
           volume: parseFloat(c.usdVolume),
         }))
+        .filter(c => c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0)
         .sort((a, b) => a.time - b.time);
 
-      if (chartType === 'candlestick') {
-        seriesRef.current?.setData(candleData);
-      } else {
-        seriesRef.current?.setData(candleData.map(c => ({ time: c.time, value: c.close })));
-      }
+      if (candleData.length > 0) {
+        if (chartType === 'candlestick') {
+          seriesRef.current?.setData(candleData);
+        } else {
+          seriesRef.current?.setData(candleData.map(c => ({ time: c.time, value: c.close })));
+        }
+        if (candleData.length > 0) {
+          lastBarTimeRef.current = candleData[candleData.length - 1].time;
+        }
 
-      if (showVolume && volumeSeriesRef.current) {
-        volumeSeriesRef.current.setData(
-          candleData.map(c => ({
-            time: c.time,
-            value: c.volume,
-            color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
-          }))
-        );
+        if (showVolume && volumeSeriesRef.current) {
+          volumeSeriesRef.current.setData(
+            candleData.map(c => ({
+              time: c.time,
+              value: c.volume,
+              color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
+            }))
+          );
+        }
+        chart.timeScale().fitContent();
       }
-      chart.timeScale().fitContent();
     }
   }, [chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);
 
@@ -382,40 +418,42 @@ export default function DyDxTradingChart() {
 
   useEffect(() => {
     if (!latestCandle || !seriesRef.current || !chartRef.current) return;
+    if (latestCandle.ticker && latestCandle.ticker !== selectedMarket) return;
+
+    const open = parseFloat(latestCandle.open);
+    const high = parseFloat(latestCandle.high);
+    const low = parseFloat(latestCandle.low);
+    const close = parseFloat(latestCandle.close);
+    if (!open || !high || !low || !close) return;
+    if (!isFinite(open) || !isFinite(high) || !isFinite(low) || !isFinite(close)) return;
 
     const candleTime = Math.floor(new Date(latestCandle.startedAt).getTime() / 1000);
 
-    const candlePoint = {
-      time: candleTime as any,
-      open: parseFloat(latestCandle.open),
-      high: parseFloat(latestCandle.high),
-      low: parseFloat(latestCandle.low),
-      close: parseFloat(latestCandle.close),
-    };
+    if (candleTime < lastBarTimeRef.current) return;
+
+    const candlePoint = { time: candleTime as any, open, high, low, close };
 
     try {
       if (chartType === 'candlestick') {
         seriesRef.current.update(candlePoint);
       } else {
-        seriesRef.current.update({
-          time: candlePoint.time,
-          value: candlePoint.close,
-        });
+        seriesRef.current.update({ time: candlePoint.time, value: close });
       }
+
+      lastBarTimeRef.current = candleTime;
 
       if (showVolume && volumeSeriesRef.current) {
         const colors = getThemeColors();
         volumeSeriesRef.current.update({
           time: candlePoint.time,
           value: parseFloat(latestCandle.usdVolume),
-          color:
-            candlePoint.close >= candlePoint.open ? colors.upColor + '40' : colors.downColor + '40',
+          color: close >= open ? colors.upColor + '40' : colors.downColor + '40',
         });
       }
-    } catch (error) {
-      console.error('[Chart] Update error:', error);
+    } catch (err) {
+      console.error('[Chart] Update error:', err);
     }
-  }, [latestCandle, chartType, showVolume, getThemeColors]);
+  }, [latestCandle, selectedMarket, chartType, showVolume, getThemeColors]);
 
   const downloadChart = useCallback(() => {
     if (!chartContainerRef.current) return;
@@ -455,11 +493,10 @@ export default function DyDxTradingChart() {
         <button
           key={tf.value}
           onClick={() => setTimeframe(tf.value)}
-          className={`px-2 py-1 text-[10px] sm:text-xs font-medium rounded transition-all min-w-[28px] sm:min-w-[32px] ${
-            timeframe === tf.value
-              ? 'bg-brand text-white'
-              : 'text-gray-400 hover:text-white hover:bg-white/10'
-          }`}
+          className={`px-2 py-1 text-[10px] sm:text-xs font-medium rounded transition-all min-w-[28px] sm:min-w-[32px] ${timeframe === tf.value
+            ? 'bg-brand text-white'
+            : 'text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
         >
           {tf.label}
         </button>
@@ -490,9 +527,8 @@ export default function DyDxTradingChart() {
                   setChartType(ct.value);
                   setShowChartTypeMenu(false);
                 }}
-                className={`w-full text-left px-3 py-2.5 text-xs hover:bg-hover transition-colors flex items-center gap-2 ${
-                  chartType === ct.value ? 'bg-hover text-brand font-medium' : 'text-primary'
-                }`}
+                className={`w-full text-left px-3 py-2.5 text-xs hover:bg-hover transition-colors flex items-center gap-2 ${chartType === ct.value ? 'bg-hover text-brand font-medium' : 'text-primary'
+                  }`}
               >
                 {ct.icon}
                 <span>{ct.label}</span>

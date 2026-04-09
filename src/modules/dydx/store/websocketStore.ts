@@ -62,11 +62,29 @@ export interface MarketData {
   ticker: string;
   oraclePrice: string;
   priceChange24H: string;
+  priceChange24HPercent?: string;
   trades24H: string;
   volume24H: string;
   openInterest: string;
   nextFundingRate: string;
+  nextFundingAt?: string;
   initialMarginFraction: string;
+  maintenanceMarginFraction?: string;
+  // market spec fields from WS snapshot
+  clobPairId?: string;
+  marketId?: string;
+  status?: string;
+  marketType?: string;
+  tickSize?: string;
+  stepSize?: string;
+  atomicResolution?: number;
+  quantumConversionExponent?: number;
+  stepBaseQuantums?: number;
+  subticksPerTick?: number;
+  openInterestLowerCap?: string;
+  openInterestUpperCap?: string;
+  baseOpenInterest?: string;
+  defaultFundingRate1H?: string;
   lastUpdate: number;
 }
 
@@ -226,6 +244,8 @@ interface WebSocketState {
 
   parentSubaccounts: Map<string, ParentSubaccountData>;
   markets: Map<string, MarketData>;
+  /** Full snapshot populated from the WS 'subscribed' message — used by useMarkets instead of REST */
+  marketsSnapshot: Map<string, MarketData> | null;
   trades: Map<string, TradeData>;
   candles: Map<string, CandleData>;
   positionPnl: Map<string, PositionPnl>;
@@ -254,6 +274,7 @@ interface WebSocketState {
   updateMarket: (ticker: string, data: Partial<MarketData>) => void;
   updateMarkets: (updates: Record<string, Partial<MarketData>>) => void;
   updateOraclePrices: (updates: Record<string, string>) => void;
+  initializeMarketsFromSnapshot: (snapshot: Record<string, any>) => void;
   updateTrades: (market: string, data: Partial<TradeData>) => void;
   updateCandles: (key: string, data: Partial<CandleData>) => void;
   cleanup: () => void;
@@ -515,6 +536,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     optimisticFreeCollateralDelta: 0,
     parentSubaccounts: new Map(),
     markets: new Map(),
+    marketsSnapshot: null,
     trades: new Map(),
     candles: new Map(),
     positionPnl: new Map(),
@@ -854,12 +876,21 @@ export const useWebSocketStore = create<WebSocketState>()(
         return socketClient.subscribeToMarkets((data: any) => {
           if (!data?.contents) return;
           const contents = data.contents;
+          const msgType: string = data.type ?? '';
 
-          if (contents.markets) {
+          // Initial snapshot — populate marketsSnapshot with full raw data
+          if (msgType === 'subscribed' && contents.markets) {
+            get().initializeMarketsFromSnapshot(contents.markets);
+            return;
+          }
+
+          // Single / non-batched update
+          if (!Array.isArray(contents) && contents.markets) {
             get().updateMarkets(contents.markets);
             return;
           }
 
+          // Batched incremental updates
           if (Array.isArray(contents)) {
             const oraclePrices = parseOraclePriceBatch(contents);
             if (Object.keys(oraclePrices).length > 0) get().updateOraclePrices(oraclePrices);
@@ -1086,6 +1117,57 @@ export const useWebSocketStore = create<WebSocketState>()(
       });
     },
 
+    /**
+     * Called once when the WS v4_markets 'subscribed' snapshot arrives.
+     * Builds a full MarketData map from the raw snapshot fields and stores it
+     * in `marketsSnapshot`. useMarkets reads this instead of calling the REST API.
+     */
+    initializeMarketsFromSnapshot: (snapshot: Record<string, any>) => {
+      const now = Date.now();
+      const snapshotMap = new Map<string, MarketData>();
+      const marketMap = new Map<string, MarketData>();
+
+      for (const [ticker, raw] of Object.entries(snapshot)) {
+        if (!raw || typeof raw !== 'object') continue;
+        const m: MarketData = {
+          ticker,
+          oraclePrice: raw.oraclePrice ?? '0',
+          priceChange24H: raw.priceChange24H ?? '0',
+          priceChange24HPercent: raw.priceChange24HPercent ?? '0',
+          trades24H: String(raw.trades24H ?? '0'),
+          volume24H: raw.volume24H ?? '0',
+          openInterest: raw.openInterest ?? '0',
+          nextFundingRate: raw.nextFundingRate ?? '0',
+          nextFundingAt: raw.nextFundingAt ?? '',
+          initialMarginFraction: raw.initialMarginFraction ?? '0',
+          maintenanceMarginFraction: raw.maintenanceMarginFraction ?? '0',
+          clobPairId: raw.clobPairId,
+          marketId: raw.marketId,
+          status: raw.status ?? 'ACTIVE',
+          marketType: raw.marketType ?? 'CROSS',
+          tickSize: raw.tickSize,
+          stepSize: raw.stepSize,
+          atomicResolution: raw.atomicResolution,
+          quantumConversionExponent: raw.quantumConversionExponent,
+          stepBaseQuantums: raw.stepBaseQuantums,
+          subticksPerTick: raw.subticksPerTick,
+          openInterestLowerCap: raw.openInterestLowerCap,
+          openInterestUpperCap: raw.openInterestUpperCap,
+          baseOpenInterest: raw.baseOpenInterest,
+          defaultFundingRate1H: raw.defaultFundingRate1H,
+          lastUpdate: now,
+        };
+        snapshotMap.set(ticker, m);
+        marketMap.set(ticker, m);
+      }
+
+      set({
+        marketsSnapshot: snapshotMap,
+        markets: marketMap,
+        updateTrigger: useWebSocketStore.getState().updateTrigger + 1,
+      });
+    },
+
     updateTrades: (market, data) => {
       set((state) => {
         const newMap = new Map(state.trades);
@@ -1117,6 +1199,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       set({
         parentSubaccounts: new Map(),
         markets: new Map(),
+        marketsSnapshot: null,
         trades: new Map(),
         candles: new Map(),
         positionPnl: new Map(),
