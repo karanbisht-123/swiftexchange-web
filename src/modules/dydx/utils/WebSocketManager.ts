@@ -846,7 +846,7 @@ interface SubscriptionStats {
   errorCount: number;
 }
 
-// Hashes only first 256 chars — enough for dedup, cheaper than 512
+// Hashes only first 256 chars — enough for dedup
 function cheapHash(obj: unknown): number {
   const str = typeof obj === 'string' ? obj : JSON.stringify(obj);
   let h = 5381;
@@ -911,7 +911,7 @@ class WebSocketManager {
   private throttleMap = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly THROTTLE_INTERVALS: Record<string, number> = {
     v4_markets: 50,
-    v4_candles: 0,
+    v4_candles: 50,
     v4_block_height: 1000,
     v4_trades: 0,
     v4_orderbook: 0,

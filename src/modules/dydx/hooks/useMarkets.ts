@@ -5,6 +5,7 @@ import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
 import type { MarketData as WsMarketData } from '../store/websocketStore';
 import type { MarketData } from '../types/trading.types';
+import { getValidatorClient } from '../client/clients';
 import { metadataService } from './useMetadata';
 
 export type { MarketData };
@@ -73,6 +74,7 @@ function buildMarketData(
 export function useMarkets(): UseMarketsReturn {
   const [markets, setMarkets] = useState<Record<string, MarketData>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [zeroFeeClobPairIds, setZeroFeeClobPairIds] = useState<Set<number>>(new Set());
   const [cacheStats, setCacheStats] = useState(metadataService.getCacheStats());
 
   const isMountedRef = useRef(true);
@@ -87,6 +89,39 @@ export function useMarkets(): UseMarketsReturn {
   useEffect(() => {
     isMountedRef.current = true;
     subscribeToAllMarkets();
+
+    const fetchFeeDiscounts = async () => {
+      try {
+        const validatorClient = await getValidatorClient();
+        const feeDiscountsResponse = await validatorClient.get
+          .getAllPerpMarketFeeDiscounts()
+          .catch((err: any) => {
+            console.error('[useMarkets] Failed to fetch fee discounts:', err);
+            return { params: [] };
+          });
+
+        if (!isMountedRef.current) return;
+
+        const zeroFeeIds = new Set<number>();
+        const now = Date.now();
+        if (feeDiscountsResponse?.params) {
+          console.log('[useMarkets] Fee discounts fetched:', feeDiscountsResponse.params);
+          feeDiscountsResponse.params.forEach((param: any) => {
+            const start = new Date(param.startTime).getTime();
+            const end = new Date(param.endTime).getTime();
+
+            if (param.chargePpm === 0 && now >= start && now <= end) {
+              zeroFeeIds.add(param.clobPairId);
+            }
+          });
+        }
+        setZeroFeeClobPairIds(zeroFeeIds);
+      } catch (error) {
+        console.error('[useMarkets] Error in fetchFeeDiscounts:', error);
+      }
+    };
+
+    fetchFeeDiscounts();
 
     return () => {
       isMountedRef.current = false;
@@ -109,8 +144,9 @@ export function useMarkets(): UseMarketsReturn {
         const coinIcon = metadataService.getCoinIcon(ticker) || staticCoin?.image || '';
         const coinName = staticCoin?.name ?? baseAsset;
         const marketCap = staticCoin?.market_cap?.toString() ?? '0';
+        const isZeroFee = ws.clobPairId !== undefined && zeroFeeClobPairIds.has(Number(ws.clobPairId));
 
-        marketsMap[ticker] = buildMarketData(ticker, ws, coinIcon, coinName, marketCap, false);
+        marketsMap[ticker] = buildMarketData(ticker, ws, coinIcon, coinName, marketCap, isZeroFee);
       }
       if (!isMountedRef.current) return;
       setMarkets(marketsMap);
@@ -136,7 +172,7 @@ export function useMarkets(): UseMarketsReturn {
     };
 
     buildAll();
-  }, [marketsSnapshot]);
+  }, [marketsSnapshot, zeroFeeClobPairIds]);
 
   useEffect(() => {
     if (storeMarkets.size === 0) return;
@@ -214,14 +250,12 @@ export function useMarkets(): UseMarketsReturn {
       unsubscribe();
       if (metadataUpdateTimerRef.current) clearTimeout(metadataUpdateTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // refreshMarkets just re-triggers the WS subscription (no REST call)
   const refreshMarkets = useCallback(() => {
     setIsLoading(true);
     unsubscribeFromAllMarkets();
-    // Small delay to let the unsub flush before resubscribing
+
     setTimeout(() => {
       if (isMountedRef.current) subscribeToAllMarkets();
     }, 500);

@@ -246,14 +246,12 @@ export async function executeSwap(
         }
       }
 
-      // FIX (GAS): Same fix applied to the testnet/fallback path
       const gasLimitFromApi = safeGasLimit(txData as any);
 
       const tx: ethers.TransactionRequest = {
         from: senderAddress,
         to: txData.to,
         data: txData.data,
-        // FIX (VALUE): guard against undefined/null value
         value: safeValue(txData.value),
       };
 
@@ -289,3 +287,129 @@ export async function executeSwap(
     throw new Error(message);
   }
 }
+
+
+
+
+
+
+
+
+
+
+//  if (isMainnet()) {
+
+//       console.log(transactions, "transactions")
+//       for (const tx of transactions) {
+//         const gasLimitFromApi = safeGasLimit(tx);
+
+//         const txParams: ethers.TransactionRequest = {
+//           from: tx.from || senderAddress,
+//           to: tx.to,
+//           data: tx.data,
+//           value: safeValue(tx.value),
+//         };
+//         // if (gasLimitFromApi !== undefined) {
+//         //   txParams.gasLimit = gasLimitFromApi;
+//         // } else {
+//         //   const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
+//         //   if (estimated !== undefined) {
+//         //     txParams.gasLimit = estimated;
+//         //   }
+
+//         // }
+
+//         const GAS_BUFFER_MULTIPLIER = 1.3;
+//         if (gasLimitFromApi !== undefined) {
+//           txParams.gasLimit = BigInt(
+//             Math.floor(Number(gasLimitFromApi) * GAS_BUFFER_MULTIPLIER)
+//           );
+//         } else {
+//           const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
+//           if (estimated !== undefined) {
+//             txParams.gasLimit = BigInt(
+//               Math.floor(Number(estimated) * GAS_BUFFER_MULTIPLIER)
+//             );
+//           }
+//         }
+
+//         if (tx.maxFeePerGas) {
+//           txParams.maxFeePerGas = BigInt(Math.floor(Number(tx.maxFeePerGas) * GAS_BUFFER_MULTIPLIER))
+//         }
+//         if (tx.maxPriorityFeePerGas) {
+//           txParams.maxPriorityFeePerGas = BigInt(Math.floor(Number(tx.maxPriorityFeePerGas) * GAS_BUFFER_MULTIPLIER))
+//         }
+
+//         console.log('[executeSwap] Sending transaction:', {
+//           to: txParams.to,
+//           value: txParams.value?.toString(),
+//           gasLimit: txParams.gasLimit?.toString(),
+//           maxFeePerGas: txParams.maxFeePerGas?.toString(),
+//           maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
+//         });
+
+//         const txResponse = await signer.sendTransaction(txParams);
+//         console.log(txResponse, "---------")
+//         const receipt = await txResponse.wait();
+//         console.log(receipt, "------------")
+
+//         if (!receipt || receipt.status === 0) {
+//           throw new Error('Transaction reverted on-chain');
+//         }
+
+//         lastTxHash = txResponse.hash;
+//       }
+//     } else {
+//       const txData = transactions[0];
+//       if (!selectedSellAsset.isNative && (txData as any).requiresApproval) {
+//         const erc20Abi = [
+//           'function approve(address spender, uint256 amount) public returns (bool)',
+//           'function allowance(address owner, address spender) public view returns (uint256)',
+//         ];
+//         const tokenContract = new ethers.Contract(selectedSellAsset.address, erc20Abi, signer);
+//         const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
+//         const currentAllowance = await tokenContract.allowance(
+//           senderAddress,
+//           (txData as any).spenderAddress
+//         );
+
+//         if (currentAllowance < amountIn) {
+//           const approveTx = await tokenContract.approve((txData as any).spenderAddress, amountIn);
+//           await approveTx.wait();
+//         }
+//       }
+
+
+//       const gasLimitFromApi = safeGasLimit(txData as any);
+
+//       const tx: ethers.TransactionRequest = {
+//         from: senderAddress,
+//         to: txData.to,
+//         data: txData.data,
+//         value: safeValue(txData.value),
+//       };
+
+//       if (gasLimitFromApi !== undefined) {
+//         tx.gasLimit = gasLimitFromApi;
+//       } else {
+//         const estimated = await estimateGasWithBuffer(ethersProvider, tx);
+//         if (estimated !== undefined) {
+//           tx.gasLimit = estimated;
+//         }
+//       }
+
+//       console.log('[executeSwap] Sending fallback transaction:', {
+//         to: tx.to,
+//         value: tx.value?.toString(),
+//         gasLimit: tx.gasLimit?.toString(),
+//       });
+
+//       const txResponse = await signer.sendTransaction(tx);
+//       const receipt = await txResponse.wait();
+
+//       if (!receipt || receipt.status === 0) {
+//         throw new Error('Transaction reverted on-chain');
+//       }
+
+//       lastTxHash = txResponse.hash;
+//     }
