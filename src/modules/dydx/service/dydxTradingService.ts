@@ -19,6 +19,7 @@ import {
 } from '../types/trading.types';
 import { dydxSubaccountService } from './dydxSubaccountService';
 import { dydxWalletService } from './dydxWalletService';
+import { useWebSocketStore } from '../store/websocketStore';
 
 const TRADING_CONFIG = {
   DEFAULT_SLIPPAGE: 0.05,
@@ -335,33 +336,88 @@ class DydxTradingService {
     subaccountNumber: number,
     minEquity: number
   ): Promise<void> {
-    const indexer = dydxWalletService.getIndexerClient();
     const { TRANSFER_CONFIRM_POLL_MS, TRANSFER_CONFIRM_MAX_ATTEMPTS } = TRADING_CONFIG;
+    const maxWaitMs = TRANSFER_CONFIRM_MAX_ATTEMPTS * TRANSFER_CONFIRM_POLL_MS;
+    // Key used in useWebSocketStore for the address profile
+    const parentKey = `parent_subaccount_${address}_0`;
+    const isConditionMet = (state: any) => {
+      const parentData = state.parentSubaccounts.get(parentKey);
+      if (!parentData?.childSubaccounts) return false;
 
-    for (let attempt = 1; attempt <= TRANSFER_CONFIRM_MAX_ATTEMPTS; attempt++) {
-      await new Promise(r => setTimeout(r, TRANSFER_CONFIRM_POLL_MS));
+      const child = parentData.childSubaccounts.find(
+        (c: any) => c.subaccountNumber === subaccountNumber
+      );
+      if (!child) return false;
 
-      try {
-        const resp = await indexer.account.getSubaccount(address, subaccountNumber);
-        const equity = parseFloat(resp.subaccount?.equity || '0');
-        const freeCollateral = parseFloat(resp.subaccount?.freeCollateral || '0');
+      const equity = parseFloat(child.equity || '0');
+      const freeCollateral = parseFloat(child.freeCollateral || '0');
 
-        console.log(`[atomic] Poll ${attempt}/${TRANSFER_CONFIRM_MAX_ATTEMPTS}: equity=$${equity.toFixed(2)}, freeCollateral=$${freeCollateral.toFixed(2)} (need >= $${minEquity.toFixed(2)})`);
+      // Use a 1% buffer to account for minor precision differences, same as original
+      return equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99;
+    };
 
-        // ← IMPROVED CHECK: use freeCollateral (most reliable for transfers)
-        if (equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99) {
-          console.log(`[atomic] Transfer confirmed on-chain after ${attempt} poll(s)`);
-          return;
-        }
-      } catch (e: any) {
-        console.warn(`[atomic] Poll ${attempt} indexer error: ${e.message}`);
-      }
+    // Immediate check before subscribing
+    if (isConditionMet(useWebSocketStore.getState())) {
+      console.log(`[atomic] [reflection] Transfer already reflected in store state`);
+      return;
     }
 
-    throw new Error(
-      `Transfer of $${minEquity.toFixed(2)} to isolated subaccount ${subaccountNumber} did not confirm within ` +
-      `${(TRANSFER_CONFIRM_MAX_ATTEMPTS * TRANSFER_CONFIRM_POLL_MS / 1000).toFixed(0)}s. Try again.`
-    );
+    console.log(`[atomic] [reflection] Waiting up to ${maxWaitMs / 1000}s for transfer ($${minEquity.toFixed(2)}) via WS/Polling`);
+
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(
+            `Transfer of $${minEquity.toFixed(2)} to isolated subaccount ${subaccountNumber} did not confirm within ` +
+            `${(maxWaitMs / 1000).toFixed(0)}s. Please check your transaction history.`
+          ));
+        }
+      }, maxWaitMs);
+
+      const cleanup = () => {
+        resolved = true;
+        unsubscribe();
+        clearInterval(pollInterval);
+        clearTimeout(timeoutId);
+      };
+
+      // WebSocket Subscription (Primarypath)
+      const unsubscribe = useWebSocketStore.subscribe((state) => {
+        if (isConditionMet(state)) {
+          console.log(`[atomic] [reflection] Transfer confirmed via WebSocket update`);
+          cleanup();
+          resolve();
+        }
+      });
+
+      // Polling Fallback (Secondary path)
+      const indexer = dydxWalletService.getIndexerClient();
+      let pollAttempt = 0;
+
+      const pollInterval = setInterval(async () => {
+        if (resolved) return;
+        pollAttempt++;
+        try {
+          const resp = await indexer.account.getSubaccount(address, subaccountNumber);
+          if (resolved) return;
+
+          const equity = parseFloat(resp.subaccount?.equity || '0');
+          const freeCollateral = parseFloat(resp.subaccount?.freeCollateral || '0');
+
+          if (equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99) {
+            console.log(`[atomic] [reflection] Transfer confirmed via REST fallback (Poll ${pollAttempt})`);
+            cleanup();
+            resolve();
+          }
+        } catch (e: any) {
+          console.log(`[atomic] [reflection] Transfer poll failed: ${e.message}`);
+        }
+      }, TRANSFER_CONFIRM_POLL_MS);
+    });
   }
   private async getFreshBlockHeight(client: any): Promise<number> {
     const height = await client.validatorClient.get.latestBlockHeight();
