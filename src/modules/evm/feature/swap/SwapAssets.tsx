@@ -5,7 +5,12 @@ import {
   AlertCircle,
   XCircle,
   RefreshCw,
+  Plus,
+  Minus,
+  Settings2,
+  X
 } from 'lucide-react';
+
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { ethers } from 'ethers';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -20,7 +25,7 @@ import { ROUTES } from '../../../../constants/routes';
 import { getSwapEnabledChains, getChainById } from '../../utils/Chainregistry';
 import AssetSelectionModal from './AssetSelectionModal';
 import { SwapHeader } from './components/SwapHeader';
-import { SwapSuccessModal } from './components/SwapSuccessModal';
+import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
 import { EvmActionGuard } from '../../components/EvmActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
 
@@ -43,6 +48,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>('');
   const [sellAmount, setSellAmount] = useState<string>('');
   const [slippageTolerance, setSlippageTolerance] = useState<number>(0.5);
+  const [isSlippageModalOpen, setIsSlippageModalOpen] = useState<boolean>(false);
+  const SLIPPAGE_PRESETS = [0.1, 0.5, 1.0, 3.0, 5.0];
+
+
   const [showDetails, setShowDetails] = useState<boolean>(true);
 
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
@@ -297,8 +306,35 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isChainSwitching;
 
   const buyAmount = quote?.outputAmount
-    ? parseFloat(quote.outputAmount).toFixed(Math.min(selectedBuyAsset?.decimals || 6, 6))
+    ? (() => {
+      const amount = quote.outputAmount;
+      if (parseFloat(amount) === 0) return '0.00';
+      const parts = amount.split('.');
+      if (parts.length > 1 && parts[1].length > 8) {
+        return parseFloat(amount).toFixed(8).replace(/\.?0+$/, '');
+      }
+      return amount.replace(/\.?0+$/, '');
+    })()
     : '0.00';
+
+  const minimumReceived = (() => {
+    if (!quote?.outputAmount || !selectedBuyAsset) return '0.00';
+    try {
+      const decimals = selectedBuyAsset.decimals || 18;
+      const amountBN = ethers.parseUnits(quote.outputAmount, decimals);
+      const slippageBips = BigInt(Math.floor(slippageTolerance * 100));
+      const minReceivedBN = (amountBN * (10000n - slippageBips)) / 10000n;
+      const formatted = ethers.formatUnits(minReceivedBN, decimals);
+      const parts = formatted.split('.');
+      if (parts.length > 1 && parts[1].length > 8) {
+        return parseFloat(formatted).toFixed(8).replace(/\.?0+$/, '');
+      }
+      return formatted.replace(/\.?0+$/, '');
+    } catch (err) {
+      return buyAmount;
+    }
+  })();
+
 
   const isInsufficientBalance =
     !!sellAmount && parseFloat(sellAmount) > parseFloat(selectedSellAsset?.balance || '0');
@@ -507,20 +543,38 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         <span className="font-bold">~{quote.networkFee?.toFixed(6)} {networkConfig?.nativeCurrency.symbol}</span>
                       </div>
                     )}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-secondary">Slippage</span>
-                      <input
-                        type="number"
-                        value={slippageTolerance}
-                        onChange={e => setSlippageTolerance(parseFloat(e.target.value) || 0.5)}
-                        className="w-12 bg-transparent text-right font-bold focus:outline-none border-b border-brand/20"
-                      />
+                    <div className="pt-2 space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-secondary font-medium">Slippage Tolerance</span>
+                        <button
+                          onClick={() => setIsSlippageModalOpen(true)}
+                          className="flex items-center gap-2 bg-brand/5 hover:bg-brand/10 border border-brand/20 rounded-lg px-3 py-1.5 transition-all group shadow-sm active:scale-95"
+                        >
+                          <Settings2 className="w-3.5 h-3.5 text-brand" />
+                          <span className={`font-bold ${slippageTolerance > 5 ? 'text-orange-500' : 'text-primary'}`}>
+                            {slippageTolerance}%
+                          </span>
+                        </button>
+                      </div>
+
+                      {slippageTolerance > 5 && (
+                        <div className="bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-1">
+                          <AlertCircle className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                          <p className="text-[10px] text-orange-200 font-medium leading-relaxed">
+                            High slippage tolerance may result in a highly unfavorable price.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between text-sm px-1">
+                        <span className="text-secondary font-medium">Minimum Received</span>
+                        <span className="font-bold text-primary">{minimumReceived} {selectedBuyAsset?.symbol}</span>
+                      </div>
+
                     </div>
 
-                    <div className="flex justify-between text-sm">
-                      <span className="text-secondary">Minimum Received</span>
-                      <span className="font-bold">{buyAmount}</span>
-                    </div>
+
+
                   </div>
                 )}
               </div>
@@ -609,14 +663,121 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       />
 
       {txHash && networkConfig && (
-        <SwapSuccessModal
+        <EvmTransactionSuccessModal
           txHash={txHash}
-          networkConfig={networkConfig}
-          onReset={reset}
+          explorerUrl={`${networkConfig.blockExplorerUrl}/tx/${txHash}`}
+          onDone={reset}
+          networkName={networkConfig.name}
         />
       )}
+
+      {/* Slippage Modal */}
+      <div
+        className={`fixed inset-0 z-[100] flex items-end sm:items-center justify-center transition-opacity duration-300 ${isSlippageModalOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+      >
+        <div
+          className={`absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300 ${isSlippageModalOpen ? 'opacity-100' : 'opacity-0'}`}
+          onClick={() => setIsSlippageModalOpen(false)}
+        />
+
+        <div
+          className={`
+            relative w-full max-w-md bg-secondary border border-color shadow-2xl
+            rounded-t-[2.5rem] sm:rounded-3xl p-8 pt-6
+            transform transition-all duration-300 ease-out
+            ${isSlippageModalOpen ? 'translate-y-0 scale-100' : 'translate-y-full sm:translate-y-10 sm:scale-95'}
+          `}
+        >
+          {/* Handle for mobile */}
+          <div className="w-12 h-1.5 bg-tertiary rounded-full mx-auto mb-6 sm:hidden" />
+
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-xl font-black text-primary uppercase tracking-tight">Slippage Settings</h3>
+            <button
+              onClick={() => setIsSlippageModalOpen(false)}
+              className="w-10 h-10 rounded-2xl bg-tertiary flex items-center justify-center hover:bg-tertiary/80 transition-all border border-color"
+            >
+              <X className="w-5 h-5 text-muted" />
+            </button>
+          </div>
+
+          <div className="space-y-8">
+            <div className="flex flex-col items-center">
+              <span className="text-[10px] font-black text-muted uppercase tracking-[0.2em] mb-4">Manual Adjustment</span>
+              <div className="flex items-center gap-6">
+                <button
+                  onClick={() => setSlippageTolerance(prev => Math.max(0, parseFloat((prev - 0.1).toFixed(1))))}
+                  className="w-14 h-14 rounded-2xl bg-tertiary border border-color flex items-center justify-center hover:bg-brand/10 hover:border-brand/40 group transition-all active:scale-90"
+                >
+                  <Minus className="w-6 h-6 text-muted group-hover:text-brand" />
+                </button>
+
+                <div className="relative group">
+                  <input
+                    type="number"
+                    value={slippageTolerance}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setSlippageTolerance(isNaN(val) ? 0 : val);
+                    }}
+                    className="w-32 bg-transparent text-center text-5xl font-black text-primary focus:outline-none tabular-nums"
+                  />
+                  <span className="absolute -right-6 top-1/2 -translate-y-1/2 text-2xl font-black text-muted/30">%</span>
+                </div>
+
+                <button
+                  onClick={() => setSlippageTolerance(prev => parseFloat((prev + 0.1).toFixed(1)))}
+                  className="w-14 h-14 rounded-2xl bg-tertiary border border-color flex items-center justify-center hover:bg-brand/10 hover:border-brand/40 group transition-all active:scale-90"
+                >
+                  <Plus className="w-6 h-6 text-muted group-hover:text-brand" />
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black text-muted uppercase tracking-[0.2em] mb-4 block text-center">Presets</span>
+              <div className="grid grid-cols-5 gap-2">
+                {SLIPPAGE_PRESETS.map(preset => (
+                  <button
+                    key={preset}
+                    onClick={() => setSlippageTolerance(preset)}
+                    className={`
+                      py-3 rounded-xl text-xs font-black transition-all border
+                      ${slippageTolerance === preset
+                        ? 'bg-brand border-brand text-white shadow-lg shadow-brand/20 scale-105'
+                        : 'bg-tertiary border-color text-muted hover:border-brand/40 hover:text-primary'}
+                    `}
+                  >
+                    {preset}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {slippageTolerance > 5 && (
+              <div className="bg-orange-500/10 border border-orange-500/20 p-4 rounded-2xl flex items-start gap-4 animate-slide-up">
+                <AlertCircle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-orange-200">High Price Impact Warning</p>
+                  <p className="text-[10px] text-orange-200/70 font-medium leading-relaxed">
+                    Setting slippage above 5% is risky and may result in partial loss of funds due to unfavorable execution price.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => setIsSlippageModalOpen(false)}
+              className="w-full py-4 btn-primary text-white font-black uppercase tracking-widest rounded-2xl hover:bg-brand/90 transition-all shadow-xl shadow-brand/20 active:scale-95 mt-4"
+            >
+              Apply Settings
+            </button>
+          </div>
+        </div>
+      </div>
     </PageLayout>
   );
 };
+
 
 export default SwapAssets;

@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
 import TransactionSuccess from '../../transction/component/TransactionSuccess';
+import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { useSendAsset } from '../hook/useSendassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
@@ -255,6 +256,16 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     }
 
     if (step === 'success') {
+      if (currentAsset?.type === 'evm') {
+        return (
+          <EvmTransactionSuccessModal
+            txHash={txHash || ''}
+            explorerUrl={explorerUrl}
+            onDone={onBack || handleBackToForm}
+            networkName={currentAsset.network}
+          />
+        );
+      }
       return (
         <TransactionSuccess
           txHash={txHash}

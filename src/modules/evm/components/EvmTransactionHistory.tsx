@@ -15,6 +15,7 @@ import PageLayout from '../../../components/layout/PageLayout';
 import AllTransactionsUI from '../../steallr/components/AllTransactionsUI';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { useSearchParams } from 'react-router-dom';
 import {
   type LocalTransactionWithStatus,
   useLocalTransactions,
@@ -68,6 +69,9 @@ const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: 
 );
 
 const EvmTransactionHistory: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const txHashFromUrl = searchParams.get('hash');
+  
   const connectedWallets = useWalletStore(state => state.connectedWallets);
   const currentNetwork = useWalletStore(state => state.network);
 
@@ -101,6 +105,20 @@ const EvmTransactionHistory: React.FC = () => {
     removeTransaction,
     hasPendingTransactions,
   } = useLocalTransactions();
+
+  useEffect(() => {
+    if (txHashFromUrl && localTransactions.length > 0) {
+      const found = localTransactions.find(
+        tx => tx.hash.toLowerCase() === txHashFromUrl.toLowerCase()
+      );
+      if (found) {
+        setSelectedView('recent');
+        setSelectedLocalTx(found);
+        setSelectedTx(null);
+        if (window.innerWidth < 1024) setIsSheetOpen(true);
+      }
+    }
+  }, [txHashFromUrl, localTransactions]);
 
   useEffect(() => {
     if (walletAddress && typeof selectedView === 'number') {

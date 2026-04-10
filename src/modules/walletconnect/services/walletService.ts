@@ -166,7 +166,17 @@ class WalletService {
 
   private async getOrCreateProvider(key: string): Promise<any> {
     const existing = this.providers.get(key);
-    if (existing?.session) return existing;
+    if (existing?.session) {
+      const expiry = existing.session?.expiry ?? 0
+
+      console.log(expiry, "----------- session expriy hapen ")
+      const isExpired = Date.now() / 1000 > expiry
+      if (!isExpired) return existing
+      console.warn(`[WalletService] Provider '${key}' has expired session, recreating`)
+      try { await existing.disconnect() } catch (_) { }
+      this.providers.delete(key)
+    }
+
 
     const { Core } = await import('@walletconnect/core');
     const ProviderClass = await loadUniversalProvider();
@@ -715,7 +725,11 @@ class WalletService {
     if (provider) {
       for (const [key, p] of this.providers.entries()) {
         const k = key as WalletType;
-        if (k !== type && p === provider && (k === 'evm' || k === 'cosmos' || k === 'stellar')) {
+        if (
+          k !== type &&
+          p === provider &&
+          (k === 'evm' || k === 'cosmos' || k === 'stellar')
+        ) {
           if (!this.disconnecting.has(k)) {
             this.disconnecting.add(k);
             sharedTypes.push(k);
@@ -723,22 +737,25 @@ class WalletService {
         }
       }
     }
-
     if (provider) {
       this.registeredProviders.delete(provider);
+
       if (provider.session) {
         if (typeof provider.removeAllListeners === 'function') {
           provider.removeAllListeners();
         }
         try {
           await provider.disconnect();
-        } catch { }
+        } catch (err: any) {
+          console.log(err)
+        }
       }
     }
 
     for (const t of sharedTypes) {
       if (t === 'evm' || t === 'cosmos') await purge();
       if (t === 'evm') this.derivationInProgress = false;
+
       this.sessions.delete(t);
       this.lastPingAt.delete(t);
       this.providers.delete(t);
@@ -750,13 +767,51 @@ class WalletService {
     if (provider && this.providers.get('unified') === provider) {
       this.providers.delete('unified');
     }
-
     this.saveSession();
+    if (this.sessions.size === 0) {
+      this.clearWCStorage();
+    } else {
+      this.clearWCStorageForKey(
+        sharedTypes.includes('evm') && sharedTypes.includes('stellar')
+          ? 'unified'
+          : type
+      );
+    }
     for (const t of sharedTypes) {
       this.emitState(t, 'disconnected');
     }
   }
+  private clearWCStorage(): void {
+    const WC_PREFIXES = [
+      'wc@2:',
+      'walletconnect',
+      `swiftex_`,
+    ];
 
+    const keysToRemove = Object.keys(localStorage).filter(k =>
+      WC_PREFIXES.some(p => k.startsWith(p))
+    );
+
+    if (keysToRemove.length > 0) {
+      console.debug(`[WalletService] Clearing ${keysToRemove.length} WC storage keys`);
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    }
+  }
+
+  private clearWCStorageForKey(providerKey: string): void {
+    const prefix = `swiftex_${providerKey}`;
+
+    const keysToRemove = Object.keys(localStorage).filter(k =>
+      k.startsWith(prefix)
+    );
+
+    if (keysToRemove.length > 0) {
+      console.debug(
+        `[WalletService] Clearing ${keysToRemove.length} WC storage keys for provider '${providerKey}'`
+      );
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    }
+  }
   private handleDisconnect(type: WalletType): void {
     if (this.disconnecting.has(type)) return;
     void this.disconnect(type);
@@ -835,7 +890,7 @@ class WalletService {
       return this.restoreExtensionSession(type, savedSession, hasDydxBlob);
     }
 
-    // --- WalletConnect restore ---
+    // WalletConnect restore
     // Pick the provider key based on how the session was originally created.
     const providerKey =
       savedSession.connectionMode === 'unified' ? 'unified' : type;
@@ -850,12 +905,15 @@ class WalletService {
         return null;
       }
     }
-
-    if (!provider?.session) {
-      console.warn(
-        `[WalletService] No active WalletConnect session for key '${providerKey}' (type: ${type})`
-      );
-      return null;
+    console.log(provider?.session, "---------- provider session")
+    if (!provider?.session) return null
+    const expiry = provider.session?.expiry ?? 0
+    if (Date.now() / 1000 > expiry) {
+      console.warn(`[WalletService] Restored session for '${providerKey}' is expired`)
+      try { await provider.disconnect() } catch (_) { }
+      this.providers.delete(providerKey)
+      this.clearSessionStorage()
+      return null
     }
 
 

@@ -32,6 +32,22 @@ export function parseSwapError(error: any): string {
 
   const errorMessageLower = message.toLowerCase();
 
+  // Priority: Informative API/Backend Errors (Return as-is to preserve details like Have: / Need:)
+  if (
+    errorMessageLower.includes('api error') ||
+    errorMessageLower.includes('bad request') ||
+    (errorMessageLower.includes('insufficient') &&
+      errorMessageLower.includes('have:') &&
+      errorMessageLower.includes('need:'))
+  ) {
+    // If it's a specific Insufficient balance error with details, return it directly
+    // Stripping generic prefixes but keeping the informative details intact
+    return message
+      .replace(/^API error: Bad Request - /i, '')
+      .replace(/^API error: /i, '')
+      .replace(/^Error: /i, '');
+  }
+
   // User rejection
   if (
     error?.code === 4001 ||
