@@ -232,9 +232,13 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
       if (!userAddress) throw new Error(ERROR_MESSAGES.NO_WALLET_CONNECTED);
       if (!walletProvider) throw new Error('Wallet provider not available');
 
-
       setRemovingOfferIds(prev => new Set([...prev, offer.id]));
-      setTimeout(() => {
+      setError(null);
+
+      try {
+        const tx = await service.buildCancelOfferTransaction(userAddress, offer);
+        const txHash = await service.executeCancelOfferWithWalletConnect(tx, walletProvider);
+
         if (mountedRef.current) {
           setActiveOffers(prev => prev.filter(o => o.id !== offer.id));
           setRemovingOfferIds(prev => {
@@ -243,27 +247,15 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
             return next;
           });
         }
-      }, 400);
-
-      setError(null);
-
-      try {
-        const tx = await service.buildCancelOfferTransaction(userAddress, offer);
-        const txHash = await service.executeCancelOfferWithWalletConnect(tx, walletProvider);
 
         setTimeout(() => fetchActiveOffers(), 2000);
         return txHash;
       } catch (err) {
-
         if (mountedRef.current) {
           setRemovingOfferIds(prev => {
             const next = new Set(prev);
             next.delete(offer.id);
             return next;
-          });
-          setActiveOffers(prev => {
-            if (prev.some(o => o.id === offer.id)) return prev;
-            return [offer, ...prev];
           });
           setError(ERROR_MESSAGES.CANCEL_OFFER_FAILED);
         }

@@ -7,6 +7,7 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { CHAIN_REGISTRY } from '../../evm/utils/Chainregistry';
 import { useAssetSelectorModal } from './useAssetSelectorModal';
+import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 
 const AssetSelectorModal: FC = () => {
   const navigate = useNavigate();
@@ -219,11 +220,11 @@ const AssetSelectorModal: FC = () => {
                   <div className="flex items-center gap-3">
                     <div className="text-right">
                       <div className="font-semibold text-primary">
-                        {(asset.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                        {portfolioUtils.formatBalance(asset.balance)}
                       </div>
                       {asset.current_price > 0 && (asset.balance || 0) > 0 && (
                         <div className="text-xs text-muted">
-                          ${((asset.balance || 0) * asset.current_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {portfolioUtils.formatUSD((asset.balance || 0) * asset.current_price)}
                         </div>
                       )}
                     </div>

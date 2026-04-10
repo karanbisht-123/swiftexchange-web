@@ -6,6 +6,7 @@ import { ROUTES } from '../../../constants/routes';
 import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { type Asset, useWalletAssets } from '../hooks/useWalletAssets';
 import { useWalletStore } from '../store/walletConnectStore';
+import { portfolioUtils } from '../utils/portfolioUtils';
 
 const CHAIN_ICONS: Record<string, string> = {
   ETH: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
@@ -127,6 +128,7 @@ const AssetRow = memo(
     onReceive: (asset: Asset) => void;
   }) => {
     const isPriceLoading = asset.current_price === 0;
+    const isBalanceLoading = asset.balance === null;
     const usdValue = (asset.balance || 0) * (asset.current_price || 0);
     const canTrade = canTradeAsset(asset);
     const canPrep = asset.chainType !== 'stellar';
@@ -183,13 +185,17 @@ const AssetRow = memo(
           <div className="flex items-center gap-3">
             <div className="text-right shrink-0">
               <div className="text-base font-semibold text-primary">
-                {asset.balance?.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                {isBalanceLoading ? (
+                  <Shimmer className="h-4 w-16 ml-auto" />
+                ) : (
+                  portfolioUtils.formatBalance(asset.balance)
+                )}
               </div>
               <div className="text-sm text-muted mt-0.5">
-                {isPriceLoading ? (
+                {isPriceLoading || isBalanceLoading ? (
                   <Shimmer className="h-3 w-16 ml-auto" />
                 ) : (
-                  `$${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  portfolioUtils.formatUSD(usdValue)
                 )}
               </div>
             </div>
@@ -234,8 +240,12 @@ const WalletAssetsSection = () => {
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
 
   const hasLoadingPrices = assets.some(a => a.current_price === 0);
+  
+  const filteredAssets = useMemo(() => {
+    return assets.filter(asset => (asset.balance || 0) > 0);
+  }, [assets]);
 
-  const portfolioChange = useMemo(() => calculatePortfolioChange(assets), [assets]);
+  const portfolioChange = useMemo(() => calculatePortfolioChange(filteredAssets), [filteredAssets]);
   const isPositive = portfolioChange >= 0;
 
   const handleTrade = (asset: Asset) => {
@@ -286,10 +296,10 @@ const WalletAssetsSection = () => {
                 {hasLoadingPrices ? (
                   <Shimmer className="h-10 w-40" />
                 ) : (
-                  `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  portfolioUtils.formatUSD(totalValue)
                 )}
               </span>
-              {!hasLoadingPrices && assets.length > 0 && (
+              {!hasLoadingPrices && filteredAssets.length > 0 && (
                 <div
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold ${isPositive
                     ? 'bg-success-bg bg-green-600 text-white'
@@ -356,7 +366,7 @@ const WalletAssetsSection = () => {
               ))}
             </div>
           ) : (
-            assets.map(asset => (
+            filteredAssets.map(asset => (
               <AssetRow
                 key={asset.id}
                 asset={asset}

@@ -3,12 +3,15 @@ import { useEffect, useState } from 'react';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { ConfirmationModal } from '../../../components/common/ConfirmationModal';
 import { ERROR_MESSAGES, UI_STRINGS } from '../constants/tradeTransactionConstants';
 import { useTradeTransaction } from '../hook/useTradeTransaction';
 import { type ActiveOffer } from '../types/tradeTransaction.types';
 
 const TradeTransactionUI = () => {
   const { connectedWallets, getProvider } = useWalletConnect();
+  const network = useWalletStore(state => state.network);
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
 
@@ -42,6 +45,13 @@ const TradeTransactionUI = () => {
   const [newAmount, setNewAmount] = useState('');
   const [newPrice, setNewPrice] = useState('');
 
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [offerToCancel, setOfferToCancel] = useState<ActiveOffer | null>(null);
+
+  const explorerNetwork = network === 'mainnet' ? 'public' : 'testnet';
+  const getExplorerUrl = (type: 'trade' | 'offer' | 'tx' | 'op', id: string) =>
+    `https://stellar.expert/explorer/${explorerNetwork}/${type}/${id}`;
+
   useEffect(() => {
     if (editingOffer) {
       setNewAmount(editingOffer.amount);
@@ -49,7 +59,17 @@ const TradeTransactionUI = () => {
     }
   }, [editingOffer]);
 
-  const handleCancelOffer = async (offer: ActiveOffer) => {
+  const handleCancelClick = (offer: ActiveOffer) => {
+    setOfferToCancel(offer);
+    setIsCancelModalOpen(true);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!offerToCancel) return;
+    const offer = offerToCancel;
+    setIsCancelModalOpen(false);
+    setOfferToCancel(null);
+
     if (!stellarWallet) {
       setErrorMessage('Please connect your Stellar wallet');
       return;
@@ -231,7 +251,7 @@ const TradeTransactionUI = () => {
                         <tr
                           key={offer.id}
                           className={`transition-colors ${removingOfferIds.has(offer.id)
-                            ? 'offer-exit opacity-40'
+                            ? 'opacity-40 pointer-events-none grayscale-[0.5]'
                             : newOfferIds.has(offer.id)
                               ? 'offer-new hover:bg-white/5'
                               : 'hover:bg-white/5'
@@ -276,7 +296,7 @@ const TradeTransactionUI = () => {
                                 <div className="w-5 h-5 border-2 border-danger border-t-transparent rounded-full animate-spin ml-2" />
                               ) : (
                                 <button
-                                  onClick={() => handleCancelOffer(offer)}
+                                  onClick={() => handleCancelClick(offer)}
                                   disabled={isLoading}
                                   className="text-xs px-3 py-1.5 rounded-lg border border-danger/20 text-danger hover:bg-danger/10 transition-colors bg-danger/5"
                                 >
@@ -304,7 +324,7 @@ const TradeTransactionUI = () => {
                     <div
                       key={offer.id}
                       className={`rounded-xl p-4 border transition-all duration-300 ${removingOfferIds.has(offer.id)
-                        ? 'offer-exit border-white/5 bg-white/5'
+                        ? 'opacity-40 grayscale-[0.5] border-white/5 bg-white/5'
                         : newOfferIds.has(offer.id)
                           ? 'offer-new border-green-500/20 bg-green-500/5'
                           : 'border-white/5 bg-white/5'
@@ -346,7 +366,7 @@ const TradeTransactionUI = () => {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleCancelOffer(offer)}
+                          onClick={() => handleCancelClick(offer)}
                           disabled={isLoading || removingOfferIds.has(offer.id)}
                           className="flex-1 py-2 rounded-lg bg-danger/10 text-danger text-xs font-semibold border border-danger/20 disabled:opacity-40"
                         >
@@ -408,7 +428,7 @@ const TradeTransactionUI = () => {
                               {trade.isBuy ? 'Buy' : 'Sell'}
                             </span>
                             <div className="text-[10px] text-muted mt-1 uppercase">
-                              {trade.trade_type === 'liquidity_pool' ? 'AMM Swap' : 'Order Book'}
+                              {trade.trade_type === 'liquidity_pool' || trade.trade_type === 'path_payment' ? 'AMM Swap' : 'Order Book'}
                             </div>
                           </td>
                           <td className="px-6 py-4">
@@ -442,10 +462,13 @@ const TradeTransactionUI = () => {
                               title={trade.id}
                               className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary-light cursor-pointer"
                               onClick={() => {
-                                window.open(
-                                  `https://stellar.expert/explorer/public/trade/${trade.id}`,
-                                  '_blank'
-                                );
+                                if (trade.operationId) {
+                                  window.open(getExplorerUrl('op', trade.operationId), '_blank');
+                                } else {
+                                  const hash = trade.transactionHash || trade.id;
+                                  const type = trade.transactionHash ? 'tx' : 'trade';
+                                  window.open(getExplorerUrl(type, hash), '_blank');
+                                }
                               }}
                             >
                               <span className="hidden sm:inline">View</span>
@@ -476,12 +499,14 @@ const TradeTransactionUI = () => {
                           <span className="font-bold text-text-primary">{trade.counterAsset.code}</span>
                         </div>
                         <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-semibold tracking-wide ${trade.isBuy
-                            ? 'border-success/20 text-success bg-success/10'
-                            : 'border-danger/20 text-danger bg-danger/10'
+                          className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-semibold tracking-wide ${trade.trade_type === 'path_payment'
+                            ? 'border-primary/20 text-primary bg-primary/10'
+                            : trade.isBuy
+                              ? 'border-success/20 text-success bg-success/10'
+                              : 'border-danger/20 text-danger bg-danger/10'
                             }`}
                         >
-                          {trade.isBuy ? 'Buy' : 'Sell'}
+                          {trade.trade_type === 'path_payment' ? 'Swap' : trade.isBuy ? 'Buy' : 'Sell'}
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-4 mb-3">
@@ -507,10 +532,13 @@ const TradeTransactionUI = () => {
                         </div>
                         <button
                           onClick={() => {
-                            window.open(
-                              `https://stellar.expert/explorer/testnet/trade/${trade.id}`,
-                              '_blank'
-                            );
+                            if (trade.operationId) {
+                              window.open(getExplorerUrl('op', trade.operationId), '_blank');
+                            } else {
+                              const hash = trade.transactionHash || trade.id;
+                              const type = trade.transactionHash ? 'tx' : 'trade';
+                              window.open(getExplorerUrl(type, hash), '_blank');
+                            }
                           }}
                           className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 px-3 py-1.5 rounded-full hover:bg-primary/20 transition-colors"
                         >
@@ -606,6 +634,40 @@ const TradeTransactionUI = () => {
             </div>
           </div>
         )}
+
+        <ConfirmationModal
+          isOpen={isCancelModalOpen}
+          title="Cancel Offer"
+          message={
+            <div className="space-y-2">
+              <p>Are you sure you want to cancel this offer?</p>
+              {offerToCancel && (
+                <div className="p-3 bg-white/5 rounded-lg border border-white/5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted">Pair:</span>
+                    <span className="font-medium text-text-primary">
+                      {offerToCancel.selling.code} / {offerToCancel.buying.code}
+                    </span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-muted">Amount:</span>
+                    <span className="font-medium text-text-primary">
+                      {parseFloat(offerToCancel.amount).toFixed(4)} {offerToCancel.selling.code}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          }
+          onConfirm={handleConfirmCancel}
+          onCancel={() => {
+            setIsCancelModalOpen(false);
+            setOfferToCancel(null);
+          }}
+          confirmText="Yes, Cancel"
+          cancelText="No, Keep It"
+          confirmButtonType="danger"
+        />
       </div>
     </>
   );

@@ -73,9 +73,12 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           nextAssets.push(newAsset);
         }
         return {
-          assets: nextAssets.sort(
-            (a, b) => (b.balance || 0) * b.current_price - (a.balance || 0) * a.current_price
-          ),
+          assets: nextAssets.sort((a, b) => {
+            const valA = (a.balance || 0) * (a.current_price || 0);
+            const valB = (b.balance || 0) * (b.current_price || 0);
+            if (valB !== valA) return valB - valA;
+            return (b.balance || 0) - (a.balance || 0);
+          }),
         };
       });
     },
@@ -102,26 +105,18 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
       const state = get();
       const now = Date.now();
 
-      if (state.isFetching) {
-        return;
-      }
+      if (state.isFetching) return;
 
-      if (!force && now - state.lastFetched < CACHE_TTL && state.network === network) {
-        return;
-      }
+      if (!force && now - state.lastFetched < CACHE_TTL && state.network === network) return;
 
-      if (!force && now - state.lastFetched < MIN_FETCH_INTERVAL) {
-        return;
-      }
+      if (!force && now - state.lastFetched < MIN_FETCH_INTERVAL) return;
 
       set({ isLoading: true, isFetching: true, network, hasError: false, errorMessage: null });
 
       const evmAddr = connectedWallets[WalletType.EVM]?.address;
       const stellarAddr = connectedWallets[WalletType.STELLAR]?.address;
 
-      if (state.network !== network) {
-        set({ assets: [] });
-      }
+      if (state.network !== network) set({ assets: [] });
 
       const { updateAsset } = get();
       let fetchFailed = false;

@@ -242,9 +242,8 @@ const OrderBookSwapUI = () => {
         <div className="flex sm:hidden bg-secondary border-b border-white/5">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
-              activeTab === 'overview' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'overview' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
           >
             Overview
             {activeTab === 'overview' && (
@@ -253,9 +252,8 @@ const OrderBookSwapUI = () => {
           </button>
           <button
             onClick={() => setActiveTab('orderBook')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
-              activeTab === 'orderBook' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'orderBook' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
           >
             Orderbook
             {activeTab === 'orderBook' && (
@@ -264,9 +262,8 @@ const OrderBookSwapUI = () => {
           </button>
           <button
             onClick={() => setActiveTab('trades')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
-              activeTab === 'trades' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'trades' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
           >
             Last Trades
             {activeTab === 'trades' && (
@@ -283,7 +280,7 @@ const OrderBookSwapUI = () => {
               <StellarTradingChart />
             </div>
 
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between ">
               <h2 className="text-lg font-semibold text-primary">
                 {UI_STRINGS.TITLE || 'Limit Order'}
               </h2>
@@ -300,22 +297,20 @@ const OrderBookSwapUI = () => {
             <div className="flex gap-2 mb-6">
               <button
                 onClick={() => !isBuy && setIsBuy()}
-                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${
-                  isBuy
-                    ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
-                    : 'bg-white/5 text-muted hover:text-primary'
-                }`}
+                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${isBuy
+                  ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
+                  : 'bg-white/5 text-muted hover:text-primary'
+                  }`}
                 disabled={isLoading}
               >
                 Buy
               </button>
               <button
                 onClick={() => isBuy && setIsBuy()}
-                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${
-                  !isBuy
-                    ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
-                    : 'bg-white/5 text-muted hover:text-primary'
-                }`}
+                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${!isBuy
+                  ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+                  : 'bg-white/5 text-muted hover:text-primary'
+                  }`}
                 disabled={isLoading}
               >
                 Sell
@@ -496,13 +491,12 @@ const OrderBookSwapUI = () => {
             <button
               onClick={handlePlaceOrder}
               disabled={!canPlaceOrder || orderStatus === 'pending'}
-              className={`w-full mt-6 py-5 rounded-xl font-bold text-lg transition-all ${
-                canPlaceOrder && orderStatus !== 'pending'
-                  ? isBuy
-                    ? 'bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
-                    : 'bg-red-500 hover:bg-red-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
-                  : 'bg-white/5 text-muted cursor-not-allowed border border-white/5'
-              }`}
+              className={`w-full mt-6 py-5 rounded-xl font-bold text-lg transition-all ${canPlaceOrder && orderStatus !== 'pending'
+                ? isBuy
+                  ? 'bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
+                  : 'bg-red-500 hover:bg-red-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
+                : 'bg-white/5 text-muted cursor-not-allowed border border-white/5'
+                }`}
             >
               {orderStatus === 'pending' ? (
                 <span className="flex items-center justify-center gap-3">
@@ -521,15 +515,18 @@ const OrderBookSwapUI = () => {
           </div>
 
           <div
-            className={`lg:w-80 lg:border-l lg:border-white/5 bg-secondary ${
-              activeTab === 'orderBook' ? 'block' : 'hidden sm:block'
-            }`}
+            className={`lg:w-80 lg:border-l lg:border-white/5 bg-secondary flex flex-col ${activeTab === 'orderBook' || activeTab === 'trades' ? 'block' : 'hidden lg:flex'
+              }`}
           >
-            <OrderBook orderBook={orderBook} isBuy={isBuy} setPrice={setPrice} />
-          </div>
+            {/* Order Book Section */}
+            <div className={`${activeTab === 'orderBook' ? 'block' : 'hidden lg:block'} flex-1 min-h-[300px]`}>
+              <OrderBook orderBook={orderBook} isBuy={isBuy} setPrice={setPrice} />
+            </div>
 
-          <div className={`lg:hidden bg-secondary ${activeTab === 'trades' ? 'block' : 'hidden'}`}>
-            <LastTrades baseAsset={fromToken || undefined} counterAsset={toToken || undefined} />
+            {/* Last Trades Section - Visible below Order Book on Desktop */}
+            <div className={`lg:border-t lg:border-white/5 ${activeTab === 'trades' ? 'block' : 'hidden lg:block'} lg:h-[400px] overflow-y-auto`}>
+              <LastTrades baseAsset={fromToken || undefined} counterAsset={toToken || undefined} />
+            </div>
           </div>
         </div>
       </div>

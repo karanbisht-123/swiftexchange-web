@@ -1,3 +1,4 @@
+import { formatMarketPrice, formatNumericWithCommas } from '../../dydx/utils/BigNumberUtils';
 import { type Asset } from '../hooks/useWalletAssets';
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
@@ -8,6 +9,21 @@ export const portfolioUtils = {
       const value = (asset.balance || 0) * (asset.current_price || 0);
       return total + value;
     }, 0);
+  },
+
+  formatBalance(value: number | string | null | undefined): string {
+    if (value === null || value === undefined) return '0';
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (num === 0) return '0';
+    
+    // For balances, we want to show enough precision to see the amount
+    // formatMarketPrice handles the subscript logic and dynamic precision
+    return formatMarketPrice(value, '');
+  },
+
+  formatUSD(value: number | string | null | undefined): string {
+    if (value === null || value === undefined) return '$0.00';
+    return formatNumericWithCommas(value, 2, '$');
   },
 
   async fetchPrices(

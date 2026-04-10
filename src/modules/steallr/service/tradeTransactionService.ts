@@ -67,6 +67,9 @@ export class TradeTransactionService {
     accountId: string
   ): CompletedTrade => {
     const isBuy = trade.counter_account === accountId;
+    const transactionHash = (trade as any)._links?.transaction?.href?.split('/').pop();
+    const operationId = (trade as any)._links?.operation?.href?.split('/').pop();
+
     return {
       id: trade.id,
       baseAsset: {
@@ -83,6 +86,8 @@ export class TradeTransactionService {
       ledgerCloseTime: trade.ledger_close_time,
       isBuy,
       trade_type: trade.trade_type,
+      transactionHash,
+      operationId,
     };
   };
 
@@ -131,22 +136,117 @@ export class TradeTransactionService {
     }
 
     try {
+      // Fetch more trades than requested to allow grouping of paths
+      const fetchLimit = Math.max(limit * 3, 50);
       const response = await this.server
         .trades()
         .forAccount(accountId)
-        .limit(limit)
+        .limit(fetchLimit)
         .cursor(cursor || '')
         .order('desc')
         .call();
-      const trades = response.records.map(trade =>
-        this.mapTradeRecordToCompletedTrade(trade, accountId)
+
+      if (response.records.length === 0) {
+        return { trades: [], hasMore: false };
+      }
+
+      // Group trades by operationId
+      const groups = new Map<string, Horizon.ServerApi.TradeRecord[]>();
+      const ungroupedTrades: Horizon.ServerApi.TradeRecord[] = [];
+
+      response.records.forEach(record => {
+        const opId = (record as any)._links?.operation?.href?.split('/').pop();
+        if (opId) {
+          const group = groups.get(opId) || [];
+          group.push(record);
+          groups.set(opId, group);
+        } else {
+          ungroupedTrades.push(record);
+        }
+      });
+
+      const consolidatedTrades: CompletedTrade[] = [];
+
+      // Process grouped trades
+      groups.forEach((groupTrades, opId) => {
+        if (groupTrades.length === 1) {
+          consolidatedTrades.push(this.mapTradeRecordToCompletedTrade(groupTrades[0], accountId));
+          return;
+        }
+
+        // Consolidated multi-hop trade
+        // Track net flow for each asset
+        const assetFlow = new Map<string, { amount: number; code: string; issuer?: string }>();
+
+        groupTrades.forEach(t => {
+          const isBaseSource = t.base_account === accountId;
+          const isCounterSource = t.counter_account === accountId;
+
+          // Base asset flow
+          const baseKey = `${t.base_asset_code || 'XLM'}:${t.base_asset_issuer || ''}`;
+          const currentBase = assetFlow.get(baseKey) || {
+            amount: 0,
+            code: t.base_asset_code || 'XLM',
+            issuer: t.base_asset_issuer,
+          };
+          // If user is base_account, they are "Selling" base (negative flow). 
+          // If user is counter_account, they are "Buying" base from someone else (positive flow).
+          currentBase.amount += isBaseSource ? -parseFloat(t.base_amount) : parseFloat(t.base_amount);
+          assetFlow.set(baseKey, currentBase);
+
+          // Counter asset flow
+          const counterKey = `${t.counter_asset_code || 'XLM'}:${t.counter_asset_issuer || ''}`;
+          const currentCounter = assetFlow.get(counterKey) || {
+            amount: 0,
+            code: t.counter_asset_code || 'XLM',
+            issuer: t.counter_asset_issuer,
+          };
+          currentCounter.amount += isCounterSource ? -parseFloat(t.counter_amount) : parseFloat(t.counter_amount);
+          assetFlow.set(counterKey, currentCounter);
+        });
+
+        // Identify starting and ending assets
+        const flows = Array.from(assetFlow.values()).filter(f => Math.abs(f.amount) > 0.0000001);
+        const spent = flows.filter(f => f.amount < 0).sort((a, b) => a.amount - b.amount)[0]; // Most negative
+        const received = flows.filter(f => f.amount > 0).sort((a, b) => b.amount - a.amount)[0]; // Most positive
+
+        if (spent && received) {
+          const firstTrade = groupTrades[0];
+          const transactionHash = (firstTrade as any)._links?.transaction?.href?.split('/').pop();
+
+          consolidatedTrades.push({
+            id: firstTrade.id,
+            baseAsset: { code: spent.code, issuer: spent.issuer },
+            counterAsset: { code: received.code, issuer: received.issuer },
+            baseAmount: Math.abs(spent.amount).toString(),
+            counterAmount: received.amount.toString(),
+            price: (received.amount / Math.abs(spent.amount)).toString(),
+            ledgerCloseTime: firstTrade.ledger_close_time,
+            isBuy: false,
+            trade_type: 'path_payment',
+            transactionHash,
+            operationId: opId,
+          });
+        }
+      });
+
+      // Add ungrouped trades
+      ungroupedTrades.forEach(t => {
+        consolidatedTrades.push(this.mapTradeRecordToCompletedTrade(t, accountId));
+      });
+
+      // Sort by time descending
+      consolidatedTrades.sort(
+        (a, b) => new Date(b.ledgerCloseTime).getTime() - new Date(a.ledgerCloseTime).getTime()
       );
-      const hasMore = response.records.length === limit;
+
+      const finalTrades = consolidatedTrades.slice(0, limit);
+      const hasMore = response.records.length === fetchLimit;
       const nextCursor = hasMore
         ? response.records[response.records.length - 1].paging_token
         : undefined;
 
-      return { trades, nextCursor, hasMore };
+      return { trades: finalTrades, nextCursor, hasMore };
     } catch (error) {
       console.error('Failed to fetch completed trades:', error);
       throw new Error('Failed to fetch completed trades');
