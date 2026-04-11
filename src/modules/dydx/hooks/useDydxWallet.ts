@@ -17,7 +17,7 @@ interface UseDydxWalletReturn {
   isConnected: boolean;
   address: string | null;
   balance: AccountBalance | null;
-  /** true once the first WS snapshot has been received for this address */
+
   dataLoaded: boolean;
   lastUpdateTime: number | null;
   isReceivingUpdates: boolean;

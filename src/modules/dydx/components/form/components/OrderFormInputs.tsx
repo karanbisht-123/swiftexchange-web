@@ -1,8 +1,9 @@
 import { ArrowLeftRight } from 'lucide-react';
 
 import { Tooltip } from '../../../../../components/common/Tooltip';
-import type { OrderTypeEnum } from '../../../types/trading.types';
+import type { MarketData, OrderTypeEnum } from '../../../types/trading.types';
 import type { CurrencyMode } from '../../../utils/currencyService';
+import { currencyService } from '../../../utils/currencyService';
 import { validateNumberInput } from '../../../utils/inputValidation';
 
 interface OrderFormInputsProps {
@@ -27,6 +28,7 @@ interface OrderFormInputsProps {
   maxBuyingPower?: number;
   leverage?: number;
   onSetMax?: () => void;
+  marketData?: MarketData | null;
 }
 
 const PRICE_REQUIRED_TYPES = ['LIMIT', 'STOP_LIMIT', 'TAKE_PROFIT_LIMIT'] as const;
@@ -59,6 +61,7 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
   maxBuyingPower,
   leverage = 1,
   onSetMax,
+  marketData,
 }) => {
   const showPrice = PRICE_REQUIRED_TYPES.includes(orderType as any);
   const showTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(orderType as any);
@@ -88,11 +91,13 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
   const parsedSize = parseFloat(size || '0');
   const parsedPrice = parseFloat(currentPrice || '1');
+  const stepSizeDecimals = marketData?.stepSize ? currencyService.getStepSizeDecimals(marketData.stepSize) : 4;
+
   const cryptoEquivalent =
     currencyMode === 'USD'
       ? parsedPrice > 0
-        ? (parsedSize / parsedPrice).toFixed(4)
-        : '0.0000'
+        ? (parsedSize / parsedPrice).toFixed(stepSizeDecimals)
+        : '0'.padEnd(stepSizeDecimals + 2, '0').replace('0.', '0.0') // simple fallback
       : (parsedSize * parsedPrice).toFixed(2);
 
   const otherCurrencyMode = currencyMode === 'USD' ? baseAsset : 'USD';

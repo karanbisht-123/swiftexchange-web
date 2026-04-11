@@ -12,7 +12,7 @@ import useOrderPreviewStore from '../../store/orderPreviewStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
 import {
-  getMaxBuyingPower,
+  getSafeMaxBuyingPower,
   getPriceDecimals,
   roundToTickSize,
   validateOrderPrice,
@@ -98,17 +98,15 @@ export const DydxTradingForm: React.FC = () => {
 
   const pendingMarginRequired = useOrderPreviewStore((s) => s.pendingMarginRequired);
 
-  // ── Parent Subaccount Key (same as useDydxData) ──
+  // Parent Subaccount Key
   const address = dydxWalletService.getAddress();
   const subaccountNumber = dydxWalletService.getSubaccountNumber();
   const parentKey = address ? `parent_subaccount_${address}_${subaccountNumber}` : null;
 
-  // ── Get parentData from Zustand ──
+  // Get parentData from Zustand
   const parentData = useWebSocketStore(
     useShallow((state) => (parentKey ? state.parentSubaccounts.get(parentKey) : undefined))
   );
-
-  // ── Now safely call the selector ──
   const recentlyTerminalOrders = useMemo(
     () => selectRecentlyTerminalOrders(parentData),
     [parentData]
@@ -146,6 +144,7 @@ export const DydxTradingForm: React.FC = () => {
 
   const [notifications, setNotifications] = useState<NotificationState[]>([]);
   const [notificationCounter, setNotificationCounter] = useState(0);
+  const [localPercentage, setLocalPercentage] = useState<number>(0);
 
   const shownRejectionsRef = useRef<Set<string>>(new Set());
 
@@ -159,7 +158,8 @@ export const DydxTradingForm: React.FC = () => {
   }, [marketData?.initialMarginFraction]);
 
   const maxBuyingPower = useMemo(() => {
-    return getMaxBuyingPower(balance, marketData, leverage);
+    // safe buying power (with buffer) for the UI calculations
+    return getSafeMaxBuyingPower(balance, marketData, leverage);
   }, [balance, marketData, leverage]);
 
   const targetSubaccount = useMemo(() => {
@@ -175,38 +175,65 @@ export const DydxTradingForm: React.FC = () => {
 
   const currentPercentage = useMemo(() => {
     if (!maxBuyingPower || maxBuyingPower <= 0 || !size) return 0;
-    const sizeNum = parseFloat(size);
-    if (isNaN(sizeNum) || sizeNum <= 0) return 0;
-    let usdVal = sizeNum;
-    if (currencyMode === 'BASE' && marketData?.oraclePrice) {
-      usdVal = sizeNum * parseFloat(marketData.oraclePrice);
-    }
-    return Math.min(Math.round((usdVal / maxBuyingPower) * 100), 100);
-  }, [maxBuyingPower, size, currencyMode, marketData?.oraclePrice]);
+
+    const price = parseFloat(marketData?.oraclePrice || '1');
+    if (price <= 0) return 0;
+
+    const conversion = currencyService.parseInput(size, currencyMode, marketData!);
+    if (!conversion.isValid) return 0;
+    const currentUsd = conversion.usdAmount;
+    const pct = (currentUsd / maxBuyingPower) * 100;
+    return Math.min(Math.max(Math.floor(pct + 0.0001), 0), 100);
+  }, [maxBuyingPower, size, currencyMode, marketData]);
+
+  useEffect(() => {
+    setLocalPercentage(currentPercentage);
+  }, [currentPercentage]);
 
   const handlePercentageChange = (pct: number | string) => {
-    if (!maxBuyingPower || maxBuyingPower <= 0) return;
-    if (pct === '') {
+    if (!maxBuyingPower || maxBuyingPower <= 0 || !marketData) return;
+
+    const pctNum = typeof pct === 'string' ? parseFloat(pct) : pct;
+    if (isNaN(pctNum) || pctNum <= 0) {
+      setLocalPercentage(0);
       setSize('');
       return;
     }
-    const pctNum = typeof pct === 'string' ? parseFloat(pct) : pct;
-    if (isNaN(pctNum)) return;
+
     const validPct = Math.min(Math.max(pctNum, 0), 100);
-    const usdVal = (validPct / 100) * maxBuyingPower;
+    setLocalPercentage(validPct);
+
+    const price = parseFloat(marketData.oraclePrice || '1');
+    if (price <= 0) return;
+    const targetUsd = (validPct / 100) * maxBuyingPower;
+
+    let baseAmount = targetUsd / price;
+
+    if (marginMode === 'ISOLATED' && orderType !== 'MARKET' && targetUsd > 0) {
+      const margin = targetUsd / leverage;
+      if (margin < 20) {
+        // Option A: Adjust targetUsd to hit at least $20 margin
+        // const minUsd = 20 * leverage;
+        // baseAmount = minUsd / price;
+        // But for now, we just let the validation catch it or provide a warning.
+      }
+    }
+
+    if (marketData.stepSize) {
+      baseAmount = currencyService.roundToStepSize(baseAmount, marketData.stepSize);
+    }
     if (currencyMode === 'USD') {
-      setSize(usdVal.toFixed(2));
-    } else if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
-      const baseAmount = usdVal / parseFloat(marketData.oraclePrice);
+      const finalUsd = baseAmount * price;
+      setSize(finalUsd > 0 ? finalUsd.toFixed(2) : '');
+    } else {
       const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
-      setSize(baseAmount.toFixed(decimals));
+      setSize(baseAmount > 0 ? baseAmount.toFixed(decimals) : '');
     }
   };
 
   const hasValidationErrors = !!(sizeError || priceError || triggerError || goodTilError);
   const isFormValid = !hasValidationErrors && !!size && canTrade;
 
-  // ── CHAIN REJECTION NOTIFICATION (fixed) ──
   useEffect(() => {
     if (!selectedMarket) return;
 
@@ -241,8 +268,6 @@ export const DydxTradingForm: React.FC = () => {
   useEffect(() => {
     shownRejectionsRef.current.clear();
   }, [selectedMarket]);
-
-  // Rest of your existing useEffects and functions (exactly same)
   useEffect(() => {
     if (leverage > maxLeverage) setLeverage(maxLeverage);
   }, [maxLeverage, leverage]);
@@ -279,6 +304,8 @@ export const DydxTradingForm: React.FC = () => {
       }
     }
   }, [marketData?.oraclePrice, price, marketData?.tickSize]);
+
+
 
   useEffect(() => {
     if (orderError) {
@@ -365,6 +392,7 @@ export const DydxTradingForm: React.FC = () => {
     }
     setCurrencyMode(newMode);
   };
+
   const handlePlaceOrder = async () => {
     if (!selectedMarket || !canTrade) {
       addNotification('warning', 'Please connect your wallet', 'Wallet Not Connected');
@@ -452,7 +480,7 @@ export const DydxTradingForm: React.FC = () => {
         ? Math.max(requiredMargin, ISOLATED_EQUITY_TIER_MIN)
         : requiredMargin;
 
-      const requiredMarginWithBuffer = effectiveMargin * 1.05;
+      const requiredMarginWithBuffer = effectiveMargin * 1.02;
 
       const totalAvailable = crossFreeCollateral + isolatedEquity;
       if (totalAvailable < requiredMarginWithBuffer) {
@@ -604,6 +632,8 @@ export const DydxTradingForm: React.FC = () => {
           maxLeverage={maxLeverage}
           onLeverageChange={setLeverage}
           marketTicker={selectedMarket}
+          MarketIcon={marketData?.coinIcon}
+
         />
         <OrderTypeSelector selected={orderType} onChange={setOrderType} />
       </div>
@@ -632,16 +662,26 @@ export const DydxTradingForm: React.FC = () => {
             maxBuyingPower={maxBuyingPower}
             leverage={leverage}
             onSetMax={() => {
-              if (maxBuyingPower) {
+              if (maxBuyingPower && marketData) {
+                const price = parseFloat(marketData.oraclePrice || '1');
+                if (price <= 0) return;
+
+                // Use the exact same anchored logic as the slider for 100%
+                let baseAmount = maxBuyingPower / price;
+                if (marketData.stepSize) {
+                  baseAmount = currencyService.roundToStepSize(baseAmount, marketData.stepSize);
+                }
+                const finalUsdVal = baseAmount * price;
+
                 if (currencyMode === 'USD') {
-                  setSize(maxBuyingPower.toFixed(2));
-                } else if (marketData?.oraclePrice && parseFloat(marketData.oraclePrice) > 0) {
-                  const baseAmount = maxBuyingPower / parseFloat(marketData.oraclePrice);
+                  setSize(finalUsdVal > 0 ? finalUsdVal.toFixed(2) : '');
+                } else {
                   const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
-                  setSize(baseAmount.toFixed(decimals));
+                  setSize(baseAmount > 0 ? baseAmount.toFixed(decimals) : '');
                 }
               }
             }}
+            marketData={marketData}
           />
 
           <div className="px-1 lg:px-4 space-y-3 mt-4">
@@ -656,7 +696,7 @@ export const DydxTradingForm: React.FC = () => {
                   min="0"
                   max="100"
                   step="1"
-                  value={currentPercentage}
+                  value={localPercentage}
                   onChange={e => handlePercentageChange(parseInt(e.target.value) || 0)}
                   className="absolute z-10 inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-secondary [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-brand-primary [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform"
                 />
@@ -668,10 +708,7 @@ export const DydxTradingForm: React.FC = () => {
                   type="number"
                   min="0"
                   max="100"
-                  value={(() => {
-                    if (!size || isNaN(parseFloat(size)) || parseFloat(size) === 0) return '';
-                    return currentPercentage;
-                  })()}
+                  value={localPercentage || ''}
                   onChange={e => handlePercentageChange(e.target.value)}
                   placeholder="0"
                   className="relative w-full bg-transparent text-primary rounded-lg pl-2 pr-5 py-2 text-sm font-semibold text-right focus:outline-none focus:ring-1 focus:ring-brand-primary/50 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none z-10"
