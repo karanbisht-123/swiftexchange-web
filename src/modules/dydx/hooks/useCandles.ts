@@ -25,7 +25,9 @@ interface UseRealtimeChartReturn {
   latestCandle: Candle | null;
   error: string | null;
   isLoading: boolean;
+  isFetchingMore: boolean;
   isConnected: boolean;
+  fetchMore: () => Promise<void>;
 }
 
 const FETCH_DEBOUNCE_MS = 300;
@@ -37,21 +39,25 @@ export function useRealtimeChart(
 ): UseRealtimeChartReturn {
   const enforcedLimit = Math.min(limit, 1000);
 
-  const [snapshotCandles, setSnapshotCandles] = useState<Candle[]>([]);
+  const [historicalCandles, setHistoricalCandles] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
 
   const subscribeToCandles = useWebSocketStore(state => state.subscribeToCandles);
   const unsubscribeFromCandles = useWebSocketStore(state => state.unsubscribeFromCandles);
   const isConnected = useWebSocketStore(state => state.isConnected);
 
   const mountedRef = useRef(true);
-
   const loadIdRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const candleKey = `candles_${market}_${resolution}`;
   const storeCandlesData = useWebSocketStore(state => state.candles.get(candleKey));
+
+  // Pagination state refs
+  const oldestTimestampRef = useRef<string | null>(null);
+  const hasMoreRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -62,67 +68,106 @@ export function useRealtimeChart(
     };
   }, []);
 
-  useEffect(() => {
-    setSnapshotCandles([]);
-    setIsLoading(true);
-    setError(null);
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-    loadIdRef.current += 1;
-    const myLoadId = loadIdRef.current;
-    debounceTimerRef.current = setTimeout(async () => {
-      if (!mountedRef.current || myLoadId !== loadIdRef.current) return;
+  const fetchCandles = async (isInitial = true) => {
+    if (!mountedRef.current) return;
+    if (!isInitial && (!hasMoreRef.current || isFetchingMore)) return;
 
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
+    if (isInitial) {
+      setIsLoading(true);
+      oldestTimestampRef.current = null;
+      hasMoreRef.current = true;
+    } else {
+      setIsFetchingMore(true);
+    }
 
-      try {
-        const indexerClient = getIndexerClient();
-        const data = await indexerClient.markets.getPerpetualMarketCandles(
-          market,
-          resolution,
-          undefined,
-          undefined,
-          enforcedLimit
-        );
+    try {
+      const indexerClient = getIndexerClient();
+      const toISO = isInitial ? undefined : oldestTimestampRef.current;
+      
+      const data = await indexerClient.markets.getPerpetualMarketCandles(
+        market,
+        resolution,
+        undefined, // fromISO
+        toISO || undefined, // toISO
+        enforcedLimit
+      );
 
-        if (!mountedRef.current || myLoadId !== loadIdRef.current || controller.signal.aborted) {
-          return;
-        }
+      if (!mountedRef.current) return;
 
-        const fetched: Candle[] = (data.candles || []).map((c: any) => ({
-          startedAt: c.startedAt,
-          ticker: c.ticker || market,
-          resolution: c.resolution || resolution,
-          low: c.low || '0',
-          high: c.high || '0',
-          open: c.open || '0',
-          close: c.close || '0',
-          baseTokenVolume: c.baseTokenVolume || '0',
-          usdVolume: c.usdVolume || '0',
-          trades: Number(c.trades) || 0,
-          startingOpenInterest: c.startingOpenInterest || '0',
-          id: c.startedAt,
-        }));
+      const fetched: Candle[] = (data.candles || []).map((c: any) => ({
+        startedAt: c.startedAt,
+        ticker: c.ticker || market,
+        resolution: c.resolution || resolution,
+        low: c.low || '0',
+        high: c.high || '0',
+        open: c.open || '0',
+        close: c.close || '0',
+        baseTokenVolume: c.baseTokenVolume || '0',
+        usdVolume: c.usdVolume || '0',
+        trades: Number(c.trades) || 0,
+        startingOpenInterest: c.startingOpenInterest || '0',
+        id: c.startedAt,
+      }));
 
-        const sorted = [...fetched].sort(
+      if (fetched.length === 0) {
+        hasMoreRef.current = false;
+        return;
+      }
+
+      // Update oldest timestamp for next fetch
+      const sortedFetched = [...fetched].sort(
+        (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+      );
+      oldestTimestampRef.current = sortedFetched[0].startedAt;
+
+      // If we got fewer candles than requested, we likely hit the end of history
+      if (fetched.length < enforcedLimit) {
+        hasMoreRef.current = false;
+      }
+
+      setHistoricalCandles(prev => {
+        if (isInitial) return sortedFetched;
+        
+        // Merge and deduplicate
+        const candleMap = new Map<string, Candle>();
+        prev.forEach(c => candleMap.set(c.startedAt, c));
+        sortedFetched.forEach(c => candleMap.set(c.startedAt, c));
+        
+        return Array.from(candleMap.values()).sort(
           (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
         );
+      });
 
-        setSnapshotCandles(sorted);
-        setError(null);
-      } catch (err: any) {
-        if (err?.name === 'AbortError') return;
-        if (!mountedRef.current || myLoadId !== loadIdRef.current) return;
-
-        console.error('[Candles] Load error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load candles');
-        setSnapshotCandles([]);
-      } finally {
-        if (mountedRef.current && myLoadId === loadIdRef.current) {
-          setIsLoading(false);
-        }
+      setError(null);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      console.error('[Candles] Load error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load candles');
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+        setIsFetchingMore(false);
       }
+    }
+  };
+
+  useEffect(() => {
+    // DO NOT clear historicalCandles here; this prevents the chart from blinking away.
+    // The old candles remain displayed behind the loader until the new candles are completely fetched.
+    setIsLoading(true);
+    setError(null);
+    hasMoreRef.current = true;
+    oldestTimestampRef.current = null;
+
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    abortControllerRef.current?.abort();
+    
+    loadIdRef.current += 1;
+    const myLoadId = loadIdRef.current;
+
+    debounceTimerRef.current = setTimeout(async () => {
+      if (!mountedRef.current || myLoadId !== loadIdRef.current) return;
+      fetchCandles(true);
     }, FETCH_DEBOUNCE_MS);
 
     return () => {
@@ -138,10 +183,14 @@ export function useRealtimeChart(
   const mergedCandles = useMemo(() => {
     const liveCandles = storeCandlesData?.candles || [];
 
-    if (liveCandles.length === 0 && snapshotCandles.length === 0) return [];
+    if (liveCandles.length === 0 && historicalCandles.length === 0) return [];
 
     const candleMap = new Map<string, Candle>();
-    snapshotCandles.forEach(c => candleMap.set(c.startedAt, c));
+    
+    // Add historical candles first
+    historicalCandles.forEach(c => candleMap.set(c.startedAt, c));
+    
+    // Merge with live candles from socket
     liveCandles.forEach((c: any) => {
       candleMap.set(c.startedAt, {
         startedAt: c.startedAt,
@@ -161,8 +210,10 @@ export function useRealtimeChart(
 
     const merged = Array.from(candleMap.values());
     merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
-    return merged.slice(-enforcedLimit);
-  }, [snapshotCandles, storeCandlesData, enforcedLimit, market, resolution]);
+    
+    // Safety cap to prevent memory issues in extremely long sessions
+    return merged.slice(-5000);
+  }, [historicalCandles, storeCandlesData, market, resolution]);
 
   const latestCandle = useMemo(() => {
     if (mergedCandles.length === 0) return null;
@@ -174,6 +225,8 @@ export function useRealtimeChart(
     latestCandle,
     error,
     isLoading,
+    isFetchingMore,
     isConnected,
+    fetchMore: () => fetchCandles(false),
   };
 }

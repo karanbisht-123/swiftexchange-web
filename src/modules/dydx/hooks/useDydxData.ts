@@ -78,8 +78,6 @@ export const useDydxData = (): UseDydxDataReturn => {
     }))
   );
 
-  // ── Derived data ──────────────────────────────────────────────────────────
-
   const positions = useMemo(() => {
     const raw = parentData?.childSubaccounts?.flatMap(child =>
       Object.values(child.openPerpetualPositions || {}).map(pos => ({
@@ -137,14 +135,10 @@ export const useDydxData = (): UseDydxDataReturn => {
   const loadingAssetPositions = false;
   const assetPositionsError = null;
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
-
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
-
-  // ── Refresh callbacks (manual / on-demand only) ───────────────────────────
 
   const refreshOrders = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
@@ -156,7 +150,6 @@ export const useDydxData = (): UseDydxDataReturn => {
       const data: Order[] = await dydxDataService.refreshOrders(undefined, undefined);
 
       if (isMountedRef.current && parentKey) {
-        // HTTP data gets msgId=0 so any live WS update (msgId ≥ 1) always wins
         useWebSocketStore.getState().updateParentSubaccount(
           parentKey,
           { orders: data as any, lastUpdate: Date.now() },
@@ -202,21 +195,23 @@ export const useDydxData = (): UseDydxDataReturn => {
         const existing = state.parentSubaccounts.get(parentKey);
         if (!existing) return state;
 
-        const newChildMap = new Map(existing.childSubaccounts.map(c => [c.subaccountNumber, { ...c }]));
+        const newChildMap = new Map(
+          existing.childSubaccounts.map(c => [c.subaccountNumber, { ...c }])
+        );
 
-        // Rebuild openPerpetualPositions from scratch — API returns only open
-        // positions so anything missing has been closed.
-        const freshBySubNum = new Map<number, Record<string, any>>();
+        const apiBySubNum = new Map<number, Record<string, any>>();
 
         positionsData.forEach((pos: any) => {
           const subNum = pos.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
-          if (!freshBySubNum.has(subNum)) freshBySubNum.set(subNum, {});
+          if (!apiBySubNum.has(subNum)) apiBySubNum.set(subNum, {});
           const wsPos = newChildMap.get(subNum)?.openPerpetualPositions?.[pos.market];
-          freshBySubNum.get(subNum)![pos.market] = wsPos ? { ...wsPos, ...pos } : pos;
+          apiBySubNum.get(subNum)![pos.market] = wsPos ? { ...wsPos, ...pos } : pos;
         });
 
         newChildMap.forEach((child, subNum) => {
-          child.openPerpetualPositions = freshBySubNum.get(subNum) ?? {};
+          const apiPositions = apiBySubNum.get(subNum);
+          if (!apiPositions) return;
+          Object.assign(child.openPerpetualPositions, apiPositions);
         });
 
         const newMap = new Map(state.parentSubaccounts);
@@ -284,8 +279,6 @@ export const useDydxData = (): UseDydxDataReturn => {
     }
   }, [parentKey]);
 
-  // ── Subscriptions ─────────────────────────────────────────────────────────
-
   useEffect(() => {
     if (!dydxAddress || !isConnected) return;
 
@@ -323,8 +316,6 @@ export const useDydxData = (): UseDydxDataReturn => {
 
     return unsubscribe;
   }, []);
-
-  // ── Return ────────────────────────────────────────────────────────────────
 
   return {
     positions,
