@@ -769,7 +769,7 @@ class WalletService {
     }
     this.saveSession();
     if (this.sessions.size === 0) {
-      this.clearWCStorage();
+      await this.clearAppData();
     } else {
       this.clearWCStorageForKey(
         sharedTypes.includes('evm') && sharedTypes.includes('stellar')
@@ -781,20 +781,27 @@ class WalletService {
       this.emitState(t, 'disconnected');
     }
   }
-  private clearWCStorage(): void {
-    const WC_PREFIXES = [
-      'wc@2:',
-      'walletconnect',
-      `swiftex_`,
-    ];
 
-    const keysToRemove = Object.keys(localStorage).filter(k =>
-      WC_PREFIXES.some(p => k.startsWith(p))
-    );
+  private async clearAppData(): Promise<void> {
+    const PRESERVE_KEYS = ['swiftex_local_transactions', 'theme-storage'];
 
-    if (keysToRemove.length > 0) {
-      console.debug(`[WalletService] Clearing ${keysToRemove.length} WC storage keys`);
-      keysToRemove.forEach(k => localStorage.removeItem(k));
+    Object.keys(localStorage).forEach(key => {
+      if (!PRESERVE_KEYS.includes(key)) {
+        localStorage.removeItem(key);
+      }
+    });
+
+    try {
+      if (typeof indexedDB !== 'undefined' && indexedDB.databases) {
+        const dbs = await indexedDB.databases();
+        dbs.forEach(db => {
+          if (db.name && db.name !== 'WALLET_CONNECT_V2_INDEXED_DB') {
+            indexedDB.deleteDatabase(db.name);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('[WalletService] Failed to clear IndexedDB:', error);
     }
   }
 
