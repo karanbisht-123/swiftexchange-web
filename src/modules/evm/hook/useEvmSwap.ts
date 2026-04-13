@@ -10,6 +10,7 @@ import {
   fetchSingleTokenBalance,
   getTokensForChain,
 } from '../service/tokenListService';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
 
@@ -239,6 +240,8 @@ export const useEvmSwap = ({
           getProvider
         );
 
+        const currentNetwork = useWalletStore.getState().network;
+
         addLocalTransaction({
           hash,
           chainId,
@@ -246,6 +249,8 @@ export const useEvmSwap = ({
           timestamp: Date.now(),
           description: `Swap ${sellAsset.symbol} \u2192 ${buyAsset.symbol}`,
           status: 'pending',
+          from: senderAddress,
+          network: currentNetwork,
         });
 
         if (activeSwapId.current === swapId) {

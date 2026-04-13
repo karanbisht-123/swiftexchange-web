@@ -234,6 +234,8 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
           timestamp: Date.now(),
           description: `Added trustline for ${asset.code}`,
           status: 'success',
+          from: stellarAddress,
+          network: currentNetwork,
         });
 
         setTxModal({

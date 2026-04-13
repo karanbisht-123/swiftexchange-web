@@ -545,15 +545,16 @@ export const useSendAsset = (onBack?: () => void) => {
       const response = await sendTransaction(transactionRequest);
 
       if (response.status === 'success') {
-        if (currentAsset.type === 'evm' && response.hash) {
-          addLocalTransaction({
-            hash: response.hash,
-            chainId: currentAsset.networkKey as number,
-            type: 'send',
-            timestamp: Date.now(),
-            description: `Send ${amount} ${currentAsset.value}`,
-          });
-        }
+        addLocalTransaction({
+          hash: response.hash || '',
+          chainId: currentAsset.type === 'evm' ? (currentAsset.networkKey as number) : 9000000,
+          type: 'send',
+          timestamp: Date.now(),
+          description: `Send ${amount} ${currentAsset.symbol}`,
+          status: 'success',
+          from: senderAddress,
+          network: currentNetwork,
+        });
 
         setTransactionState(p => ({
           ...p,

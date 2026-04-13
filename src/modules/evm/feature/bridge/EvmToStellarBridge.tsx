@@ -479,6 +479,8 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
           timestamp: Date.now(),
           description: `Bridge ${amount} ${selectedToken} (EVM) → USDC (Stellar)`,
           status: 'pending',
+          from: evmAddress,
+          network: currentNetwork,
         });
       }
 
@@ -495,6 +497,8 @@ const EvmToStellarBridge: React.FC<EvmToStellarBridgeProps> = ({ selectedAsset }
         timestamp: Date.now(),
         description: `Bridge ${amount} ${selectedToken} (EVM) → USDC (Stellar)`,
         status: 'failed',
+        from: evmAddress,
+        network: currentNetwork,
       });
     } finally {
       setIsPreparingBridge(false);

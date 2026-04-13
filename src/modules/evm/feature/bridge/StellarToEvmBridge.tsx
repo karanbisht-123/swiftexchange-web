@@ -354,6 +354,8 @@ const StellarToEvmBridge: React.FC = () => {
           timestamp: Date.now(),
           description: `Bridge ${amount} USDC (Stellar) → ${selectedDestToken} (${currentChainConfig.name})`,
           status: 'pending',
+          from: stellarAddress,
+          network: currentNetwork,
         });
       }
 
@@ -371,6 +373,8 @@ const StellarToEvmBridge: React.FC = () => {
           timestamp: Date.now(),
           description: `Bridge ${amount} USDC (Stellar) → ${selectedDestToken} (${currentChainConfig.name})`,
           status: 'failed',
+          from: stellarAddress,
+          network: currentNetwork,
         });
       }
     }

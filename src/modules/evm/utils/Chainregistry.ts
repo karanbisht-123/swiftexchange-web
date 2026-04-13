@@ -70,9 +70,21 @@ export interface ChainConfig {
 }
 
 
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { CHAIN_CONFIGS } from './chains.ts';
 
 export const CHAIN_REGISTRY: ChainConfig[] = CHAIN_CONFIGS;
+
+// Special cases for non-EVM networks or networks without a full config in CHAIN_CONFIGS
+const SPECIAL_CHAINS: Record<number, { name: string; symbol: string; logo: string }> = {
+    9000000: {
+        name: 'Stellar',
+        symbol: 'XLM',
+        logo: 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png'
+    },
+    // Future expansion example:
+    // 0: { name: 'Bitcoin', symbol: 'BTC', logo: '...' }
+};
 
 // Lookup Maps
 const BY_CHAIN_ID = new Map<number, ChainConfig>(
@@ -123,14 +135,17 @@ export function getAssetByAddress(chainId: number, address: string): ChainAsset 
 }
 
 export function getChainName(chainId: number): string {
+    if (SPECIAL_CHAINS[chainId]) return SPECIAL_CHAINS[chainId].name;
     return getChainById(chainId)?.name ?? 'Unknown';
 }
 
 export function getChainNativeSymbol(chainId: number): string {
+    if (SPECIAL_CHAINS[chainId]) return SPECIAL_CHAINS[chainId].symbol;
     return getChainById(chainId)?.nativeCurrency.symbol ?? 'ETH';
 }
 
 export function getChainLogoUrl(chainId: number): string | undefined {
+    if (SPECIAL_CHAINS[chainId]) return SPECIAL_CHAINS[chainId].logo;
     return getChainById(chainId)?.logoURI;
 }
 
@@ -143,6 +158,15 @@ export function getExplorerUrl(
     type: 'tx' | 'block' | 'address',
     value: string
 ): string {
+    const currentNetwork = useWalletStore.getState().network;
+    
+    if (chainId === 9000000) {
+        const base = currentNetwork === 'testnet' 
+            ? 'https://stellar.expert/explorer/testnet' 
+            : 'https://stellar.expert/explorer/public';
+        return `${base}/${type}/${value}`;
+    }
+
     const base = getChainById(chainId)?.blockExplorerUrl ?? 'https://etherscan.io';
     return `${base}/${type}/${value}`;
 }

@@ -126,6 +126,8 @@ const StellarSendReceive: React.FC<StellarSendReceiveProps> = ({ asset, userAddr
           timestamp: Date.now(),
           description: `Sent ${amount} ${asset.ticker} to ${destination.slice(0, 4)}...${destination.slice(-4)}`,
           status: 'success',
+          from: userAddress,
+          network: currentNetwork,
         });
 
         setTxModal({

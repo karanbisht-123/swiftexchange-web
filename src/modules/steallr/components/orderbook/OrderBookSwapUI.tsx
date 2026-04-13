@@ -15,6 +15,7 @@ import StellarTradingChart from '../chart/StellarTradingChart';
 import LastTrades from '../tradescreen/LastTrades';
 import OrderBook from './OrderBook';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import StellarTransactionModal from '../modals/StellarTransactionModal';
 
 const TOKEN_ICONS: Record<string, string> = {
@@ -53,6 +54,7 @@ const OrderBookSwapUI = () => {
   }, []);
 
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
+  const currentNetwork = useWalletStore(state => state.network);
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
 
@@ -128,14 +130,16 @@ const OrderBookSwapUI = () => {
 
       const txHash = await executeOrderWithWalletConnect(tx, provider);
 
-      addLocalTransaction({
-        hash: txHash,
-        chainId: 9000000,
-        type: 'orderbook',
-        timestamp: Date.now(),
-        description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
-        status: 'success',
-      });
+        addLocalTransaction({
+          hash: txHash,
+          chainId: 9000000,
+          type: 'orderbook',
+          timestamp: Date.now(),
+          description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
+          status: 'success',
+          from: stellarAddress,
+          network: currentNetwork,
+        });
 
       setTxModal({
         isOpen: true,

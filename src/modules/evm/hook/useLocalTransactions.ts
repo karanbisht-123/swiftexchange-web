@@ -5,8 +5,10 @@ import { ethers } from 'ethers';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type LocalTransaction,
+  cleanupOldWalletTransactions,
   getLocalTransactions,
   removeLocalTransaction,
   updateLocalTransactionStatus,
@@ -56,9 +58,29 @@ const getChainSymbol = (chainId: number): string => {
 
 export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const { getProvider } = useWalletConnect();
+  const connectedWallets = useWalletStore(state => state.connectedWallets);
+  const currentNetwork = useWalletStore(state => state.network);
+  
+  const evmWallet = connectedWallets[WalletType.EVM];
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
+  
+  const currentAddresses = [
+    evmWallet?.address,
+    stellarWallet?.address,
+  ].filter(Boolean) as string[];
+
+  const currentAddress = currentAddresses[0]; // For backwards compatibility with single-address logic if needed
+
   const [transactions, setTransactions] = useState<LocalTransactionWithStatus[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Sync and Clean up transactions from other wallets immediately
+  useEffect(() => {
+    if (currentAddresses.length > 0) {
+      cleanupOldWalletTransactions(currentAddresses, currentNetwork);
+    }
+  }, [JSON.stringify(currentAddresses), currentNetwork]);
 
   const fetchTransactionStatus = useCallback(
     async (tx: LocalTransaction): Promise<LocalTransactionWithStatus> => {
@@ -80,8 +102,6 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
             const sdk = new AllbridgeCoreSdk(nodeRpcUrlsDefault);
             const chainSymbol = getChainSymbol(tx.chainId);
             const bridgeStatus = (await sdk.getTransferStatus(chainSymbol, tx.hash)) as any;
-
-            console.log('bridgeStatus', bridgeStatus);
 
             if (bridgeStatus) {
               const isSuccess = bridgeStatus.status === 'SUCCESS' || (bridgeStatus.receive && bridgeStatus.receive.txId);
@@ -116,11 +136,9 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
             console.error('Allbridge polling failed:', e);
             newStatus = 'pending';
           }
-        }
- else if (tx.chainId === STELLAR_CHAIN_ID) {
+        } else if (tx.chainId === STELLAR_CHAIN_ID) {
           try {
-            const isMainnet = localStorage.getItem('network') === 'mainnet';
-            const horizonBase = isMainnet
+            const horizonBase = currentNetwork === 'mainnet'
               ? 'https://horizon.stellar.org'
               : 'https://horizon-testnet.stellar.org';
             const res = await fetch(`${horizonBase}/transactions/${tx.hash}`);
@@ -172,13 +190,18 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         return { ...tx, status: 'pending' };
       }
     },
-    [getProvider]
+    [getProvider, currentNetwork]
   );
 
   const loadTransactions = useCallback(async () => {
+    if (!currentAddress) {
+      setTransactions([]);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const localTxs = getLocalTransactions();
+      const localTxs = getLocalTransactions(currentAddresses, currentNetwork);
 
       if (localTxs.length === 0) {
         setTransactions([]);
@@ -186,23 +209,22 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
       }
 
       const txsWithStatus = await Promise.all(localTxs.map(tx => fetchTransactionStatus(tx)));
-
       setTransactions(txsWithStatus);
     } catch (error) {
       console.error('Failed to load local transactions:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchTransactionStatus]);
+  }, [fetchTransactionStatus, currentAddress, currentNetwork]);
 
   const refreshTransaction = useCallback(async (hash: string) => {
-    const localTxs = getLocalTransactions();
+    const localTxs = getLocalTransactions(currentAddresses, currentNetwork);
     const tx = localTxs.find(t => t.hash.toLowerCase() === hash.toLowerCase());
     if (tx) {
       const updatedTx = await fetchTransactionStatus(tx);
       setTransactions(prev => prev.map(t => t.hash.toLowerCase() === hash.toLowerCase() ? updatedTx : t));
     }
-  }, [fetchTransactionStatus]);
+  }, [fetchTransactionStatus, currentAddress, currentNetwork]);
 
   const refresh = useCallback(() => {
     loadTransactions();

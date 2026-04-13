@@ -10,6 +10,7 @@ import StellarTradingChart from '../chart/StellarTradingChart';
 import { SettingsPanel, SwapDetails, TokenSelector } from './AmmSwapSubComponents';
 import { XlmReserveButton, useTrustlineCount } from './XlmReserveInfo';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import StellarTransactionModal from '../modals/StellarTransactionModal';
 
 const AmmSwapUI = () => {
@@ -23,6 +24,7 @@ const AmmSwapUI = () => {
   }>({ isOpen: false, status: 'success' });
 
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
+  const currentNetwork = useWalletStore(state => state.network);
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
 
@@ -123,6 +125,8 @@ const AmmSwapUI = () => {
         timestamp: Date.now(),
         description: `Swap ${fromAmount} ${fromToken.code} for ${toAmount} ${toToken.code}`,
         status: 'success',
+        from: stellarAddress,
+        network: currentNetwork,
       });
 
       setTxModal({

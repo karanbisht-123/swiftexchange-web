@@ -16,21 +16,39 @@ export interface LocalTransaction {
   destinationHash?: string;
   from?: string;
   to?: string;
+  network?: string;
 }
 
-export const getLocalTransactions = (): LocalTransaction[] => {
+export const getLocalTransactions = (walletAddresses?: string[], network?: string): LocalTransaction[] => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return [];
 
-    const transactions: LocalTransaction[] = JSON.parse(stored);
+    let transactions: LocalTransaction[] = JSON.parse(stored);
     const now = Date.now();
+    
+    // Clean up expired transactions
     const validTransactions = transactions.filter(tx => now - tx.timestamp < MAX_AGE_MS);
+    
+    // Filter by wallet address and network if provided
+    let filteredTransactions = validTransactions;
+    if (walletAddresses && walletAddresses.length > 0) {
+      const lowerAddresses = walletAddresses.map(addr => addr.toLowerCase());
+      filteredTransactions = filteredTransactions.filter(
+        tx => tx.from && lowerAddresses.includes(tx.from.toLowerCase())
+      );
+    }
+    if (network) {
+      filteredTransactions = filteredTransactions.filter(
+        tx => tx.network === network
+      );
+    }
+
     if (validTransactions.length !== transactions.length) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(validTransactions));
     }
 
-    return validTransactions;
+    return filteredTransactions;
   } catch (error) {
     console.error('Failed to get local transactions:', error);
     return [];
@@ -101,4 +119,23 @@ export const clearLocalTransactions = (): void => {
 
 export const getTransactionsByChain = (chainId: number): LocalTransaction[] => {
   return getLocalTransactions().filter(tx => tx.chainId === chainId);
+};
+
+export const cleanupOldWalletTransactions = (currentWallets: string[], currentNetwork: string): void => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return;
+
+    const lowerAddresses = currentWallets.map(addr => addr.toLowerCase());
+    const transactions: LocalTransaction[] = JSON.parse(stored);
+    const filtered = transactions.filter(tx => 
+      tx.from && lowerAddresses.includes(tx.from.toLowerCase()) && tx.network === currentNetwork
+    );
+
+    if (filtered.length !== transactions.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    }
+  } catch (error) {
+    console.error('Failed to cleanup old wallet transactions:', error);
+  }
 };
