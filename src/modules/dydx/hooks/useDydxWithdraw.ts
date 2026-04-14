@@ -252,7 +252,7 @@ export const useDydxWithdraw = () => {
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
 
-        // ── Minimum-balance handling (same-transaction top-up) ─────────────
+        // ── Minimum-balance handling (same-transaction top-up)
         // Check how much USDC the native wallet currently holds.
         // If it's below the required gas reserve (~$1.24), we pull the shortfall
         // OUT of the subaccount in the same withdraw() call — no separate tx.
@@ -279,8 +279,6 @@ export const useDydxWithdraw = () => {
           Long.fromString(withdrawQuantums.toString())
         );
         setTxHash(formatTxHash((withdrawResult as any)?.hash));
-
-        // Wait for the withdrawal to settle in the native wallet
         {
           const POLL_INTERVAL_MS = 3_000;
           const POLL_TIMEOUT_MS = 60_000;

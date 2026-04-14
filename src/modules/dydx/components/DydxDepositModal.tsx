@@ -19,7 +19,6 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { useSubaccounts } from '../hooks/useSubaccounts';
 import {
-  getIsDepositPending,
   useHasActivePendingDeposit,
   useHasActivePendingWithdraw,
   useTransactionStore,
@@ -136,10 +135,11 @@ const RoutePill: React.FC = () => (
   </div>
 );
 
-const ModalShell: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({
-  onClose,
-  children,
-}) => (
+const ModalShell: React.FC<{
+  onClose: () => void;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ onClose, children, className }) => (
   <div
     className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4"
     onClick={e => {
@@ -152,7 +152,8 @@ const ModalShell: React.FC<{ onClose: () => void; children: React.ReactNode }> =
         'rounded-t-2xl sm:rounded-2xl',
         'border border-color shadow-2xl font-sans',
         'flex flex-col',
-        'max-h-[90dvh] sm:max-h-[640px]',
+        'max-h-[90dvh] sm:max-h-[640px] overflow-hidden',
+        className,
       ].join(' ')}
     >
       {children}
@@ -194,9 +195,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const withdrawIsPending = useHasActivePendingWithdraw();
   const isDepositLocked = depositIsPending || withdrawIsPending;
 
-  const [modalStep, setModalStep] = useState<ModalStep>(() =>
-    getIsDepositPending() ? 'tracker' : 'form'
-  );
+  const [modalStep, setModalStep] = useState<ModalStep>(() => {
+    const tx = useTransactionStore.getState().depositTx;
+    return (tx && !tx.isAcknowledged) ? 'tracker' : 'form';
+  });
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [amount, setAmount] = useState('');
@@ -215,17 +217,13 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const trackerChainId = tracker.chainId;
   const hasPendingTracker = !!trackerTxHash && tracker.hasPolledOnce && !tracker.isTerminal;
 
-  useEffect(() => {
-    if (!isOpen || modalStep !== 'tracker') return;
-    console.log('[DydxDepositModal] debug tracker:', { tracker, depositTx: store.depositTx });
-  }, [isOpen, modalStep, tracker, store.depositTx]);
-
   const autoClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!tracker.isTerminal || !store.depositTx) return;
 
     autoClearRef.current = setTimeout(() => {
-      store.clearDepositTx();
+      tracker.acknowledge();
+      setModalStep('form');
     }, AUTO_CLEAR_DELAY_MS);
 
     return () => {
@@ -249,7 +247,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
 
-    const shouldShowTracker = getIsDepositPending();
+    const tx = useTransactionStore.getState().depositTx;
+    const shouldShowTracker = tx && !tx.isAcknowledged;
     setModalStep(shouldShowTracker ? 'tracker' : 'form');
 
     checkPendingDeposit();
@@ -257,7 +256,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    const shouldShowTracker = getIsDepositPending();
+    const tx = useTransactionStore.getState().depositTx;
+    const shouldShowTracker = tx && !tx.isAcknowledged;
     if (shouldShowTracker && modalStep === 'form') {
       setModalStep('tracker');
     }
@@ -304,8 +304,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const handleDismissTracker = useCallback(() => {
     if (autoClearRef.current) clearTimeout(autoClearRef.current);
-    store.clearDepositTx();
-  }, [store]);
+    tracker.acknowledge();
+  }, [tracker]);
 
   const handleShowTracker = useCallback(() => setModalStep('tracker'), []);
 
@@ -352,7 +352,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   if (modalStep === 'tracker') {
     return (
-      <ModalShell onClose={onClose}>
+      <ModalShell onClose={onClose} className="min-h-[500px] sm:min-h-[580px]">
         <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0 border-b border-color">
           <div className="flex items-center gap-2.5">
             {hasPendingTracker ? (
@@ -421,19 +421,41 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           )}
 
           {(isLoading || (store.depositTx && !trackerTxHash)) && (
-            <div className="rounded-xl border border-color bg-tertiary px-4 pt-4 pb-1">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted mb-3">
-                Current Step
-              </p>
-              <div className="flex items-center gap-3 pb-3">
-                <div className="w-8 h-8 rounded-full bg-brand/10 flex items-center justify-center">
-                  <Activity className="w-4 h-4 text-brand animate-pulse" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-primary">{activeStepLabel}</div>
-                  <div className="text-[10px] text-muted">Awaiting confirmation...</div>
+            <div className="relative flex gap-5 animate-in fade-in slide-in-from-bottom-2 px-1">
+              <div className="absolute left-[13px] top-8 bottom-[-10px] w-[2px] bg-white/5" />
+              <div className="flex-shrink-0 mt-0.5 relative z-10">
+                <div className="w-7 h-7 rounded-full border-2 border-brand bg-brand/20 shadow-[0_0_15px_rgba(var(--brand-rgb),0.5)] flex items-center justify-center scale-110">
+                   <div className="w-2 h-2 rounded-full bg-brand animate-ping" />
                 </div>
               </div>
+              <div className="flex-1 pb-10">
+                <h4 className="text-sm font-bold tracking-tight text-primary">Initial Transaction</h4>
+                <div className="flex items-center gap-2.5 text-[11px] font-semibold text-muted mt-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {activeStepLabel || 'Signing...'}
+                  </span>
+                  <span className="text-muted/60 lowercase font-medium italic">Awaiting wallet confirmation…</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!trackerTxHash && !isLoading && !store.depositTx && (
+            <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center animate-in fade-in zoom-in-95">
+              <div className="w-16 h-16 rounded-full bg-secondary border border-color flex items-center justify-center mb-4">
+                <Activity className="w-8 h-8 text-muted/30" />
+              </div>
+              <h4 className="text-base font-bold text-primary mb-2">No active transfer found</h4>
+              <p className="text-xs text-muted mb-6 max-w-[240px]">
+                We couldn't find a pending deposit in your local session. It may have already completed or was cleared.
+              </p>
+              <button
+                onClick={() => setModalStep('form')}
+                className="px-6 py-2.5 rounded-xl bg-brand text-primary text-sm font-bold shadow-lg shadow-brand/20 hover:scale-105 transition-all"
+              >
+                Go to Deposit
+              </button>
             </div>
           )}
 
@@ -464,6 +486,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                 </div>
               </div>
             )}
+            
           {tracker.isError && !hasPendingTracker && (
             <button
               onClick={tracker.refresh}
@@ -474,9 +497,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </button>
           )}
 
-          <p className="text-[11px] text-muted text-center leading-relaxed">
-            Safe to close — we'll track progress in the background.
-          </p>
+          {!tracker.isTerminal && (
+            <p className="text-[11px] text-muted text-center leading-relaxed mt-4">
+              Safe to close — we'll track progress in the background.
+            </p>
+          )}
 
           {tracker.isTerminal && (
             <button

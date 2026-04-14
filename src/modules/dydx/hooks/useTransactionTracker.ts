@@ -59,12 +59,16 @@ export interface TxTrackerResult {
   isTerminal: boolean;
   hasPolledOnce: boolean;
   refresh: () => void;
+  acknowledge: () => void;
   txHash: string | null;
   chainId: string | null;
 }
 
 const SKIP_STATUS_URL = 'https://api.skip.build/v2/tx/status';
-const POLL_INTERVAL_MS = 60_000;
+const INITIAL_POLL_DELAY_MS = 10_000;
+const MAX_POLL_DELAY_MS = 30_000;
+const POLL_MULTIPLIER = 1.5;
+
 const TERMINAL_STATES: OverallState[] = [
   'STATE_COMPLETED_SUCCESS',
   'STATE_COMPLETED_ERROR',
@@ -79,8 +83,8 @@ export interface PendingTxInfo {
   amount?: string;
   assetSymbol?: string;
   stepLabel?: string;
-
   isPreBridge?: boolean;
+  isAcknowledged?: boolean;
 }
 
 interface TransactionStore {
@@ -88,6 +92,8 @@ interface TransactionStore {
   withdrawTx: PendingTxInfo | null;
   setDepositTx: (tx: PendingTxInfo | null) => void;
   setWithdrawTx: (tx: PendingTxInfo | null) => void;
+  acknowledgeDeposit: () => void;
+  acknowledgeWithdraw: () => void;
   clearDepositTx: () => void;
   clearWithdrawTx: () => void;
 }
@@ -99,6 +105,8 @@ export const useTransactionStore = create<TransactionStore>()(
       withdrawTx: null,
       setDepositTx: tx => set({ depositTx: tx }),
       setWithdrawTx: tx => set({ withdrawTx: tx }),
+      acknowledgeDeposit: () => set({ depositTx: null }),
+      acknowledgeWithdraw: () => set({ withdrawTx: null }),
       clearDepositTx: () => set({ depositTx: null }),
       clearWithdrawTx: () => set({ withdrawTx: null }),
     }),
@@ -200,7 +208,7 @@ function parseSteps(raw: any[] = []): TransferStep[] {
   });
 }
 
-const EMPTY_RESULT: Omit<TxTrackerResult, 'refresh'> = {
+const EMPTY_RESULT: Omit<TxTrackerResult, 'refresh' | 'acknowledge'> = {
   overallState: 'STATE_UNKNOWN',
   steps: [],
   activeStepIndex: null,
@@ -220,13 +228,14 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
   const txHash = txInfo?.txHash || null;
   const chainId = txInfo?.chainId || null;
 
-  const [result, setResult] = useState<Omit<TxTrackerResult, 'refresh'>>({
+  const [result, setResult] = useState<Omit<TxTrackerResult, 'refresh' | 'acknowledge'>>({
     ...EMPTY_RESULT,
     txHash,
     chainId,
   });
 
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentDelayRef = useRef(INITIAL_POLL_DELAY_MS);
   const abortRef = useRef<AbortController | null>(null);
   const isTerminalRef = useRef(false);
 
@@ -235,9 +244,9 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
   }, [txHash, chainId]);
 
   const stopPolling = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
     }
     if (abortRef.current) {
       abortRef.current.abort();
@@ -249,8 +258,7 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
     (status: 'pending' | 'success' | 'failed') => {
       const currentState = useTransactionStore.getState();
       const currentTxInfo = type === 'deposit' ? currentState.depositTx : currentState.withdrawTx;
-      if (!currentTxInfo) return;
-      if (currentTxInfo.status === status) return; // Prevent unnecessary updates
+      if (!currentTxInfo || currentTxInfo.status === status) return;
       const updated = { ...currentTxInfo, status };
       type === 'deposit' ? currentState.setDepositTx(updated) : currentState.setWithdrawTx(updated);
     },
@@ -262,6 +270,7 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
       if (!txHash || !chainId) return;
       if (isTerminalRef.current && !isManual) return;
 
+      if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -272,11 +281,10 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
 
         const res = await fetch(url.toString(), { method: 'GET', signal: controller.signal });
 
-        console.log(res, 'skip go res[onse');
-
         if (!res.ok) {
           if (res.status === 404 || res.status === 400) {
             setResult(prev => ({ ...prev, hasPolledOnce: true }));
+            scheduleNextPoll();
             return;
           }
           throw new Error(`Skip status API returned ${res.status}`);
@@ -286,11 +294,8 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
         const state: OverallState = data.state ?? 'STATE_UNKNOWN';
         const steps = parseSteps(data.transfer_sequence);
         const activeStepIndex = data.next_blocking_transfer?.transfer_sequence_index ?? null;
-
-        console.log(activeStepIndex, ' ustransction : activeStepIndex --------');
         const releaseRaw = data.transfer_asset_release;
 
-        console.log(releaseRaw, 'relse Raw asset -----');
         const assetRelease: AssetRelease | null = releaseRaw
           ? {
               chain_id: releaseRaw.chain_id ?? '',
@@ -298,8 +303,8 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
               released: releaseRaw.released ?? false,
             }
           : null;
+
         const isTerminal = TERMINAL_STATES.includes(state);
-        console.log(isTerminal, '--------');
         isTerminalRef.current = isTerminal;
 
         setResult(prev => ({
@@ -315,46 +320,51 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
           hasPolledOnce: true,
         }));
 
-        console.log(state);
         if (isTerminal) {
-          console.log('stoppolling ------');
           stopPolling();
           updateStoreStatus(state === 'STATE_COMPLETED_SUCCESS' ? 'success' : 'failed');
         } else {
           updateStoreStatus('pending');
+          scheduleNextPoll();
         }
       } catch (err: any) {
         if (err.name === 'AbortError') return;
-        console.warn('[useTransactionTracker] poll error:', err);
         setResult(prev => ({
           ...prev,
           hasPolledOnce: true,
           isError: true,
           errorMessage: err.message ?? 'Network error polling transaction status',
         }));
+        scheduleNextPoll();
       }
     },
     [txHash, chainId, stopPolling, updateStoreStatus]
   );
 
-  const refresh = useCallback(() => poll(true), [poll]);
+  function scheduleNextPoll() {
+    if (isTerminalRef.current) return;
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+
+    pollTimeoutRef.current = setTimeout(() => {
+      currentDelayRef.current = Math.min(currentDelayRef.current * POLL_MULTIPLIER, MAX_POLL_DELAY_MS);
+      poll();
+    }, currentDelayRef.current);
+  }
+
+  const refresh = useCallback(() => {
+    currentDelayRef.current = INITIAL_POLL_DELAY_MS;
+    poll(true);
+  }, [poll]);
+
+  const acknowledge = useCallback(() => {
+    type === 'deposit' ? store.acknowledgeDeposit() : store.acknowledgeWithdraw();
+  }, [type, store]);
 
   useEffect(() => {
-    const currentState = useTransactionStore.getState();
-    const currentTxInfo = type === 'deposit' ? currentState.depositTx : currentState.withdrawTx;
-
-    // Debug restored state on mount
-    if (currentTxInfo) {
-      console.log(`[useTransactionTracker] ${type} tx found in store:`, {
-        hash: currentTxInfo.txHash,
-        status: currentTxInfo.status,
-        startedAt: new Date(currentTxInfo.startedAt).toLocaleTimeString(),
-      });
-    }
-
     if (!txHash || !chainId) {
-      // If we are pending but have no hash yet, don't stop polling, but don't start the Skip poll either.
-      // This allows the UI to stay in the 'Tracker' view while waiting for a hash.
+      const currentState = useTransactionStore.getState();
+      const currentTxInfo = type === 'deposit' ? currentState.depositTx : currentState.withdrawTx;
+
       if (currentTxInfo?.status === 'pending') {
         setResult(prev => ({ ...prev, txHash: null, chainId: null, isLoading: true }));
         return;
@@ -367,6 +377,7 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
     }
 
     isTerminalRef.current = false;
+    currentDelayRef.current = INITIAL_POLL_DELAY_MS;
     setResult(prev => ({
       ...prev,
       overallState: 'STATE_SUBMITTED',
@@ -378,9 +389,9 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
     }));
 
     poll();
-    intervalRef.current = setInterval(() => poll(), POLL_INTERVAL_MS);
+
     return stopPolling;
   }, [txHash, chainId, poll, stopPolling, type]);
 
-  return { ...result, refresh };
+  return { ...result, refresh, acknowledge };
 }
