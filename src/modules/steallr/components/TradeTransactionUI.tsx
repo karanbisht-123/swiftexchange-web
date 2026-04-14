@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { getExplorerUrl as getRegistryExplorerUrl } from '../../evm/utils/Chainregistry';
 import { ConfirmationModal } from '../../../components/common/ConfirmationModal';
 import { ERROR_MESSAGES, UI_STRINGS } from '../constants/tradeTransactionConstants';
 import { useTradeTransaction } from '../hook/useTradeTransaction';
@@ -48,9 +49,9 @@ const TradeTransactionUI = () => {
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [offerToCancel, setOfferToCancel] = useState<ActiveOffer | null>(null);
 
-  const explorerNetwork = network === 'mainnet' ? 'public' : 'testnet';
+  const chainId = network === 'mainnet' ? 9000000 : 9000001;
   const getExplorerUrl = (type: 'trade' | 'offer' | 'tx' | 'op', id: string) =>
-    `https://stellar.expert/explorer/${explorerNetwork}/${type}/${id}`;
+    getRegistryExplorerUrl(chainId, type as any, id);
 
   useEffect(() => {
     if (editingOffer) {

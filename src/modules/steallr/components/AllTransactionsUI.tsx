@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { getExplorerUrl as getRegistryExplorerUrl } from '../../evm/utils/Chainregistry';
 import { useAllTransactions } from '../hook/useAllTransactions';
 import type { TransactionType, UnifiedTransaction } from '../types/allTransaction.types';
 
@@ -189,9 +190,9 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
     }
   };
 
-  const explorerNetwork = network === 'mainnet' ? 'public' : 'testnet';
+  const chainId = network === 'mainnet' ? 9000000 : 9000001;
   const getExplorerUrl = (hash: string) =>
-    `https://stellar.expert/explorer/${explorerNetwork}/tx/${hash}`;
+    getRegistryExplorerUrl(chainId, 'tx', hash);
 
   const filterOptions: { label: string; value: TransactionType | 'ALL' }[] = [
     { label: 'All', value: 'ALL' },

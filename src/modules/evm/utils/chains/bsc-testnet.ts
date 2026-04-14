@@ -1,4 +1,10 @@
-import type { ChainConfig } from '../Chainregistry';
+import { type ChainConfig } from '../Chainregistry';
+import {
+    getChainLogoUrlBySlug,
+    getAssetLogoUrl
+} from '../ChainUrlHelpers';
+const logoSlug = 'smartchain'; // Use mainnet slug for logos
+const chainSlug = 'binance';
 
 const bscTestnet: ChainConfig = {
     chainId: 97,
@@ -6,7 +12,7 @@ const bscTestnet: ChainConfig = {
     networkType: 'testnet',
     available: true,
     swapEnabled: true,
-    slug: 'bsc',
+    slug: chainSlug,
     rpcUrl: 'https://bsc-testnet-rpc.publicnode.com',
     fallbackRpcUrls: [
         'https://bsc-testnet.drpc.org',
@@ -19,13 +25,12 @@ const bscTestnet: ChainConfig = {
         name: 'Test BNB',
         symbol: 'tBNB',
         decimals: 18,
-        logoURI: 'https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
+        logoURI: getAssetLogoUrl(logoSlug, '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'),
         wrappedAddress: '0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd',
         coingeckoId: 'binancecoin',
     },
-    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
+    logoURI: getChainLogoUrlBySlug(logoSlug),
     coingeckoPlatform: 'bnb',
-    tokenListSource: 'pancakeswap',
     tokens: {
         USDC: '0x64544969ed7EBf5f083679233325356EbE738930',
         WBNB: '0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd',
@@ -38,7 +43,7 @@ const bscTestnet: ChainConfig = {
             name: 'USD Coin',
             symbol: 'USDC',
             decimals: 18,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
+            logoURI: getAssetLogoUrl(logoSlug, '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'),
             coingeckoId: 'usd-coin',
             pairs: [],
         },
@@ -49,7 +54,7 @@ const bscTestnet: ChainConfig = {
             name: 'Wrapped BNB',
             symbol: 'WBNB',
             decimals: 18,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
+            logoURI: getAssetLogoUrl(logoSlug, '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'),
             coingeckoId: 'binancecoin',
             pairs: [],
         },
@@ -59,13 +64,13 @@ const bscTestnet: ChainConfig = {
             name: 'Wrapped BNB',
             symbol: 'WBNB',
             decimals: 18,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
+            logoURI: getAssetLogoUrl(logoSlug, '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'),
         },
         '0x64544969ed7ebf5f083679233325356ebe738930': {
             name: 'USD Coin',
             symbol: 'USDC',
             decimals: 18,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
+            logoURI: getAssetLogoUrl(logoSlug, '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'),
         },
     },
 };

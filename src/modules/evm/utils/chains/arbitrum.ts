@@ -1,4 +1,10 @@
-import type { ChainConfig } from '../Chainregistry';
+import { type ChainConfig } from '../Chainregistry';
+import {
+    getChainLogoUrlBySlug,
+    getAssetLogoUrl
+} from '../ChainUrlHelpers';
+
+const slug = 'arbitrum';
 
 const arbitrum: ChainConfig = {
     chainId: 42161,
@@ -6,7 +12,7 @@ const arbitrum: ChainConfig = {
     networkType: 'mainnet',
     available: false,
     swapEnabled: true,
-    slug: 'arbitrum',
+    slug: slug,
     rpcUrl: 'https://arb1.arbitrum.io/rpc',
     fallbackRpcUrls: [
         'https://arbitrum-one.publicnode.com',
@@ -18,13 +24,20 @@ const arbitrum: ChainConfig = {
         name: 'Ether',
         symbol: 'ETH',
         decimals: 18,
-        logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+        logoURI: getAssetLogoUrl(slug, '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'),
         wrappedAddress: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
         coingeckoId: 'ethereum',
     },
-    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png',
+    logoURI: getChainLogoUrlBySlug(slug),
     coingeckoPlatform: 'arbitrum-one',
-    tokenListSource: 'uniswap',
+    website: 'https://arbitrum.io/',
+    description: 'Arbitrum is a suite of Ethereum-scaling solutions that make it possible to build and use apps at a fraction of the cost.',
+    status: 'active',
+    tags: ['dapp', 'layer2'],
+    links: [
+        { name: 'github', url: 'https://github.com/OffchainLabs' },
+        { name: 'x', url: 'https://x.com/arbitrum' }
+    ],
     tokens: {
         WETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
         USDC_E: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
@@ -41,8 +54,9 @@ const arbitrum: ChainConfig = {
             name: 'Wrapped Ether',
             symbol: 'WETH',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/arbitrum/assets/0x82aF49447D8a07e3bd95BD0d56f35241523fBab1/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'),
             coingeckoId: 'weth',
+            pairs: [],
         },
         {
             asset: 'c10042221_t0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
@@ -51,8 +65,9 @@ const arbitrum: ChainConfig = {
             name: 'Bridged USDC',
             symbol: 'USDC.e',
             decimals: 6,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/arbitrum/assets/0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8'),
             coingeckoId: 'usd-coin-ethereum-bridged',
+            pairs: [],
         },
         {
             asset: 'c10042221_t0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1',
@@ -61,8 +76,9 @@ const arbitrum: ChainConfig = {
             name: 'Dai Stablecoin',
             symbol: 'DAI',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/arbitrum/assets/0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1'),
             coingeckoId: 'dai',
+            pairs: [],
         },
         {
             asset: 'c10042221_t0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
@@ -71,8 +87,9 @@ const arbitrum: ChainConfig = {
             name: 'Tether USD',
             symbol: 'USDT',
             decimals: 6,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/arbitrum/assets/0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9'),
             coingeckoId: 'tether',
+            pairs: [],
         },
         {
             asset: 'c10042221_t0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a',
@@ -81,8 +98,9 @@ const arbitrum: ChainConfig = {
             name: 'GMX',
             symbol: 'GMX',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/arbitrum/assets/0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a'),
             coingeckoId: 'gmx',
+            pairs: [],
         },
         {
             asset: 'c10042221_t0x9623063377AD1B27544C965cCd7342f7EA7e88C7',
@@ -91,8 +109,9 @@ const arbitrum: ChainConfig = {
             name: 'The Graph',
             symbol: 'GRT',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/arbitrum/assets/0x9623063377AD1B27544C965cCd7342f7EA7e88C7/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x9623063377AD1B27544C965cCd7342f7EA7e88C7'),
             coingeckoId: 'the-graph',
+            pairs: [],
         },
     ],
 };

@@ -41,10 +41,10 @@ export interface StellarChainConfig {
 export type NetworkType = 'mainnet' | 'testnet';
 
 
-import { getChainsForNetwork } from '../../evm/utils/Chainregistry';
+import { getEvmChainsForNetwork } from '../../evm/utils/Chainregistry';
 
 export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
-  const chains = getChainsForNetwork(network);
+  const chains = getEvmChainsForNetwork(network);
 
   return chains.map((c) => ({
     chainId: c.chainId,

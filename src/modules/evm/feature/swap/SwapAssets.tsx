@@ -22,7 +22,7 @@ import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect'
 import { useEvmSwap } from '../../hook/useEvmSwap';
 import { determineSwapType } from '../../utils/evmSwapUtils';
 import { ROUTES } from '../../../../constants/routes';
-import { getSwapEnabledChains, getChainById } from '../../utils/Chainregistry';
+import { getEvmSwapEnabledChains, getChainById } from '../../utils/Chainregistry';
 import AssetSelectionModal from './AssetSelectionModal';
 import { SwapHeader } from './components/SwapHeader';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
@@ -42,7 +42,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const isConnected = !!evmWallet;
   const senderAddress = evmWallet?.address || '';
   const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
-  const swapEnabledChains = getSwapEnabledChains('mainnet');
+  const swapEnabledChains = getEvmSwapEnabledChains('mainnet');
 
   const [sellAssetSymbol, setSellAssetSymbol] = useState<string>('');
   const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>('');
@@ -164,14 +164,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       }
 
       const nativeAsset = assets.find(a => a.isNative);
-      const usdcAsset = assets.find(a => a.symbol === 'USDC');
+      const usdcAsset = assets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT');
 
       if (nativeAsset && usdcAsset) {
         setSellAssetSymbol(nativeAsset.symbol);
         setBuyAssetSymbol(usdcAsset.symbol);
       } else if (assets.length >= 2) {
-        setSellAssetSymbol(assets[0].symbol);
-        setBuyAssetSymbol(assets[1].symbol);
+        const first = assets[0];
+        const second = assets.find(a => a.symbol !== first.symbol) || assets[1];
+        setSellAssetSymbol(first.symbol);
+        setBuyAssetSymbol(second.symbol);
       }
     }
   }, [assets, sellAssetSymbol, buyAssetSymbol, isChainSwitching, preSelectedAsset]);

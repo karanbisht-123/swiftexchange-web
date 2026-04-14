@@ -1,4 +1,10 @@
-import type { ChainConfig } from '../Chainregistry';
+import { type ChainConfig } from '../Chainregistry';
+import {
+    getChainLogoUrlBySlug,
+    getAssetLogoUrl
+} from '../ChainUrlHelpers';
+
+const slug = 'optimism';
 
 const optimism: ChainConfig = {
     chainId: 10,
@@ -6,7 +12,7 @@ const optimism: ChainConfig = {
     networkType: 'mainnet',
     available: false,
     swapEnabled: true,
-    slug: 'optimism',
+    slug: slug,
     rpcUrl: 'https://mainnet.optimism.io',
     fallbackRpcUrls: [
         'https://optimism-mainnet.public.blastapi.io',
@@ -18,13 +24,20 @@ const optimism: ChainConfig = {
         name: 'Ether',
         symbol: 'ETH',
         decimals: 18,
-        logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+        logoURI: getAssetLogoUrl(slug, '0x4200000000000000000000000000000000000006'),
         wrappedAddress: '0x4200000000000000000000000000000000000006',
         coingeckoId: 'ethereum',
     },
-    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png',
+    logoURI: getChainLogoUrlBySlug(slug),
     coingeckoPlatform: 'optimistic-ethereum',
-    tokenListSource: 'uniswap',
+    website: 'https://www.optimism.io/',
+    description: 'Optimism is a low-cost and lightning-fast Ethereum L2 blockchain.',
+    status: 'active',
+    tags: ['dapp', 'layer2'],
+    links: [
+        { name: 'github', url: 'https://github.com/ethereum-optimism' },
+        { name: 'x', url: 'https://x.com/Optimism' }
+    ],
     tokens: {
         USDT: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
         USDC: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
@@ -41,8 +54,9 @@ const optimism: ChainConfig = {
             name: 'Tether USD',
             symbol: 'USDT',
             decimals: 6,
-            logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/assets/0x94b008aA00579c1307B0EF2c499aD98a8ce58e58/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58'),
             coingeckoId: 'tether',
+            pairs: [],
         },
         {
             asset: 'optimism_t0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
@@ -51,8 +65,9 @@ const optimism: ChainConfig = {
             name: 'USD Coin',
             symbol: 'USDC',
             decimals: 6,
-            logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/assets/0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85'),
             coingeckoId: 'usd-coin',
+            pairs: [],
         },
     ],
 };

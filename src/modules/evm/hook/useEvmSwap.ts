@@ -13,6 +13,7 @@ import {
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
+import { isEvmChain } from '../utils/Chainregistry';
 
 interface UseEvmSwapProps {
   chainId: number;
@@ -81,7 +82,14 @@ export const useEvmSwap = ({
   }, []);
 
   const fetchTokenList = useCallback(() => {
-    if (!chainId) return;
+    if (!chainId || !isEvmChain(chainId)) {
+      updateState({
+        error: 'Unsupported network for EVM swap',
+        assets: [],
+        isFetchingAssets: false,
+      });
+      return;
+    }
 
     updateState({ isFetchingAssets: true, error: null });
 

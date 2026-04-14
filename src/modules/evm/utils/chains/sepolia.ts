@@ -1,4 +1,11 @@
-import type { ChainConfig } from '../Chainregistry';
+import { type ChainConfig } from '../Chainregistry';
+import {
+    getChainLogoUrlBySlug,
+    getAssetLogoUrl
+} from '../ChainUrlHelpers';
+
+
+const slug = 'sepolia';
 
 const sepolia: ChainConfig = {
     chainId: 11155111,
@@ -6,7 +13,7 @@ const sepolia: ChainConfig = {
     networkType: 'testnet',
     available: true,
     swapEnabled: true,
-    slug: 'eth',
+    slug: slug,
     rpcUrl: 'https://ethereum-sepolia.publicnode.com',
     fallbackRpcUrls: [
         'https://rpc.sepolia.org',
@@ -19,13 +26,19 @@ const sepolia: ChainConfig = {
         name: 'Sepolia Ether',
         symbol: 'ETH',
         decimals: 18,
-        logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png',
+        logoURI: getAssetLogoUrl('ethereum', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
         wrappedAddress: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
         coingeckoId: 'ethereum',
     },
-    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+    logoURI: getChainLogoUrlBySlug(slug),
     coingeckoPlatform: 'ethereum',
-    tokenListSource: 'uniswap',
+    website: 'https://sepolia.dev',
+    description: 'Sepolia was designed to simulate harsh network conditions, and has shorter block times, which enable faster transaction confirmation times and feedback for developers.',
+    status: 'active',
+    tags: ['testnet'],
+    links: [
+        { name: 'website', url: 'https://sepolia.dev' }
+    ],
     tokens: {
         USDC: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
         WETH: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
@@ -38,7 +51,7 @@ const sepolia: ChainConfig = {
             name: 'USD Coin',
             symbol: 'USDC',
             decimals: 6,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
+            logoURI: getAssetLogoUrl('ethereum', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'),
             coingeckoId: 'usd-coin',
             pairs: [],
         },
@@ -49,23 +62,23 @@ const sepolia: ChainConfig = {
             name: 'Wrapped Ether',
             symbol: 'WETH',
             decimals: 18,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/2518/large/weth.png',
+            logoURI: getAssetLogoUrl('ethereum', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
             coingeckoId: 'weth',
             pairs: [],
         },
     ],
     testnetTokenMetadata: {
-        '0xfff9976782d46cc05630d1f6ebab18b2324d6b14': {
+        '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14': {
             name: 'Wrapped Ether',
             symbol: 'WETH',
             decimals: 18,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/2518/large/weth.png',
+            logoURI: getAssetLogoUrl('ethereum', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
         },
-        '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238': {
+        '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238': {
             name: 'USD Coin',
             symbol: 'USDC',
             decimals: 6,
-            logoURI: 'https://coin-images.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
+            logoURI: getAssetLogoUrl('ethereum', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'),
         },
     },
 };

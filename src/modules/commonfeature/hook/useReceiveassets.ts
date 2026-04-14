@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { validateAddress } from '../../../validator/AddressValidator';
-import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
-  type ReceiveAsset,
-  assetFromStellar,
+  type ReceiveAsset
 } from '../../walletconnect/utils/assetFromChain';
+import { getChainById } from '../../evm/utils/Chainregistry';
+import { getTokenIcon } from '../../evm/utils/ChainUrlHelpers';
 import { getTokensForChain } from '../../evm/service/tokenListService';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 
@@ -42,10 +43,22 @@ export const useReceiveAssets = () => {
       }
     }
 
-    const stellar = [assetFromStellar(getStellarConfig(currentNetwork))];
-    stellar[0].value = stellar[0].value + '-stellar';
+    const stellarChain = getChainById(currentNetwork === 'mainnet' ? 9000000 : 9000001);
+    const stellarAssets: ReceiveAsset[] = stellarChain?.assets.map(asset => ({
+      value: `${asset.symbol}-${stellarChain.chainId}`,
+      symbol: asset.symbol,
+      label: `${asset.symbol} (Stellar)`,
+      logo: getTokenIcon(asset.symbol, stellarChain),
+      network: stellarChain.name,
+      chainId: stellarChain.chainId,
+      addressType: 'stellar',
+      walletType: WalletType.STELLAR,
+      tokenAddress: asset.address,
+      decimals: asset.decimals,
+      isNative: asset.type === 'NATIVE',
+    } as any)) || [];
 
-    return [...evmAssets, ...stellar];
+    return [...evmAssets, ...stellarAssets];
   }, [currentNetwork]);
 
   useEffect(() => {
@@ -55,11 +68,10 @@ export const useReceiveAssets = () => {
     if (assetParam && chainIdParam) {
       const match = assets.find(a => {
         const aChainId = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId?.toString();
-        // Fallback to label split if symbol is missing (though we added it now)
         const aSymbol = (a as any).symbol || a.label.split(' ')[0];
         return aSymbol === assetParam && aChainId === chainIdParam;
       });
-      
+
       if (match && match.value !== selectedAssetValue) {
         setSelectedAssetValue(match.value);
       }

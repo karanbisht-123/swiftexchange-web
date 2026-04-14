@@ -1,20 +1,16 @@
 
 
-export type NetworkKey = 'ethereum' | 'bsc' | 'arbitrum' | 'polygon' | 'optimism' | 'avalanche' | 'base' | 'sepolia' | 'bscTestnet' | 'amoy';
+export type NetworkKey = string;
 
 export type NetworkType = 'mainnet' | 'testnet';
 
-export type CoinGeckoPlatform =
-    | 'ethereum'
-    | 'bnb'
-    | 'polygon-pos'
-    | 'avalanche'
-    | 'arbitrum-one'
-    | 'optimistic-ethereum'
-    | 'base'
-    | string;
+export type CoinGeckoPlatform = string;
 
 export type AssetType = 'ERC20' | 'BEP20' | 'MATIC' | 'AVAX' | 'NATIVE' | string;
+
+export interface AssetPair {
+    base: string;
+}
 
 export interface ChainAsset {
     asset: string;
@@ -25,7 +21,7 @@ export interface ChainAsset {
     decimals: number;
     logoURI: string;
     coingeckoId?: string;
-    pairs?: string[];
+    pairs?: AssetPair[];
 }
 
 export interface NativeCurrency {
@@ -46,6 +42,11 @@ export interface WellKnownTokens {
     [symbol: string]: string | undefined;
 }
 
+export interface ChainLink {
+    name: string;
+    url: string;
+}
+
 export interface ChainConfig {
     chainId: number;
     name: string;
@@ -59,10 +60,14 @@ export interface ChainConfig {
     nativeCurrency: NativeCurrency;
     logoURI: string;
     coingeckoPlatform: CoinGeckoPlatform;
-    tokenListSource: 'uniswap' | 'pancakeswap' | 'custom';
     tokens: WellKnownTokens;
     assets: ChainAsset[];
     swapRouterAddress?: string;
+    website?: string;
+    description?: string;
+    status?: string;
+    tags?: string[];
+    links?: ChainLink[];
     testnetTokenMetadata?: Record<
         string,
         { name: string; symbol: string; decimals: number; logoURI?: string }
@@ -70,23 +75,11 @@ export interface ChainConfig {
 }
 
 
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { CHAIN_CONFIGS } from './chains.ts';
+import { CHAIN_CONFIGS } from './chains';
 
 export const CHAIN_REGISTRY: ChainConfig[] = CHAIN_CONFIGS;
 
-// Special cases for non-EVM networks or networks without a full config in CHAIN_CONFIGS
-const SPECIAL_CHAINS: Record<number, { name: string; symbol: string; logo: string }> = {
-    9000000: {
-        name: 'Stellar',
-        symbol: 'XLM',
-        logo: 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png'
-    },
-    // Future expansion example:
-    // 0: { name: 'Bitcoin', symbol: 'BTC', logo: '...' }
-};
 
-// Lookup Maps
 const BY_CHAIN_ID = new Map<number, ChainConfig>(
     CHAIN_REGISTRY.map((c) => [c.chainId, c])
 );
@@ -95,7 +88,7 @@ const BY_SLUG = new Map<string, ChainConfig>(
     CHAIN_REGISTRY.map((c) => [`${c.slug}:${c.networkType}`, c])
 );
 
-// Core Functions
+
 export function getChainById(chainId: number): ChainConfig | undefined {
     return BY_CHAIN_ID.get(chainId);
 }
@@ -108,8 +101,20 @@ export function getChainsForNetwork(networkType: NetworkType): ChainConfig[] {
     return CHAIN_REGISTRY.filter((c) => c.networkType === networkType && c.available);
 }
 
+export function isEvmChain(chainId: number): boolean {
+    return chainId !== 9000000 && chainId !== 9000001;
+}
+
+export function getEvmChainsForNetwork(networkType: NetworkType): ChainConfig[] {
+    return getChainsForNetwork(networkType).filter((c) => isEvmChain(c.chainId));
+}
+
 export function getSwapEnabledChains(networkType: NetworkType): ChainConfig[] {
     return CHAIN_REGISTRY.filter((c) => c.networkType === networkType && c.available && c.swapEnabled);
+}
+
+export function getEvmSwapEnabledChains(networkType: NetworkType): ChainConfig[] {
+    return getSwapEnabledChains(networkType).filter((c) => isEvmChain(c.chainId));
 }
 
 export const MAINNET_CHAINS = getChainsForNetwork('mainnet');
@@ -135,17 +140,14 @@ export function getAssetByAddress(chainId: number, address: string): ChainAsset 
 }
 
 export function getChainName(chainId: number): string {
-    if (SPECIAL_CHAINS[chainId]) return SPECIAL_CHAINS[chainId].name;
     return getChainById(chainId)?.name ?? 'Unknown';
 }
 
 export function getChainNativeSymbol(chainId: number): string {
-    if (SPECIAL_CHAINS[chainId]) return SPECIAL_CHAINS[chainId].symbol;
     return getChainById(chainId)?.nativeCurrency.symbol ?? 'ETH';
 }
 
 export function getChainLogoUrl(chainId: number): string | undefined {
-    if (SPECIAL_CHAINS[chainId]) return SPECIAL_CHAINS[chainId].logo;
     return getChainById(chainId)?.logoURI;
 }
 
@@ -158,14 +160,6 @@ export function getExplorerUrl(
     type: 'tx' | 'block' | 'address',
     value: string
 ): string {
-    const currentNetwork = useWalletStore.getState().network;
-    
-    if (chainId === 9000000) {
-        const base = currentNetwork === 'testnet' 
-            ? 'https://stellar.expert/explorer/testnet' 
-            : 'https://stellar.expert/explorer/public';
-        return `${base}/${type}/${value}`;
-    }
 
     const base = getChainById(chainId)?.blockExplorerUrl ?? 'https://etherscan.io';
     return `${base}/${type}/${value}`;

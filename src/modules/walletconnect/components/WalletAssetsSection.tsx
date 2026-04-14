@@ -8,21 +8,14 @@ import { type Asset, useWalletAssets } from '../hooks/useWalletAssets';
 import { useWalletStore } from '../store/walletConnectStore';
 import { portfolioUtils } from '../utils/portfolioUtils';
 
-const CHAIN_ICONS: Record<string, string> = {
-  ETH: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
-  BNB: 'https://tokens.pancakeswap.finance/images/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c.png',
-  STELLAR: 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png',
-};
+import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 
 const getChainIcon = (asset: Asset): string | undefined => {
-  if (asset.chainType === 'stellar') return CHAIN_ICONS.STELLAR;
-  if (asset.chainId === 1) return CHAIN_ICONS.ETH;
-  if (asset.chainId === 56) return CHAIN_ICONS.BNB;
-
-  if (asset.chainName?.includes('Ethereum')) return CHAIN_ICONS.ETH;
-  if (asset.chainName?.includes('BNB')) return CHAIN_ICONS.BNB;
-
-  return undefined;
+  const chainId = asset.chainType === 'stellar' 
+    ? (asset.chainName?.toLowerCase().includes('testnet') ? 9000001 : 9000000)
+    : asset.chainId;
+  
+  return getChainLogoUrl(chainId || 0);
 };
 
 const Shimmer = ({ className = 'h-4 w-16' }: { className?: string }) => (

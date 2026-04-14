@@ -1,4 +1,10 @@
-import type { ChainConfig } from '../Chainregistry';
+import { type ChainConfig } from '../Chainregistry';
+import {
+    getChainLogoUrlBySlug,
+    getAssetLogoUrl
+} from '../ChainUrlHelpers';
+
+const slug = 'base';
 
 const base: ChainConfig = {
     chainId: 8453,
@@ -6,7 +12,7 @@ const base: ChainConfig = {
     networkType: 'mainnet',
     available: false,
     swapEnabled: true,
-    slug: 'base',
+    slug: slug,
     rpcUrl: 'https://mainnet.base.org',
     fallbackRpcUrls: ['https://base.drpc.org', 'https://1rpc.io/base'],
     blockExplorerUrl: 'https://basescan.org',
@@ -14,14 +20,21 @@ const base: ChainConfig = {
         name: 'Ether',
         symbol: 'ETH',
         decimals: 18,
-        logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png',
+        logoURI: getAssetLogoUrl('ethereum', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
         wrappedAddress: '0x4200000000000000000000000000000000000006',
         coingeckoId: 'ethereum',
     },
-    logoURI: 'https://coin-images.coingecko.com/coins/images/31061/large/base.webp',
+    logoURI: getChainLogoUrlBySlug(slug),
     coingeckoPlatform: 'base',
-    tokenListSource: 'uniswap',
     swapRouterAddress: '0x2626664c2603336E57B271c5C0b26F421741e481',
+    website: 'https://base.org/',
+    description: 'Base is a secure, low-cost, builder-friendly Ethereum L2 built on the MIT-licensed OP Stack, in collaboration with Optimism.',
+    status: 'active',
+    tags: ['dapp', 'layer2'],
+    links: [
+        { name: 'github', url: 'https://github.com/base-org' },
+        { name: 'x', url: 'https://x.com/base' }
+    ],
     tokens: {
         USDbC: '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA',
         BSWAP: '0x78a087d713Be963Bf307b18F2Ff8122EF9A63ae9',
@@ -41,8 +54,9 @@ const base: ChainConfig = {
             name: 'USD Base Coin',
             symbol: 'USDbC',
             decimals: 6,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA'),
             coingeckoId: 'bridged-usd-coin-base',
+            pairs: [],
         },
         {
             asset: 'c8453_t0x78a087d713Be963Bf307b18F2Ff8122EF9A63ae9',
@@ -51,8 +65,9 @@ const base: ChainConfig = {
             name: 'Baseswap',
             symbol: 'BSWAP',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x78a087d713Be963Bf307b18F2Ff8122EF9A63ae9/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x78a087d713Be963Bf307b18F2Ff8122EF9A63ae9'),
             coingeckoId: 'baseswap',
+            pairs: [],
         },
         {
             asset: 'c8453_t0xEB466342C4d449BC9f53A865D5Cb90586f405215',
@@ -61,8 +76,9 @@ const base: ChainConfig = {
             name: 'Axelar Wrapped USDC',
             symbol: 'axlUSDC',
             decimals: 6,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0xEB466342C4d449BC9f53A865D5Cb90586f405215/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xEB466342C4d449BC9f53A865D5Cb90586f405215'),
             coingeckoId: 'axlusdc',
+            pairs: [],
         },
         {
             asset: 'c8453_t0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
@@ -71,8 +87,9 @@ const base: ChainConfig = {
             name: 'Dai',
             symbol: 'DAI',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb'),
             coingeckoId: 'dai',
+            pairs: [],
         },
         {
             asset: 'c8453_t0x9EaF8C1E34F05a589EDa6BAfdF391Cf6Ad3CB239',
@@ -81,8 +98,9 @@ const base: ChainConfig = {
             name: 'yearn.finance',
             symbol: 'YFI',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x9EaF8C1E34F05a589EDa6BAfdF391Cf6Ad3CB239/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x9EaF8C1E34F05a589EDa6BAfdF391Cf6Ad3CB239'),
             coingeckoId: 'yearn-finance',
+            pairs: [],
         },
         {
             asset: 'c8453_t0xB6fe221Fe9EeF5aBa221c348bA20A1Bf5e73624c',
@@ -91,8 +109,9 @@ const base: ChainConfig = {
             name: 'Rocket Pool ETH',
             symbol: 'rETH',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0xB6fe221Fe9EeF5aBa221c348bA20A1Bf5e73624c/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xB6fe221Fe9EeF5aBa221c348bA20A1Bf5e73624c'),
             coingeckoId: 'rocket-pool-eth',
+            pairs: [],
         },
         {
             asset: 'c8453_t0x9A86980D3625b4A6E69D8a4606D51cbc019e2002',
@@ -101,8 +120,9 @@ const base: ChainConfig = {
             name: 'FOMO BULL CLUB',
             symbol: 'FOMO',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x9A86980D3625b4A6E69D8a4606D51cbc019e2002/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x9A86980D3625b4A6E69D8a4606D51cbc019e2002'),
             coingeckoId: 'fomo-bull-club',
+            pairs: [],
         },
         {
             asset: 'c8453_t0xaC27fa800955849d6D17cC8952Ba9dD6EAA66187',
@@ -111,8 +131,9 @@ const base: ChainConfig = {
             name: 'UnlockProtocolToken',
             symbol: 'UP',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0xaC27fa800955849d6D17cC8952Ba9dD6EAA66187/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xaC27fa800955849d6D17cC8952Ba9dD6EAA66187'),
             coingeckoId: 'unlock-protocol',
+            pairs: [],
         },
         {
             asset: 'c8453_t0x4200000000000000000000000000000000000006',
@@ -121,8 +142,9 @@ const base: ChainConfig = {
             name: 'Wrapped Ether',
             symbol: 'WETH',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/base/assets/0x4200000000000000000000000000000000000006/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x4200000000000000000000000000000000000006'),
             coingeckoId: 'weth',
+            pairs: [],
         },
     ],
 };

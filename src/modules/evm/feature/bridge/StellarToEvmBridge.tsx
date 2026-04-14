@@ -27,41 +27,16 @@ import StellarActiveGuard from '../../../walletconnect/components/StellarActiveG
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
-import { getChainsForNetwork } from '../../utils/Chainregistry';
+import { getEvmChainsForNetwork } from '../../utils/Chainregistry';
 import { ROUTES } from '../../../../constants/routes';
 import { addLocalTransaction } from '../../service/localTransactionService';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
-
-const getIconUrl = (symbol: string, chainConfig?: any): string => {
-  if (symbol === 'STELLAR' || symbol === 'XLM') {
-    return 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png';
-  }
-
-  if (!chainConfig) {
-    return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
-  }
-
-  if (symbol === chainConfig.nativeCurrency?.symbol) {
-    return chainConfig.nativeCurrency.logoURI;
-  }
-
-  const tokenAddress = chainConfig.tokens?.[symbol];
-  if (tokenAddress) {
-    const asset = chainConfig.assets?.find((a: any) =>
-      a.address.toLowerCase() === tokenAddress.toLowerCase()
-    );
-    if (asset?.logoURI) return asset.logoURI;
-  }
-
-  return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
-};
+import * as ChainUrlHelpers from '../../utils/ChainUrlHelpers';
+import { getChainById, getExplorerUrl } from '../../utils/Chainregistry';
 
 type DestTokenType = 'USDC' | 'USDT';
 type TxStatus = 'idle' | 'preparing' | 'signing' | 'success' | 'error';
-
-const STELLAR_EXPLORER = 'https://stellar.expert/explorer/public/tx/';
-const STELLAR_USDC_ICON = 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
 
 const FEE_METHOD_MAP: Record<FeePayType, FeePaymentMethod> = {
   native: FeePaymentMethod.WITH_NATIVE_CURRENCY,
@@ -83,7 +58,7 @@ const StellarToEvmBridge: React.FC = () => {
   const currentNetwork = useWalletStore((s: any) => s.network) as 'mainnet' | 'testnet';
   const isMainnet = currentNetwork === 'mainnet';
 
-  const evmChains = getChainsForNetwork(currentNetwork);
+  const evmChains = getEvmChainsForNetwork(currentNetwork);
 
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
@@ -96,10 +71,10 @@ const StellarToEvmBridge: React.FC = () => {
   const [destinationToken, setDestToken] = useState<any>(null);
 
   const [selectedChainId, setChainId] = useState<number>(() => {
-    const eth = evmChains.find(c => c.slug === 'eth');
-    if (eth) return eth.chainId;
-    const bsc = evmChains.find(c => c.slug === 'bsc');
-    if (bsc) return bsc.chainId;
+    const mainChain = evmChains.find(c => c.nativeCurrency.symbol === 'ETH');
+    if (mainChain) return mainChain.chainId;
+    const secondaryChain = evmChains.find(c => c.nativeCurrency.symbol === 'BSC');
+    if (secondaryChain) return secondaryChain.chainId;
     return evmChains[0]?.chainId || 1;
   });
   const [selectedDestToken, setDestSym] = useState<DestTokenType>('USDC');
@@ -186,8 +161,8 @@ const StellarToEvmBridge: React.FC = () => {
 
   useEffect(() => {
     if (!tokens.length || !currentChainConfig) return;
-    const slug = currentChainConfig.slug;
-    const chainSym = slug === 'bsc' ? ChainSymbol.BSC : slug === 'eth' ? ChainSymbol.ETH : slug.toUpperCase() as ChainSymbol;
+    const chainSymbol = currentChainConfig.nativeCurrency.symbol;
+    const chainSym = chainSymbol === 'BSC' ? ChainSymbol.BSC : chainSymbol === 'ETH' ? ChainSymbol.ETH : chainSymbol as ChainSymbol;
     const dest = tokens.find((t: any) => t.chainSymbol === chainSym && (t.symbol === selectedDestToken));
     setDestToken(dest ?? null);
     setQuoteData(null);
@@ -393,8 +368,8 @@ const StellarToEvmBridge: React.FC = () => {
     return evmChains.map(chain => ({
       chainId: chain.chainId,
       name: chain.name,
-      symbol: chain.slug === 'bsc' ? 'BNB' : chain.slug === 'eth' ? 'ETH' : chain.slug.toUpperCase(),
-      icon: chain.nativeCurrency.logoURI,
+      symbol: chain.nativeCurrency.symbol,
+      icon: chain.logoURI,
     }));
   }, [evmChains]);
 
@@ -413,7 +388,7 @@ const StellarToEvmBridge: React.FC = () => {
         {txHash && (
           <EvmTransactionSuccessModal
             txHash={txHash}
-            explorerUrl={`${STELLAR_EXPLORER}${txHash}`}
+            explorerUrl={getExplorerUrl(9000000, 'tx', txHash)}
             title="Bridge Submitted!"
             subtitle="Assets traveling from Stellar Network"
             networkName={currentChainConfig?.name || 'EVM Network'}
@@ -446,8 +421,8 @@ const StellarToEvmBridge: React.FC = () => {
                       className={`w-9 h-9 rounded-full bg-white shadow-sm ring-1 ${isSelected ? 'ring-brand' : 'ring-transparent'}`}
                     />
                   </button>
-                  <span className={`text-[10px] font-bold uppercase tracking-tight ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}>
-                    {net.symbol}
+                  <span className={`text-[11px] font-bold uppercase tracking-tight text-center ${isSelected ? 'text-brand' : 'text-secondary-light opacity-70'}`}>
+                    {net.name}
                   </span>
                 </div>
               );
@@ -472,7 +447,7 @@ const StellarToEvmBridge: React.FC = () => {
               <div className="flex items-center gap-2 shrink-0">
                 <div className="relative">
                   <img
-                    src={STELLAR_USDC_ICON}
+                    src={ChainUrlHelpers.getTokenIcon('USDC', getChainById(9000000))}
                     alt="USDC"
                     className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
                   />
@@ -526,7 +501,7 @@ const StellarToEvmBridge: React.FC = () => {
               <div className="flex items-center gap-2 shrink-0">
                 <div className="relative">
                   <img
-                    src={getIconUrl(selectedDestToken, currentChainConfig)}
+                    src={ChainUrlHelpers.getTokenIcon(selectedDestToken, currentChainConfig)}
                     alt={selectedDestToken}
                     className="w-10 h-10 rounded-full shrink-0 bg-white shadow-sm"
                   />
@@ -619,7 +594,9 @@ const StellarToEvmBridge: React.FC = () => {
                         }`}
                     >
                       <img
-                        src={feeType === 'native' ? 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png' : STELLAR_USDC_ICON}
+                        src={feeType === 'native' 
+                          ? ChainUrlHelpers.getTokenIcon('XLM', getChainById(9000000))
+                          : ChainUrlHelpers.getTokenIcon('USDC', getChainById(9000000))}
                         alt=""
                         className="w-4 h-4 rounded-full bg-white ring-1 ring-black/5"
                       />

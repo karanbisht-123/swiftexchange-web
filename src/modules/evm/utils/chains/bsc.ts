@@ -1,4 +1,10 @@
-import type { ChainConfig } from '../Chainregistry';
+import { type ChainConfig } from '../Chainregistry';
+import {
+    getChainLogoUrlBySlug,
+    getAssetLogoUrl
+} from '../ChainUrlHelpers';
+
+const slug = 'smartchain';
 
 const bsc: ChainConfig = {
     chainId: 56,
@@ -6,7 +12,7 @@ const bsc: ChainConfig = {
     networkType: 'mainnet',
     available: true,
     swapEnabled: true,
-    slug: 'bsc',
+    slug: slug,
     rpcUrl: 'https://bsc.publicnode.com',
     fallbackRpcUrls: [
         'https://bsc-dataseed.bnbchain.org',
@@ -20,16 +26,23 @@ const bsc: ChainConfig = {
     blockExplorerUrl: 'https://bscscan.com',
     nativeCurrency: {
         name: 'BNB',
-        symbol: 'BNB',
+        symbol: 'BSC',
         decimals: 18,
-        logoURI: 'https://tokens.pancakeswap.finance/images/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c.png',
+        logoURI: getAssetLogoUrl(slug, '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'),
         wrappedAddress: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
         coingeckoId: 'binancecoin',
     },
-    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
+    logoURI: getChainLogoUrlBySlug(slug),
     coingeckoPlatform: 'bnb',
-    tokenListSource: 'pancakeswap',
     swapRouterAddress: '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4',
+    website: 'https://www.bnbchain.org/',
+    description: 'BNB Smart Chain (BSC) is a sovereign smart contract-only blockchain that delivers Ethereum Virtual Machine (EVM) compatible programmability.',
+    status: 'active',
+    tags: ['dapp', 'staking-native'],
+    links: [
+        { name: 'github', url: 'https://github.com/bnb-chain' },
+        { name: 'x', url: 'https://x.com/BNBCHAIN' }
+    ],
     tokens: {
         USDT: '0x55d398326f99059fF775485246999027B3197955',
         USDC: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
@@ -48,7 +61,7 @@ const bsc: ChainConfig = {
             name: 'Tether USD',
             symbol: 'USDT',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0x55d398326f99059fF775485246999027B3197955/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x55d398326f99059fF775485246999027B3197955'),
             coingeckoId: 'tether',
             pairs: [],
         },
@@ -59,7 +72,7 @@ const bsc: ChainConfig = {
             name: 'USD Coin',
             symbol: 'USDC',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'),
             coingeckoId: 'usd-coin',
             pairs: [],
         },
@@ -70,7 +83,7 @@ const bsc: ChainConfig = {
             name: 'Dai Token',
             symbol: 'DAI',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3'),
             coingeckoId: 'dai',
             pairs: [],
         },
@@ -81,7 +94,7 @@ const bsc: ChainConfig = {
             name: 'Ethereum Token',
             symbol: 'WETH',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0x2170Ed0880ac9A755fd29B2688956BD959F933F8/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x2170Ed0880ac9A755fd29B2688956BD959F933F8'),
             coingeckoId: 'weth',
             pairs: [],
         },
@@ -92,7 +105,7 @@ const bsc: ChainConfig = {
             name: 'BTCB Token',
             symbol: 'WBTC',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c'),
             coingeckoId: 'wrapped-bitcoin',
             pairs: [],
         },
@@ -103,7 +116,7 @@ const bsc: ChainConfig = {
             name: 'Wrapped BNB',
             symbol: 'WBNB',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'),
             coingeckoId: 'binancecoin',
             pairs: [],
         },
@@ -114,7 +127,7 @@ const bsc: ChainConfig = {
             name: 'ChainLink Token',
             symbol: 'LINK',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD'),
             coingeckoId: 'chainlink',
             pairs: [],
         },
@@ -125,7 +138,7 @@ const bsc: ChainConfig = {
             name: 'Aave Token',
             symbol: 'AAVE',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/smartchain/assets/0xfb6115445Bff7b52FeB98650C87f44907E58f802/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xfb6115445Bff7b52FeB98650C87f44907E58f802'),
             coingeckoId: 'aave',
             pairs: [],
         },

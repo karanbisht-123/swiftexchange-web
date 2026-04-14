@@ -1,4 +1,10 @@
-import type { ChainConfig } from '../Chainregistry';
+import { type ChainConfig } from '../Chainregistry';
+import { 
+    getChainLogoUrlBySlug, 
+    getAssetLogoUrl 
+} from '../ChainUrlHelpers';
+
+const slug = 'polygon';
 
 const polygon: ChainConfig = {
     chainId: 137,
@@ -6,7 +12,7 @@ const polygon: ChainConfig = {
     networkType: 'mainnet',
     available: false,
     swapEnabled: true,
-    slug: 'polygon',
+    slug: slug,
     rpcUrl: 'https://polygon-rpc.com',
     fallbackRpcUrls: [
         'https://rpc-mainnet.maticvigil.com',
@@ -18,13 +24,20 @@ const polygon: ChainConfig = {
         name: 'POL',
         symbol: 'POL',
         decimals: 18,
-        logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
+        logoURI: getAssetLogoUrl(slug, '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'),
         wrappedAddress: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
         coingeckoId: 'polygon-ecosystem-token',
     },
-    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
+    logoURI: getChainLogoUrlBySlug(slug),
     coingeckoPlatform: 'polygon-pos',
-    tokenListSource: 'uniswap',
+    website: 'https://polygon.technology/',
+    description: 'Polygon is a protocol and a framework for building and connecting Ethereum-compatible blockchain networks.',
+    status: 'active',
+    tags: ['dapp', 'staking-native'],
+    links: [
+        { name: 'github', url: 'https://github.com/maticnetwork' },
+        { name: 'x', url: 'https://x.com/0xPolygon' }
+    ],
     tokens: {
         WETH: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
         WMATIC: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
@@ -42,8 +55,9 @@ const polygon: ChainConfig = {
             name: 'Wrapped Ether',
             symbol: 'WETH',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/polygon/assets/0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619'),
             coingeckoId: 'weth',
+            pairs: [],
         },
         {
             asset: 'c966_t0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
@@ -52,8 +66,9 @@ const polygon: ChainConfig = {
             name: 'Wrapped MATIC',
             symbol: 'WMATIC',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/polygon/assets/0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'),
             coingeckoId: 'wmatic',
+            pairs: [],
         },
         {
             asset: 'c966_t0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
@@ -62,8 +77,9 @@ const polygon: ChainConfig = {
             name: 'Bridged USD Coin (PoS)',
             symbol: 'USDC.e',
             decimals: 6,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/polygon/assets/0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'),
             coingeckoId: 'usd-coin-ethereum-bridged',
+            pairs: [],
         },
         {
             asset: 'c966_t0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
@@ -72,8 +88,9 @@ const polygon: ChainConfig = {
             name: '(PoS) Tether USD',
             symbol: 'USDT',
             decimals: 6,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/polygon/assets/0xc2132D05D31c914a87C6611C10748AEb04B58e8F/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'),
             coingeckoId: 'tether',
+            pairs: [],
         },
         {
             asset: 'c966_t0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063',
@@ -82,8 +99,9 @@ const polygon: ChainConfig = {
             name: '(PoS) Dai Stablecoin',
             symbol: 'DAI',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/polygon/assets/0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063'),
             coingeckoId: 'dai',
+            pairs: [],
         },
         {
             asset: 'c966_t0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39',
@@ -92,8 +110,9 @@ const polygon: ChainConfig = {
             name: 'ChainLink Token',
             symbol: 'LINK',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/polygon/assets/0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39'),
             coingeckoId: 'chainlink',
+            pairs: [],
         },
         {
             asset: 'c966_t0xD6DF932A45C0f255f85145f286eA0b292B21C90B',
@@ -102,8 +121,9 @@ const polygon: ChainConfig = {
             name: 'Aave (PoS)',
             symbol: 'AAVE',
             decimals: 18,
-            logoURI: 'https://assets-cdn.trustwallet.com/blockchains/polygon/assets/0xD6DF932A45C0f255f85145f286eA0b292B21C90B/logo.png',
+            logoURI: getAssetLogoUrl(slug, '0xD6DF932A45C0f255f85145f286eA0b292B21C90B'),
             coingeckoId: 'aave',
+            pairs: [],
         },
     ],
 };

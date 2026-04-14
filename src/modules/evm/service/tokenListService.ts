@@ -35,13 +35,15 @@ export function getTokensForChain(chainId: number): TokenInfo[] {
   if (!chainConfig) return [];
 
   let rawTokens: any[] = [];
-  if (chainConfig.tokenListSource === 'uniswap') {
-    rawTokens = UniswapTokens;
-  } else if (chainConfig.tokenListSource === 'pancakeswap') {
+  const platform = chainConfig.coingeckoPlatform.toLowerCase();
+  const slug = chainConfig.slug.toLowerCase();
+
+  if (platform === 'binance-smart-chain' || platform === 'bnb' || slug === 'smartchain' || slug === 'binance') {
     rawTokens = PancakeTokens;
+  } else {
+    rawTokens = UniswapTokens;
   }
 
-  // Combine with chain-specific assets and filter by chainId
   const combinedTokens = [...(chainConfig.assets || []), ...rawTokens].filter(
     t => t.chainId === chainId || !t.chainId
   );

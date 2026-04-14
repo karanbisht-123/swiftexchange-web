@@ -2,22 +2,24 @@ import { ethers } from 'ethers';
 
 import type { SwapQuote, SwapQuoteRequest, SwapType } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getSwapQuote, prepareSwapTransaction } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
+import { getChainById } from './Chainregistry';
 import { parseSwapError } from './swapErrorHandler';
 
-function isMainnet(): boolean {
-  return useWalletStore.getState().network === 'mainnet';
-}
+
 
 export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
   const isSellNative = sellAsset.isNative;
   const isBuyNative = buyAsset.isNative;
   const isSellUsdc = sellAsset.symbol.toUpperCase() === 'USDC';
   const isBuyUsdc = buyAsset.symbol.toUpperCase() === 'USDC';
+
   if (isSellNative && isBuyUsdc) return 'EthToUsdc';
   if (isSellUsdc && isBuyNative) return 'UsdcToWeth';
+  if (isSellNative) return 'EthToToken';
+  if (isBuyNative) return 'TokenToEth';
+  
   return 'TokenToToken';
 }
 
@@ -106,8 +108,12 @@ export async function fetchEvmQuote(
 
     const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset);
 
-    const adjustedRequest: SwapQuoteRequest = {
+    const chainConfig = getChainById(chainId);
+    const nativeSymbol = chainConfig?.nativeCurrency.symbol || 'ETH';
+
+    const adjustedRequest: any = {
       ...request,
+      nativeSymbol, // Pass native symbol as requested by user for dynamic API
       tokenIn: {
         symbol: selectedSellAsset.symbol,
         name: selectedSellAsset.name,
@@ -187,121 +193,64 @@ export async function executeSwap(
 
     let lastTxHash = '';
 
-    if (isMainnet()) {
-      for (let i = 0; i < transactions.length; i++) {
+    for (let i = 0; i < transactions.length; i++) {
         const tx = transactions[i];
         const isLastTx = i === transactions.length - 1;
 
         const gasLimitFromApi = safeGasLimit(tx);
 
         const txParams: ethers.TransactionRequest = {
-          from: tx.from || senderAddress,
-          to: tx.to,
-          data: tx.data,
-          value: safeValue(tx.value),
+            from: tx.from || senderAddress,
+            to: tx.to,
+            data: tx.data,
+            value: safeValue(tx.value),
         };
 
         if (gasLimitFromApi !== undefined) {
-          txParams.gasLimit = gasLimitFromApi;
+            txParams.gasLimit = gasLimitFromApi;
         } else {
-          const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
-          if (estimated !== undefined) {
-            txParams.gasLimit = estimated;
-          }
+            const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
+            if (estimated !== undefined) {
+                txParams.gasLimit = estimated;
+            }
         }
 
         if (tx.maxFeePerGas) {
-          txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
+            txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
         }
         if (tx.maxPriorityFeePerGas) {
-          txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
+            txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
         }
 
         console.log('[executeSwap] Sending transaction:', {
-          to: txParams.to,
-          value: txParams.value?.toString(),
-          gasLimit: txParams.gasLimit?.toString(),
-          maxFeePerGas: txParams.maxFeePerGas?.toString(),
-          maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
+            to: txParams.to,
+            value: txParams.value?.toString(),
+            gasLimit: txParams.gasLimit?.toString(),
+            maxFeePerGas: txParams.maxFeePerGas?.toString(),
+            maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
         });
 
         const txResponse = await signer.sendTransaction(txParams);
         lastTxHash = txResponse.hash;
 
         if (!isLastTx) {
-          console.log('[executeSwap] Approval sent, polling for confirmation:', txResponse.hash);
-          const approvalReceipt = await pollForReceipt(ethersProvider, txResponse.hash);
-          if (!approvalReceipt || approvalReceipt.status === 0) {
-            throw new Error('Approval transaction failed or reverted on-chain');
-          }
-
-          console.log('[executeSwap] Approval confirmed, broadcasting swap tx now.');
-
-        } else {
-          console.log('[executeSwap] Swap tx sent, returning hash immediately:', txResponse.hash);
-
-          pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
+            console.log('[executeSwap] Transaction sent, polling for confirmation:', txResponse.hash);
+            const receipt = await pollForReceipt(ethersProvider, txResponse.hash);
             if (!receipt || receipt.status === 0) {
-              console.error('[executeSwap] Swap tx reverted on-chain:', txResponse.hash);
-            } else {
-              console.log('[executeSwap] Swap tx confirmed on-chain:', txResponse.hash);
+                throw new Error('Transaction failed or reverted on-chain');
             }
-          });
+            console.log('[executeSwap] Transaction confirmed, continuing to next.');
+        } else {
+            console.log('[executeSwap] Final swap tx sent, returning hash immediately:', txResponse.hash);
+
+            pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
+                if (!receipt || receipt.status === 0) {
+                    console.error('[executeSwap] Final tx reverted on-chain:', txResponse.hash);
+                } else {
+                    console.log('[executeSwap] Final tx confirmed on-chain:', txResponse.hash);
+                }
+            });
         }
-      }
-    } else {
-      const txData = transactions[0];
-
-      if (!selectedSellAsset.isNative && (txData as any).requiresApproval) {
-        const erc20Abi = [
-          'function approve(address spender, uint256 amount) public returns (bool)',
-          'function allowance(address owner, address spender) public view returns (uint256)',
-        ];
-        const tokenContract = new ethers.Contract(selectedSellAsset.address, erc20Abi, signer);
-        const amountIn = ethers.parseUnits(sellAmount, selectedSellAsset.decimals);
-        const currentAllowance = await tokenContract.allowance(
-          senderAddress,
-          (txData as any).spenderAddress
-        );
-
-        if (currentAllowance < amountIn) {
-          const approveTx = await tokenContract.approve((txData as any).spenderAddress, amountIn);
-          await approveTx.wait();
-        }
-      }
-
-      const gasLimitFromApi = safeGasLimit(txData as any);
-
-      const tx: ethers.TransactionRequest = {
-        from: senderAddress,
-        to: txData.to,
-        data: txData.data,
-        value: safeValue(txData.value),
-      };
-
-      if (gasLimitFromApi !== undefined) {
-        tx.gasLimit = gasLimitFromApi;
-      } else {
-        const estimated = await estimateGasWithBuffer(ethersProvider, tx);
-        if (estimated !== undefined) {
-          tx.gasLimit = estimated;
-        }
-      }
-
-      console.log('[executeSwap] Sending fallback transaction:', {
-        to: tx.to,
-        value: tx.value?.toString(),
-        gasLimit: tx.gasLimit?.toString(),
-      });
-
-      const txResponse = await signer.sendTransaction(tx);
-      const receipt = await txResponse.wait();
-
-      if (!receipt || receipt.status === 0) {
-        throw new Error('Transaction reverted on-chain');
-      }
-
-      lastTxHash = txResponse.hash;
     }
 
     return lastTxHash;

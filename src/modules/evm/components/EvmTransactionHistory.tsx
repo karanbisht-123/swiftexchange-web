@@ -25,7 +25,7 @@ import {
   getEvmTransactionHistory,
 } from '../service/EvmTransactionService';
 import { formatBlockNumber } from '../utils/blockNumber';
-import { MAINNET_CHAINS, TESTNET_CHAINS, getChainName } from '../utils/Chainregistry';
+import { getEvmChainsForNetwork, getChainName } from '../utils/Chainregistry';
 import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
@@ -81,7 +81,7 @@ const EvmTransactionHistory: React.FC = () => {
   const hasEvm = Boolean(walletAddress);
   const hasStellar = Boolean(stellarWallet);
 
-  const availableChains = currentNetwork === 'mainnet' ? MAINNET_CHAINS : TESTNET_CHAINS;
+  const availableChains = getEvmChainsForNetwork(currentNetwork);
 
   const defaultView: ViewType = hasEvm ? 'recent' : hasStellar ? 'stellar' : 'recent';
 

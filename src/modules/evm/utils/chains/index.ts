@@ -8,6 +8,7 @@ import base from './base';
 import sepolia from './sepolia';
 import bscTestnet from './bsc-testnet';
 import amoy from './amoy';
+import stellar from './stellar';
 
 export const CHAIN_CONFIGS = [
     ethereum,
@@ -20,4 +21,5 @@ export const CHAIN_CONFIGS = [
     sepolia,
     bscTestnet,
     amoy,
+    ...stellar,
 ];

@@ -8,6 +8,7 @@ import type {
   TokenInfo,
 } from '../types/ammSwap.types';
 import { signAndSubmitTransaction } from '../utils/transactionService';
+import { getChainById } from '../../evm/utils/Chainregistry';
 
 export class AmmSwapService {
   private server: StellarSDK.Horizon.Server;
@@ -360,25 +361,19 @@ export class AmmSwapService {
   }
 
   getPopularAssets(): StellarSDK.Asset[] {
-    const popular = [StellarSDK.Asset.native()];
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+    const chainId = isMainnet ? 9000000 : 9000001;
+    const chainConfig = getChainById(chainId);
 
-    if (isMainnet) {
-      popular.push(
-        new StellarSDK.Asset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'),
-        new StellarSDK.Asset('AQUA', 'GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA'),
-        new StellarSDK.Asset('yXLM', 'GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55')
-      );
-    } else {
-      popular.push(
-        new StellarSDK.Asset('USDC', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('USDT', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('BTC', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('ETH', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('AQUA', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER')
-      );
+    if (!chainConfig) {
+      return [StellarSDK.Asset.native()];
     }
 
-    return popular;
+    return chainConfig.assets.map(a => {
+      if (a.type === 'NATIVE') {
+        return StellarSDK.Asset.native();
+      }
+      return new StellarSDK.Asset(a.symbol, a.address);
+    });
   }
 }

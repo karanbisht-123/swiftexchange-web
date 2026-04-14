@@ -17,13 +17,13 @@ import type {
 } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
+import { getChainById } from '../../evm/utils/Chainregistry';
+import { getTokenIcon } from '../../evm/utils/ChainUrlHelpers';
 import { getEVMChains } from '../../walletconnect/config/chains';
-import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
-  type ReceiveAsset,
-  assetFromStellar,
+  type ReceiveAsset
 } from '../../walletconnect/utils/assetFromChain';
 import { getTokensForChain, fetchSingleTokenBalance } from '../../evm/service/tokenListService';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
@@ -162,29 +162,49 @@ export const useSendAsset = (onBack?: () => void) => {
       }
     }
 
-    const stellarConfigs = getStellarConfig(currentNetwork);
+    const stellarChain = getChainById(currentNetwork === 'mainnet' ? 9000000 : 9000001);
+    const stellarAssets: ReceiveAsset[] = [];
 
-    const stellarAssets: ReceiveAsset[] = [assetFromStellar(stellarConfigs)];
-    stellarAssets[0].value = stellarAssets[0].symbol + '-stellar';
-    (stellarAssets[0] as any).isNative = true; // Ensure XLM is treated as native
-
-    if (stellarWalletAssets.length > 0) {
-      for (const asset of stellarWalletAssets) {
-        if (asset.isNative) continue;
+    if (stellarChain) {
+      stellarChain.assets.forEach(asset => {
         stellarAssets.push({
-          value: `${asset.code}-stellar-${asset.issuer}`,
-          label: `${asset.code} (Stellar)`,
-          symbol: asset.code,
-          logo: '',
-          network: 'Stellar',
-          chainId: stellarConfigs.chainId,
+          value: asset.address ? `${asset.symbol}-${stellarChain.chainId}-${asset.address}` : `${asset.symbol}-${stellarChain.chainId}`,
+          label: `${asset.symbol} (Stellar)`,
+          symbol: asset.symbol,
+          logo: getTokenIcon(asset.symbol, stellarChain),
+          network: stellarChain.name,
+          chainId: stellarChain.chainId,
           addressType: 'stellar',
           walletType: WalletType.STELLAR,
-          tokenAddress: asset.issuer,
-          decimals: 7,
-          isNative: false,
-          blockExplorerUrl: 'https://stellar.expert/explorer/public',
+          tokenAddress: asset.address,
+          decimals: asset.decimals,
+          isNative: asset.type === 'NATIVE',
+          blockExplorerUrl: stellarChain.blockExplorerUrl,
         } as any);
+      });
+    }
+
+    // Add user assets from wallet that aren't in the registry
+    if (stellarWalletAssets.length > 0 && stellarChain) {
+      for (const asset of stellarWalletAssets) {
+        if (asset.isNative) continue;
+        const inRegistry = stellarChain.assets.some(a => a.address === asset.issuer);
+        if (!inRegistry) {
+          stellarAssets.push({
+            value: `${asset.code}-stellar-${asset.issuer}`,
+            label: `${asset.code} (Stellar)`,
+            symbol: asset.code,
+            logo: getTokenIcon(asset.code, stellarChain, asset.issuer),
+            network: stellarChain.name,
+            chainId: stellarChain.chainId,
+            addressType: 'stellar',
+            walletType: WalletType.STELLAR,
+            tokenAddress: asset.issuer,
+            decimals: 7,
+            isNative: false,
+            blockExplorerUrl: stellarChain.blockExplorerUrl,
+          } as any);
+        }
       }
     }
 

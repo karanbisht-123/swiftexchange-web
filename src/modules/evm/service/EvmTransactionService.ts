@@ -52,8 +52,8 @@ export const getEvmTransactionHistory = async (
   if (!chain) {
     throw new Error(`Unsupported chain: chainId=${chainId} network=${network}`);
   }
-
-  let endpoint = `/transaction-history/${address}/${chain.slug}`;
+  // `/transaction-history/${address}/${chain.slug}`;
+  let endpoint = `/transaction-history/${address}/${chain.nativeCurrency.symbol.toLowerCase()}`;
 
   if (sentPageKey || receivedPageKey) {
     const params = new URLSearchParams();

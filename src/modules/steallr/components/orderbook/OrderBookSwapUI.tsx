@@ -18,15 +18,8 @@ import { addLocalTransaction } from '../../../evm/service/localTransactionServic
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import StellarTransactionModal from '../modals/StellarTransactionModal';
 
-const TOKEN_ICONS: Record<string, string> = {
-  XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
-  USDC: 'https://coin-images.coingecko.com/coins/images/6319/small/usdc.png',
-  USDT: 'https://coin-images.coingecko.com/coins/images/325/small/Tether.png',
-};
-
-const getTokenIcon = (code: string): string | null => {
-  return TOKEN_ICONS[code?.toUpperCase()] || null;
-};
+import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
+import { getChainById } from '../../../evm/utils/Chainregistry';
 
 // ── Inline toast ──────────────────────────────────────────────────────────────
 interface Toast {
@@ -329,17 +322,22 @@ const OrderBookSwapUI = () => {
                   </label>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {getTokenIcon(fromToken?.code || '') ? (
-                        <img
-                          src={getTokenIcon(fromToken?.code || '')!}
-                          alt={fromToken?.code}
-                          className="w-10 h-10 rounded-full"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
-                          {fromToken?.code?.[0] || '?'}
-                        </div>
-                      )}
+                      {(() => {
+                        const chainId = currentNetwork === 'mainnet' ? 9000000 : 9000001;
+                        const chainConfig = getChainById(chainId);
+                        const icon = getTokenIcon(fromToken?.code || '', chainConfig);
+                        return icon ? (
+                          <img
+                            src={icon}
+                            alt={fromToken?.code}
+                            className="w-10 h-10 rounded-full"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                            {fromToken?.code?.[0] || '?'}
+                          </div>
+                        );
+                      })()}
                       <select
                         value={fromToken?.code || ''}
                         onChange={e => {
@@ -390,17 +388,22 @@ const OrderBookSwapUI = () => {
                   </label>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {getTokenIcon(toToken?.code || '') ? (
-                        <img
-                          src={getTokenIcon(toToken?.code || '')!}
-                          alt={toToken?.code}
-                          className="w-10 h-10 rounded-full"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
-                          {toToken?.code?.[0] || '?'}
-                        </div>
-                      )}
+                      {(() => {
+                        const chainId = currentNetwork === 'mainnet' ? 9000000 : 9000001;
+                        const chainConfig = getChainById(chainId);
+                        const icon = getTokenIcon(toToken?.code || '', chainConfig);
+                        return icon ? (
+                          <img
+                            src={icon}
+                            alt={toToken?.code}
+                            className="w-10 h-10 rounded-full"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                            {toToken?.code?.[0] || '?'}
+                          </div>
+                        );
+                      })()}
                       <select
                         value={toToken?.code || ''}
                         onChange={e => {

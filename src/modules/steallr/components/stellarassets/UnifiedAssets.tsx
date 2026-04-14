@@ -5,7 +5,8 @@ import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
-import { KNOWN_ASSETS } from '../../constants/stellarAssets';
+import { getAssetsForChain, getChainById } from '../../../evm/utils/Chainregistry';
+import * as ChainUrlHelpers from '../../../evm/utils/ChainUrlHelpers';
 import { useAssetSearch } from '../../hook/useAssetSearch';
 import { useStellarBalances } from '../../hook/useStellarBalances';
 import {
@@ -160,11 +161,13 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
   const allAssets = useMemo(() => {
     const assetsMap = new Map<string, DisplayAsset>();
 
+    const stellarChain = getChainById(9000000);
+
     balances.forEach((b: any) => {
       const code = b.asset_type === 'native' ? 'XLM' : b.asset_code;
       const issuer = b.asset_type === 'native' ? '' : b.asset_issuer;
-      const known = KNOWN_ASSETS[code];
       const key = getAssetKey(code, issuer);
+      const registryAsset = stellarChain?.assets.find(a => a.symbol === code && (a.address === issuer || issuer === ''));
 
       assetsMap.set(key, {
         code,
@@ -172,24 +175,25 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
         type: b.asset_type,
         balance: b.balance,
         isTrusted: true,
-        iconUrl: known?.iconUrl,
-        name: known?.name || code,
+        iconUrl: registryAsset?.logoURI || ChainUrlHelpers.getTokenIcon(code, stellarChain, issuer),
+        name: registryAsset?.name || code,
       });
     });
 
-    Object.entries(KNOWN_ASSETS).forEach(([code, meta]) => {
-      const issuer = meta.issuer || '';
+    getAssetsForChain(9000000).forEach(asset => {
+      const code = asset.symbol;
+      const issuer = asset.address === 'native' ? '' : asset.address;
       const key = getAssetKey(code, issuer);
 
       if (!assetsMap.has(key)) {
         assetsMap.set(key, {
           code,
           issuer,
-          type: code === 'XLM' ? 'native' : 'credit_alphanum12',
+          type: asset.address === 'native' ? 'native' : 'credit_alphanum12',
           balance: '0.0000000',
           isTrusted: false,
-          iconUrl: meta.iconUrl,
-          name: meta.name,
+          iconUrl: asset.logoURI,
+          name: asset.name,
         });
       }
     });

@@ -3,19 +3,9 @@ import { useState } from 'react';
 
 import type { SwapQuote, TokenInfo, TokenPlaceholder } from '../../types/ammSwap.types';
 
-const TOKEN_ICONS: Record<string, string> = {
-  XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
-  USDC: 'https://coin-images.coingecko.com/coins/images/6319/small/usdc.png',
-  USDT: 'https://coin-images.coingecko.com/coins/images/325/small/Tether.png',
-  BTC: 'https://coin-images.coingecko.com/coins/images/1/small/bitcoin.png',
-  ETH: 'https://coin-images.coingecko.com/coins/images/279/small/ethereum.png',
-  AQUA: 'https://aqua.network/assets/img/aqua-logo.png',
-  yXLM: 'https://ultrastellar.com/static/images/yXLM.png',
-};
-
-const getTokenIcon = (code: string): string | null => {
-  return TOKEN_ICONS[code.toUpperCase()] || null;
-};
+import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
+import { getChainById } from '../../../evm/utils/Chainregistry';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 
 interface TokenSelectorProps {
   selectedToken: TokenInfo | TokenPlaceholder;
@@ -26,7 +16,11 @@ interface TokenSelectorProps {
 
 export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelectorProps) => {
   const [isOpen, setIsOpen] = useState(false);
-  const tokenIcon = getTokenIcon(selectedToken.code);
+  const network = useWalletStore(state => state.network);
+  const chainId = network === 'mainnet' ? 9000000 : 9000001;
+  const chainConfig = getChainById(chainId);
+  
+  const tokenIcon = getTokenIcon(selectedToken.code, chainConfig);
 
   return (
     <div className="relative ">
@@ -59,7 +53,7 @@ export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelector
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute right-0 top-full mt-2 z-50 bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[180px] max-h-[300px] overflow-y-auto">
             {tokens.map(token => {
-              const icon = getTokenIcon(token.code);
+              const icon = getTokenIcon(token.code, chainConfig);
               const isSelected = selectedToken.code === token.code;
 
               return (
