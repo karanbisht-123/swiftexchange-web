@@ -15,7 +15,6 @@ export function getAssetLogoUrl(slug: string, address: string): string {
 export function getTokenIcon(symbol: string, chainConfig?: any, address?: string): string {
     if (!chainConfig) return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
 
-    // Handle Stellar (Chain ID 9000000 or 9000001)
     if (chainConfig.chainId === 9000000 || chainConfig.chainId === 9000001) {
         if (symbol === 'XLM' || symbol === chainConfig.nativeCurrency?.symbol) {
             return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png`;

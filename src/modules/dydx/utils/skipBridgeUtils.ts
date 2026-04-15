@@ -63,6 +63,21 @@ export function getEvmSourceDenom(
   address?: string,
   isNative?: boolean
 ): string {
+  if (chainId === 9000000 || chainId === 9000001) {
+    console.log('stellar', symbol);
+    if (isNative || symbol.toUpperCase() === 'XLM') {
+      return 'stellar-native';
+    }
+    if (address && address.startsWith('G') && address.length >= 56) {
+      return `stellar:${address}`;
+    }
+    const issuer = getTokenAddress(chainId, symbol as any);
+    console.log(issuer, "source of issue ------- stealr ")
+    if (issuer) return `stellar:${issuer}`;
+    return 'stellar-native';
+  }
+
+  // EVM native coins
   if (isNative) {
     const chain = getChainById(chainId);
     if (chain?.skipChainName) {
@@ -70,53 +85,53 @@ export function getEvmSourceDenom(
     }
 
     switch (chainId) {
-      case 1:
-        return 'ethereum-native';
-      case 56:
-        return 'binance-native';
-      case 137:
-        return 'polygon-native';
-      case 42161:
-        return 'arbitrum-native';
-      case 10:
-        return 'optimism-native';
-      case 8453:
-        return 'base-native';
-      case 43114:
-        return 'avalanche-native';
-      default:
+      case 1: return 'ethereum-native';
+      case 56: return 'binance-native';
+      case 137: return 'polygon-native';
+      case 42161: return 'arbitrum-native';
+      case 10: return 'optimism-native';
+      case 8453: return 'base-native';
+      case 43114: return 'avalanche-native';
+      default: {
         const prefix = chain?.slug || 'native';
         return prefix === 'native' ? 'native' : `${prefix}-native`;
+      }
     }
   }
-
-  // Use provided contract address
   if (address && address.startsWith('0x')) {
     return address.toLowerCase();
   }
 
-  // Try to resolve from Chainregistry
   const registryAddress = getTokenAddress(chainId, symbol as any);
-  if (registryAddress) {
+  if (registryAddress && registryAddress.startsWith('0x')) {
     return registryAddress.toLowerCase();
   }
 
-  //Fallback for known symbols (USDT/USDC/DAI) manually if registry is missing
   const upperSymbol = symbol.toUpperCase();
   if (['USDC', 'USDT', 'DAI', 'USDT.E', 'USDC.E'].includes(upperSymbol)) {
     return getUsdcAddress(chainId);
   }
 
-  // Default to USDC on that chain if everything else fails
   return getUsdcAddress(chainId);
 }
 
-export function toAtomicAmount(amount: number, symbol: string, customDecimals?: number): string {
+export function toAtomicAmount(amount: number, symbol: string, customDecimals?: number, chainId?: number): string {
   if (!amount || isNaN(amount)) return '0';
-  const decimals = Number(customDecimals ?? (symbol.toUpperCase() === 'ETH' ? 18 : 6));
+
+  let decimals: number;
+  if (customDecimals !== undefined) {
+    decimals = Number(customDecimals);
+  } else if (symbol.toUpperCase() === 'ETH') {
+    decimals = 18;
+  } else if (
+    chainId === 9000000 || chainId === 9000001
+  ) {
+    decimals = 7;
+  } else {
+    decimals = 6;
+  }
 
   try {
-
     const parts = amount.toString().split('.');
     const integerPart = parts[0];
     let fractionalPart = parts[1] || '';

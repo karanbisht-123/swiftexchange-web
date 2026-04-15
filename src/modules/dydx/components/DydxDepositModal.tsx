@@ -440,7 +440,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               <div className="absolute left-[13px] top-8 bottom-[-10px] w-[2px] bg-white/5" />
               <div className="flex-shrink-0 mt-0.5 relative z-10">
                 <div className="w-7 h-7 rounded-full border-2 border-brand bg-brand/20 shadow-[0_0_15px_rgba(var(--brand-rgb),0.5)] flex items-center justify-center scale-110">
-                   <div className="w-2 h-2 rounded-full bg-brand animate-ping" />
+                  <div className="w-2 h-2 rounded-full bg-brand animate-ping" />
                 </div>
               </div>
               <div className="flex-1 pb-10">
@@ -501,7 +501,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                 </div>
               </div>
             )}
-            
+
           {tracker.isError && !hasPendingTracker && (
             <button
               onClick={tracker.refresh}

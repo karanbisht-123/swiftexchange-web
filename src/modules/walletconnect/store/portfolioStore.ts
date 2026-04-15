@@ -52,8 +52,9 @@ interface PortfolioActions {
   enrichPrices: () => Promise<void>;
 }
 
-const CACHE_TTL = 60000;
-const MIN_FETCH_INTERVAL = 30000;
+const CACHE_TTL = 60_000;
+const MIN_FETCH_INTERVAL = 30_000;
+let enrichInFlight = false;
 
 export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
   subscribeWithSelector((set, get) => ({
@@ -103,14 +104,16 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
       }));
     },
 
-    fetchAssets: async (connectedWallets, network, force = false) => {
+    fetchAssets: async (
+      connectedWallets: Record<string, { address: string } | undefined>,
+      network: string,
+      force = false
+    ) => {
       const state = get();
       const now = Date.now();
 
       if (state.isFetching) return;
-
       if (!force && now - state.lastFetched < CACHE_TTL && state.network === network) return;
-
       if (!force && now - state.lastFetched < MIN_FETCH_INTERVAL) return;
 
       set({ isLoading: true, isFetching: true, network, hasError: false, errorMessage: null });
@@ -126,6 +129,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
       try {
         const fetchPromises: Promise<void>[] = [];
 
+        // Stellar
         if (stellarAddr) {
           fetchPromises.push(
             (async () => {
@@ -134,10 +138,13 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                 const server = new StellarSdk.Horizon.Server(config.horizonUrl);
                 const acc = await server.loadAccount(stellarAddr);
 
+                const stellarChainId = network === 'mainnet' ? 9000000 : 9000001;
+
                 for (const b of acc.balances) {
                   const balanceNum = parseFloat(b.balance);
                   if (balanceNum > 0) {
                     const symbol = 'asset_code' in b ? b.asset_code : 'XLM';
+                    const issuer = ('asset_issuer' in b ? b.asset_issuer : undefined) ?? undefined;
                     const meta = await portfolioUtils.getAssetMetadata(symbol);
                     updateAsset({
                       id: `stellar-${symbol}`,
@@ -149,6 +156,9 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                       price_change_percentage_24h: 0,
                       chainName: 'Stellar',
                       chainType: 'stellar',
+                      chainId: stellarChainId,
+                      address: issuer,
+                      decimals: 7,
                     });
                   }
                 }
@@ -157,7 +167,6 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                   err?.response?.status === 404 ||
                   err?.status === 404 ||
                   (typeof err?.message === 'string' && err.message.includes('404'));
-
                 if (!isNotFound) {
                   fetchFailed = true;
                   console.warn('[PortfolioStore] Stellar fetch failed:', err);
@@ -167,15 +176,17 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           );
         }
 
+        // EVM chains
         if (evmAddr) {
           const chains = getEVMChains(network as NetworkType);
 
           for (const chain of chains) {
             fetchPromises.push(
               (async () => {
-                try {
-                  const urls = [chain.rpcUrl, ...(chain.fallbackRpcUrls || [])];
+                const urls = [chain.rpcUrl, ...(chain.fallbackRpcUrls || [])];
 
+                // native balance
+                try {
                   const bal = await rpcManager.fetchWithFallback(chain.chainId, urls, p =>
                     p.getBalance(evmAddr)
                   );
@@ -203,97 +214,100 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                       chainId: chain.chainId,
                       chainType: 'evm',
                       isNative: true,
-                      address: undefined, // Native has no contract address
+                      address: undefined,
                       decimals: chain.nativeCurrency.decimals,
                     });
                   }
-
-                  const tokens = getTokenAddressesForChain(chain.chainId);
-                  const registryAssets = getAssetsForChain(chain.chainId);
-
-                  const tokenPromises = Object.entries(tokens).map(async ([symbol, address]) => {
-                    try {
-                      const [tokenBal, dec] = await rpcManager.fetchWithFallback(
-                        chain.chainId,
-                        urls,
-                        async p => {
-                          const contract = new ethers.Contract(address, ERC20_ABI, p);
-                          return await Promise.all([
-                            contract.balanceOf(evmAddr),
-                            contract.decimals(),
-                          ]);
-                        }
-                      );
-                      const tokenBalanceNum = parseFloat(ethers.formatUnits(tokenBal, dec));
-
-                      if (tokenBalanceNum > 0) {
-                        const registryAsset = registryAssets.find(
-                          a => a.symbol.toUpperCase() === symbol.toUpperCase()
-                        );
-
-                        const meta =
-                          registryAsset?.logoURI
-                            ? {
-                              id: registryAsset.coingeckoId ?? symbol.toLowerCase(),
-                              name: registryAsset.name,
-                              image: registryAsset.logoURI,
-                            }
-                            : await portfolioUtils.getAssetMetadata(symbol);
-
-                        updateAsset({
-                          id: `${chain.chainId}-${symbol}`,
-                          symbol,
-                          name: meta.name,
-                          image: meta.image,
-                          balance: tokenBalanceNum,
-                          current_price: 0,
-                          price_change_percentage_24h: 0,
-                          chainName: chain.name,
-                          chainId: chain.chainId,
-                          chainType: 'evm',
-                          address: address,
-                          decimals: Number(dec),
-                        });
-                      }
-                    } catch { }
-                  });
-
-                  await Promise.allSettled(tokenPromises);
-                } catch (err) {
+                } catch (nativeErr) {
                   fetchFailed = true;
-                  console.warn(`[PortfolioStore] Chain ${chain.name} fetch failed:`, err);
+                  console.warn(`[PortfolioStore] ${chain.name} native fetch failed:`, nativeErr);
+                  if (rpcManager.isChainDead(chain.chainId, urls)) {
+                    console.warn(`[PortfolioStore] Skipping tokens for ${chain.name} — all RPCs dead`);
+                    return;
+                  }
                 }
+                const tokens = getTokenAddressesForChain(chain.chainId);
+                const registryAssets = getAssetsForChain(chain.chainId);
+
+                const tokenPromises = Object.entries(tokens).map(async ([symbol, address]) => {
+                  try {
+                    const [tokenBal, dec] = await rpcManager.fetchWithFallback(
+                      chain.chainId,
+                      urls,
+                      async p => {
+                        const contract = new ethers.Contract(address, ERC20_ABI, p);
+                        return await Promise.all([
+                          contract.balanceOf(evmAddr),
+                          contract.decimals(),
+                        ]);
+                      }
+                    );
+                    const tokenBalanceNum = parseFloat(ethers.formatUnits(tokenBal, dec));
+
+                    if (tokenBalanceNum > 0) {
+                      const registryAsset = registryAssets.find(
+                        a => a.symbol.toUpperCase() === symbol.toUpperCase()
+                      );
+                      const meta =
+                        registryAsset?.logoURI
+                          ? {
+                            id: registryAsset.coingeckoId ?? symbol.toLowerCase(),
+                            name: registryAsset.name,
+                            image: registryAsset.logoURI,
+                          }
+                          : await portfolioUtils.getAssetMetadata(symbol);
+
+                      updateAsset({
+                        id: `${chain.chainId}-${symbol}`,
+                        symbol,
+                        name: meta.name,
+                        image: meta.image,
+                        balance: tokenBalanceNum,
+                        current_price: 0,
+                        price_change_percentage_24h: 0,
+                        chainName: chain.name,
+                        chainId: chain.chainId,
+                        chainType: 'evm',
+                        address,
+                        decimals: Number(dec),
+                      });
+                    }
+                  } catch { /* individual token failure — skip silently */ }
+                });
+
+                await Promise.allSettled(tokenPromises);
               })()
             );
           }
         }
 
         await Promise.allSettled(fetchPromises);
+        if (!enrichInFlight) {
+          enrichInFlight = true;
+          get().enrichPrices().finally(() => { enrichInFlight = false; });
+        }
       } finally {
         set({
           isLoading: false,
           isFetching: false,
           lastFetched: Date.now(),
           ...(fetchFailed
-            ? {
-              hasError: true,
-              errorMessage: 'Some network fetches failed. Data might be incomplete.',
-            }
+            ? { hasError: true, errorMessage: 'Some network fetches failed. Data might be incomplete.' }
             : {}),
         });
       }
-
-      setTimeout(() => get().enrichPrices(), 1000);
     },
 
-    refreshAssets: async (connectedWallets, network) => {
+    refreshAssets: async (
+      connectedWallets: Record<string, { address: string } | undefined>,
+      network: string
+    ) => {
       await get().fetchAssets(connectedWallets, network, true);
     },
 
     enrichPrices: async () => {
       const { assets, updateAsset } = get();
       const needsPrice = assets.filter(a => a.current_price === 0 && a.balance !== null);
-
       if (needsPrice.length === 0) return;
 
       try {

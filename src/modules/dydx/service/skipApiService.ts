@@ -102,7 +102,7 @@ export const skipApiService = {
     decimals?: number
   ): Promise<SkipRoute> {
     const sourceAssetDenom = getEvmSourceDenom(assetSymbol, evmChainId, tokenAddress, isNative);
-    const amountIn = toAtomicAmount(amountHuman, assetSymbol, decimals);
+    const amountIn = toAtomicAmount(amountHuman, assetSymbol, decimals, evmChainId);
     const sourceChainId = String(evmChainId);
 
     const raw = await route({
@@ -112,9 +112,10 @@ export const skipApiService = {
       destAssetChainId: DYDX_CHAIN_ID,
       amountIn,
       cumulativeAffiliateFeeBps: '0',
-      allowUnsafe: false,
+      allowUnsafe: true,
       smartRelay: true,
-      smartSwapOptions: { splitRoutes: false, evmSwaps: true },
+      smartSwapOptions: { splitRoutes: true, evmSwaps: true },
+      experimentalFeatures: ['hyperlane', 'stargate', 'eureka', 'layer_zero'] as any,
       bridges: SKIP_BRIDGES as any,
       allowMultiTx: true,
       goFast,
@@ -136,8 +137,9 @@ export const skipApiService = {
       destAssetChainId: String(destEvmChainId),
       amountIn,
       cumulativeAffiliateFeeBps: '0',
-      allowUnsafe: false,
+      allowUnsafe: true,
       smartRelay: true,
+      experimentalFeatures: ['hyperlane', 'stargate', 'eureka', 'layer_zero'] as any,
       bridges: SKIP_BRIDGES as any,
       allowMultiTx: true,
     });
@@ -186,7 +188,8 @@ export const skipApiService = {
 
   getSourceDenomForAsset: getEvmSourceDenom,
 
-  toAmountIn: toAtomicAmount,
+  toAmountIn: (amount: number, symbol: string, decimals?: number, chainId?: number) =>
+    toAtomicAmount(amount, symbol, decimals, chainId),
 
   formatDuration: formatBridgeDuration,
 };

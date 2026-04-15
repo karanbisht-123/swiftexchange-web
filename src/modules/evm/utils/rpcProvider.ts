@@ -1,17 +1,31 @@
 import { ethers } from 'ethers';
 
+// Patterns that indicate a permanent infra-level failure (CORS / network unreachable).
+// ethers.js wraps the raw browser error, so we must match BOTH the raw message
+// (e.g. "Failed to fetch") AND the ethers re-throw (e.g. "NETWORK_ERROR",
+// "could not detect network", "missing provider").
 const PERMANENT_ERROR_PATTERNS = [
   'cors',
   'cross-origin',
   'access-control',
-  'failed to fetch',
+  'failed to fetch',       // Chrome/Firefox raw fetch rejection
+  'load failed',           // Safari raw fetch rejection
   'network request failed',
-  'load failed',
+  'networkerror',          // Firefox
+  'net::err',              // Chrome devtools message leaking through
+  'could not detect network', // ethers wraps CORS as this
+  'network_error',         // ethers error code
+  'timeout',               // treat node timeouts as permanent for this URL
 ];
 
 function isPermanentError(error: any): boolean {
   const msg = (error?.message || String(error)).toLowerCase();
-  return PERMANENT_ERROR_PATTERNS.some(pattern => msg.includes(pattern));
+  const code = (error?.code || '').toLowerCase();
+  return (
+    PERMANENT_ERROR_PATTERNS.some(p => msg.includes(p)) ||
+    code === 'network_error' ||
+    code === 'timeout'
+  );
 }
 
 class RPCManager {
@@ -22,18 +36,33 @@ class RPCManager {
   private getProvider(url: string): ethers.JsonRpcProvider {
     if (!this.providerCache.has(url)) {
       const req = new ethers.FetchRequest(url);
-      req.retryFunc = async () => false;
-      this.providerCache.set(
-        url,
-        new ethers.JsonRpcProvider(req, undefined, { staticNetwork: true })
-      );
+      req.retryFunc = async () => false; // no internal retries
+      const provider = new ethers.JsonRpcProvider(req, undefined, { staticNetwork: true });
+      // ← critical: disable ethers' automatic block-polling so cached providers
+      //   never fire background requests to a CORS-blocked endpoint.
+      provider.pollingInterval = 99_999_999;
+      this.providerCache.set(url, provider);
     }
     return this.providerCache.get(url)!;
   }
 
+  private evict(url: string): void {
+    const p = this.providerCache.get(url);
+    if (p) {
+      try { p.destroy(); } catch { /* ignore */ }
+      this.providerCache.delete(url);
+    }
+  }
+
+  /** Returns true if every URL for a chain is permanently dead. */
+  isChainDead(_chainId: number, urls: string[]): boolean {
+    const unique = Array.from(new Set(urls.filter(Boolean)));
+    return unique.length > 0 && unique.every(u => this.permanentlyFailedUrls.has(u));
+  }
+
   clearFailedUrl(url: string) {
     this.permanentlyFailedUrls.delete(url);
-    this.providerCache.delete(url);
+    this.evict(url);
   }
 
   async fetchWithFallback<T>(
@@ -74,17 +103,16 @@ class RPCManager {
 
         const result = await Promise.race([action(provider), timeoutPromise]);
 
-        console.log(`[RPCManager] Success on ${url} (chain ${chainId})`);
         return result;
       } catch (error: any) {
         lastError = error;
 
         if (isPermanentError(error)) {
-          console.error(`[RPCManager] Permanent failure (CORS/network) — blacklisting ${url}`);
+          console.warn(`[RPCManager] Permanent failure (CORS/network) — blacklisting ${url}:`, error?.message);
           this.permanentlyFailedUrls.add(url);
-          this.providerCache.delete(url);
+          this.evict(url); // destroy provider to kill its polling loop
         } else {
-          console.warn(`[RPCManager] Transient failure on ${url} — jumping to next RPC`);
+          console.warn(`[RPCManager] Transient failure on ${url} — trying next RPC`);
         }
       }
     }

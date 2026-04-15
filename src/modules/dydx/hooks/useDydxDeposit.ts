@@ -106,12 +106,13 @@ export const useDydxDeposit = () => {
       isNative?: boolean,
       decimals?: number
     ): Promise<DepositRoute | null> => {
+      // Stellar assets go through the CCTP panel, not Skip route
+      const chainId = evmChainId ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
+      if (chainId === 9000000 || chainId === 9000001) return null;
+
       setStep('routing');
       setError(null);
       try {
-        const chainId =
-          evmChainId ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
-
         const raw = await skipApiService.getDepositRoute(
           assetSymbol,
           chainId,
@@ -173,6 +174,11 @@ export const useDydxDeposit = () => {
 
         const chainId = evmChainId ?? Number(evmWallet?.chainId ?? 1);
 
+        // Stellar assets are handled by the CCTP panel — never send them through Skip
+        if (chainId === 9000000 || chainId === 9000001) {
+          throw new Error('Stellar deposits must use the CCTP bridge panel.');
+        }
+
         setStep('routing');
 
         const sourceDenom = skipApiService.getSourceDenomForAsset(
@@ -181,7 +187,7 @@ export const useDydxDeposit = () => {
           tokenAddress,
           isNative
         );
-        const amountIn = skipApiService.toAmountIn(amountHuman, assetSymbol, decimals);
+        const amountIn = skipApiService.toAmountIn(amountHuman, assetSymbol, decimals, chainId);
 
         const rawRoute = await fetchSkipRoute({
           sourceAssetDenom: sourceDenom,
@@ -190,9 +196,10 @@ export const useDydxDeposit = () => {
           destAssetChainId: DYDX_CHAIN_ID,
           amountIn,
           cumulativeAffiliateFeeBps: '0',
-          allowUnsafe: false,
+          allowUnsafe: true,
           smartRelay: true,
-          smartSwapOptions: { splitRoutes: false, evmSwaps: true },
+          smartSwapOptions: { splitRoutes: true, evmSwaps: true },
+          experimentalFeatures: ['hyperlane', 'stargate', 'eureka', 'layer_zero'] as any,
           bridges: ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as any,
           allowMultiTx: true,
           goFast,
