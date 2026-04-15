@@ -101,7 +101,10 @@ export const useDydxDeposit = () => {
       assetSymbol: string,
       amountHuman: number,
       evmChainId?: number,
-      goFast = false
+      goFast = false,
+      tokenAddress?: string,
+      isNative?: boolean,
+      decimals?: number
     ): Promise<DepositRoute | null> => {
       setStep('routing');
       setError(null);
@@ -109,7 +112,15 @@ export const useDydxDeposit = () => {
         const chainId =
           evmChainId ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
 
-        const raw = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
+        const raw = await skipApiService.getDepositRoute(
+          assetSymbol,
+          chainId,
+          amountHuman,
+          goFast,
+          tokenAddress,
+          isNative,
+          decimals
+        );
 
         const result: DepositRoute = {
           estimatedTime: skipApiService.formatDuration(raw.estimatedDurationSeconds),
@@ -136,7 +147,10 @@ export const useDydxDeposit = () => {
       amountHuman: number,
       evmChainId?: number,
       goFast = false,
-      slippageTolerancePercent = '1'
+      slippageTolerancePercent = '1',
+      tokenAddress?: string,
+      isNative?: boolean,
+      decimals?: number
     ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
       setError(null);
       setErrorRetryable(true);
@@ -161,8 +175,13 @@ export const useDydxDeposit = () => {
 
         setStep('routing');
 
-        const sourceDenom = skipApiService.getSourceDenomForAsset(assetSymbol, chainId);
-        const amountIn = skipApiService.toAmountIn(amountHuman, assetSymbol);
+        const sourceDenom = skipApiService.getSourceDenomForAsset(
+          assetSymbol,
+          chainId,
+          tokenAddress,
+          isNative
+        );
+        const amountIn = skipApiService.toAmountIn(amountHuman, assetSymbol, decimals);
 
         const rawRoute = await fetchSkipRoute({
           sourceAssetDenom: sourceDenom,

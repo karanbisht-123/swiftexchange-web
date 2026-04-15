@@ -16,15 +16,15 @@ import type {
   TransferState,
   TransferStep,
 } from '../hooks/useTransactionTracker';
+import { getChainName } from '../../evm/utils/Chainregistry';
 
 function shortChain(chainId: string): string {
+  const numId = parseInt(chainId, 10);
+  if (!isNaN(numId)) {
+    const name = getChainName(numId);
+    if (name && name !== 'Unknown') return name;
+  }
   const map: Record<string, string> = {
-    '1': 'Ethereum',
-    '137': 'Polygon',
-    '42161': 'Arbitrum',
-    '10': 'Optimism',
-    '8453': 'Base',
-    '56': 'BNB',
     'noble-1': 'Noble',
     'dydx-mainnet-1': 'dYdX',
     'osmosis-1': 'Osmosis',

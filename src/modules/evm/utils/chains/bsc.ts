@@ -13,6 +13,7 @@ const bsc: ChainConfig = {
     available: true,
     swapEnabled: true,
     slug: slug,
+    skipChainName: 'binance',
     rpcUrl: 'https://bsc.publicnode.com',
     fallbackRpcUrls: [
         'https://bsc-dataseed.bnbchain.org',

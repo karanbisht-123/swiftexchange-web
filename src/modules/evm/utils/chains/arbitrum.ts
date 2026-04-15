@@ -10,9 +10,10 @@ const arbitrum: ChainConfig = {
     chainId: 42161,
     name: 'Arbitrum One',
     networkType: 'mainnet',
-    available: false,
+    available: true,
     swapEnabled: true,
     slug: slug,
+    skipChainName: 'arbitrum',
     rpcUrl: 'https://arb1.arbitrum.io/rpc',
     fallbackRpcUrls: [
         'https://arbitrum-one.publicnode.com',

@@ -6,11 +6,13 @@ import { GlobalNotifications } from './components/GlobalNotifications';
 import { NetworkMonitor } from './components/NetworkMonitor';
 import { WalletListModal } from './modules/walletconnect/components/WalletListModal';
 import { initWalletListener } from './modules/walletconnect/store/walletConnectStore';
+import { fetchStellarCuratedAssets } from './modules/evm/utils/chains/stellar';
 import router from './routes';
 
 const App = () => {
   useEffect(() => {
     initWalletListener();
+    fetchStellarCuratedAssets();
   }, []);
 
   return (

@@ -19,8 +19,8 @@ export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelector
   const network = useWalletStore(state => state.network);
   const chainId = network === 'mainnet' ? 9000000 : 9000001;
   const chainConfig = getChainById(chainId);
-  
-  const tokenIcon = getTokenIcon(selectedToken.code, chainConfig);
+
+  const tokenIcon = getTokenIcon(selectedToken.code, chainConfig, 'issuer' in selectedToken ? selectedToken.issuer : undefined);
 
   return (
     <div className="relative ">
@@ -53,7 +53,7 @@ export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelector
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute right-0 top-full mt-2 z-50 bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[180px] max-h-[300px] overflow-y-auto">
             {tokens.map(token => {
-              const icon = getTokenIcon(token.code, chainConfig);
+              const icon = getTokenIcon(token.code, chainConfig, token.issuer);
               const isSelected = selectedToken.code === token.code;
 
               return (
@@ -63,9 +63,8 @@ export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelector
                     onSelect(token);
                     setIsOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-hover transition-colors ${
-                    isSelected ? 'bg-hover' : ''
-                  }`}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-hover transition-colors ${isSelected ? 'bg-hover' : ''
+                    }`}
                 >
                   {icon ? (
                     <img
@@ -136,9 +135,8 @@ export const SettingsPanel = ({
                   onSlippageChange(preset);
                   setCustom('');
                 }}
-                className={`btn btn-secondary btn-sm ${
-                  slippage === preset ? 'bg-brand-primary text-text-inverse' : ''
-                }`}
+                className={`btn btn-secondary btn-sm ${slippage === preset ? 'bg-brand-primary text-text-inverse' : ''
+                  }`}
               >
                 {preset}%
               </button>
@@ -185,9 +183,9 @@ export const SwapDetails = ({ quote }: SwapDetailsProps) => {
     quote.path.path[0].code === quote.path.path[1].code
       ? '1'
       : (
-          parseFloat(quote.estimatedOutput) /
-          parseFloat(quote.path.path[0].code === 'XLM' ? '100' : '1')
-        ).toFixed(6);
+        parseFloat(quote.estimatedOutput) /
+        parseFloat(quote.path.path[0].code === 'XLM' ? '100' : '1')
+      ).toFixed(6);
   const priceImpactColor =
     quote.priceImpact > 5 ? 'price-down' : quote.priceImpact > 2 ? 'text-warning' : 'price-up';
 

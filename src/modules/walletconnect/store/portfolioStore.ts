@@ -21,6 +21,8 @@ export interface Asset {
   chainId?: number;
   chainType?: 'evm' | 'stellar';
   isNative?: boolean;
+  address?: string;
+  decimals?: number;
 }
 
 interface PortfolioState {
@@ -201,6 +203,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                       chainId: chain.chainId,
                       chainType: 'evm',
                       isNative: true,
+                      address: undefined, // Native has no contract address
+                      decimals: chain.nativeCurrency.decimals,
                     });
                   }
 
@@ -247,6 +251,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                           chainName: chain.name,
                           chainId: chain.chainId,
                           chainType: 'evm',
+                          address: address,
+                          decimals: Number(dec),
                         });
                       }
                     } catch { }

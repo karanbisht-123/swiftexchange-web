@@ -21,7 +21,7 @@ import StellarTransactionModal from '../modals/StellarTransactionModal';
 import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
 import { getChainById } from '../../../evm/utils/Chainregistry';
 
-// ── Inline toast ──────────────────────────────────────────────────────────────
+// Inline toast
 interface Toast {
   id: number;
   message: string;
@@ -123,16 +123,16 @@ const OrderBookSwapUI = () => {
 
       const txHash = await executeOrderWithWalletConnect(tx, provider);
 
-        addLocalTransaction({
-          hash: txHash,
-          chainId: 9000000,
-          type: 'orderbook',
-          timestamp: Date.now(),
-          description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
-          status: 'success',
-          from: stellarAddress,
-          network: currentNetwork,
-        });
+      addLocalTransaction({
+        hash: txHash,
+        chainId: 9000000,
+        type: 'orderbook',
+        timestamp: Date.now(),
+        description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
+        status: 'success',
+        from: stellarAddress,
+        network: currentNetwork,
+      });
 
       setTxModal({
         isOpen: true,
@@ -325,7 +325,7 @@ const OrderBookSwapUI = () => {
                       {(() => {
                         const chainId = currentNetwork === 'mainnet' ? 9000000 : 9000001;
                         const chainConfig = getChainById(chainId);
-                        const icon = getTokenIcon(fromToken?.code || '', chainConfig);
+                        const icon = getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
                         return icon ? (
                           <img
                             src={icon}
@@ -391,7 +391,7 @@ const OrderBookSwapUI = () => {
                       {(() => {
                         const chainId = currentNetwork === 'mainnet' ? 9000000 : 9000001;
                         const chainConfig = getChainById(chainId);
-                        const icon = getTokenIcon(toToken?.code || '', chainConfig);
+                        const icon = getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
                         return icon ? (
                           <img
                             src={icon}

@@ -10,9 +10,10 @@ const optimism: ChainConfig = {
     chainId: 10,
     name: 'Optimism',
     networkType: 'mainnet',
-    available: false,
+    available: true,
     swapEnabled: true,
     slug: slug,
+    skipChainName: 'optimism',
     rpcUrl: 'https://mainnet.optimism.io',
     fallbackRpcUrls: [
         'https://optimism-mainnet.public.blastapi.io',

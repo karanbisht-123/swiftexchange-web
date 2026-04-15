@@ -23,6 +23,12 @@ export function getTokenIcon(symbol: string, chainConfig?: any, address?: string
 
         const tokenAddress = address || chainConfig.tokens?.[symbol];
         if (tokenAddress) {
+            const registryAsset = chainConfig.assets?.find((a: any) =>
+                a.address.toLowerCase() === tokenAddress.toLowerCase() ||
+                a.symbol.toUpperCase() === symbol.toUpperCase()
+            );
+            if (registryAsset?.logoURI) return registryAsset.logoURI;
+
             return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/assets/${symbol}-${tokenAddress}/logo.png`;
         }
     }

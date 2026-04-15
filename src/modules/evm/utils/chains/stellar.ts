@@ -1,13 +1,73 @@
-import { type ChainConfig } from '../Chainregistry';
+import { type ChainConfig, type ChainAsset, type WellKnownTokens, registerDynamicAssets } from '../Chainregistry';
 import {
     getChainLogoUrlBySlug
 } from '../ChainUrlHelpers';
 
 const slug = 'stellar';
 
-function getStellarAssetUrl(code: string, issuer: string): string {
-    return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/assets/${code}-${issuer}/logo.png`;
+const STELLAR_CURATED_ASSETS_URL = 'https://lobstr.co/api/v1/sep/assets/curated.json';
+
+
+export async function fetchStellarCuratedAssets() {
+    try {
+        const response = await fetch(STELLAR_CURATED_ASSETS_URL);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const data = await response.json();
+
+        const dynamicAssets: ChainAsset[] = (data.assets as any[]).map(asset => ({
+            asset: `${asset.code}-${asset.issuer}`,
+            type: 'STELLAR',
+            address: asset.issuer,
+            name: asset.name || asset.code,
+            symbol: asset.code,
+            decimals: asset.decimals,
+            logoURI: asset.icon,
+            coingeckoId: asset.code.toLowerCase() === 'usdc' ? 'usd-coin' :
+                asset.code.toLowerCase() === 'eth' ? 'ethereum' :
+                    asset.code.toLowerCase() === 'btc' ? 'bitcoin' :
+                        asset.code.toLowerCase() === 'usdt' ? 'tether' :
+                            asset.code.toLowerCase() === 'eurc' ? 'euro-coin' : undefined
+        }));
+
+        const dynamicTokens: WellKnownTokens = {
+            USDC: data.assets.find((a: any) => a.code === 'USDC' && a.domain === 'circle.com')?.issuer,
+            USDT: data.assets.find((a: any) => a.code === 'USDT' && a.domain === 'tether.to')?.issuer,
+            EURC: data.assets.find((a: any) => a.code === 'EURC' && a.domain === 'circle.com')?.issuer,
+        };
+        registerDynamicAssets(9000000, dynamicAssets, dynamicTokens);
+
+        console.log('[Stellar] Dynamically loaded curated assets from Lobstr');
+    } catch (error) {
+        console.error('[Stellar] Failed to fetch curated assets:', error);
+    }
 }
+
+const nativeCurrency: ChainAsset & { wrappedAddress: string } = {
+    asset: 'XLM',
+    type: 'NATIVE',
+    address: 'native',
+    name: 'Stellar Lumens',
+    symbol: 'XLM',
+    decimals: 7,
+    logoURI: getChainLogoUrlBySlug(slug),
+    coingeckoId: 'stellar',
+    wrappedAddress: 'native',
+};
+
+const coreAssets: ChainAsset[] = [
+    nativeCurrency,
+    {
+        asset: 'yUSDC-GDGTVWSM4MGS4T7Z6W4RPWOCHE2I6RDFCIFZGS3DOA63LWQTRNZNTTFF',
+        type: 'STELLAR',
+        address: 'GDGTVWSM4MGS4T7Z6W4RPWOCHE2I6RDFCIFZGS3DOA63LWQTRNZNTTFF',
+        name: 'Yieldblox USDC',
+        symbol: 'yUSDC',
+        decimals: 7,
+        logoURI: 'https://ultracapital.xyz/static/images/icons/yUSDC.png',
+        coingeckoId: 'yusdc',
+    }
+];
 
 export const stellarMainnet: ChainConfig = {
     chainId: 9000000,
@@ -18,138 +78,14 @@ export const stellarMainnet: ChainConfig = {
     slug: slug,
     rpcUrl: 'https://horizon.stellar.org',
     blockExplorerUrl: 'https://stellar.expert/explorer/public',
-    nativeCurrency: {
-        name: 'Stellar Lumens',
-        symbol: 'XLM',
-        decimals: 7,
-        logoURI: getChainLogoUrlBySlug(slug),
-        wrappedAddress: 'native',
-        coingeckoId: 'stellar',
-    },
+    nativeCurrency: nativeCurrency as any,
     logoURI: getChainLogoUrlBySlug(slug),
     coingeckoPlatform: 'stellar',
     tokens: {
         USDC: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-        USDT: 'GBBD67V63DU7D3ULCGTCCG67ZTHYI6YI6ZTSKAAI2Z6H664U6TC7B7B7',
-        AQUA: 'GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA',
-        EURC: 'GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2',
-        BTC: 'GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF',
-        ETH: 'GBVOL67TMUQBGL4TZYNMY3ZQ5WGQYFPFD5VJRWXR72VA33VFNL225PL5',
-        yXLM: 'GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55',
         yUSDC: 'GDGTVWSM4MGS4T7Z6W4RPWOCHE2I6RDFCIFZGS3DOA63LWQTRNZNTTFF',
     },
-    assets: [
-        {
-            asset: 'XLM',
-            type: 'NATIVE',
-            address: 'native',
-            name: 'Stellar Lumens',
-            symbol: 'XLM',
-            decimals: 7,
-            logoURI: getChainLogoUrlBySlug(slug),
-            coingeckoId: 'stellar',
-        },
-        {
-            asset: 'USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-            type: 'STELLAR',
-            address: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-            name: 'USD Coin',
-            symbol: 'USDC',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'),
-            coingeckoId: 'usd-coin',
-        },
-        {
-            asset: 'EURC-GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2',
-            type: 'STELLAR',
-            address: 'GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2',
-            name: 'Euro Coin',
-            symbol: 'EURC',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('EURC', 'GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2'),
-            coingeckoId: 'euro-coin',
-        },
-        {
-            asset: 'USDT-GBBD67V63DU7D3ULCGTCCG67ZTHYI6YI6ZTSKAAI2Z6H664U6TC7B7B7',
-            type: 'STELLAR',
-            address: 'GBBD67V63DU7D3ULCGTCCG67ZTHYI6YI6ZTSKAAI2Z6H664U6TC7B7B7',
-            name: 'Tether USD',
-            symbol: 'USDT',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('USDT', 'GBBD67V63DU7D3ULCGTCCG67ZTHYI6YI6ZTSKAAI2Z6H664U6TC7B7B7'),
-            coingeckoId: 'tether',
-        },
-        {
-            asset: 'BTC-GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF',
-            type: 'STELLAR',
-            address: 'GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF',
-            name: 'Bitcoin',
-            symbol: 'BTC',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('BTC', 'GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF'),
-            coingeckoId: 'bitcoin',
-        },
-        {
-            asset: 'ETH-GBVOL67TMUQBGL4TZYNMY3ZQ5WGQYFPFD5VJRWXR72VA33VFNL225PL5',
-            type: 'STELLAR',
-            address: 'GBVOL67TMUQBGL4TZYNMY3ZQ5WGQYFPFD5VJRWXR72VA33VFNL225PL5',
-            name: 'Ethereum',
-            symbol: 'ETH',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('ETH', 'GBVOL67TMUQBGL4TZYNMY3ZQ5WGQYFPFD5VJRWXR72VA33VFNL225PL5'),
-            coingeckoId: 'ethereum',
-        },
-        {
-            asset: 'yXLM-GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55',
-            type: 'STELLAR',
-            address: 'GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55',
-            name: 'yXLM',
-            symbol: 'yXLM',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('yXLM', 'GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55'),
-            coingeckoId: 'yxlm',
-        },
-        {
-            asset: 'yUSDC-GDGTVWSM4MGS4T7Z6W4RPWOCHE2I6RDFCIFZGS3DOA63LWQTRNZNTTFF',
-            type: 'STELLAR',
-            address: 'GDGTVWSM4MGS4T7Z6W4RPWOCHE2I6RDFCIFZGS3DOA63LWQTRNZNTTFF',
-            name: 'yUSDC',
-            symbol: 'yUSDC',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('yUSDC', 'GDGTVWSM4MGS4T7Z6W4RPWOCHE2I6RDFCIFZGS3DOA63LWQTRNZNTTFF'),
-            coingeckoId: 'yusdc',
-        },
-        {
-            asset: 'AQUA-GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA',
-            type: 'STELLAR',
-            address: 'GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA',
-            name: 'Aquarius',
-            symbol: 'AQUA',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('AQUA', 'GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA'),
-            coingeckoId: 'aqua',
-        },
-        {
-            asset: 'yBTC-GA2VRL65L3ZFEDDJ357RGI3MAOKPJZ2Z3IJTPSC24I4KDTNFSVEQURRA',
-            type: 'STELLAR',
-            address: 'GA2VRL65L3ZFEDDJ357RGI3MAOKPJZ2Z3IJTPSC24I4KDTNFSVEQURRA',
-            name: 'Yieldblox BTC',
-            symbol: 'yBTC',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('yBTC', 'GA2VRL65L3ZFEDDJ357RGI3MAOKPJZ2Z3IJTPSC24I4KDTNFSVEQURRA'),
-            coingeckoId: 'ybtc',
-        },
-        {
-            asset: 'yETH-GDWA4XSSS5B5NCVJY7QLXYYOQB7WZT2CP6GPBJ3HXGD7BKXF7RRWJ3HO',
-            type: 'STELLAR',
-            address: 'GDWA4XSSS5B5NCVJY7QLXYYOQB7WZT2CP6GPBJ3HXGD7BKXF7RRWJ3HO',
-            name: 'Yieldblox ETH',
-            symbol: 'yETH',
-            decimals: 7,
-            logoURI: getStellarAssetUrl('yETH', 'GDWA4XSSS5B5NCVJY7QLXYYOQB7WZT2CP6GPBJ3HXGD7BKXF7RRWJ3HO'),
-            coingeckoId: 'yeth',
-        },
-    ],
+    assets: coreAssets,
     website: 'https://stellar.org/',
     description: 'A decentralized, fast, and sustainable network for financial products and services.',
     status: 'active',
@@ -196,7 +132,7 @@ export const stellarTestnet: ChainConfig = {
             name: 'USD Coin',
             symbol: 'USDC',
             decimals: 7,
-            logoURI: getStellarAssetUrl('USDC', 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5'),
+            logoURI: 'https://www.circle.com/usdc-icon',
             coingeckoId: 'usd-coin',
         },
         {
@@ -206,7 +142,7 @@ export const stellarTestnet: ChainConfig = {
             name: 'Euro Coin',
             symbol: 'EURC',
             decimals: 7,
-            logoURI: getStellarAssetUrl('EURC', 'GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO'),
+            logoURI: 'https://www.circle.com/eurc-icon',
             coingeckoId: 'euro-coin',
         },
     ],

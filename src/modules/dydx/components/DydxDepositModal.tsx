@@ -11,7 +11,9 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Notification } from '../../../components/common/Notification';
+import { ROUTES } from '../../../constants/routes';
 
 import { Tooltip } from '../../../components/common/Tooltip';
 import { type Asset, useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
@@ -27,6 +29,7 @@ import {
 import { validateDepositAmount } from '../utils/inputValidation';
 import { NATIVE_WALLET_GAS_RESERVE_USD } from '../utils/skipBridgeUtils';
 import { TransactionTracker } from './TransactionTracker';
+import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 
 type ModalStep = 'form' | 'select_token' | 'tracker';
 
@@ -38,18 +41,11 @@ interface DydxDepositModalProps {
 
 const PRIORITY_SYMBOLS = ['USDC', 'USDT', 'ETH'];
 
-const CHAIN_ICONS: Record<string, string> = {
-  ETH: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
-  BNB: 'https://tokens.pancakeswap.finance/images/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c.png',
-};
 
 const DEPOSIT_ROUTE = ['Your Wallet', 'Noble', 'dYdX'] as const;
 
 const getChainIconUrl = (asset: Asset): string | undefined => {
-  if (asset.chainId === 1) return CHAIN_ICONS.ETH;
-  if (asset.chainId === 56) return CHAIN_ICONS.BNB;
-  if (asset.chainName?.includes('Ethereum')) return CHAIN_ICONS.ETH;
-  if (asset.chainName?.includes('BNB')) return CHAIN_ICONS.BNB;
+  if (asset.chainId) return getChainLogoUrl(asset.chainId);
   return undefined;
 };
 
@@ -169,6 +165,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   initialAsset,
 }) => {
   const { network } = useWalletStore();
+  const navigate = useNavigate();
   const { assets } = useWalletAssets(network);
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
   const evmAddress = evmWallet?.address || '';
@@ -211,6 +208,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const [goFast, setGoFast] = useState(false);
   const [slippage, setSlippage] = useState('1');
   const [showVolatilityWarning, setShowVolatilityWarning] = useState(true);
+  const isStellar = selectedAsset?.chainId === 9000000 || selectedAsset?.chainId === 9000001;
 
   const tracker = useTransactionTracker('deposit');
   const trackerTxHash = tracker.txHash;
@@ -278,7 +276,15 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     const parsed = parseFloat(amount);
     if (selectedAsset && parsed > 0) {
       const timer = setTimeout(() => {
-        getRoute(selectedAsset.symbol, parsed, evmChainId, goFast);
+        getRoute(
+          selectedAsset.symbol,
+          parsed,
+          selectedAsset.chainId || evmChainId,
+          goFast,
+          selectedAsset.address,
+          selectedAsset.isNative,
+          selectedAsset.decimals
+        );
       }, 400);
       return () => clearTimeout(timer);
     }
@@ -299,7 +305,16 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const handleDeposit = useCallback(async () => {
     if (!selectedAsset || !amount) return;
-    await deposit(selectedAsset.symbol, parseFloat(amount), evmChainId, goFast, slippage || '1');
+    await deposit(
+      selectedAsset.symbol,
+      parseFloat(amount),
+      selectedAsset.chainId || evmChainId,
+      goFast,
+      slippage || '1',
+      selectedAsset.address,
+      selectedAsset.isNative,
+      selectedAsset.decimals
+    );
   }, [selectedAsset, amount, deposit, evmChainId, goFast, slippage]);
 
   const handleDismissTracker = useCallback(() => {
@@ -866,27 +881,58 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        <button
-          onClick={handleDeposit}
-          disabled={isLoading || !amountValidation.valid || !evmAddress || isDepositLocked}
-          className="w-full py-3.5 btn btn-primary rounded-xl font-semibold text-[15px] transition-all disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              {stepLabel}
-            </>
-          ) : isDepositLocked ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Transfer pending…
-            </>
-          ) : !evmAddress ? (
-            'Connect EVM Wallet'
-          ) : (
-            'Deposit'
-          )}
-        </button>
+        {isStellar && (
+          <div className="p-4 bg-brand/10 border border-brand/30 rounded-xl space-y-3 animate-slide-in">
+            <div className="flex items-start gap-2 text-brand">
+              <Info className="w-5 h-5 shrink-0 mt-0.5" />
+              <p className="text-sm font-medium">Stellar assets are not supported for direct dYdX deposit. Please bridge or swap to an EVM chain first.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => {
+                  onClose();
+                  navigate(ROUTES.BRIDGE);
+                }}
+                className="btn btn-primary py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 text-sm shadow-lg shadow-brand/20"
+              >
+                Go to Bridge
+              </button>
+              <button
+                onClick={() => {
+                  onClose();
+                  navigate(ROUTES.TRADING_STEALLR);
+                }}
+                className="btn btn-secondary py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 text-sm"
+              >
+                Go to Swap/Spot
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isStellar && (
+          <button
+            onClick={handleDeposit}
+            disabled={isLoading || !amountValidation.valid || !evmAddress || isDepositLocked}
+            className="w-full py-3.5 btn btn-primary rounded-xl font-semibold text-[15px] transition-all disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                {stepLabel}
+              </>
+            ) : isDepositLocked ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Transfer pending…
+              </>
+            ) : !evmAddress ? (
+              'Connect EVM Wallet'
+            ) : (
+              'Deposit'
+            )}
+          </button>
+        )}
 
         <div className="h-2" />
       </div>

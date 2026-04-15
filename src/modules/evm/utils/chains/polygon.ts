@@ -13,6 +13,7 @@ const polygon: ChainConfig = {
     available: false,
     swapEnabled: true,
     slug: slug,
+    skipChainName: 'polygon',
     rpcUrl: 'https://polygon-rpc.com',
     fallbackRpcUrls: [
         'https://rpc-mainnet.maticvigil.com',

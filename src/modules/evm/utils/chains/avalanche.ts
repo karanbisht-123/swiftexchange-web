@@ -1,7 +1,7 @@
 import { type ChainConfig } from '../Chainregistry';
-import { 
-    getChainLogoUrlBySlug, 
-    getAssetLogoUrl 
+import {
+    getChainLogoUrlBySlug,
+    getAssetLogoUrl
 } from '../ChainUrlHelpers';
 
 const slug = 'avalanchec';
@@ -10,9 +10,10 @@ const avalanche: ChainConfig = {
     chainId: 43114,
     name: 'Avalanche C-Chain',
     networkType: 'mainnet',
-    available: false,
+    available: true,
     swapEnabled: true,
     slug: 'avalanche',
+    skipChainName: 'avalanche',
     rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',
     fallbackRpcUrls: [
         'https://avalanche-c-chain.publicnode.com',

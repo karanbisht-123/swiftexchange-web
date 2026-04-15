@@ -1,6 +1,7 @@
 import { fromBech32, toBech32 } from '@cosmjs/encoding';
 import { createWalletClient, custom } from 'viem';
 import * as viemChains from 'viem/chains';
+import { getTokenAddress, getChainById } from '../../evm/utils/Chainregistry';
 
 export const DYDX_CHAIN_ID = 'dydx-mainnet-1';
 export const NOBLE_CHAIN_ID = 'noble-1';
@@ -10,17 +11,12 @@ export const DYDX_USDC_DENOM =
 
 export const NOBLE_USDC_DENOM = 'uusdc';
 
-export const USDC_EVM_CONTRACTS: Record<number, string> = {
-  1: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-  137: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
-  42161: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  10: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-};
+export function getUsdcAddress(chainId: number): string {
+  const address = getTokenAddress(chainId, 'USDC');
+  if (address) return address;
+  return '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+}
 
-const ETH_EVM_DENOMS: Record<number, string> = {
-  1: 'ethereum-native',
-};
 
 export const SKIP_BRIDGES = ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as const;
 
@@ -61,21 +57,81 @@ export function makeNobleSignerFromDydx(dydxSigner: any) {
   };
 }
 
-export function getEvmSourceDenom(symbol: string, chainId: number): string {
-  switch (symbol.toUpperCase()) {
-    case 'ETH':
-      return ETH_EVM_DENOMS[chainId] ?? 'ethereum-native';
-    case 'USDC':
-    case 'USDT':
-      return USDC_EVM_CONTRACTS[chainId] ?? USDC_EVM_CONTRACTS[1];
-    default:
-      return USDC_EVM_CONTRACTS[chainId] ?? USDC_EVM_CONTRACTS[1];
+export function getEvmSourceDenom(
+  symbol: string,
+  chainId: number,
+  address?: string,
+  isNative?: boolean
+): string {
+  if (isNative) {
+    const chain = getChainById(chainId);
+    if (chain?.skipChainName) {
+      return `${chain.skipChainName}-native`;
+    }
+
+    switch (chainId) {
+      case 1:
+        return 'ethereum-native';
+      case 56:
+        return 'binance-native';
+      case 137:
+        return 'polygon-native';
+      case 42161:
+        return 'arbitrum-native';
+      case 10:
+        return 'optimism-native';
+      case 8453:
+        return 'base-native';
+      case 43114:
+        return 'avalanche-native';
+      default:
+        const prefix = chain?.slug || 'native';
+        return prefix === 'native' ? 'native' : `${prefix}-native`;
+    }
   }
+
+  // Use provided contract address
+  if (address && address.startsWith('0x')) {
+    return address.toLowerCase();
+  }
+
+  // Try to resolve from Chainregistry
+  const registryAddress = getTokenAddress(chainId, symbol as any);
+  if (registryAddress) {
+    return registryAddress.toLowerCase();
+  }
+
+  //Fallback for known symbols (USDT/USDC/DAI) manually if registry is missing
+  const upperSymbol = symbol.toUpperCase();
+  if (['USDC', 'USDT', 'DAI', 'USDT.E', 'USDC.E'].includes(upperSymbol)) {
+    return getUsdcAddress(chainId);
+  }
+
+  // Default to USDC on that chain if everything else fails
+  return getUsdcAddress(chainId);
 }
 
-export function toAtomicAmount(amount: number, symbol: string): string {
-  const decimals = symbol.toUpperCase() === 'ETH' ? 18 : 6;
-  return Math.floor(amount * 10 ** decimals).toString();
+export function toAtomicAmount(amount: number, symbol: string, customDecimals?: number): string {
+  if (!amount || isNaN(amount)) return '0';
+  const decimals = Number(customDecimals ?? (symbol.toUpperCase() === 'ETH' ? 18 : 6));
+
+  try {
+
+    const parts = amount.toString().split('.');
+    const integerPart = parts[0];
+    let fractionalPart = parts[1] || '';
+
+    if (fractionalPart.length > decimals) {
+      fractionalPart = fractionalPart.slice(0, decimals);
+    } else {
+      fractionalPart = fractionalPart.padEnd(decimals, '0');
+    }
+
+    const result = (integerPart + fractionalPart).replace(/^0+/, '');
+    return result || '0';
+  } catch (err) {
+    return Math.floor(amount * Math.pow(10, decimals)).toString();
+  }
 }
 
 export function formatBridgeDuration(seconds: number): string {

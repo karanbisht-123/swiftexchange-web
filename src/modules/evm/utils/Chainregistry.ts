@@ -68,6 +68,7 @@ export interface ChainConfig {
     status?: string;
     tags?: string[];
     links?: ChainLink[];
+    skipChainName?: string;
     testnetTokenMetadata?: Record<
         string,
         { name: string; symbol: string; decimals: number; logoURI?: string }
@@ -163,6 +164,24 @@ export function getExplorerUrl(
 
     const base = getChainById(chainId)?.blockExplorerUrl ?? 'https://etherscan.io';
     return `${base}/${type}/${value}`;
+}
+
+export function registerDynamicAssets(
+    chainId: number, 
+    newAssets: ChainAsset[], 
+    newTokens?: WellKnownTokens
+) {
+    const chain = getChainById(chainId);
+    if (!chain) return;
+
+    const existingAddresses = new Set(chain.assets.map(a => a.address.toLowerCase()));
+    const assetsToAdd = newAssets.filter(a => !existingAddresses.has(a.address.toLowerCase()));
+    
+    chain.assets = [...chain.assets, ...assetsToAdd];
+
+    if (newTokens) {
+        chain.tokens = { ...chain.tokens, ...newTokens };
+    }
 }
 
 export function chainTypeToId(slug: string, network: NetworkType): number {

@@ -13,6 +13,7 @@ const ethereum: ChainConfig = {
     available: true,
     swapEnabled: true,
     slug: slug,
+    skipChainName: 'ethereum',
     rpcUrl: 'https://ethereum-rpc.publicnode.com',
     fallbackRpcUrls: [
         'https://cloudflare-eth.com',
