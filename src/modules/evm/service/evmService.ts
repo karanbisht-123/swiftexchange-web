@@ -25,8 +25,8 @@ export async function sendCryptoEVMPrepare(
   const endpoint = prefix + '/transaction/prepare';
 
   try {
-    const urls = [config.rpcUrl, ...(config.fallbackRpcUrls || [])];
-    const { feeData, nonce } = await rpcManager.fetchWithFallback(config.chainId, urls, async p => {
+    const { rpcUrls } = config;
+    const { feeData, nonce } = await rpcManager.fetchWithFallback(config.chainId, rpcUrls, async p => {
       const fd = await p.getFeeData();
       const n = await p.getTransactionCount(from);
       return { feeData: fd, nonce: n };

@@ -26,11 +26,9 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
 
     let transactions: LocalTransaction[] = JSON.parse(stored);
     const now = Date.now();
-    
-    // Clean up expired transactions
+
     const validTransactions = transactions.filter(tx => now - tx.timestamp < MAX_AGE_MS);
-    
-    // Filter by wallet address and network if provided
+
     let filteredTransactions = validTransactions;
     if (walletAddresses && walletAddresses.length > 0) {
       const lowerAddresses = walletAddresses.map(addr => addr.toLowerCase());
@@ -128,7 +126,7 @@ export const cleanupOldWalletTransactions = (currentWallets: string[], currentNe
 
     const lowerAddresses = currentWallets.map(addr => addr.toLowerCase());
     const transactions: LocalTransaction[] = JSON.parse(stored);
-    const filtered = transactions.filter(tx => 
+    const filtered = transactions.filter(tx =>
       tx.from && lowerAddresses.includes(tx.from.toLowerCase()) && tx.network === currentNetwork
     );
 

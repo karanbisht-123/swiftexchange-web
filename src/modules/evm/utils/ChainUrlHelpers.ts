@@ -1,4 +1,5 @@
-export const ASSET_CDN_BASE = 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains';
+import { ASSET_CDN_BASE } from './assetmanagement/constants';
+import { getGlobalAssetMetadata } from './Chainregistry';
 
 export function getChainInfoUrl(slug: string): string {
     return `${ASSET_CDN_BASE}/${slug}/info/info.json`;
@@ -9,40 +10,31 @@ export function getChainLogoUrlBySlug(slug: string): string {
 }
 
 export function getAssetLogoUrl(slug: string, address: string): string {
-    return `${ASSET_CDN_BASE}/${slug}/assets/${address}/logo.png`;
+    return `${ASSET_CDN_BASE}/${slug}/${address}.png`;
 }
 
 export function getTokenIcon(symbol: string, chainConfig?: any, address?: string): string {
-    if (!chainConfig) return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
-
-    if (chainConfig.chainId === 9000000 || chainConfig.chainId === 9000001) {
-        if (symbol === 'XLM' || symbol === chainConfig.nativeCurrency?.symbol) {
-            return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png`;
-        }
-
-        const tokenAddress = address || chainConfig.tokens?.[symbol];
-        if (tokenAddress) {
-            const registryAsset = chainConfig.assets?.find((a: any) =>
-                a.address.toLowerCase() === tokenAddress.toLowerCase() ||
-                a.symbol.toUpperCase() === symbol.toUpperCase()
-            );
-            if (registryAsset?.logoURI) return registryAsset.logoURI;
-
-            return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/assets/${symbol}-${tokenAddress}/logo.png`;
-        }
+    if (!chainConfig) return '';
+    const tokenAddress = address || chainConfig.tokens?.[symbol];
+    if (tokenAddress) {
+        const registryAsset = chainConfig.assets?.find((a: any) =>
+            a.address.toLowerCase() === tokenAddress.toLowerCase() ||
+            a.symbol.toUpperCase() === symbol.toUpperCase()
+        );
+        if (registryAsset?.logoURI) return registryAsset.logoURI;
     }
 
     if (symbol === chainConfig.nativeCurrency?.symbol) {
-        return chainConfig.nativeCurrency.logoURI;
+        return chainConfig.nativeCurrency.logoURI || getChainLogoUrlBySlug(chainConfig.slug);
+    }
+    if (chainConfig.chainId === 9000000 || chainConfig.chainId === 9000001) {
+        if (tokenAddress) {
+            return `${ASSET_CDN_BASE}/stellar/assets/${symbol}-${tokenAddress}/logo.png`;
+        }
     }
 
-    const tokenAddress = chainConfig.tokens?.[symbol];
-    if (tokenAddress) {
-        const asset = chainConfig.assets?.find((a: any) =>
-            a.address.toLowerCase() === tokenAddress.toLowerCase()
-        );
-        if (asset?.logoURI) return asset.logoURI;
-    }
+    const globalMeta = getGlobalAssetMetadata(symbol);
+    if (globalMeta?.logoURI) return globalMeta.logoURI;
 
-    return 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png';
+    return '';
 }

@@ -1,8 +1,7 @@
 export interface EVMChainConfig {
   chainId: number;
   name: string;
-  rpcUrl: string;
-  fallbackRpcUrls?: string[];
+  rpcUrls: string[];
   nativeCurrency: {
     coingeckoId: any;
     logoURI: any;
@@ -49,8 +48,7 @@ export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
   return chains.map((c) => ({
     chainId: c.chainId,
     name: c.name,
-    rpcUrl: c.rpcUrl,
-    fallbackRpcUrls: c.fallbackRpcUrls,
+    rpcUrls: c.rpcUrls,
     nativeCurrency: {
       name: c.nativeCurrency.name,
       symbol: c.nativeCurrency.symbol,

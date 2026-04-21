@@ -11,7 +11,10 @@ import {
   getTokensForChain,
 } from '../service/tokenListService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
+import { rpcManager } from '../utils/rpcProvider';
+import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
 import { isEvmChain } from '../utils/Chainregistry';
 
@@ -118,29 +121,69 @@ export const useEvmSwap = ({
     async (sellToken?: TokenInfo, buyToken?: TokenInfo) => {
       if (!senderAddress || !chainId) return;
 
-      let provider: any;
-      try {
-        provider = getProvider(WalletType.EVM);
-      } catch {
-        return;
-      }
-      if (!provider) return;
+      const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
+      if (tokensToFetch.length === 0) return;
 
       try {
-        const ethersProvider = new ethers.BrowserProvider(provider);
-        const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
-
-        if (tokensToFetch.length === 0) return;
+        const storeAssets = usePortfolioStore.getState().assets;
+        let provider: any;
+        try {
+          provider = getProvider(WalletType.EVM);
+        } catch {
+          // No provider
+        }
 
         const updates = await Promise.all(
-          tokensToFetch.map(async token => {
-            const bal = await fetchSingleTokenBalance(
-              senderAddress,
-              ethersProvider,
-              token.address,
-              !!token.isNative,
-              token.decimals
+          tokensToFetch.map(async (token) => {
+            let bal = '0';
+
+            // 1. Try Live Provider
+            if (provider) {
+              try {
+                const ethersProvider = new ethers.BrowserProvider(provider);
+                bal = await fetchSingleTokenBalance(
+                  senderAddress,
+                  ethersProvider,
+                  token.address,
+                  !!token.isNative,
+                  token.decimals
+                );
+                if (bal !== '0') return { address: token.address, balance: bal };
+              } catch (err) {
+                console.warn(`Provider balance fetch failed for ${token.symbol}:`, err);
+              }
+            }
+
+            // 2. Fallback to Portfolio Store
+            const storeAsset = storeAssets.find(a =>
+              a.chainId === chainId &&
+              a.symbol === token.symbol &&
+              (token.isNative ? a.isNative : a.address?.toLowerCase() === token.address.toLowerCase())
             );
+
+            if (storeAsset && storeAsset.balance !== null) {
+              bal = storeAsset.balance.toString();
+              if (bal !== '0') return { address: token.address, balance: bal };
+            }
+
+            // 3. Last Fallback: RPC Manager fresh fetch
+            try {
+              const config = getEVMNetworkConfig(chainId);
+              bal = await rpcManager.fetchWithFallback(
+                chainId,
+                config.rpcUrls,
+                async (rpcProvider) => fetchSingleTokenBalance(
+                  senderAddress,
+                  rpcProvider,
+                  token.address,
+                  !!token.isNative,
+                  token.decimals
+                )
+              );
+            } catch (err) {
+              console.error(`Final RPC fallback failed for ${token.symbol}:`, err);
+            }
+
             return { address: token.address, balance: bal };
           })
         );
@@ -162,10 +205,7 @@ export const useEvmSwap = ({
           return hasChanges ? { ...prev, assets: newAssets } : prev;
         });
       } catch (err) {
-        console.error('Balance update failed:', err);
-        if (isMounted.current) {
-          updateState({ error: 'Failed to refresh balances. Please try again.' });
-        }
+        console.error('Balance update process failed:', err);
       }
     },
     [chainId, senderAddress, getProvider, updateState]
@@ -195,7 +235,12 @@ export const useEvmSwap = ({
           throw new Error('Cannot swap same token');
         }
 
-        const quoteResponse = await fetchEvmQuote(chainId, request, sellAsset, buyAsset);
+        const adjustedRequest = {
+          ...request,
+          recipient: senderAddress,
+        } as any;
+
+        const quoteResponse = await fetchEvmQuote(chainId, adjustedRequest, sellAsset, buyAsset);
         if (requestId !== latestQuoteRequestId.current) {
           return Promise.reject(new Error('Quote request superseded'));
         }

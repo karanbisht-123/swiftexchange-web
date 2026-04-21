@@ -52,17 +52,16 @@ export const getEvmTransactionHistory = async (
   if (!chain) {
     throw new Error(`Unsupported chain: chainId=${chainId} network=${network}`);
   }
-  // `/transaction-history/${address}/${chain.slug}`;
-  let endpoint = `/transaction-history/${address}/${chain.nativeCurrency.symbol.toLowerCase()}`;
+  const endpoint = `/transaction-history`;
+  const body: any = {
+    walletAddress: address,
+    chain: chain.nativeCurrency.symbol.toLowerCase(),
+  };
 
-  if (sentPageKey || receivedPageKey) {
-    const params = new URLSearchParams();
-    if (sentPageKey) params.append('sentPageKey', sentPageKey);
-    if (receivedPageKey) params.append('receivedPageKey', receivedPageKey);
-    endpoint += `?${params.toString()}`;
-  }
+  if (sentPageKey) body.sentPageKey = sentPageKey;
+  if (receivedPageKey) body.receivedPageKey = receivedPageKey;
 
-  const response = await fetchApiResponseFromProxy<TransactionHistoryResponse>(endpoint, 'GET');
+  const response = await fetchApiResponseFromProxy<TransactionHistoryResponse>(endpoint, 'POST', body);
 
   const data: TransactionItem[] = (response.data.data ?? []).map((tx) => ({
     ...tx,

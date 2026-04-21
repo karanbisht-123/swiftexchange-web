@@ -1,5 +1,5 @@
-import { AlertCircle, Copy, Info, Loader2, ChevronRight } from 'lucide-react';
-import React, { useCallback, useMemo } from 'react';
+import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet } from 'lucide-react';
+import React, { useCallback, useMemo, useRef } from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
 import TransactionSuccess from '../../transction/component/TransactionSuccess';
@@ -7,6 +7,9 @@ import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionS
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { useSendAsset } from '../hook/useSendassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
+import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
+import TransactionButton from '../components/TransactionButton';
+import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 
 interface SendCryptoProps {
   onBack?: () => void;
@@ -14,6 +17,9 @@ interface SendCryptoProps {
 
 const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   const { openAssetSelector } = useAssetSelectorModal();
+  const recipientRef = useRef<HTMLInputElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
+
   const {
     recipientAddress,
     setRecipientAddress,
@@ -39,9 +45,15 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
   const handleRecipientChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setRecipientAddress(e.target.value);
+      const val = e.target.value;
+      setRecipientAddress(val);
+      if (currentAsset?.type === 'evm' && val.length === 42) {
+        amountRef.current?.focus();
+      } else if (currentAsset?.type === 'stellar' && val.length === 56) {
+        amountRef.current?.focus();
+      }
     },
-    [setRecipientAddress]
+    [setRecipientAddress, currentAsset]
   );
 
   const handleAmountChange = useCallback(
@@ -62,9 +74,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     copyToClipboard(senderAddress || '', 'Sender address');
   }, [senderAddress, copyToClipboard]);
 
-  const handleCopyRecipient = useCallback(() => {
-    copyToClipboard(recipientAddress, 'Recipient address');
-  }, [recipientAddress, copyToClipboard]);
+
 
   const handleCopyTxHash = useCallback(
     (hash: string) => {
@@ -97,134 +107,119 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     return `${currentAsset.blockExplorerUrl}/tx/${transactionState.txHash}`;
   }, [currentAsset, transactionState.txHash]);
 
+  const currentChainLogo = useMemo(() => {
+    if (!currentAsset) return null;
+    const chainId = currentAsset.chainId;
+    if (chainId === 'stellar' || chainId === 9000000) {
+      return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png';
+    }
+    return getChainLogoUrl(chainId as number);
+  }, [currentAsset]);
+
   const TransactionReview = useMemo(() => {
     if (!currentAsset || !recipientAddress || !amount) return null;
 
     return (
-      <div className="space-y-4 max-w-2xl mx-auto">
-        <div className="card bg-info-bg border border-color">
-          <div className="flex items-center gap-2 mb-2">
-            <Info className="w-5 h-5 text-info" />
-            <h3 className="font-semibold text-primary">Transaction Review</h3>
+      <div className="space-y-4 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="bg-brand-primary/5 rounded-xl border border-brand-primary/10 p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center">
+              <Info className="w-5 h-5 text-brand-primary" />
+            </div>
+            <div>
+              <h3 className="font-bold text-text-primary text-sm">Review Details</h3>
+              <p className="text-text-secondary text-[11px] font-medium opacity-80">
+                Confirm your transaction details before signing.
+              </p>
+            </div>
           </div>
-          <p className="text-secondary text-sm">
-            Please review all transaction details carefully before confirming.
-          </p>
         </div>
 
-        <div className="card space-y-4">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-secondary mb-2">From</label>
-              <div className="flex items-center gap-2 bg-tertiary p-3 rounded-lg border border-color">
-                <code className="text-xs font-mono text-primary break-all flex-1">
-                  {senderAddress}
-                </code>
-                <button onClick={handleCopySender} className="btn-ghost p-2 flex-shrink-0">
-                  <Copy className="w-4 h-4" />
-                </button>
+        <div className="bg-bg-tertiary rounded-xl overflow-hidden">
+          <div className="p-4 space-y-5">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Route</span>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-secondary mb-2">To</label>
-              <div className="flex items-center gap-2 bg-tertiary p-3 rounded-lg border border-color">
-                <code className="text-xs font-mono text-primary break-all flex-1">
-                  {recipientAddress}
-                </code>
-                <button onClick={handleCopyRecipient} className="btn-ghost p-2 flex-shrink-0">
-                  <Copy className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-secondary mb-2">Amount</label>
-              <div className="text-lg font-bold text-primary">
-                {amount} {currentAsset.symbol}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-secondary mb-2">Network</label>
-              <div className="text-sm text-primary font-medium">{currentAsset.network}</div>
-            </div>
-          </div>
-
-          {memo && currentAsset.type === 'stellar' && (
-            <div>
-              <label className="block text-sm font-medium text-secondary mb-2">Memo</label>
-              <div className="text-sm text-primary bg-tertiary p-3 rounded-lg border border-color">
-                {memo}
-              </div>
-            </div>
-          )}
-
-          <div className="divider"></div>
-
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-secondary uppercase">Fee Details</h4>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-              {estimatedFees?.gasLimit && (
-                <div>
-                  <span className="text-muted block mb-1">Gas Limit</span>
-                  <div className="font-semibold text-primary">
-                    {parseInt(estimatedFees.gasLimit).toLocaleString()}
+              <div className="relative space-y-2">
+                <div className="flex items-center gap-3 bg-bg-secondary/50 p-3 rounded-lg">
+                  <div className="w-8 h-8 rounded-full bg-bg-primary flex items-center justify-center">
+                    <Wallet size={14} className="text-text-muted" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-bold text-text-muted leading-none mb-1">From</div>
+                    <div className="text-xs font-mono text-text-primary truncate">{senderAddress}</div>
                   </div>
                 </div>
-              )}
-              {estimatedFees?.maxFeePerGas ? (
-                <>
-                  <div>
-                    <span className="text-muted block mb-1">Max Fee/Gas</span>
-                    <div className="font-semibold text-primary">
-                      {(parseInt(estimatedFees.maxFeePerGas) / 1e9).toFixed(2)} Gwei
-                    </div>
+
+                <div className="absolute left-6 top-1/2 -translate-y-1/2 w-px h-4 bg-divider/10" />
+
+                <div className="flex items-center gap-3 bg-bg-secondary/50 p-3 rounded-lg">
+                  <div className="w-8 h-8 rounded-full bg-brand-primary/10 flex items-center justify-center">
+                    <ChevronRight size={14} className="text-brand-primary" />
                   </div>
-                  <div>
-                    <span className="text-muted block mb-1">Priority Fee</span>
-                    <div className="font-semibold text-primary">
-                      {(parseInt(estimatedFees.maxPriorityFeePerGas) / 1e9).toFixed(2)} Gwei
-                    </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-bold text-text-muted leading-none mb-1">To</div>
+                    <div className="text-xs font-mono text-text-primary truncate">{recipientAddress}</div>
                   </div>
-                </>
-              ) : estimatedFees?.gasPrice ? (
-                <div>
-                  <span className="text-muted block mb-1">Gas Price</span>
-                  <div className="font-semibold text-primary">
-                    {(parseInt(estimatedFees.gasPrice) / 1e9).toFixed(2)} Gwei
-                  </div>
-                </div>
-              ) : null}
-              <div>
-                <span className="text-muted block mb-1">Network Fee</span>
-                <div className="font-semibold text-primary">
-                  {estimatedFees?.totalCost || '0'} {currentAsset.symbol}
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="bg-tertiary rounded-lg p-4 border border-color">
-            <div className="flex justify-between items-center">
-              <span className="text-base font-semibold text-secondary">Total Cost</span>
-              <span className="text-xl font-bold text-primary">
-                {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals)}{' '}
-                {currentAsset.symbol}
-              </span>
+            <div className="grid grid-cols-2 gap-4 pt-2">
+              <div className="bg-bg-secondary/50 p-3.5 rounded-lg">
+                <label className="block text-[10px] font-bold text-text-muted uppercase mb-1">Amount</label>
+                <div className="text-lg font-black text-text-primary">
+                  {amount} {currentAsset.symbol}
+                </div>
+              </div>
+
+              <div className="bg-bg-secondary/50 p-3.5 rounded-lg">
+                <label className="block text-[10px] font-bold text-text-muted uppercase mb-1">Network</label>
+                <div className="flex items-center gap-2">
+                  {currentChainLogo && <img src={currentChainLogo} alt="" className="w-4 h-4 rounded-full" />}
+                  <div className="text-sm text-text-primary font-bold">{currentAsset.network}</div>
+                </div>
+              </div>
+            </div>
+
+            {memo && currentAsset.type === 'stellar' && (
+              <div className="bg-bg-secondary/50 p-3.5 rounded-lg">
+                <label className="block text-[10px] font-bold text-text-muted uppercase mb-1">Memo</label>
+                <div className="text-sm text-text-primary font-medium break-all">{memo}</div>
+              </div>
+            )}
+
+            <div className="pt-2">
+              <div className="bg-bg-primary/50 rounded-xl p-4">
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-text-secondary font-medium">Estimated Fee</span>
+                    <span className="font-bold text-text-primary">{estimatedFees?.totalCost || currentAsset.baseFee} {currentAsset.symbol}</span>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-bold text-text-primary">Total Cost</span>
+                  <span className="text-xl font-black text-brand-primary">
+                    {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals)}{' '}
+                    {currentAsset.symbol}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <button onClick={handleBackToForm} className="btn-secondary btn py-4 lg:py-5">
-            Back to Edit
+          <button onClick={handleBackToForm} className="btn-secondary btn py-4 rounded-xl font-bold">
+            Edit
           </button>
-          <button onClick={handleConfirmTransaction} className="btn-primary btn py-4 lg:py-5">
-            Confirm & Send
-          </button>
+          <TransactionButton
+            label="Send Now"
+            onClick={handleConfirmTransaction}
+            className="font-black"
+          />
         </div>
       </div>
     );
@@ -236,8 +231,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     memo,
     estimatedFees,
     totalAmount,
-    handleCopySender,
-    handleCopyRecipient,
+    currentChainLogo,
     handleBackToForm,
     handleConfirmTransaction,
   ]);
@@ -247,10 +241,15 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
     if (step === 'signing') {
       return (
-        <div className="card text-center py-12 max-w-md mx-auto">
-          <Loader2 className="w-16 h-16 animate-spin text-brand mb-6 mx-auto" />
-          <h3 className="heading-3 mb-2">Signing Transaction</h3>
-          <p className="text-secondary">Please approve the transaction in your wallet...</p>
+        <div className="bg-bg-secondary border border-divider rounded-xl text-center py-12 px-6 max-w-sm mx-auto shadow-sm">
+          <div className="relative w-20 h-20 mx-auto mb-6">
+            <Loader2 className="w-20 h-20 animate-spin text-brand-primary opacity-20" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Wallet size={32} className="text-brand-primary" />
+            </div>
+          </div>
+          <h3 className="text-xl font-black text-text-primary mb-2">Check Wallet</h3>
+          <p className="text-sm text-text-secondary font-medium px-4">Confirm the transaction signature in your wallet extensions.</p>
         </div>
       );
     }
@@ -280,20 +279,20 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
     if (step === 'error' && error) {
       return (
-        <div className="card text-center py-12 max-w-md mx-auto">
-          <div className="w-16 h-16 bg-danger-bg rounded-full flex items-center justify-center mb-6 mx-auto">
-            <AlertCircle className="w-10 h-10 text-danger" />
+        <div className="bg-bg-secondary border border-divider rounded-xl text-center py-12 px-6 max-w-sm mx-auto shadow-sm">
+          <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mb-6 mx-auto">
+            <AlertCircle className="w-8 h-8 text-danger" />
           </div>
-          <h3 className="heading-3 mb-2 text-danger">Transaction Failed</h3>
-          <div className="card bg-danger-bg border-2 border-red-300 mb-6">
-            <p className="text-sm text-red-700">{error}</p>
+          <h3 className="text-xl font-black text-text-primary mb-2">Transaction Error</h3>
+          <div className="bg-danger/5 border border-danger/10 rounded-lg p-3 mb-6">
+            <p className="text-xs text-danger font-bold leading-relaxed">{error}</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <button onClick={handleRetryTransaction} className="btn-primary">
-              Try Again
+            <button onClick={handleRetryTransaction} className="btn-primary py-3 rounded-lg font-bold text-sm">
+              Retry
             </button>
-            <button onClick={handleBackToForm} className="btn-secondary">
-              Back to Form
+            <button onClick={handleBackToForm} className="btn-secondary py-3 rounded-lg font-bold text-sm">
+              Back
             </button>
           </div>
         </div>
@@ -313,198 +312,158 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
   const renderForm = () => {
     return (
-      <div className="space-y-4 max-w-2xl mx-auto">
+      <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
         {senderAddress && (
-          <div className="card bg-tertiary border border-color py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <label className="block text-xs font-medium text-secondary mb-1">From Wallet</label>
-                <code className="text-xs font-mono text-primary break-all block">
-                  {senderAddress}
-                </code>
-                {currentAsset && (
-                  <div className="text-xs text-muted mt-1 flex items-center gap-1">
-                    Balance:{' '}
-                    {isFetchingBalance ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      `${balance.toLocaleString(undefined, {
-                        maximumFractionDigits: currentAsset.decimals,
-                      })} ${currentAsset.symbol}`
-                    )}
+          <div className="bg-bg-tertiary rounded-xl p-4 transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center border border-divider/50">
+                  <Wallet size={18} className="text-text-muted" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Active Account</div>
+                  <div className="flex items-center gap-1.5">
+                    <code className="text-xs font-mono text-text-primary opacity-80">{senderAddress.slice(0, 6)}...{senderAddress.slice(-4)}</code>
+                    <button onClick={handleCopySender} className="text-text-muted hover:text-brand-primary transition-colors">
+                      <Copy size={12} />
+                    </button>
                   </div>
-                )}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={handleCopySender}
-                className="btn-ghost p-2 flex-shrink-0"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
+              <div className="text-right">
+                <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Available</div>
+                <div className="text-xs font-black text-text-primary">
+                  {isFetchingBalance ? (
+                    <Loader2 size={12} className="animate-spin ml-auto opacity-30" />
+                  ) : (
+                    `${portfolioUtils.formatBalance(balance)} ${currentAsset?.symbol || ""}`
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        <button 
-          onClick={() => openAssetSelector('SEND')}
-          className="card group hover:border-brand-primary active:scale-[0.98] transition-all text-left w-full p-0 overflow-hidden"
-        >
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                {currentAsset?.logo ? (
-                  <img src={currentAsset.logo} alt="" className="w-12 h-12 rounded-full shadow-sm" />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-tertiary flex items-center justify-center text-sm font-bold text-secondary border border-color">
-                    {currentAsset?.symbol.slice(0, 2)}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <div className="font-bold text-lg text-primary">{currentAsset?.symbol}</div>
-                  <ChevronRight size={16} className="text-muted group-hover:text-brand-primary group-hover:translate-x-0.5 transition-all" />
-                </div>
-                <div className="text-xs text-muted font-medium">{currentAsset?.network}</div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-muted mb-1 font-medium">Available Balance</div>
-              <div className="font-bold text-primary">
-                {isFetchingBalance ? (
-                   <div className="h-5 w-24 bg-tertiary animate-pulse rounded ml-auto" />
-                ) : (
-                   `${balance.toLocaleString(undefined, { maximumFractionDigits: currentAsset?.decimals ?? 6 })} ${currentAsset?.symbol}`
-                )}
-              </div>
-            </div>
-          </div>
-        </button>
-
-        <div className="card">
-          <label
-            htmlFor="recipientAddress"
-            className="block text-sm font-semibold text-primary mb-3"
+        <div className="space-y-2">
+          <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Select Asset & Network</label>
+          <button
+            onClick={() => openAssetSelector('SEND')}
+            className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-xl p-4 transition-all active:scale-[0.99] text-left"
           >
-            Recipient Address
-          </label>
-          <input
-            type="text"
-            id="recipientAddress"
-            className={`input ${(formError && formError.includes('Recipient address')) ||
-              (formError && formError.includes('Invalid recipient'))
-              ? 'input-danger'
-              : ''
-              }`}
-            placeholder={currentAsset?.type === 'stellar' ? 'G...' : '0x...'}
-            value={recipientAddress}
-            onChange={handleRecipientChange}
-            required
-          />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  {currentAsset?.logo ? (
+                    <img src={currentAsset.logo} alt="" className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center text-sm font-bold text-text-secondary border border-divider">
+                      {currentAsset?.symbol.slice(0, 2)}
+                    </div>
+                  )}
+                  {currentChainLogo && (
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-lg border border-divider overflow-hidden">
+                      <img src={currentChainLogo} alt="" className="w-full h-full object-contain" />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="font-black text-lg text-text-primary leading-none mb-1">{currentAsset?.symbol || "Select Asset"}</div>
+                  <div className="text-[10px] text-brand-primary font-black uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded-md inline-block">
+                    {currentAsset?.network || "All"}
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5" />
+            </div>
+          </button>
         </div>
 
-        <div className="card">
-          <label htmlFor="amount" className="block text-sm font-semibold text-primary mb-3">
-            Amount
-          </label>
-          <div className="relative">
-            <input
-              type="text"
-              inputMode="decimal"
-              id="amount"
-              className={`input pr-16 ${formError &&
-                (formError.includes('balance') || formError.includes('Amount must'))
-                ? 'input-danger'
-                : ''
-                }`}
-              placeholder="0.0"
-              value={amount}
-              onChange={handleAmountChange}
-              required
-            />
-            <button
-              type="button"
-              onClick={handleMaxClick}
-              className="absolute right-2 top-1/2 -translate-y-1/2 btn-ghost btn-sm font-bold text-brand"
-            >
-              MAX
-            </button>
+        <div className="grid grid-cols-1 gap-3">
+          <div className="group relative bg-bg-tertiary hover:bg-bg-tertiary/80 rounded-xl transition-all overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-primary scale-y-0 group-focus-within:scale-y-100 transition-transform origin-top duration-300" />
+            <div className="p-4">
+              <label htmlFor="recipientAddress" className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">
+                Recipient Address
+              </label>
+              <input
+                ref={recipientRef}
+                type="text"
+                id="recipientAddress"
+                className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg px-3 py-4 text-xs font-mono transition-all placeholder:text-text-muted ${(formError && formError.includes('address')) ? 'text-danger' : ''
+                  }`}
+                placeholder={currentAsset?.type === 'stellar' ? 'Stellar Address (G...)' : 'EVM Address (0x...)'}
+                value={recipientAddress}
+                onChange={handleRecipientChange}
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <div className="group relative bg-bg-tertiary hover:bg-bg-tertiary/80 rounded-xl transition-all overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-primary scale-y-0 group-focus-within:scale-y-100 transition-transform origin-top duration-300" />
+            <div className="p-4">
+              <div className="flex justify-between items-center mb-2">
+                <label htmlFor="amount" className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                  Amount
+                </label>
+                <button
+                  type="button"
+                  onClick={handleMaxClick}
+                  className="text-[10px] font-black text-brand-primary uppercase hover:opacity-70 transition-opacity"
+                >
+                  Use Max
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  ref={amountRef}
+                  type="text"
+                  inputMode="decimal"
+                  id="amount"
+                  className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg pl-3 pr-16 py-4 text-lg font-black transition-all placeholder:text-text-muted ${formError && (formError.includes('balance') || formError.includes('Amount')) ? 'text-danger' : ''
+                    }`}
+                  placeholder="0.00"
+                  value={amount}
+                  onChange={handleAmountChange}
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-text-muted">
+                  {currentAsset?.symbol}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
         {currentAsset?.type === 'stellar' && (
-          <div className="card">
-            <label htmlFor="memo" className="block text-sm font-semibold text-primary mb-3">
-              Memo/Tag{' '}
-              <span className="text-xs text-muted font-normal">
-                (Optional - Required for some exchanges)
-              </span>
+          <div className="bg-bg-tertiary rounded-xl p-4 transition-all">
+            <label htmlFor="memo" className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">
+              Memo <span className="text-[8px] font-normal lowercase">(Optional)</span>
             </label>
             <input
               type="text"
               id="memo"
-              className="input"
-              placeholder="Enter memo/tag (optional)"
+              className="w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg px-3 py-3 text-xs font-medium transition-all"
+              placeholder="Tag for exchanges"
               value={memo}
               onChange={handleMemoChange}
             />
-            <p className="text-xs text-muted mt-2">
-              Some exchanges require a memo for deposits. Check with the recipient.
-            </p>
           </div>
         )}
 
         {parseFloat(amount) > 0 && currentAsset && (
-          <div className="card rounded-xl p-4">
-            <div className="divide-y divide-dashed divide-gray-300 text-sm">
-              <div className="flex justify-between items-center py-2">
-                <span className="text-secondary">Amount</span>
-                <span className="font-semibold text-primary">
-                  {parseFloat(amount).toLocaleString(undefined, {
-                    maximumFractionDigits: currentAsset.decimals > 10 ? 8 : currentAsset.decimals,
-                  })}{' '}
-                  {currentAsset.symbol}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center py-2">
-                <span className="text-secondary">Network Fee</span>
-                <div className="flex items-center gap-2">
-                  {isEstimatingFees ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <div className="text-right">
-                      <span className="font-semibold text-primary">
-                        {estimatedFees?.totalCost ||
-                          currentAsset.baseFee.toFixed(
-                            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-                          )}{' '}
-                        {currentAsset.symbol}
-                      </span>
-                      {estimatedFees?.isEstimated && (
-                        <span className="block text-xs text-yellow-600">~Estimated</span>
-                      )}
-                    </div>
-                  )}
+          <div className="bg-bg-tertiary rounded-xl p-4 border border-divider/60">
+            <div className="space-y-3">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-text-secondary font-medium">Estimated Fee</span>
+                <div className="flex items-center gap-1.5 font-bold text-text-primary">
+                  {isEstimatingFees ? <Loader2 size={10} className="animate-spin opacity-50" /> : `${estimatedFees?.totalCost || currentAsset.baseFee} ${currentAsset.symbol}`}
                 </div>
               </div>
-
-              {estimatedFees?.error && (
-                <div className="col-span-2 mt-2">
-                  <div className="text-xs text-yellow-600 bg-yellow-50 p-2 rounded border border-yellow-200">
-                    {estimatedFees.error}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-between items-center py-2">
-                <span className="text-base font-bold text-primary">Total</span>
-                <span className="text-lg font-bold text-primary">
-                  {totalAmount.toLocaleString(undefined, {
-                    maximumFractionDigits: currentAsset.decimals > 10 ? 8 : currentAsset.decimals,
-                  })}{' '}
-                  {currentAsset.symbol}
+              <div className="h-px bg-divider/10" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-text-primary">Total to Send</span>
+                <span className="text-lg font-black text-brand-primary">
+                  {portfolioUtils.formatBalance(totalAmount)} {currentAsset.symbol}
                 </span>
               </div>
             </div>
@@ -512,41 +471,20 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         )}
 
         {formError && (
-          <div className="card bg-danger-bg border-2 border-red-300">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-700">{formError}</p>
-            </div>
+          <div className="bg-danger/5 border border-danger/10 rounded-xl p-3.5 flex gap-3 items-center">
+            <AlertCircle size={14} className="text-danger shrink-0" />
+            <p className="text-[11px] font-bold text-danger leading-tight">{formError}</p>
           </div>
         )}
 
-        {!formError && senderAddress && (
-          <div className="card bg-info-bg border border-color">
-            <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-info flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-primary">
-                Transaction will be sent directly to your wallet for signing and broadcasting on the{' '}
-                <span className="font-semibold">{currentAsset?.network}</span> network.
-              </p>
-            </div>
-          </div>
-        )}
-
-        <button
-          type="button"
+        <TransactionButton
+          label="Continue to Review"
+          loadingLabel="Calculating Fees..."
+          isLoading={isEstimatingFees}
+          isDisabled={!isFormValid}
           onClick={handleReviewTransaction}
-          disabled={!isFormValid}
-          className={`w-full btn py-4 lg:py-5 ${isFormValid ? 'btn-primary' : 'btn-secondary'}`}
-        >
-          {isEstimatingFees ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Estimating Fees...
-            </span>
-          ) : (
-            'Review Transaction'
-          )}
-        </button>
+          className="mt-2"
+        />
       </div>
     );
   };
@@ -556,45 +494,35 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   return (
     <PageLayout
       title="Send Assets"
-      subtitle="Secure multi-chain asset transfer"
+      subtitle="Fast & secure global transfers"
       onBack={transactionState.step === 'form' ? onBack : handleBackToForm}
       maxWidth="lg"
+      hasFooter={false}
     >
-      {isStellar ? (
-        <StellarActiveGuard onSkip={onBack}>
-          {(() => {
+      <div className="w-full mx-auto">
+        {isStellar ? (
+          <StellarActiveGuard onSkip={onBack}>
+            {(() => {
+              switch (transactionState.step) {
+                case 'form': return renderForm();
+                case 'review': return TransactionReview;
+                default: return TransactionStatusComponent;
+              }
+            })()}
+          </StellarActiveGuard>
+        ) : (
+          (() => {
             switch (transactionState.step) {
-              case 'form':
-                return renderForm();
-              case 'review':
-                return TransactionReview;
-              case 'signing':
-              case 'success':
-              case 'error':
-                return TransactionStatusComponent;
-              default:
-                return renderForm();
+              case 'form': return renderForm();
+              case 'review': return TransactionReview;
+              default: return TransactionStatusComponent;
             }
-          })()}
-        </StellarActiveGuard>
-      ) : (
-        (() => {
-          switch (transactionState.step) {
-            case 'form':
-              return renderForm();
-            case 'review':
-              return TransactionReview;
-            case 'signing':
-            case 'success':
-            case 'error':
-              return TransactionStatusComponent;
-            default:
-              return renderForm();
-          }
-        })()
-      )}
+          })()
+        )}
+      </div>
     </PageLayout>
   );
 };
 
 export default SendAssets;
+

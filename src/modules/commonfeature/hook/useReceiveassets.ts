@@ -1,94 +1,92 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-
 import { validateAddress } from '../../../validator/AddressValidator';
-import { getEVMChains } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import {
-  type ReceiveAsset
-} from '../../walletconnect/utils/assetFromChain';
-import { getChainById } from '../../evm/utils/Chainregistry';
-import { getTokenIcon } from '../../evm/utils/ChainUrlHelpers';
-import { getTokensForChain } from '../../evm/service/tokenListService';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { CHAIN_REGISTRY } from '../../evm/utils/Chainregistry';
 
 export const useReceiveAssets = () => {
   const { connectedWallets } = useWalletConnect();
-  const currentNetwork = useWalletStore(state => state.network);
-  const [selectedAssetValue, setSelectedAssetValue] = useState<string>('');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const assets: ReceiveAsset[] = useMemo(() => {
-    const evmChains = getEVMChains(currentNetwork);
-    const evmAssets: ReceiveAsset[] = [];
+  const assets = useMemo(() => {
+    const list: any[] = [];
+    for (const config of CHAIN_REGISTRY) {
+      if (config.receiveEnable) {
+        const nativeId = `${config.chainId === 9000000 ? 'stellar' : 'evm'}-${config.chainId}-native`;
+        list.push({
+          id: nativeId,
+          value: nativeId,
+          symbol: config.nativeCurrency.symbol,
+          name: config.nativeCurrency.name,
+          image: config.nativeCurrency.logoURI,
+          label: `${config.nativeCurrency.symbol} (${config.name})`,
+          network: config.name,
+          chainId: config.chainId,
+          chainType: config.chainId === 9000000 ? 'stellar' : 'evm',
+          walletType: config.chainId === 9000000 ? WalletType.STELLAR : WalletType.EVM,
+          decimals: config.nativeCurrency.decimals,
+          tokenAddress: '0x0000000000000000000000000000000000000000',
+          addressType: config.chainId === 9000000 ? 'stellar' : 'evm',
+          isNative: true
+        });
 
-    for (const chain of evmChains) {
-      const tokens = getTokensForChain(chain.chainId);
-      for (const token of tokens) {
-        evmAssets.push({
-          value: token.symbol + '-' + chain.chainId,
-          symbol: token.symbol,
-          label: `${token.symbol} (${chain.name})`,
-          logo: token.logoURI || chain.logoUrl || '',
-          network: chain.name,
-          chainId: chain.chainId,
-          addressType: 'evm',
-          walletType: WalletType.EVM,
-          tokenAddress: token.address,
-          decimals: token.decimals,
-          isNative: token.isNative,
-        } as any);
+        config.assets.forEach(asset => {
+          if (asset.symbol === config.nativeCurrency.symbol) return;
+          const assetId = `${config.chainId === 9000000 ? 'stellar' : 'evm'}-${config.chainId}-${asset.symbol}`;
+          list.push({
+            id: assetId,
+            value: assetId,
+            symbol: asset.symbol,
+            name: asset.name,
+            image: asset.logoURI,
+            label: `${asset.symbol} (${config.name})`,
+            network: config.name,
+            chainId: config.chainId,
+            chainType: config.chainId === 9000000 ? 'stellar' : 'evm',
+            walletType: config.chainId === 9000000 ? WalletType.STELLAR : WalletType.EVM,
+            decimals: asset.decimals,
+            tokenAddress: asset.address,
+            addressType: config.chainId === 9000000 ? 'stellar' : 'evm',
+            isNative: false
+          });
+        });
       }
     }
+    return list;
+  }, []);
 
-    const stellarChain = getChainById(currentNetwork === 'mainnet' ? 9000000 : 9000001);
-    const stellarAssets: ReceiveAsset[] = stellarChain?.assets.map(asset => ({
-      value: `${asset.symbol}-${stellarChain.chainId}`,
-      symbol: asset.symbol,
-      label: `${asset.symbol} (Stellar)`,
-      logo: getTokenIcon(asset.symbol, stellarChain),
-      network: stellarChain.name,
-      chainId: stellarChain.chainId,
-      addressType: 'stellar',
-      walletType: WalletType.STELLAR,
-      tokenAddress: asset.address,
-      decimals: asset.decimals,
-      isNative: asset.type === 'NATIVE',
-    } as any)) || [];
+  const assetParam = searchParams.get('asset');
+  const chainIdParam = searchParams.get('chainId');
 
-    return [...evmAssets, ...stellarAssets];
-  }, [currentNetwork]);
+  const currentAsset = useMemo(() => {
+    if (assetParam && chainIdParam) {
+      return assets.find(a => {
+        const aChainIdStr = String(a.chainId);
+        const paramIdStr = chainIdParam === 'stellar' ? '9000000' : chainIdParam;
+        return a.symbol === assetParam && aChainIdStr === paramIdStr;
+      });
+    }
+    return undefined;
+  }, [assets, assetParam, chainIdParam]);
 
   useEffect(() => {
-    const assetParam = searchParams.get('asset');
-    const chainIdParam = searchParams.get('chainId');
-
-    if (assetParam && chainIdParam) {
-      const match = assets.find(a => {
-        const aChainId = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId?.toString();
-        const aSymbol = (a as any).symbol || a.label.split(' ')[0];
-        return aSymbol === assetParam && aChainId === chainIdParam;
-      });
-
-      if (match && match.value !== selectedAssetValue) {
-        setSelectedAssetValue(match.value);
+    // Only update search params if no valid asset is selected from URL AND we have assets
+    if (!currentAsset && assets.length > 0) {
+      const first = assets[0];
+      const targetChainId = first.chainId === 9000000 ? 'stellar' : String(first.chainId);
+      // Double check to prevent infinite loop
+      if (assetParam !== first.symbol || chainIdParam !== targetChainId) {
+        setSearchParams({ asset: first.symbol, chainId: targetChainId }, { replace: true });
       }
-    } else if (assets.length && !selectedAssetValue) {
-      setSelectedAssetValue(assets[0].value);
     }
-  }, [assets, searchParams, selectedAssetValue]);
-
-  const currentAsset = useMemo(
-    () => assets.find(a => a.value === selectedAssetValue),
-    [assets, selectedAssetValue]
-  );
+  }, [currentAsset, assets, assetParam, chainIdParam, setSearchParams]);
 
   const walletAddress = useMemo(() => {
     if (!currentAsset) return '';
-    const wallet = connectedWallets[currentAsset.walletType];
-    return wallet?.address || '';
+    const walletType = currentAsset.walletType as WalletType;
+    return connectedWallets[walletType]?.address || '';
   }, [connectedWallets, currentAsset]);
 
   const isAddressValid = useMemo(() => {
@@ -106,41 +104,32 @@ export const useReceiveAssets = () => {
       setCopyFeedback(`Address copied!`);
       setTimeout(() => setCopyFeedback(null), 2000);
     } catch {
-      setCopyFeedback('Failed to copy address');
-      setTimeout(() => setCopyFeedback(null), 2000);
+      setCopyFeedback('Failed to copy');
     }
   }, [walletAddress, isAddressValid]);
 
   const handleShare = useCallback(async () => {
     if (!walletAddress || !isAddressValid) return;
-    const symbol = currentAsset?.value.split('-')[0] || currentAsset?.value;
-    const text = `Send ${symbol} to my wallet:\n\nAddress: ${walletAddress}\nNetwork: ${currentAsset?.network}\n\nOnly send ${symbol} on the ${currentAsset?.network} network!`;
-
+    const symbol = currentAsset?.symbol || 'asset';
+    const text = `Send ${symbol} to my wallet:\n\nAddress: ${walletAddress}\nNetwork: ${currentAsset?.network}`;
     if (navigator.share) {
-      try {
-        await navigator.share({ title: `My ${symbol} address`, text });
-      } catch { }
+      try { await navigator.share({ title: `My ${symbol} address`, text }); } catch { }
     } else {
       try {
         await navigator.clipboard.writeText(text);
-        setCopyFeedback('Address + network copied!');
+        setCopyFeedback('Copied!');
         setTimeout(() => setCopyFeedback(null), 2000);
-      } catch {
-        setCopyFeedback('Failed to share');
-        setTimeout(() => setCopyFeedback(null), 2000);
-      }
+      } catch { }
     }
   }, [walletAddress, isAddressValid, currentAsset]);
 
   return {
     assets,
-    selectedAssetValue,
-    setSelectedAssetValue,
     currentAsset,
     walletAddress,
     isAddressValid,
     isConnected: Object.keys(connectedWallets).length > 0,
-    isWalletTypeConnected: !!currentAsset && !!connectedWallets[currentAsset.walletType],
+    isWalletTypeConnected: !!currentAsset && !!connectedWallets[currentAsset.walletType as WalletType],
     handleCopy,
     handleShare,
     copyFeedback,

@@ -1,35 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { SendErcAbi } from '../../../abi/SendErcAbi';
-// getNativeBalance 
 import { validateAddress } from '../../../validator/AddressValidator';
 import { estimateEVMFees } from '../../evm/service/evmService';
 import { addLocalTransaction } from '../../evm/service/localTransactionService';
-import {
-  estimateStellarFees,
-  getStellarBalance,
-  sendCryptoStellarBuild,
-  fetchStellarAccountAssets,
-} from '../../steallr/service/stellarService';
-import type {
-  StellarSendTransaction,
-  StellarTransactionOptions,
-} from '../../steallr/types/stellarTransaction.types';
+import { estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
+import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
+import { rpcManager } from '../../evm/utils/rpcProvider';
+import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
+import type { StellarSendTransaction } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
-import { getChainById } from '../../evm/utils/Chainregistry';
-import { getTokenIcon } from '../../evm/utils/ChainUrlHelpers';
-import { getEVMChains } from '../../walletconnect/config/chains';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import {
-  type ReceiveAsset
-} from '../../walletconnect/utils/assetFromChain';
-import { getTokensForChain, fetchSingleTokenBalance } from '../../evm/service/tokenListService';
-import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
+import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { ethers } from 'ethers';
-import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
 
 interface TransactionState {
   txHash: string | null;
@@ -37,655 +23,199 @@ interface TransactionState {
   error: string | null;
   stellarTransaction?: StellarSendTransaction | null;
 }
-interface EnhancedReceiveAsset extends ReceiveAsset {
+
+export interface EnhancedSendAsset {
+  value: string;
+  symbol: string;
+  label: string;
+  logo: string;
+  network: string;
+  chainId: number | string;
+  addressType: string;
+  walletType: WalletType;
+  tokenAddress?: string;
+  decimals: number;
+  isNative: boolean;
   type: 'evm' | 'stellar';
   networkKey: number | string;
-  decimals: number;
   baseFee: number;
-  tokenAddress?: string;
-  isNative?: boolean;
+  balance: number;
   blockExplorerUrl?: string;
 }
 
 const isUserRejection = (error: any): boolean => {
   if (!error) return false;
-  const code = error.code;
-  const message = error.message?.toLowerCase() || '';
-  return (
-    code === 4001 ||
-    code === 0 ||
-    message.includes('user rejected') ||
-    message.includes('user denied') ||
-    message.includes('user cancelled') ||
-    message.includes('cancelled by user') ||
-    message.includes('transaction rejected') ||
-    message.includes('user canceled') ||
-    message.includes('cancelled') ||
-    error.message?.includes('ACTION_REJECTED')
-  );
+  const msg = error.message?.toLowerCase() || '';
+  return error.code === 4001 || msg.includes('rejected') || msg.includes('cancelled');
 };
 
 const formatErrorMessage = (error: any, context: string): string => {
-  if (isUserRejection(error)) {
-    return 'Transaction cancelled. Please try again when ready.';
-  }
-
-  const code = error.code;
-  const msg = error.message?.toLowerCase() || '';
-
-  if (code === -32003 || msg.includes('insufficient funds')) {
-    if (msg.includes('gas')) {
-      return 'Insufficient funds for gas fees. Please add more ETH to your wallet.';
-    }
-    return 'Insufficient balance to complete this transaction. Please check your wallet balance.';
-  }
-
-  if (code === 4902 || msg.includes('unrecognized chain')) {
-    return 'This network is not added to your wallet. Please add it and try again.';
-  }
-  if (msg.includes('chain mismatch') || msg.includes('wrong network')) {
-    return 'Wrong network selected in wallet. Please switch to the correct network.';
-  }
-
-  if (code === -32000) return 'Insufficient funds for gas or transaction amount.';
-  if (code === -32002) return 'Request already pending. Please check your wallet.';
-  if (code === -32603) return 'Internal wallet error. Please try again.';
-
-  if (msg.includes('gas')) return 'Transaction gas estimation failed. Please check your balance.';
-  if (msg.includes('nonce'))
-    return 'Transaction nonce error. Please reset your wallet or try again.';
-  if (msg.includes('timeout'))
-    return 'Request timed out. Please check your connection and try again.';
-  if (msg.includes('network'))
-    return 'Network error. Please check your connection or switch networks.';
-
-  return error.message || `${context} failed. Please try again.`;
-};
-
-const enhanceAsset = (asset: ReceiveAsset): EnhancedReceiveAsset => {
-  const type: 'evm' | 'stellar' =
-    asset.addressType === 'stellar' || asset.walletType === 'stellar' ? 'stellar' : 'evm';
-  const networkKey = asset.chainId || 0;
-  const decimals = type === 'stellar' ? 7 : 18;
-  const baseFee = type === 'stellar' ? 0.00001 : 0.001;
-
-  return {
-    ...asset,
-    type,
-    networkKey,
-    decimals: (asset as any).decimals !== undefined ? (asset as any).decimals : decimals,
-    baseFee,
-  };
+  if (isUserRejection(error)) return 'Cancelled.';
+  return error.message || `${context} failed.`;
 };
 
 export const useSendAsset = (onBack?: () => void) => {
-  const { connectedWallets, getProvider } = useWalletConnect();
-  const { sendTransaction, canHandleTransaction, getSessionInfo } = useTransactionRouter();
-
+  const { connectedWallets } = useWalletConnect();
+  const { sendTransaction } = useTransactionRouter();
   const currentNetwork = useWalletStore(state => state.network);
-  const [stellarWalletAssets, setStellarWalletAssets] = useState<any[]>([]);
+  const storeAssets = usePortfolioStore(state => state.assets);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  useEffect(() => {
-    const fetchStellarAssets = async () => {
-      const address = connectedWallets[WalletType.STELLAR]?.address;
-      if (address) {
-        const assets = await fetchStellarAccountAssets(address);
-        setStellarWalletAssets(assets);
-      } else {
-        setStellarWalletAssets([]);
-      }
-    };
-    fetchStellarAssets();
-  }, [connectedWallets[WalletType.STELLAR]?.address]);
-
-  const rawAssets: ReceiveAsset[] = useMemo(() => {
-    const evmChains = getEVMChains(currentNetwork);
-    const evmAssets: ReceiveAsset[] = [];
-
-    for (const chain of evmChains) {
-      const tokens = getTokensForChain(chain.chainId);
-      for (const token of tokens) {
-        evmAssets.push({
-          value: token.address ? `${token.symbol}-${chain.chainId}-${token.address}` : `${token.symbol}-${chain.chainId}`,
-          label: `${token.symbol} (${chain.name})`,
-          symbol: token.symbol,
-          logo: token.logoURI || chain.logoUrl || '',
-          network: chain.name,
-          chainId: chain.chainId,
-          addressType: 'evm',
-          walletType: WalletType.EVM,
-          tokenAddress: token.address,
-          decimals: token.decimals,
-          isNative: token.isNative,
-          blockExplorerUrl: chain.blockExplorerUrl,
-        } as any);
-      }
-    }
-
-    const stellarChain = getChainById(currentNetwork === 'mainnet' ? 9000000 : 9000001);
-    const stellarAssets: ReceiveAsset[] = [];
-
-    if (stellarChain) {
-      stellarChain.assets.forEach(asset => {
-        stellarAssets.push({
-          value: asset.address ? `${asset.symbol}-${stellarChain.chainId}-${asset.address}` : `${asset.symbol}-${stellarChain.chainId}`,
-          label: `${asset.symbol} (Stellar)`,
-          symbol: asset.symbol,
-          logo: getTokenIcon(asset.symbol, stellarChain),
-          network: stellarChain.name,
-          chainId: stellarChain.chainId,
-          addressType: 'stellar',
-          walletType: WalletType.STELLAR,
-          tokenAddress: asset.address,
-          decimals: asset.decimals,
-          isNative: asset.type === 'NATIVE',
-          blockExplorerUrl: stellarChain.blockExplorerUrl,
-        } as any);
-      });
-    }
-
-    // Add user assets from wallet that aren't in the registry
-    if (stellarWalletAssets.length > 0 && stellarChain) {
-      for (const asset of stellarWalletAssets) {
-        if (asset.isNative) continue;
-        const inRegistry = stellarChain.assets.some(a => a.address === asset.issuer);
-        if (!inRegistry) {
-          stellarAssets.push({
-            value: `${asset.code}-stellar-${asset.issuer}`,
-            label: `${asset.code} (Stellar)`,
-            symbol: asset.code,
-            logo: getTokenIcon(asset.code, stellarChain, asset.issuer),
-            network: stellarChain.name,
-            chainId: stellarChain.chainId,
-            addressType: 'stellar',
-            walletType: WalletType.STELLAR,
-            tokenAddress: asset.issuer,
-            decimals: 7,
-            isNative: false,
-            blockExplorerUrl: stellarChain.blockExplorerUrl,
-          } as any);
-        }
-      }
-    }
-
-    return [...evmAssets, ...stellarAssets];
-  }, [currentNetwork, stellarWalletAssets, connectedWallets]);
-
-  const allAssets: EnhancedReceiveAsset[] = useMemo(() => {
-    return rawAssets.map(enhanceAsset);
-  }, [rawAssets]);
-
-  const availableChains = useMemo(() => {
-    const chains: Array<{ id: number | 'stellar' | 'all'; name: string }> = [{ id: 'all', name: 'All Networks' }];
-    const seen = new Set<string | number>();
-
-    rawAssets.forEach(a => {
-      const id = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId;
-      if (id && !seen.has(id)) {
-        seen.add(id);
-        chains.push({
-          id: id as any,
-          name: a.network,
-        });
-      }
-    });
-
-    return chains;
-  }, [rawAssets]);
-
-  const [searchParams] = useSearchParams();
-  const [selectedChainId, setSelectedChainId] = useState<number | 'stellar' | 'all'>('all');
-
-  const assets = useMemo(() => {
-    if (selectedChainId === 'all') return allAssets;
-    return allAssets.filter(a => {
-      const id = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId;
-      return id === selectedChainId;
-    });
-  }, [allAssets, selectedChainId]);
-
-  const [recipientAddress, setRecipientAddress] = useState<string>('');
-  const [amount, setAmount] = useState<string>('');
-  const [memo, setMemo] = useState<string>('');
-  const [selectedAssetValue, setSelectedAssetValue] = useState<string>('');
-  const [balance, setBalance] = useState<number>(0);
-  const [isFetchingBalance, setIsFetchingBalance] = useState<boolean>(false);
-  const [transactionState, setTransactionState] = useState<TransactionState>({
-    txHash: null,
-    step: 'form',
-    error: null,
-    stellarTransaction: null,
-  });
-  const [isEstimatingFees, setIsEstimatingFees] = useState<boolean>(false);
+  const [recipientAddress, setRecipientAddress] = useState('');
+  const [amount, setAmount] = useState('');
+  const [memo, setMemo] = useState('');
+  const [balance, setBalance] = useState(0);
+  const [isFetchingBalance, setIsFetchingBalance] = useState(false);
+  const [transactionState, setTransactionState] = useState<TransactionState>({ txHash: null, step: 'form', error: null });
+  const [isEstimatingFees, setIsEstimatingFees] = useState(false);
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // URL driven initialization
-  useEffect(() => {
-    if (allAssets.length === 0) return;
-
-    const assetSymbol = searchParams.get('asset');
-    const chainIdParam = searchParams.get('chainId');
-
-    if (assetSymbol && chainIdParam) {
-      const targetChainId = chainIdParam === 'stellar' ? 'stellar' : parseInt(chainIdParam);
-      
-      const match = allAssets.find(a => {
-        const aChainId = a.walletType === WalletType.STELLAR ? 'stellar' : a.chainId;
-        return a.symbol === assetSymbol && aChainId === targetChainId;
+  const allAssets: EnhancedSendAsset[] = useMemo(() => {
+    return storeAssets
+      .filter(a => (a.balance || 0) > 0)
+      .map(asset => {
+        const type = asset.chainType === 'stellar' ? 'stellar' : 'evm' as const;
+        const chainId = asset.chainId || (type === 'stellar' ? 9000000 : 0);
+        return {
+          value: asset.id, symbol: asset.symbol, label: `${asset.symbol} (${asset.chainName})`, logo: asset.image,
+          network: asset.chainName, chainId, addressType: type, walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
+          tokenAddress: asset.address, decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
+          isNative: asset.isNative || false, type, networkKey: chainId,
+          baseFee: type === 'stellar' ? 0.00001 : 0.001, balance: asset.balance || 0,
+          blockExplorerUrl: (asset as any).blockExplorerUrl
+        };
       });
+  }, [storeAssets]);
 
-      if (match) {
-        setSelectedAssetValue(match.value);
-        setSelectedChainId(targetChainId);
-      }
-    } else if (!selectedAssetValue && assets.length > 0) {
-      setSelectedAssetValue(assets[0].value);
+  const assetParam = searchParams.get('asset');
+  const chainIdParam = searchParams.get('chainId');
+
+  const currentAsset = useMemo(() => {
+    if (assetParam && chainIdParam) {
+      return allAssets.find(a => {
+        const aChainIdStr = String(a.chainId);
+        const paramIdStr = chainIdParam === 'stellar' ? '9000000' : chainIdParam;
+        return a.symbol === assetParam && aChainIdStr === paramIdStr;
+      });
     }
-  }, [allAssets, searchParams, selectedAssetValue, assets]);
+    return undefined;
+  }, [allAssets, assetParam, chainIdParam]);
 
-  // Automatic Chain Switching
   useEffect(() => {
-    const assetSymbol = searchParams.get('asset');
-    const chainIdParam = searchParams.get('chainId');
-
-    if (assetSymbol && chainIdParam && chainIdParam !== 'stellar') {
-      const targetChainId = parseInt(chainIdParam);
-      const provider = getProvider(WalletType.EVM);
-      
-      if (provider && !isNaN(targetChainId)) {
-        switchOrAddChain(provider, targetChainId).catch(err => {
-          console.error('Failed to switch chain:', err);
-        });
+    if (!currentAsset && allAssets.length > 0) {
+      const first = allAssets[0];
+      const tarChain = first.chainId === 9000000 ? 'stellar' : String(first.chainId);
+      if (assetParam !== first.symbol || chainIdParam !== tarChain) {
+        setSearchParams({ asset: first.symbol, chainId: tarChain }, { replace: true });
       }
     }
-  }, [searchParams, getProvider]);
+  }, [currentAsset, allAssets, assetParam, chainIdParam, setSearchParams]);
 
-  const currentAsset = useMemo(
-    () => allAssets.find(a => a.value === selectedAssetValue),
-    [allAssets, selectedAssetValue]
-  );
-
-  const senderAddress = useMemo(() => {
-    if (!currentAsset) return null;
-    const walletInfo = connectedWallets[currentAsset.walletType];
-    return walletInfo?.address || null;
-  }, [connectedWallets, currentAsset]);
-
-  const isWalletConnected = useMemo(() => {
-    if (!currentAsset) return false;
-    return !!connectedWallets[currentAsset.walletType];
-  }, [connectedWallets, currentAsset]);
-
-  const clearNotifications = useCallback(() => setNotifications([]), []);
+  const senderAddress = useMemo(() => currentAsset ? connectedWallets[currentAsset.walletType]?.address || null : null, [connectedWallets, currentAsset]);
 
   useEffect(() => {
     const fetchBalance = async () => {
-      if (!currentAsset || !senderAddress) {
-        setBalance(0);
-        return;
-      }
-      setBalance(0);
-      setIsFetchingBalance(true);
+      if (!currentAsset || !senderAddress) return;
+      
+      const storeItem = storeAssets.find(a => a.id === currentAsset.value);
+      if (storeItem) setBalance(storeItem.balance || 0);
 
+      setIsFetchingBalance(true);
       try {
         let balStr: string;
-
-        if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
-          const config = getEVMNetworkConfig(currentAsset.networkKey);
-          const provider = new ethers.JsonRpcProvider(config.rpcUrl);
-          balStr = await fetchSingleTokenBalance(
-            senderAddress,
-            provider,
-            currentAsset.tokenAddress || '',
-            currentAsset.isNative || false,
-            currentAsset.decimals
+        if (currentAsset.type === 'evm') {
+          const config = getEVMNetworkConfig(Number(currentAsset.networkKey));
+          balStr = await rpcManager.fetchWithFallback(
+            Number(currentAsset.networkKey),
+            config.rpcUrls,
+            async (provider) => fetchSingleTokenBalance(senderAddress, provider, currentAsset.tokenAddress || '', currentAsset.isNative, currentAsset.decimals)
           );
-        } else if (currentAsset.type === 'stellar') {
-          const assetKey = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
-          balStr = await getStellarBalance(assetKey, senderAddress);
         } else {
-          balStr = '0';
+          const key = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
+          balStr = await getStellarBalance(key, senderAddress);
         }
-
         setBalance(parseFloat(balStr));
       } catch (e) {
-        console.error('Balance fetch error:', e);
-        setBalance(0);
+        console.error('Balance error:', e);
       } finally {
         setIsFetchingBalance(false);
       }
     };
     fetchBalance();
-  }, [currentAsset, senderAddress]);
+  }, [currentAsset, senderAddress, storeAssets]);
 
   useEffect(() => {
     const estimate = async () => {
-      if (
-        !currentAsset ||
-        !senderAddress ||
-        !recipientAddress ||
-        !amount ||
-        parseFloat(amount) <= 0 ||
-        !validateAddress(recipientAddress, {
-          addressType: currentAsset.addressType as any,
-          network: currentAsset.network,
-        })
-      ) {
-        setEstimatedFees(null);
-        return;
+      if (!currentAsset || !senderAddress || !recipientAddress || !amount || parseFloat(amount) <= 0 || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
+        setEstimatedFees(null); return;
       }
-
       setIsEstimatingFees(true);
       try {
         let fees;
-
-        if (currentAsset.type === 'evm' && typeof currentAsset.networkKey === 'number') {
-          fees = await estimateEVMFees(
-            currentAsset.networkKey,
-            senderAddress,
-            recipientAddress,
-            amount,
-            currentAsset.isNative ? undefined : currentAsset.tokenAddress,
-            currentAsset.decimals
-          );
-        } else if (currentAsset.type === 'stellar' && typeof currentAsset.networkKey === 'string') {
-          fees = await estimateStellarFees();
+        if (currentAsset.type === 'evm') {
+          fees = await estimateEVMFees(Number(currentAsset.networkKey), senderAddress, recipientAddress, amount, currentAsset.isNative ? undefined : currentAsset.tokenAddress, currentAsset.decimals);
         } else {
-          fees = {
-            totalCost: currentAsset.baseFee.toFixed(
-              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-            ),
-            totalFee: currentAsset.baseFee.toFixed(
-              currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-            ),
-          };
+          fees = await estimateStellarFees();
         }
-
         setEstimatedFees(fees);
       } catch (e: any) {
-        console.error('Fee estimation error:', e);
-
-        const baseFeeData = {
-          totalCost: currentAsset.baseFee.toFixed(
-            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-          ),
-          totalFee: currentAsset.baseFee.toFixed(
-            currentAsset.decimals > 10 ? 8 : currentAsset.decimals
-          ),
-          isEstimated: true,
-          error: e.message?.toLowerCase().includes('insufficient funds')
-            ? 'Could not estimate exact fee due to insufficient funds. Showing base fee.'
-            : formatErrorMessage(e, 'Fee estimation'),
-        };
-
-        setEstimatedFees(baseFeeData);
-      } finally {
-        setIsEstimatingFees(false);
-      }
+        setEstimatedFees({ totalCost: currentAsset.baseFee.toFixed(8), error: formatErrorMessage(e, 'Fee') });
+      } finally { setIsEstimatingFees(false); }
     };
-
     const timer = setTimeout(estimate, 500);
     return () => clearTimeout(timer);
   }, [currentAsset, senderAddress, recipientAddress, amount, memo]);
 
-  const validateInputs = useCallback(() => {
-    if (!currentAsset) return 'Please select an asset.';
-    if (!isWalletConnected) return `Please connect your ${currentAsset.walletType} wallet first.`;
-    if (!senderAddress)
-      return `No ${currentAsset.type.toUpperCase()} address available. Please ensure your wallet supports ${currentAsset.network}.`;
-    if (!recipientAddress.trim()) return 'Recipient address cannot be empty.';
-    if (
-      !validateAddress(recipientAddress, {
-        addressType: currentAsset.addressType as any,
-        network: currentAsset.network,
-      })
-    )
-      return `Invalid recipient address for ${currentAsset.network}.`;
-
-    const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount <= 0) return 'Amount must be greater than 0.';
-    if (numAmount > balance)
-      return `Insufficient balance. Available: ${balance.toLocaleString(undefined, {
-        maximumFractionDigits: currentAsset.decimals,
-      })} ${currentAsset.value}.`;
-
-    if (estimatedFees && estimatedFees.totalCost) {
-      const totalCost = parseFloat(estimatedFees.totalCost);
-      const total = numAmount + totalCost;
-
-      if (total > balance)
-        return `Insufficient balance to cover amount + fee. Total needed: ${total.toLocaleString(
-          undefined,
-          { maximumFractionDigits: currentAsset.decimals }
-        )} ${currentAsset.value}.`;
-    }
-
-    if (!canHandleTransaction(currentAsset.type))
-      return `No active session for ${currentAsset.type}. Please reconnect your wallet.`;
-
-    return null;
-  }, [
-    currentAsset,
-    isWalletConnected,
-    senderAddress,
-    recipientAddress,
-    amount,
-    balance,
-    estimatedFees,
-    canHandleTransaction,
-  ]);
-
-  const formError = validateInputs();
-
-  const handleMaxClick = useCallback(() => {
-    if (!currentAsset || isFetchingBalance) return;
-    const fee =
-      estimatedFees && estimatedFees.totalCost
-        ? parseFloat(estimatedFees.totalCost)
-        : currentAsset.baseFee;
-
-    const max = balance - fee;
-
-    const precision = currentAsset.decimals > 10 ? 8 : currentAsset.decimals;
-    setAmount(max > 0 ? max.toFixed(precision) : '0');
-  }, [currentAsset, estimatedFees, balance, isFetchingBalance]);
-
-  const handleReviewTransaction = useCallback(async () => {
-    setTransactionState(p => ({ ...p, step: 'review', error: null }));
-  }, []);
-
-  const handleConfirmTransaction = useCallback(async () => {
-    if (!currentAsset || !isWalletConnected || !senderAddress) return;
-
+  const handleConfirmTransaction = async () => {
+    if (!currentAsset || !senderAddress) return;
     try {
       setTransactionState(p => ({ ...p, step: 'signing', error: null }));
-      let transactionRequest: TransactionRequest;
-
+      let req: TransactionRequest;
       if (currentAsset.type === 'evm') {
         let data: string | undefined = memo || undefined;
-        let toAddress = recipientAddress;
-        let sendAmount = amount;
-
+        let to = recipientAddress;
+        let sendAmt = amount;
         if (!currentAsset.isNative && currentAsset.tokenAddress) {
-          const iface = new ethers.Interface(SendErcAbi);
-          const amountParsed = ethers.parseUnits(amount, currentAsset.decimals);
-          data = iface.encodeFunctionData('transfer', [recipientAddress, amountParsed]);
-          toAddress = currentAsset.tokenAddress;
-          console.log(toAddress, 'toAddress');
-          sendAmount = '0';
+          data = new ethers.Interface(SendErcAbi).encodeFunctionData('transfer', [recipientAddress, ethers.parseUnits(amount, currentAsset.decimals)]);
+          to = currentAsset.tokenAddress; sendAmt = '0';
         }
-
-        transactionRequest = {
-          type: 'evm',
-          network: currentAsset.network,
-          networkKey: currentAsset.networkKey as number,
-          from: senderAddress,
-          to: toAddress,
-          amount: sendAmount,
-          data: data,
-        };
-      } else if (currentAsset.type === 'stellar') {
-        const options: StellarTransactionOptions = {};
-        if (memo.trim()) options.memo = memo.trim();
-        const stellarTx = await sendCryptoStellarBuild(
-          senderAddress,
-          recipientAddress,
-          amount,
-          options,
-          {
-            code: currentAsset.symbol,
-            issuer: currentAsset.tokenAddress,
-            isNative: currentAsset.isNative
-          }
-        );
-        const networkPassphrase =
-          currentNetwork === 'testnet'
-            ? 'Test SDF Network ; September 2015'
-            : 'Public Global Stellar Network ; September 2015';
-        const networkString = currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC';
-
-        transactionRequest = {
-          type: 'stellar',
-          network: currentAsset.network,
-          networkKey: currentAsset.networkKey as string,
-          from: senderAddress,
-          to: recipientAddress,
-          amount,
-          data: {
-            xdr: stellarTx.xdr,
-            networkPassphrase: networkPassphrase,
-            network: networkString,
-          },
-        };
+        req = { type: 'evm', network: currentAsset.network, networkKey: Number(currentAsset.networkKey), from: senderAddress, to, amount: sendAmt, data };
       } else {
-        throw new Error(`Unsupported asset type: ${currentAsset.type}`);
+        const tx = await sendCryptoStellarBuild(senderAddress, recipientAddress, amount, memo ? { memo } : {}, { code: currentAsset.symbol, issuer: currentAsset.tokenAddress, isNative: currentAsset.isNative });
+        req = { type: 'stellar', network: currentAsset.network, networkKey: String(currentAsset.networkKey), from: senderAddress, to: recipientAddress, amount, data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' } };
       }
+      const res = await sendTransaction(req);
+      if (res.status === 'success') {
+        addLocalTransaction({ hash: res.hash || '', chainId: currentAsset.type === 'evm' ? Number(currentAsset.networkKey) : 9000000, type: 'send', timestamp: Date.now(), status: 'success', from: senderAddress, network: currentNetwork, description: `Send ${amount} ${currentAsset.symbol}` });
+        setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
+        setTimeout(() => { setRecipientAddress(''); setAmount(''); setMemo(''); setTransactionState({ txHash: null, step: 'form', error: null }); }, 3000);
+      } else throw new Error(res.error || 'Failed');
+    } catch (e: any) { setTransactionState(p => ({ ...p, step: 'error', error: formatErrorMessage(e, 'Tx') })); }
+  };
 
-      const response = await sendTransaction(transactionRequest);
+  const handleMaxClick = useCallback(() => {
+    if (!currentAsset) return;
+    const fee = estimatedFees?.totalCost ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee;
+    const max = Math.max(0, balance - fee);
+    setAmount(max.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals));
+  }, [currentAsset, estimatedFees, balance]);
 
-      if (response.status === 'success') {
-        addLocalTransaction({
-          hash: response.hash || '',
-          chainId: currentAsset.type === 'evm' ? (currentAsset.networkKey as number) : 9000000,
-          type: 'send',
-          timestamp: Date.now(),
-          description: `Send ${amount} ${currentAsset.symbol}`,
-          status: 'success',
-          from: senderAddress,
-          network: currentNetwork,
-        });
-
-        setTransactionState(p => ({
-          ...p,
-          txHash: response.hash || null,
-          step: 'success',
-        }));
-        setTimeout(() => {
-          setRecipientAddress('');
-          setAmount('');
-          setMemo('');
-          setTransactionState({
-            txHash: null,
-            step: 'form',
-            error: null,
-            stellarTransaction: null,
-          });
-        }, 3000);
-      } else {
-        throw new Error(response.error || 'Transaction failed');
-      }
-    } catch (error: any) {
-      console.error('Transaction error:', error);
-
-      if (isUserRejection(error)) {
-        setTransactionState(p => ({ ...p, step: 'review', error: null }));
-        return;
-      }
-
-      const sessionError =
-        error.message?.includes('session topic does not exist') ||
-        error.message?.includes('Missing or invalid') ||
-        error.message?.includes('Wallet session expired');
-
-      if (sessionError) {
-        const msg = 'Your wallet session has expired. Please reconnect and try again.';
-        setTransactionState(p => ({ ...p, step: 'error', error: msg }));
-        return;
-      }
-
-      const msg = formatErrorMessage(error, 'Transaction');
-      setTransactionState(p => ({ ...p, step: 'error', error: msg }));
-    }
-  }, [
-    currentAsset,
-    isWalletConnected,
-    senderAddress,
-    recipientAddress,
-    amount,
-    memo,
-    sendTransaction,
-    currentNetwork,
-  ]);
-
-  const handleBackToForm = useCallback(() => {
-    setTransactionState({
-      txHash: null,
-      step: 'form',
-      error: null,
-      stellarTransaction: null,
-    });
-  }, []);
-
-  const handleRetryTransaction = useCallback(() => {
-    handleBackToForm();
-    clearNotifications();
-  }, [handleBackToForm, clearNotifications]);
-
-  const copyToClipboard = useCallback(async (text: string, label: string) => {
-    console.log(label);
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch { }
-  }, []);
-
-  useEffect(() => {
-    if (currentAsset) {
-      getSessionInfo(currentAsset.walletType);
-    }
-  }, [currentAsset, getSessionInfo]);
+  const copyToClipboard = async (text: string, _label?: string) => {
+    try { await navigator.clipboard.writeText(text); } catch (e) { console.error('Copy error', e); }
+  };
 
   return {
-    recipientAddress,
-    setRecipientAddress,
-    amount,
-    setAmount,
-    memo,
-    setMemo,
-    selectedAssetValue,
-    setSelectedAssetValue,
-    balance,
-    isFetchingBalance,
-    transactionState,
-    setTransactionState,
-    isEstimatingFees,
-    estimatedFees,
-    notifications,
-    clearNotifications,
-    currentAsset,
-    senderAddress,
-    isWalletConnected,
+    recipientAddress, setRecipientAddress, amount, setAmount, memo, setMemo,
+    balance, isFetchingBalance,
+    transactionState, setTransactionState, isEstimatingFees, estimatedFees,
+    currentAsset, senderAddress, isWalletConnected: !!senderAddress,
     handleMaxClick,
-    handleReviewTransaction,
+    handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
     handleConfirmTransaction,
-    handleBackToForm,
-    handleRetryTransaction,
+    handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
+    handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
-    formError,
-    assets,
-    availableChains,
-    selectedChainId,
-    setSelectedChainId,
-    onBack,
+    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (!validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (parseFloat(amount) > balance) ? 'Insufficient funds' : null,
+    assets: allAssets, availableChains: [], onBack
   };
 };

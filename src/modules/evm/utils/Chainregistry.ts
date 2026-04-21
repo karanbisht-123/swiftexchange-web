@@ -1,11 +1,10 @@
-
+import { CHAINS } from './assetmanagement/chains';
+import { mapIChainToChainConfig } from './assetmanagement/mapper';
+import { GET_TOKEN_LOGO_URL } from './assetmanagement/constants';
 
 export type NetworkKey = string;
-
 export type NetworkType = 'mainnet' | 'testnet';
-
 export type CoinGeckoPlatform = string;
-
 export type AssetType = 'ERC20' | 'BEP20' | 'MATIC' | 'AVAX' | 'NATIVE' | string;
 
 export interface AssetPair {
@@ -55,6 +54,7 @@ export interface ChainConfig {
     swapEnabled: boolean;
     slug: string;
     rpcUrl: string;
+    rpcUrls: string[];
     fallbackRpcUrls?: string[];
     blockExplorerUrl: string;
     nativeCurrency: NativeCurrency;
@@ -73,13 +73,24 @@ export interface ChainConfig {
         string,
         { name: string; symbol: string; decimals: number; logoURI?: string }
     >;
+    nativeChainKey?: string;
+    minGasGwei?: number;
+    imageUrl?: string;
+    chainName?: string;
+    subName?: string;
+    gasLimit?: number;
+    supportedTokenList?: string | any[];
+    nativeToken?: any;
+    bridgeSupportTokens?: any;
+    sendEnable?: boolean;
+    receiveEnable?: boolean;
+    bridgeEnable?: boolean;
+    swapEnable?: boolean;
+    importForSetupApp?: boolean;
+    importForSetupedApp?: boolean;
 }
 
-
-import { CHAIN_CONFIGS } from './chains';
-
-export const CHAIN_REGISTRY: ChainConfig[] = CHAIN_CONFIGS;
-
+export const CHAIN_REGISTRY: ChainConfig[] = Object.values(CHAINS).map(mapIChainToChainConfig);
 
 const BY_CHAIN_ID = new Map<number, ChainConfig>(
     CHAIN_REGISTRY.map((c) => [c.chainId, c])
@@ -88,7 +99,6 @@ const BY_CHAIN_ID = new Map<number, ChainConfig>(
 const BY_SLUG = new Map<string, ChainConfig>(
     CHAIN_REGISTRY.map((c) => [`${c.slug}:${c.networkType}`, c])
 );
-
 
 export function getChainById(chainId: number): ChainConfig | undefined {
     return BY_CHAIN_ID.get(chainId);
@@ -103,7 +113,7 @@ export function getChainsForNetwork(networkType: NetworkType): ChainConfig[] {
 }
 
 export function isEvmChain(chainId: number): boolean {
-    return chainId !== 9000000 && chainId !== 9000001;
+    return chainId !== 9000000 && chainId !== 9000001 && chainId !== 0;
 }
 
 export function getEvmChainsForNetwork(networkType: NetworkType): ChainConfig[] {
@@ -121,7 +131,6 @@ export function getEvmSwapEnabledChains(networkType: NetworkType): ChainConfig[]
 export const MAINNET_CHAINS = getChainsForNetwork('mainnet');
 export const TESTNET_CHAINS = getChainsForNetwork('testnet');
 
-// Helper Functions
 export function getTokenAddressesForChain(chainId: number): Record<string, string> {
     const chain = getChainById(chainId);
     if (!chain) return {};
@@ -156,19 +165,29 @@ export function getTokenAddress(chainId: number, symbol: keyof WellKnownTokens):
     return getChainById(chainId)?.tokens[symbol];
 }
 
+export function getGlobalAssetMetadata(symbol: string): { logoURI?: string } | undefined {
+    for (const chain of CHAIN_REGISTRY) {
+        const asset = chain.assets.find(a => a.symbol.toUpperCase() === symbol.toUpperCase());
+        if (asset?.logoURI) return { logoURI: asset.logoURI };
+        if (chain.nativeCurrency.symbol.toUpperCase() === symbol.toUpperCase()) {
+            return { logoURI: chain.nativeCurrency.logoURI };
+        }
+    }
+    return undefined;
+}
+
 export function getExplorerUrl(
     chainId: number,
     type: 'tx' | 'block' | 'address',
     value: string
 ): string {
-
     const base = getChainById(chainId)?.blockExplorerUrl ?? 'https://etherscan.io';
     return `${base}/${type}/${value}`;
 }
 
 export function registerDynamicAssets(
-    chainId: number, 
-    newAssets: ChainAsset[], 
+    chainId: number,
+    newAssets: ChainAsset[],
     newTokens?: WellKnownTokens
 ) {
     const chain = getChainById(chainId);
@@ -176,7 +195,7 @@ export function registerDynamicAssets(
 
     const existingAddresses = new Set(chain.assets.map(a => a.address.toLowerCase()));
     const assetsToAdd = newAssets.filter(a => !existingAddresses.has(a.address.toLowerCase()));
-    
+
     chain.assets = [...chain.assets, ...assetsToAdd];
 
     if (newTokens) {
@@ -186,4 +205,56 @@ export function registerDynamicAssets(
 
 export function chainTypeToId(slug: string, network: NetworkType): number {
     return getChainBySlug(slug, network)?.chainId ?? 1;
+}
+
+export async function initDynamicTokenLists() {
+    for (const chain of CHAIN_REGISTRY) {
+        if (typeof chain.supportedTokenList === 'string') {
+            try {
+                const response = await fetch(chain.supportedTokenList);
+                if (!response.ok) continue;
+                const tokens = await response.json();
+
+                if (Array.isArray(tokens.assets) && (chain.chainId === 9000000 || chain.chainId === 9000001)) {
+                    const dynamicAssets: ChainAsset[] = tokens.assets.map((asset: any) => ({
+                        asset: `${asset.code}-${asset.issuer}`,
+                        type: 'STELLAR',
+                        address: asset.issuer,
+                        name: asset.name || asset.code,
+                        symbol: asset.code,
+                        decimals: asset.decimals,
+                        logoURI: asset.icon,
+                    }));
+
+                    const hasNative = dynamicAssets.some(a => a.symbol.toUpperCase() === chain.nativeCurrency.symbol.toUpperCase());
+                    if (!hasNative && chain.nativeToken) {
+                        dynamicAssets.unshift({
+                            asset: chain.nativeToken.symbol,
+                            type: chain.nativeToken.type || 'NATIVE',
+                            address: chain.nativeToken.address || 'NATIVE',
+                            name: chain.nativeToken.name,
+                            symbol: chain.nativeToken.symbol,
+                            decimals: chain.nativeToken.decimals,
+                            logoURI: chain.nativeToken.logoURI,
+                        });
+                    }
+
+                    registerDynamicAssets(chain.chainId, dynamicAssets);
+                } else if (Array.isArray(tokens)) {
+                    const dynamicAssets: ChainAsset[] = tokens.map((t: any) => ({
+                        asset: t.asset || `c${chain.chainId}_t${t.address}`,
+                        type: 'ERC20',
+                        address: t.address,
+                        name: t.name,
+                        symbol: t.symbol,
+                        decimals: t.decimals,
+                        logoURI: t.logoURI || GET_TOKEN_LOGO_URL(chain.slug, t.address),
+                    }));
+                    registerDynamicAssets(chain.chainId, dynamicAssets);
+                }
+            } catch (error) {
+                console.error(`[Chainregistry] Failed to fetch token list for ${chain.name}:`, error);
+            }
+        }
+    }
 }

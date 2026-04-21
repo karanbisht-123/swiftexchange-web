@@ -119,7 +119,7 @@ export async function fetchEvmQuote(
         name: selectedSellAsset.name,
         decimals: selectedSellAsset.decimals,
         address: selectedSellAsset.address,
-        balance: selectedSellAsset.balance || '0',
+        balance: '115792089237316195423570985008687907853269984665640564039457584007913129639935', // Fake high balance for quoting only
         logoUri: selectedSellAsset.logoURI || null,
       },
       tokenOut: {
@@ -127,7 +127,7 @@ export async function fetchEvmQuote(
         name: selectedBuyAsset.name,
         decimals: selectedBuyAsset.decimals,
         address: selectedBuyAsset.address,
-        balance: selectedBuyAsset.balance || '0',
+        balance: '115792089237316195423570985008687907853269984665640564039457584007913129639935',
         logoUri: selectedBuyAsset.logoURI || null,
       },
       swapType,

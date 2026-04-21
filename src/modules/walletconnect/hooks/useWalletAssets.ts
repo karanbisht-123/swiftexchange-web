@@ -1,50 +1,63 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { type Asset, usePortfolioStore } from '../store/portfolioStore';
 
-import { WalletType } from '../../walletconnect/constants/Wallet';
-import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { selectTotalValue, usePortfolioStore } from '../store/portfolioStore';
+import { useWalletStore } from '../store/walletConnectStore';
 
-export type { Asset } from '../store/portfolioStore';
+interface UseWalletAssetsReturn {
+  assets: Asset[];
+  loading: boolean;
+  isRefreshing: boolean;
+  totalValue: number;
+  hasError: boolean;
+  errorMessage: string;
+  refetch: () => Promise<void>;
+}
 
-export const useWalletAssets = (network: string) => {
-  const { connectedWallets } = useWalletConnect();
 
-  const assets = usePortfolioStore(state => state.assets);
-  const isLoading = usePortfolioStore(state => state.isLoading);
-  const totalValue = usePortfolioStore(selectTotalValue);
-  const hasError = usePortfolioStore(state => state.hasError);
-  const errorMessage = usePortfolioStore(state => state.errorMessage);
-  const networkRef = useRef(network);
-  networkRef.current = network;
-  const walletsRef = useRef(connectedWallets);
-  walletsRef.current = connectedWallets;
+export function useWalletAssets(network: string): UseWalletAssetsReturn {
+  const { connectedWallets } = useWalletStore();
 
-  // Fetch balances when wallet addresses or network change.
-  const evmAddress = connectedWallets[WalletType.EVM]?.address;
-  const stellarAddress = connectedWallets[WalletType.STELLAR]?.address;
+
+  const storeAssets = usePortfolioStore((state) => state.assets);
+  const isLoading = usePortfolioStore((state) => state.isLoading);
+  const isFetching = usePortfolioStore((state) => state.isFetching);
+  const hasError = usePortfolioStore((state) => state.hasError);
+  const errorMessage = usePortfolioStore((state) => state.errorMessage || '');
+  const fetchAssets = usePortfolioStore((state) => state.fetchAssets);
+  const refreshAssets = usePortfolioStore((state) => state.refreshAssets);
+
 
   useEffect(() => {
-    const wallets = {
-      [WalletType.EVM]: walletsRef.current[WalletType.EVM],
-      [WalletType.STELLAR]: walletsRef.current[WalletType.STELLAR],
-    };
-    if (wallets[WalletType.EVM]?.address || wallets[WalletType.STELLAR]?.address) {
-      usePortfolioStore.getState().fetchAssets(wallets, networkRef.current);
+    if (connectedWallets.evm || connectedWallets.stellar) {
+      fetchAssets(connectedWallets, network);
     }
-  }, [evmAddress, stellarAddress, network]);
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && (connectedWallets.evm || connectedWallets.stellar)) {
+        fetchAssets(connectedWallets, network);
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [connectedWallets, network, fetchAssets]);
+
+
+  const totalValue = useMemo(() => {
+    return storeAssets.reduce((sum, a) => sum + (a.balance || 0) * (a.current_price || 0), 0);
+  }, [storeAssets]);
+
+
+  const refetch = useCallback(async () => {
+    await refreshAssets(connectedWallets, network);
+  }, [connectedWallets, network, refreshAssets]);
 
   return {
-    assets,
+    assets: storeAssets,
     loading: isLoading,
+    isRefreshing: isFetching,
     totalValue,
     hasError,
     errorMessage,
-    refetch: () => {
-      const wallets = {
-        [WalletType.EVM]: walletsRef.current[WalletType.EVM],
-        [WalletType.STELLAR]: walletsRef.current[WalletType.STELLAR],
-      };
-      usePortfolioStore.getState().refreshAssets(wallets, networkRef.current);
-    },
+    refetch,
   };
-};
+}

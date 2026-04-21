@@ -71,7 +71,7 @@ const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: 
 const EvmTransactionHistory: React.FC = () => {
   const [searchParams] = useSearchParams();
   const txHashFromUrl = searchParams.get('hash');
-  
+
   const connectedWallets = useWalletStore(state => state.connectedWallets);
   const currentNetwork = useWalletStore(state => state.network);
 
@@ -219,8 +219,9 @@ const EvmTransactionHistory: React.FC = () => {
             <button
               key={chain.chainId}
               onClick={() => switchView(chain.chainId)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
+              className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
             >
+              <img src={chain.imageUrl} alt={chain.nativeCurrency.symbol} className="w-4 h-4 rounded-full bg-secondary" />
               {chain.nativeCurrency.symbol}
             </button>
           ))}
@@ -229,8 +230,9 @@ const EvmTransactionHistory: React.FC = () => {
       {hasStellar && (
         <button
           onClick={() => switchView('stellar')}
-          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
+          className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
         >
+          <img src="https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png" className="w-4 h-4 rounded-full bg-secondary" alt="Stellar" />
           Stellar
         </button>
       )}
@@ -398,7 +400,7 @@ const EvmTransactionHistory: React.FC = () => {
         {historyData.map(tx => {
           const isSelf = Boolean(tx.from.toLowerCase() === tx.to.toLowerCase());
           const incoming = !isSelf && Boolean(walletAddress && tx.to.toLowerCase() === walletAddress.toLowerCase());
-          
+
           let actionLabel = 'Sent';
           let Icon = ArrowUpRight;
           if (isSelf) {
@@ -432,7 +434,7 @@ const EvmTransactionHistory: React.FC = () => {
                   <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
                     <span className="opacity-75">
                       {tx.blockNum
-                        ? `Block #${formatBlockNumber(tx.blockNum)}` // ✅ e.g. "Block #22,100,004"
+                        ? `Block #${formatBlockNumber(tx.blockNum)}`
                         : 'Pending'}
                     </span>
                     <span className="w-1 h-1 rounded-full bg-muted/40" />

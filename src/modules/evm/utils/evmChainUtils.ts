@@ -1,13 +1,13 @@
-import { getChainById } from './Chainregistry';
+import { getChainById, isEvmChain } from './Chainregistry';
 
-/**
- * Utility to switch the Ethereum chain in the wallet, or add it if not present.
- * @param provider The EVM provider (usually from getProvider or window.ethereum)
- * @param chainId The numeric chain ID to switch to
- */
 export async function switchOrAddChain(provider: any, chainId: number): Promise<void> {
   if (!provider) {
     throw new Error('No EVM provider found');
+  }
+
+  if (!isEvmChain(chainId)) {
+    console.warn(`[switchOrAddChain] Skipping chain switch for non-EVM chain: ${chainId}`);
+    return;
   }
 
   const targetChain = getChainById(chainId);
@@ -23,7 +23,6 @@ export async function switchOrAddChain(provider: any, chainId: number): Promise<
       params: [{ chainId: hexChainId }],
     });
   } catch (error: any) {
-    // Error code 4902 means the chain has not been added to the wallet
     if (error.code === 4902) {
       try {
         await provider.request({
@@ -42,7 +41,6 @@ export async function switchOrAddChain(provider: any, chainId: number): Promise<
         throw new Error(`Failed to add network: ${addError.message}`);
       }
     } else if (error.code !== 4001) {
-      // 4001 is User Rejected Request, no need to throw an error for that
       throw new Error(`Failed to switch network: ${error.message}`);
     }
   }

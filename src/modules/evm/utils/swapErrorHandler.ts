@@ -114,6 +114,27 @@ export function parseSwapError(error: any): string {
     return 'Network error. Please check your connection and try again.';
   }
 
+  // Prevent leaking RPC URLs or raw ethers.js dumps
+  if (
+    message.includes('http://') || 
+    message.includes('https://') || 
+    errorMessageLower.includes('alchemy.com') ||
+    errorMessageLower.includes('infura.io') ||
+    errorMessageLower.includes('provider') ||
+    errorMessageLower.includes('rpc error') ||
+    errorMessageLower.includes('call revert exception') ||
+    errorMessageLower.includes('unpredictable gas limit')
+  ) {
+    if (errorMessageLower.includes('insufficient funds')) {
+      return 'You do not have enough native tokens to cover network gas fees.';
+    }
+    const revertMatch = message.match(/execution reverted:?\s*([^"(]+)/i);
+    if (revertMatch && revertMatch[1].trim()) {
+      return `Transaction failed: ${revertMatch[1].trim()}`;
+    }
+    return 'Transaction failed due to a network provider error. Please try again.';
+  }
+
   // General fallback
   if (message && message !== 'user rejected action' && message !== 'Failed to execute swap' && !message.includes('[object Object]')) {
     return message.replace('ethers-user-denied: ', '').replace('Error: ', '');

@@ -1,278 +1,233 @@
-import { Search, X, ChevronRight, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
-import { type FC, useMemo, useState, useEffect } from 'react';
+import { Search, X, Copy, SearchX, Check } from 'lucide-react';
+import { type FC, useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-
+import { FixedSizeList } from 'react-window';
 import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
-import { CHAIN_REGISTRY } from '../../evm/utils/Chainregistry';
+import { CHAIN_REGISTRY, getChainById } from '../../evm/utils/Chainregistry';
 import { useAssetSelectorModal } from './useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
+import { getTokensForChain } from '../../evm/service/tokenListService';
+
+const ROW_HEIGHT = 72;
+const STELLAR_CHAIN_ID = 9000000;
+
+interface NetworkOption {
+  id: string | number;
+  name: string;
+  logo?: string;
+  sendEnable: boolean;
+  receiveEnable: boolean;
+  bridgeEnable: boolean;
+  swapEnable: boolean;
+}
 
 const AssetSelectorModal: FC = () => {
   const navigate = useNavigate();
-  const { isOpen, actionType, closeAssetSelector } = useAssetSelectorModal();
+  const { isOpen, actionType, defaultNetwork, pairedChainId, onSelect, closeAssetSelector } = useAssetSelectorModal();
   const { network: currentNetwork } = useWalletStore();
-  const { assets, loading } = useWalletAssets(currentNetwork);
+  const { assets: walletAssets } = useWalletAssets(currentNetwork);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
-
-  const networks = useMemo(() => {
-    const evmChains = getEVMChains(currentNetwork);
-    const stellarChain = getStellarConfig(currentNetwork);
-    return [
-      { id: 'all', name: 'All Networks' },
-      ...evmChains.map(c => ({ id: c.chainId, name: c.name, logo: c.logoUrl })),
-      { id: 'stellar', name: 'Stellar', logo: stellarChain.logoUrl },
-    ];
-  }, [currentNetwork]);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      const originalStyle = window.getComputedStyle(document.body).overflow;
-      document.body.style.overflow = 'hidden';
-      return () => { document.body.style.overflow = originalStyle; };
+      setSelectedNetwork(defaultNetwork || 'all');
+      setSearchQuery('');
     }
-  }, [isOpen]);
+  }, [isOpen, defaultNetwork]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const networks = useMemo(() => {
+    const allNetworks: NetworkOption[] = [
+      { id: 'all', name: 'All Networks', sendEnable: true, receiveEnable: true, bridgeEnable: true, swapEnable: true },
+      ...getEVMChains(currentNetwork).map(c => ({
+        id: c.chainId, name: c.name, logo: c.logoUrl,
+        ...getChainById(c.chainId)
+      } as any)),
+      {
+        id: STELLAR_CHAIN_ID, name: 'Stellar', logo: getStellarConfig(currentNetwork).logoUrl,
+        ...getChainById(STELLAR_CHAIN_ID)
+      } as any,
+    ];
+
+    return allNetworks.filter(net => {
+      if (net.id === 'all') return true;
+      if (actionType === 'SEND') return net.sendEnable;
+      if (actionType === 'RECEIVE') return net.receiveEnable;
+      if (actionType === 'SWAP') return net.swapEnable;
+      if (actionType === 'BRIDGE') return net.bridgeEnable;
+      return true;
+    });
+  }, [currentNetwork, actionType]);
+
+  const effectiveActionType = useMemo(() => {
+    if (selectedNetwork === 'all') return actionType;
+    if (pairedChainId && selectedNetwork !== pairedChainId) {
+      if (actionType === 'SWAP' || actionType === 'BRIDGE') return 'BRIDGE';
+    }
+    if (pairedChainId && selectedNetwork === pairedChainId) {
+      if (actionType === 'SWAP' || actionType === 'BRIDGE') return 'SWAP';
+    }
+    return actionType;
+  }, [selectedNetwork, pairedChainId, actionType]);
 
   const filteredAssets = useMemo(() => {
-    let result = assets;
-
-    if (actionType === 'RECEIVE') {
-      const registryAssets: any[] = [];
-      const evmChains = getEVMChains(currentNetwork);
-      const stellarConfig = getStellarConfig(currentNetwork);
-
-      registryAssets.push({
-        symbol: 'XLM', name: 'Stellar Lumens',
-        image: stellarConfig.logoUrl, balance: 0,
-        chainId: 'stellar', chainType: 'stellar', current_price: 0,
-      });
-
-      for (const chain of evmChains) {
-        const config = CHAIN_REGISTRY.find(c => c.chainId === chain.chainId);
-        if (config) {
-          registryAssets.push({
-            symbol: config.nativeCurrency.symbol, name: config.nativeCurrency.name,
-            image: config.nativeCurrency.logoURI, balance: 0,
-            chainId: config.chainId, chainType: 'evm', current_price: 0,
+    let result: any[] = [];
+    if (effectiveActionType === 'SEND') {
+      result = walletAssets.filter(a => (a.balance || 0) > 0);
+    } else if (effectiveActionType === 'RECEIVE') {
+      for (const config of CHAIN_REGISTRY) {
+        if (config.receiveEnable) {
+          result.push({
+            id: `receive-${config.chainId}-native`, symbol: config.nativeCurrency.symbol, name: config.nativeCurrency.name, image: config.nativeCurrency.logoURI, chainId: config.chainId, isNative: true
           });
           config.assets.forEach(asset => {
-            registryAssets.push({
-              symbol: asset.symbol, name: asset.name,
-              image: asset.logoURI, balance: 0,
-              chainId: config.chainId, chainType: 'evm', current_price: 0,
+            if (asset.symbol === config.nativeCurrency.symbol) return;
+            result.push({
+              id: `receive-${config.chainId}-${asset.symbol}`, symbol: asset.symbol, name: asset.name, image: asset.logoURI, chainId: config.chainId, address: asset.address
             });
           });
         }
       }
-
-      const mergedMap = new Map();
-      registryAssets.forEach(a => mergedMap.set(`${a.symbol}-${a.chainId}`, a));
-      assets.forEach(a => mergedMap.set(`${a.symbol}-${a.chainId}`, a));
-      result = Array.from(mergedMap.values());
+    } else if (effectiveActionType === 'SWAP') {
+      const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
+      const registryTokens = getTokensForChain(activeChainId);
+      result = registryTokens.map(t => ({
+        id: `swap-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative, balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+      }));
+    } else if (effectiveActionType === 'BRIDGE') {
+      const chainsToIterate = selectedNetwork === 'all' ? CHAIN_REGISTRY : CHAIN_REGISTRY.filter(c => c.chainId === Number(selectedNetwork));
+      chainsToIterate.forEach(config => {
+        if (config.bridgeEnable) {
+          config.bridgeSupportTokens.forEach((asset: any) => {
+            result.push({
+              id: `bridge-${config.chainId}-${asset.symbol}`, symbol: asset.symbol, name: asset.name, image: asset.logoURI, chainId: config.chainId, address: asset.address, decimals: asset.decimals
+            });
+          });
+        }
+      });
     }
 
     if (selectedNetwork !== 'all') {
-      result = result.filter(asset =>
-        selectedNetwork === 'stellar' ? asset.chainType === 'stellar' : asset.chainId === selectedNetwork
-      );
+      result = result.filter(a => a.chainId === Number(selectedNetwork) || (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar'));
     }
 
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(asset =>
-        asset.symbol.toLowerCase().includes(query) || asset.name?.toLowerCase().includes(query)
-      );
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter(a => a.symbol.toLowerCase().includes(q) || a.name?.toLowerCase().includes(q));
     }
 
-    if (actionType === 'SEND') {
-      result = result.filter(asset => (asset.balance || 0) > 0);
+    return result.sort((a, b) => (b.balance || 0) - (a.balance || 0));
+  }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType]);
+
+  const handleSelect = useCallback((asset: any) => {
+    if (onSelect) {
+      onSelect(asset);
+      closeAssetSelector();
+      if (actionType === 'SEND' || actionType === 'RECEIVE') {
+        const path = actionType === 'SEND' ? '/send' : '/receive';
+        const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId;
+        navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
+      }
+      return;
     }
-
-    return result;
-  }, [assets, selectedNetwork, searchQuery, actionType, currentNetwork]);
-
-  const handleSelect = (asset: any) => {
-    const chainId = asset.chainType === 'stellar' ? 'stellar' : asset.chainId;
-    const path = actionType === 'SEND' ? '/send' : '/receive';
-    navigate(`${path}?asset=${asset.symbol}&chainId=${chainId}`);
+    const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId;
+    const path = actionType === 'SEND' ? '/send' : actionType === 'RECEIVE' ? '/receive' : actionType === 'BRIDGE' ? '/bridge' : '/swap';
+    navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
     closeAssetSelector();
-  };
+  }, [actionType, navigate, closeAssetSelector, onSelect]);
+
+  const handleCopyAddress = useCallback((e: React.MouseEvent, asset: any) => {
+    e.stopPropagation();
+    if (!asset.address) return;
+    navigator.clipboard.writeText(asset.address);
+    setCopiedId(asset.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }, []);
+
+  const AssetRow = useCallback(({ index, style }: any) => {
+    const asset = filteredAssets[index];
+    const chainConfig = getChainById(asset.chainId || 0);
+    const showBalance = actionType === 'SEND';
+
+    return (
+      <div style={{ ...style, padding: '4px 16px' }}>
+        <button onClick={() => handleSelect(asset)} className="group flex w-full items-center justify-between px-4 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <div className="relative flex-shrink-0">
+              <img src={asset.image || asset.logoURI} alt="" className="w-10 h-10 rounded-full bg-bg-tertiary object-cover" />
+              {chainConfig?.logoURI && <img src={chainConfig.logoURI} alt="" className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-bg-secondary" />}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-bold text-text-primary">{asset.symbol}</span>
+                {asset.address && !asset.isNative && (
+                  <button onClick={(e) => handleCopyAddress(e, asset)} className="p-1 hover:bg-bg-tertiary rounded-md text-text-muted transition-colors">
+                    {copiedId === asset.id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-text-secondary truncate">{asset.name || asset.symbol}</div>
+            </div>
+          </div>
+          {showBalance && (
+            <div className="text-right ml-4">
+              <div className="text-[14px] font-bold text-text-primary">{portfolioUtils.formatBalance(asset.balance || 0)}</div>
+            </div>
+          )}
+        </button>
+      </div>
+    );
+  }, [filteredAssets, handleSelect, actionType, copiedId, handleCopyAddress]);
 
   if (!isOpen) return null;
 
-  const isSend = actionType === 'SEND';
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-md">
       <div className="absolute inset-0" onClick={closeAssetSelector} />
-
-      <div className="relative w-full max-w-md bg-secondary sm:rounded-2xl rounded-t-2xl shadow-premium flex flex-col h-[88vh] sm:h-[600px] overflow-hidden">
-
-        {/* Drag handle (mobile) */}
-        <div className="sm:hidden flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-border opacity-60" />
+      <div className="relative w-full max-w-md bg-bg-secondary rounded-[32px] shadow-2xl flex flex-col h-[650px] overflow-hidden border border-divider">
+        <div className="px-6 pt-6 pb-4 flex items-center justify-between">
+          <h2 className="text-xl font-extrabold text-text-primary uppercase tracking-tight">{effectiveActionType}</h2>
+          <button onClick={closeAssetSelector} className="w-10 h-10 flex items-center justify-center bg-bg-tertiary rounded-full text-text-secondary hover:text-text-primary transition-colors"><X size={20} /></button>
         </div>
-
-        {/* Header */}
-        <div className="px-5 pt-3 pb-4 sm:pt-5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isSend ? 'bg-orange-500/10' : 'bg-green-500/10'}`}>
-              {isSend
-                ? <ArrowUpRight size={15} className="text-orange-500" />
-                : <ArrowDownLeft size={15} className="text-green-500" />
-              }
-            </div>
-            <h2 className="heading-4 text-primary">
-              {isSend ? 'Send' : 'Receive'}
-            </h2>
-          </div>
-          <button
-            onClick={closeAssetSelector}
-            className="w-8 h-8 flex items-center justify-center hover:bg-hover rounded-full transition-colors"
-          >
-            <X size={16} className="text-muted" />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="px-5 pb-3">
+        <div className="px-6 pb-4">
           <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" size={16} />
-            <input
-              type="text"
-              placeholder="Search assets…"
-              className="input w-full pl-9 pr-4 text-sm"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              autoFocus
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-primary transition-colors"
-              >
-                <X size={14} />
-              </button>
-            )}
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+            <input type="text" placeholder="Search tokens" className="w-full bg-bg-primary border-none pl-12 pr-4 py-3 rounded-2xl text-sm focus:ring-1 focus:ring-brand-primary/20 transition-all" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           </div>
         </div>
-
-        {/* Network filter pills */}
-        <div className="px-5 pb-3 flex gap-1.5 overflow-x-auto hide-scrollbar">
-          {networks.map(net => {
-            const active = selectedNetwork === net.id;
-            return (
-              <button
-                key={net.id}
-                onClick={() => setSelectedNetwork(net.id)}
-                title={net.name}
-                className={`flex-shrink-0 flex items-center gap-1.5 rounded-full border transition-all text-xs font-medium
-                  ${active
-                    ? 'bg-brand-primary border-brand-primary text-white shadow-sm'
-                    : 'bg-primary border-color text-secondary hover:border-muted'
-                  }
-                  ${net.id === 'all' ? 'px-3 py-1.5' : net.logo ? 'p-1.5' : 'px-3 py-1.5'}
-                `}
-              >
-                {net.id === 'all' ? (
-                  <span>All</span>
-                ) : net.logo ? (
-                  <img src={net.logo} alt={net.name} className="w-5 h-5 rounded-full" />
-                ) : (
-                  <span>{net.name.slice(0, 3)}</span>
-                )}
-              </button>
-            );
-          })}
+        <div className="px-6 pb-4 flex gap-2 overflow-x-auto hide-scrollbar">
+          {networks.map(net => (
+            <button key={net.id} onClick={() => setSelectedNetwork(net.id)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${selectedNetwork === net.id ? 'bg-brand-primary text-white shadow-lg shadow-brand-primary/20' : 'bg-bg-tertiary text-text-secondary hover:bg-bg-hover'}`}>
+              {net.logo && <img src={net.logo} alt="" className="w-4 h-4 rounded-full" />}
+              {net.name}
+            </button>
+          ))}
         </div>
-
-        {/* Divider */}
-        <div className="border-t border-color mx-5" />
-
-        {/* Asset list */}
-        <div className="flex-1 overflow-y-auto py-2">
-          {loading ? (
-            <div className="flex flex-col gap-1 px-3 py-2">
-              {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="h-[60px] bg-primary animate-pulse rounded-xl" />
-              ))}
-            </div>
-          ) : filteredAssets.length > 0 ? (
-            <div className="flex flex-col px-3">
-              {filteredAssets.map(asset => {
-                const chainLogo = asset.chainType === 'stellar'
-                  ? networks.find(n => n.id === 'stellar')?.logo
-                  : networks.find(n => n.id === asset.chainId)?.logo;
-                const hasBalance = (asset.balance || 0) > 0;
-                const usdValue = hasBalance && asset.current_price > 0
-                  ? portfolioUtils.formatUSD((asset.balance || 0) * asset.current_price)
-                  : null;
-
-                return (
-                  <button
-                    key={`${asset.symbol}-${asset.chainId}`}
-                    onClick={() => handleSelect(asset)}
-                    className="group flex items-center justify-between px-3 py-3 hover:bg-hover rounded-xl transition-colors text-left"
-                  >
-                    {/* Left: icon + name */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="relative flex-shrink-0">
-                        <img
-                          src={asset.image}
-                          alt={asset.symbol}
-                          className="w-9 h-9 rounded-full bg-primary"
-                        />
-                        {chainLogo && (
-                          <img
-                            src={chainLogo}
-                            alt=""
-                            className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-secondary bg-secondary"
-                          />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-primary leading-tight">{asset.symbol}</div>
-                        <div className="text-xs text-muted leading-tight truncate">{asset.name || asset.symbol}</div>
-                      </div>
-                    </div>
-
-                    {/* Right: balance + chevron */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {hasBalance ? (
-                        <div className="text-right">
-                          <div className="text-sm font-semibold text-primary leading-tight">
-                            {portfolioUtils.formatBalance(asset.balance)}
-                          </div>
-                          {usdValue && (
-                            <div className="text-xs text-muted leading-tight">{usdValue}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted/50">—</span>
-                      )}
-                      <ChevronRight
-                        size={15}
-                        className="text-muted opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0"
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+        <div className="flex-1 overflow-hidden relative">
+          {filteredAssets.length > 0 ? (
+            <FixedSizeList height={450} itemCount={filteredAssets.length} itemSize={ROW_HEIGHT} width="100%">{AssetRow}</FixedSizeList>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full py-16 text-muted">
-              <Search size={28} className="mb-3 opacity-30" />
-              <p className="text-sm">No assets found</p>
+            <div className="flex flex-col items-center justify-center h-full text-center px-12">
+              <div className="w-20 h-20 bg-bg-tertiary rounded-full flex items-center justify-center mb-6">
+                <SearchX size={40} className="text-text-muted opacity-20" />
+              </div>
+              <h3 className="text-lg font-black text-text-primary mb-2">No Assets Found</h3>
+              <p className="text-sm text-text-secondary font-medium leading-relaxed">
+                We couldn't find any assets matching "{searchQuery}" on this network.
+              </p>
               {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="mt-2 text-xs text-brand-primary hover:underline"
-                >
-                  Clear search
+                <button onClick={() => setSearchQuery('')} className="mt-8 text-brand-primary font-black text-xs uppercase tracking-widest hover:underline">
+                  Clear Search query
                 </button>
               )}
             </div>

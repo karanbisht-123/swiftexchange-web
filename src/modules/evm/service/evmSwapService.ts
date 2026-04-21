@@ -1,5 +1,13 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
 import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
+import { getChainById } from '../utils/Chainregistry';
+
+
+const getChainSymbol = (chainId: number) =>
+  getChainById(chainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+
+const getBridgeChainSymbol = (chainId: number) =>
+  getChainSymbol(chainId).slice(0, 3);
 
 interface SwapTransactionRequest {
   chainId: number;
@@ -21,7 +29,6 @@ interface SwapTransactionRequest {
   slippageTolerance: number;
 }
 
-
 export interface SwapTransactionData {
   to: string;
   from: string;
@@ -36,29 +43,10 @@ export interface SwapTransactionData {
   gas?: string;
 }
 
+const getSwapEndpoint = (action: 'quote' | 'prepare') =>
+  action === 'quote' ? `/quoter/quote` : `/quoter/swap`;
 
-import { getChainById } from '../utils/Chainregistry';
-
-const BSC_CHAIN_ID = 56;
-
-function getBridgeChainSymbol(chainId: number): string {
-  if (chainId === BSC_CHAIN_ID) return 'BNB';
-  const chainConfig = getChainById(chainId);
-  return chainConfig?.nativeCurrency.symbol || 'ETH';
-}
-
-
-function getSwapEndpoint(chainId: number, action: 'quote' | 'prepare'): string {
-  const chainConfig = getChainById(chainId);
-  const chainSymbol = chainConfig?.nativeCurrency.symbol.toLowerCase() || 'eth';
-
-  if (action === 'quote') {
-    return `/${chainSymbol}/swap-quote`;
-  }
-  return `/${chainSymbol}/swap-transaction/prepare`;
-}
-
-function buildQuotePayload(request: SwapQuoteRequest) {
+function buildQuotePayload(request: any, chainId: any) {
   return {
     tokenIn: {
       address: request.tokenIn.address,
@@ -73,36 +61,35 @@ function buildQuotePayload(request: SwapQuoteRequest) {
       decimals: request.tokenOut.decimals,
     },
     amount: request.amount,
+    recipient: request.recipient || '',
+    chainId: getChainSymbol(chainId),
   };
 }
 
 export async function getSwapQuote(chainId: number, request: SwapQuoteRequest): Promise<SwapQuote> {
-  const endpoint = getSwapEndpoint(chainId, 'quote');
-  const payload = buildQuotePayload(request);
+  const payload = buildQuotePayload(request, chainId);
+  const res = await fetchApiResponseFromProxy<any>(getSwapEndpoint('quote'), 'POST', payload);
 
-  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
-
-  if (!res.data) throw new Error('No quote data received');
+  const quoteData = res.data?.data || res.data;
+  if (!quoteData) throw new Error('No quote data received');
 
   return {
-    inputAmount: res.data.inputAmount || request.amount,
-    inputToken: res.data.inputToken || request.tokenIn.symbol,
-    outputAmount: res.data.outputAmount,
-    outputToken: res.data.outputToken || request.tokenOut.symbol,
-    pricePerToken: res.data.pricePerToken || '0',
-    fee: typeof res.data.fee === 'string' ? parseInt(res.data.fee, 10) : res.data.fee || 0,
-    networkFee: res.data.networkFee || 0,
-    poolAddress: res.data.poolAddress || '',
-    priceImpact: res.data.priceImpact || '0',
-    rawQuote: res.data,
+    inputAmount: quoteData.inputAmount || request.amount,
+    inputToken: quoteData.inputToken || request.tokenIn.symbol,
+    outputAmount: quoteData.outputAmount,
+    outputToken: quoteData.outputToken || request.tokenOut.symbol,
+    pricePerToken: quoteData.pricePerToken || '0',
+    fee: typeof quoteData.fee === 'string' ? parseInt(quoteData.fee, 10) : quoteData.fee || 0,
+    networkFee: quoteData.networkFee || 0,
+    poolAddress: quoteData.poolAddress || '',
+    priceImpact: quoteData.priceImpact || '0',
+    rawQuote: quoteData,
   };
 }
 
 export async function prepareSwapTransaction(
   request: SwapTransactionRequest
 ): Promise<SwapTransactionData[]> {
-  const endpoint = getSwapEndpoint(request.chainId, 'prepare');
-
   const payload = {
     tokenIn: {
       address: request.tokenIn.address,
@@ -118,43 +105,45 @@ export async function prepareSwapTransaction(
     },
     amount: request.amount,
     recipient: request.senderAddress,
+    chainId: getChainSymbol(request.chainId)
   };
 
-  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
+  const res = await fetchApiResponseFromProxy<any>(getSwapEndpoint('prepare'), 'POST', payload);
 
-  if (!res.data) throw new Error('No transaction data received');
+  const txData = res.data?.data || res.data;
+  if (!txData) throw new Error('No transaction data received');
 
-
-  return Array.isArray(res.data) ? res.data : [res.data];
+  return Array.isArray(txData) ? txData : [txData];
 }
 
 export async function getBridgeQuote(
-  chainId: number,
+  sourceChainId: number,
+  destinationChainId: number,
   amount: string,
-  sourceToken: string = 'usdt'
+  sourceToken: string = 'usdt',
+  destinationToken: string = 'usdt'
 ): Promise<any> {
-  // const chainConfig = getChainById(chainId);
-  // const chainSymbol = chainConfig?.nativeCurrency.symbol || 'ETH';
-  const chainSymbol = getBridgeChainSymbol(chainId);
-  const endpoint = `/bridge/swap-quotes`;
-  const request = {
+  const res = await fetchApiResponseFromProxy<any>(`/bridge/swap-quotes`, 'POST', {
     amount,
-    chainType: chainSymbol,
+    sourceChain: getBridgeChainSymbol(sourceChainId),
+    destinationChain: getBridgeChainSymbol(destinationChainId),
     sourceToken: sourceToken.toUpperCase(),
-  };
+    destinationToken: destinationToken.toUpperCase(),
+  });
 
-  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', request);
   return res.data;
 }
 
 export interface BridgeTransactionRequest {
+  fromChainId: number;
+  toChainId: number;
   amount: string;
   feePayType: 'stablecoin' | 'native';
   fromAddress: string;
   destinationAddress: string;
   sourceToken: string;
   destinationToken: string;
-  walletType: any;
+  slippageTolerance?: number;
 }
 
 export interface BridgeTxData {
@@ -191,26 +180,19 @@ export interface BridgeTransactionResponse {
 }
 
 export async function prepareBridgeTransaction(
-  chainId: number,
   request: BridgeTransactionRequest
 ): Promise<BridgeTransactionResponse> {
-  // const chainConfig = getChainById(chainId);
-  const chainSymbol = getBridgeChainSymbol(chainId);
-  // const chainSymbol = chainConfig?.nativeCurrency.symbol || 'ETH';
-  const endpoint = `/bridge/swap-transaction/prepare`;
-
-  const payload = {
+  const res = await fetchApiResponseFromProxy<any>(`/bridge/swap-transaction/prepare`, 'POST', {
+    sourceChain: getBridgeChainSymbol(request.fromChainId),
+    destinationChain: getBridgeChainSymbol(request.toChainId),
+    amount: request.amount,
+    sourceToken: request.sourceToken.toUpperCase(),
+    destinationToken: request.destinationToken.toUpperCase(),
     fromAddress: request.fromAddress,
     toAddress: request.destinationAddress,
-    amount: request.amount,
-    sourceToken: request.sourceToken,
-    destinationToken: request.destinationToken,
-    walletType: chainSymbol,
     feePayType: request.feePayType,
-  };
-
-  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
-
+    slippageTolerance: request.slippageTolerance || 0.5,
+  });
 
   return res.data;
 }
