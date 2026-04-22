@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ethers } from 'ethers';
 
-import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
+import type { SwapQuote, SwapQuoteRequest, FusionQuote } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { addLocalTransaction } from '../service/localTransactionService';
 import {
@@ -12,7 +12,7 @@ import {
 } from '../service/tokenListService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
-import { executeSwap, fetchEvmQuote } from '../utils/evmSwapUtils';
+import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap } from '../utils/evmSwapUtils';
 import { rpcManager } from '../utils/rpcProvider';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
@@ -32,6 +32,8 @@ interface UseEvmSwapState {
   error: string | null;
   isFetchingAssets: boolean;
   quoteLoading: boolean;
+  isGasless: boolean;
+  fusionQuote: FusionQuote | null;
 }
 
 interface UseEvmSwapActions {
@@ -42,6 +44,13 @@ interface UseEvmSwapActions {
     sellAsset: TokenInfo,
     buyAsset: TokenInfo
   ) => Promise<SwapQuote>;
+
+  fetchFusionQuote: (
+    sellAsset: TokenInfo,
+    buyAsset: TokenInfo,
+    amount: string
+  ) => Promise<FusionQuote>;
+
   performSwap: (
     quote: SwapQuote,
     sellAsset: TokenInfo,
@@ -49,6 +58,15 @@ interface UseEvmSwapActions {
     sellAmount: string,
     slippageTolerance: number
   ) => Promise<string>;
+
+  performFusionSwap: (
+    sellAsset: TokenInfo,
+    buyAsset: TokenInfo,
+    sellAmount: string,
+    preset?: string
+  ) => Promise<string>;
+
+  setGasless: (enabled: boolean) => void;
   reset: () => void;
 }
 
@@ -65,6 +83,8 @@ export const useEvmSwap = ({
     error: null,
     isFetchingAssets: false,
     quoteLoading: false,
+    isGasless: false,
+    fusionQuote: null,
   });
 
   const activeSwapId = useRef<string | null>(null);
@@ -137,7 +157,6 @@ export const useEvmSwap = ({
           tokensToFetch.map(async (token) => {
             let bal = '0';
 
-            // 1. Try Live Provider
             if (provider) {
               try {
                 const ethersProvider = new ethers.BrowserProvider(provider);
@@ -154,7 +173,6 @@ export const useEvmSwap = ({
               }
             }
 
-            // 2. Fallback to Portfolio Store
             const storeAsset = storeAssets.find(a =>
               a.chainId === chainId &&
               a.symbol === token.symbol &&
@@ -166,7 +184,6 @@ export const useEvmSwap = ({
               if (bal !== '0') return { address: token.address, balance: bal };
             }
 
-            // 3. Last Fallback: RPC Manager fresh fetch
             try {
               const config = getEVMNetworkConfig(chainId);
               bal = await rpcManager.fetchWithFallback(
@@ -263,7 +280,40 @@ export const useEvmSwap = ({
         throw new Error(errorMsg);
       }
     },
-    [chainId, updateState]
+    [chainId, senderAddress, updateState]
+  );
+
+  const fetchFusionQuote = useCallback(
+    async (
+      sellAsset: TokenInfo,
+      buyAsset: TokenInfo,
+      amount: string
+    ): Promise<FusionQuote> => {
+      updateState({ quoteLoading: true, error: null });
+
+      try {
+        const fusionQuoteData = await fetch1InchFusionQuote(
+          chainId,
+          sellAsset.address,
+          buyAsset.address,
+          amount,
+          senderAddress
+        );
+
+        updateState({
+          fusionQuote: fusionQuoteData,
+          quoteLoading: false,
+          error: null,
+        });
+
+        return fusionQuoteData;
+      } catch (err: any) {
+        const errorMsg = parseSwapError(err);
+        updateState({ error: errorMsg, quoteLoading: false });
+        throw new Error(errorMsg);
+      }
+    },
+    [chainId, senderAddress, updateState]
   );
 
   const performSwap = useCallback(
@@ -307,10 +357,10 @@ export const useEvmSwap = ({
         });
 
         if (activeSwapId.current === swapId) {
-
           activeSwapId.current = null;
           updateState({ txHash: hash, loading: false });
         }
+
         setTimeout(() => {
           if (isMounted.current) {
             updateTokenBalances(sellAsset, buyAsset);
@@ -320,16 +370,77 @@ export const useEvmSwap = ({
         return hash;
       } catch (err: any) {
         const errorMsg = parseSwapError(err);
-
         if (activeSwapId.current === swapId) {
           activeSwapId.current = null;
           updateState({ error: errorMsg, loading: false, txHash: null });
         }
-
         throw new Error(errorMsg);
       }
     },
     [chainId, senderAddress, getProvider, updateTokenBalances, updateState]
+  );
+
+  const performFusionSwap = useCallback(
+    async (
+      sellAsset: TokenInfo,
+      buyAsset: TokenInfo,
+      sellAmount: string,
+      preset?: string
+    ): Promise<string> => {
+      const swapId = Date.now().toString();
+      activeSwapId.current = swapId;
+      updateState({ loading: true, error: null, txHash: null });
+
+      try {
+        if (!state.fusionQuote) throw new Error('No fusion quote available');
+        if (!senderAddress) throw new Error('No wallet connected');
+
+        const hash = await execute1InchFusionSwap(
+          chainId,
+          state.fusionQuote,
+          preset || 'fast',
+          senderAddress,
+          sellAsset,
+          buyAsset,
+          sellAmount,
+          getProvider
+        );
+
+        const currentNetwork = useWalletStore.getState().network;
+
+        addLocalTransaction({
+          hash,
+          chainId,
+          type: 'swap',
+          timestamp: Date.now(),
+          description: `Swap (Gasless) ${sellAsset.symbol} \u2192 ${buyAsset.symbol}`,
+          status: 'pending',
+          from: senderAddress,
+          network: currentNetwork,
+        });
+
+        if (activeSwapId.current === swapId) {
+          activeSwapId.current = null;
+          updateState({ txHash: hash, loading: false });
+        }
+
+        setTimeout(() => {
+          if (isMounted.current) {
+            updateTokenBalances(sellAsset, buyAsset);
+          }
+        }, 8000);
+
+        return hash;
+      } catch (err: any) {
+        const errorMsg = parseSwapError(err);
+        if (activeSwapId.current === swapId) {
+          activeSwapId.current = null;
+          updateState({ error: errorMsg, loading: false, txHash: null });
+        }
+        throw new Error(errorMsg);
+      }
+    },
+    [chainId, senderAddress, getProvider, updateTokenBalances, updateState, state.fusionQuote]
   );
 
   const reset = useCallback(() => {
@@ -342,7 +453,12 @@ export const useEvmSwap = ({
       error: null,
       loading: false,
       quoteLoading: false,
+      fusionQuote: null,
     });
+  }, [updateState]);
+
+  const setGasless = useCallback((enabled: boolean) => {
+    updateState({ isGasless: enabled });
   }, [updateState]);
 
   return {
@@ -350,7 +466,10 @@ export const useEvmSwap = ({
     fetchTokenList,
     updateTokenBalances,
     fetchQuote,
+    fetchFusionQuote,
     performSwap,
+    performFusionSwap,
+    setGasless,
     reset,
   };
 };

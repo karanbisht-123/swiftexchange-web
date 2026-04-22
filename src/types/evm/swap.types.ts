@@ -67,3 +67,85 @@ export interface CachedMetadata {
   data: TokenMetadata;
   timestamp: number;
 }
+export interface FusionPreset {
+  auctionDuration: number;
+  startAuctionIn: number;
+  bankFee: string;
+  initialRateBump: number;
+  auctionStartAmount: string;
+  auctionEndAmount: string;
+  tokenFee: string;
+  exclusiveResolver: string | null;
+  estP: number;
+  allowPartialFills: boolean;
+  allowMultipleFills: boolean;
+  gasCost: {
+    gasBumpEstimate: number;
+    gasPriceEstimate: string;
+  };
+  points: Array<{
+    delay: number;
+    coefficient: number;
+  }>;
+  startAmount: string;
+}
+
+export interface FusionQuote {
+  quoteId: string;
+  fromTokenAmount: string;
+  toTokenAmount: string;
+  feeToken: string;
+  presets: {
+    fast: FusionPreset;
+    medium: FusionPreset;
+    slow: FusionPreset;
+  };
+  recommended_preset: string;
+  prices: {
+    usd: {
+      fromToken: string;
+      toToken: string;
+    };
+  };
+  volume: {
+    usd: {
+      fromToken: string;
+      toToken: string;
+    };
+  };
+  priceImpactPercent: number;
+  suggested: boolean;
+  marketAmount: string;
+  gas: number;
+  pfGas: number;
+}
+
+export interface BuildFusionOrderRequest {
+  quote: FusionQuote;
+  tokenIn: string;
+  tokenOut: string;
+  amount: string;
+  walletAddress: string;
+  chain: string;
+  preset: string;
+}
+
+export interface FusionOrder {
+  order: {
+    salt: string;
+    makerAsset: string;
+    takerAsset: string;
+    maker: string;
+    receiver: string;
+    allowedSender: string;
+    makingAmount: string;
+    takingAmount: string;
+    offsets: string;
+    interactions: string;
+  };
+  signature: string;
+  quoteId: string;
+  typedData: any;
+  extension: string;
+  orderHash: string;
+}

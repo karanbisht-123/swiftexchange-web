@@ -1,6 +1,7 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
-import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
+import type { SwapQuote, SwapQuoteRequest, BuildFusionOrderRequest, FusionOrder } from '../../../types/evm/swap.types';
 import { getChainById } from '../utils/Chainregistry';
+import { ethers } from 'ethers';
 
 
 const getChainSymbol = (chainId: number) =>
@@ -42,6 +43,24 @@ export interface SwapTransactionData {
   gasLimit?: string;
   gas?: string;
 }
+
+export interface SubmitFusionOrderRequest {
+  chain: string;
+  order: {
+    maker: string;
+    makerAsset: string;
+    takerAsset: string;
+    makerTraits: string;
+    salt: string;
+    makingAmount: string;
+    takingAmount: string;
+    receiver: string;
+  };
+  quoteId: string;
+  extension: string;
+  signature: string;
+}
+
 
 const getSwapEndpoint = (action: 'quote' | 'prepare') =>
   action === 'quote' ? `/quoter/quote` : `/quoter/swap`;
@@ -195,4 +214,50 @@ export async function prepareBridgeTransaction(
   });
 
   return res.data;
+}
+
+export async function get1InchFusionQuote(
+
+
+  chainId: number,
+  request: {
+    tokenIn: string;
+    tokenOut: string;
+    amount: string;
+    walletAddress: string;
+    decimals?: number;
+  }
+
+
+): Promise<any> {
+  const payload = {
+    ...request,
+    chain: getChainSymbol(chainId),
+    amount: ethers.parseUnits(request.amount, request.decimals ?? 6).toString(),
+    walletAddress: request.walletAddress,
+  };
+
+  const res = await fetchApiResponseFromProxy<any>(`/swap/1inch/getSwapQuote`, 'POST', payload);
+  const data = res.data?.data || res.data;
+  if (!data) throw new Error('No 1inch quote data received');
+  return data;
+}
+
+export async function build1InchFusionOrder(
+  request: BuildFusionOrderRequest
+): Promise<FusionOrder> {
+  const res = await fetchApiResponseFromProxy<any>(`/swap/1inch/buildFusionOrder`, 'POST', request);
+  const data = res.data?.data || res.data;
+  if (!data) throw new Error('Failed to build 1inch Fusion order');
+  return data;
+}
+
+
+export async function submit1InchFusionOrder(
+  request: SubmitFusionOrderRequest
+): Promise<any> {
+  const res = await fetchApiResponseFromProxy<any>(`/swap/1inch/submitOrder`, 'POST', request);
+  const data = res.data?.data || res.data;
+  if (!data) throw new Error('Failed to submit 1inch Fusion order');
+  return data;
 }

@@ -2,11 +2,10 @@ import { ethers } from 'ethers';
 
 import type { SwapQuote, SwapQuoteRequest, SwapType } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
-import { getSwapQuote, prepareSwapTransaction } from '../service/evmSwapService';
+import { getSwapQuote, prepareSwapTransaction, get1InchFusionQuote, build1InchFusionOrder, submit1InchFusionOrder } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
 import { getChainById } from './Chainregistry';
 import { parseSwapError } from './swapErrorHandler';
-
 
 
 export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
@@ -19,14 +18,11 @@ export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): Sw
   if (isSellUsdc && isBuyNative) return 'UsdcToWeth';
   if (isSellNative) return 'EthToToken';
   if (isBuyNative) return 'TokenToEth';
-  
+
   return 'TokenToToken';
 }
 
-/**
- * Safely parse a value field from the API into a BigInt.
- * Without this guard, `BigInt(undefined)` throws a TypeError at runtime.
- */
+
 function safeValue(raw: string | undefined | null): bigint {
   if (raw === undefined || raw === null || raw === '') return 0n;
   try {
@@ -36,9 +32,6 @@ function safeValue(raw: string | undefined | null): bigint {
   }
 }
 
-/**
- * Build a gasLimit BigInt from a transaction object returned by the API.
- */
 function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefined {
   const raw = tx.gasLimit ?? tx.gas;
   if (raw === undefined || raw === null || raw === '') return undefined;
@@ -50,10 +43,6 @@ function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefin
   }
 }
 
-/**
- * Estimate gas for a transaction, adding a 20% buffer.
- * Returns undefined if estimation fails so the caller can decide what to do.
- */
 async function estimateGasWithBuffer(
   provider: ethers.BrowserProvider,
   txParams: ethers.TransactionRequest
@@ -67,7 +56,6 @@ async function estimateGasWithBuffer(
   }
 }
 
-//Manually poll for a transaction receipt using getTransactionReceipt
 async function pollForReceipt(
   provider: ethers.BrowserProvider,
   txHash: string,
@@ -113,13 +101,13 @@ export async function fetchEvmQuote(
 
     const adjustedRequest: any = {
       ...request,
-      nativeSymbol, // Pass native symbol as requested by user for dynamic API
+      nativeSymbol,
       tokenIn: {
         symbol: selectedSellAsset.symbol,
         name: selectedSellAsset.name,
         decimals: selectedSellAsset.decimals,
         address: selectedSellAsset.address,
-        balance: '115792089237316195423570985008687907853269984665640564039457584007913129639935', // Fake high balance for quoting only
+        balance: selectedSellAsset.balance ?? undefined,
         logoUri: selectedSellAsset.logoURI || null,
       },
       tokenOut: {
@@ -127,7 +115,7 @@ export async function fetchEvmQuote(
         name: selectedBuyAsset.name,
         decimals: selectedBuyAsset.decimals,
         address: selectedBuyAsset.address,
-        balance: '115792089237316195423570985008687907853269984665640564039457584007913129639935',
+        balance: selectedBuyAsset.balance ?? undefined,
         logoUri: selectedBuyAsset.logoURI || null,
       },
       swapType,
@@ -194,63 +182,63 @@ export async function executeSwap(
     let lastTxHash = '';
 
     for (let i = 0; i < transactions.length; i++) {
-        const tx = transactions[i];
-        const isLastTx = i === transactions.length - 1;
+      const tx = transactions[i];
+      const isLastTx = i === transactions.length - 1;
 
-        const gasLimitFromApi = safeGasLimit(tx);
+      const gasLimitFromApi = safeGasLimit(tx);
 
-        const txParams: ethers.TransactionRequest = {
-            from: tx.from || senderAddress,
-            to: tx.to,
-            data: tx.data,
-            value: safeValue(tx.value),
-        };
+      const txParams: ethers.TransactionRequest = {
+        from: tx.from || senderAddress,
+        to: tx.to,
+        data: tx.data,
+        value: safeValue(tx.value),
+      };
 
-        if (gasLimitFromApi !== undefined) {
-            txParams.gasLimit = gasLimitFromApi;
-        } else {
-            const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
-            if (estimated !== undefined) {
-                txParams.gasLimit = estimated;
-            }
+      if (gasLimitFromApi !== undefined) {
+        txParams.gasLimit = gasLimitFromApi;
+      } else {
+        const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
+        if (estimated !== undefined) {
+          txParams.gasLimit = estimated;
         }
+      }
 
-        if (tx.maxFeePerGas) {
-            txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
-        }
-        if (tx.maxPriorityFeePerGas) {
-            txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
-        }
+      if (tx.maxFeePerGas) {
+        txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
+      }
+      if (tx.maxPriorityFeePerGas) {
+        txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
+      }
 
-        console.log('[executeSwap] Sending transaction:', {
-            to: txParams.to,
-            value: txParams.value?.toString(),
-            gasLimit: txParams.gasLimit?.toString(),
-            maxFeePerGas: txParams.maxFeePerGas?.toString(),
-            maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
+      console.log('[executeSwap] Sending transaction:', {
+        to: txParams.to,
+        value: txParams.value?.toString(),
+        gasLimit: txParams.gasLimit?.toString(),
+        maxFeePerGas: txParams.maxFeePerGas?.toString(),
+        maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
+      });
+
+      const txResponse = await signer.sendTransaction(txParams);
+      lastTxHash = txResponse.hash;
+
+      if (!isLastTx) {
+        console.log('[executeSwap] Transaction sent, polling for confirmation:', txResponse.hash);
+        const receipt = await pollForReceipt(ethersProvider, txResponse.hash);
+        if (!receipt || receipt.status === 0) {
+          throw new Error('Transaction failed or reverted on-chain');
+        }
+        console.log('[executeSwap] Transaction confirmed, continuing to next.');
+      } else {
+        console.log('[executeSwap] Final swap tx sent, returning hash immediately:', txResponse.hash);
+
+        pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
+          if (!receipt || receipt.status === 0) {
+            console.error('[executeSwap] Final tx reverted on-chain:', txResponse.hash);
+          } else {
+            console.log('[executeSwap] Final tx confirmed on-chain:', txResponse.hash);
+          }
         });
-
-        const txResponse = await signer.sendTransaction(txParams);
-        lastTxHash = txResponse.hash;
-
-        if (!isLastTx) {
-            console.log('[executeSwap] Transaction sent, polling for confirmation:', txResponse.hash);
-            const receipt = await pollForReceipt(ethersProvider, txResponse.hash);
-            if (!receipt || receipt.status === 0) {
-                throw new Error('Transaction failed or reverted on-chain');
-            }
-            console.log('[executeSwap] Transaction confirmed, continuing to next.');
-        } else {
-            console.log('[executeSwap] Final swap tx sent, returning hash immediately:', txResponse.hash);
-
-            pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
-                if (!receipt || receipt.status === 0) {
-                    console.error('[executeSwap] Final tx reverted on-chain:', txResponse.hash);
-                } else {
-                    console.log('[executeSwap] Final tx confirmed on-chain:', txResponse.hash);
-                }
-            });
-        }
+      }
     }
 
     return lastTxHash;
@@ -260,5 +248,97 @@ export async function executeSwap(
     throw new Error(message);
   }
 }
+
+export async function fetch1InchFusionQuote(
+  chainId: number,
+  tokenIn: string,
+  tokenOut: string,
+  amount: string,
+  walletAddress: string
+): Promise<any> {
+  try {
+    const quote = await get1InchFusionQuote(chainId, {
+      tokenIn,
+      tokenOut,
+      amount,
+      walletAddress: "0xd015be36019f67e8dd4Df202787aec69F2A59101",
+    });
+    return quote;
+  } catch (error: any) {
+    const message = parseSwapError(error);
+    throw new Error(message);
+  }
+}
+
+export async function execute1InchFusionSwap(
+  chainId: number,
+  quote: any,
+  preset: string,
+  senderAddress: string,
+  sellAsset: TokenInfo,
+  buyAsset: TokenInfo,
+  sellAmount: string,
+  getProvider: (type: WalletType) => any
+): Promise<string> {
+  try {
+    const provider = getProvider(WalletType.EVM);
+    if (!provider) throw new Error('EVM wallet not connected');
+
+    const chainConfig = getChainById(chainId);
+    const chainSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+
+    const buildRequest = {
+      quote,
+      tokenIn: sellAsset.address,
+      tokenOut: buyAsset.address,
+      amount: ethers.parseUnits(sellAmount, sellAsset.decimals).toString(),
+      walletAddress: senderAddress,
+      chain: chainSymbol,
+      preset,
+    };
+
+    const fusionOrder = await build1InchFusionOrder(buildRequest);
+    const { typedData, extension, orderHash } = fusionOrder;
+
+    if (!typedData) throw new Error('No typed data received for signing');
+    if (!extension) throw new Error('No extension data received from build order');
+    if (!orderHash) throw new Error('No orderHash received from build order');
+
+    const signature: string = await provider.request({
+      method: 'eth_signTypedData_v4',
+      params: [senderAddress, JSON.stringify(typedData)],
+    });
+
+    if (!signature) throw new Error('Signature cancelled or failed');
+
+    const orderMessage = typedData.message;
+    const submitPayload = {
+      chain: chainSymbol,
+      order: {
+        maker: orderMessage.maker,
+        makerAsset: orderMessage.makerAsset,
+        takerAsset: orderMessage.takerAsset,
+        makerTraits: orderMessage.makerTraits,
+        salt: orderMessage.salt,
+        makingAmount: orderMessage.makingAmount,
+        takingAmount: orderMessage.takingAmount,
+        receiver: orderMessage.receiver || senderAddress,
+      },
+      quoteId: quote.quoteId,
+      extension,
+      signature,
+    };
+
+    await submit1InchFusionOrder(submitPayload);
+
+    return orderHash;
+  } catch (error: any) {
+    console.error('[execute1InchFusionSwap] Error:', error);
+    const message = parseSwapError(error);
+    throw new Error(message);
+  }
+}
+
+
 
 
