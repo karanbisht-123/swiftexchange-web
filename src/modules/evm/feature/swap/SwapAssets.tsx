@@ -28,8 +28,10 @@ import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
 import { EvmActionGuard } from '../../components/EvmActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
-import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import FusionQuoteScreen from './components/FusionQuoteScreen';
+import { parseSwapError } from '../../utils/swapErrorHandler';
+import { getTokensForChain } from '../../service/tokenListService';
+import { addLocalTransaction } from '../../service/localTransactionService';
 
 import { getBridgeQuote as getEvmBridgeQuote, prepareBridgeTransaction } from '../../service/evmSwapService';
 import {
@@ -91,11 +93,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [feePayType, setFeePayType] = useState<'native' | 'stablecoin'>('stablecoin');
   const [bridgeTxStatus, setBridgeTxStatus] = useState<'idle' | 'preparing' | 'signing' | 'success' | 'error'>('idle');
   const [bridgeTxHash, setBridgeTxHash] = useState<string | null>(null);
+  const [bridgeErrorMsg, setBridgeErrorMsg] = useState<string | null>(null);
+  const [crossChainQuoteSource, setCrossChainQuoteSource] = useState<'bridge' | 'rango' | null>(null);
+  const [crossChainWarning, setCrossChainWarning] = useState<string | null>(null);
 
   const [ammService, setAmmService] = useState<AmmSwapService | null>(null);
   const [stellarAssets, setStellarAssets] = useState<any[]>([]);
   const [stellarSwapQuote, setStellarSwapQuote] = useState<any>(null);
   const [isFetchingStellarAssets, setIsFetchingStellarAssets] = useState(false);
+  const [isFetchingStellarQuote, setIsFetchingStellarQuote] = useState(false);
 
   const actionType = useMemo(() => fromChainId === toChainId ? 'SWAP' : 'BRIDGE', [fromChainId, toChainId]);
 
@@ -119,6 +125,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isGasless,
     setGasless,
     fusionQuote,
+    rangoQuote,
+    fetchRangoQuote,
+    confirmRangoRoute,
+    checkRangoApproval,
+    prepareRangoTx,
     reset: resetSwap,
   } = useEvmSwap({
     chainId: fromChainId,
@@ -152,50 +163,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (isStellar(fromChainId)) {
       return stellarAssets.find(a => a.symbol === sellAssetSymbol);
     }
-
-    if (actionType === 'SWAP') {
-      return swapAssets.find(a => a.symbol === sellAssetSymbol);
-    }
-
-    const tokenMeta = fromChainConfig?.bridgeSupportTokens?.find((t: any) => t.symbol === sellAssetSymbol);
-    const liveAsset = swapAssets.find(a => a.symbol === sellAssetSymbol);
-
-    return {
-      symbol: sellAssetSymbol,
-      isNative: liveAsset?.isNative || false,
-      address: tokenMeta?.address || liveAsset?.address || '',
-      balance: liveAsset?.balance || '0',
-      decimals: tokenMeta?.decimals || liveAsset?.decimals || 18,
-      logoURI: tokenMeta?.logoURI || liveAsset?.logoURI || ''
-    };
-  }, [actionType, swapAssets, sellAssetSymbol, fromChainConfig, stellarAssets, fromChainId]);
+    return swapAssets.find(a => a.symbol === sellAssetSymbol);
+  }, [swapAssets, sellAssetSymbol, stellarAssets, fromChainId]);
 
   const selectedBuyAsset = useMemo(() => {
     if (isStellar(toChainId)) {
       return stellarAssets.find(a => a.symbol === buyAssetSymbol);
     }
-
-    if (actionType === 'SWAP') {
-      return swapAssets.find(a => a.symbol === buyAssetSymbol);
+    if (fromChainId !== toChainId) {
+      const destTokens = getTokensForChain(toChainId);
+      return destTokens.find(t => t.symbol === buyAssetSymbol);
     }
+    return swapAssets.find(a => a.symbol === buyAssetSymbol);
+  }, [swapAssets, buyAssetSymbol, stellarAssets, toChainId, fromChainId]);
 
-    const tokenMeta = toChainConfig?.bridgeSupportTokens?.find((t: any) => t.symbol === buyAssetSymbol);
-    const liveAsset = swapAssets.find(a => a.symbol === buyAssetSymbol);
-
-    return {
-      symbol: buyAssetSymbol,
-      isNative: liveAsset?.isNative || false,
-      address: tokenMeta?.address || liveAsset?.address || '',
-      balance: liveAsset?.balance || '0',
-      decimals: tokenMeta?.decimals || liveAsset?.decimals || 18,
-      logoURI: tokenMeta?.logoURI || liveAsset?.logoURI || ''
-    };
-  }, [actionType, swapAssets, buyAssetSymbol, toChainConfig, stellarAssets, toChainId]);
-
-  // Confirmation Modal specific to bridge transitions
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-
-  // Sync state to URL
   useEffect(() => {
     const params = new URLSearchParams();
     params.set('fromChainId', String(fromChainId));
@@ -213,14 +194,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [currentChainId, searchParams, swapEnabledChains]);
 
   useEffect(() => {
-    setSellAmount('');
     resetSwap();
     setBridgeTxStatus('idle');
     setBridgeTxHash(null);
     setStellarSwapQuote(null);
     setBridgeQuoteData(null);
+    setCrossChainQuoteSource(null);
+    setCrossChainWarning(null);
+    setBridgeErrorMsg(null);
 
-    if (actionType === 'SWAP' && fromChainId && !isStellar(fromChainId)) {
+    if (fromChainId && !isStellar(fromChainId)) {
       fetchTokenList();
     }
   }, [fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol, resetSwap, actionType, fetchTokenList]);
@@ -253,16 +236,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       const fetchStellar = async () => {
         setIsFetchingStellarAssets(true);
         try {
-          const balances = await ammService.getTokenBalances(stellarAddress);
-          const mapped = balances.map(b => {
-            const metadata = getGlobalAssetMetadata(b.code);
+          const balances = await ammService.getAssetsWithBalances(stellarAddress);
+          const mapped = balances.map((b: any) => {
             return {
               id: `stellar-${fromChainId}-${b.code}`,
               symbol: b.code,
-              name: b.code,
-              logoURI: metadata?.logoURI,
+              name: b.name || b.code,
+              logoURI: b.icon,
               balance: b.balance,
-              decimals: 7,
+              decimals: b.decimals || 7,
               isNative: b.asset.isNative(),
               asset: b.asset,
               chainId: STELLAR_CHAIN_ID
@@ -287,35 +269,35 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fromChainId, stellarAddress, ammService, sellAssetSymbol, actionType]);
 
   useEffect(() => {
-    if (actionType === 'SWAP') {
-      if (swapAssets.length > 0 && !sellAssetSymbol && !buyAssetSymbol && !isChainSwitching) {
-        const nativeAsset = swapAssets.find(a => a.isNative);
-        const usdcAsset = swapAssets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS');
+    if (swapAssets.length > 0 && !sellAssetSymbol && !buyAssetSymbol && !isChainSwitching) {
+      const nativeAsset = swapAssets.find(a => a.isNative);
+      const usdcAsset = swapAssets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS');
 
-        if (nativeAsset && usdcAsset) {
-          setSellAssetSymbol(nativeAsset.symbol);
-          setBuyAssetSymbol(usdcAsset.symbol);
-        } else if (swapAssets.length >= 2) {
-          setSellAssetSymbol(swapAssets[0].symbol);
-          setBuyAssetSymbol(swapAssets[1].symbol);
-        }
-      }
-    } else {
-      const fromSupported = fromChainConfig?.bridgeSupportTokens || [];
-      const toSupported = toChainConfig?.bridgeSupportTokens || [];
-
-      const isFromValid = fromSupported.some((t: any) => t.symbol === sellAssetSymbol);
-      const isToValid = toSupported.some((t: any) => t.symbol === buyAssetSymbol);
-
-      if (!isFromValid && fromSupported.length > 0) {
-        setSellAssetSymbol(fromSupported[0].symbol);
-      }
-      if (!isToValid && toSupported.length > 0) {
-        const target = toSupported.find((t: any) => t.symbol !== sellAssetSymbol) || toSupported[0];
-        if (target) setBuyAssetSymbol(target.symbol);
+      if (nativeAsset && usdcAsset) {
+        setSellAssetSymbol(nativeAsset.symbol);
+        setBuyAssetSymbol(usdcAsset.symbol);
+      } else if (swapAssets.length >= 2) {
+        setSellAssetSymbol(swapAssets[0].symbol);
+        setBuyAssetSymbol(swapAssets[1].symbol);
       }
     }
-  }, [actionType, swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching, fromChainConfig, toChainConfig]);
+  }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching]);
+
+  const getUsdValue = useCallback((amount: string, asset: any): number | null => {
+    if (!amount || !asset) return null;
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed) || parsed <= 0) return null;
+    const price = parseFloat(asset.price || asset.priceUSD || '0');
+    if (price > 0) return parsed * price;
+    return null;
+  }, []);
+
+  const isBridgeSupported = useCallback((symbol: string, chainId: number): boolean => {
+    const chainConfig = getChainById(chainId);
+    if (!chainConfig?.bridgeSupportTokens?.length) return false;
+    return chainConfig.bridgeSupportTokens.some((t: any) => t.symbol.toUpperCase() === symbol.toUpperCase());
+  }, []);
+
 
   const fetchUnifiedQuote = useCallback(async () => {
     if (!sellAmount || parseFloat(sellAmount) <= 0 || isChainSwitching || isFusionLoading || showFusionScreen) {
@@ -331,14 +313,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const toAsset = (selectedBuyAsset as any).asset;
           if (!fromAsset || !toAsset) return;
 
+          setIsFetchingStellarQuote(true);
           const sq = await ammService.getSwapQuote(fromAsset, toAsset, sellAmount, { slippageTolerance });
           setStellarSwapQuote(sq);
         } catch (err) {
           console.error('Stellar quote error:', err);
           setStellarSwapQuote(null);
+        } finally {
+          setIsFetchingStellarQuote(false);
         }
       } else {
-        // EVM same-chain swap
         if (!selectedSellAsset || !selectedBuyAsset || selectedSellAsset.address?.toLowerCase() === selectedBuyAsset.address?.toLowerCase()) return;
         try {
           const swapType = determineSwapType(selectedSellAsset as any, selectedBuyAsset as any);
@@ -369,9 +353,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         }
       }
     } else {
-      setIsFetchingBridgeQuote(true);
-      try {
-        if (isStellar(fromChainId)) {
+      if (!selectedSellAsset || !selectedBuyAsset) return;
+
+      if (isStellar(fromChainId)) {
+        setIsFetchingBridgeQuote(true);
+        try {
           const tokens = await getSupportedTokens();
           const fromChainSym = isStellar(fromChainId) ? ChainSymbol.SRB : fromChainConfig?.nativeCurrency.symbol as ChainSymbol;
           const toChainSym = isStellar(toChainId) ? ChainSymbol.SRB : toChainConfig?.nativeCurrency.symbol as ChainSymbol;
@@ -398,23 +384,98 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               }
             });
           }
-        } else {
-          const bdgQ = await getEvmBridgeQuote(fromChainId, toChainId, sellAmount, sellAssetSymbol, buyAssetSymbol);
-          setBridgeQuoteData(bdgQ);
+        } catch (err) {
+          console.error('Bridge quote error:', err);
+          setBridgeQuoteData(null);
+        } finally {
+          setIsFetchingBridgeQuote(false);
         }
-      } catch (err) {
-        console.error('Bridge quote error:', err);
-        setBridgeQuoteData(null);
+        return;
+      }
+
+      const fromBridgeSupported = isBridgeSupported(sellAssetSymbol, fromChainId);
+      const toBridgeSupported = isBridgeSupported(buyAssetSymbol, toChainId);
+      const bothBridgeSupported = fromBridgeSupported && toBridgeSupported;
+
+      // const fromChainCfg = getChainById(fromChainId);
+      // const bridgeSupportList = fromChainCfg?.bridgeSupportTokens || [];
+
+      const isToStellar = isStellar(toChainId);
+      const usdValue = getUsdValue(sellAmount, selectedSellAsset);
+      const isBelow2Usd = usdValue !== null && usdValue < 2;
+      const shouldUseBridge = isToStellar || (bothBridgeSupported && isBelow2Usd);
+
+      setIsFetchingBridgeQuote(true);
+      setCrossChainWarning(null);
+
+      try {
+        if (shouldUseBridge) {
+          setCrossChainQuoteSource('bridge');
+          const bdgQ = await getEvmBridgeQuote(fromChainId, toChainId, sellAmount, sellAssetSymbol, buyAssetSymbol);
+          if (!bdgQ || (Array.isArray(bdgQ) && bdgQ.length === 0) || (bdgQ && typeof bdgQ === 'object' && !bdgQ.minimumAmountOut && !bdgQ.quotes)) {
+            throw new Error('Bridge quotes empty');
+          }
+          setBridgeQuoteData(bdgQ);
+        } else {
+          setCrossChainQuoteSource('rango');
+          await fetchRangoQuote(fromChainId, toChainId, selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+          setBridgeQuoteData(null);
+        }
+      } catch (err: any) {
+        if (shouldUseBridge) {
+          console.warn('Bridge quotes failed, falling back to Rango:', err);
+          setCrossChainWarning('Bridge quotes unavailable. Showing Rango route instead.');
+          setCrossChainQuoteSource('rango');
+          setBridgeQuoteData(null);
+          try {
+            await fetchRangoQuote(fromChainId, toChainId, selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+          } catch (rangoErr) {
+            console.error('Rango fallback also failed:', rangoErr);
+            setCrossChainWarning('Could not fetch any quotes. Please try again.');
+          }
+        } else {
+          console.error('Rango quote failed:', err);
+          setCrossChainWarning('Could not fetch Rango route. Please try again.');
+        }
       } finally {
         setIsFetchingBridgeQuote(false);
       }
     }
-  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, slippageTolerance, isFusionLoading, showFusionScreen]);
+  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, slippageTolerance, isFusionLoading, showFusionScreen, isBridgeSupported, getUsdValue, fetchRangoQuote, ammService]);
+
+
+  const resetQuotes = useCallback(() => {
+    resetSwap();
+    setStellarSwapQuote(null);
+    setBridgeQuoteData(null);
+    setBridgeErrorMsg(null);
+    setCrossChainQuoteSource(null);
+    setCrossChainWarning(null);
+    setBridgeTxStatus('idle');
+  }, [resetSwap]);
+
+  // Clear quotes when amount is empty
+  useEffect(() => {
+    if (!sellAmount || parseFloat(sellAmount) <= 0) {
+      resetQuotes();
+    }
+  }, [sellAmount, resetQuotes]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => { fetchUnifiedQuote(); }, 800);
     return () => clearTimeout(timeoutId);
   }, [fetchUnifiedQuote]);
+
+  // Auto-refresh quotes every 25 seconds
+  useEffect(() => {
+    if (!sellAmount || parseFloat(sellAmount) <= 0 || isChainSwitching || showFusionScreen) return;
+
+    const intervalId = setInterval(() => {
+      fetchUnifiedQuote();
+    }, 25000);
+
+    return () => clearInterval(intervalId);
+  }, [fetchUnifiedQuote, sellAmount, isChainSwitching, showFusionScreen]);
 
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset && selectedSellAsset.balance !== undefined) {
@@ -438,6 +499,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setBridgeTxHash(null);
     setBridgeTxStatus('idle');
     setBridgeQuoteData(null);
+    setCrossChainQuoteSource(null);
+    setCrossChainWarning(null);
+    setBridgeErrorMsg(null);
     setSellAmount('');
   }, [resetSwap]);
 
@@ -479,8 +543,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
           setBridgeTxHash(hash);
           setBridgeTxStatus('success');
+
+          addLocalTransaction({
+            hash,
+            chainId: fromChainId,
+            type: 'bridge',
+            timestamp: Date.now(),
+            description: `Bridge ${sellAssetSymbol} to ${buyAssetSymbol}`,
+            from: evmAddress,
+            status: 'pending',
+            network: currentNetwork
+          });
         } catch (err) {
           console.error('Stellar swap execution failed:', err);
+          setBridgeErrorMsg(parseSwapError(err));
           setBridgeTxStatus('error');
         }
       } else {
@@ -496,83 +572,192 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       if (isStellar(toChainId) && !stellarAddress) return;
       if (!isStellar(fromChainId) && !evmAddress) return;
 
-      if (!bridgeQuoteData) return;
-      setIsConfirmModalOpen(true);
-    }
-  }, [actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, slippageTolerance, performSwap, evmAddress, stellarAddress, bridgeQuoteData, fromChainId, toChainId, stellarSwapQuote, ammService, getProvider, isGasless, fetchFusionQuote]);
+      if (!bridgeQuoteData && !rangoQuote) return;
 
-  const executeBridgeTransaction = useCallback(async () => {
-    setIsConfirmModalOpen(false);
-    if (!sellAmount || !bridgeQuoteData) return;
-
-    setBridgeTxStatus('preparing');
-    try {
-      if (isStellar(fromChainId)) {
-        if (!stellarAddress || !evmAddress) return;
-        const xdr = await prepareStellarToEvmRawTransaction({
-          amount: sellAmount,
-          sourceToken: bridgeQuoteData.sourceToken,
-          destinationToken: bridgeQuoteData.destinationToken,
-          fromAccountAddress: stellarAddress,
-          toAccountAddress: evmAddress,
-          feePaymentMethod: feePayType === 'native' ? FeePaymentMethod.WITH_NATIVE_CURRENCY : FeePaymentMethod.WITH_STABLECOIN,
-          messenger: Messenger.ALLBRIDGE,
-          slippageTolerance
-        });
-        setBridgeTxStatus('signing');
-        const provider = getProvider(WalletType.STELLAR) as any;
-        const result = await signAndSubmitTransaction({
-          xdr,
-          network: currentNetwork,
-          networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
-          provider
-        });
-
-        if (result.success && result.hash) {
-          setBridgeTxHash(result.hash);
-        } else {
-          throw new Error(result.error || 'Stellar transaction failed');
-        }
-      } else {
-        const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
-        if (!evmAddress || !destAddr) return;
-
-        const bridgeResponse = await prepareBridgeTransaction({
-          fromChainId,
-          toChainId,
-          amount: sellAmount,
-          feePayType,
-          fromAddress: evmAddress,
-          destinationAddress: destAddr,
-          sourceToken: sellAssetSymbol,
-          destinationToken: buyAssetSymbol,
-          slippageTolerance
-        });
-
-        const provider = getProvider(WalletType.EVM) as any;
-        for (const tx of bridgeResponse.transactions) {
-          setBridgeTxStatus(tx.type === 'approve' ? 'preparing' : 'signing');
-          const hash = await provider.request({
-            method: 'eth_sendTransaction',
-            params: [{
-              from: tx.transaction.from,
-              to: tx.transaction.to,
-              value: `0x${BigInt(tx.transaction.value).toString(16)}`,
-              data: tx.transaction.data,
-            }]
+      setBridgeTxStatus('preparing');
+      try {
+        if (isStellar(fromChainId)) {
+          if (!stellarAddress || !evmAddress) return;
+          const xdr = await prepareStellarToEvmRawTransaction({
+            amount: sellAmount,
+            sourceToken: bridgeQuoteData.sourceToken,
+            destinationToken: bridgeQuoteData.destinationToken,
+            fromAccountAddress: stellarAddress,
+            toAccountAddress: evmAddress,
+            feePaymentMethod: feePayType === 'native' ? FeePaymentMethod.WITH_NATIVE_CURRENCY : FeePaymentMethod.WITH_STABLECOIN,
+            messenger: Messenger.ALLBRIDGE,
+            slippageTolerance
           });
-          if (tx.type === 'transfer') setBridgeTxHash(hash);
+          setBridgeTxStatus('signing');
+          const provider = getProvider(WalletType.STELLAR) as any;
+          const result = await signAndSubmitTransaction({
+            xdr,
+            network: currentNetwork,
+            networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
+            provider
+          });
+
+          if (result.success && result.hash) {
+            setBridgeTxHash(result.hash);
+          } else {
+            throw new Error(result.error || 'Stellar transaction failed');
+          }
+        } else if (crossChainQuoteSource === 'rango' && rangoQuote) {
+          if (!evmAddress) return;
+          const requestId = rangoQuote.requestId || rangoQuote.result?.requestId;
+          if (!requestId) throw new Error('No Rango requestId available');
+
+          setBridgeTxStatus('preparing');
+          const confirmResult = await confirmRangoRoute(
+            requestId,
+            fromChainId,
+            toChainId,
+            evmAddress,
+            evmAddress
+          );
+
+          if (!confirmResult?.ok && !confirmResult?.result) {
+            throw new Error(confirmResult?.error || 'Failed to confirm Rango route');
+          }
+
+          const provider = getProvider(WalletType.EVM) as any;
+
+          const buildTxParams = (tx: any) => ({
+            from: tx.from || evmAddress,
+            to: tx.to,
+            data: tx.data || '0x',
+            value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : '0x0',
+            ...(tx.gasLimit ? { gas: tx.gasLimit } : {}),
+            ...(tx.maxFeePerGas ? { maxFeePerGas: `0x${BigInt(tx.maxFeePerGas).toString(16)}` } : {}),
+            ...(tx.maxPriorityFeePerGas ? { maxPriorityFeePerGas: `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}` } : {}),
+          });
+
+          const step1Response = await prepareRangoTx(requestId, 1);
+          const step1Result = Array.isArray(step1Response) ? step1Response[0] : step1Response;
+          if (!step1Result?.ok) throw new Error(step1Result?.error || 'Failed to prepare Rango transaction');
+
+          const step1Tx = step1Result.transaction;
+          if (!step1Tx?.to) throw new Error('No transaction data from Rango');
+
+          if (step1Tx.isApprovalTx) {
+            const approvalTxId = await provider.request({ method: 'eth_sendTransaction', params: [buildTxParams(step1Tx)] });
+            await checkRangoApproval(requestId, approvalTxId);
+
+            const step2Response = await prepareRangoTx(requestId, 2);
+            const step2Result = Array.isArray(step2Response) ? step2Response[0] : step2Response;
+            if (!step2Result?.ok) throw new Error(step2Result?.error || 'Failed to prepare Rango swap transaction');
+
+            const step2Tx = step2Result.transaction;
+            if (!step2Tx?.to) throw new Error('No swap transaction data from Rango');
+
+            setBridgeTxStatus('signing');
+            const swapTxId = await provider.request({ method: 'eth_sendTransaction', params: [buildTxParams(step2Tx)] });
+            setBridgeTxHash(swapTxId);
+            addLocalTransaction({
+              hash: swapTxId,
+              chainId: fromChainId,
+              type: 'bridge',
+              timestamp: Date.now(),
+              description: `Rango Bridge: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+              from: evmAddress,
+              status: 'pending',
+              network: currentNetwork
+            });
+          } else {
+            setBridgeTxStatus('signing');
+            const swapTxId = await provider.request({ method: 'eth_sendTransaction', params: [buildTxParams(step1Tx)] });
+            setBridgeTxHash(swapTxId);
+            addLocalTransaction({
+              hash: swapTxId,
+              chainId: fromChainId,
+              type: 'bridge',
+              timestamp: Date.now(),
+              description: `Rango Bridge: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+              from: evmAddress,
+              status: 'pending',
+              network: currentNetwork
+            });
+          }
+
+          setBridgeTxStatus('success');
+
+        } else {
+          const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
+          if (!evmAddress || !destAddr) return;
+
+          const bridgeResponse = await prepareBridgeTransaction({
+            fromChainId,
+            toChainId,
+            amount: sellAmount,
+            feePayType,
+            fromAddress: evmAddress,
+            destinationAddress: destAddr,
+            sourceToken: sellAssetSymbol,
+            destinationToken: buyAssetSymbol,
+            slippageTolerance
+          });
+
+          const provider = getProvider(WalletType.EVM) as any;
+          for (const tx of bridgeResponse.transactions) {
+            setBridgeTxStatus(tx.type === 'approve' ? 'preparing' : 'signing');
+            const hash = await provider.request({
+              method: 'eth_sendTransaction',
+              params: [{
+                from: tx.transaction.from,
+                to: tx.transaction.to,
+                value: `0x${BigInt(tx.transaction.value).toString(16)}`,
+                data: tx.transaction.data,
+              }]
+            });
+            if (tx.type === 'transfer') {
+              setBridgeTxHash(hash);
+              addLocalTransaction({
+                hash,
+                chainId: fromChainId,
+                type: 'bridge',
+                timestamp: Date.now(),
+                description: `Bridge ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+                from: evmAddress,
+                status: 'pending',
+                network: currentNetwork
+              });
+            }
+          }
+          setBridgeTxStatus('success');
         }
+      } catch (err: any) {
+        console.error('Bridge failed:', err);
+        setBridgeErrorMsg(parseSwapError(err));
+        setBridgeTxStatus('error');
       }
-      setBridgeTxStatus('success');
-    } catch (err: any) {
-      console.error('Bridge failed:', err);
-      setBridgeTxStatus('error');
     }
-  }, [sellAmount, evmAddress, stellarAddress, bridgeQuoteData, fromChainId, toChainId, feePayType, sellAssetSymbol, buyAssetSymbol, slippageTolerance, getProvider, currentNetwork]);
+  }, [
+    actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, slippageTolerance, performSwap, evmAddress,
+    stellarAddress, bridgeQuoteData, rangoQuote, fromChainId, toChainId, stellarSwapQuote, ammService, getProvider,
+    isGasless, fetchFusionQuote, crossChainQuoteSource, feePayType, sellAssetSymbol, buyAssetSymbol, currentNetwork,
+    confirmRangoRoute, checkRangoApproval, prepareRangoTx
+  ]);
   const handleChainSelectInModal = useCallback(async (newChainId: number, isSource: boolean) => {
-    const targetChainId = isSource ? fromChainId : toChainId;
-    if (newChainId === targetChainId) return;
+    const finalFromId = isSource ? newChainId : fromChainId;
+    const finalToId = !isSource ? newChainId : toChainId;
+
+    if (finalFromId !== finalToId && (isStellar(finalFromId) || isStellar(finalToId))) {
+      const fromCfg = getChainById(finalFromId);
+      const toCfg = getChainById(finalToId);
+
+      const fromSupported = fromCfg?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
+      const toSupported = toCfg?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
+
+      if (!fromSupported.includes(sellAssetSymbol.toUpperCase())) {
+        const fallback = fromSupported.includes('USDC') ? 'USDC' : (fromSupported.includes('XLM') ? 'XLM' : fromSupported[0]);
+        if (fallback) setSellAssetSymbol(fallback);
+      }
+
+      if (!toSupported.includes(buyAssetSymbol.toUpperCase())) {
+        const fallback = toSupported.includes('USDC') ? 'USDC' : (toSupported.includes('XLM') ? 'XLM' : toSupported[0]);
+        if (fallback) setBuyAssetSymbol(fallback);
+      }
+    }
 
     if (isEvmChain(newChainId)) {
       if (isConnected) {
@@ -595,7 +780,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       if (isSource) setFromChainId(newChainId);
       else setToChainId(newChainId);
     }
-  }, [isConnected, getProvider, fromChainId, toChainId]);
+  }, [isConnected, getProvider, fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol, setSellAssetSymbol, setBuyAssetSymbol]);
 
   const handleRefreshBalances = useCallback(async () => {
     if (!isConnected || isChainSwitching) return;
@@ -642,16 +827,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return actionType === 'SWAP' && fromChainId === toChainId && selectedSellAsset?.symbol === selectedBuyAsset?.symbol && !!selectedSellAsset;
   }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
 
+  const hasActiveCrossChainQuote = useMemo(() => {
+    if (actionType !== 'BRIDGE' || isStellar(fromChainId)) return false;
+    return crossChainQuoteSource === 'bridge' ? !!bridgeQuoteData : !!rangoQuote;
+  }, [actionType, fromChainId, crossChainQuoteSource, bridgeQuoteData, rangoQuote]);
+
   const isErrorState = swapError || isInsufficientBalance || bridgeTxStatus === 'error' || isSameAssetSelected;
 
   const buttonLabel = useMemo(() => {
-    if (isFetchingSwapAssets || isFetchingBridgeQuote || isFetchingStellarAssets) return 'SYNCING...';
+    if (isFetchingSwapAssets || isFetchingBridgeQuote || isFetchingStellarAssets) return 'FETCHING QUOTES...';
     if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
     if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
     if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
     if (swapError && actionType === 'SWAP') return 'SWAP FAILED';
-    if (actionType === 'BRIDGE') return 'BRIDGE NOW';
-    return 'SWAP NOW';
+    return 'SWAP';
   }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected]);
 
   const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
@@ -666,23 +855,29 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isChainSwitching ||
     isSameAssetSelected;
 
-
   const calculatedBuyAmount = useMemo(() => {
     if (actionType === 'SWAP') {
       if (isSameAssetSelected) return 'SELECT DIFFERENT PAIR';
       return isStellar(fromChainId) ? (stellarSwapQuote?.estimatedOutput || '0.00') : (swapQuote?.outputAmount || '0.00');
     }
+    if (isStellar(fromChainId)) return bridgeQuoteData?.minimumAmountOut || '0.00';
+    if (crossChainQuoteSource === 'bridge') return bridgeQuoteData?.minimumAmountOut || rangoQuote?.result?.outputAmount || '0.00';
+    if (crossChainQuoteSource === 'rango') return rangoQuote?.result?.outputAmount || '0.00';
     return bridgeQuoteData?.minimumAmountOut || '0.00';
-  }, [actionType, swapQuote, bridgeQuoteData, fromChainId, stellarSwapQuote, isSameAssetSelected]);
+  }, [actionType, swapQuote, bridgeQuoteData, rangoQuote, fromChainId, stellarSwapQuote, isSameAssetSelected, crossChainQuoteSource]);
 
 
   const minimumReceived = (() => {
-    if (actionType === 'BRIDGE' && bridgeQuoteData?.minimumAmountOut) return bridgeQuoteData.minimumAmountOut;
+    if (actionType === 'BRIDGE') {
+      if (!isStellar(fromChainId)) {
+        if (crossChainQuoteSource === 'rango') return rangoQuote?.result?.outputAmount || '0.00';
+        return bridgeQuoteData?.minimumAmountOut || '0.00';
+      }
+      if (bridgeQuoteData?.minimumAmountOut) return bridgeQuoteData.minimumAmountOut;
+    }
 
-    // Stellar AMM minimum output
     if (isStellar(fromChainId) && stellarSwapQuote) return stellarSwapQuote.minimumOutput;
 
-    // EVM Swap minimum output
     if (!swapQuote?.outputAmount || !selectedBuyAsset) return '0.00';
     try {
       const decimals = (selectedBuyAsset as any).decimals || 18;
@@ -822,7 +1017,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
             <div className="flex-1 text-right min-w-0">
               <div className={`font-black truncate text-primary transition-all duration-300 ${isSameAssetSelected ? 'text-sm sm:text-base opacity-40 tracking-wider' : 'text-3xl sm:text-4xl tabular-nums'}`}>
-                {(isFetchingBridgeQuote || swapQuoteLoading) ? (
+                {(isFetchingBridgeQuote || swapQuoteLoading || isFetchingStellarQuote) ? (
                   <div className="flex justify-end gap-1 items-end mt-2">
                     <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md" />
                     <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-75" />
@@ -830,19 +1025,26 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
                     <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
                   </div>
-                ) : ((swapQuote || bridgeQuoteData || stellarSwapQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
+                ) : ((swapQuote || bridgeQuoteData || rangoQuote || stellarSwapQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
               </div>
-              {(swapQuote || bridgeQuoteData || stellarSwapQuote) && !isSameAssetSelected && (
+              {(swapQuote || bridgeQuoteData || rangoQuote || stellarSwapQuote) && !isSameAssetSelected && (
                 <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
                   <div className="w-1 h-1 rounded-full bg-green-500" />
-                  ~ Estimated
+                  {crossChainQuoteSource === 'rango' ? '~ Via Rango' : '~ Estimated'}
                 </div>
               )}
             </div>
           </div>
 
+          {crossChainWarning && actionType === 'BRIDGE' && (
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+              <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0" />
+              <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest leading-relaxed">{crossChainWarning}</span>
+            </div>
+          )}
+
           {/* Details Section Inside Receive Card */}
-          <div className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && swapQuote) || (actionType === 'BRIDGE' && bridgeQuoteData) ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}>
+          <div className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && (swapQuote || stellarSwapQuote)) || (actionType === 'BRIDGE' && hasActiveCrossChainQuote) || (actionType === 'BRIDGE' && isStellar(fromChainId) && bridgeQuoteData) ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}>
             <div className="overflow-hidden">
               <div className="pt-5 sm:pt-6 border-t border-dotted border-white/10 space-y-1">
 
@@ -853,8 +1055,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     1 {sellAssetSymbol} ≈ {actionType === 'SWAP'
                       ? (isGasless && fusionQuote
                         ? (Number(fusionQuote.prices.usd.fromToken) / Number(fusionQuote.prices.usd.toToken)).toFixed(6)
-                        : portfolioUtils.formatBalance(swapQuote?.pricePerToken || '0'))
-                      : portfolioUtils.formatBalance(bridgeQuoteData?.conversionRate || '0')} {buyAssetSymbol}
+                        : isStellar(fromChainId) && stellarSwapQuote
+                          ? (Number(stellarSwapQuote.estimatedOutput) / Number(stellarSwapQuote.inputAmount)).toFixed(6)
+                          : portfolioUtils.formatBalance(swapQuote?.pricePerToken || '0'))
+                      : crossChainQuoteSource === 'rango'
+                        ? portfolioUtils.formatBalance(rangoQuote?.result?.outputAmount || '0')
+                        : portfolioUtils.formatBalance(bridgeQuoteData?.conversionRate || '0')} {buyAssetSymbol}
                   </span>
                 </div>
 
@@ -885,6 +1091,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         <span className="text-[11px] font-black text-green-500 line-through opacity-60">
                           ~0.0021 {fromChainConfig?.nativeCurrency.symbol}
                         </span>
+                      ) : isStellar(fromChainId) ? (
+                        <span className="text-[11px] font-black text-primary">
+                          ~0.00001 XLM
+                        </span>
                       ) : (
                         <span className="text-[11px] font-black text-primary">
                           {swapQuote?.networkFee && swapQuote.networkFee > 0
@@ -893,6 +1103,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         </span>
                       )}
                     </div>
+
+                    {isStellar(fromChainId) && stellarSwapQuote && (
+                      <div className="flex items-center justify-between py-2 border-b border-white/5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
+                        <span className={`text-[11px] font-black ${stellarSwapQuote.priceImpact > 2 ? 'text-red-500' : 'text-green-500'}`}>
+                          {stellarSwapQuote.priceImpact.toFixed(2)}%
+                        </span>
+                      </div>
+                    )}
 
                     {/* Gasless toggle row */}
                     {!isStellar(fromChainId) && (
@@ -919,42 +1138,88 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {/* BRIDGE specific rows */}
                 {actionType === 'BRIDGE' && (
                   <>
-                    {bridgeQuoteData?.fee?.[feePayType] && (
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">Bridge Fee</span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-black text-primary">
-                            {Number(bridgeQuoteData.fee[feePayType].amount).toFixed(4)}
-                          </span>
-                          <span className="text-[9px] font-black text-muted">{bridgeQuoteData.fee[feePayType].symbol}</span>
-                          <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5 ml-1">
-                            <button
-                              onClick={() => setFeePayType('native')}
-                              className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-widest transition-all ${feePayType === 'native' ? 'bg-primary text-secondary' : 'text-muted hover:text-primary/70'}`}
-                            >
-                              {fromChainConfig?.nativeCurrency.symbol}
-                            </button>
-                            <button
-                              onClick={() => setFeePayType('stablecoin')}
-                              className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-widest transition-all ${feePayType === 'stablecoin' ? 'bg-primary text-secondary' : 'text-muted hover:text-primary/70'}`}
-                            >
-                              STABLE
-                            </button>
+                    {crossChainQuoteSource === 'rango' && rangoQuote?.result?.swaps?.[0] ? (() => {
+                      const swap = rangoQuote.result.swaps[0];
+                      const networkFee = swap.fee?.find((f: any) => f.name === 'Network Fee');
+                      const rangoFee = swap.fee?.find((f: any) => f.name === 'Rango Fee');
+                      const estimatedSecs = swap.estimatedTimeInSeconds;
+                      return (
+                        <>
+                          <div className="flex items-center justify-between py-2 border-b border-white/5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Protocol</span>
+                            <div className="flex items-center gap-1.5">
+                              {swap.swapperLogo && <img src={swap.swapperLogo} className="w-4 h-4 rounded-full" alt="" />}
+                              <span className="text-[11px] font-black text-primary">{swap.swapperId}</span>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    )}
 
-                    <div className="flex items-center justify-between py-2 border-b border-white/5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
-                      <span className="text-[11px] font-black text-primary">
-                        ~{bridgeQuoteData?.completionTime ? Math.max(1, Math.round(bridgeQuoteData.completionTime / 60000)) : 5} min
-                      </span>
-                    </div>
+                          {networkFee && (
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Network Fee</span>
+                              <span className="text-[11px] font-black text-primary">
+                                ~{Number(networkFee.amount).toFixed(6)} {networkFee.asset.symbol}
+                              </span>
+                            </div>
+                          )}
+
+                          {rangoFee && (
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rango Fee</span>
+                              <span className="text-[11px] font-black text-primary">
+                                {Number(rangoFee.amount).toFixed(4)} {rangoFee.asset.symbol}
+                              </span>
+                            </div>
+                          )}
+
+                          {estimatedSecs && (
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
+                              <span className="text-[11px] font-black text-primary">
+                                ~{Math.ceil(estimatedSecs / 60)} min
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })() : (
+                      <>
+                        {bridgeQuoteData?.fee?.[feePayType] && (
+                          <div className="flex items-center justify-between py-2 border-b border-white/5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Bridge Fee</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-black text-primary">
+                                {Number(bridgeQuoteData.fee[feePayType].amount).toFixed(4)}
+                              </span>
+                              <span className="text-[9px] font-black text-muted">{bridgeQuoteData.fee[feePayType].symbol}</span>
+                              <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5 ml-1">
+                                <button
+                                  onClick={() => setFeePayType('native')}
+                                  className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-widest transition-all ${feePayType === 'native' ? 'bg-primary text-secondary' : 'text-muted hover:text-primary/70'}`}
+                                >
+                                  {fromChainConfig?.nativeCurrency.symbol}
+                                </button>
+                                <button
+                                  onClick={() => setFeePayType('stablecoin')}
+                                  className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-widest transition-all ${feePayType === 'stablecoin' ? 'bg-primary text-secondary' : 'text-muted hover:text-primary/70'}`}
+                                >
+                                  STABLE
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between py-2 border-b border-white/5">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
+                          <span className="text-[11px] font-black text-primary">
+                            ~{bridgeQuoteData?.completionTime ? Math.max(1, Math.round(bridgeQuoteData.completionTime / 60000)) : 5} min
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
-
-                {/* Min received — always last */}
+                {/* Min received */}
                 <div className="flex items-center justify-between py-2">
                   <span className="text-[10px] font-black uppercase tracking-widest text-muted">Min. Received</span>
                   <span className="text-[12px] font-black text-brand">
@@ -975,7 +1240,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {isInsufficientBalance ? 'Insufficient balance for this transaction' :
                   isSameAssetSelected ? 'Please select different assets to swap' :
                     (actionType === 'SWAP' && !isStellar(fromChainId) && swapError) ? `Swap Error: ${swapError}` :
-                      bridgeTxStatus === 'error' ? 'Transaction failed. Please try again.' :
+                      bridgeTxStatus === 'error' ? (bridgeErrorMsg || 'Transaction failed. Please try again.') :
                         'An error occurred. Please check your inputs.'}
               </p>
             </div>
@@ -994,22 +1259,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             />
           </EvmActionGuard>
         </div>
-
-        {isConfirmModalOpen && (
-          <ConfirmationModal
-            isOpen={isConfirmModalOpen}
-            onConfirm={executeBridgeTransaction}
-            onCancel={() => setIsConfirmModalOpen(false)}
-            title="Confirm Bridge Transaction"
-            confirmText="Proceed"
-            message={
-              <div className="space-y-4">
-                <p>You are about to bridge <span className="font-bold text-primary">{sellAmount} {sellAssetSymbol}</span> from <span className="font-bold text-brand">{fromChainConfig?.name}</span> to receive <span className="font-bold text-primary">~{bridgeQuoteData?.minimumAmountOut} {buyAssetSymbol}</span> on <span className="font-bold text-brand">{toChainConfig?.name}</span>.</p>
-                <p className="text-muted text-sm">Please note that bridging requires multiple transactions (approvals and the final transfer). Stay on the page until all transactions are confirmed.</p>
-              </div>
-            }
-          />
-        )}
 
         {swapTxHash && fromChainConfig && actionType === 'SWAP' && (
           <EvmTransactionSuccessModal txHash={swapTxHash} explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${swapTxHash}`} onDone={handleReset} networkName={fromChainConfig.name} />

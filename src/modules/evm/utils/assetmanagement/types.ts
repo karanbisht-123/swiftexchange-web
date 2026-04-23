@@ -29,10 +29,12 @@ export interface IChain {
   imageUrl: string;
   name: string;
   symbol: string;
+  rangoSymbol?: string;
   chainName: string;
   subName: string;
   slug: string;
   networkType: NetworkType;
+
   blockExplorerUrl: string;
   gasLimit?: number;
   supportedTokenList: string | IToken[];

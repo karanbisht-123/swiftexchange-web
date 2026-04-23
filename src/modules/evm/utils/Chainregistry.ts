@@ -49,6 +49,7 @@ export interface ChainLink {
 export interface ChainConfig {
     chainId: number;
     name: string;
+    symbol?: string;
     networkType: NetworkType;
     available: boolean;
     swapEnabled: boolean;
@@ -78,6 +79,7 @@ export interface ChainConfig {
     imageUrl?: string;
     chainName?: string;
     subName?: string;
+    rangoSymbol?: string;
     gasLimit?: number;
     supportedTokenList?: string | any[];
     nativeToken?: any;
@@ -107,6 +109,23 @@ export function getChainById(chainId: number): ChainConfig | undefined {
 export function getChainBySlug(slug: string, networkType: NetworkType): ChainConfig | undefined {
     return BY_SLUG.get(`${slug}:${networkType}`);
 }
+
+
+export function findChain(identifier: string, networkType: NetworkType): ChainConfig | undefined {
+    const id = identifier.toLowerCase();
+
+    const exactMatch = getChainBySlug(id, networkType);
+    if (exactMatch) return exactMatch;
+
+    return CHAIN_REGISTRY.find(c => 
+        c.networkType === networkType && (
+            c.slug.toLowerCase() === id ||
+            (c.nativeChainKey?.toLowerCase().includes(id) ?? false) ||
+            c.name.toLowerCase().includes(id)
+        )
+    );
+}
+
 
 export function getChainsForNetwork(networkType: NetworkType): ChainConfig[] {
     return CHAIN_REGISTRY.filter((c) => c.networkType === networkType && c.available);
@@ -159,6 +178,11 @@ export function getChainNativeSymbol(chainId: number): string {
 
 export function getChainLogoUrl(chainId: number): string | undefined {
     return getChainById(chainId)?.logoURI;
+}
+
+export function getChainRangoSymbol(chainId: number): string {
+    const chain = getChainById(chainId);
+    return (chain as any)?.rangoSymbol || chain?.symbol || 'ETH';
 }
 
 export function getTokenAddress(chainId: number, symbol: keyof WellKnownTokens): string | undefined {

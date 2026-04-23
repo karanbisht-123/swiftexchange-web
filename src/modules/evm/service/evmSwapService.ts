@@ -4,8 +4,10 @@ import { getChainById } from '../utils/Chainregistry';
 import { ethers } from 'ethers';
 
 
-const getChainSymbol = (chainId: number) =>
-  getChainById(chainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+const getChainSymbol = (chainId: number) => {
+  const chain = getChainById(chainId);
+  return (chain?.symbol || chain?.nativeCurrency.symbol || 'ETH').toUpperCase();
+};
 
 const getBridgeChainSymbol = (chainId: number) =>
   getChainSymbol(chainId).slice(0, 3);
@@ -59,6 +61,39 @@ export interface SubmitFusionOrderRequest {
   quoteId: string;
   extension: string;
   signature: string;
+}
+
+export interface RangoBestRouteRequest {
+  from: {
+    blockchain: string;
+    symbol: string;
+    address: string;
+  };
+  to: {
+    blockchain: string;
+    symbol: string;
+    address: string;
+  };
+  amount: string;
+  slippage: string;
+}
+
+export interface RangoConfirmRouteRequest {
+  requestId: string;
+  sourceChain: string;
+  destinationChain: string;
+  fromAddress: string;
+  toAddress: string;
+}
+
+export interface RangoCheckApprovalRequest {
+  requestId: string;
+  txId: string;
+}
+
+export interface RangoPrepareTxRequest {
+  requestId: string;
+  swaps: number;
 }
 
 
@@ -202,8 +237,8 @@ export async function prepareBridgeTransaction(
   request: BridgeTransactionRequest
 ): Promise<BridgeTransactionResponse> {
   const res = await fetchApiResponseFromProxy<any>(`/bridge/swap-transaction/prepare`, 'POST', {
-    sourceChain: getBridgeChainSymbol(request.fromChainId),
-    destinationChain: getBridgeChainSymbol(request.toChainId),
+    walletType: getBridgeChainSymbol(request.fromChainId),
+    destinationWalletType: getBridgeChainSymbol(request.toChainId),
     amount: request.amount,
     sourceToken: request.sourceToken.toUpperCase(),
     destinationToken: request.destinationToken.toUpperCase(),
@@ -259,5 +294,34 @@ export async function submit1InchFusionOrder(
   const res = await fetchApiResponseFromProxy<any>(`/swap/1inch/submitOrder`, 'POST', request);
   const data = res.data?.data || res.data;
   if (!data) throw new Error('Failed to submit 1inch Fusion order');
+  return data;
+}
+
+
+export async function getRangoBestRoute(payload: RangoBestRouteRequest): Promise<any> {
+  const res = await fetchApiResponseFromProxy<any>(`/swap/rango/best/route`, 'POST', payload);
+  const data = res.data?.data || res.data;
+  if (!data) throw new Error('No Rango route data received');
+  return data;
+}
+
+export async function confirmRangoRoute(payload: RangoConfirmRouteRequest): Promise<any> {
+  const res = await fetchApiResponseFromProxy<any>(`/swap/rango/confirm/route`, 'POST', payload);
+  const data = res.data?.data || res.data;
+  if (!data) throw new Error('Failed to confirm Rango route');
+  return data;
+}
+
+export async function checkRangoApproval(payload: RangoCheckApprovalRequest): Promise<any> {
+  const res = await fetchApiResponseFromProxy<any>(`/swap/rango/tx/approval`, 'POST', payload);
+  const data = res.data?.data || res.data;
+  if (!data) throw new Error('Failed to check Rango approval');
+  return data;
+}
+
+export async function prepareRangoTx(payload: RangoPrepareTxRequest): Promise<any> {
+  const res = await fetchApiResponseFromProxy<any>(`/swap/rango/prepare/tx`, 'POST', payload);
+  const data = res.data?.data || res.data;
+  if (!data) throw new Error('Failed to prepare Rango transaction');
   return data;
 }

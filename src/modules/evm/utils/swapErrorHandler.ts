@@ -7,21 +7,34 @@ export function parseSwapError(error: any): string {
 
   let message = '';
 
-  // Handle structured backend error objects
-  if (typeof error === 'object' && error !== null) {
+  // Extract error info logically preferring deeper structures, like axios responses
+  const data = error?.response?.data || error?.data || error;
+
+  if (Array.isArray(data) && data.length > 0) {
+    if (data[0]?.error) message = String(data[0].error);
+    else if (data[0]?.message) message = String(data[0].message);
+  }
+
+  if (!message && typeof data === 'object' && data !== null) {
+    if (data.message) {
+      message = data.message;
+    } else if (data.error && typeof data.error === 'string') {
+      message = data.error;
+    } else if (data.info?.error?.message) {
+      message = data.info.error.message;
+    } else if (data.error?.message) {
+      message = data.error.message;
+    }
+  }
+
+  if (!message && typeof error === 'object' && error !== null) {
     if (error.message) {
       message = error.message;
-    } else if (error.info?.error?.message) {
-      message = error.info.error.message;
-    } else if (error.error?.message) {
-      message = error.error.message;
-    } else if (error.data?.message) {
-      message = error.data.message;
     } else {
       try {
-        // Handle stringified error objects
         const parsed = JSON.parse(error.toString());
         if (parsed.message) message = parsed.message;
+        else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.error) message = String(parsed[0].error);
       } catch (e) {
         message = error.toString();
       }

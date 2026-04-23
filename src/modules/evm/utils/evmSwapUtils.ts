@@ -2,10 +2,11 @@ import { ethers } from 'ethers';
 
 import type { SwapQuote, SwapQuoteRequest, SwapType } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
-import { getSwapQuote, prepareSwapTransaction, get1InchFusionQuote, build1InchFusionOrder, submit1InchFusionOrder } from '../service/evmSwapService';
+import { getSwapQuote, prepareSwapTransaction, get1InchFusionQuote, build1InchFusionOrder, submit1InchFusionOrder, getRangoBestRoute, confirmRangoRoute, checkRangoApproval, prepareRangoTx } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
-import { getChainById } from './Chainregistry';
+import { getChainById, getChainRangoSymbol } from './Chainregistry';
 import { parseSwapError } from './swapErrorHandler';
+import { NATIVE_ADDRESS } from './assetmanagement/constants';
 
 
 export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
@@ -339,6 +340,77 @@ export async function execute1InchFusionSwap(
   }
 }
 
+function toRangoAddress(address: string | null | undefined): string {
+  if (!address || address.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) return NATIVE_ADDRESS;
+  return address;
+}
 
+export async function fetchRangoBestRoute(
+  fromChainId: number,
+  fromSymbol: string,
+  fromAddress: string | null,
+  toChainId: number,
+  toSymbol: string,
+  toAddress: string | null,
+  amount: string,
+  slippage: string = "1.0"
+): Promise<any> {
+  try {
+    const payload = {
+      from: { blockchain: getChainRangoSymbol(fromChainId), symbol: fromSymbol, address: toRangoAddress(fromAddress) },
+      to: { blockchain: getChainRangoSymbol(toChainId), symbol: toSymbol, address: toRangoAddress(toAddress) },
+      amount,
+      slippage
+    };
+    return await getRangoBestRoute(payload);
+  } catch (error: any) {
+    const message = parseSwapError(error);
+    throw new Error(message);
+  }
+}
 
+export async function fetchRangoConfirmRoute(
+  requestId: string,
+  fromChainId: number,
+  toChainId: number,
+  fromAddress: string,
+  toAddress: string
+): Promise<any> {
+  try {
+    const payload = {
+      requestId,
+      sourceChain: getChainRangoSymbol(fromChainId),
+      destinationChain: getChainRangoSymbol(toChainId),
+      fromAddress,
+      toAddress
+    };
+    return await confirmRangoRoute(payload);
+  } catch (error: any) {
+    const message = parseSwapError(error);
+    throw new Error(message);
+  }
+}
 
+export async function fetchRangoCheckApproval(
+  requestId: string,
+  txId: string = ""
+): Promise<any> {
+  try {
+    return await checkRangoApproval({ requestId, txId });
+  } catch (error: any) {
+    const message = parseSwapError(error);
+    throw new Error(message);
+  }
+}
+
+export async function fetchRangoPrepareTx(
+  requestId: string,
+  swapsIndex: number = 1
+): Promise<any> {
+  try {
+    return await prepareRangoTx({ requestId, swaps: swapsIndex });
+  } catch (error: any) {
+    const message = parseSwapError(error);
+    throw new Error(message);
+  }
+}

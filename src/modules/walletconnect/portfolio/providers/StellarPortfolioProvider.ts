@@ -25,7 +25,7 @@ export class StellarPortfolioProvider implements IPortfolioProvider {
         const isNative = b.asset_type === 'native';
         const symbol = 'asset_code' in b ? b.asset_code : 'XLM';
         const issuer = ('asset_issuer' in b ? b.asset_issuer : undefined) ?? undefined;
-        
+
         // Use local registry for speed, background enrichPrices will handle the rest later
         const registryAsset = getAssetBySymbol(stellarChainId, symbol);
         const globalMeta = !registryAsset ? getGlobalAssetMetadata(symbol) : undefined;

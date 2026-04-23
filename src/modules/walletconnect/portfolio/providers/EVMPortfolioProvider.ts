@@ -7,7 +7,8 @@ import {
   getAssetByAddress,
   getChainNativeSymbol,
   getChainLogoUrl,
-  getChainBySlug,
+  // getChainBySlug,
+  findChain,
   type NetworkType
 } from '../../../evm/utils/Chainregistry';
 import { NATIVE_ADDRESS } from '../../../evm/utils/assetmanagement/constants';
@@ -61,21 +62,30 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
 
       const backendTokens = response.data.data.tokens;
 
-      return backendTokens.map((token: BackendToken) => {
-        const [slug, net] = token.network.split('-');
-        const chain = getChainBySlug(slug, net as NetworkType);
-        const chainId = chain?.chainId || 1;
-        const isNative = !token.tokenAddress;
+      return (backendTokens.map((token: BackendToken) => {
+        const [rawSlug, net] = token.network.split('-');
 
+        // Standardize common backend slugs to match our internal names/keys
+        let id = rawSlug.toLowerCase();
+        if (id === 'matic') id = 'polygon';
+        if (id === 'bnb') id = 'binance';
+
+        // Smarter lookup that automatically handles 'polygon', 'avalanche', etc.
+        const chain = findChain(id, net as NetworkType);
+        if (!chain) return null;
+
+
+        const chainId = chain.chainId as number;
+        const isNative = !token.tokenAddress;
         const assetAddress = isNative ? NATIVE_ADDRESS : token.tokenAddress!;
 
         const registryAsset = getAssetByAddress(chainId, assetAddress);
+
 
         const decimals = token.tokenMetadata.decimals ?? registryAsset?.decimals ?? 18;
         const symbol = token.tokenMetadata.symbol ?? registryAsset?.symbol ?? (isNative ? getChainNativeSymbol(chainId) : 'TOKEN');
         const name = token.tokenMetadata.name ?? registryAsset?.name ?? (isNative ? getChainName(chainId) : 'Unknown Token');
         const logo = token.tokenMetadata.logo ?? registryAsset?.logoURI ?? getChainLogoUrl(chainId) ?? '';
-
 
         let balance = 0;
         try {
@@ -103,7 +113,22 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
           decimals,
         };
 
-      }).filter(asset => asset.balance > 0);
+      }) as (Asset | null)[]).filter((asset: Asset | null): asset is Asset => {
+        if (!asset || asset.balance === 0 || !asset.address || !asset.chainId) return false;
+
+        const address = asset.address as string;
+        const chainId = asset.chainId as number;
+        const isNative = address.toLowerCase() === NATIVE_ADDRESS.toLowerCase();
+        const isInRegistry = !!getAssetByAddress(chainId, address);
+
+        const hasPrice = asset.current_price > 0;
+
+
+        // Display if it's native, in our registry, OR has a valid price from backend (trusted)
+        return isNative || isInRegistry || hasPrice;
+      });
+
+
     } catch (error) {
       console.error('[EVMPortfolioProvider] Failed to fetch EVM portfolio:', error);
       return [];

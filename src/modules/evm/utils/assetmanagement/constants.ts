@@ -19,11 +19,13 @@ export const RPC_URLS = {
 
   POL: [
     'https://polygon-bor-rpc.publicnode.com',
-    'https://polygon-rpc.com',
     'https://polygon.drpc.org',
     'https://1rpc.io/matic',
     'https://polygon-mainnet.gateway.tatum.io/',
     'https://polygon.rpc.subquery.network/public',
+    "https://polygon-mainnet.public.blastapi.io",
+    "https://1rpc.io/matic",
+    "https://polygon.meowrpc.com",
   ],
 
   OPT: [

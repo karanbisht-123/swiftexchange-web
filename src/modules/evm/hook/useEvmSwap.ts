@@ -12,7 +12,7 @@ import {
 } from '../service/tokenListService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
-import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap } from '../utils/evmSwapUtils';
+import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap, fetchRangoBestRoute, fetchRangoConfirmRoute, fetchRangoCheckApproval, fetchRangoPrepareTx } from '../utils/evmSwapUtils';
 import { rpcManager } from '../utils/rpcProvider';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
@@ -34,6 +34,7 @@ interface UseEvmSwapState {
   quoteLoading: boolean;
   isGasless: boolean;
   fusionQuote: FusionQuote | null;
+  rangoQuote: any | null;
 }
 
 interface UseEvmSwapActions {
@@ -67,6 +68,23 @@ interface UseEvmSwapActions {
   ) => Promise<string>;
 
   setGasless: (enabled: boolean) => void;
+  fetchRangoQuote: (
+    fromChainId: number,
+    toChainId: number,
+    sellAsset: TokenInfo,
+    buyAsset: TokenInfo,
+    amount: string,
+    slippage?: string
+  ) => Promise<any>;
+  confirmRangoRoute: (
+    requestId: string,
+    fromChainId: number,
+    toChainId: number,
+    fromAddress: string,
+    toAddress: string
+  ) => Promise<any>;
+  checkRangoApproval: (requestId: string, txId?: string) => Promise<any>;
+  prepareRangoTx: (requestId: string, swapsIndex?: number) => Promise<any>;
   reset: () => void;
 }
 
@@ -85,6 +103,7 @@ export const useEvmSwap = ({
     quoteLoading: false,
     isGasless: false,
     fusionQuote: null,
+    rangoQuote: null,
   });
 
   const activeSwapId = useRef<string | null>(null);
@@ -454,8 +473,106 @@ export const useEvmSwap = ({
       loading: false,
       quoteLoading: false,
       fusionQuote: null,
+      rangoQuote: null,
     });
   }, [updateState]);
+
+  const fetchRangoQuote = useCallback(
+    async (
+      fromChainId: number,
+      toChainId: number,
+      sellAsset: TokenInfo,
+      buyAsset: TokenInfo,
+      amount: string,
+      slippage: string = "1.0"
+    ): Promise<any> => {
+      updateState({ quoteLoading: true, error: null, rangoQuote: null });
+
+      try {
+        const toChainTokens = getTokensForChain(toChainId);
+        const toChainAsset = toChainTokens.find(t => t.symbol.toUpperCase() === buyAsset.symbol.toUpperCase());
+
+        const fromAddress = sellAsset.isNative ? null : sellAsset.address;
+        const toAddress = toChainAsset
+          ? (toChainAsset.isNative ? null : toChainAsset.address)
+          : (buyAsset.isNative ? null : buyAsset.address);
+
+        const rangoData = await fetchRangoBestRoute(
+          fromChainId,
+          sellAsset.symbol,
+          fromAddress,
+          toChainId,
+          buyAsset.symbol,
+          toAddress,
+          amount,
+          slippage
+        );
+
+        updateState({ rangoQuote: rangoData, quoteLoading: false });
+        return rangoData;
+      } catch (err: any) {
+        const errorMsg = parseSwapError(err);
+        updateState({ error: errorMsg, quoteLoading: false, rangoQuote: null });
+        throw new Error(errorMsg);
+      }
+    },
+    [updateState]
+  );
+
+
+  const confirmRangoRoute = useCallback(
+    async (
+      requestId: string,
+      fromChainId: number,
+      toChainId: number,
+      fromAddress: string,
+      toAddress: string
+    ): Promise<any> => {
+      updateState({ loading: true, error: null });
+
+      try {
+        const result = await fetchRangoConfirmRoute(
+          requestId,
+          fromChainId,
+          toChainId,
+          fromAddress,
+          toAddress
+        );
+
+        updateState({ loading: false });
+        return result;
+      } catch (err: any) {
+        const errorMsg = parseSwapError(err);
+        updateState({ error: errorMsg, loading: false });
+        throw new Error(errorMsg);
+      }
+    },
+    [updateState]
+  );
+
+  const checkRangoApprovalAction = useCallback(
+    async (requestId: string, txId: string = ""): Promise<any> => {
+      try {
+        return await fetchRangoCheckApproval(requestId, txId);
+      } catch (err: any) {
+        const errorMsg = parseSwapError(err);
+        throw new Error(errorMsg);
+      }
+    },
+    []
+  );
+
+  const prepareRangoTxAction = useCallback(
+    async (requestId: string, swapsIndex: number = 1): Promise<any> => {
+      try {
+        return await fetchRangoPrepareTx(requestId, swapsIndex);
+      } catch (err: any) {
+        const errorMsg = parseSwapError(err);
+        throw new Error(errorMsg);
+      }
+    },
+    []
+  );
 
   const setGasless = useCallback((enabled: boolean) => {
     updateState({ isGasless: enabled });
@@ -469,6 +586,10 @@ export const useEvmSwap = ({
     fetchFusionQuote,
     performSwap,
     performFusionSwap,
+    fetchRangoQuote,
+    confirmRangoRoute,
+    checkRangoApproval: checkRangoApprovalAction,
+    prepareRangoTx: prepareRangoTxAction,
     setGasless,
     reset,
   };

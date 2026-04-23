@@ -33,10 +33,10 @@ export class AmmSwapService {
     }
 
     try {
-      const account = await this.server.loadAccount(address);
+      const response = await this.server.loadAccount(address);
       const tokens: TokenInfo[] = [];
 
-      for (const balance of account.balances) {
+      for (const balance of response.balances) {
         if (balance.asset_type === 'native') {
           tokens.push({
             asset: StellarSDK.Asset.native(),
@@ -60,7 +60,15 @@ export class AmmSwapService {
       }
 
       return tokens;
-    } catch (error) {
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return [{
+          asset: StellarSDK.Asset.native(),
+          code: 'XLM',
+          balance: '0',
+          isPopular: true,
+        }];
+      }
       console.error('Failed to fetch token balances:', error);
       throw new Error('Failed to load account balances');
     }
@@ -263,10 +271,27 @@ export class AmmSwapService {
 
     try {
       const sourceAccount = await this.server.loadAccount(fromAddress);
+
+      // Automatic Trustline Handling
       const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
         fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
+
+      if (!quote.toAsset.isNative()) {
+        const hasTrustline = sourceAccount.balances.some(b =>
+          (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
+          b.asset_code === quote.toAsset.getCode() &&
+          b.asset_issuer === quote.toAsset.getIssuer()
+        );
+
+        if (!hasTrustline) {
+          console.log('Adding trustline for:', quote.toAsset.getCode());
+          txBuilder.addOperation(StellarSDK.Operation.changeTrust({
+            asset: quote.toAsset
+          }));
+        }
+      }
 
       let path: StellarSDK.Asset[] = [];
       if (quote.path.hops > 1) {
@@ -358,6 +383,40 @@ export class AmmSwapService {
       console.error('Failed to check liquidity availability:', error);
       return false;
     }
+  }
+
+  async getAssetsWithBalances(address: string): Promise<TokenInfo[]> {
+    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+    const chainId = isMainnet ? 9000000 : 9000001;
+    const chainConfig = getChainById(chainId);
+
+    if (!chainConfig) return [];
+
+    let balances: TokenInfo[] = [];
+    try {
+      balances = await this.getTokenBalances(address);
+    } catch (error) {
+      console.warn('Could not load balances, using zero balances');
+    }
+
+    return chainConfig.assets.map(a => {
+      const asset = a.type === 'NATIVE'
+        ? StellarSDK.Asset.native()
+        : new StellarSDK.Asset(a.symbol, a.address);
+
+      const balRecord = balances.find(b => this.assetsEqual(b.asset, asset));
+
+      return {
+        asset,
+        code: a.symbol,
+        issuer: a.type === 'NATIVE' ? undefined : a.address,
+        balance: balRecord?.balance || '0',
+        name: a.name,
+        icon: a.logoURI,
+        decimals: a.decimals,
+        isPopular: true,
+      };
+    });
   }
 
   getPopularAssets(): StellarSDK.Asset[] {

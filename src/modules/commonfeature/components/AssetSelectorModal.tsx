@@ -26,8 +26,10 @@ interface NetworkOption {
 const AssetSelectorModal: FC = () => {
   const navigate = useNavigate();
   const { isOpen, actionType, defaultNetwork, pairedChainId, onSelect, closeAssetSelector } = useAssetSelectorModal();
-  const { network: currentNetwork } = useWalletStore();
+  const { network: currentNetwork, connectedWallets } = useWalletStore();
   const { assets: walletAssets } = useWalletAssets(currentNetwork);
+
+  const isStellarConnected = !!connectedWallets.stellar?.address;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
@@ -60,6 +62,7 @@ const AssetSelectorModal: FC = () => {
     ];
 
     return allNetworks.filter(net => {
+      if (net.id === STELLAR_CHAIN_ID && !isStellarConnected) return false;
       if (net.id === 'all') return true;
       if (actionType === 'SEND') return net.sendEnable;
       if (actionType === 'RECEIVE') return net.receiveEnable;
@@ -67,7 +70,7 @@ const AssetSelectorModal: FC = () => {
       if (actionType === 'BRIDGE') return net.bridgeEnable;
       return true;
     });
-  }, [currentNetwork, actionType]);
+  }, [currentNetwork, actionType, isStellarConnected]);
 
   const effectiveActionType = useMemo(() => {
     if (selectedNetwork === 'all') return actionType;
@@ -86,6 +89,7 @@ const AssetSelectorModal: FC = () => {
       result = walletAssets.filter(a => (a.balance || 0) > 0);
     } else if (effectiveActionType === 'RECEIVE') {
       for (const config of CHAIN_REGISTRY) {
+        if (config.chainId === STELLAR_CHAIN_ID && !isStellarConnected) continue;
         if (config.receiveEnable) {
           result.push({
             id: `receive-${config.chainId}-native`, symbol: config.nativeCurrency.symbol, name: config.nativeCurrency.name, image: config.nativeCurrency.logoURI, chainId: config.chainId, isNative: true
@@ -100,21 +104,52 @@ const AssetSelectorModal: FC = () => {
       }
     } else if (effectiveActionType === 'SWAP') {
       const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
-      const registryTokens = getTokensForChain(activeChainId);
-      result = registryTokens.map(t => ({
-        id: `swap-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative, balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
-      }));
+      if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) {
+        result = [];
+      } else {
+        const registryTokens = getTokensForChain(activeChainId);
+        result = registryTokens.map(t => ({
+          id: `swap-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative, balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+        }));
+      }
     } else if (effectiveActionType === 'BRIDGE') {
-      const chainsToIterate = selectedNetwork === 'all' ? CHAIN_REGISTRY : CHAIN_REGISTRY.filter(c => c.chainId === Number(selectedNetwork));
-      chainsToIterate.forEach(config => {
-        if (config.bridgeEnable) {
-          config.bridgeSupportTokens.forEach((asset: any) => {
-            result.push({
-              id: `bridge-${config.chainId}-${asset.symbol}`, symbol: asset.symbol, name: asset.name, image: asset.logoURI, chainId: config.chainId, address: asset.address, decimals: asset.decimals
-            });
-          });
+      const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
+      const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
+
+      if (isStellarInvolved && !isStellarConnected) {
+        result = [];
+      } else {
+        const registryTokens = getTokensForChain(activeChainId);
+        if (isStellarInvolved) {
+          const chainConfig = getChainById(activeChainId);
+          const supportedSymbols = chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
+          result = registryTokens
+            .filter(t => supportedSymbols.includes(t.symbol.toUpperCase()))
+            .map(t => ({
+              id: `bridge-${activeChainId}-${t.symbol}`,
+              symbol: t.symbol,
+              name: t.name,
+              image: t.logoURI,
+              chainId: activeChainId,
+              address: t.address,
+              decimals: t.decimals,
+              isNative: t.isNative,
+              balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+            }));
+        } else {
+          result = registryTokens.map(t => ({
+            id: `bridge-${activeChainId}-${t.symbol}`,
+            symbol: t.symbol,
+            name: t.name,
+            image: t.logoURI,
+            chainId: activeChainId,
+            address: t.address,
+            decimals: t.decimals,
+            isNative: t.isNative,
+            balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+          }));
         }
-      });
+      }
     }
 
     if (selectedNetwork !== 'all') {
