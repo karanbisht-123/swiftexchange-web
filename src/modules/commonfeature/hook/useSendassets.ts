@@ -113,36 +113,37 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const senderAddress = useMemo(() => currentAsset ? connectedWallets[currentAsset.walletType]?.address || null : null, [connectedWallets, currentAsset]);
 
-  useEffect(() => {
-    const fetchBalance = async () => {
-      if (!currentAsset || !senderAddress) return;
-      
-      const storeItem = storeAssets.find(a => a.id === currentAsset.value);
-      if (storeItem) setBalance(storeItem.balance || 0);
+  const fetchBalance = useCallback(async () => {
+    if (!currentAsset || !senderAddress) return;
+    
+    const storeItem = storeAssets.find(a => a.id === currentAsset.value);
+    if (storeItem) setBalance(storeItem.balance || 0);
 
-      setIsFetchingBalance(true);
-      try {
-        let balStr: string;
-        if (currentAsset.type === 'evm') {
-          const config = getEVMNetworkConfig(Number(currentAsset.networkKey));
-          balStr = await rpcManager.fetchWithFallback(
-            Number(currentAsset.networkKey),
-            config.rpcUrls,
-            async (provider) => fetchSingleTokenBalance(senderAddress, provider, currentAsset.tokenAddress || '', currentAsset.isNative, currentAsset.decimals)
-          );
-        } else {
-          const key = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
-          balStr = await getStellarBalance(key, senderAddress);
-        }
-        setBalance(parseFloat(balStr));
-      } catch (e) {
-        console.error('Balance error:', e);
-      } finally {
-        setIsFetchingBalance(false);
+    setIsFetchingBalance(true);
+    try {
+      let balStr: string;
+      if (currentAsset.type === 'evm') {
+        const config = getEVMNetworkConfig(Number(currentAsset.networkKey));
+        balStr = await rpcManager.fetchWithFallback(
+          Number(currentAsset.networkKey),
+          config.rpcUrls,
+          async (provider) => fetchSingleTokenBalance(senderAddress, provider, currentAsset.tokenAddress || '', currentAsset.isNative, currentAsset.decimals)
+        );
+      } else {
+        const key = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
+        balStr = await getStellarBalance(key, senderAddress);
       }
-    };
-    fetchBalance();
+      setBalance(parseFloat(balStr));
+    } catch (e) {
+      console.error('Balance error:', e);
+    } finally {
+      setTimeout(() => setIsFetchingBalance(false), 500);
+    }
   }, [currentAsset, senderAddress, storeAssets]);
+
+  useEffect(() => {
+    fetchBalance();
+  }, [fetchBalance]);
 
   useEffect(() => {
     const estimate = async () => {
@@ -210,6 +211,7 @@ export const useSendAsset = (onBack?: () => void) => {
     transactionState, setTransactionState, isEstimatingFees, estimatedFees,
     currentAsset, senderAddress, isWalletConnected: !!senderAddress,
     handleMaxClick,
+    handleRefreshBalances: fetchBalance,
     handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
     handleConfirmTransaction,
     handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),

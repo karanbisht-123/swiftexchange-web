@@ -2,10 +2,6 @@ import {
   ArrowUpDown,
   ChevronDown,
   RefreshCw,
-  Plus,
-  Minus,
-  Settings2,
-  X,
   Zap
 } from 'lucide-react';
 
@@ -80,9 +76,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>(searchParams.get('buyAsset') || '');
   const [sellAmount, setSellAmount] = useState<string>('');
 
-  const [slippageTolerance, setSlippageTolerance] = useState<number>(0.5);
-  const [isSlippageModalOpen, setIsSlippageModalOpen] = useState<boolean>(false);
-  const SLIPPAGE_PRESETS = [0.1, 0.5, 1.0, 3.0, 5.0];
+  const slippageTolerance = 0.5;
+
 
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -184,7 +179,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (sellAssetSymbol) params.set('sellAsset', sellAssetSymbol);
     if (buyAssetSymbol) params.set('buyAsset', buyAssetSymbol);
     setSearchParams(params, { replace: true });
-  }, [fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol, setSearchParams]);
+  }, [fromChainId, toChainId, sellAssetSymbol, setSearchParams]);
 
   useEffect(() => {
     if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
@@ -206,7 +201,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (fromChainId && !isStellar(fromChainId)) {
       fetchTokenList();
     }
-  }, [fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol, resetSwap, actionType, fetchTokenList]);
+  }, [fromChainId, toChainId, sellAssetSymbol, resetSwap, actionType, fetchTokenList]);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -225,25 +220,30 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       if (isStellar(fromChainId)) {
         return;
       }
-      if (selectedSellAsset || selectedBuyAsset) {
-        updateTokenBalances(selectedSellAsset as any, selectedBuyAsset as any);
+      if (selectedSellAsset) {
+        updateTokenBalances(selectedSellAsset as any);
       }
     }
-  }, [selectedSellAsset?.address, selectedBuyAsset?.address, isConnected, evmAddress, stellarAddress, isChainSwitching, updateTokenBalances, swapAssets.length, actionType, fromChainId]);
+  }, [selectedSellAsset?.address, isConnected, evmAddress, stellarAddress, isChainSwitching, updateTokenBalances, swapAssets.length, actionType, fromChainId]);
 
   useEffect(() => {
     if (isStellar(fromChainId) && stellarAddress && ammService) {
       const fetchStellar = async () => {
         setIsFetchingStellarAssets(true);
         try {
-          const balances = await ammService.getAssetsWithBalances(stellarAddress);
+          const { tokens: balances, subentryCount } = await ammService.getAssetsWithBalances(stellarAddress);
+          const reserve = 1 + subentryCount * 0.5;
           const mapped = balances.map((b: any) => {
+            let balanceToUse = b.balance;
+            if (b.code === 'XLM') {
+              balanceToUse = Math.max(0, parseFloat(b.balance || '0') - reserve).toString();
+            }
             return {
               id: `stellar-${fromChainId}-${b.code}`,
               symbol: b.code,
               name: b.name || b.code,
               logoURI: b.icon,
-              balance: b.balance,
+              balance: balanceToUse,
               decimals: b.decimals || 7,
               isNative: b.asset.isNative(),
               asset: b.asset,
@@ -760,13 +760,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
 
     if (isEvmChain(newChainId)) {
-      if (isConnected) {
+      if (isConnected && isSource) {
         setIsChainSwitching(true);
         try {
           const provider = getProvider(WalletType.EVM);
           await switchOrAddChain(provider, newChainId);
-          if (isSource) setFromChainId(newChainId);
-          else setToChainId(newChainId);
+          setFromChainId(newChainId);
         } catch (err: any) {
           console.error('Failed to switch chain:', err);
         } finally {
@@ -789,15 +788,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     try {
       if (isStellar(fromChainId)) {
         if (stellarAddress && ammService) {
-          const balances = await ammService.getTokenBalances(stellarAddress);
+          const { tokens: balances, subentryCount } = await ammService.getAccountData(stellarAddress);
+          const reserve = 1 + subentryCount * 0.5;
           const mapped = balances.map(b => {
             const metadata = getGlobalAssetMetadata(b.code);
+            let balanceToUse = b.balance;
+            if (b.code === 'XLM') {
+              balanceToUse = Math.max(0, parseFloat(b.balance || '0') - reserve).toString();
+            }
             return {
               id: `stellar-${fromChainId}-${b.code}`,
               symbol: b.code,
               name: b.code,
               logoURI: metadata?.logoURI,
-              balance: b.balance,
+              balance: balanceToUse,
               decimals: 7,
               isNative: b.asset.isNative(),
               asset: b.asset,
@@ -807,8 +811,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           setStellarAssets(mapped);
         }
       } else {
-        if (selectedSellAsset || selectedBuyAsset) {
-          await updateTokenBalances(selectedSellAsset as any, selectedBuyAsset as any);
+        if (selectedSellAsset) {
+          await updateTokenBalances(selectedSellAsset as any);
         }
       }
     } catch (err) {
@@ -816,7 +820,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     } finally {
       setTimeout(() => setIsRefreshing(false), 800);
     }
-  }, [isConnected, isChainSwitching, fromChainId, stellarAddress, ammService, selectedSellAsset, selectedBuyAsset, updateTokenBalances]);
+  }, [isConnected, isChainSwitching, fromChainId, stellarAddress, ammService, selectedSellAsset, updateTokenBalances]);
 
   const isInsufficientBalance = useMemo(() => {
     if (!sellAmount || !selectedSellAsset) return false;
@@ -963,7 +967,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 <RefreshCw size={12} />
               </button>
               <span>Balance:</span>
-              <span className="text-primary font-black">{portfolioUtils.formatBalance((selectedSellAsset as any)?.balance || '0')} {sellAssetSymbol}</span>
+              <span className="text-primary font-black">
+                {((selectedSellAsset as any)?.balance === undefined || isRefreshing) ? (
+                  <span className="inline-block w-14 h-3.5 bg-brand/30 animate-pulse rounded-full align-middle ml-1" />
+                ) : (
+                  `${portfolioUtils.formatBalance((selectedSellAsset as any)?.balance || '0')} ${sellAssetSymbol}`
+                )}
+              </span>
             </div>
             {isInsufficientBalance && (
               <span className="text-red-500 bg-red-500/10 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full font-black flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[11px] transition-all">
@@ -1062,17 +1072,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         ? portfolioUtils.formatBalance(rangoQuote?.result?.outputAmount || '0')
                         : portfolioUtils.formatBalance(bridgeQuoteData?.conversionRate || '0')} {buyAssetSymbol}
                   </span>
-                </div>
-
-                {/* Slippage row */}
-                <div className="flex items-center justify-between py-2 border-b border-white/5">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-muted">Slippage</span>
-                  <button
-                    onClick={() => setIsSlippageModalOpen(true)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 bg-secondary rounded-lg hover:bg-white/5 transition-all text-muted hover:text-primary active:scale-95 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <Settings2 size={10} /> {slippageTolerance}%
-                  </button>
                 </div>
 
                 {/* SWAP specific rows */}
@@ -1250,8 +1249,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             <TransactionButton
               label={buttonLabel}
               isLoading={isLoadingExecution}
-              // isDisabled={isSwapDisabled}
-              isDisabled={false}
+              isDisabled={isSwapDisabled}
               isError={!!isErrorState && !isLoadingExecution}
               onClick={handleUnifiedSwap}
               icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
@@ -1267,37 +1265,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         {bridgeTxHash && fromChainConfig && actionType === 'BRIDGE' && (
           <EvmTransactionSuccessModal txHash={bridgeTxHash} explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${bridgeTxHash}`} onDone={handleReset} networkName={fromChainConfig.name} />
         )}
-
-        {/* Slippage Modal Overlay */}
-        <div className={`fixed inset-0 z-[100] flex items-end sm:items-center justify-center transition-opacity duration-300 ${isSlippageModalOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-          <div className={`absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300 ${isSlippageModalOpen ? 'opacity-100' : 'opacity-0'}`} onClick={() => setIsSlippageModalOpen(false)} />
-          <div className={`relative w-full max-w-md bg-secondary border border-color shadow-2xl rounded-t-[2.5rem] sm:rounded-3xl p-8 pt-6 transform transition-all duration-300 ease-out ${isSlippageModalOpen ? 'translate-y-0 scale-100' : 'translate-y-full sm:translate-y-10 sm:scale-95'}`}>
-            <div className="w-12 h-1.5 bg-tertiary rounded-full mx-auto mb-6 sm:hidden" />
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-black text-primary uppercase tracking-tight">Slippage Tolerance</h3>
-              <button onClick={() => setIsSlippageModalOpen(false)} className="w-10 h-10 rounded-2xl bg-tertiary flex items-center justify-center border border-color"><X className="w-5 h-5 text-muted" /></button>
-            </div>
-            <div className="space-y-8">
-              <div className="flex flex-col items-center">
-                <span className="text-[10px] font-black text-muted uppercase tracking-[0.2em] mb-4">Manual Adjustment</span>
-                <div className="flex items-center gap-6">
-                  <button onClick={() => setSlippageTolerance(prev => Math.max(0, parseFloat((prev - 0.1).toFixed(1))))} className="w-14 h-14 rounded-2xl bg-tertiary border border-color flex items-center justify-center group transition-all active:scale-90"><Minus className="w-6 h-6 text-muted group-hover:text-brand" /></button>
-                  <div className="relative group">
-                    <input type="number" value={slippageTolerance} onChange={e => { const val = parseFloat(e.target.value); setSlippageTolerance(isNaN(val) ? 0 : val); }} className="w-32 bg-transparent text-center text-5xl font-black text-primary focus:outline-none" />
-                    <span className="absolute -right-6 top-1/2 -translate-y-1/2 text-2xl font-black text-muted/30">%</span>
-                  </div>
-                  <button onClick={() => setSlippageTolerance(prev => parseFloat((prev + 0.1).toFixed(1)))} className="w-14 h-14 rounded-2xl bg-tertiary border border-color flex items-center justify-center group transition-all active:scale-90"><Plus className="w-6 h-6 text-muted group-hover:text-brand" /></button>
-                </div>
-              </div>
-              <div className="grid grid-cols-5 gap-2">
-                {SLIPPAGE_PRESETS.map(p => (
-                  <button key={p} onClick={() => setSlippageTolerance(p)} className={`py-3 rounded-xl text-xs font-black transition-all border ${slippageTolerance === p ? 'bg-brand border-brand text-white' : 'bg-tertiary border-color text-muted hover:text-primary'}`}>{p}%</button>
-                ))}
-              </div>
-              <button onClick={() => setIsSlippageModalOpen(false)} className="w-full py-4 btn-primary text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-brand/20 active:scale-95">Apply Settings</button>
-            </div>
-          </div>
-        </div>
       </div>
 
       {showFusionScreen && fusionQuote && (
@@ -1318,6 +1285,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 sellAmount,
                 preset
               );
+              console.log(hash, " Fustoin screen hash ---")
             } catch (err) {
               console.error('Fusion swap execution failed:', err);
             } finally {

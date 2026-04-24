@@ -1,13 +1,13 @@
 import { useCallback, useMemo } from 'react';
-import { Copy, ChevronRight, QrCode, AlertCircle, Wallet } from 'lucide-react';
+import { Copy, ChevronRight, QrCode, AlertCircle } from 'lucide-react';
 import QRCode from 'qrcode';
 
 import PageLayout from '../../../components/layout/PageLayout';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
-import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useReceiveAssets } from '../hook/useReceiveassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 
 interface QRCardProps {
   walletAddress: string;
@@ -133,14 +133,11 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
     currentAsset,
     walletAddress,
     isAddressValid,
-    isConnected,
-    isWalletTypeConnected,
     handleCopy,
     handleShare,
     copyFeedback,
   } = useReceiveAssets();
 
-  const { openModal } = useWalletConnect();
   const { openAssetSelector } = useAssetSelectorModal();
 
   const currentChainLogo = useMemo(() => {
@@ -170,83 +167,86 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
           </div>
         )}
 
-        {!isConnected && (
-          <div className="bg-bg-tertiary rounded-2xl p-8 text-center">
-            <div className="w-16 h-16 bg-brand-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Wallet size={32} className="text-brand-primary" />
-            </div>
-            <h3 className="text-lg font-black text-text-primary mb-2">Connect Your Wallet</h3>
-            <p className="text-sm text-text-secondary font-medium mb-6">Connect your wallet to generate a receiving address.</p>
-            <button
-              onClick={openModal}
-              className="w-full btn-primary py-4 rounded-xl font-black text-sm"
-            >
-              Connect Wallet
-            </button>
-          </div>
-        )}
-
-        {isConnected && (
-          <>
-            <div className="space-y-2">
-              <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Receiving Asset</label>
-              <button
-                onClick={() => openAssetSelector('RECEIVE')}
-                className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-2xl p-4 transition-all active:scale-[0.99] text-left"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="relative">
-                      {currentAsset?.image ? (
-                        <img src={currentAsset.image} alt="" className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center text-sm font-bold text-text-secondary border border-divider">
-                          {currentAsset?.symbol.slice(0, 2)}
+        {currentAsset?.walletType === 'stellar' ? (
+          <StellarActiveGuard onSkip={onClose}>
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Receiving Asset</label>
+                <button
+                  onClick={() => openAssetSelector('RECEIVE')}
+                  className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-2xl p-4 transition-all active:scale-[0.99] text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        {currentAsset?.image ? (
+                          <img src={currentAsset.image} alt="" className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center text-sm font-bold text-text-secondary border border-divider">
+                            {currentAsset?.symbol.slice(0, 2)}
+                          </div>
+                        )}
+                        {currentChainLogo && (
+                          <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-lg border border-divider overflow-hidden">
+                            <img src={currentChainLogo} alt="" className="w-full h-full object-contain" />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-black text-lg text-text-primary leading-none mb-1">{currentAsset?.symbol || "Select Asset"}</div>
+                        <div className="text-[10px] text-brand-primary font-black uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded-md inline-block">
+                          {currentAsset?.network || "All"}
                         </div>
-                      )}
-                      {currentChainLogo && (
-                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-lg border border-divider overflow-hidden">
-                          <img src={currentChainLogo} alt="" className="w-full h-full object-contain" />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-black text-lg text-text-primary leading-none mb-1">{currentAsset?.symbol || "Select Asset"}</div>
-                      <div className="text-[10px] text-brand-primary font-black uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded-md inline-block">
-                        {currentAsset?.network || "All"}
                       </div>
                     </div>
+                    <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5" />
                   </div>
-                  <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5" />
-                </div>
-              </button>
-            </div>
-
-            {!isWalletTypeConnected && (
-              <div className="bg-warning/5 rounded-2xl p-6 text-center">
-                <p className="text-sm font-black text-warning-fg mb-1">Wallet Not Connected</p>
-                <p className="text-[11px] text-text-secondary font-medium mb-4">
-                  Please connect a <span className="font-bold">{currentAsset?.network}</span> wallet to view your address.
-                </p>
-                <button
-                  onClick={openModal}
-                  className="w-full bg-warning text-white py-3 rounded-lg text-xs font-black shadow-lg shadow-warning/10"
-                >
-                  Connect {currentAsset?.network} Wallet
                 </button>
               </div>
-            )}
 
-            {isWalletTypeConnected && (
-              currentAsset?.walletType === 'stellar' ? (
-                <StellarActiveGuard>
-                  <QRCard {...qrCardProps} />
-                </StellarActiveGuard>
-              ) : (
-                <QRCard {...qrCardProps} />
-              )
-            )}
-          </>
+              <QRCard {...qrCardProps} />
+            </div>
+          </StellarActiveGuard>
+        ) : (
+          <EvmActionGuard>
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Receiving Asset</label>
+                <button
+                  onClick={() => openAssetSelector('RECEIVE')}
+                  className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-2xl p-4 transition-all active:scale-[0.99] text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        {currentAsset?.image ? (
+                          <img src={currentAsset.image} alt="" className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center text-sm font-bold text-text-secondary border border-divider">
+                            {currentAsset?.symbol.slice(0, 2)}
+                          </div>
+                        )}
+                        {currentChainLogo && (
+                          <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-lg border border-divider overflow-hidden">
+                            <img src={currentChainLogo} alt="" className="w-full h-full object-contain" />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-black text-lg text-text-primary leading-none mb-1">{currentAsset?.symbol || "Select Asset"}</div>
+                        <div className="text-[10px] text-brand-primary font-black uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded-md inline-block">
+                          {currentAsset?.network || "All"}
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </button>
+              </div>
+
+              <QRCard {...qrCardProps} />
+            </div>
+          </EvmActionGuard>
         )}
       </div>
     </PageLayout>

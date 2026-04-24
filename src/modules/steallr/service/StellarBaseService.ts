@@ -1,0 +1,140 @@
+import * as StellarSDK from '@stellar/stellar-sdk';
+import { getChainById } from '../../evm/utils/Chainregistry';
+import type { TokenInfo } from '../types/stellar.types';
+
+export class StellarBaseService {
+  protected server: StellarSDK.Horizon.Server;
+  protected networkPassphrase: string;
+  protected networkKey: string;
+
+  constructor(horizonUrl: string, networkPassphrase: string, networkKey: string) {
+    const serverOptions: any = {};
+    if (horizonUrl.startsWith('http://')) {
+      serverOptions.allowHttp = true;
+    }
+
+    this.server = new StellarSDK.Horizon.Server(horizonUrl, serverOptions);
+    this.networkPassphrase = networkPassphrase;
+    this.networkKey = networkKey;
+  }
+
+  async getAccountData(address: string): Promise<{ tokens: TokenInfo[], subentryCount: number }> {
+    if (!StellarSDK.StrKey.isValidEd25519PublicKey(address)) {
+      throw new Error('Invalid Stellar address');
+    }
+
+    try {
+      const response = await this.server.loadAccount(address);
+      const tokens: TokenInfo[] = [];
+
+      for (const balance of response.balances) {
+        if (balance.asset_type === 'native') {
+          tokens.push({
+            asset: StellarSDK.Asset.native(),
+            code: 'XLM',
+            balance: balance.balance,
+            isPopular: true,
+          });
+        } else if (
+          balance.asset_type === 'credit_alphanum4' ||
+          balance.asset_type === 'credit_alphanum12'
+        ) {
+          const asset = new StellarSDK.Asset(balance.asset_code, balance.asset_issuer);
+          tokens.push({
+            asset,
+            code: balance.asset_code,
+            issuer: balance.asset_issuer,
+            balance: balance.balance,
+            isPopular: false,
+          });
+        }
+      }
+
+      return { tokens, subentryCount: response.subentry_count };
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return {
+          tokens: [{
+            asset: StellarSDK.Asset.native(),
+            code: 'XLM',
+            balance: '0',
+            isPopular: true,
+          }],
+          subentryCount: 0
+        };
+      }
+      console.error('Failed to fetch token balances:', error);
+      throw new Error('Failed to load account balances');
+    }
+  }
+
+  async getTokenBalances(address: string): Promise<TokenInfo[]> {
+    const { tokens } = await this.getAccountData(address);
+    return tokens;
+  }
+
+  async getAssetsWithBalances(address: string): Promise<{ tokens: TokenInfo[], subentryCount: number }> {
+    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
+    const chainId = isMainnet ? 9000000 : 9000001;
+    const chainConfig = getChainById(chainId);
+
+    if (!chainConfig) return { tokens: [], subentryCount: 0 };
+
+    let balances: TokenInfo[] = [];
+    let subentryCount = 0;
+    try {
+      const accountData = await this.getAccountData(address);
+      balances = accountData.tokens;
+      subentryCount = accountData.subentryCount;
+    } catch (error) {
+      console.warn('Could not load balances, using zero balances');
+    }
+
+    const registryTokens: TokenInfo[] = chainConfig.assets.map(a => {
+      const asset = a.type === 'NATIVE'
+        ? StellarSDK.Asset.native()
+        : new StellarSDK.Asset(a.symbol, a.address);
+
+      const balRecord = balances.find(b => this.assetsEqual(b.asset, asset));
+
+      return {
+        asset,
+        code: a.symbol,
+        issuer: a.type === 'NATIVE' ? undefined : a.address,
+        balance: balRecord?.balance || '0',
+        name: a.name,
+        icon: a.logoURI,
+        decimals: a.decimals,
+        isPopular: true,
+      };
+    });
+
+    const otherTokens = balances.filter(b => 
+      !registryTokens.some(rt => this.assetsEqual(rt.asset, b.asset))
+    );
+
+    return { tokens: [...registryTokens, ...otherTokens], subentryCount };
+  }
+
+  protected assetsEqual(a: StellarSDK.Asset, b: StellarSDK.Asset): boolean {
+    if (a.isNative() && b.isNative()) return true;
+    if (a.isNative() || b.isNative()) return false;
+    return a.getCode() === b.getCode() && a.getIssuer() === b.getIssuer();
+  }
+
+  protected ensureTrustline(txBuilder: StellarSDK.TransactionBuilder, sourceAccount: StellarSDK.Horizon.AccountResponse, asset: StellarSDK.Asset) {
+    if (asset.isNative()) return;
+
+    const hasTrustline = sourceAccount.balances.some(b =>
+      (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
+      b.asset_code === asset.getCode() &&
+      b.asset_issuer === asset.getIssuer()
+    );
+
+    if (!hasTrustline) {
+      txBuilder.addOperation(StellarSDK.Operation.changeTrust({
+        asset: asset
+      }));
+    }
+  }
+}

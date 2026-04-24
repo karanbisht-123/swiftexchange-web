@@ -72,6 +72,10 @@ const AssetSelectorModal: FC = () => {
     });
   }, [currentNetwork, actionType, isStellarConnected]);
 
+  // Split "All" from the rest
+  const allNetworkOption = networks[0];
+  const chainNetworks = networks.slice(1);
+
   const effectiveActionType = useMemo(() => {
     if (selectedNetwork === 'all') return actionType;
     if (pairedChainId && selectedNetwork !== pairedChainId) {
@@ -115,7 +119,6 @@ const AssetSelectorModal: FC = () => {
     } else if (effectiveActionType === 'BRIDGE') {
       const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
       const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
-
       if (isStellarInvolved && !isStellarConnected) {
         result = [];
       } else {
@@ -126,26 +129,12 @@ const AssetSelectorModal: FC = () => {
           result = registryTokens
             .filter(t => supportedSymbols.includes(t.symbol.toUpperCase()))
             .map(t => ({
-              id: `bridge-${activeChainId}-${t.symbol}`,
-              symbol: t.symbol,
-              name: t.name,
-              image: t.logoURI,
-              chainId: activeChainId,
-              address: t.address,
-              decimals: t.decimals,
-              isNative: t.isNative,
+              id: `bridge-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative,
               balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
             }));
         } else {
           result = registryTokens.map(t => ({
-            id: `bridge-${activeChainId}-${t.symbol}`,
-            symbol: t.symbol,
-            name: t.name,
-            image: t.logoURI,
-            chainId: activeChainId,
-            address: t.address,
-            decimals: t.decimals,
-            isNative: t.isNative,
+            id: `bridge-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative,
             balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
           }));
         }
@@ -195,18 +184,26 @@ const AssetSelectorModal: FC = () => {
     const showBalance = actionType === 'SEND';
 
     return (
-      <div style={{ ...style, padding: '4px 16px' }}>
-        <button onClick={() => handleSelect(asset)} className="group flex w-full items-center justify-between px-4 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left">
-          <div className="flex items-center gap-4 flex-1 min-w-0">
+      <div style={{ ...style, padding: '0 16px' }}>
+        <button
+          onClick={() => handleSelect(asset)}
+          className="group flex w-full items-center justify-between px-3 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left"
+        >
+          <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="relative flex-shrink-0">
               <img src={asset.image || asset.logoURI} alt="" className="w-10 h-10 rounded-full bg-bg-tertiary object-cover" />
-              {chainConfig?.logoURI && <img src={chainConfig.logoURI} alt="" className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-bg-secondary" />}
+              {chainConfig?.logoURI && (
+                <img src={chainConfig.logoURI} alt="" className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-bg-secondary" />
+              )}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-[15px] font-bold text-text-primary">{asset.symbol}</span>
                 {asset.address && !asset.isNative && (
-                  <button onClick={(e) => handleCopyAddress(e, asset)} className="p-1 hover:bg-bg-tertiary rounded-md text-text-muted transition-colors">
+                  <button
+                    onClick={(e) => handleCopyAddress(e, asset)}
+                    className="p-1 hover:bg-bg-tertiary rounded-md text-text-muted transition-colors"
+                  >
                     {copiedId === asset.id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                   </button>
                 )}
@@ -216,7 +213,9 @@ const AssetSelectorModal: FC = () => {
           </div>
           {showBalance && (
             <div className="text-right ml-4">
-              <div className="text-[14px] font-bold text-text-primary">{portfolioUtils.formatBalance(asset.balance || 0)}</div>
+              <div className="text-[14px] font-bold text-text-primary">
+                {portfolioUtils.formatBalance(asset.balance || 0)}
+              </div>
             </div>
           )}
         </button>
@@ -227,42 +226,115 @@ const AssetSelectorModal: FC = () => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-md">
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 backdrop-blur-sm">
+      {/* Backdrop tap to close */}
       <div className="absolute inset-0" onClick={closeAssetSelector} />
-      <div className="relative w-full max-w-md bg-bg-secondary rounded-[32px] shadow-2xl flex flex-col h-[650px] overflow-hidden border border-divider">
-        <div className="px-6 pt-6 pb-4 flex items-center justify-between">
-          <h2 className="text-xl font-extrabold text-text-primary uppercase tracking-tight">{effectiveActionType}</h2>
-          <button onClick={closeAssetSelector} className="w-10 h-10 flex items-center justify-center bg-bg-tertiary rounded-full text-text-secondary hover:text-text-primary transition-colors"><X size={20} /></button>
+
+      {/* Bottom Sheet */}
+      <div className="relative w-full max-w-lg bg-bg-secondary rounded-t-[28px] shadow-2xl flex flex-col h-[75vh] border border-divider border-b-0 animate-slide-up">
+
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-9 h-1 rounded-full bg-bg-tertiary" />
         </div>
-        <div className="px-6 pb-4">
+
+        {/* Header */}
+        <div className="px-5 pt-3 pb-3 flex items-center justify-between">
+          <h2 className="text-base font-bold text-text-primary uppercase tracking-widest">
+            {effectiveActionType}
+          </h2>
+          <button
+            onClick={closeAssetSelector}
+            className="w-9 h-9 flex items-center justify-center bg-bg-tertiary rounded-full text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="px-5 pb-3">
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
-            <input type="text" placeholder="Search tokens" className="w-full bg-bg-primary border-none pl-12 pr-4 py-3 rounded-2xl text-sm focus:ring-1 focus:ring-brand-primary/20 transition-all" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
+            <input
+              type="text"
+              placeholder="Search tokens"
+              className="w-full bg-bg-primary border-none pl-11 pr-4 py-2.5 rounded-xl text-sm focus:ring-1 focus:ring-brand-primary/20 transition-all"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
           </div>
         </div>
-        <div className="px-6 pb-4 flex gap-2 overflow-x-auto hide-scrollbar">
-          {networks.map(net => (
-            <button key={net.id} onClick={() => setSelectedNetwork(net.id)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${selectedNetwork === net.id ? 'bg-brand-primary text-white shadow-lg shadow-brand-primary/20' : 'bg-bg-tertiary text-text-secondary hover:bg-bg-hover'}`}>
-              {net.logo && <img src={net.logo} alt="" className="w-4 h-4 rounded-full" />}
-              {net.name}
+        {/* Network Filter — "All" pinned left, rest scrolls */}
+        <div className="pb-3 flex items-center border-b border-divider">
+          {/* Pinned "All Networks" */}
+          <div className="pl-5 pr-3 flex-shrink-0">
+            <button
+              onClick={() => setSelectedNetwork(allNetworkOption.id)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all"
+              style={
+                selectedNetwork === 'all'
+                  ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                  : undefined
+              }
+            >
+              All
             </button>
-          ))}
+          </div>
+
+          {/* Divider */}
+          <div className="w-px self-stretch bg-divider flex-shrink-0 my-1" />
+
+          {/* Scrollable chain networks */}
+          <div
+            className="flex gap-2 px-3 flex-1 hide-scrollbar"
+            style={{ overflowX: 'auto', minWidth: 0 }}
+          >
+            {chainNetworks.map(net => (
+              <button
+                key={net.id}
+                onClick={() => setSelectedNetwork(net.id)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0"
+                style={
+                  selectedNetwork === net.id
+                    ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                    : undefined
+                }
+              >
+                {net.logo && <img src={net.logo} alt="" className="w-4 h-4 rounded-full" />}
+                {net.name}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex-1 overflow-hidden relative">
+
+        {/* Asset List */}
+        <div className="flex-1 overflow-hidden">
           {filteredAssets.length > 0 ? (
-            <FixedSizeList height={450} itemCount={filteredAssets.length} itemSize={ROW_HEIGHT} width="100%">{AssetRow}</FixedSizeList>
+            <FixedSizeList
+              height={400}
+              itemCount={filteredAssets.length}
+              itemSize={ROW_HEIGHT}
+              width="100%"
+            >
+              {AssetRow}
+            </FixedSizeList>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center px-12">
-              <div className="w-20 h-20 bg-bg-tertiary rounded-full flex items-center justify-center mb-6">
-                <SearchX size={40} className="text-text-muted opacity-20" />
+            <div className="flex flex-col items-center justify-center h-full text-center px-10">
+              <div className="w-16 h-16 bg-bg-tertiary rounded-full flex items-center justify-center mb-4">
+                <SearchX size={32} className="text-text-muted opacity-25" />
               </div>
-              <h3 className="text-lg font-black text-text-primary mb-2">No Assets Found</h3>
-              <p className="text-sm text-text-secondary font-medium leading-relaxed">
-                We couldn't find any assets matching "{searchQuery}" on this network.
+              <h3 className="text-base font-bold text-text-primary mb-1">No assets found</h3>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                {searchQuery
+                  ? `No results for "${searchQuery}" on this network.`
+                  : 'No assets available on this network.'}
               </p>
               {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="mt-8 text-brand-primary font-black text-xs uppercase tracking-widest hover:underline">
-                  Clear Search query
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="mt-6 text-brand-primary font-bold text-xs uppercase tracking-widest hover:underline"
+                >
+                  Clear search
                 </button>
               )}
             </div>

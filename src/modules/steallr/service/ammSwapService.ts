@@ -1,79 +1,14 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
-
+import { StellarBaseService } from './StellarBaseService';
 import type {
   LiquidityPool,
   SwapOptions,
   SwapPath,
   SwapQuote,
-  TokenInfo,
 } from '../types/ammSwap.types';
 import { signAndSubmitTransaction } from '../utils/transactionService';
-import { getChainById } from '../../evm/utils/Chainregistry';
 
-export class AmmSwapService {
-  private server: StellarSDK.Horizon.Server;
-  private networkPassphrase: string;
-  private networkKey: string;
-
-  constructor(horizonUrl: string, networkPassphrase: string, networkKey: string) {
-    console.log('AMM Swap Service Init:', { horizonUrl, networkPassphrase, networkKey });
-    const serverOptions: any = {};
-    if (horizonUrl.startsWith('http://')) {
-      serverOptions.allowHttp = true;
-    }
-
-    this.server = new StellarSDK.Horizon.Server(horizonUrl, serverOptions);
-    this.networkPassphrase = networkPassphrase;
-    this.networkKey = networkKey;
-  }
-
-  async getTokenBalances(address: string): Promise<TokenInfo[]> {
-    if (!StellarSDK.StrKey.isValidEd25519PublicKey(address)) {
-      throw new Error('Invalid Stellar address');
-    }
-
-    try {
-      const response = await this.server.loadAccount(address);
-      const tokens: TokenInfo[] = [];
-
-      for (const balance of response.balances) {
-        if (balance.asset_type === 'native') {
-          tokens.push({
-            asset: StellarSDK.Asset.native(),
-            code: 'XLM',
-            balance: balance.balance,
-            isPopular: true,
-          });
-        } else if (
-          balance.asset_type === 'credit_alphanum4' ||
-          balance.asset_type === 'credit_alphanum12'
-        ) {
-          const asset = new StellarSDK.Asset(balance.asset_code, balance.asset_issuer);
-          tokens.push({
-            asset,
-            code: balance.asset_code,
-            issuer: balance.asset_issuer,
-            balance: balance.balance,
-            isPopular: false,
-          });
-        }
-      }
-
-      return tokens;
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        return [{
-          asset: StellarSDK.Asset.native(),
-          code: 'XLM',
-          balance: '0',
-          isPopular: true,
-        }];
-      }
-      console.error('Failed to fetch token balances:', error);
-      throw new Error('Failed to load account balances');
-    }
-  }
-
+export class AmmSwapService extends StellarBaseService {
   async findLiquidityPools(
     assetA: StellarSDK.Asset,
     assetB?: StellarSDK.Asset
@@ -272,26 +207,12 @@ export class AmmSwapService {
     try {
       const sourceAccount = await this.server.loadAccount(fromAddress);
 
-      // Automatic Trustline Handling
       const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
         fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
 
-      if (!quote.toAsset.isNative()) {
-        const hasTrustline = sourceAccount.balances.some(b =>
-          (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
-          b.asset_code === quote.toAsset.getCode() &&
-          b.asset_issuer === quote.toAsset.getIssuer()
-        );
-
-        if (!hasTrustline) {
-          console.log('Adding trustline for:', quote.toAsset.getCode());
-          txBuilder.addOperation(StellarSDK.Operation.changeTrust({
-            asset: quote.toAsset
-          }));
-        }
-      }
+      this.ensureTrustline(txBuilder, sourceAccount, quote.toAsset);
 
       let path: StellarSDK.Asset[] = [];
       if (quote.path.hops > 1) {
@@ -337,7 +258,6 @@ export class AmmSwapService {
     }
   }
 
-
   async executeSwapWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
     const network = isMainnet ? 'mainnet' : 'testnet';
@@ -354,12 +274,6 @@ export class AmmSwapService {
     }
 
     throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
-  }
-
-  private assetsEqual(a: StellarSDK.Asset, b: StellarSDK.Asset): boolean {
-    if (a.isNative() && b.isNative()) return true;
-    if (a.isNative() || b.isNative()) return false;
-    return a.code === b.code && a.issuer === b.issuer;
   }
 
   async checkLiquidityAvailable(
@@ -383,56 +297,5 @@ export class AmmSwapService {
       console.error('Failed to check liquidity availability:', error);
       return false;
     }
-  }
-
-  async getAssetsWithBalances(address: string): Promise<TokenInfo[]> {
-    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-    const chainId = isMainnet ? 9000000 : 9000001;
-    const chainConfig = getChainById(chainId);
-
-    if (!chainConfig) return [];
-
-    let balances: TokenInfo[] = [];
-    try {
-      balances = await this.getTokenBalances(address);
-    } catch (error) {
-      console.warn('Could not load balances, using zero balances');
-    }
-
-    return chainConfig.assets.map(a => {
-      const asset = a.type === 'NATIVE'
-        ? StellarSDK.Asset.native()
-        : new StellarSDK.Asset(a.symbol, a.address);
-
-      const balRecord = balances.find(b => this.assetsEqual(b.asset, asset));
-
-      return {
-        asset,
-        code: a.symbol,
-        issuer: a.type === 'NATIVE' ? undefined : a.address,
-        balance: balRecord?.balance || '0',
-        name: a.name,
-        icon: a.logoURI,
-        decimals: a.decimals,
-        isPopular: true,
-      };
-    });
-  }
-
-  getPopularAssets(): StellarSDK.Asset[] {
-    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-    const chainId = isMainnet ? 9000000 : 9000001;
-    const chainConfig = getChainById(chainId);
-
-    if (!chainConfig) {
-      return [StellarSDK.Asset.native()];
-    }
-
-    return chainConfig.assets.map(a => {
-      if (a.type === 'NATIVE') {
-        return StellarSDK.Asset.native();
-      }
-      return new StellarSDK.Asset(a.symbol, a.address);
-    });
   }
 }

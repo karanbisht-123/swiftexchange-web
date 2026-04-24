@@ -56,21 +56,14 @@ export interface AmmSwapTransaction {
   txHash?: string;
 }
 
-export interface TokenInfo {
-  asset: StellarSDK.Asset;
-  code: string;
-  issuer?: string;
-  name?: string;
-  icon?: string;
-  balance?: string;
-  price?: number;
-  isPopular?: boolean;
-}
+import type { TokenInfo, PriceInfo } from './stellar.types';
+export type { TokenInfo, PriceInfo };
 
 export type TokenPlaceholder = {
   code: string;
   balance?: string;
 };
+
 export interface SwapState {
   fromToken: any | null;
   toToken: TokenInfo | null;
@@ -81,11 +74,4 @@ export interface SwapState {
   error: string | null;
   slippageTolerance: number;
   transaction: AmmSwapTransaction | null;
-}
-
-export interface PriceInfo {
-  price: number;
-  change24h: number;
-  high24h: number;
-  low24h: number;
 }

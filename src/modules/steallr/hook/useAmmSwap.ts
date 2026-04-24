@@ -20,6 +20,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
   const [error, setError] = useState<string | null>(null);
   const [slippageTolerance, setSlippageTolerance] = useState(1);
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
+  const [subentryCount, setSubentryCount] = useState<number>(0);
 
   const network = useWalletStore(state => state.network);
   const currentStellarConfig = getStellarConfig(network);
@@ -45,7 +46,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     const loadTokens = async () => {
       setIsLoading(true);
       try {
-        const userTokens = await service.getTokenBalances(userAddress);
+        const { tokens: userTokens, subentryCount: count } = await service.getAssetsWithBalances(userAddress);
 
         if (userTokens.length === 0) {
           setError('No tokens found in your account. Please add tokens first.');
@@ -54,6 +55,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
         }
 
         setAvailableTokens(userTokens);
+        setSubentryCount(count);
         if (!fromToken && userTokens.length > 0) {
           const xlmToken = userTokens.find(t => t.code === 'XLM');
           setFromToken(xlmToken || userTokens[0]);
@@ -102,11 +104,14 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     // Validate sufficient balance
     const availableBalance = parseFloat(fromToken.balance || '0');
     const requestedAmount = parseFloat(fromAmount);
-    const reserve = fromToken.code === 'XLM' ? 2 : 0; // Keep 2 XLM reserve for fees
+    
+    // Instead of hardcoding 2 XLM, we use the actual calculated reserve.
+    // The native balance from Stellar SDK is total balance. Spendable = total - reserve.
+    const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0; 
 
     if (requestedAmount > availableBalance - reserve) {
       setError(
-        `Insufficient ${fromToken.code} balance. Available: ${(availableBalance - reserve).toFixed(7)}`
+        `Insufficient ${fromToken.code} balance. Available: ${(Math.max(0, availableBalance - reserve)).toFixed(7)}`
       );
       setQuote(null);
       setToAmount('');
@@ -213,6 +218,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     error,
     slippageTolerance,
     availableTokens,
+    subentryCount,
     setFromToken,
     setToToken,
     setFromAmount,

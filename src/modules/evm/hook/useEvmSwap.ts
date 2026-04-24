@@ -39,7 +39,7 @@ interface UseEvmSwapState {
 
 interface UseEvmSwapActions {
   fetchTokenList: () => void;
-  updateTokenBalances: (sellToken?: TokenInfo, buyToken?: TokenInfo) => Promise<void>;
+  updateTokenBalances: (sellToken?: TokenInfo) => Promise<void>;
   fetchQuote: (
     request: SwapQuoteRequest,
     sellAsset: TokenInfo,
@@ -157,10 +157,10 @@ export const useEvmSwap = ({
   }, [chainId, updateState]);
 
   const updateTokenBalances = useCallback(
-    async (sellToken?: TokenInfo, buyToken?: TokenInfo) => {
+    async (sellToken?: TokenInfo) => {
       if (!senderAddress || !chainId) return;
 
-      const tokensToFetch = [sellToken, buyToken].filter((t): t is TokenInfo => !!t);
+      const tokensToFetch = [sellToken].filter((t): t is TokenInfo => !!t);
       if (tokensToFetch.length === 0) return;
 
       try {
@@ -382,7 +382,7 @@ export const useEvmSwap = ({
 
         setTimeout(() => {
           if (isMounted.current) {
-            updateTokenBalances(sellAsset, buyAsset);
+            updateTokenBalances(sellAsset);
           }
         }, 8000);
 
@@ -445,7 +445,7 @@ export const useEvmSwap = ({
 
         setTimeout(() => {
           if (isMounted.current) {
-            updateTokenBalances(sellAsset, buyAsset);
+            updateTokenBalances(sellAsset);
           }
         }, 8000);
 

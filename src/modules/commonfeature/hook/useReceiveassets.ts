@@ -76,7 +76,6 @@ export const useReceiveAssets = () => {
     if (!currentAsset && assets.length > 0) {
       const first = assets[0];
       const targetChainId = first.chainId === 9000000 ? 'stellar' : String(first.chainId);
-      // Double check to prevent infinite loop
       if (assetParam !== first.symbol || chainIdParam !== targetChainId) {
         setSearchParams({ asset: first.symbol, chainId: targetChainId }, { replace: true });
       }

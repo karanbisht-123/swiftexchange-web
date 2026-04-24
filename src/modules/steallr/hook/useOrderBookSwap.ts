@@ -29,6 +29,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [transaction, setTransaction] = useState<LargeOrderTransaction | null>(null);
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
   const [orderBook, setOrderBook] = useState<any>(null);
+  const [subentryCount, setSubentryCount] = useState<number>(0);
 
   const network = useWalletStore(state => state.network);
   const currentStellarConfig = getStellarConfig(network);
@@ -59,7 +60,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
     setIsLoading(true);
     try {
-      const balances = await service.getTokenBalances(userAddress);
+      const { tokens: balances, subentryCount: count } = await service.getAssetsWithBalances(userAddress);
       if (!mountedRef.current) return;
 
       if (balances.length === 0) {
@@ -84,6 +85,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         }
         return balances.find(t => t.code === prev.code && t.issuer === prev.issuer) || prev;
       });
+      setSubentryCount(count);
 
       setError(null);
     } catch (err) {
@@ -198,7 +200,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
       }
 
       const balance = parseFloat(fromToken.balance);
-      const reserve = fromToken.code === 'XLM' ? 2 : 0;
+      const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
       const availableBalance = Math.max(0, balance - reserve);
       const newAmount = ((availableBalance * percentage) / 100).toFixed(7);
       setAmount(newAmount);
@@ -213,10 +215,10 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
 
     const balance = parseFloat(fromToken.balance);
-    const reserve = fromToken.code === 'XLM' ? 2 : 0;
+    const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
     const maxAmount = Math.max(0, balance - reserve);
     setAmount(maxAmount.toFixed(7));
-  }, [fromToken]);
+  }, [fromToken, subentryCount]);
 
   const toggleOrderType = useCallback(() => {
     setIsBuyState(prev => !prev);
@@ -342,6 +344,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     error,
     slippageTolerance,
     availableTokens,
+    subentryCount,
     orderBook,
     setIsBuy: toggleOrderType,
     setFromToken,

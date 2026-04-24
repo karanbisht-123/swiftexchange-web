@@ -1,10 +1,10 @@
-import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet } from 'lucide-react';
+import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet, RefreshCw } from 'lucide-react';
 import React, { useCallback, useMemo, useRef } from 'react';
-
 import PageLayout from '../../../components/layout/PageLayout';
 import TransactionSuccess from '../../transction/component/TransactionSuccess';
 import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
+import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { useSendAsset } from '../hook/useSendassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
@@ -35,6 +35,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     currentAsset,
     senderAddress,
     handleMaxClick,
+    handleRefreshBalances,
     handleReviewTransaction,
     handleConfirmTransaction,
     handleBackToForm,
@@ -331,10 +332,15 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Available</div>
+                <div className="flex items-center justify-end gap-1.5 mb-1">
+                  <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider leading-none mt-0.5">Available</span>
+                  <button onClick={handleRefreshBalances} disabled={isFetchingBalance} className={`p-0.5 hover:bg-white/5 rounded-full transition-all text-text-muted hover:text-brand-primary ${isFetchingBalance ? 'animate-spin text-brand-primary' : ''}`}>
+                    <RefreshCw size={10} />
+                  </button>
+                </div>
                 <div className="text-xs font-black text-text-primary">
                   {isFetchingBalance ? (
-                    <Loader2 size={12} className="animate-spin ml-auto opacity-30" />
+                    <span className="inline-block w-14 h-3.5 bg-brand-primary/30 animate-pulse rounded-full align-middle" />
                   ) : (
                     `${portfolioUtils.formatBalance(balance)} ${currentAsset?.symbol || ""}`
                   )}
@@ -389,7 +395,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                 ref={recipientRef}
                 type="text"
                 id="recipientAddress"
-                className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg px-3 py-4 text-xs font-mono transition-all placeholder:text-text-muted ${(formError && formError.includes('address')) ? 'text-danger' : ''
+                className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg px-3 h-14 text-xs font-mono transition-all placeholder:text-text-muted ${(formError && formError.includes('address')) ? 'text-danger' : ''
                   }`}
                 placeholder={currentAsset?.type === 'stellar' ? 'Stellar Address (G...)' : 'EVM Address (0x...)'}
                 value={recipientAddress}
@@ -420,7 +426,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   type="text"
                   inputMode="decimal"
                   id="amount"
-                  className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg pl-3 pr-16 py-4 text-lg font-black transition-all placeholder:text-text-muted ${formError && (formError.includes('balance') || formError.includes('Amount')) ? 'text-danger' : ''
+                  className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg pl-3 pr-16 h-14 text-lg font-black transition-all placeholder:text-text-muted ${formError && (formError.includes('balance') || formError.includes('Amount')) ? 'text-danger' : ''
                     }`}
                   placeholder="0.00"
                   value={amount}
@@ -511,13 +517,15 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             })()}
           </StellarActiveGuard>
         ) : (
-          (() => {
-            switch (transactionState.step) {
-              case 'form': return renderForm();
-              case 'review': return TransactionReview;
-              default: return TransactionStatusComponent;
-            }
-          })()
+          <EvmActionGuard>
+            <>{(() => {
+              switch (transactionState.step) {
+                case 'form': return renderForm();
+                case 'review': return TransactionReview;
+                default: return TransactionStatusComponent;
+              }
+            })()}</>
+          </EvmActionGuard>
         )}
       </div>
     </PageLayout>

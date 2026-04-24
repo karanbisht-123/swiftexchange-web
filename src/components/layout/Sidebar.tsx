@@ -1,6 +1,6 @@
 import {
   Infinity,
-  ArrowRightLeft,
+  // ArrowRightLeft,
   BarChart2,
   CandlestickChart,
   History,
@@ -89,11 +89,11 @@ const Sidebar: FC = () => {
       label: 'Swap',
       icon: <Repeat2 className="w-5 h-5" />,
     },
-    {
-      href: ROUTES.BRIDGE,
-      label: 'Bridge',
-      icon: <ArrowRightLeft className="w-5 h-5" />,
-    },
+    // {
+    //   href: ROUTES.BRIDGE,
+    //   label: 'Bridge',
+    //   icon: <ArrowRightLeft className="w-5 h-5" />,
+    // },
     {
       href: ROUTES.TRADING_EVM_FIAT,
       label: 'Fiat On/Off Ramp',

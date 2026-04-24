@@ -1,69 +1,13 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
-
+import { StellarBaseService } from './StellarBaseService';
 import type {
   LargeOrderOptions,
   LargeOrderQuote,
   LargeOrderTransaction,
-  TokenInfo,
 } from '../types/orderBookSwap.types';
 import { signAndSubmitTransaction } from '../utils/transactionService';
 
-export class OrderBookSwapService {
-  private server: StellarSDK.Horizon.Server;
-  private networkPassphrase: string;
-  private networkKey: string;
-
-  constructor(horizonUrl: string, networkPassphrase: string, networkKey: string) {
-    console.log('OrderBook Service Init:', { horizonUrl, networkPassphrase, networkKey });
-    const serverOptions: any = {};
-    if (horizonUrl.startsWith('http://')) {
-      serverOptions.allowHttp = true;
-    }
-
-    this.server = new StellarSDK.Horizon.Server(horizonUrl, serverOptions);
-    this.networkPassphrase = networkPassphrase;
-    this.networkKey = networkKey;
-  }
-
-  async getTokenBalances(address: string): Promise<TokenInfo[]> {
-    if (!StellarSDK.StrKey.isValidEd25519PublicKey(address)) {
-      throw new Error('Invalid Stellar address');
-    }
-
-    try {
-      const account = await this.server.loadAccount(address);
-      const tokens: TokenInfo[] = [];
-
-      for (const balance of account.balances) {
-        if (balance.asset_type === 'native') {
-          tokens.push({
-            asset: StellarSDK.Asset.native(),
-            code: 'XLM',
-            balance: balance.balance,
-            isPopular: true,
-          });
-        } else if (
-          balance.asset_type === 'credit_alphanum4' ||
-          balance.asset_type === 'credit_alphanum12'
-        ) {
-          const asset = new StellarSDK.Asset(balance.asset_code, balance.asset_issuer);
-          tokens.push({
-            asset,
-            code: balance.asset_code,
-            issuer: balance.asset_issuer,
-            balance: balance.balance,
-            isPopular: false,
-          });
-        }
-      }
-
-      return tokens;
-    } catch (error) {
-      console.error('Failed to fetch token balances:', error);
-      throw new Error('Failed to fetch token balances');
-    }
-  }
-
+export class OrderBookSwapService extends StellarBaseService {
   calculateTotal(amount: string, price: string): string {
     const amt = parseFloat(amount);
     const prc = parseFloat(price);
@@ -113,6 +57,8 @@ export class OrderBookSwapService {
         fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
+
+      this.ensureTrustline(txBuilder, sourceAccount, quote.toAsset);
 
       let operation;
       if (isBuy) {
