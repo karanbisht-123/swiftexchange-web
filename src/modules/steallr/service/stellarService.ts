@@ -1,5 +1,28 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
 
+export function ensureTrustlineOp(
+  txBuilder: StellarSDK.TransactionBuilder,
+  sourceAccount: StellarSDK.Horizon.AccountResponse,
+  asset: StellarSDK.Asset
+) {
+  if (asset.isNative()) return;
+
+  const hasTrustline = sourceAccount.balances.some(
+    (b: any) =>
+      (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
+      b.asset_code === asset.getCode() &&
+      b.asset_issuer === asset.getIssuer()
+  );
+
+  if (!hasTrustline) {
+    txBuilder.addOperation(
+      StellarSDK.Operation.changeTrust({
+        asset: asset,
+      })
+    );
+  }
+}
+
 import { generateTransactionId } from '../../../utils/transactionUtils';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
@@ -122,6 +145,8 @@ export async function sendCryptoStellarBuild(
   } else {
     stellarAsset = new StellarSDK.Asset(asset.code, asset.issuer!);
   }
+
+  ensureTrustlineOp(txBuilder, sourceAccount, stellarAsset);
 
   txBuilder.addOperation(
     StellarSDK.Operation.payment({
@@ -259,4 +284,48 @@ export async function sendCryptoStellarBroadcast(signedXDR: string): Promise<str
   const tx = new StellarSDK.Transaction(signedXDR, networkPassphrase);
   const response = await server.submitTransaction(tx);
   return response.hash || 'unknown';
+}
+export async function checkTrustlineExists(
+  address: string,
+  assetCode: string,
+  assetIssuer: string
+): Promise<boolean> {
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+  const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+
+  try {
+    const account = await server.loadAccount(address);
+    return account.balances.some(
+      (b: any) => b.asset_code === assetCode && b.asset_issuer === assetIssuer
+    );
+  } catch (error) {
+    console.error('Failed to check trustline:', error);
+    return false;
+  }
+}
+
+export async function buildAddTrustlineTransaction(
+  address: string,
+  assetCode: string,
+  assetIssuer: string
+): Promise<string> {
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+  const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+  const networkPassphrase =
+    config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+
+  const account = await server.loadAccount(address);
+  const asset = new StellarSDK.Asset(assetCode, assetIssuer);
+
+  const tx = new StellarSDK.TransactionBuilder(account, {
+    fee: StellarSDK.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(StellarSDK.Operation.changeTrust({ asset }))
+    .setTimeout(30)
+    .build();
+
+  return tx.toXDR();
 }

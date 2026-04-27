@@ -9,8 +9,11 @@ const getChainSymbol = (chainId: number) => {
   return (chain?.symbol || chain?.nativeCurrency.symbol || 'ETH').toUpperCase();
 };
 
-const getBridgeChainSymbol = (chainId: number) =>
-  getChainSymbol(chainId).slice(0, 3);
+const getBridgeChainSymbol = (chainId: number) => {
+  const symbol = getChainSymbol(chainId).toUpperCase();
+  if (symbol === 'BNB') return 'BSC';
+  return symbol.slice(0, 3);
+};
 
 interface SwapTransactionRequest {
   chainId: number;

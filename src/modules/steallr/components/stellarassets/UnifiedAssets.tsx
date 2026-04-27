@@ -1,6 +1,6 @@
-import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Plus, Search } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-
+import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
@@ -158,6 +158,12 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
     error?: string;
   }>({ isOpen: false, status: 'success' });
 
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'add' | 'remove';
+    asset: DisplayAsset | null;
+  }>({ isOpen: false, type: 'add', asset: null });
+
   const allAssets = useMemo(() => {
     const assetsMap = new Map<string, DisplayAsset>();
 
@@ -213,7 +219,7 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
 
   const handleAddTrustline = async (asset: DisplayAsset) => {
     if (!server || !stellarAddress || !provider) return;
-    
+
     setTrustlineProcessing(`${asset.code}-${asset.issuer}`);
 
     try {
@@ -262,6 +268,67 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
     } finally {
       setTrustlineProcessing(null);
     }
+  };
+
+  const handleRemoveTrustline = async (asset: DisplayAsset) => {
+    if (!server || !stellarAddress || !provider) return;
+
+    setTrustlineProcessing(`${asset.code}-${asset.issuer}`);
+
+    try {
+      const xdr = await buildTrustlineTransaction({
+        server,
+        stellarAddress,
+        assetCode: asset.code,
+        assetIssuer: asset.issuer,
+        currentNetwork,
+      }, "0"); // Limit 0 means remove
+
+      const config = getStellarConfig(currentNetwork);
+      const networkPassphrase = config?.networkPassphrase || '';
+
+      const result = await signAndSubmitTrustline(xdr, currentNetwork, networkPassphrase, provider);
+
+      if (result.success) {
+        addLocalTransaction({
+          hash: result.transactionHash || '',
+          chainId: 9000000,
+          type: 'trustline',
+          timestamp: Date.now(),
+          description: `Removed trustline for ${asset.code}`,
+          status: 'success',
+          from: stellarAddress,
+          network: currentNetwork,
+        });
+
+        setTxModal({
+          isOpen: true,
+          status: 'success',
+          hash: result.transactionHash,
+        });
+
+        refetch();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err: any) {
+      console.error('Trustline removal error:', err);
+      setTxModal({
+        isOpen: true,
+        status: 'error',
+        error: err?.message || 'Failed to remove trustline. Please try again.',
+      });
+    } finally {
+      setTrustlineProcessing(null);
+    }
+  };
+
+  const openAddConfirmation = (asset: DisplayAsset) => {
+    setConfirmModal({ isOpen: true, type: 'add', asset });
+  };
+
+  const openRemoveConfirmation = (asset: DisplayAsset) => {
+    setConfirmModal({ isOpen: true, type: 'remove', asset });
   };
 
   const handleAssetClick = (asset: DisplayAsset) => {
@@ -321,11 +388,10 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                   className={`
                                         flex items-center justify-between px-2 py-5 
                                         transition-all duration-200
-                                        ${
-                                          asset.isTrusted
-                                            ? 'hover:bg-hover hover:shadow-sm cursor-pointer active:scale-[0.99]'
-                                            : 'opacity-80'
-                                        }
+                                        ${asset.isTrusted
+                      ? 'hover:bg-hover hover:shadow-sm cursor-pointer active:scale-[0.99]'
+                      : 'opacity-80'
+                    }
                                     `}
                 >
                   <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -337,12 +403,29 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                     {asset.isTrusted ? (
                       <>
                         <AssetBalance balance={asset.balance} />
+                        {parseFloat(asset.balance) === 0 && asset.type !== 'native' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openRemoveConfirmation(asset);
+                            }}
+                            disabled={isProcessing}
+                            className="p-2 text-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-colors active:scale-95"
+                            title="Remove Trustline"
+                          >
+                            {isProcessing ? (
+                              <Loader2 size={18} className="animate-spin text-primary" />
+                            ) : (
+                              <Trash2 size={18} />
+                            )}
+                          </button>
+                        )}
                         <ChevronRight size={20} className="text-muted shrink-0" />
                       </>
                     ) : (
                       <AddAssetButton
                         isProcessing={isProcessing}
-                        onClick={() => handleAddTrustline(asset)}
+                        onClick={() => openAddConfirmation(asset)}
                       />
                     )}
                   </div>
@@ -373,6 +456,35 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
         type="Swap"
         hash={txModal.hash}
         error={txModal.error}
+      />
+
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.type === 'add' ? 'Add Trustline' : 'Remove Trustline'}
+        message={
+          <div className="space-y-2">
+            <p>
+              {confirmModal.type === 'add'
+                ? `You are about to add a trustline for ${confirmModal.asset?.code}. This will reserve 0.5 XLM in your account.`
+                : `You are about to remove the trustline for ${confirmModal.asset?.code}. This will reclaim the 0.5 XLM reserve.`
+              }
+            </p>
+            <p className="text-xs opacity-60">You'll need to sign a transaction in your wallet.</p>
+          </div>
+        }
+        confirmText={confirmModal.type === 'add' ? 'Add Now' : 'Remove Now'}
+        confirmButtonType={confirmModal.type === 'add' ? 'primary' : 'danger'}
+        onConfirm={() => {
+          if (confirmModal.asset) {
+            if (confirmModal.type === 'add') {
+              handleAddTrustline(confirmModal.asset);
+            } else {
+              handleRemoveTrustline(confirmModal.asset);
+            }
+          }
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
       />
     </div>
   );

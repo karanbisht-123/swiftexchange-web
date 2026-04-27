@@ -53,9 +53,10 @@ export const getEvmTransactionHistory = async (
     throw new Error(`Unsupported chain: chainId=${chainId} network=${network}`);
   }
   const endpoint = `/transaction-history`;
+  const symbol = chain.nativeCurrency.symbol.toLowerCase();
   const body: any = {
     walletAddress: address,
-    chain: chain.nativeCurrency.symbol.toLowerCase(),
+    chain: symbol === 'bnb' ? 'bsc' : symbol,
   };
 
   if (sentPageKey) body.sentPageKey = sentPageKey;

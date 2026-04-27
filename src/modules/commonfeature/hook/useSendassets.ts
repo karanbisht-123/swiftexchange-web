@@ -4,7 +4,7 @@ import { SendErcAbi } from '../../../abi/SendErcAbi';
 import { validateAddress } from '../../../validator/AddressValidator';
 import { estimateEVMFees } from '../../evm/service/evmService';
 import { addLocalTransaction } from '../../evm/service/localTransactionService';
-import { estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
+import { checkTrustlineExists, estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
 import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
@@ -69,6 +69,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const [transactionState, setTransactionState] = useState<TransactionState>({ txHash: null, step: 'form', error: null });
   const [isEstimatingFees, setIsEstimatingFees] = useState(false);
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
+  const [hasTrustline, setHasTrustline] = useState<boolean | null>(null);
 
   const allAssets: EnhancedSendAsset[] = useMemo(() => {
     return storeAssets
@@ -146,6 +147,22 @@ export const useSendAsset = (onBack?: () => void) => {
   }, [fetchBalance]);
 
   useEffect(() => {
+    const checkTrust = async () => {
+      if (currentAsset?.type === 'stellar' && !currentAsset.isNative && senderAddress) {
+        try {
+          const exists = await checkTrustlineExists(senderAddress, currentAsset.symbol, currentAsset.tokenAddress || '');
+          setHasTrustline(exists);
+        } catch (e) {
+          setHasTrustline(false);
+        }
+      } else {
+        setHasTrustline(true);
+      }
+    };
+    checkTrust();
+  }, [currentAsset, senderAddress]);
+
+  useEffect(() => {
     const estimate = async () => {
       if (!currentAsset || !senderAddress || !recipientAddress || !amount || parseFloat(amount) <= 0 || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
         setEstimatedFees(null); return;
@@ -183,7 +200,7 @@ export const useSendAsset = (onBack?: () => void) => {
         req = { type: 'evm', network: currentAsset.network, networkKey: Number(currentAsset.networkKey), from: senderAddress, to, amount: sendAmt, data };
       } else {
         const tx = await sendCryptoStellarBuild(senderAddress, recipientAddress, amount, memo ? { memo } : {}, { code: currentAsset.symbol, issuer: currentAsset.tokenAddress, isNative: currentAsset.isNative });
-        req = { type: 'stellar', network: currentAsset.network, networkKey: String(currentAsset.networkKey), from: senderAddress, to: recipientAddress, amount, data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' } };
+        req = { type: 'stellar', network: currentAsset.network, networkKey: currentNetwork === 'testnet' ? 'testnet' : 'pubnet', from: senderAddress, to: recipientAddress, amount, data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' } };
       }
       const res = await sendTransaction(req);
       if (res.status === 'success') {
@@ -217,7 +234,9 @@ export const useSendAsset = (onBack?: () => void) => {
     handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
-    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (!validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (parseFloat(amount) > balance) ? 'Insufficient funds' : null,
-    assets: allAssets, availableChains: [], onBack
+    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (!validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (parseFloat(amount) > balance && hasTrustline) ? 'Insufficient funds' : null,
+    assets: allAssets, availableChains: [], onBack,
+    needsTrustline: hasTrustline === false,
+    buttonLabel: (hasTrustline === false) ? 'Trust Asset' : (transactionState.step === 'review' ? 'Send Now' : 'Continue to Review')
   };
 };

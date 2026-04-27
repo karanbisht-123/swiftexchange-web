@@ -74,8 +74,6 @@ export const useAlchemyBuy = () => {
     return cryptoOptions[0] || null;
   });
 
-  console.log('Available crypto options:', cryptoOptions);
-  console.log('Selected crypto option:', selectedCryptoOption);
   const [selectedPaymentOption, setSelectedPaymentOption] = useState<PaymentOption | null>(
     paymentOptions[0] || null
   );
@@ -94,8 +92,12 @@ export const useAlchemyBuy = () => {
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const evmAddress = evmWallet?.address || '';
   const stellarAddress = stellarWallet?.address || '';
+
   const { country, isLoading: isLoadingCountry } = useUserCountry();
   const [hasAutoSelectedCountry, setHasAutoSelectedCountry] = useState(false);
+
+  const effectiveMin = selectedPaymentOption?.payMin || MIN_AMOUNT_BUY;
+  const effectiveMax = selectedPaymentOption?.payMax || Number.MAX_SAFE_INTEGER;
 
   useEffect(() => {
     if (!hasAutoSelectedCountry && country && !isLoadingCountry) {
@@ -106,13 +108,6 @@ export const useAlchemyBuy = () => {
       setHasAutoSelectedCountry(true);
     }
   }, [country, isLoadingCountry, hasAutoSelectedCountry]);
-
-  const getEffectiveMinAmount = () => {
-    return selectedPaymentOption?.payMin || MIN_AMOUNT_BUY;
-  };
-  const getEffectiveMaxAmount = () => {
-    return selectedPaymentOption?.payMax || Number.MAX_SAFE_INTEGER;
-  };
 
   useEffect(() => {
     const fetchQuote = async () => {
@@ -141,9 +136,6 @@ export const useAlchemyBuy = () => {
         setQuote(null);
         return;
       }
-
-      const effectiveMin = getEffectiveMinAmount();
-      const effectiveMax = getEffectiveMaxAmount();
 
       if (amount < effectiveMin) {
         setCryptoAmount('0.0');
@@ -187,22 +179,14 @@ export const useAlchemyBuy = () => {
 
         const quoteData = JSON.parse(response.data);
         if (!quoteData.success || !quoteData.data) {
-          if (quoteData.returnMsg) {
-            throw new Error(quoteData.returnMsg);
-          }
+          if (quoteData.returnMsg) throw new Error(quoteData.returnMsg);
           throw new Error(ERROR_MESSAGES.INVALID_QUOTE);
         }
 
         setQuote(quoteData.data);
         setCryptoAmount(quoteData.data.cryptoQuantity);
       } catch (error: any) {
-        let errorMessage = ERROR_MESSAGES.QUOTE_FAILED;
-
-        if (error instanceof Error) {
-          errorMessage = error.message;
-        } else if (typeof error === 'string') {
-          errorMessage = error;
-        }
+        const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.QUOTE_FAILED;
 
         setQuoteError(errorMessage);
         setCryptoAmount('0.0');
@@ -214,7 +198,7 @@ export const useAlchemyBuy = () => {
 
     const debounceTimer = setTimeout(fetchQuote, 500);
     return () => clearTimeout(debounceTimer);
-  }, [fiatAmount, selectedCryptoOption, selectedPaymentOption]);
+  }, [fiatAmount, selectedCryptoOption, selectedPaymentOption, effectiveMin, effectiveMax]);
 
   const handleCreateOrder = async () => {
     if (paymentTab && !paymentTab.closed) {
@@ -234,9 +218,6 @@ export const useAlchemyBuy = () => {
       return;
     }
 
-    const effectiveMin = getEffectiveMinAmount();
-    const effectiveMax = getEffectiveMaxAmount();
-
     if (amount < effectiveMin) {
       setOrderError(ERROR_MESSAGES.MIN_AMOUNT(effectiveMin, selectedPaymentOption.currency));
       return;
@@ -248,7 +229,7 @@ export const useAlchemyBuy = () => {
     }
 
     const addressToUse =
-      selectedCryptoOption?.network === 'XLM'
+      selectedCryptoOption.network === 'XLM'
         ? defaultAddress || stellarAddress || evmAddress
         : evmAddress || defaultAddress || stellarAddress;
 
@@ -289,11 +270,8 @@ export const useAlchemyBuy = () => {
       setOrderSuccess(true);
 
       const tab = window.open(payUrl, '_blank');
-      if (tab) {
-        setPaymentTab(tab);
-      } else {
-        setOrderError(ERROR_MESSAGES.NO_TAB_OPEN);
-      }
+      if (tab) setPaymentTab(tab);
+      else setOrderError(ERROR_MESSAGES.NO_TAB_OPEN);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.ORDER_FAILED;
       setOrderError(errorMessage);
@@ -342,16 +320,13 @@ export const useAlchemyBuy = () => {
     setPaymentUrl('');
     setSelectedPaymentOption(paymentOptions[0] || null);
     setSelectedCryptoOption(cryptoOptions[0] || null);
-    if (paymentTab && !paymentTab.closed) {
-      paymentTab.close();
-    }
+
+    if (paymentTab && !paymentTab.closed) paymentTab.close();
     setPaymentTab(null);
   };
 
   const isFormValid = () => {
     const amount = parseFloat(fiatAmount);
-    const effectiveMin = getEffectiveMinAmount();
-    const effectiveMax = getEffectiveMaxAmount();
 
     return (
       amount >= effectiveMin &&
@@ -389,7 +364,7 @@ export const useAlchemyBuy = () => {
     resetForm,
     isFormValid,
     evmAddress,
-    MIN_AMOUNT: getEffectiveMinAmount(),
+    MIN_AMOUNT: effectiveMin,
     SUCCESS_MESSAGES,
     ERROR_MESSAGES,
     setOrderError,

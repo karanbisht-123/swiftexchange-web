@@ -6,7 +6,6 @@ import {
   NOBLE_CHAIN_ID,
   NOBLE_USDC_DENOM,
   SKIP_BRIDGES,
-  getUsdcAddress,
   formatBridgeDuration,
   getEvmSourceDenom,
   sumEstimatedFeesUsd,
@@ -127,7 +126,7 @@ export const skipApiService = {
 
   // Fetch the optimal route from Noble → destination EVM chain.
   async getWithdrawalRoute(destEvmChainId: number, amountHuman: number): Promise<SkipRoute> {
-    const destAssetDenom = getUsdcAddress(destEvmChainId);
+    const destAssetDenom = getEvmSourceDenom('USDC', destEvmChainId);
     const amountIn = Math.floor(amountHuman * 1e6).toString();
 
     const raw = await route({
@@ -184,7 +183,7 @@ export const skipApiService = {
     };
   },
 
-  getUsdcContractForChain: (chainId: number) => getUsdcAddress(chainId),
+  getUsdcContractForChain: (chainId: number) => getEvmSourceDenom('USDC', chainId),
 
   getSourceDenomForAsset: getEvmSourceDenom,
 

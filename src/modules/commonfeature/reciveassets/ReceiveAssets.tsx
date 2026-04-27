@@ -1,5 +1,5 @@
-import { useCallback, useMemo } from 'react';
-import { Copy, ChevronRight, QrCode, AlertCircle } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { Copy, ChevronRight, QrCode, AlertCircle, Plus, Loader2 } from 'lucide-react';
 import QRCode from 'qrcode';
 
 import PageLayout from '../../../components/layout/PageLayout';
@@ -8,6 +8,7 @@ import { useReceiveAssets } from '../hook/useReceiveassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
+import { ConfirmationModal } from '../../../components/common/ConfirmationModal';
 
 interface QRCardProps {
   walletAddress: string;
@@ -15,8 +16,11 @@ interface QRCardProps {
   currentAsset: any;
   handleCopy: () => void;
   handleShare: () => void;
+  hasTrustline?: boolean | null;
+  isAddingTrustline?: boolean;
+  onAddTrustlineClick?: () => void;
 }
-const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handleShare }: QRCardProps) => {
+const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handleShare, hasTrustline, isAddingTrustline, onAddTrustlineClick }: QRCardProps) => {
   const canInteract = !!walletAddress && isAddressValid;
 
   const canvasCallbackRef = useCallback(
@@ -96,13 +100,24 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
           </div>
 
           <div className="flex gap-3 pt-2">
-            <button
-              onClick={handleCopy}
-              disabled={!canInteract}
-              className="flex-1 btn-primary text-white py-4 rounded-xl text-sm font-black shadow-lg   transition-all disabled:opacity-30 disabled:grayscale"
-            >
-              Copy Address
-            </button>
+            {hasTrustline === false ? (
+              <button
+                onClick={onAddTrustlineClick}
+                disabled={!canInteract || isAddingTrustline}
+                className="flex-1 btn-primary text-white py-4 rounded-xl text-sm font-black shadow-lg transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+              >
+                {isAddingTrustline ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                Add Trustline
+              </button>
+            ) : (
+              <button
+                onClick={handleCopy}
+                disabled={!canInteract}
+                className="flex-1 btn-primary text-white py-4 rounded-xl text-sm font-black shadow-lg transition-all disabled:opacity-30 disabled:grayscale"
+              >
+                Copy Address
+              </button>
+            )}
             <button
               onClick={handleShare}
               disabled={!canInteract}
@@ -136,7 +151,12 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
     handleCopy,
     handleShare,
     copyFeedback,
+    hasTrustline,
+    isAddingTrustline,
+    handleAddTrustline,
   } = useReceiveAssets();
+
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   const { openAssetSelector } = useAssetSelectorModal();
 
@@ -149,7 +169,16 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
     return getChainLogoUrl(chainId as number);
   }, [currentAsset]);
 
-  const qrCardProps = { walletAddress, isAddressValid, currentAsset, handleCopy, handleShare };
+  const qrCardProps = { 
+    walletAddress, 
+    isAddressValid, 
+    currentAsset, 
+    handleCopy, 
+    handleShare, 
+    hasTrustline, 
+    isAddingTrustline, 
+    onAddTrustlineClick: () => setIsConfirmModalOpen(true) 
+  };
 
   return (
     <PageLayout
@@ -249,6 +278,23 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
           </EvmActionGuard>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={isConfirmModalOpen}
+        title="Add Trustline"
+        message={
+          <div className="space-y-2">
+            <p>You are about to add a trustline for <span className="font-bold text-brand-primary">{currentAsset?.symbol}</span>. This will reserve 0.5 XLM in your account.</p>
+            <p className="text-xs opacity-60">You'll need to sign a transaction in your wallet.</p>
+          </div>
+        }
+        confirmText="Add Now"
+        onConfirm={() => {
+          handleAddTrustline();
+          setIsConfirmModalOpen(false);
+        }}
+        onCancel={() => setIsConfirmModalOpen(false)}
+      />
     </PageLayout>
   );
 };

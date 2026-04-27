@@ -9,9 +9,9 @@ import { portfolioUtils } from '../utils/portfolioUtils';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 import { type Asset } from '../store/portfolioStore';
 import { FixedSizeList } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 
 const ROW_HEIGHT = 80;
-const VISIBLE_HEIGHT = 500;
 
 const getChainIcon = (asset: Asset): string | undefined => {
   const chainId = asset.chainType === 'stellar'
@@ -130,9 +130,9 @@ const AssetRow = memo(
     const canPrep = asset.chainType !== 'stellar';
 
     return (
-      <div style={style} className="lg:px-4 px-0 py-2 border-b border-color hover:bg-hover transition-colors box-border">
-        <div className="flex items-center justify-between h-full">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
+      <div style={style} className="lg:px-4 px-0   hover:bg-hover transition-colors box-border">
+        <div className="flex items-center justify-between h-full ">
+          <div className="flex items-center gap-3 flex-1 min-w-0 ">
             <div className="relative shrink-0">
               <img
                 src={asset.image}
@@ -264,7 +264,7 @@ const WalletAssetsSection = () => {
       });
       return;
     }
-    navigate(ROUTES.BRIDGE, { state: { selectedAsset: asset } });
+    navigate(ROUTES.TRADING_EVM_SWAP, { state: { selectedAsset: asset } });
   }, [navigate]);
 
   const handleSend = useCallback((asset: Asset) => {
@@ -300,8 +300,8 @@ const WalletAssetsSection = () => {
 
   return (
     <>
-      <section className="card mt-1 lg:mt-3 rounded-none border-none lg:rounded-lg overflow-hidden">
-        <div className="card-header flex justify-between items-center px-4 pt-6 pb-4">
+      <section className="card  lg:mt-3 rounded-none border-none lg:rounded-lg overflow-hidden">
+        <div className="card-header flex justify-between items-center lg:px-4 ">
           <div>
             <div className="flex items-center gap-2 text-muted mb-2">
               <Wallet size={16} />
@@ -339,12 +339,6 @@ const WalletAssetsSection = () => {
             title="Refresh portfolio"
           >
             <RefreshCw size={20} className={isRefreshing ? 'animate-spin' : ''} />
-            {isRefreshing && assets.length > 0 && (
-               <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                 <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
-               </span>
-            )}
           </button>
         </div>
 
@@ -376,23 +370,27 @@ const WalletAssetsSection = () => {
               <p className="text-sm text-muted">You don't have any assets in this wallet yet.</p>
             </div>
           ) : (
-            <div className="w-full" style={{ height: Math.min(filteredAssets.length * ROW_HEIGHT, VISIBLE_HEIGHT) }}>
-              <FixedSizeList
-                height={Math.min(filteredAssets.length * ROW_HEIGHT, VISIBLE_HEIGHT)}
-                itemCount={filteredAssets.length}
-                itemSize={ROW_HEIGHT}
-                width="100%"
-                className="hide-scrollbar"
-              >
-                {Row}
-              </FixedSizeList>
+            <div className="flex-1 w-full h-[500px]">
+              <AutoSizer
+                renderProp={({ height, width }) => (
+                  <FixedSizeList
+                    height={height || 0}
+                    itemCount={filteredAssets.length}
+                    itemSize={ROW_HEIGHT}
+                    width={width || 0}
+                    className="hide-scrollbar"
+                  >
+                    {Row}
+                  </FixedSizeList>
+                )}
+              />
             </div>
           )}
           {isRefreshing && assets.length > 0 && (
-             <div className="px-4 py-2 bg-secondary/30 backdrop-blur-sm border-t border-color flex justify-center items-center gap-2">
-                <RefreshCw size={12} className="animate-spin text-muted" />
-                <span className="text-[10px] uppercase font-bold tracking-widest text-muted">Updating Portfolio...</span>
-             </div>
+            <div className="px-4 py-2 bg-secondary/30 backdrop-blur-sm border-t border-color flex justify-center items-center gap-2">
+              <RefreshCw size={12} className="animate-spin text-muted" />
+              <span className="text-[10px] uppercase font-bold tracking-widest text-muted">Updating Portfolio...</span>
+            </div>
           )}
         </div>
       </section>

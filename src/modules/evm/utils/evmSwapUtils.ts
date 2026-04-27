@@ -6,7 +6,7 @@ import { getSwapQuote, prepareSwapTransaction, get1InchFusionQuote, build1InchFu
 import type { TokenInfo } from '../service/tokenListService';
 import { getChainById, getChainRangoSymbol } from './Chainregistry';
 import { parseSwapError } from './swapErrorHandler';
-import { NATIVE_ADDRESS } from './assetmanagement/constants';
+import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from './assetmanagement/constants';
 
 
 export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
@@ -262,7 +262,8 @@ export async function fetch1InchFusionQuote(
       tokenIn,
       tokenOut,
       amount,
-      walletAddress: "0xd015be36019f67e8dd4Df202787aec69F2A59101",
+      walletAddress
+      // walletAddress: "0xd015be36019f67e8dd4Df202787aec69F2A59101",
     });
     return quote;
   } catch (error: any) {
@@ -341,7 +342,7 @@ export async function execute1InchFusionSwap(
 }
 
 function toRangoAddress(address: string | null | undefined): string {
-  if (!address || address.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) return NATIVE_ADDRESS;
+  if (!address || address.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) return AGGREGATOR_NATIVE_ADDRESS;
   return address;
 }
 

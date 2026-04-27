@@ -55,16 +55,19 @@ export function getTokensForChain(chainId: number): TokenInfo[] {
   }
 
   const mappedTokens: TokenInfo[] = Array.from(uniqueTokensMap.values())
-    .map(t => ({
-      chainId: t.chainId || chainId,
-      address: t.address,
-      name: t.name,
-      symbol: t.symbol,
-      decimals: t.decimals,
-      logoURI: t.logoURI,
-      balance: undefined,
-      isNative: isNativeAddress(t.address) || t.type === 'NATIVE',
-    }));
+    .map(t => {
+      const isNative = isNativeAddress(t.address) || t.type === 'NATIVE';
+      return {
+        chainId: t.chainId || chainId,
+        address: t.address,
+        name: t.name,
+        symbol: t.symbol,
+        decimals: t.decimals,
+        logoURI: t.logoURI,
+        balance: undefined,
+        isNative,
+      };
+    });
 
   const hasNative = mappedTokens.some(t => t.isNative);
   
@@ -79,11 +82,10 @@ export function getTokensForChain(chainId: number): TokenInfo[] {
       balance: undefined,
       isNative: true,
     };
-    // Ensure native asset is at the top
     mappedTokens.unshift(nativeAsset);
   }
 
-  // Sort so native token is always at the top if it came from JSON
+  // Sort so native token is always at the top
   return mappedTokens.sort((a, b) => {
     if (a.isNative && !b.isNative) return -1;
     if (!a.isNative && b.isNative) return 1;

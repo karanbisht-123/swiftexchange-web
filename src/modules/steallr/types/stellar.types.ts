@@ -10,6 +10,7 @@ export interface TokenInfo {
   price?: number;
   isPopular?: boolean;
   decimals?: number;
+  hasTrustline?: boolean;
 }
 
 export interface PriceInfo {

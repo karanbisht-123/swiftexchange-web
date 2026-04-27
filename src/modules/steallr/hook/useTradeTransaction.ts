@@ -127,10 +127,15 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
   const startStreaming = useCallback(() => {
     if (!userAddress || !StellarSDK.StrKey.isValidEd25519PublicKey(userAddress)) return;
 
-    offersStreamRef.current?.();
-    tradesStreamRef.current?.();
-    offersStreamRef.current = null;
-    tradesStreamRef.current = null;
+    // Cleanup existing streams
+    if (offersStreamRef.current) {
+      offersStreamRef.current();
+      offersStreamRef.current = null;
+    }
+    if (tradesStreamRef.current) {
+      tradesStreamRef.current();
+      tradesStreamRef.current = null;
+    }
 
     try {
       const config = getStellarConfig(currentNetwork);
@@ -138,49 +143,41 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
       if (config.horizonUrl.startsWith('http://')) serverOptions.allowHttp = true;
       const server = new StellarSDK.Horizon.Server(config.horizonUrl, serverOptions);
 
-      try {
-        const closeOffers = server
-          .offers()
-          .forAccount(userAddress)
-          .cursor('now')
-          .stream({
-            onmessage: () => {
-              if (!mountedRef.current) return;
-              fetchActiveOffers();
-            },
-            onerror: () => {
-              if (mountedRef.current) setIsStreaming(false);
-            },
-          }) as unknown as () => void;
+      // Offer stream
+      const closeOffers = server
+        .offers()
+        .forAccount(userAddress)
+        .cursor('now')
+        .stream({
+          onmessage: () => {
+            if (!mountedRef.current) return;
+            fetchActiveOffers();
+          },
+          onerror: () => {
+            if (mountedRef.current) setIsStreaming(false);
+          },
+        }) as unknown as () => void;
+      offersStreamRef.current = closeOffers;
 
-        offersStreamRef.current = closeOffers;
-      } catch {
-
-      }
-
-
-      try {
-        const closeTrades = server
-          .trades()
-          .forAccount(userAddress)
-          .cursor('now')
-          .stream({
-            onmessage: () => {
-              if (!mountedRef.current) return;
-              fetchCompletedTrades();
-            },
-            onerror: () => {
-              if (mountedRef.current) setIsStreaming(false);
-            },
-          }) as unknown as () => void;
-
-        tradesStreamRef.current = closeTrades;
-      } catch {
-      }
+      // Trades stream
+      const closeTrades = server
+        .trades()
+        .forAccount(userAddress)
+        .cursor('now')
+        .stream({
+          onmessage: () => {
+            if (!mountedRef.current) return;
+            fetchCompletedTrades();
+          },
+          onerror: () => {
+            if (mountedRef.current) setIsStreaming(false);
+          },
+        }) as unknown as () => void;
+      tradesStreamRef.current = closeTrades;
 
       if (mountedRef.current) setIsStreaming(true);
     } catch (err) {
-      console.warn('[useTradeTransaction] SSE streaming failed, polling fallback active:', err);
+      console.warn('[useTradeTransaction] SSE streaming failed to start:', err);
       if (mountedRef.current) setIsStreaming(false);
     }
   }, [userAddress, currentNetwork, fetchActiveOffers, fetchCompletedTrades]);

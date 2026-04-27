@@ -202,12 +202,19 @@ export const getBridgeQuote = async ({
   });
 
   const sdk = getAllbridgeSdk();
+  console.log('[Allbridge] SDK instance ready for quote');
 
   const transferTimeMs = getTransferTimeMs(sourceToken, destinationToken, messenger);
+  console.log('[Allbridge] Transfer time calculated:', transferTimeMs);
 
+  console.log('[Allbridge] Calling sdk.getAmountToBeReceived and getFeeOptions...');
   const [amountToBeReceived, feeOptions] = await Promise.all([
-    sdk.getAmountToBeReceived(amount, sourceToken, destinationToken),
-    getFeeOptions(sourceToken, destinationToken, messenger),
+    sdk.getAmountToBeReceived(amount, sourceToken, destinationToken)
+      .then(res => { console.log('[Allbridge] sdk.getAmountToBeReceived success:', res); return res; })
+      .catch(err => { console.error('[Allbridge] sdk.getAmountToBeReceived failed:', err); throw err; }),
+    getFeeOptions(sourceToken, destinationToken, messenger)
+      .then(res => { console.log('[Allbridge] getFeeOptions success:', res); return res; })
+      .catch(err => { console.error('[Allbridge] getFeeOptions failed:', err); throw err; }),
   ]);
 
   const inputNum = parseFloat(amount);

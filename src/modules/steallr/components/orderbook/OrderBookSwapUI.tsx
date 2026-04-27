@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, RefreshCw, X, ChevronDown, ArrowUpDown } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { WalletType } from '../../../walletconnect/constants/Wallet';
@@ -90,21 +90,36 @@ const OrderBookSwapUI = () => {
   const stellarChainId = isMainnet ? 9000000 : 9000001;
   const chainConfig = getChainById(stellarChainId);
 
+  const lastChartPairRef = useRef<string>('');
+
   useEffect(() => {
     if (fromToken && toToken) {
-      setSelectedChartPair({
-        base: fromToken.code,
-        counter: toToken.code,
-        baseIssuer: fromToken.issuer,
-        counterIssuer: toToken.issuer,
-      });
+      const pairId = `${fromToken.code}:${fromToken.issuer}-${toToken.code}:${toToken.issuer}`;
+      
+      if (lastChartPairRef.current !== pairId) {
+        lastChartPairRef.current = pairId;
+        setSelectedChartPair({
+          base: fromToken.code,
+          counter: toToken.code,
+          baseIssuer: fromToken.issuer,
+          counterIssuer: toToken.issuer,
+        });
+      }
 
       const newParams = new URLSearchParams(searchParams);
       if (fromToken) newParams.set('sellAsset', fromToken.code);
       if (toToken) newParams.set('buyAsset', toToken.code);
       setSearchParams(newParams, { replace: true });
     }
-  }, [fromToken, toToken, setSelectedChartPair]);
+  }, [
+    fromToken?.code, 
+    fromToken?.issuer, 
+    toToken?.code, 
+    toToken?.issuer, 
+    setSelectedChartPair,
+    searchParams,
+    setSearchParams
+  ]);
 
   useEffect(() => {
     if (availableTokens.length === 0) return;
@@ -527,6 +542,8 @@ const OrderBookSwapUI = () => {
                   <CheckCircle className="w-6 h-6" />
                   {SUCCESS_MESSAGES.ORDER_SUCCESS || 'Order Placed!'}
                 </span>
+              ) : !toToken?.hasTrustline && !toToken?.asset.isNative() ? (
+                `Add Trustline & ${isBuy ? 'Buy' : 'Sell'}`
               ) : (
                 `${isBuy ? 'Buy' : 'Sell'} ${toToken?.code || 'Token'}`
               )}

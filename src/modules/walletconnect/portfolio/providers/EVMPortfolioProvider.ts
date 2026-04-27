@@ -70,13 +70,14 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
         if (id === 'matic') id = 'polygon';
         if (id === 'bnb') id = 'binance';
 
-        // Smarter lookup that automatically handles 'polygon', 'avalanche', etc.
+        //  lookup that automatically handles 'polygon', 'avalanche', etc.
         const chain = findChain(id, net as NetworkType);
         if (!chain) return null;
 
 
         const chainId = chain.chainId as number;
-        const isNative = !token.tokenAddress;
+        const lowerTokenAddress = (token.tokenAddress || "").toLowerCase();
+        const isNative = !token.tokenAddress || lowerTokenAddress === NATIVE_ADDRESS.toLowerCase();
         const assetAddress = isNative ? NATIVE_ADDRESS : token.tokenAddress!;
 
         const registryAsset = getAssetByAddress(chainId, assetAddress);
@@ -111,6 +112,7 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
           chainType: 'evm' as const,
           address: assetAddress,
           decimals,
+          isNative,
         };
 
       }) as (Asset | null)[]).filter((asset: Asset | null): asset is Asset => {
@@ -122,9 +124,6 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
         const isInRegistry = !!getAssetByAddress(chainId, address);
 
         const hasPrice = asset.current_price > 0;
-
-
-        // Display if it's native, in our registry, OR has a valid price from backend (trusted)
         return isNative || isInRegistry || hasPrice;
       });
 

@@ -2,9 +2,16 @@ import type { IChain } from './types';
 import type { ChainConfig } from '../Chainregistry';
 
 export function mapIChainToChainConfig(chain: IChain): ChainConfig {
+  const tokens: Record<string, string> = {};
+  if (Array.isArray(chain.bridgeSupportTokens)) {
+    chain.bridgeSupportTokens.forEach((t: any) => {
+      tokens[t.symbol] = t.address;
+    });
+  }
+
   return {
     ...chain,
-    chainId: typeof chain.chainId === 'string' ? 0 : chain.chainId, // Ensure number for Chainregistry for now
+    chainId: typeof chain.chainId === 'string' ? 0 : chain.chainId,
     rpcUrl: chain.rpcUrl || chain.rpcUrls[0],
     fallbackRpcUrls: chain.rpcUrls.slice(1),
     available: true,
@@ -20,7 +27,7 @@ export function mapIChainToChainConfig(chain: IChain): ChainConfig {
     },
     logoURI: chain.imageUrl,
     coingeckoPlatform: chain.nativeChainKey,
-    tokens: {},
+    tokens,
     assets: [
       {
         asset: chain.symbol,

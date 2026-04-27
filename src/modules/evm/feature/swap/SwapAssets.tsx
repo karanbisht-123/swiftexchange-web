@@ -73,7 +73,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   });
 
   const [sellAssetSymbol, setSellAssetSymbol] = useState<string>(searchParams.get('sellAsset') || '');
+  const [sellAssetAddress, setSellAssetAddress] = useState<string>(searchParams.get('sellAddress') || '');
   const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>(searchParams.get('buyAsset') || '');
+  const [buyAssetAddress, setBuyAssetAddress] = useState<string>(searchParams.get('buyAddress') || '');
   const [sellAmount, setSellAmount] = useState<string>('');
 
   const slippageTolerance = 0.5;
@@ -141,7 +143,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
 
   useEffect(() => {
-    if (isStellar(fromChainId)) {
+    if (isStellar(fromChainId) || isStellar(toChainId)) {
       try {
         const config = getStellarConfig(currentNetwork);
         const service = new AmmSwapService(config.horizonUrl, config.networkPassphrase, config.chainId);
@@ -152,14 +154,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     } else {
       setAmmService(null);
     }
-  }, [fromChainId, currentNetwork]);
+  }, [fromChainId, toChainId, currentNetwork]);
 
   const selectedSellAsset = useMemo(() => {
     if (isStellar(fromChainId)) {
       return stellarAssets.find(a => a.symbol === sellAssetSymbol);
     }
+    if (sellAssetAddress) {
+        return swapAssets.find(a => a.address.toLowerCase() === sellAssetAddress.toLowerCase());
+    }
     return swapAssets.find(a => a.symbol === sellAssetSymbol);
-  }, [swapAssets, sellAssetSymbol, stellarAssets, fromChainId]);
+  }, [swapAssets, sellAssetSymbol, sellAssetAddress, stellarAssets, fromChainId]);
 
   const selectedBuyAsset = useMemo(() => {
     if (isStellar(toChainId)) {
@@ -167,19 +172,27 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
     if (fromChainId !== toChainId) {
       const destTokens = getTokensForChain(toChainId);
+      if (buyAssetAddress) {
+          return destTokens.find(t => t.address.toLowerCase() === buyAssetAddress.toLowerCase());
+      }
       return destTokens.find(t => t.symbol === buyAssetSymbol);
     }
+    if (buyAssetAddress) {
+        return swapAssets.find(a => a.address.toLowerCase() === buyAssetAddress.toLowerCase());
+    }
     return swapAssets.find(a => a.symbol === buyAssetSymbol);
-  }, [swapAssets, buyAssetSymbol, stellarAssets, toChainId, fromChainId]);
+  }, [swapAssets, buyAssetSymbol, buyAssetAddress, stellarAssets, toChainId, fromChainId]);
 
   useEffect(() => {
     const params = new URLSearchParams();
     params.set('fromChainId', String(fromChainId));
     params.set('toChainId', String(toChainId));
     if (sellAssetSymbol) params.set('sellAsset', sellAssetSymbol);
+    if (sellAssetAddress) params.set('sellAddress', sellAssetAddress);
     if (buyAssetSymbol) params.set('buyAsset', buyAssetSymbol);
+    if (buyAssetAddress) params.set('buyAddress', buyAssetAddress);
     setSearchParams(params, { replace: true });
-  }, [fromChainId, toChainId, sellAssetSymbol, setSearchParams]);
+  }, [fromChainId, toChainId, sellAssetSymbol, sellAssetAddress, buyAssetSymbol, buyAssetAddress, setSearchParams]);
 
   useEffect(() => {
     if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
@@ -227,7 +240,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [selectedSellAsset?.address, isConnected, evmAddress, stellarAddress, isChainSwitching, updateTokenBalances, swapAssets.length, actionType, fromChainId]);
 
   useEffect(() => {
-    if (isStellar(fromChainId) && stellarAddress && ammService) {
+    if ((isStellar(fromChainId) || isStellar(toChainId)) && stellarAddress && ammService) {
       const fetchStellar = async () => {
         setIsFetchingStellarAssets(true);
         try {
@@ -247,15 +260,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               decimals: b.decimals || 7,
               isNative: b.asset.isNative(),
               asset: b.asset,
-              chainId: STELLAR_CHAIN_ID
+              chainId: STELLAR_CHAIN_ID,
+              address: b.asset.isNative() ? 'native' : b.asset.getIssuer(),
+              hasTrustline: b.hasTrustline
             };
           });
           setStellarAssets(mapped);
           if (actionType === 'SWAP') {
-            if (!sellAssetSymbol && mapped.length > 0) setSellAssetSymbol(mapped[0].symbol);
+            if (!sellAssetSymbol && mapped.length > 0) {
+              setSellAssetSymbol(mapped[0].symbol);
+              setSellAssetAddress(mapped[0].address || "");
+            }
             if (!buyAssetSymbol && mapped.length > 1) {
               const destToken = mapped.find(t => t.symbol !== sellAssetSymbol) || mapped[1];
               setBuyAssetSymbol(destToken.symbol);
+              setBuyAssetAddress(destToken.address || "");
             }
           }
         } catch (err) {
@@ -266,7 +285,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       };
       fetchStellar();
     }
-  }, [fromChainId, stellarAddress, ammService, sellAssetSymbol, actionType]);
+  }, [fromChainId, toChainId, stellarAddress, ammService, sellAssetSymbol, actionType]);
 
   useEffect(() => {
     if (swapAssets.length > 0 && !sellAssetSymbol && !buyAssetSymbol && !isChainSwitching) {
@@ -275,10 +294,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       if (nativeAsset && usdcAsset) {
         setSellAssetSymbol(nativeAsset.symbol);
+        setSellAssetAddress(nativeAsset.address);
         setBuyAssetSymbol(usdcAsset.symbol);
+        setBuyAssetAddress(usdcAsset.address);
       } else if (swapAssets.length >= 2) {
         setSellAssetSymbol(swapAssets[0].symbol);
+        setSellAssetAddress(swapAssets[0].address);
         setBuyAssetSymbol(swapAssets[1].symbol);
+        setBuyAssetAddress(swapAssets[1].address);
       }
     }
   }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching]);
@@ -357,13 +380,39 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       if (isStellar(fromChainId)) {
         setIsFetchingBridgeQuote(true);
+        console.log('[SwapAssets] Fetching Stellar to EVM bridge quote', {
+          fromChainId,
+          toChainId,
+          sellAssetSymbol,
+          buyAssetSymbol,
+          sellAmount
+        });
         try {
           const tokens = await getSupportedTokens();
-          const fromChainSym = isStellar(fromChainId) ? ChainSymbol.SRB : fromChainConfig?.nativeCurrency.symbol as ChainSymbol;
-          const toChainSym = isStellar(toChainId) ? ChainSymbol.SRB : toChainConfig?.nativeCurrency.symbol as ChainSymbol;
+          const fromChainSym = ChainSymbol.SRB;
+          let toChainSym: any = toChainConfig?.nativeCurrency.symbol;
 
-          const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol === sellAssetSymbol);
-          const dst = tokens.find(t => t.chainSymbol === toChainSym && t.symbol === buyAssetSymbol);
+          console.log("toChainSym", toChainSym)
+
+          // Locally map BNB and AVAX symbols to Allbridge-specific codes
+          if (toChainSym === 'BNB') toChainSym = ChainSymbol.BSC;
+          if (toChainSym === 'AVAX') toChainSym = ChainSymbol.AVA;
+
+          console.log('[SwapAssets] Chain Symbols for Allbridge', { fromChainSym, toChainSym });
+
+          const destTokens = tokens.filter(t => t.chainSymbol === toChainSym);
+          console.log(`[SwapAssets] Available tokens on ${toChainSym}:`, destTokens.map(t => t.symbol));
+
+          const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol.toUpperCase() === sellAssetSymbol.toUpperCase());
+          const dst = tokens.find(t => t.chainSymbol === toChainSym && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
+
+          console.log('[SwapAssets] Bridge tokens found', {
+            hasSrc: !!src,
+            hasDst: !!dst,
+            srcSymbol: src?.symbol,
+            dstSymbol: dst?.symbol,
+            toChainConfigSymbol: toChainConfig?.nativeCurrency.symbol
+          });
 
           if (src && dst) {
             const sq = await getStellarBridgeQuote({ amount: sellAmount, sourceToken: src, destinationToken: dst, slippageTolerance });
@@ -396,10 +445,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       const fromBridgeSupported = isBridgeSupported(sellAssetSymbol, fromChainId);
       const toBridgeSupported = isBridgeSupported(buyAssetSymbol, toChainId);
       const bothBridgeSupported = fromBridgeSupported && toBridgeSupported;
-
-      // const fromChainCfg = getChainById(fromChainId);
-      // const bridgeSupportList = fromChainCfg?.bridgeSupportTokens || [];
-
       const isToStellar = isStellar(toChainId);
       const usdValue = getUsdValue(sellAmount, selectedSellAsset);
       const isBelow2Usd = usdValue !== null && usdValue < 2;
@@ -424,18 +469,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       } catch (err: any) {
         if (shouldUseBridge) {
           console.warn('Bridge quotes failed, falling back to Rango:', err);
-          setCrossChainWarning('Bridge quotes unavailable. Showing Rango route instead.');
+          const bdgError = parseSwapError(err);
+          setCrossChainWarning(`Bridge unavailable: ${bdgError}. Showing Rango route instead.`);
           setCrossChainQuoteSource('rango');
           setBridgeQuoteData(null);
           try {
             await fetchRangoQuote(fromChainId, toChainId, selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
           } catch (rangoErr) {
             console.error('Rango fallback also failed:', rangoErr);
-            setCrossChainWarning('Could not fetch any quotes. Please try again.');
+            setCrossChainWarning(parseSwapError(rangoErr));
           }
         } else {
           console.error('Rango quote failed:', err);
-          setCrossChainWarning('Could not fetch Rango route. Please try again.');
+          const customError = parseSwapError(err);
+          setCrossChainWarning(customError);
         }
       } finally {
         setIsFetchingBridgeQuote(false);
@@ -507,11 +554,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleAssetSwap = useCallback(() => {
     const prevSell = sellAssetSymbol;
+    const prevSellAddr = sellAssetAddress;
+    const prevFromChain = fromChainId;
+
     setSellAssetSymbol(buyAssetSymbol);
+    setSellAssetAddress(buyAssetAddress);
     setBuyAssetSymbol(prevSell);
+    setBuyAssetAddress(prevSellAddr);
+    setFromChainId(toChainId);
+    setToChainId(prevFromChain);
+
     setSellAmount('');
     handleReset();
-  }, [buyAssetSymbol, sellAssetSymbol, handleReset]);
+  }, [buyAssetSymbol, buyAssetAddress, sellAssetSymbol, sellAssetAddress, fromChainId, toChainId, handleReset]);
 
   const handleUnifiedSwap = useCallback(async () => {
     if (!sellAmount) return;
@@ -750,12 +805,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       if (!fromSupported.includes(sellAssetSymbol.toUpperCase())) {
         const fallback = fromSupported.includes('USDC') ? 'USDC' : (fromSupported.includes('XLM') ? 'XLM' : fromSupported[0]);
-        if (fallback) setSellAssetSymbol(fallback);
+        if (fallback) {
+          setSellAssetSymbol(fallback);
+          setSellAssetAddress(""); // Fallback resets address to symbol-only search
+        }
       }
 
       if (!toSupported.includes(buyAssetSymbol.toUpperCase())) {
         const fallback = toSupported.includes('USDC') ? 'USDC' : (toSupported.includes('XLM') ? 'XLM' : toSupported[0]);
-        if (fallback) setBuyAssetSymbol(fallback);
+        if (fallback) {
+          setBuyAssetSymbol(fallback);
+          setBuyAssetAddress("");
+        }
       }
     }
 
@@ -805,7 +866,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               decimals: 7,
               isNative: b.asset.isNative(),
               asset: b.asset,
-              chainId: STELLAR_CHAIN_ID
+              chainId: STELLAR_CHAIN_ID,
+              address: b.asset.isNative() ? 'native' : b.asset.getIssuer(),
             };
           });
           setStellarAssets(mapped);
@@ -844,8 +906,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
     if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
     if (swapError && actionType === 'SWAP') return 'SWAP FAILED';
-    return 'SWAP';
-  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected]);
+    
+    if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
+      return actionType === 'SWAP' ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE & BRIDGE';
+    }
+
+    return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
+  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset]);
 
   const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
   const isSwapDisabled = !sellAmount ||
@@ -911,7 +978,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               onClick={() => openAssetSelector(actionType, {
                 defaultNetwork: fromChainId,
                 pairedChainId: toChainId,
-                onSelect: (a: any) => { handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), true); setSellAssetSymbol(a.symbol); }
+                onSelect: (a: any) => { 
+                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), true); 
+                  setSellAssetSymbol(a.symbol); 
+                  setSellAssetAddress(a.address || "");
+                }
               })}
               className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
               style={{ width: 'clamp(130px, 35vw, 160px)' }}
@@ -1003,7 +1074,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               onClick={() => openAssetSelector(actionType, {
                 defaultNetwork: toChainId,
                 pairedChainId: fromChainId,
-                onSelect: (a: any) => { handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false); setBuyAssetSymbol(a.symbol); }
+                onSelect: (a: any) => { 
+                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false); 
+                  setBuyAssetSymbol(a.symbol); 
+                  setBuyAssetAddress(a.address || "");
+                }
               })}
               className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
               style={{ width: 'clamp(130px, 35vw, 160px)' }}

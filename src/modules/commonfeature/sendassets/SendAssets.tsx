@@ -42,6 +42,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     handleRetryTransaction,
     copyToClipboard,
     formError,
+    buttonLabel,
+    needsTrustline
   } = useSendAsset(onBack);
 
   const handleRecipientChange = useCallback(
@@ -74,8 +76,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   const handleCopySender = useCallback(() => {
     copyToClipboard(senderAddress || '', 'Sender address');
   }, [senderAddress, copyToClipboard]);
-
-
 
   const handleCopyTxHash = useCallback(
     (hash: string) => {
@@ -121,7 +121,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     if (!currentAsset || !recipientAddress || !amount) return null;
 
     return (
-      <div className="space-y-4 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="space-y-4 max-w-2xl mx-auto">
         <div className="bg-brand-primary/5 rounded-xl border border-brand-primary/10 p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center">
@@ -217,7 +217,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             Edit
           </button>
           <TransactionButton
-            label="Send Now"
+            label={buttonLabel}
             onClick={handleConfirmTransaction}
             className="font-black"
           />
@@ -313,9 +313,11 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
   const renderForm = () => {
     return (
-      <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="space-y-4">
+
+        {/* Active Account */}
         {senderAddress && (
-          <div className="bg-bg-tertiary rounded-xl p-4 transition-all">
+          <div className="bg-bg-tertiary rounded-xl p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center border border-divider/50">
@@ -334,7 +336,11 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <div className="text-right">
                 <div className="flex items-center justify-end gap-1.5 mb-1">
                   <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider leading-none mt-0.5">Available</span>
-                  <button onClick={handleRefreshBalances} disabled={isFetchingBalance} className={`p-0.5 hover:bg-white/5 rounded-full transition-all text-text-muted hover:text-brand-primary ${isFetchingBalance ? 'animate-spin text-brand-primary' : ''}`}>
+                  <button
+                    onClick={handleRefreshBalances}
+                    disabled={isFetchingBalance}
+                    className={`p-0.5 hover:bg-white/5 rounded-full transition-all text-text-muted hover:text-brand-primary ${isFetchingBalance ? 'animate-spin text-brand-primary' : ''}`}
+                  >
                     <RefreshCw size={10} />
                   </button>
                 </div>
@@ -350,11 +356,12 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
+        {/* Asset Selector */}
         <div className="space-y-2">
           <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Select Asset & Network</label>
           <button
             onClick={() => openAssetSelector('SEND')}
-            className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-xl p-4 transition-all active:scale-[0.99] text-left"
+            className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-xl p-4 transition-colors active:scale-[0.99] text-left"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -379,34 +386,41 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   </div>
                 </div>
               </div>
-              <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5" />
+              <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-colors" />
             </div>
           </button>
         </div>
 
+        {/* Input Fields */}
         <div className="grid grid-cols-1 gap-3">
-          <div className="group relative bg-bg-tertiary hover:bg-bg-tertiary/80 rounded-xl transition-all overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-primary scale-y-0 group-focus-within:scale-y-100 transition-transform origin-top duration-300" />
+
+          {/* Recipient Address */}
+          <div className="group relative bg-bg-tertiary rounded-xl overflow-hidden">
+            {/* vertical focus indicator */}
+            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl bg-brand-primary opacity-0 group-focus-within:opacity-100 transition-opacity" />
             <div className="p-4">
               <label htmlFor="recipientAddress" className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">
                 Recipient Address
               </label>
-              <input
-                ref={recipientRef}
-                type="text"
-                id="recipientAddress"
-                className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg px-3 h-14 text-xs font-mono transition-all placeholder:text-text-muted ${(formError && formError.includes('address')) ? 'text-danger' : ''
-                  }`}
-                placeholder={currentAsset?.type === 'stellar' ? 'Stellar Address (G...)' : 'EVM Address (0x...)'}
-                value={recipientAddress}
-                onChange={handleRecipientChange}
-                autoFocus
-              />
+              <div className="bg-bg-secondary rounded-lg px-3 h-14 flex items-center">
+                <input
+                  ref={recipientRef}
+                  type="text"
+                  id="recipientAddress"
+                  className={`w-full bg-transparent border-none focus:ring-0 outline-none text-xs font-mono placeholder:text-text-muted ${formError && formError.includes('address') ? 'text-danger' : 'text-text-primary'
+                    }`}
+                  placeholder={currentAsset?.type === 'stellar' ? 'Stellar Address (G...)' : 'EVM Address (0x...)'}
+                  value={recipientAddress}
+                  onChange={handleRecipientChange}
+                  autoFocus
+                />
+              </div>
             </div>
           </div>
 
-          <div className="group relative bg-bg-tertiary hover:bg-bg-tertiary/80 rounded-xl transition-all overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-primary scale-y-0 group-focus-within:scale-y-100 transition-transform origin-top duration-300" />
+          {/* Amount */}
+          <div className="group relative bg-bg-tertiary rounded-xl overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl bg-brand-primary opacity-0 group-focus-within:opacity-100 transition-opacity" />
             <div className="p-4">
               <div className="flex justify-between items-center mb-2">
                 <label htmlFor="amount" className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
@@ -420,49 +434,56 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   Use Max
                 </button>
               </div>
-              <div className="relative">
+              <div className="bg-bg-secondary rounded-lg px-3 h-14 flex items-center">
                 <input
                   ref={amountRef}
                   type="text"
                   inputMode="decimal"
                   id="amount"
-                  className={`w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg pl-3 pr-16 h-14 text-lg font-black transition-all placeholder:text-text-muted ${formError && (formError.includes('balance') || formError.includes('Amount')) ? 'text-danger' : ''
+                  className={`flex-1 bg-transparent border-none focus:ring-0 outline-none text-lg font-black placeholder:text-text-muted ${formError && (formError.includes('balance') || formError.includes('Amount')) ? 'text-danger' : 'text-text-primary'
                     }`}
                   placeholder="0.00"
                   value={amount}
                   onChange={handleAmountChange}
                 />
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-text-muted">
-                  {currentAsset?.symbol}
-                </div>
+                <span className="text-xs font-bold text-text-muted ml-2 shrink-0">{currentAsset?.symbol}</span>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Memo (Stellar only) */}
         {currentAsset?.type === 'stellar' && (
-          <div className="bg-bg-tertiary rounded-xl p-4 transition-all">
-            <label htmlFor="memo" className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">
-              Memo <span className="text-[8px] font-normal lowercase">(Optional)</span>
-            </label>
-            <input
-              type="text"
-              id="memo"
-              className="w-full bg-bg-primary/40 border-none focus:ring-0 rounded-lg px-3 py-3 text-xs font-medium transition-all"
-              placeholder="Tag for exchanges"
-              value={memo}
-              onChange={handleMemoChange}
-            />
+          <div className="group relative bg-bg-tertiary rounded-xl overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl bg-brand-primary opacity-0 group-focus-within:opacity-100 transition-opacity" />
+            <div className="p-4">
+              <label htmlFor="memo" className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">
+                Memo <span className="text-[8px] font-normal lowercase">(Optional)</span>
+              </label>
+              <div className="bg-bg-secondary rounded-lg px-3 h-14 flex items-center">
+                <input
+                  type="text"
+                  id="memo"
+                  className="w-full bg-transparent border-none focus:ring-0 outline-none text-xs font-medium text-text-primary placeholder:text-text-muted"
+                  placeholder="Tag for exchanges"
+                  value={memo}
+                  onChange={handleMemoChange}
+                />
+              </div>
+            </div>
           </div>
         )}
 
+        {/* Fee summary */}
         {parseFloat(amount) > 0 && currentAsset && (
           <div className="bg-bg-tertiary rounded-xl p-4 border border-divider/60">
             <div className="space-y-3">
               <div className="flex justify-between items-center text-xs">
                 <span className="text-text-secondary font-medium">Estimated Fee</span>
                 <div className="flex items-center gap-1.5 font-bold text-text-primary">
-                  {isEstimatingFees ? <Loader2 size={10} className="animate-spin opacity-50" /> : `${estimatedFees?.totalCost || currentAsset.baseFee} ${currentAsset.symbol}`}
+                  {isEstimatingFees
+                    ? <Loader2 size={10} className="animate-spin opacity-50" />
+                    : `${estimatedFees?.totalCost || currentAsset.baseFee} ${currentAsset.symbol}`}
                 </div>
               </div>
               <div className="h-px bg-divider/10" />
@@ -476,6 +497,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
+        {/* Error */}
         {formError && (
           <div className="bg-danger/5 border border-danger/10 rounded-xl p-3.5 flex gap-3 items-center">
             <AlertCircle size={14} className="text-danger shrink-0" />
@@ -484,11 +506,11 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         )}
 
         <TransactionButton
-          label="Continue to Review"
+          label={buttonLabel}
           loadingLabel="Calculating Fees..."
           isLoading={isEstimatingFees}
-          isDisabled={!isFormValid}
-          onClick={handleReviewTransaction}
+          isDisabled={!isFormValid && !needsTrustline}
+          onClick={needsTrustline ? handleConfirmTransaction : handleReviewTransaction}
           className="mt-2"
         />
       </div>
@@ -533,4 +555,3 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 };
 
 export default SendAssets;
-

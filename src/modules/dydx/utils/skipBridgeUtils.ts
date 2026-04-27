@@ -11,12 +11,15 @@ export const DYDX_USDC_DENOM =
 
 export const NOBLE_USDC_DENOM = 'uusdc';
 
-export function getUsdcAddress(chainId: number): string {
-  const address = getTokenAddress(chainId, 'USDC');
-  if (address) return address;
-  return '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
-}
-
+const SKIP_CHAIN_NAME_MAP: Record<number, string> = {
+  1: 'ethereum',
+  56: 'binance',
+  137: 'polygon',
+  10: 'optimism',
+  42161: 'arbitrum',
+  8453: 'base',
+  43114: 'avalanche',
+};
 
 export const SKIP_BRIDGES = ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as const;
 
@@ -63,56 +66,40 @@ export function getEvmSourceDenom(
   address?: string,
   isNative?: boolean
 ): string {
+
+
   if (chainId === 9000000 || chainId === 9000001) {
-    console.log('stellar', symbol);
     if (isNative || symbol.toUpperCase() === 'XLM') {
       return 'stellar-native';
     }
-    if (address && address.startsWith('G') && address.length >= 56) {
+    if (address && address.startsWith('G')) {
       return `stellar:${address}`;
     }
     const issuer = getTokenAddress(chainId, symbol as any);
-    console.log(issuer, "source of issue ------- stealr ")
     if (issuer) return `stellar:${issuer}`;
     return 'stellar-native';
   }
 
   // EVM native coins
-  if (isNative) {
-    const chain = getChainById(chainId);
-    if (chain?.skipChainName) {
-      return `${chain.skipChainName}-native`;
-    }
-
-    switch (chainId) {
-      case 1: return 'ethereum-native';
-      case 56: return 'binance-native';
-      case 137: return 'polygon-native';
-      case 42161: return 'arbitrum-native';
-      case 10: return 'optimism-native';
-      case 8453: return 'base-native';
-      case 43114: return 'avalanche-native';
-      default: {
-        const prefix = chain?.slug || 'native';
-        return prefix === 'native' ? 'native' : `${prefix}-native`;
-      }
-    }
-  }
-  if (address && address.startsWith('0x')) {
-    return address.toLowerCase();
+  const lowerAddress = (address || "").toLowerCase();
+  const isZeroAddress = lowerAddress === '0x0000000000000000000000000000000000000000' || lowerAddress === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  
+  if (isNative || isZeroAddress) {
+    const skipName = SKIP_CHAIN_NAME_MAP[chainId] || getChainById(chainId)?.slug || 'native';
+    return skipName === 'native' ? 'native' : `${skipName}-native`;
   }
 
+  if (lowerAddress.startsWith('0x')) {
+    return lowerAddress;
+  }
+
+  // Fallback to registry lookup by symbol
   const registryAddress = getTokenAddress(chainId, symbol as any);
   if (registryAddress && registryAddress.startsWith('0x')) {
     return registryAddress.toLowerCase();
   }
 
-  const upperSymbol = symbol.toUpperCase();
-  if (['USDC', 'USDT', 'DAI', 'USDT.E', 'USDC.E'].includes(upperSymbol)) {
-    return getUsdcAddress(chainId);
-  }
-
-  return getUsdcAddress(chainId);
+  return (address || "").toLowerCase();
 }
 
 export function toAtomicAmount(amount: number, symbol: string, customDecimals?: number, chainId?: number): string {

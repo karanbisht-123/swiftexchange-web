@@ -138,6 +138,7 @@ export const RPC = {
 };
 
 export const NATIVE_ADDRESS = "0X0000000000000000000000000000000000000000";
+export const AGGREGATOR_NATIVE_ADDRESS = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 
 export const RESOURCE_BASE_URL = 'https://raw.githubusercontent.com/sachin-swiftex/resources/refs/heads/master';
 export const ASSET_CDN_BASE = RESOURCE_BASE_URL;

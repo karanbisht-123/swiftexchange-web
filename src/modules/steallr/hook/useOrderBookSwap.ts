@@ -75,7 +75,11 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
           const firstNonXlm = balances.find(t => t.code !== 'XLM');
           return isBuy ? firstNonXlm || balances[0] : xlm || balances[0];
         }
-        return balances.find(t => t.code === prev.code && t.issuer === prev.issuer) || prev;
+        const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+        if (!existing) return prev;
+        // Optimization: only update if balance changed
+        if (existing.balance === prev.balance) return prev;
+        return existing;
       });
       setToToken(prev => {
         if (!prev) {
@@ -83,7 +87,11 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
           const firstNonXlm = balances.find(t => t.code !== 'XLM');
           return isBuy ? xlm || balances[1] || balances[0] : firstNonXlm || balances[1] || balances[0];
         }
-        return balances.find(t => t.code === prev.code && t.issuer === prev.issuer) || prev;
+        const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+        if (!existing) return prev;
+        // Optimization: only update if balance changed
+        if (existing.balance === prev.balance) return prev;
+        return existing;
       });
       setSubentryCount(count);
 
@@ -159,7 +167,14 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         closeStream();
       }
     };
-  }, [fromToken, toToken, isBuy, service]);
+  }, [
+    fromToken?.code,
+    fromToken?.issuer,
+    toToken?.code,
+    toToken?.issuer,
+    isBuy,
+    service
+  ]);
 
   // Calculate quote
   useEffect(() => {

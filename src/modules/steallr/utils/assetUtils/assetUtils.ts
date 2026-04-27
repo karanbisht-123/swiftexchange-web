@@ -23,7 +23,7 @@ export interface TrustlineResult {
   transactionHash?: string;
 }
 
-export const buildTrustlineTransaction = async (params: TrustlineParams): Promise<string> => {
+export const buildTrustlineTransaction = async (params: TrustlineParams, limit?: string): Promise<string> => {
   const { server, stellarAddress, assetCode, assetIssuer, currentNetwork } = params;
 
   const sourceAccount = await server.loadAccount(stellarAddress);
@@ -37,6 +37,7 @@ export const buildTrustlineTransaction = async (params: TrustlineParams): Promis
     .addOperation(
       Operation.changeTrust({
         asset: new Asset(assetCode, assetIssuer),
+        limit: limit,
       })
     )
     .setTimeout(30)

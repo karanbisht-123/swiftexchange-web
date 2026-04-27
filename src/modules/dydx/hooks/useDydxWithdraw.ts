@@ -16,7 +16,8 @@ import {
   NOBLE_CHAIN_ID,
   NOBLE_USDC_DENOM,
   SKIP_BRIDGES,
-  getUsdcAddress,
+  // getUsdcAddress,
+  getEvmSourceDenom,
   buildCosmosSigner,
   buildEvmSigner,
   buildUserAddresses,
@@ -114,7 +115,7 @@ export const useDydxWithdraw = () => {
       onBridgeTxHash: (hash: string, chainId: string) => void
     ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
       const chainId = destChainId ?? Number(evmWallet?.chainId ?? 1);
-      const destAssetDenom = getUsdcAddress(chainId);
+      const destAssetDenom = getEvmSourceDenom('USDC', chainId);
 
       const baseRouteParams = {
         sourceAssetDenom: NOBLE_USDC_DENOM,

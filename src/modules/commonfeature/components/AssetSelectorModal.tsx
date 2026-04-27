@@ -2,6 +2,7 @@ import { Search, X, Copy, SearchX, Check } from 'lucide-react';
 import { type FC, useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FixedSizeList } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
@@ -71,8 +72,6 @@ const AssetSelectorModal: FC = () => {
       return true;
     });
   }, [currentNetwork, actionType, isStellarConnected]);
-
-  // Split "All" from the rest
   const allNetworkOption = networks[0];
   const chainNetworks = networks.slice(1);
 
@@ -129,12 +128,26 @@ const AssetSelectorModal: FC = () => {
           result = registryTokens
             .filter(t => supportedSymbols.includes(t.symbol.toUpperCase()))
             .map(t => ({
-              id: `bridge-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative,
+              id: `bridge-${activeChainId}-${t.symbol}`,
+              symbol: t.symbol,
+              name: t.name,
+              image: t.logoURI,
+              chainId: activeChainId,
+              address: t.address,
+              decimals: t.decimals,
+              isNative: t.isNative,
               balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
             }));
         } else {
           result = registryTokens.map(t => ({
-            id: `bridge-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative,
+            id: `bridge-${activeChainId}-${t.symbol}`,
+            symbol: t.symbol,
+            name: t.name,
+            image: t.logoURI,
+            chainId: activeChainId,
+            address: t.address,
+            decimals: t.decimals,
+            isNative: t.isNative,
             balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
           }));
         }
@@ -150,7 +163,11 @@ const AssetSelectorModal: FC = () => {
       result = result.filter(a => a.symbol.toLowerCase().includes(q) || a.name?.toLowerCase().includes(q));
     }
 
-    return result.sort((a, b) => (b.balance || 0) - (a.balance || 0));
+    return result.sort((a, b) => {
+      if (a.isNative && !b.isNative) return -1;
+      if (!a.isNative && b.isNative) return 1;
+      return a.symbol.toLowerCase().localeCompare(b.symbol.toLowerCase());
+    });
   }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType]);
 
   const handleSelect = useCallback((asset: any) => {
@@ -199,6 +216,13 @@ const AssetSelectorModal: FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-[15px] font-bold text-text-primary">{asset.symbol}</span>
+                {asset.isNative ? (
+                  <span className="text-[10px] bg-primary text-brand-primary px-1.5 py-1 rounded-md font-black uppercase">Native</span>
+                ) : (
+                  <span className="text-[10px] bg-bg-tertiary text-text-secondary px-1.5 py-0.5 rounded-md font-bold uppercase overflow-hidden text-ellipsis whitespace-nowrap max-w-[80px]">
+                    {asset.address?.slice(0, 6)}...{asset.address?.slice(-4)}
+                  </span>
+                )}
                 {asset.address && !asset.isNative && (
                   <button
                     onClick={(e) => handleCopyAddress(e, asset)}
@@ -227,13 +251,8 @@ const AssetSelectorModal: FC = () => {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 backdrop-blur-sm">
-      {/* Backdrop tap to close */}
       <div className="absolute inset-0" onClick={closeAssetSelector} />
-
-      {/* Bottom Sheet */}
       <div className="relative w-full max-w-lg bg-bg-secondary rounded-t-[28px] shadow-2xl flex flex-col h-[75vh] border border-divider border-b-0 animate-slide-up">
-
-        {/* Drag handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-9 h-1 rounded-full bg-bg-tertiary" />
         </div>
@@ -264,9 +283,7 @@ const AssetSelectorModal: FC = () => {
             />
           </div>
         </div>
-        {/* Network Filter — "All" pinned left, rest scrolls */}
         <div className="pb-3 flex items-center border-b border-divider">
-          {/* Pinned "All Networks" */}
           <div className="pl-5 pr-3 flex-shrink-0">
             <button
               onClick={() => setSelectedNetwork(allNetworkOption.id)}
@@ -281,10 +298,7 @@ const AssetSelectorModal: FC = () => {
             </button>
           </div>
 
-          {/* Divider */}
           <div className="w-px self-stretch bg-divider flex-shrink-0 my-1" />
-
-          {/* Scrollable chain networks */}
           <div
             className="flex gap-2 px-3 flex-1 hide-scrollbar"
             style={{ overflowX: 'auto', minWidth: 0 }}
@@ -307,17 +321,20 @@ const AssetSelectorModal: FC = () => {
           </div>
         </div>
 
-        {/* Asset List */}
         <div className="flex-1 overflow-hidden">
           {filteredAssets.length > 0 ? (
-            <FixedSizeList
-              height={400}
-              itemCount={filteredAssets.length}
-              itemSize={ROW_HEIGHT}
-              width="100%"
-            >
-              {AssetRow}
-            </FixedSizeList>
+            <AutoSizer
+              renderProp={({ height, width }) => (
+                <FixedSizeList
+                  height={height || 0}
+                  itemCount={filteredAssets.length}
+                  itemSize={ROW_HEIGHT}
+                  width={width || 0}
+                >
+                  {AssetRow}
+                </FixedSizeList>
+              )}
+            />
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center px-10">
               <div className="w-16 h-16 bg-bg-tertiary rounded-full flex items-center justify-center mb-4">

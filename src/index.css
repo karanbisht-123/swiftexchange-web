@@ -32,22 +32,22 @@
   --color-brand-primary-light: #0d1a6e;
   --color-brand-accent: #3b4fd9;
 
-  /* Light Theme Colors - Soft Blue with White Cards */
-  --color-bg-primary: #f5f7fb;
+  /* Light Theme - Clean fintech neutral-cool white */
+  --color-bg-primary: #f7f8fc;
   --color-bg-secondary: #ffffff;
-  --color-bg-tertiary: #f8faff;
-  --color-bg-hover: #f0f4ff;
+  --color-bg-tertiary: #f0f3fb;
+  --color-bg-hover: #eaedfa;
 
   /* Text Colors - High Contrast */
-  --color-text-primary: #1a1d29;
+  --color-text-primary: #0f1729;
   --color-text-secondary: #4a5568;
-  --color-text-muted: #718096;
+  --color-text-muted: #8896b3;
   --color-text-inverse: #ffffff;
 
-  /* Border Colors - Better Contrast */
-  --color-border: #e2e8f0;
-  --color-border-light: #3f4142;
-  --color-border-dark: #38393a;
+  /* Border Colors - Soft for light mode */
+  --color-border: #e4e8f0;
+  --color-border-light: #dce3ed;
+  --color-border-dark: #c8d1de;
 
   /* Status Colors */
   --color-success: #10b981;
@@ -85,24 +85,22 @@
   --color-brand-primary-light: #3b4fd9;
   --color-brand-accent: #6b7aef;
 
-  /* Dark Theme Colors - Deep Dark with Clear Cards */
-  --color-bg-primary: #0a0e17;
-  --color-bg-secondary: #191c25;
-  /* --color-bg-primary: #1b1b1c;
-  --color-bg-secondary: #242426; */
-  --color-bg-tertiary: #242938;
-  --color-bg-hover: #2d3241;
+  /* Dark Theme - Deep navy-black fintech */
+  --color-bg-primary: #080c18;
+  --color-bg-secondary: #0f1528;
+  --color-bg-tertiary: #0a1020;
+  --color-bg-hover: #162035;
 
   /* Text Colors - High Contrast for Dark */
-  --color-text-primary: #e2e8f0;
-  --color-text-secondary: #c1c9d2;
-  --color-text-muted: #8b95a5;
+  --color-text-primary: #e8edf8;
+  --color-text-secondary: #8896b3;
+  --color-text-muted: #4a5680;
   --color-text-inverse: #ffffff;
 
-  /* Border Colors - Visible in Dark */
-  --color-border: #2d3241;
-  --color-border-light: #242938;
-  --color-border-dark: #3a3f4f;
+  /* Border Colors - Blue-tinted for dark */
+  --color-border: #1e2840;
+  --color-border-light: #161d30;
+  --color-border-dark: #2a3550;
 
   /* Status Colors */
   --color-success: #10b981;
@@ -541,7 +539,7 @@
   }
 
   .dark .bg-secondary\/50 {
-    background-color: rgba(25, 28, 37, 0.5);
+    background-color: rgba(15, 21, 40, 0.5);
   }
 }
 

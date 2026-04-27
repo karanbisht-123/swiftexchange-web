@@ -1,6 +1,5 @@
 import {
-  Infinity,
-  // ArrowRightLeft,
+  Infinity as InfinityIcon,
   BarChart2,
   CandlestickChart,
   History,
@@ -118,7 +117,7 @@ const Sidebar: FC = () => {
     {
       href: ROUTES.TRADING_DYDX_FUTURES,
       label: 'Perps',
-      icon: <Infinity className="w-5 h-5" />,
+      icon: <InfinityIcon className="w-5 h-5" />,
       queryParam: '?view=trade',
     },
   ];
@@ -204,7 +203,7 @@ const Sidebar: FC = () => {
                   }}
                   title={item.label}
                 >
-                  <span className="flex-shrink-0 mb-1">{item.icon}</span>
+                  <span className="shrink-0 mb-1">{item.icon}</span>
                   <span className="text-[10px] leading-tight font-medium text-center">
                     {item.label}
                   </span>

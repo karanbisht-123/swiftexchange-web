@@ -490,12 +490,12 @@ export const useEvmSwap = ({
 
       try {
         const toChainTokens = getTokensForChain(toChainId);
-        const toChainAsset = toChainTokens.find(t => t.symbol.toUpperCase() === buyAsset.symbol.toUpperCase());
+        const toChainAsset = buyAsset.address 
+          ? toChainTokens.find((t: any) => t.address.toLowerCase() === buyAsset.address.toLowerCase())
+          : toChainTokens.find((t: any) => t.symbol.toUpperCase() === buyAsset.symbol.toUpperCase());
 
-        const fromAddress = sellAsset.isNative ? null : sellAsset.address;
-        const toAddress = toChainAsset
-          ? (toChainAsset.isNative ? null : toChainAsset.address)
-          : (buyAsset.isNative ? null : buyAsset.address);
+        const fromAddress = sellAsset.address || null;
+        const toAddress = toChainAsset?.address || buyAsset.address || null;
 
         const rangoData = await fetchRangoBestRoute(
           fromChainId,
@@ -507,6 +507,10 @@ export const useEvmSwap = ({
           amount,
           slippage
         );
+
+        if ((!rangoData.result || (Array.isArray(rangoData.result) && rangoData.result.length === 0)) && rangoData.diagnosisMessages) {
+          throw rangoData;
+        }
 
         updateState({ rangoQuote: rangoData, quoteLoading: false });
         return rangoData;

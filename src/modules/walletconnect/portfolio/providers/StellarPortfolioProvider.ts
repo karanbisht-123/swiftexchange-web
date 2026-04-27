@@ -26,7 +26,6 @@ export class StellarPortfolioProvider implements IPortfolioProvider {
         const symbol = 'asset_code' in b ? b.asset_code : 'XLM';
         const issuer = ('asset_issuer' in b ? b.asset_issuer : undefined) ?? undefined;
 
-        // Use local registry for speed, background enrichPrices will handle the rest later
         const registryAsset = getAssetBySymbol(stellarChainId, symbol);
         const globalMeta = !registryAsset ? getGlobalAssetMetadata(symbol) : undefined;
 
@@ -39,7 +38,7 @@ export class StellarPortfolioProvider implements IPortfolioProvider {
           name,
           image,
           balance: parseFloat(b.balance),
-          current_price: 0, // Set to 0 to trigger async enrichment
+          current_price: 0,
           price_change_percentage_24h: 0,
           chainName: network === 'mainnet' ? 'Stellar' : 'Stellar Testnet',
           chainType: 'stellar',

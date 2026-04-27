@@ -1,4 +1,4 @@
-import { RPC_URLS, EXPLORER_URLS, GET_LOGO_URL, GET_TOKEN_LOGO_URL, GET_RESOURCES_LIST_URL, RPC, NATIVE_ADDRESS } from './constants';
+import { RPC_URLS, EXPLORER_URLS, GET_LOGO_URL, GET_RESOURCES_LIST_URL, RPC, NATIVE_ADDRESS } from './constants';
 import { type IChain } from './types';
 
 export const ETH = {

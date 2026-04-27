@@ -34,6 +34,7 @@ export class StellarBaseService {
             code: 'XLM',
             balance: balance.balance,
             isPopular: true,
+            hasTrustline: true,
           });
         } else if (
           balance.asset_type === 'credit_alphanum4' ||
@@ -46,6 +47,7 @@ export class StellarBaseService {
             issuer: balance.asset_issuer,
             balance: balance.balance,
             isPopular: false,
+            hasTrustline: true,
           });
         }
       }
@@ -59,6 +61,7 @@ export class StellarBaseService {
             code: 'XLM',
             balance: '0',
             isPopular: true,
+            hasTrustline: true,
           }],
           subentryCount: 0
         };
@@ -106,6 +109,7 @@ export class StellarBaseService {
         icon: a.logoURI,
         decimals: a.decimals,
         isPopular: true,
+        hasTrustline: a.type === 'NATIVE' || !!balRecord,
       };
     });
 

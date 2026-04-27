@@ -6,15 +6,14 @@ export function parseSwapError(error: any): string {
   });
 
   let message = '';
-
-  // Extract error info logically preferring deeper structures, like axios responses
   const data = error?.response?.data || error?.data || error;
-
+  if (data?.diagnosisMessages && Array.isArray(data.diagnosisMessages) && data.diagnosisMessages.length > 0) {
+    return String(data.diagnosisMessages[0]);
+  }
   if (Array.isArray(data) && data.length > 0) {
     if (data[0]?.error) message = String(data[0].error);
     else if (data[0]?.message) message = String(data[0].message);
   }
-
   if (!message && typeof data === 'object' && data !== null) {
     if (data.message) {
       message = data.message;
@@ -26,7 +25,6 @@ export function parseSwapError(error: any): string {
       message = data.error.message;
     }
   }
-
   if (!message && typeof error === 'object' && error !== null) {
     if (error.message) {
       message = error.message;
@@ -39,29 +37,20 @@ export function parseSwapError(error: any): string {
         message = error.toString();
       }
     }
-  } else {
-    message = String(error);
   }
 
-  const errorMessageLower = message.toLowerCase();
-
-  // Priority: Informative API/Backend Errors (Return as-is to preserve details like Have: / Need:)
-  if (
-    errorMessageLower.includes('api error') ||
-    errorMessageLower.includes('bad request') ||
-    (errorMessageLower.includes('insufficient') &&
-      errorMessageLower.includes('have:') &&
-      errorMessageLower.includes('need:'))
-  ) {
-    // If it's a specific Insufficient balance error with details, return it directly
-    // Stripping generic prefixes but keeping the informative details intact
-    return message
-      .replace(/^API error: Bad Request - /i, '')
-      .replace(/^API error: /i, '')
-      .replace(/^Error: /i, '');
+  if (!message) {
+    message = error ? String(error) : 'Swap failed. Please try again.';
   }
+  let processedMessage = message
+    .replace(/^API error: Bad Request - /i, '')
+    .replace(/^API error: /i, '')
+    .replace(/^Error: /i, '')
+    .replace(/^ethers-user-denied: /i, '')
+    .replace(' [object Object]', '');
 
-  // User rejection
+  const errorMessageLower = processedMessage.toLowerCase();
+
   if (
     error?.code === 4001 ||
     error?.code === 'ACTION_REJECTED' ||
@@ -69,89 +58,37 @@ export function parseSwapError(error: any): string {
     errorMessageLower.includes('rejected by user') ||
     errorMessageLower.includes('transaction rejected')
   ) {
-    if (errorMessageLower.includes('invalid transaction key')) {
-      return `Wallet Error: ${message}. This is likely a compatibility issue with your wallet app's transaction handling.`;
-    }
     return 'Transaction was cancelled during confirmation.';
   }
-
-  // Insufficient Balance & Gas Fees (Structured)
-  const balanceMatch = message.match(/Insufficient (\w+) (?:balance|for gas fees)\. Have: ([\d.]+).*, Need: ~?([\d.]+)/i);
-  if (balanceMatch) {
-    const asset = balanceMatch[1];
-    const have = balanceMatch[2];
-    const need = balanceMatch[3];
-    return `Insufficient ${asset} for gas fees. You have ${parseFloat(have).toFixed(6)} ${asset} but need ~${parseFloat(need).toFixed(6)} ${asset}.`;
-  }
-
   if (
     errorMessageLower.includes('insufficient funds') ||
     errorMessageLower.includes('insufficient eth balance') ||
-    (errorMessageLower.includes('insufficient') && errorMessageLower.includes('balance')) ||
     errorMessageLower.includes('insufficient eth for gas fees')
   ) {
-    return 'You do not have enough native tokens to cover the network gas fees for this swap.';
+    if (errorMessageLower.includes('need') && errorMessageLower.includes('have')) return processedMessage;
+    return 'Insufficient native tokens to cover network gas fees.';
   }
 
-  // Gas Estimation Issues
+  // Gas Estimation
   if (
-    errorMessageLower.includes('gas required exceeds allowance') ||
     errorMessageLower.includes('cannot estimate gas') ||
-    errorMessageLower.includes('gas estimation failed') ||
-    (errorMessageLower.includes('transaction failed') && errorMessageLower.includes('gas'))
+    errorMessageLower.includes('gas estimation failed')
   ) {
-    return 'Transaction could not estimate gas. Please check your balance or try a smaller amount.';
+    return 'Transaction gas estimation failed. Please check your balance or try a smaller amount.';
   }
 
-  // API / Backend Errors
-  if (errorMessageLower.includes('bad request') || errorMessageLower.includes('api error: 400')) {
-    if (message.includes('Insufficient')) return message; // Re-use the message if it's specific
-    return 'Swap request failed (Bad Request). Please try again with a different amount or slippage.';
-  }
-
-  // Liquidity issues
+  // Prevent leaking RPC URLs
   if (
-    errorMessageLower.includes('no liquidity') ||
-    errorMessageLower.includes('insufficient liquidity') ||
-    errorMessageLower.includes('execution price is too far')
+    processedMessage.includes('http://') ||
+    processedMessage.includes('https://') ||
+    errorMessageLower.includes('rpc error')
   ) {
-    return 'Insufficient liquidity or high price impact for this token pair.';
-  }
-
-  // Network issues
-  if (
-    errorMessageLower.includes('network error') ||
-    errorMessageLower.includes('timeout') ||
-    errorMessageLower.includes('failed to fetch')
-  ) {
-    return 'Network error. Please check your connection and try again.';
-  }
-
-  // Prevent leaking RPC URLs or raw ethers.js dumps
-  if (
-    message.includes('http://') || 
-    message.includes('https://') || 
-    errorMessageLower.includes('alchemy.com') ||
-    errorMessageLower.includes('infura.io') ||
-    errorMessageLower.includes('provider') ||
-    errorMessageLower.includes('rpc error') ||
-    errorMessageLower.includes('call revert exception') ||
-    errorMessageLower.includes('unpredictable gas limit')
-  ) {
-    if (errorMessageLower.includes('insufficient funds')) {
-      return 'You do not have enough native tokens to cover network gas fees.';
-    }
-    const revertMatch = message.match(/execution reverted:?\s*([^"(]+)/i);
+    const revertMatch = processedMessage.match(/execution reverted:?\s*([^"(]+)/i);
     if (revertMatch && revertMatch[1].trim()) {
       return `Transaction failed: ${revertMatch[1].trim()}`;
     }
     return 'Transaction failed due to a network provider error. Please try again.';
   }
 
-  // General fallback
-  if (message && message !== 'user rejected action' && message !== 'Failed to execute swap' && !message.includes('[object Object]')) {
-    return message.replace('ethers-user-denied: ', '').replace('Error: ', '');
-  }
-
-  return 'Swap failed. Please try again.';
+  return processedMessage || 'Swap failed. Please try again.';
 }

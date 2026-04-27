@@ -2,21 +2,27 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  Check,
   ChevronDown,
   ChevronLeft,
   Clock,
+  Copy,
   Info,
   Loader2,
   RefreshCw,
+  Search,
+  SearchX,
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
+import { FixedSizeList } from 'react-window';
 import { Notification } from '../../../components/common/Notification';
-import { ROUTES } from '../../../constants/routes';
-
 import { Tooltip } from '../../../components/common/Tooltip';
-import { type Asset, useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
+import { getChainById, getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { getEVMChains } from '../../walletconnect/config/chains';
+import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
+import { type Asset } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { useSubaccounts } from '../hooks/useSubaccounts';
@@ -29,7 +35,6 @@ import {
 import { validateDepositAmount } from '../utils/inputValidation';
 import { NATIVE_WALLET_GAS_RESERVE_USD } from '../utils/skipBridgeUtils';
 import { TransactionTracker } from './TransactionTracker';
-import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 
 type ModalStep = 'form' | 'select_token' | 'tracker';
 
@@ -71,44 +76,7 @@ const AssetIcon = ({ asset, size = 'md' }: { asset: Asset; size?: 'sm' | 'md' })
   );
 };
 
-const AssetRow = ({
-  asset,
-  isSelected,
-  onSelect,
-}: {
-  asset: Asset;
-  isSelected: boolean;
-  onSelect: (asset: Asset) => void;
-}) => {
-  const usdValue = (asset.balance || 0) * (asset.current_price || 0);
-  return (
-    <button
-      onClick={() => onSelect(asset)}
-      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${isSelected ? 'bg-brand/10 border border-brand/30' : 'hover:bg-hover'
-        }`}
-    >
-      <div className="flex items-center gap-3">
-        <AssetIcon asset={asset} />
-        <div className="text-left">
-          <div className="text-sm font-semibold text-primary">{asset.symbol}</div>
-          <div className="text-xs text-muted">{asset.chainName || 'Ethereum'}</div>
-        </div>
-      </div>
-      <div className="text-right">
-        <div className="text-sm font-medium text-primary">
-          {asset.balance?.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-        </div>
-        <div className="text-xs text-muted">
-          $
-          {usdValue.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
-        </div>
-      </div>
-    </button>
-  );
-};
+
 
 const RoutePill: React.FC = () => (
   <div className="flex items-center gap-1.5 text-[11px] text-muted bg-secondary border border-color rounded-full px-3 py-1.5 w-fit mx-auto">
@@ -165,7 +133,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   initialAsset,
 }) => {
   const { network } = useWalletStore();
-  const navigate = useNavigate();
   const { assets } = useWalletAssets(network);
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
   const evmAddress = evmWallet?.address || '';
@@ -205,10 +172,29 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const activeAssetSymbol = isLoading
     ? selectedAsset?.symbol
     : (store.depositTx?.assetSymbol ?? '');
-  const [goFast, setGoFast] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const [slippage, setSlippage] = useState('1');
   const [showVolatilityWarning, setShowVolatilityWarning] = useState(true);
-  const isStellar = selectedAsset?.chainId === 9000000 || selectedAsset?.chainId === 9000001;
+
+  const amountValue = parseFloat(amount) || 0;
+  const isStable = ['USDC', 'USDT'].includes(selectedAsset?.symbol?.toUpperCase() || '');
+  const rawUsdEquivalent = isStable
+    ? amountValue
+    : amountValue * (selectedAsset?.current_price || 0);
+  const usdEquivalent =
+    !isStable && (selectedAsset?.current_price || 0) === 0 ? null : rawUsdEquivalent;
+  const displayUsd = usdEquivalent ?? rawUsdEquivalent;
+  
+  const goFast = displayUsd >= 20;
 
   const tracker = useTransactionTracker('deposit');
   const trackerTxHash = tracker.txHash;
@@ -236,7 +222,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
       wasOpenRef.current = false;
       setAmount('');
       setSelectedAsset(null);
-      setGoFast(false);
       setSlippage('1');
       setShowVolatilityWarning(true);
       reset();
@@ -263,12 +248,15 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (initialAsset) {
+    if (initialAsset && initialAsset.chainId !== 9000000 && initialAsset.chainId !== 9000001) {
       setSelectedAsset(initialAsset);
     } else if (assets.length > 0 && !selectedAsset) {
-      const usdc = assets.find(a => a.symbol.toUpperCase() === 'USDC');
-      const eth = assets.find(a => a.symbol.toUpperCase() === 'ETH');
-      setSelectedAsset(usdc || eth || assets[0]);
+      const evmAssets = assets.filter(a => a.chainId !== 9000000 && a.chainId !== 9000001);
+      const evmBalAssets = evmAssets.filter(a => (a.balance || 0) > 0);
+      const candidates = evmBalAssets.length > 0 ? evmBalAssets : evmAssets;
+      const usdc = candidates.find(a => a.symbol.toUpperCase() === 'USDC');
+      const eth = candidates.find(a => a.symbol.toUpperCase() === 'ETH');
+      setSelectedAsset(usdc || eth || candidates[0] || null);
     }
   }, [isOpen, assets, initialAsset]);
 
@@ -324,32 +312,123 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const handleShowTracker = useCallback(() => setModalStep('tracker'), []);
 
-  const sortedAssets = useMemo(() => {
-    return [...assets].sort((a, b) => {
+  const evmNetworks = useMemo<{ id: string | number; name: string; logo?: string }[]>(() => {
+    const evmVals = getEVMChains(network).map(c => ({
+      id: c.chainId,
+      name: c.name,
+      logo: c.logoUrl,
+    }));
+    return [{ id: 'all', name: 'All Networks' }, ...evmVals];
+  }, [network]);
+
+  const filteredAssets = useMemo(() => {
+    let result = assets.filter(a => {
+      if (a.chainId === 9000000 || a.chainId === 9000001) return false;
+      if (selectedNetwork !== 'all' && a.chainId !== Number(selectedNetwork)) return false;
+      if ((a.balance || 0) <= 0) return false;
+      return true;
+    });
+
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter(a => a.symbol.toLowerCase().includes(q) || a.name?.toLowerCase().includes(q));
+    }
+
+    return result.sort((a, b) => {
+      const aBal = a.balance || 0;
+      const bBal = b.balance || 0;
+      const aUsd = aBal * (a.current_price || 0);
+      const bUsd = bBal * (b.current_price || 0);
+
+      if (aBal > 0 && bBal === 0) return -1;
+      if (bBal > 0 && aBal === 0) return 1;
+      if (aUsd !== bUsd) return bUsd - aUsd;
+
       const aIdx = PRIORITY_SYMBOLS.indexOf(a.symbol.toUpperCase());
       const bIdx = PRIORITY_SYMBOLS.indexOf(b.symbol.toUpperCase());
       if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
       if (aIdx !== -1) return -1;
       if (bIdx !== -1) return 1;
-      return (b.balance || 0) * (b.current_price || 0) - (a.balance || 0) * (a.current_price || 0);
+      return bBal - aBal;
     });
-  }, [assets]);
+  }, [assets, selectedNetwork, debouncedSearch]);
 
-  const yourTokens = useMemo(() => sortedAssets.filter(a => (a.balance || 0) > 0), [sortedAssets]);
-  const otherTokens = useMemo(
-    () => sortedAssets.filter(a => (a.balance || 0) === 0),
-    [sortedAssets]
-  );
+  const handleCopyAddress = useCallback((e: React.MouseEvent, asset: Asset) => {
+    e.stopPropagation();
+    if (!asset.address) return;
+    navigator.clipboard.writeText(asset.address);
+    setCopiedId(asset.id || asset.address);
+    setTimeout(() => setCopiedId(null), 2000);
+  }, []);
 
-  const amountValue = parseFloat(amount) || 0;
+  const VirtualAssetRow = useCallback(({ index, style }: any) => {
+    const asset = filteredAssets[index];
+    const chainConfig = getChainById(asset.chainId || 0);
+    const usdValue = (asset.balance || 0) * (asset.current_price || 0);
+
+    return (
+      <div style={{ ...style, padding: '0 16px' }}>
+        <button
+          onClick={() => handleSelectAsset(asset)}
+          className="group flex w-full items-center justify-between px-3 py-3 rounded-2xl hover:bg-hover transition-all text-left"
+        >
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="relative flex-shrink-0">
+              <img
+                src={asset.image || chainConfig?.logoURI}
+                alt=""
+                className="w-10 h-10 rounded-full bg-hover object-cover"
+              />
+              {chainConfig?.logoURI && (
+                <img
+                  src={chainConfig.logoURI}
+                  alt=""
+                  className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-secondary"
+                />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-bold text-primary">{asset.symbol}</span>
+                {asset.isNative ? (
+                  <span className="text-[10px] bg-primary text-brand px-1.5 py-1 rounded-md font-black uppercase">
+                    Native
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-tertiary text-muted px-1.5 py-0.5 rounded-md font-bold uppercase overflow-hidden text-ellipsis whitespace-nowrap max-w-[80px]">
+                    {asset.address?.slice(0, 6)}...{asset.address?.slice(-4)}
+                  </span>
+                )}
+                {asset.address && !asset.isNative && (
+                  <button
+                    onClick={e => handleCopyAddress(e, asset)}
+                    className="p-1 hover:bg-tertiary rounded-md text-muted transition-colors"
+                  >
+                    {copiedId === (asset.id || asset.address) ? (
+                      <Check className="w-3 h-3 text-success" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-muted truncate">{asset.name || asset.symbol}</div>
+            </div>
+          </div>
+          <div className="text-right ml-4">
+            <div className="text-[14px] font-bold text-primary">
+              {asset.balance?.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+            </div>
+            <div className="text-xs text-muted">
+              ${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        </button>
+      </div>
+    );
+  }, [filteredAssets, handleSelectAsset, copiedId, handleCopyAddress]);
+
   const walletBalance = selectedAsset?.balance || 0;
-  const isStable = ['USDC', 'USDT'].includes(selectedAsset?.symbol?.toUpperCase() || '');
-  const rawUsdEquivalent = isStable
-    ? amountValue
-    : amountValue * (selectedAsset?.current_price || 0);
-  const usdEquivalent =
-    !isStable && (selectedAsset?.current_price || 0) === 0 ? null : rawUsdEquivalent;
-  const displayUsd = usdEquivalent ?? rawUsdEquivalent;
 
   const amountValidation = validateDepositAmount(
     amountValue,
@@ -358,10 +437,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     MIN_DEPOSIT_USDC
   );
   const equityAfter = parseFloat(totalEquity) + (route?.receivedAmount ?? displayUsd);
-
-  useEffect(() => {
-    if (displayUsd > 0 && displayUsd < 20 && goFast) setGoFast(false);
-  }, [displayUsd, goFast]);
 
   if (!isOpen) return null;
 
@@ -556,10 +631,14 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   if (modalStep === 'select_token') {
     return (
-      <ModalShell onClose={onClose}>
+      <ModalShell onClose={onClose} className="!max-h-[85vh] h-[85vh] sm:h-[640px]">
         <div className="flex items-center gap-3 px-5 pt-5 pb-3 shrink-0 border-b border-color">
           <button
-            onClick={() => setModalStep('form')}
+            onClick={() => {
+              setModalStep('form');
+              setSearchQuery('');
+              setSelectedNetwork('all');
+            }}
             className="p-1.5 -ml-1 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
           >
             <ChevronLeft className="w-5 h-5" />
@@ -567,44 +646,83 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           <h3 className="text-lg font-semibold text-primary">Select token</h3>
         </div>
 
-        <div className="overflow-y-auto flex-1 pb-4 px-3">
-          {yourTokens.length > 0 && (
-            <div className="mb-4 mt-2">
-              <div className="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-2">
-                Your tokens
+        <div className="px-5 pt-3 pb-3">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" size={16} />
+            <input
+              type="text"
+              placeholder="Search tokens"
+              className="w-full bg-secondary border border-color pl-11 pr-4 py-2.5 rounded-xl text-sm focus:ring-1 focus:ring-brand/20 transition-all text-primary"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="pb-3 flex items-center border-b border-color">
+          <div className="pl-5 pr-3 flex-shrink-0">
+            <button
+              onClick={() => setSelectedNetwork('all')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all"
+              style={
+                selectedNetwork === 'all'
+                  ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                  : undefined
+              }
+            >
+              All
+            </button>
+          </div>
+          <div className="w-px self-stretch bg-color flex-shrink-0 my-1" />
+          <div className="flex gap-2 px-3 flex-1 hide-scrollbar" style={{ overflowX: 'auto', minWidth: 0 }}>
+            {evmNetworks.slice(1).map(net => (
+              <button
+                key={net.id}
+                onClick={() => setSelectedNetwork(net.id)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0"
+                style={
+                  selectedNetwork === net.id
+                    ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                    : undefined
+                }
+              >
+                {net.logo && <img src={net.logo} alt="" className="w-4 h-4 rounded-full" />}
+                {net.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-hidden">
+          {filteredAssets.length > 0 ? (
+            <AutoSizer
+              renderProp={({ height, width }) => (
+                <FixedSizeList
+                  height={height || 0}
+                  itemCount={filteredAssets.length}
+                  itemSize={72}
+                  width={width || 0}
+                >
+                  {VirtualAssetRow}
+                </FixedSizeList>
+              )}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-center px-10">
+              <div className="w-16 h-16 bg-tertiary rounded-full flex items-center justify-center mb-4">
+                <SearchX size={32} className="text-muted opacity-25" />
               </div>
-              <div className="space-y-0.5">
-                {yourTokens.map(asset => (
-                  <AssetRow
-                    key={asset.id}
-                    asset={asset}
-                    isSelected={selectedAsset?.id === asset.id}
-                    onSelect={handleSelectAsset}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-          {otherTokens.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-2">
-                Other tokens
-              </div>
-              <div className="space-y-0.5">
-                {otherTokens.map(asset => (
-                  <AssetRow
-                    key={asset.id}
-                    asset={asset}
-                    isSelected={selectedAsset?.id === asset.id}
-                    onSelect={handleSelectAsset}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-          {assets.length === 0 && (
-            <div className="py-8 text-center text-sm text-muted">
-              No assets found in connected wallets
+              <h3 className="text-base font-bold text-primary mb-1">No assets found</h3>
+              <p className="text-sm text-muted leading-relaxed">
+                {searchQuery ? `No results for "${searchQuery}" on this network.` : 'No assets available on this network.'}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="mt-6 text-brand font-bold text-xs uppercase tracking-widest hover:underline"
+                >
+                  Clear search
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -721,27 +839,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           )}
         </div>
 
-        <div className="flex items-center justify-between px-1">
-          <label
-            className={`flex items-center gap-2 ${displayUsd > 0 && displayUsd < 20 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-              } select-none`}
-          >
-            <input
-              type="checkbox"
-              checked={goFast}
-              onChange={e => {
-                if (displayUsd > 0 && displayUsd < 20) return;
-                setGoFast(e.target.checked);
-              }}
-              disabled={isLoading || (displayUsd > 0 && displayUsd < 20)}
-              className="w-4 h-4 rounded border-color text-brand focus:ring-brand focus:ring-offset-0 bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <span className="text-sm text-primary">Go Fast</span>
-          </label>
-          {displayUsd > 0 && displayUsd < 20 && (
-            <span className="text-xs text-brand">Min $20 required</span>
-          )}
-        </div>
+
 
         <div className="p-4 rounded-xl border border-color bg-tertiary">
           <div className="flex justify-between items-center">
@@ -881,58 +979,27 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {isStellar && (
-          <div className="p-4 bg-brand/10 border border-brand/30 rounded-xl space-y-3 animate-slide-in">
-            <div className="flex items-start gap-2 text-brand">
-              <Info className="w-5 h-5 shrink-0 mt-0.5" />
-              <p className="text-sm font-medium">Stellar assets are not supported for direct dYdX deposit. Please bridge or swap to an EVM chain first.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => {
-                  onClose();
-                  navigate(ROUTES.BRIDGE);
-                }}
-                className="btn btn-primary py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 text-sm shadow-lg shadow-brand/20"
-              >
-                Go to Bridge
-              </button>
-              <button
-                onClick={() => {
-                  onClose();
-                  navigate(ROUTES.TRADING_STEALLR);
-                }}
-                className="btn btn-secondary py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 text-sm"
-              >
-                Go to Swap/Spot
-              </button>
-            </div>
-          </div>
-        )}
-
-        {!isStellar && (
-          <button
-            onClick={handleDeposit}
-            disabled={isLoading || !amountValidation.valid || !evmAddress || isDepositLocked}
-            className="w-full py-3.5 btn btn-primary rounded-xl font-semibold text-[15px] transition-all disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                {stepLabel}
-              </>
-            ) : isDepositLocked ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Transfer pending…
-              </>
-            ) : !evmAddress ? (
-              'Connect EVM Wallet'
-            ) : (
-              'Deposit'
-            )}
-          </button>
-        )}
+        <button
+          onClick={handleDeposit}
+          disabled={isLoading || !amountValidation.valid || !evmAddress || isDepositLocked}
+          className="w-full py-3.5 btn btn-primary rounded-xl font-semibold text-[15px] transition-all disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              {stepLabel}
+            </>
+          ) : isDepositLocked ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Transfer pending…
+            </>
+          ) : !evmAddress ? (
+            'Connect EVM Wallet'
+          ) : (
+            'Deposit'
+          )}
+        </button>
 
         <div className="h-2" />
       </div>

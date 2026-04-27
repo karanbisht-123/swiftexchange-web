@@ -5,9 +5,19 @@ import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { CHAIN_REGISTRY } from '../../evm/utils/Chainregistry';
 
+import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { buildAddTrustlineTransaction, checkTrustlineExists } from '../../steallr/service/stellarService';
+import { addLocalTransaction } from '../../evm/service/localTransactionService';
+
 export const useReceiveAssets = () => {
   const { connectedWallets } = useWalletConnect();
+  const { sendTransaction } = useTransactionRouter();
+  const currentNetwork = useWalletStore(state => state.network);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [hasTrustline, setHasTrustline] = useState<boolean | null>(null);
+  const [isAddingTrustline, setIsAddingTrustline] = useState(false);
+  const [lastAutoEnbaledAsset, setLastAutoEnabledAsset] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const assets = useMemo(() => {
@@ -96,6 +106,75 @@ export const useReceiveAssets = () => {
     });
   }, [walletAddress, currentAsset]);
 
+  useEffect(() => {
+    const checkTrust = async () => {
+      if (currentAsset?.chainType === 'stellar' && !currentAsset.isNative && walletAddress) {
+        setHasTrustline(null);
+        try {
+          const exists = await checkTrustlineExists(walletAddress, currentAsset.symbol, currentAsset.tokenAddress);
+          setHasTrustline(exists);
+        } catch (e) {
+          console.error('Trustline check error:', e);
+          setHasTrustline(false);
+        }
+      } else {
+        setHasTrustline(true);
+      }
+    };
+    checkTrust();
+  }, [currentAsset, walletAddress]);
+
+  const handleAddTrustline = useCallback(async () => {
+    if (!currentAsset || !walletAddress || isAddingTrustline) return;
+    setIsAddingTrustline(true);
+    try {
+      const xdr = await buildAddTrustlineTransaction(walletAddress, currentAsset.symbol, currentAsset.tokenAddress);
+      const res = await sendTransaction({
+        type: 'stellar',
+        network: currentAsset.network,
+        networkKey: currentNetwork === 'testnet' ? 'testnet' : 'pubnet',
+        from: walletAddress,
+        to: '',
+        amount: '0',
+        data: { xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' }
+      });
+
+      if (res.status === 'success') {
+        addLocalTransaction({
+          hash: res.hash || '',
+          chainId: 9000000,
+          type: 'trustline',
+          timestamp: Date.now(),
+          status: 'success',
+          from: walletAddress,
+          network: currentNetwork,
+          description: `Add trustline for ${currentAsset.symbol}`
+        });
+        setHasTrustline(true);
+      } else {
+        throw new Error(res.error || 'Failed to add trustline');
+      }
+    } catch (e: any) {
+      console.error('Add trustline error:', e);
+      setCopyFeedback(`Error: ${e.message}`);
+      setTimeout(() => setCopyFeedback(null), 3000);
+    } finally {
+      setIsAddingTrustline(false);
+    }
+  }, [currentAsset, walletAddress, isAddingTrustline, sendTransaction, currentNetwork]);
+
+  useEffect(() => {
+    // Auto-trigger trustline addition ONLY if it's missing AND we haven't tried for THIS asset in this session
+    if (hasTrustline === false && currentAsset && walletAddress && !isAddingTrustline && lastAutoEnbaledAsset !== currentAsset.id) {
+      setLastAutoEnabledAsset(currentAsset.id);
+      // Wait a tiny bit to avoid flashing when switching assets
+      const timer = setTimeout(() => {
+        handleAddTrustline();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [hasTrustline, currentAsset, walletAddress, isAddingTrustline, lastAutoEnbaledAsset, handleAddTrustline]);
+
   const handleCopy = useCallback(async () => {
     if (!walletAddress || !isAddressValid) return;
     try {
@@ -132,5 +211,8 @@ export const useReceiveAssets = () => {
     handleCopy,
     handleShare,
     copyFeedback,
+    hasTrustline,
+    isAddingTrustline,
+    handleAddTrustline,
   };
 };
