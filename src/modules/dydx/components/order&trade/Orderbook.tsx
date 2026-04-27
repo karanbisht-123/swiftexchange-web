@@ -13,6 +13,19 @@ interface OrderbookRow {
   usdTotal: number;
 }
 
+// Skeleton shimmer row 
+const SkeletonRow = ({ isAsk = false }: { isAsk?: boolean }) => (
+  <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 relative overflow-hidden">
+    <div
+      className={`skeleton-shimmer rounded h-[13px] w-[68%] ${isAsk ? 'bg-danger/15' : 'bg-success/15'
+        }`}
+    />
+    <div className="skeleton-shimmer rounded h-[13px] w-[52%] bg-primary/10 ml-auto" />
+    <div className="skeleton-shimmer rounded h-[13px] w-[44%] bg-primary/8 ml-auto" />
+  </div>
+);
+
+
 const Orderbook = () => {
   const { selectedMarket } = useMarketStore();
   const { onPriceClick } = useOrderbookClickStore();
@@ -129,12 +142,8 @@ const Orderbook = () => {
 
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
-        // Calculate max rows based on available container height
-        // Subtract header/spread sizes (approx 120px total vertical space used by non-row elements)
         const availableHeight = entry.contentRect.height;
         const listHeight = (availableHeight - 120) / 2;
-
-        // Calculate how many rows fit
         const calculatedRows = Math.floor(listHeight / ROW_HEIGHT);
         setMaxRows(Math.max(calculatedRows, 2));
       }
@@ -187,26 +196,23 @@ const Orderbook = () => {
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-primary rounded p-0.5">
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${
-                displayMode === 'base' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
-              }`}
+              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'base' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
+                }`}
               onClick={() => setDisplayMode('base')}
             >
               {base}
             </button>
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${
-                displayMode === 'usd' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
-              }`}
+              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'usd' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
+                }`}
               onClick={() => setDisplayMode('usd')}
             >
               {quote}
             </button>
           </div>
           <div
-            className={`w-2 h-2 rounded-full hidden lg:block ${
-              isConnected && !isLoading ? 'bg-success' : 'bg-warning'
-            } ${isConnected ? 'animate-pulse' : ''}`}
+            className={`w-2 h-2 rounded-full hidden lg:block ${isConnected && !isLoading ? 'bg-success' : 'bg-warning'
+              } ${isConnected ? 'animate-pulse' : ''}`}
           />
         </div>
       </div>
@@ -230,6 +236,7 @@ const Orderbook = () => {
         </div>
       </div>
 
+      {/* ── ASKS ─────────────────────────────────────────────────────────────── */}
       <div className="relative flex-1 overflow-auto hide-scrollbar flex flex-col justify-end">
         {asks.map(ask => {
           const priceKey = ask.price.toString();
@@ -241,16 +248,16 @@ const Orderbook = () => {
             displayMode === 'base'
               ? ask.size.toFixed(4)
               : ask.usdSize.toLocaleString(undefined, {
-                  minimumFractionDigits: getDecimals(ask.usdSize),
-                  maximumFractionDigits: getDecimals(ask.usdSize),
-                });
+                minimumFractionDigits: getDecimals(ask.usdSize),
+                maximumFractionDigits: getDecimals(ask.usdSize),
+              });
           const displayTotal =
             displayMode === 'base'
               ? ask.total.toFixed(4)
               : ask.usdTotal.toLocaleString(undefined, {
-                  minimumFractionDigits: getDecimals(ask.usdTotal),
-                  maximumFractionDigits: getDecimals(ask.usdTotal),
-                });
+                minimumFractionDigits: getDecimals(ask.usdTotal),
+                maximumFractionDigits: getDecimals(ask.usdTotal),
+              });
 
           return (
             <div
@@ -265,24 +272,31 @@ const Orderbook = () => {
                   transform: `scaleX(${Math.min(1, depthPct / 100)})`,
                 }}
               />
-
               <div className="relative text-danger font-semibold tabular-nums text-xs lg:text-[13px]">
                 {ask.price.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
               </div>
-              <div className="relative text-right text-primary tabular-nums text-xs lg:text-[13px] ">
+              <div className="relative text-right text-primary tabular-nums text-xs lg:text-[13px]">
                 {displaySize}
               </div>
-              <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px] ">
+              <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px]">
                 {displayTotal}
               </div>
             </div>
           );
         })}
+
+        {/* Skeleton rows shown while loading with no real data yet */}
+        {isLoading && asks.length === 0 &&
+          Array.from({ length: maxRows }).map((_, i) => (
+            <SkeletonRow key={`ask-skel-${i}`} isAsk />
+          ))
+        }
       </div>
 
+      {/* ── SPREAD ───────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 shrink-0 text-primary px-1 md:px-2 lg:px-4 py-2.5 border-y border-color bg-secondary shadow-sm text-xs lg:text-[13px]">
         <div className="text-muted font-medium">Spread</div>
         <div className="text-right font-semibold text-primary tabular-nums">
@@ -295,6 +309,7 @@ const Orderbook = () => {
         </div>
       </div>
 
+      {/* ── BIDS ─────────────────────────────────────────────────────────────── */}
       <div className="relative flex-1 overflow-auto hide-scrollbar">
         {bids.map(bid => {
           const priceKey = bid.price.toString();
@@ -306,16 +321,16 @@ const Orderbook = () => {
             displayMode === 'base'
               ? bid.size.toFixed(4)
               : bid.usdSize.toLocaleString(undefined, {
-                  minimumFractionDigits: getDecimals(bid.usdSize),
-                  maximumFractionDigits: getDecimals(bid.usdSize),
-                });
+                minimumFractionDigits: getDecimals(bid.usdSize),
+                maximumFractionDigits: getDecimals(bid.usdSize),
+              });
           const displayTotal =
             displayMode === 'base'
               ? bid.total.toFixed(4)
               : bid.usdTotal.toLocaleString(undefined, {
-                  minimumFractionDigits: getDecimals(bid.usdTotal),
-                  maximumFractionDigits: getDecimals(bid.usdTotal),
-                });
+                minimumFractionDigits: getDecimals(bid.usdTotal),
+                maximumFractionDigits: getDecimals(bid.usdTotal),
+              });
 
           return (
             <div
@@ -330,7 +345,6 @@ const Orderbook = () => {
                   transform: `scaleX(${Math.min(1, depthPct / 100)})`,
                 }}
               />
-
               <div className="relative text-success font-semibold tabular-nums text-xs lg:text-[13px]">
                 {bid.price.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
@@ -346,16 +360,25 @@ const Orderbook = () => {
             </div>
           );
         })}
+
+        {isLoading && bids.length === 0 &&
+          Array.from({ length: maxRows }).map((_, i) => (
+            <SkeletonRow key={`bid-skel-${i}`} />
+          ))
+        }
       </div>
 
       <style>{`
-        .hide-scrollbar::-webkit-scrollbar {
-          display: none;
-        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        .hide-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+        @keyframes shimmer {
+          0%   { opacity: 0.35; }
+          50%  { opacity: 0.85; }
+          100% { opacity: 0.35; }
+        }
+        .skeleton-shimmer {
+          animation: shimmer 1.4s ease-in-out infinite;
         }
       `}</style>
     </div>

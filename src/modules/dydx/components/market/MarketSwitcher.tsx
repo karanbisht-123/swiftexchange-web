@@ -15,6 +15,8 @@ import {
   getNextFundingTimestamp,
   formatFundingCountdown,
 } from '../../utils/FundingUtils';
+import { formatMarketPrice } from '../../utils/BigNumberUtils';
+import { currencyService } from '../../utils/currencyService';
 
 interface AnimatedPriceProps {
   price: string | number;
@@ -105,6 +107,39 @@ interface MarketStatsProps {
   };
 }
 
+export const OpenInterestDisplay: React.FC<{ openInterest: string; oraclePrice: string; ticker: string; wrapperClassName?: string; valueClassName?: string }> = ({ openInterest, oraclePrice, ticker, wrapperClassName = '', valueClassName = '' }) => {
+  const [mode, setMode] = useState<'USD' | 'BASE'>('USD');
+
+  const baseAmount = parseFloat(openInterest || '0');
+  const price = parseFloat(oraclePrice || '0');
+  const usdAmount = currencyService.convertToUsd(baseAmount, price);
+
+  const displayValue = mode === 'USD'
+    ? `${usdAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+    : `${baseAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+  const baseSymbol = ticker ? ticker.split('-')[0] : 'BASE';
+  const displayLabel = mode === 'USD' ? 'USD' : baseSymbol;
+
+  return (
+    <div className={`flex flex-col ${wrapperClassName}`}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-muted text-xs leading-none">Open Interest</span>
+        <button
+          onClick={() => setMode(mode === 'USD' ? 'BASE' : 'USD')}
+          className="text-[9px] font-medium bg-tertiary text-muted hover:text-primary px-1 rounded uppercase transition-colors"
+        >
+          {displayLabel}
+        </button>
+      </div>
+      <AnimatedValue
+        value={displayValue}
+        className={valueClassName || "font-medium text-primary text-sm"}
+      />
+    </div>
+  );
+};
+
 export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
   const countdown = useFundingCountdown();
 
@@ -119,7 +154,7 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
       <div className="flex flex-col p-3 border-r border-b border-color">
         <span className="text-muted text-xs mb-1">Oracle</span>
         <AnimatedValue
-          value={parseFloat(marketData.oraclePrice || '0').toFixed(2)}
+          value={formatMarketPrice(marketData.oraclePrice)}
           className="font-medium text-primary text-sm"
         />
       </div>
@@ -140,13 +175,12 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
         />
       </div>
 
-      <div className="flex flex-col p-3 border-b border-color">
-        <span className="text-muted text-xs mb-1">Open Interest</span>
-        <AnimatedValue
-          value={`${parseFloat(marketData.openInterest || '0').toLocaleString(undefined, { maximumFractionDigits: 0 })} USD`}
-          className="font-medium text-primary text-sm"
-        />
-      </div>
+      <OpenInterestDisplay
+        openInterest={marketData.openInterest}
+        oraclePrice={marketData.oraclePrice}
+        ticker={marketData.ticker}
+        wrapperClassName="p-3 border-b border-color"
+      />
 
       <div className="flex flex-col p-3 border-r border-color">
         <span className="text-muted text-xs mb-1">1h Funding</span>
@@ -201,9 +235,9 @@ const MarketSwitcher: React.FC = () => {
   const snapshotPrice = tradesState.get(selectedMarket)?.trades[0]?.price;
   const currentPrice =
     livePrice && livePrice > 0
-      ? livePrice.toFixed(2)
+      ? formatMarketPrice(livePrice)
       : snapshotPrice
-        ? parseFloat(snapshotPrice).toFixed(2)
+        ? formatMarketPrice(snapshotPrice)
         : '--';
 
   const priceChange = parseFloat(marketData.priceChange24H);
@@ -290,7 +324,7 @@ const MarketSwitcher: React.FC = () => {
           <ChevronDown className="w-4 h-4 text-muted ml-1" />
         </button>
 
-        <div className="px-2 pr-0 flex flex-col items-start min-w-[110px]">
+        <div className="px-2  flex flex-col items-start ">
           <AnimatedPrice
             price={currentPrice}
             tradeSide={currentPrice === '--' ? null : livePriceSide}
@@ -305,7 +339,7 @@ const MarketSwitcher: React.FC = () => {
               <span className="text-muted text-xs">Oracle Price</span>
               {/* liveOraclePrice comes from websocketStore — live WS updates applied */}
               <AnimatedValue
-                value={`$${parseFloat(liveOraclePrice).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
+                value={`$${formatMarketPrice(liveOraclePrice)}`}
                 className="font-medium text-primary"
               />
             </div>
@@ -331,13 +365,13 @@ const MarketSwitcher: React.FC = () => {
               <AnimatedValue value={marketData.trades24H.toLocaleString()} className="font-medium text-primary" />
             </div>
 
-            <div className="flex flex-col px-3">
-              <span className="text-muted text-xs">Open Interest</span>
-              <AnimatedValue
-                value={`${parseFloat(marketData.openInterest).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD`}
-                className="font-medium text-primary"
-              />
-            </div>
+            <OpenInterestDisplay
+              openInterest={marketData.openInterest}
+              oraclePrice={marketData.oraclePrice}
+              ticker={marketData.ticker}
+              wrapperClassName="px-3"
+              valueClassName="font-medium text-primary"
+            />
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">1h Funding</span>

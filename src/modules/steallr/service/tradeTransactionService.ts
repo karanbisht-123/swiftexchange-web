@@ -46,6 +46,7 @@ export class TradeTransactionService {
 
     this.networkPassphrase = config.networkPassphrase;
   }
+
   private mapOfferRecordToActiveOffer = (offer: Horizon.ServerApi.OfferRecord): ActiveOffer => ({
     id: offer.id,
     selling: {
@@ -151,6 +152,7 @@ export class TradeTransactionService {
       throw new Error('Failed to fetch completed trades');
     }
   }
+
   private async loadAccountWithCache(accountId: string): Promise<any> {
     const now = Date.now();
     const cached = this.accountCache.get(accountId);
@@ -163,9 +165,11 @@ export class TradeTransactionService {
     this.accountCache.set(accountId, { account, timestamp: now });
     return account;
   }
+
   private createAsset(code: string, issuer?: string): StellarSDK.Asset {
     return code === 'XLM' ? StellarSDK.Asset.native() : new StellarSDK.Asset(code, issuer!);
   }
+
   private async buildTransactionBase(
     accountId: string,
     operation: StellarSDK.xdr.Operation,
@@ -289,7 +293,6 @@ export class TradeTransactionService {
     }
   }
 
-  // OPTIMIZATION 7: Unified wallet execution with better error handling
   private async executeTransactionWithWalletConnect(
     transaction: any,
     walletProvider: any,
@@ -322,6 +325,7 @@ export class TradeTransactionService {
   async executeEditOfferWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
     return this.executeTransactionWithWalletConnect(transaction, walletProvider, 'Edit offer');
   }
+
   async getActiveOffersAndTrades(
     accountId: string,
     offersLimit: number = 10,
@@ -349,6 +353,7 @@ export class TradeTransactionService {
         tradesResult.status === 'fulfilled' ? tradesResult.value.nextCursor : undefined,
     };
   }
+
   clearAccountCache(accountId?: string): void {
     if (accountId) {
       this.accountCache.delete(accountId);
@@ -368,6 +373,7 @@ export class TradeTransactionService {
       console.warn('Failed to prefetch account data:', error);
     }
   }
+
   async getAllOperations(
     accountId: string,
     limit: number = 20,

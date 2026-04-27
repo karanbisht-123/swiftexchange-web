@@ -1,5 +1,6 @@
+
 import { useEffect, useRef, useState } from 'react';
-import { getIndexerClient, getSocketClient } from '../client/clients';
+import { getSocketClient } from '../client/clients';
 import { useLivePriceStore } from '../store/useLivePriceStore';
 import { useWebSocketStore } from '../store/websocketStore';
 
@@ -17,14 +18,7 @@ interface MarketTradeState {
   unsubscribe: (() => void) | null;
   isSubscribed: boolean;
   limit: number;
-  snapshotVersion: number;
-  hasValidSnapshot: boolean;
-  snapshotLoadedAt: number;
-  newestTradeAt: number;
 }
-
-const SNAPSHOT_FRESHNESS_MS = 10_000;
-const CACHE_INVALIDATION_MS = 2 * 60 * 1000;
 
 let globalRafId: number | undefined;
 const pendingFlush = new Set<string>();
@@ -38,18 +32,9 @@ function getOrCreateState(market: string, limit: number): MarketTradeState {
       unsubscribe: null,
       isSubscribed: false,
       limit,
-      snapshotVersion: 0,
-      hasValidSnapshot: false,
-      snapshotLoadedAt: 0,
-      newestTradeAt: 0,
     });
   }
   return tradesState.get(market)!;
-}
-
-function isCacheStale(state: MarketTradeState): boolean {
-  if (!state.hasValidSnapshot) return true;
-  return Date.now() - state.snapshotLoadedAt > CACHE_INVALIDATION_MS;
 }
 
 function scheduleGlobalFlush(market: string): void {
@@ -72,7 +57,9 @@ function handleTradeUpdate(market: string, data: any): void {
   const contents = data?.contents;
   if (!contents) return;
   const state = getOrCreateState(market, 50);
-  const rawTrades: any[] = Array.isArray(contents.trades) ? contents.trades : Array.isArray(contents) ? contents : [];
+  const rawTrades: any[] = Array.isArray(contents)
+    ? contents.flatMap((c: any) => c?.trades || (c?.id ? [c] : []))
+    : (contents.trades || []);
   if (rawTrades.length === 0) return;
 
   const latestRaw = rawTrades[0];
@@ -97,9 +84,6 @@ function handleTradeUpdate(market: string, data: any): void {
   combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   state.trades = combined.slice(0, state.limit);
 
-  if (state.trades[0]) {
-    state.newestTradeAt = new Date(state.trades[0].createdAt).getTime();
-  }
   scheduleGlobalFlush(market);
 }
 
@@ -125,11 +109,7 @@ function resetSubscription(market: string, clearData = false): void {
   state.isSubscribed = false;
   if (clearData) {
     state.trades = [];
-    state.hasValidSnapshot = false;
-    state.snapshotLoadedAt = 0;
-    state.newestTradeAt = 0;
   }
-  state.snapshotVersion++;
   pendingFlush.delete(market);
 }
 
@@ -142,47 +122,6 @@ function unsubscribeFromMarket(market: string): void {
   }
   state.isSubscribed = false;
   state.trades = [];
-  state.hasValidSnapshot = false;
-  state.snapshotLoadedAt = 0;
-  state.newestTradeAt = 0;
-}
-
-async function loadSnapshot(market: string, limit: number, version: number): Promise<boolean> {
-  if (!market) return false;
-  const state = getOrCreateState(market, limit);
-  try {
-    const client = getIndexerClient();
-    const response = await client.markets.getPerpetualMarketTrades(market, undefined, undefined, limit);
-    if (state.snapshotVersion !== version) return false;
-
-    const mapped: Trade[] = (response?.trades || [])
-      .filter((t: any) => t?.id)
-      .map((t: any) => ({
-        id: t.id,
-        side: t.side as 'BUY' | 'SELL',
-        size: t.size,
-        price: t.price,
-        createdAt: t.createdAt,
-      }));
-
-    const liveIds = new Set(state.trades.map(t => t.id));
-    const uniqueSnapshot = mapped.filter(t => !liveIds.has(t.id));
-    const combined = [...state.trades, ...uniqueSnapshot];
-
-    combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    state.trades = combined.slice(0, limit);
-    state.hasValidSnapshot = true;
-    state.snapshotLoadedAt = Date.now();
-
-    if (state.trades[0]) {
-      state.newestTradeAt = new Date(state.trades[0].createdAt).getTime();
-    }
-    scheduleGlobalFlush(market);
-    return true;
-  } catch (err) {
-    console.error(err);
-    return false;
-  }
 }
 
 export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
@@ -197,22 +136,6 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible' || !market) return;
-      const state = tradesState.get(market);
-      if (!state || !isCacheStale(state)) return;
-      resetSubscription(market, true);
-      setIsLoading(true);
-      if (isConnected) subscribeToMarket(market);
-      loadSnapshot(market, limit, state.snapshotVersion).then(() => {
-        if (mountedRef.current) setIsLoading(false);
-      });
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [market, limit, isConnected]);
 
   useEffect(() => {
     if (!market) {
@@ -233,7 +156,8 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     prevConnectedRef.current = isConnected;
 
     if (isReconnect) {
-      resetSubscription(market, false);
+      resetSubscription(market, true);
+      setTrades([]);
       setIsLoading(true);
     }
 
@@ -244,14 +168,10 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
       }
     };
     state.listeners.add(listener);
+
     if (isConnected) subscribeToMarket(market);
 
-    const snapshotIsFresh = state.hasValidSnapshot && (Date.now() - state.snapshotLoadedAt < SNAPSHOT_FRESHNESS_MS);
-    if (state.trades.length === 0 || isReconnect || isMarketChange || !snapshotIsFresh) {
-      loadSnapshot(market, limit, state.snapshotVersion).then(() => {
-        if (mountedRef.current) setIsLoading(false);
-      });
-    } else {
+    if (state.trades.length > 0) {
       setTrades([...state.trades]);
       setIsLoading(false);
     }

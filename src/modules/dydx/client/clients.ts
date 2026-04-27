@@ -103,7 +103,7 @@ const createSocketClient = () => {
   return {
     connect: () => webSocketManager.connect(wsEndpoint),
 
-    subscribeToTrades: (market: string, handler: MessageHandler, batched = false) =>
+    subscribeToTrades: (market: string, handler: MessageHandler, batched = true) =>
       webSocketManager.subscribe('v4_trades', handler, market, batched),
 
     subscribeToMarkets: (handler: MessageHandler, batched = true) =>
@@ -113,10 +113,10 @@ const createSocketClient = () => {
       market: string,
       resolution: string,
       handler: MessageHandler,
-      batched = false
+      batched = true
     ) => webSocketManager.subscribe('v4_candles', handler, `${market}/${resolution}`, batched),
 
-    subscribeToOrderbook: (market: string, handler: MessageHandler, batched = false) =>
+    subscribeToOrderbook: (market: string, handler: MessageHandler, batched = true) =>
       webSocketManager.subscribe('v4_orderbook', handler, market, batched),
 
     subscribeToParentSubaccounts: (

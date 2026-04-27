@@ -2,16 +2,18 @@ import { ChevronLeft, ChevronRight, Search, Star, TrendingDown, TrendingUp, X } 
 import React, { memo, useCallback, useMemo, useState } from 'react';
 
 import { useMarkets } from '../hooks/useMarkets';
+import { formatMarketPrice } from '../utils/BigNumberUtils';
 
 interface MarketRowProps {
   market: any;
   formatPrice: (price: string) => string;
-  formatVolume: (volume: string) => string;
+  formatVolume: (volume: string, prefix?: string) => string;
   formatPercent: (percent: string) => string;
   formatFundingRate: (rate: string) => string;
   formatTrades?: (trades: number) => string;
   getTimeUntilFunding: (fundingAt: string) => string;
   isMobile: boolean;
+  oiMode: 'USD' | 'BASE';
 }
 
 type SortField = 'ticker' | 'price' | 'change' | 'volume' | 'trades' | 'openInterest' | 'marketCap';
@@ -53,6 +55,7 @@ const MarketRow = memo(function MarketRow({
   formatTrades,
   getTimeUntilFunding,
   isMobile,
+  oiMode,
 }: MarketRowProps) {
   const priceChange = parseFloat(market.priceChange24H);
   const isPositive = priceChange >= 0;
@@ -179,9 +182,8 @@ const MarketRow = memo(function MarketRow({
         <div className="flex items-center justify-end gap-2">
           <PriceChart change={priceChange} />
           <span
-            className={`inline-flex items-center gap-1 text-sm font-medium ${
-              isPositive ? 'price-up' : 'price-down'
-            }`}
+            className={`inline-flex items-center gap-1 text-sm font-medium ${isPositive ? 'price-up' : 'price-down'
+              }`}
           >
             {isPositive ? '+' : ''}
             {formatPercent(market.priceChange24H)}%
@@ -198,13 +200,17 @@ const MarketRow = memo(function MarketRow({
       </td>
       <td className="py-3 px-4 text-right">
         <span className="text-secondary text-sm">
+          {oiMode === 'USD'
+            ? formatVolume((parseFloat(market.openInterest) * parseFloat(market.oraclePrice)).toString())
+            : formatVolume(market.openInterest, '')}
+        </span>
+      </td>
+      <td className="py-3 px-4 text-right">
+        <span className="text-secondary text-sm">
           {formatTrades
             ? formatTrades(market.trades24H || 0)
             : (market.trades24H || 0).toLocaleString()}
         </span>
-      </td>
-      <td className="py-3 px-4 text-right">
-        <span className="text-secondary text-sm">${formatVolume(market.openInterest)}</span>
       </td>
       <td className="py-3 px-4 text-right">
         <div className={`font-mono text-sm ${fundingRate >= 0 ? 'price-up' : 'price-down'}`}>
@@ -227,6 +233,7 @@ export default function MarketsDisplay() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
+  const [oiMode, setOiMode] = useState<'USD' | 'BASE'>('USD');
 
   React.useEffect(() => {
     const checkMobile = () => {
@@ -238,20 +245,16 @@ export default function MarketsDisplay() {
   }, []);
 
   const formatPrice = useCallback((price: string): string => {
-    const num = parseFloat(price);
-    if (isNaN(num)) return '0.00';
-    return num >= 1000
-      ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+    return formatMarketPrice(price);
   }, []);
 
-  const formatVolume = useCallback((volume: string): string => {
+  const formatVolume = useCallback((volume: string, prefix: string = '$'): string => {
     const num = parseFloat(volume);
-    if (isNaN(num)) return '$0';
-    if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
-    if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
-    if (num >= 1e3) return `$${(num / 1e3).toFixed(2)}K`;
-    return `$${num.toFixed(2)}`;
+    if (isNaN(num)) return `${prefix}0`;
+    if (num >= 1e9) return `${prefix}${(num / 1e9).toFixed(2)}B`;
+    if (num >= 1e6) return `${prefix}${(num / 1e6).toFixed(2)}M`;
+    if (num >= 1e3) return `${prefix}${(num / 1e3).toFixed(2)}K`;
+    return `${prefix}${num.toFixed(2)}`;
   }, []);
 
   const formatPercent = useCallback((percent: string): string => {
@@ -476,6 +479,7 @@ export default function MarketsDisplay() {
                     formatFundingRate={formatFundingRate}
                     getTimeUntilFunding={getTimeUntilFunding}
                     isMobile={true}
+                    oiMode={oiMode}
                   />
                 ))}
               </div>
@@ -519,12 +523,17 @@ export default function MarketsDisplay() {
                         Market Cap
                         <SortIcon field="marketCap" />
                       </th>
-                      <th
-                        onClick={() => handleSort('openInterest')}
-                        className="py-3 px-4 text-right text-xs font-medium text-muted cursor-pointer hover:text-secondary"
-                      >
-                        Open Interest
-                        <SortIcon field="openInterest" />
+                      <th className="py-3 px-4 text-right text-xs font-medium text-muted hover:text-secondary group/th">
+                        <div className="flex items-center justify-end gap-1.5 cursor-pointer" onClick={() => handleSort('openInterest')}>
+                          Open Interest
+                          <SortIcon field="openInterest" />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setOiMode(oiMode === 'USD' ? 'BASE' : 'USD'); }}
+                            className="text-[9px] font-medium bg-tertiary text-muted hover:text-primary px-1 rounded uppercase transition-colors ml-1"
+                          >
+                            {oiMode}
+                          </button>
+                        </div>
                       </th>
                       <th
                         onClick={() => handleSort('trades')}
@@ -550,6 +559,7 @@ export default function MarketsDisplay() {
                         formatTrades={formatTrades}
                         getTimeUntilFunding={getTimeUntilFunding}
                         isMobile={false}
+                        oiMode={oiMode}
                       />
                     ))}
                   </tbody>
@@ -578,11 +588,10 @@ export default function MarketsDisplay() {
                       <button
                         key={page}
                         onClick={() => handlePageChange(page as number)}
-                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${
-                          currentPage === page
+                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${currentPage === page
                             ? 'text-white font-medium shadow-lg'
                             : 'hover:bg-hover text-muted'
-                        }`}
+                          }`}
                         style={
                           currentPage === page
                             ? { backgroundColor: 'var(--color-brand-accent)' }

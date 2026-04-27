@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getIndexerClient, getValidatorClient } from '../client/clients';
 import coinsList from '../data/coins.json';
 import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
+import type { MarketData as WsMarketData } from '../store/websocketStore';
 import type { MarketData } from '../types/trading.types';
+import { getValidatorClient } from '../client/clients';
 import { metadataService } from './useMetadata';
 
 export type { MarketData };
@@ -17,71 +18,161 @@ export interface UseMarketsReturn {
   isLoading: boolean;
   isConnected: boolean;
   totalMarkets: number;
-  refreshMarkets: () => Promise<void>;
+  refreshMarkets: () => void;
   cacheStats: ReturnType<typeof metadataService.getCacheStats>;
 }
 
 const METADATA_UPDATE_DEBOUNCE = 500;
+function buildMarketData(
+  ticker: string,
+  ws: WsMarketData,
+  coinIconOverride: string,
+  coinNameOverride: string,
+  marketCapOverride: string,
+  zeroFees: boolean
+): MarketData {
+  const baseAsset = ticker.split('-')[0];
+  const quoteAsset = ticker.split('-')[1] || 'USD';
+
+  return {
+    ticker,
+    baseAsset,
+    quoteAsset,
+    oraclePrice: ws.oraclePrice ?? '0',
+    priceChange24H: ws.priceChange24H ?? '0',
+    priceChange24HPercent: ws.priceChange24HPercent ?? '0',
+    volume24H: ws.volume24H ?? '0',
+    trades24H: Number(ws.trades24H) || 0,
+    nextFundingRate: ws.nextFundingRate ?? '0',
+    nextFundingAt: ws.nextFundingAt ?? '',
+    openInterest: ws.openInterest ?? '0',
+    status: ws.status || 'ACTIVE',
+    marketId: ws.marketId !== undefined ? Number(ws.marketId) : undefined,
+    clobPairId: ws.clobPairId,
+    initialMarginFraction: ws.initialMarginFraction,
+    maintenanceMarginFraction: ws.maintenanceMarginFraction,
+    tickSize: ws.tickSize,
+    stepSize: ws.stepSize,
+    atomicResolution: ws.atomicResolution,
+    quantumConversionExponent: ws.quantumConversionExponent,
+    stepBaseQuantums: ws.stepBaseQuantums,
+    subticksPerTick: ws.subticksPerTick,
+    marketType: ws.marketType ?? 'CROSS',
+    openInterestLowerCap: ws.openInterestLowerCap,
+    openInterestUpperCap: ws.openInterestUpperCap,
+    baseOpenInterest: ws.baseOpenInterest,
+    defaultFundingRate1H: ws.defaultFundingRate1H,
+    coinIcon: coinIconOverride,
+    coinName: coinNameOverride,
+    marketCap: marketCapOverride,
+    zeroFees,
+    spotVolume: undefined,
+    marketCaps: undefined,
+  };
+}
 
 export function useMarkets(): UseMarketsReturn {
   const [markets, setMarkets] = useState<Record<string, MarketData>>({});
-  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [zeroFeeClobPairIds, setZeroFeeClobPairIds] = useState<Set<number>>(new Set());
   const [cacheStats, setCacheStats] = useState(metadataService.getCacheStats());
 
   const isMountedRef = useRef(true);
-  const hasInitialDataRef = useRef(false);
   const metadataUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const metadataUpdateCounterRef = useRef(0);
 
   const subscribeToAllMarkets = useWebSocketStore(state => state.subscribeToAllMarkets);
   const unsubscribeFromAllMarkets = useWebSocketStore(state => state.unsubscribeFromAllMarkets);
   const isConnected = useWebSocketStore(state => state.isConnected);
-
   const storeMarkets = useWebSocketStore(state => state.markets);
-
+  const marketsSnapshot = useWebSocketStore(state => state.marketsSnapshot);
   useEffect(() => {
-    const unsubscribe = metadataService.subscribe(() => {
-      setCacheStats(metadataService.getCacheStats());
+    isMountedRef.current = true;
+    subscribeToAllMarkets();
 
-      if (metadataUpdateTimerRef.current) clearTimeout(metadataUpdateTimerRef.current);
+    const fetchFeeDiscounts = async () => {
+      try {
+        const validatorClient = await getValidatorClient();
+        const feeDiscountsResponse = await validatorClient.get
+          .getAllPerpMarketFeeDiscounts()
+          .catch((err: any) => {
+            console.error('[useMarkets] Failed to fetch fee discounts:', err);
+            return { params: [] };
+          });
 
-      metadataUpdateCounterRef.current++;
-      const currentCount = metadataUpdateCounterRef.current;
+        if (!isMountedRef.current) return;
 
-      metadataUpdateTimerRef.current = setTimeout(async () => {
-        if (currentCount === metadataUpdateCounterRef.current && isMountedRef.current) {
-          const tickers = Object.keys(markets);
-          const metadataPromises = tickers.map(ticker => metadataService.getMetadata(ticker));
-          const metadataResults = await Promise.all(metadataPromises);
+        const zeroFeeIds = new Set<number>();
+        const now = Date.now();
+        if (feeDiscountsResponse?.params) {
+          console.log('[useMarkets] Fee discounts fetched:', feeDiscountsResponse.params);
+          feeDiscountsResponse.params.forEach((param: any) => {
+            const start = new Date(param.startTime).getTime();
+            const end = new Date(param.endTime).getTime();
 
-          setMarkets(prev => {
-            const updated = { ...prev };
-            let hasChanges = false;
-
-            tickers.forEach((ticker, index) => {
-              const metadata = metadataResults[index];
-              if (metadata && metadata.image !== updated[ticker]?.coinIcon) {
-                updated[ticker] = {
-                  ...updated[ticker],
-                  coinIcon: metadata.image,
-                  coinName: metadata.name,
-                };
-                hasChanges = true;
-              }
-            });
-
-            return hasChanges ? updated : prev;
+            if (param.chargePpm === 0 && now >= start && now <= end) {
+              zeroFeeIds.add(param.clobPairId);
+            }
           });
         }
-      }, METADATA_UPDATE_DEBOUNCE);
-    });
+        setZeroFeeClobPairIds(zeroFeeIds);
+      } catch (error) {
+        console.error('[useMarkets] Error in fetchFeeDiscounts:', error);
+      }
+    };
+
+    fetchFeeDiscounts();
 
     return () => {
-      unsubscribe();
+      isMountedRef.current = false;
       if (metadataUpdateTimerRef.current) clearTimeout(metadataUpdateTimerRef.current);
+      unsubscribeFromAllMarkets();
     };
-  }, []);
+  }, [subscribeToAllMarkets, unsubscribeFromAllMarkets]);
+  useEffect(() => {
+    if (!marketsSnapshot || marketsSnapshot.size === 0) return;
+    if (!isMountedRef.current) return;
+
+    const buildAll = async () => {
+      const marketsMap: Record<string, MarketData> = {};
+
+      for (const [ticker, ws] of marketsSnapshot.entries()) {
+        const baseAsset = ticker.split('-')[0];
+        const staticCoin = (coinsList as any[]).find(
+          c => c.symbol?.toUpperCase() === baseAsset
+        );
+        const coinIcon = metadataService.getCoinIcon(ticker) || staticCoin?.image || '';
+        const coinName = staticCoin?.name ?? baseAsset;
+        const marketCap = staticCoin?.market_cap?.toString() ?? '0';
+        const isZeroFee = ws.clobPairId !== undefined && zeroFeeClobPairIds.has(Number(ws.clobPairId));
+
+        marketsMap[ticker] = buildMarketData(ticker, ws, coinIcon, coinName, marketCap, isZeroFee);
+      }
+      if (!isMountedRef.current) return;
+      setMarkets(marketsMap);
+      setIsLoading(false);
+      useMarketStore.getState().updateMarketCache(marketsMap);
+      const oracleSeed: Record<string, string> = {};
+      const imfSeed: Record<string, Partial<WsMarketData>> = {};
+      for (const [ticker, market] of Object.entries(marketsMap)) {
+        if (market.oraclePrice && market.oraclePrice !== '0') {
+          oracleSeed[ticker] = market.oraclePrice;
+        }
+        if (market.initialMarginFraction) {
+          imfSeed[ticker] = { initialMarginFraction: market.initialMarginFraction };
+        }
+      }
+      if (Object.keys(oracleSeed).length > 0) {
+        useWebSocketStore.getState().updateOraclePrices(oracleSeed);
+      }
+      if (Object.keys(imfSeed).length > 0) {
+        useWebSocketStore.getState().updateMarkets(imfSeed as any);
+      }
+      metadataService.preloadBatch(Object.keys(marketsMap));
+    };
+
+    buildAll();
+  }, [marketsSnapshot, zeroFeeClobPairIds]);
 
   useEffect(() => {
     if (storeMarkets.size === 0) return;
@@ -104,7 +195,6 @@ export function useMarkets(): UseMarketsReturn {
         if (needsUpdate) {
           updated[ticker] = {
             ...existing,
-            // only overwrite fields the WS actually provided (non-zero)
             oraclePrice: marketData.oraclePrice || existing.oraclePrice,
             priceChange24H: marketData.priceChange24H || existing.priceChange24H,
             volume24H: marketData.volume24H || existing.volume24H,
@@ -119,159 +209,57 @@ export function useMarkets(): UseMarketsReturn {
     });
   }, [storeMarkets]);
 
-  const enrichMarketData = useCallback(
-    async (ticker: string, rawData: any, zeroFeeClobPairIds: Set<number>): Promise<MarketData> => {
-      const metadata = await metadataService.getMetadata(ticker);
-      const baseAsset = ticker.split('-')[0];
-      const quoteAsset = ticker.split('-')[1] || 'USD';
-      const staticCoin = (coinsList as any[]).find(c => c.symbol.toUpperCase() === baseAsset);
-      const marketCap = staticCoin?.market_cap ? staticCoin.market_cap.toString() : '0';
-
-      const clobPairId = Number(rawData.clobPairId);
-      const isZeroFees = zeroFeeClobPairIds.has(clobPairId);
-
-      return {
-        ticker,
-        baseAsset,
-        quoteAsset,
-        oraclePrice: rawData.oraclePrice ?? '0',
-        priceChange24H: rawData.priceChange24H ?? '0',
-        priceChange24HPercent: rawData.priceChange24HPercent ?? '0',
-        volume24H: rawData.volume24H ?? '0',
-        trades24H: Number(rawData.trades24H) || 0,
-        nextFundingRate: rawData.nextFundingRate ?? '0',
-        nextFundingAt: rawData.nextFundingAt ?? '',
-        openInterest: rawData.openInterest ?? '0',
-        marketCaps: rawData.marketCaps,
-        status: rawData.status || 'ACTIVE',
-        marketId: rawData.marketId,
-        clobPairId: rawData.clobPairId,
-        coinIcon: metadata?.image || metadataService.getCoinIcon(ticker),
-        coinName: metadata?.name ?? staticCoin?.name,
-        initialMarginFraction: rawData.initialMarginFraction,
-        maintenanceMarginFraction: rawData.maintenanceMarginFraction,
-        tickSize: rawData.tickSize,
-        stepSize: rawData.stepSize,
-        atomicResolution: rawData.atomicResolution,
-        quantumConversionExponent: rawData.quantumConversionExponent,
-        stepBaseQuantums: rawData.stepBaseQuantums,
-        subticksPerTick: rawData.subticksPerTick,
-        marketType: rawData.marketType,
-        openInterestLowerCap: rawData.openInterestLowerCap,
-        openInterestUpperCap: rawData.openInterestUpperCap,
-        baseOpenInterest: rawData.baseOpenInterest,
-        defaultFundingRate1H: rawData.defaultFundingRate1H,
-        spotVolume: rawData.spotVolume,
-        marketCap: marketCap,
-        zeroFees: isZeroFees,
-      };
-    },
-    []
-  );
-
-  const fetchInitialMarketData = useCallback(async () => {
-    try {
-      const indexerClient = getIndexerClient();
-      const validatorClient = await getValidatorClient();
-
-      const [marketsResponse, feeDiscountsResponse] = await Promise.all([
-        indexerClient.markets.getPerpetualMarkets(),
-        validatorClient.get.getAllPerpMarketFeeDiscounts().catch((err: any) => {
-          console.error('[useMarkets] Failed to fetch fee discounts:', err);
-          return { params: [] };
-        }),
-      ]);
-
-      console.log(marketsResponse, "marketsResponse")
-      console.log(feeDiscountsResponse, "feeDiscountsResponse")
-      if (!isMountedRef.current) return;
-
-      const zeroFeeClobPairIds = new Set<number>();
-      const now = Date.now();
-      if (feeDiscountsResponse?.params) {
-        feeDiscountsResponse.params.forEach((param: any) => {
-          const start = new Date(param.startTime).getTime();
-          const end = new Date(param.endTime).getTime();
-
-          if (param.chargePpm === 0 && now >= start && now <= end) {
-            zeroFeeClobPairIds.add(param.clobPairId);
-          }
-        });
-      }
-
-      const marketsMap: Record<string, MarketData> = {};
-      const tickers: string[] = [];
-
-      if (marketsResponse?.markets) {
-        for (const [ticker, rawData] of Object.entries(marketsResponse.markets)) {
-          tickers.push(ticker);
-          marketsMap[ticker] = await enrichMarketData(ticker, rawData, zeroFeeClobPairIds);
-        }
-      }
-
-      setMarkets(marketsMap);
-      setIsLoading(false);
-      hasInitialDataRef.current = true;
-
-
-      useMarketStore.getState().updateMarketCache(marketsMap);
-
-
-      // Seed WS store oracle prices so live market selectors work from the first render
-      const oracleSeed: Record<string, string> = {};
-      const imfSeed: Record<string, Partial<import('../store/websocketStore').MarketData>> = {};
-
-      for (const [ticker, market] of Object.entries(marketsMap)) {
-        if (market.oraclePrice && market.oraclePrice !== '0') {
-          oracleSeed[ticker] = market.oraclePrice;
-        }
-        // Seed IMF so selectPortfolioMetrics uses real values, not the 5% fallback
-        if ((market as any).initialMarginFraction) {
-          imfSeed[ticker] = {
-            initialMarginFraction: (market as any).initialMarginFraction,
-          };
-        }
-      }
-      if (Object.keys(oracleSeed).length > 0) {
-        useWebSocketStore.getState().updateOraclePrices(oracleSeed);
-      }
-      if (Object.keys(imfSeed).length > 0) {
-        useWebSocketStore.getState().updateMarkets(imfSeed as any);
-      }
-
-      if (tickers.length > 0) {
-        metadataService.preloadBatch(tickers);
-      }
-
-      subscribeToAllMarkets();
-    } catch (err: unknown) {
-      console.error('[useMarkets] Failed to fetch initial markets:', err);
-      if (isMountedRef.current) {
-        setError(err instanceof Error ? err.message : 'Failed to load markets');
-        setIsLoading(false);
-      }
-    }
-  }, [enrichMarketData, subscribeToAllMarkets]);
-
-  const refreshMarkets = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    await fetchInitialMarketData();
-  }, [fetchInitialMarketData]);
-
   useEffect(() => {
-    isMountedRef.current = true;
-    fetchInitialMarketData();
+    const unsubscribe = metadataService.subscribe(() => {
+      setCacheStats(metadataService.getCacheStats());
+
+      if (metadataUpdateTimerRef.current) clearTimeout(metadataUpdateTimerRef.current);
+
+      metadataUpdateCounterRef.current++;
+      const currentCount = metadataUpdateCounterRef.current;
+
+      metadataUpdateTimerRef.current = setTimeout(async () => {
+        if (currentCount === metadataUpdateCounterRef.current && isMountedRef.current) {
+          const tickers = Object.keys(markets);
+          const metadataPromises = tickers.map(ticker => metadataService.getMetadata(ticker));
+          const metadataResults = await Promise.all(metadataPromises);
+
+          setMarkets(prev => {
+            const next = { ...prev };
+            let hasChanges = false;
+
+            tickers.forEach((ticker, index) => {
+              const metadata = metadataResults[index];
+              if (metadata && metadata.image !== next[ticker]?.coinIcon) {
+                next[ticker] = {
+                  ...next[ticker],
+                  coinIcon: metadata.image,
+                  coinName: metadata.name,
+                };
+                hasChanges = true;
+              }
+            });
+
+            return hasChanges ? next : prev;
+          });
+        }
+      }, METADATA_UPDATE_DEBOUNCE);
+    });
 
     return () => {
-      isMountedRef.current = false;
-      if (metadataUpdateTimerRef.current) {
-        clearTimeout(metadataUpdateTimerRef.current);
-        metadataUpdateTimerRef.current = null;
-      }
-      unsubscribeFromAllMarkets();
+      unsubscribe();
+      if (metadataUpdateTimerRef.current) clearTimeout(metadataUpdateTimerRef.current);
     };
-  }, [fetchInitialMarketData, unsubscribeFromAllMarkets]);
+  }, []);
+
+  const refreshMarkets = useCallback(() => {
+    setIsLoading(true);
+    unsubscribeFromAllMarkets();
+
+    setTimeout(() => {
+      if (isMountedRef.current) subscribeToAllMarkets();
+    }, 500);
+  }, [subscribeToAllMarkets, unsubscribeFromAllMarkets]);
 
   const marketsList = useMemo(() => {
     return Object.values(markets).sort((a, b) => {
@@ -287,7 +275,7 @@ export function useMarkets(): UseMarketsReturn {
     markets,
     marketsList,
     getMarket,
-    error,
+    error: null,
     isLoading,
     isConnected,
     totalMarkets: marketsList.length,
