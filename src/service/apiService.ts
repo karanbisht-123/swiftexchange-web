@@ -23,9 +23,9 @@ function getApiConfig() {
   }
 
   return {
-    serverUrl: SERVER_URL_PROD,
-    proxyUrl: PROXY_URL_PROD,
-    deviceAuth: DEVICE_AUTH_PROD,
+    serverUrl: SERVER_URL_DEV,
+    proxyUrl: PROXY_URL_DEV,
+    deviceAuth: DEVICE_AUTH_DEV,
   };
 }
 
@@ -39,6 +39,9 @@ async function fetchWithRetry(
     try {
       const response = await fetch(url, options);
       if (response.ok) return response;
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        return response;
+      }
       if (i === retries - 1) return response;
     } catch (error) {
       if (i === retries - 1) throw error;
@@ -78,13 +81,19 @@ export async function fetchApiResponseFromProxy<T>(
   );
 
   if (!response.ok) {
+    let errorMsg = response.statusText;
     try {
       const errorData = await response.json();
-      const errorMessage = errorData.message || errorData.error || response.statusText;
-      throw new Error(errorMessage);
-    } catch (parseError) {
-      throw new Error(`API error: ${response.statusText} - ${(parseError as Error).message}`);
+      const rawMessage = errorData.message || errorData.error;
+      if (Array.isArray(rawMessage)) {
+        errorMsg = rawMessage.join('. ');
+      } else if (typeof rawMessage === 'string') {
+        errorMsg = rawMessage;
+      }
+    } catch {
+      // Ignore JSON parse error, let it use statusText
     }
+    throw new Error(`API error: ${errorMsg}`);
   }
 
   const data = await response.json();
@@ -121,13 +130,19 @@ export async function fetchApiResponseFromServer<T>(
   );
 
   if (!response.ok) {
+    let errorMsg = response.statusText;
     try {
       const errorData = await response.json();
-      const errorMessage = errorData.message || errorData.error || response.statusText;
-      throw new Error(errorMessage);
-    } catch (parseError) {
-      throw new Error(`API error: ${response.statusText} - ${(parseError as Error).message}`);
+      const rawMessage = errorData.message || errorData.error;
+      if (Array.isArray(rawMessage)) {
+        errorMsg = rawMessage.join('. ');
+      } else if (typeof rawMessage === 'string') {
+        errorMsg = rawMessage;
+      }
+    } catch {
+      // Ignore JSON parse error, let it use statusText
     }
+    throw new Error(`API error: ${errorMsg}`);
   }
 
   const data = await response.json();

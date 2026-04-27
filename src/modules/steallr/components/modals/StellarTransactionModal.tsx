@@ -2,6 +2,7 @@ import { CheckCircle2, ExternalLink, X, XCircle } from 'lucide-react';
 import React from 'react';
 
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
+import { getExplorerUrl } from '../../../evm/utils/Chainregistry';
 
 interface StellarTransactionModalProps {
   isOpen: boolean;
@@ -24,10 +25,7 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const getExplorerUrl = (txHash: string) => {
-    const networkPath = currentNetwork === 'mainnet' ? 'public' : 'testnet';
-    return `https://stellar.expert/explorer/${networkPath}/tx/${txHash}`;
-  };
+  const chainId = currentNetwork === 'mainnet' ? 9000000 : 9000001;
 
   const isRejected = error?.toLowerCase().includes('reject') || error?.toLowerCase().includes('cancel');
 
@@ -78,12 +76,12 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
           <div className="w-full space-y-3">
             {status === 'success' && hash && (
               <a
-                href={getExplorerUrl(hash)}
+                href={getExplorerUrl(chainId, 'tx', hash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-outline w-full gap-2 border-white/5 hover:bg-white/5 text-sm h-12 rounded-2xl"
               >
-                View on StellarExpert
+                View on Explorer
                 <ExternalLink size={16} />
               </a>
             )}

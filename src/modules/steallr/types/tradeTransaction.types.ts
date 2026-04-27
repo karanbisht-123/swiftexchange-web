@@ -29,6 +29,8 @@ export interface CompletedTrade {
   ledgerCloseTime: string;
   isBuy: boolean;
   trade_type: any;
+  transactionHash?: string;
+  operationId?: string;
 }
 
 export interface Pagination {

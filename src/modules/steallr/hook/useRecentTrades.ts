@@ -4,14 +4,7 @@ import * as StellarSDK from '@stellar/stellar-sdk';
 
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-
-export interface RecentTrade {
-  id: string;
-  time: string;
-  price: string;
-  amount: string;
-  isBuy: boolean;
-}
+import { RecentTradesService, type RecentTrade } from '../service/recentTradesService';
 
 interface UseRecentTradesProps {
   baseAsset?: { code: string; issuer?: string };
@@ -23,21 +16,56 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
   const [trades, setTrades] = useState<RecentTrade[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Track which trade IDs are "new" so UI can animate them in
   const [newTradeIds, setNewTradeIds] = useState<Set<string>>(new Set());
-  const knownIdsRef = useRef<Set<string>>(new Set());
+
   const mountedRef = useRef(true);
+  const streamCloseRef = useRef<(() => void) | null>(null);
+
+  const serviceRef = useRef<RecentTradesService | null>(null);
+  useEffect(() => {
+    const config = getStellarConfig(currentNetwork);
+    serviceRef.current = new RecentTradesService(
+      config.horizonUrl,
+      config.networkPassphrase,
+      config.chainId
+    );
+  }, [currentNetwork]);
+
+
+  const handleNewTrade = useCallback((newTrade: RecentTrade) => {
+    if (!mountedRef.current) return;
+
+    setTrades(prev => {
+      if (prev.some(t => t.id === newTrade.id)) return prev;
+
+
+      setNewTradeIds(ids => {
+        const next = new Set(ids);
+        next.add(newTrade.id);
+        return next;
+      });
+
+      setTimeout(() => {
+        if (mountedRef.current) {
+          setNewTradeIds(ids => {
+            const next = new Set(ids);
+            next.delete(newTrade.id);
+            return next;
+          });
+        }
+      }, 2000);
+
+      return [newTrade, ...prev].slice(0, 50);
+    });
+  }, []);
 
   const fetchTrades = useCallback(async () => {
-    if (!baseAsset || !counterAsset) return;
+    if (!baseAsset?.code || !counterAsset?.code || !serviceRef.current) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const config = getStellarConfig(currentNetwork);
-      const server = new StellarSDK.Horizon.Server(config.horizonUrl);
-
       const base = baseAsset.issuer
         ? new StellarSDK.Asset(baseAsset.code, baseAsset.issuer)
         : StellarSDK.Asset.native();
@@ -46,60 +74,74 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
         ? new StellarSDK.Asset(counterAsset.code, counterAsset.issuer)
         : StellarSDK.Asset.native();
 
-      const tradeResponse = await server
-        .trades()
-        .forAssetPair(base, counter)
-        .order('desc')
-        .limit(20)
-        .call();
+      const formattedTrades = await serviceRef.current.getRecentTrades(base, counter, 50);
 
-      const formattedTrades: RecentTrade[] = tradeResponse.records.map((record: any) => {
-        const isBuy = !record.base_is_seller;
-        return {
-          id: record.id,
-          time: record.ledger_close_time,
-          price: (parseFloat(record.price.n) / parseFloat(record.price.d)).toFixed(7),
-          amount: record.base_amount,
-          isBuy,
-        };
-      });
-
-      if (!mountedRef.current) return;
-
-      // Flash newly seen trades
-      const freshIds = formattedTrades
-        .filter(t => !knownIdsRef.current.has(t.id))
-        .map(t => t.id);
-
-      if (freshIds.length > 0 && knownIdsRef.current.size > 0) {
-        setNewTradeIds(new Set(freshIds));
-        setTimeout(() => {
-          if (mountedRef.current) setNewTradeIds(new Set());
-        }, 2000);
+      if (mountedRef.current) {
+        setTrades(formattedTrades);
       }
-
-      formattedTrades.forEach(t => knownIdsRef.current.add(t.id));
-      setTrades(formattedTrades);
     } catch (err) {
-      console.error('Failed to fetch recent trades:', err);
+      console.error('[useRecentTrades] Fetch failed:', err);
       if (mountedRef.current) setError('Failed to load recent trades');
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }
-  }, [baseAsset, counterAsset, currentNetwork]);
+  }, [
+    baseAsset?.code,
+    baseAsset?.issuer,
+    counterAsset?.code,
+    counterAsset?.issuer,
+    currentNetwork
+  ]);
 
-  // Initial fetch + 5 s polling (reduced from 15 s)
+  const startStreaming = useCallback(() => {
+    if (!baseAsset?.code || !counterAsset?.code || !serviceRef.current) return;
+
+    if (streamCloseRef.current) {
+      streamCloseRef.current();
+      streamCloseRef.current = null;
+    }
+
+    try {
+      const base = baseAsset.issuer
+        ? new StellarSDK.Asset(baseAsset.code, baseAsset.issuer)
+        : StellarSDK.Asset.native();
+
+      const counter = counterAsset.issuer
+        ? new StellarSDK.Asset(counterAsset.code, counterAsset.issuer)
+        : StellarSDK.Asset.native();
+
+      streamCloseRef.current = serviceRef.current.streamRecentTrades(
+        base,
+        counter,
+        handleNewTrade
+      );
+    } catch (err) {
+      console.warn('[useRecentTrades] Stream failed to start', err);
+    }
+  }, [
+    baseAsset?.code,
+    baseAsset?.issuer,
+    counterAsset?.code,
+    counterAsset?.issuer,
+    currentNetwork,
+    handleNewTrade
+  ]);
+
   useEffect(() => {
     mountedRef.current = true;
     fetchTrades();
-    const interval = setInterval(fetchTrades, 5000);
-    return () => {
-      clearInterval(interval);
-      mountedRef.current = false;
-    };
-  }, [fetchTrades]);
+    startStreaming();
 
-  // Also refresh immediately when an order is placed
+    return () => {
+      mountedRef.current = false;
+      if (streamCloseRef.current) {
+        streamCloseRef.current();
+        streamCloseRef.current = null;
+      }
+    };
+  }, [fetchTrades, startStreaming]);
+
+
   useEffect(() => {
     const handler = () => {
       setTimeout(() => fetchTrades(), 1500);

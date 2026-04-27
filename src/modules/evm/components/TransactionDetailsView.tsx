@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 
 import { type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
 import { type TransactionItem } from '../service/EvmTransactionService';
-import { getChainLogoUrl, getChainName, getExplorerUrl } from '../utils/Chainregistry';
+import { getChainLogoUrl, getChainName, getExplorerUrl, getGlobalAssetMetadata, getAssetByAddress } from '../utils/Chainregistry';
 import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 
 interface TransactionDetailsViewProps {
@@ -38,6 +38,15 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   const description = isLocal ? (transaction as LocalTransactionWithStatus).description : null;
   const timestamp = isLocal ? (transaction as LocalTransactionWithStatus).timestamp : null;
   const destinationHash = isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null;
+
+  let assetLogo = undefined;
+  if (!isLocal) {
+    const tx = transaction as TransactionItem;
+    if (tx.asset) assetLogo = getGlobalAssetMetadata(tx.asset)?.logoURI;
+    if (!assetLogo && tx.rawContract?.address) assetLogo = getAssetByAddress(chainId, tx.rawContract.address)?.logoURI;
+  }
+  
+  const displayIcon = assetLogo || logoUrl;
 
   const getStatusDisplay = () => {
     if (status === 'pending') {
@@ -76,9 +85,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             <RefreshCw size={18} className={status === 'pending' ? 'animate-spin' : ''} />
           </button>
         )}
-        <div className="w-20 h-20 rounded-2xl bg-tertiary flex items-center justify-center mb-6 shadow-inner border border-color/50">
-          {logoUrl ? (
-            <img src={logoUrl} alt={chainSymbol} className="w-12 h-12 rounded-full" />
+        <div className="w-20 h-20 rounded-full bg-tertiary flex items-center justify-center mb-6 shadow-inner border border-color overflow-hidden">
+          {displayIcon ? (
+            <img src={displayIcon} alt={chainSymbol} className="w-full h-full object-cover" />
           ) : (
             <div className="w-12 h-12 rounded-xl bg-brand-primary/10 flex items-center justify-center text-xl font-black text-brand-primary">
               {chainSymbol.slice(0, 2)}

@@ -1,12 +1,7 @@
-import * as StellarSdk from '@stellar/stellar-sdk';
-import { ethers } from 'ethers';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import { ERC20_ABI } from '../../../abi/Erc20AbI';
-import { getAssetsForChain, getTokenAddressesForChain } from '../../evm/utils/Chainregistry';
-import { rpcManager } from '../../evm/utils/rpcProvider';
-import { type NetworkType, getEVMChains, getStellarConfig } from '../config/chains';
-import { WalletType } from '../constants/Wallet';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { portfolioService } from '../portfolio/PortfolioService';
 import { portfolioUtils } from '../utils/portfolioUtils';
 
 export interface Asset {
@@ -21,6 +16,14 @@ export interface Asset {
   chainId?: number;
   chainType?: 'evm' | 'stellar';
   isNative?: boolean;
+  address?: string;
+  decimals?: number;
+}
+
+export interface ProviderStatus {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  lastUpdated: number;
+  error?: string;
 }
 
 interface PortfolioState {
@@ -31,6 +34,8 @@ interface PortfolioState {
   isFetching: boolean;
   hasError: boolean;
   errorMessage: string | null;
+  providerStatus: Record<string, ProviderStatus>;
+  lastConnectedWalletsStr: string;
 }
 
 interface PortfolioActions {
@@ -50,283 +55,244 @@ interface PortfolioActions {
   enrichPrices: () => Promise<void>;
 }
 
-const CACHE_TTL = 60000;
-const MIN_FETCH_INTERVAL = 30000;
+
+const CACHE_TTL = 60_000;
+let enrichInFlight = false;
 
 export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
-  subscribeWithSelector((set, get) => ({
-    assets: [],
-    isLoading: false,
-    lastFetched: 0,
-    network: 'mainnet',
-    isFetching: false,
-    hasError: false,
-    errorMessage: null,
-
-    updateAsset: (newAsset: Asset) => {
-      set(state => {
-        const index = state.assets.findIndex(a => a.id === newAsset.id);
-        const nextAssets = [...state.assets];
-        if (index >= 0) {
-          nextAssets[index] = { ...nextAssets[index], ...newAsset };
-        } else {
-          nextAssets.push(newAsset);
-        }
-        return {
-          assets: nextAssets.sort(
-            (a, b) => (b.balance || 0) * b.current_price - (a.balance || 0) * a.current_price
-          ),
-        };
-      });
-    },
-
-    getAssetBalance: (chainId: number, symbol: string) => {
-      const asset = get().assets.find(
-        a => a.chainId === chainId && a.symbol.toUpperCase() === symbol.toUpperCase()
-      );
-      return asset?.balance || 0;
-    },
-
-    clearAssets: () => {
-      set({ assets: [], lastFetched: 0 });
-    },
-
-    clearAssetsByType: (chainType: 'evm' | 'stellar') => {
-      set(state => ({
-        assets: state.assets.filter(a => a.chainType !== chainType),
+  subscribeWithSelector(
+    persist(
+      (set, get) => ({
+        assets: [],
+        isLoading: false,
         lastFetched: 0,
-      }));
-    },
+        network: 'mainnet',
+        isFetching: false,
+        hasError: false,
+        errorMessage: null,
+        providerStatus: {},
+        lastConnectedWalletsStr: '',
 
-    fetchAssets: async (connectedWallets, network, force = false) => {
-      const state = get();
-      const now = Date.now();
+        updateAsset: (newAsset: Asset) => {
+          set((state) => {
+            const index = state.assets.findIndex((a) => a.id === newAsset.id);
+            const nextAssets = [...state.assets];
+            if (index >= 0) {
+              nextAssets[index] = { ...nextAssets[index], ...newAsset };
+            } else {
+              nextAssets.push(newAsset);
+            }
+            return {
+              assets: nextAssets.sort((a, b) => {
+                const valA = (a.balance || 0) * (a.current_price || 0);
+                const valB = (b.balance || 0) * (b.current_price || 0);
+                return valB - valA;
+              }),
+            };
+          });
+        },
 
-      if (state.isFetching) {
-        return;
-      }
+        getAssetBalance: (chainId: number, symbol: string) => {
+          const asset = get().assets.find(
+            (a) => a.chainId === chainId && a.symbol.toUpperCase() === symbol.toUpperCase()
+          );
+          return asset?.balance || 0;
+        },
 
-      if (!force && now - state.lastFetched < CACHE_TTL && state.network === network) {
-        return;
-      }
+        clearAssets: () => {
+          set({ assets: [], lastFetched: 0 });
+          try {
+            usePortfolioStore.persist?.clearStorage();
+          } catch {
+            /* ignore */
+          }
+        },
 
-      if (!force && now - state.lastFetched < MIN_FETCH_INTERVAL) {
-        return;
-      }
+        clearAssetsByType: (chainType: 'evm' | 'stellar') => {
+          set((state) => ({
+            assets: state.assets.filter((a) => a.chainType !== chainType),
+            lastFetched: 0,
+            providerStatus: {
+              ...state.providerStatus,
+              [chainType]: { status: 'idle', lastUpdated: 0 }
+            }
+          }));
+        },
 
-      set({ isLoading: true, isFetching: true, network, hasError: false, errorMessage: null });
+        fetchAssets: async (
+          connectedWallets: Record<string, { address: string } | undefined>,
+          network: string,
+          force: boolean = false
+        ) => {
+          const state = get();
+          const now = Date.now();
 
-      const evmAddr = connectedWallets[WalletType.EVM]?.address;
-      const stellarAddr = connectedWallets[WalletType.STELLAR]?.address;
+          if (state.isFetching) return;
 
-      if (state.network !== network) {
-        set({ assets: [] });
-      }
+          const currentWalletsStr = JSON.stringify(connectedWallets);
+          const walletsChanged = state.lastConnectedWalletsStr !== currentWalletsStr;
 
-      const { updateAsset } = get();
-      let fetchFailed = false;
+          const isRecentlyFetched = (now - state.lastFetched) < CACHE_TTL;
+          const isNetworkSame = state.network === network;
+          const hasData = state.assets.length > 0;
 
-      try {
-        const fetchPromises: Promise<void>[] = [];
+          if (!force && !walletsChanged && isRecentlyFetched && isNetworkSame && hasData) {
+            return;
+          }
 
-        if (stellarAddr) {
-          fetchPromises.push(
-            (async () => {
-              try {
-                const config = getStellarConfig(network as NetworkType);
-                const server = new StellarSdk.Horizon.Server(config.horizonUrl);
-                const acc = await server.loadAccount(stellarAddr);
+          const providersToFetch = portfolioService.getProviders().filter(p => {
+            if (p.id === 'evm') return !!connectedWallets.evm?.address;
+            if (p.id === 'stellar') return !!connectedWallets.stellar?.address;
+            return true;
+          });
 
-                for (const b of acc.balances) {
-                  const balanceNum = parseFloat(b.balance);
-                  if (balanceNum > 0) {
-                    const symbol = 'asset_code' in b ? b.asset_code : 'XLM';
-                    const meta = await portfolioUtils.getAssetMetadata(symbol);
-                    updateAsset({
-                      id: `stellar-${symbol}`,
-                      symbol,
-                      name: meta.name,
-                      image: meta.image,
-                      balance: balanceNum,
-                      current_price: 0,
-                      price_change_percentage_24h: 0,
-                      chainName: 'Stellar',
-                      chainType: 'stellar',
-                    });
-                  }
+          if (providersToFetch.length === 0) return;
+
+          set({
+            isLoading: state.assets.length === 0,
+            isFetching: true,
+            network,
+            hasError: false,
+            errorMessage: null,
+            lastConnectedWalletsStr: currentWalletsStr,
+            providerStatus: providersToFetch.reduce((acc, p) => ({
+              ...acc,
+              [p.id]: { status: 'loading', lastUpdated: Date.now() }
+            }), state.providerStatus)
+          });
+
+          const updateStateWithAssets = (newAssets: Asset[], chainType: string) => {
+            set((s) => {
+              const otherAssets = s.assets.filter(a => a.chainType !== chainType);
+
+              const combined = [...otherAssets, ...newAssets];
+              const sorted = combined.sort((a, b) => {
+                const valA = (a.balance || 0) * (a.current_price || 0);
+                const valB = (b.balance || 0) * (b.current_price || 0);
+                return valB - valA;
+              });
+
+              return { assets: sorted };
+            });
+          };
+
+          let completedCount = 0;
+          const fetchPromises = providersToFetch.map(async (p) => {
+            try {
+              const assets = await p.fetch({ connectedWallets, network });
+
+              updateStateWithAssets(assets, p.id);
+
+              set(s => ({
+                providerStatus: {
+                  ...s.providerStatus,
+                  [p.id]: { status: 'success', lastUpdated: Date.now() }
                 }
-              } catch (err: any) {
-                const isNotFound =
-                  err?.response?.status === 404 ||
-                  err?.status === 404 ||
-                  (typeof err?.message === 'string' && err.message.includes('404'));
+              }));
+            } catch (e) {
+              console.error(`[PortfolioStore] Provider ${p.id} failed`, e);
+              set(s => ({
+                providerStatus: {
+                  ...s.providerStatus,
+                  [p.id]: { status: 'error', lastUpdated: Date.now(), error: String(e) }
+                }
+              }));
+            } finally {
+              completedCount++;
+              if (completedCount === providersToFetch.length) {
+                const finalState = get();
+                const anyError = Object.values(finalState.providerStatus).some(ps => ps.status === 'error');
 
-                if (!isNotFound) {
-                  fetchFailed = true;
-                  console.warn('[PortfolioStore] Stellar fetch failed:', err);
+                set({
+                  isFetching: false,
+                  isLoading: false,
+                  lastFetched: Date.now(),
+                  hasError: Object.values(finalState.providerStatus).every(ps => ps.status === 'error'),
+                  errorMessage: anyError ? 'Some portfolio data could not be synced' : null
+                });
+
+                if (!enrichInFlight && get().assets.some(a => (a.balance || 0) > 0)) {
+                  enrichInFlight = true;
+                  get().enrichPrices().finally(() => {
+                    enrichInFlight = false;
+                  });
                 }
               }
-            })()
-          );
-        }
-
-        if (evmAddr) {
-          const chains = getEVMChains(network as NetworkType);
-
-          for (const chain of chains) {
-            fetchPromises.push(
-              (async () => {
-                try {
-                  const urls = [chain.rpcUrl, ...(chain.fallbackRpcUrls || [])];
-
-                  const bal = await rpcManager.fetchWithFallback(chain.chainId, urls, p =>
-                    p.getBalance(evmAddr)
-                  );
-                  const balanceNum = parseFloat(ethers.formatEther(bal));
-
-                  if (balanceNum > 0) {
-                    const nativeIcon = chain.nativeCurrency.logoURI;
-                    const meta = nativeIcon
-                      ? {
-                        id: chain.nativeCurrency.coingeckoId,
-                        name: chain.nativeCurrency.name,
-                        image: nativeIcon,
-                      }
-                      : await portfolioUtils.getAssetMetadata(chain.nativeCurrency.symbol);
-
-                    updateAsset({
-                      id: `${chain.chainId}-native`,
-                      symbol: chain.nativeCurrency.symbol,
-                      name: chain.name,
-                      image: meta.image,
-                      balance: balanceNum,
-                      current_price: 0,
-                      price_change_percentage_24h: 0,
-                      chainName: chain.name,
-                      chainId: chain.chainId,
-                      chainType: 'evm',
-                      isNative: true,
-                    });
-                  }
-
-                  const tokens = getTokenAddressesForChain(chain.chainId);
-                  const registryAssets = getAssetsForChain(chain.chainId);
-
-                  const tokenPromises = Object.entries(tokens).map(async ([symbol, address]) => {
-                    try {
-                      const [tokenBal, dec] = await rpcManager.fetchWithFallback(
-                        chain.chainId,
-                        urls,
-                        async p => {
-                          const contract = new ethers.Contract(address, ERC20_ABI, p);
-                          return await Promise.all([
-                            contract.balanceOf(evmAddr),
-                            contract.decimals(),
-                          ]);
-                        }
-                      );
-                      const tokenBalanceNum = parseFloat(ethers.formatUnits(tokenBal, dec));
-
-                      if (tokenBalanceNum > 0) {
-                        const registryAsset = registryAssets.find(
-                          a => a.symbol.toUpperCase() === symbol.toUpperCase()
-                        );
-
-                        const meta =
-                          registryAsset?.logoURI
-                            ? {
-                              id: registryAsset.coingeckoId ?? symbol.toLowerCase(),
-                              name: registryAsset.name,
-                              image: registryAsset.logoURI,
-                            }
-                            : await portfolioUtils.getAssetMetadata(symbol);
-
-                        updateAsset({
-                          id: `${chain.chainId}-${symbol}`,
-                          symbol,
-                          name: meta.name,
-                          image: meta.image,
-                          balance: tokenBalanceNum,
-                          current_price: 0,
-                          price_change_percentage_24h: 0,
-                          chainName: chain.name,
-                          chainId: chain.chainId,
-                          chainType: 'evm',
-                        });
-                      }
-                    } catch { }
-                  });
-
-                  await Promise.allSettled(tokenPromises);
-                } catch (err) {
-                  fetchFailed = true;
-                  console.warn(`[PortfolioStore] Chain ${chain.name} fetch failed:`, err);
-                }
-              })()
-            );
-          }
-        }
-
-        await Promise.allSettled(fetchPromises);
-      } finally {
-        set({
-          isLoading: false,
-          isFetching: false,
-          lastFetched: Date.now(),
-          ...(fetchFailed
-            ? {
-              hasError: true,
-              errorMessage: 'Some network fetches failed. Data might be incomplete.',
             }
-            : {}),
-        });
-      }
+          });
 
-      setTimeout(() => get().enrichPrices(), 1000);
-    },
+          await Promise.all(fetchPromises);
+        },
 
-    refreshAssets: async (connectedWallets, network) => {
-      await get().fetchAssets(connectedWallets, network, true);
-    },
+        refreshAssets: async (
+          connectedWallets: Record<string, { address: string } | undefined>,
+          network: string
+        ) => {
+          await get().fetchAssets(connectedWallets, network, true);
+        },
 
-    enrichPrices: async () => {
-      const { assets, updateAsset } = get();
-      const needsPrice = assets.filter(a => a.current_price === 0 && a.balance !== null);
+        enrichPrices: async () => {
+          const { assets } = get();
+          const needsPrice = assets.filter(
+            (a) => a.current_price === 0 && (a.balance || 0) > 0
+          );
+          if (needsPrice.length === 0) return;
 
-      if (needsPrice.length === 0) return;
+          try {
+            const symbols = needsPrice.map((a) => a.symbol);
+            const priceData = await portfolioUtils.fetchBatchPrices(symbols);
 
-      try {
-        const metadata = await Promise.all(
-          needsPrice.map(a => portfolioUtils.getAssetMetadata(a.symbol))
-        );
-        const ids = metadata.map(m => m.id);
-        const prices = await portfolioUtils.fetchPrices(ids);
+            set((s) => {
+              const updatedAssets = s.assets.map((asset) => {
+                const newData = priceData[asset.symbol.toUpperCase()];
+                if (asset.current_price === 0 && newData) {
+                  return {
+                    ...asset,
+                    current_price: newData.usd,
+                    price_change_percentage_24h: newData.usd_24h_change || 0,
+                  };
+                }
+                return asset;
+              });
 
-        needsPrice.forEach((asset, index) => {
-          const cgId = ids[index];
-          if (prices[cgId]) {
-            updateAsset({
-              ...asset,
-              current_price: prices[cgId].usd,
-              price_change_percentage_24h: prices[cgId].usd_24h_change,
+              return {
+                assets: updatedAssets.sort((a, b) => {
+                  const valA = (a.balance || 0) * (a.current_price || 0);
+                  const valB = (b.balance || 0) * (b.current_price || 0);
+                  return valB - valA;
+                }),
+              };
             });
+          } catch (err) {
+            console.warn('[PortfolioStore] Price enrichment failed:', err);
           }
-        });
-      } catch (err) {
-        console.warn('[PortfolioStore] Price enrichment failed:', err);
+        },
+      }),
+      {
+        name: 'portfolio-storage',
+        storage: createJSONStorage(() => localStorage),
+        partialize: (state) => ({
+          assets: state.assets,
+          lastFetched: state.lastFetched,
+          network: state.network,
+        }),
       }
-    },
-  }))
+    )
+  )
 );
+
 
 export const selectTotalValue = (state: PortfolioState) =>
   portfolioUtils.calculateTotalUSD(state.assets);
 
 export const selectAssetsByChain = (chainId: number) => (state: PortfolioState) =>
-  state.assets.filter(a => a.chainId === chainId);
+  state.assets.filter((a) => a.chainId === chainId);
 
 export const selectEvmAssets = (state: PortfolioState) =>
-  state.assets.filter(a => a.chainType === 'evm');
+  state.assets.filter((a) => a.chainType === 'evm');
 
 export const selectStellarAssets = (state: PortfolioState) =>
-  state.assets.filter(a => a.chainType === 'stellar');
+  state.assets.filter((a) => a.chainType === 'stellar');
+
+export const selectPortfolioAssets = (state: PortfolioState) =>
+  state.assets.filter((a) => (a.balance || 0) > 0);

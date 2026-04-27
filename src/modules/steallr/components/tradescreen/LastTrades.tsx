@@ -27,11 +27,9 @@ const LastTrades: React.FC<LastTradesProps> = ({ baseAsset, counterAsset }) => {
       `}</style>
 
       <div className="h-full bg-secondary text-sm">
-        <div className="px-4 py-3 flex items-center justify-between border-b border-white/5">
+        <div className="hidden  px-4 py-3 lg:flex items-center justify-between border-b border-white/5">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-primary">Recent Trades</h3>
-            {/* live pulse dot */}
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" title="Auto-refreshing every 5s" />
           </div>
           <button
             onClick={refresh}
@@ -55,9 +53,8 @@ const LastTrades: React.FC<LastTradesProps> = ({ baseAsset, counterAsset }) => {
             trades.map(trade => (
               <div
                 key={trade.id}
-                className={`grid grid-cols-3 px-4 py-2 hover:bg-white/5 transition-colors ${
-                  newTradeIds.has(trade.id) ? 'trade-flash' : ''
-                }`}
+                className={`grid grid-cols-3 px-4 py-2 hover:bg-white/5 transition-colors ${newTradeIds.has(trade.id) ? 'trade-flash' : ''
+                  }`}
               >
                 <span className={`font-mono ${trade.isBuy ? 'text-green-500' : 'text-red-500'}`}>
                   {trade.price}

@@ -1,80 +1,63 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { type Asset, usePortfolioStore } from '../store/portfolioStore';
 
-import { WalletType } from '../../walletconnect/constants/Wallet';
-import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { selectTotalValue, usePortfolioStore } from '../store/portfolioStore';
-import { portfolioUtils } from '../utils/portfolioUtils';
+import { useWalletStore } from '../store/walletConnectStore';
 
-export type { Asset } from '../store/portfolioStore';
+interface UseWalletAssetsReturn {
+  assets: Asset[];
+  loading: boolean;
+  isRefreshing: boolean;
+  totalValue: number;
+  hasError: boolean;
+  errorMessage: string;
+  refetch: () => Promise<void>;
+}
 
-export const useWalletAssets = (network: string) => {
-  const { connectedWallets } = useWalletConnect();
 
-  const assets = usePortfolioStore(state => state.assets);
-  const isLoading = usePortfolioStore(state => state.isLoading);
-  const fetchAssets = usePortfolioStore(state => state.fetchAssets);
-  const totalValue = usePortfolioStore(selectTotalValue);
-  const hasError = usePortfolioStore(state => state.hasError);
-  const errorMessage = usePortfolioStore(state => state.errorMessage);
+export function useWalletAssets(network: string): UseWalletAssetsReturn {
+  const { connectedWallets } = useWalletStore();
 
-  // Fetch assets on mount and when wallets/network change
+
+  const storeAssets = usePortfolioStore((state) => state.assets);
+  const isLoading = usePortfolioStore((state) => state.isLoading);
+  const isFetching = usePortfolioStore((state) => state.isFetching);
+  const hasError = usePortfolioStore((state) => state.hasError);
+  const errorMessage = usePortfolioStore((state) => state.errorMessage || '');
+  const fetchAssets = usePortfolioStore((state) => state.fetchAssets);
+  const refreshAssets = usePortfolioStore((state) => state.refreshAssets);
+
+
   useEffect(() => {
-    const wallets = {
-      [WalletType.EVM]: connectedWallets[WalletType.EVM],
-      [WalletType.STELLAR]: connectedWallets[WalletType.STELLAR],
-    };
-
-    // Only fetch if at least one wallet is connected
-    if (wallets[WalletType.EVM]?.address || wallets[WalletType.STELLAR]?.address) {
-      fetchAssets(wallets, network);
+    if (connectedWallets.evm || connectedWallets.stellar) {
+      fetchAssets(connectedWallets, network);
     }
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && (connectedWallets.evm || connectedWallets.stellar)) {
+        fetchAssets(connectedWallets, network);
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, [connectedWallets, network, fetchAssets]);
 
-  // Price enrichment effect
-  useEffect(() => {
-    const fetchMissingPrices = async () => {
-      const needsPrice = assets.filter(a => a.current_price === 0 && a.balance !== null);
-      if (needsPrice.length === 0) return;
 
-      try {
-        const metadata = await Promise.all(
-          needsPrice.map(a => portfolioUtils.getAssetMetadata(a.symbol))
-        );
-        const ids = metadata.map(m => m.id);
-        const prices = await portfolioUtils.fetchPrices(ids);
+  const totalValue = useMemo(() => {
+    return storeAssets.reduce((sum, a) => sum + (a.balance || 0) * (a.current_price || 0), 0);
+  }, [storeAssets]);
 
-        const { updateAsset } = usePortfolioStore.getState();
-        needsPrice.forEach((asset, index) => {
-          const cgId = ids[index];
-          if (prices[cgId]) {
-            updateAsset({
-              ...asset,
-              current_price: prices[cgId].usd,
-              price_change_percentage_24h: prices[cgId].usd_24h_change,
-            });
-          }
-        });
-      } catch (err) {
-        console.warn('[useWalletAssets] Price fetch failed:', err);
-      }
-    };
 
-    const timer = setTimeout(fetchMissingPrices, 1000);
-    return () => clearTimeout(timer);
-  }, [assets]);
+  const refetch = useCallback(async () => {
+    await refreshAssets(connectedWallets, network);
+  }, [connectedWallets, network, refreshAssets]);
 
   return {
-    assets,
+    assets: storeAssets,
     loading: isLoading,
+    isRefreshing: isFetching,
     totalValue,
     hasError,
     errorMessage,
-    refetch: () => {
-      const wallets = {
-        [WalletType.EVM]: connectedWallets[WalletType.EVM],
-        [WalletType.STELLAR]: connectedWallets[WalletType.STELLAR],
-      };
-      usePortfolioStore.getState().refreshAssets(wallets, network);
-    },
+    refetch,
   };
-};
+}

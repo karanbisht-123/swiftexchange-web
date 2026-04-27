@@ -29,7 +29,7 @@ const TRADING_CONFIG = {
   DEFAULT_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
   CLOSE_POSITION_SLIPPAGE: 0.03,
   MAX_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
-  ISOLATED_FEE_BUFFER: 0.20,
+  ISOLATED_FEE_BUFFER: 0.02,
 
   TRANSFER_CONFIRM_POLL_MS: 800,
   TRANSFER_CONFIRM_MAX_ATTEMPTS: 45,
@@ -899,7 +899,7 @@ class DydxTradingService {
   private getUserFriendlyError(error: any): string {
     const msg = error.message || error.toString();
     if (msg.includes('NewlyUndercollateralized'))
-      return 'Insufficient collateral for this order. Please reduce size or increase margin.';
+      return 'Stateful order collateralization check failed. Order size might be too large, please try again with a smaller order or lower leverage.';
     if (msg.includes('insufficient')) return 'Insufficient balance';
     if (msg.includes('9003') || msg.includes('reduce-only') || msg.includes('Reduce-only'))
       return 'Reduce-only is currently disabled on dYdX. Using regular market orders instead.';

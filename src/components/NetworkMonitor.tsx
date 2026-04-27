@@ -18,6 +18,11 @@ export const NetworkMonitor: React.FC = () => {
         setLatency(rtt);
         setIsSlow(rtt > 1500);
       } catch (error) {
+        if (!navigator.onLine) {
+          console.warn('User is offline');
+        } else {
+          console.error('Latency check failed:', error);
+        }
         setIsSlow(true);
       }
     };

@@ -1,5 +1,28 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
 
+export function ensureTrustlineOp(
+  txBuilder: StellarSDK.TransactionBuilder,
+  sourceAccount: StellarSDK.Horizon.AccountResponse,
+  asset: StellarSDK.Asset
+) {
+  if (asset.isNative()) return;
+
+  const hasTrustline = sourceAccount.balances.some(
+    (b: any) =>
+      (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
+      b.asset_code === asset.getCode() &&
+      b.asset_issuer === asset.getIssuer()
+  );
+
+  if (!hasTrustline) {
+    txBuilder.addOperation(
+      StellarSDK.Operation.changeTrust({
+        asset: asset,
+      })
+    );
+  }
+}
+
 import { generateTransactionId } from '../../../utils/transactionUtils';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
@@ -19,26 +42,26 @@ export async function getStellarBalance(assetType: string, from: string): Promis
     const account = await server.loadAccount(from);
     let balance = '0';
     if (assetType === 'native') {
-        const nativeBalanceObj = account.balances.find(b => b.asset_type === 'native');
-        if (nativeBalanceObj) {
-            const nativeBalance = parseFloat(nativeBalanceObj.balance);
-            const baseReserve = 0.5; // XLM
-            const subentryCount = account.subentry_count;
-            const totalReserve = (2 + subentryCount) * baseReserve;
-            const liabilities = parseFloat((nativeBalanceObj as any).selling_liabilities || '0');
-            
-            const available = Math.max(0, nativeBalance - totalReserve - liabilities);
-            balance = available.toString();
-        } else {
-            balance = '0';
-        }
+      const nativeBalanceObj = account.balances.find(b => b.asset_type === 'native');
+      if (nativeBalanceObj) {
+        const nativeBalance = parseFloat(nativeBalanceObj.balance);
+        const baseReserve = 0.5; // XLM
+        const subentryCount = account.subentry_count;
+        const totalReserve = (2 + subentryCount) * baseReserve;
+        const liabilities = parseFloat((nativeBalanceObj as any).selling_liabilities || '0');
+
+        const available = Math.max(0, nativeBalance - totalReserve - liabilities);
+        balance = available.toString();
+      } else {
+        balance = '0';
+      }
     } else {
-        // For non-native, look for code and issuer match
-        // assetType should be code:issuer
-        const [code, issuer] = assetType.split(':');
-        balance = account.balances.find(b => 
-            (b as any).asset_code === code && (b as any).asset_issuer === issuer
-        )?.balance ?? '0';
+      // For non-native, look for code and issuer match
+      // assetType should be code:issuer
+      const [code, issuer] = assetType.split(':');
+      balance = account.balances.find(b =>
+        (b as any).asset_code === code && (b as any).asset_issuer === issuer
+      )?.balance ?? '0';
     }
     return balance;
   } catch (error) {
@@ -48,34 +71,34 @@ export async function getStellarBalance(assetType: string, from: string): Promis
 }
 
 export async function fetchStellarAccountAssets(address: string): Promise<any[]> {
-    const currentNetwork = useWalletStore.getState().network;
-    const config = getStellarConfig(currentNetwork);
-    const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+  const server = new StellarSDK.Horizon.Server(config.horizonUrl);
 
-    try {
-        const account = await server.loadAccount(address);
-        return account.balances.map(b => {
-            if (b.asset_type === 'native') {
-                return {
-                    code: 'XLM',
-                    issuer: '',
-                    balance: b.balance,
-                    isNative: true,
-                    type: 'native'
-                };
-            }
-            return {
-                code: (b as any).asset_code,
-                issuer: (b as any).asset_issuer,
-                balance: b.balance,
-                isNative: false,
-                type: b.asset_type
-            };
-        });
-    } catch (error) {
-        console.error('Failed to fetch Stellar assets:', error);
-        return [];
-    }
+  try {
+    const account = await server.loadAccount(address);
+    return account.balances.map(b => {
+      if (b.asset_type === 'native') {
+        return {
+          code: 'XLM',
+          issuer: '',
+          balance: b.balance,
+          isNative: true,
+          type: 'native'
+        };
+      }
+      return {
+        code: (b as any).asset_code,
+        issuer: (b as any).asset_issuer,
+        balance: b.balance,
+        isNative: false,
+        type: b.asset_type
+      };
+    });
+  } catch (error) {
+    console.error('Failed to fetch Stellar assets:', error);
+    return [];
+  }
 }
 
 export async function sendCryptoStellarBuild(
@@ -122,6 +145,8 @@ export async function sendCryptoStellarBuild(
   } else {
     stellarAsset = new StellarSDK.Asset(asset.code, asset.issuer!);
   }
+
+  ensureTrustlineOp(txBuilder, sourceAccount, stellarAsset);
 
   txBuilder.addOperation(
     StellarSDK.Operation.payment({
@@ -259,4 +284,48 @@ export async function sendCryptoStellarBroadcast(signedXDR: string): Promise<str
   const tx = new StellarSDK.Transaction(signedXDR, networkPassphrase);
   const response = await server.submitTransaction(tx);
   return response.hash || 'unknown';
+}
+export async function checkTrustlineExists(
+  address: string,
+  assetCode: string,
+  assetIssuer: string
+): Promise<boolean> {
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+  const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+
+  try {
+    const account = await server.loadAccount(address);
+    return account.balances.some(
+      (b: any) => b.asset_code === assetCode && b.asset_issuer === assetIssuer
+    );
+  } catch (error) {
+    console.error('Failed to check trustline:', error);
+    return false;
+  }
+}
+
+export async function buildAddTrustlineTransaction(
+  address: string,
+  assetCode: string,
+  assetIssuer: string
+): Promise<string> {
+  const currentNetwork = useWalletStore.getState().network;
+  const config = getStellarConfig(currentNetwork);
+  const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+  const networkPassphrase =
+    config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
+
+  const account = await server.loadAccount(address);
+  const asset = new StellarSDK.Asset(assetCode, assetIssuer);
+
+  const tx = new StellarSDK.TransactionBuilder(account, {
+    fee: StellarSDK.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(StellarSDK.Operation.changeTrust({ asset }))
+    .setTimeout(30)
+    .build();
+
+  return tx.toXDR();
 }

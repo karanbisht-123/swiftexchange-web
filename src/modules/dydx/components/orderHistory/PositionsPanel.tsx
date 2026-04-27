@@ -9,9 +9,9 @@ import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { useOraclePrices } from '../../hooks/useOraclePrices';
 import { metadataService } from '../../hooks/useMetadata';
-import { useSubaccounts } from '../../hooks/useSubaccounts';
 import useMarketStore from '../../store/marketStore';
 import { useWebSocketStore } from '../../store/websocketStore';
+import { dydxWalletService } from '../../service/dydxWalletService';
 import { type Position } from '../../types/trading.types';
 import {
   calculateCrossLiquidationPrice,
@@ -19,6 +19,8 @@ import {
 } from '../../utils/marginCalculator';
 import PriceTriggers, { type TriggerConfig } from '../PriceTriggers';
 import AddMarginModal from '../shared/Addmarginmodal';
+
+const ISOLATED_SUBACCOUNT_START = 128;
 
 interface OraclePriceCellProps {
   oraclePrice: number | null;
@@ -76,7 +78,6 @@ const RefreshAllButton = React.memo(function RefreshAllButton({ markets, label =
   const [isRefreshing, setIsRefreshing] = useState(false);
   const marketsRef = useRef(markets);
   marketsRef.current = markets;
-
 
   const handleClick = useCallback(async () => {
     setIsRefreshing(true);
@@ -153,7 +154,7 @@ const PositionRow = React.memo(function PositionRow({
   getMarketIcon,
   formatPrice,
 }: PositionRowProps) {
-  const isIsolated = (position.subaccountNumber ?? 0) >= 128;
+  const isIsolated = (position.subaccountNumber ?? 0) >= ISOLATED_SUBACCOUNT_START;
 
   return (
     <tr className="border-b border-color hover:bg-hover transition-colors">
@@ -279,7 +280,7 @@ const PositionCard = React.memo(function PositionCard({
   formatPrice,
 }: PositionCardProps) {
   const isShort = position.side === 'SHORT';
-  const isIsolated = (position.subaccountNumber ?? 0) >= 128;
+  const isIsolated = (position.subaccountNumber ?? 0) >= ISOLATED_SUBACCOUNT_START;
 
   return (
     <div className="bg-secondary border border-color rounded-lg p-2.5 text-xs">
@@ -410,7 +411,8 @@ function computePositionMetrics(
   marketCache: Record<string, any>,
   childSubaccounts: any[],
   positions: Position[],
-  liveOraclePrice?: number
+  isolatedEquityBySubaccount: Map<number, number>,
+  liveOraclePrice?: number,
 ): PositionMetrics {
   const rawSize = parseFloat(position.size);
   const absSize = Math.abs(rawSize);
@@ -426,37 +428,41 @@ function computePositionMetrics(
   const notional = absSize * oraclePrice;
   const maxLeverage = imf > 0 ? Math.floor(1 / imf) : 20;
 
-  const isIsolated = (position.subaccountNumber ?? 0) >= 128;
+  const isIsolated = (position.subaccountNumber ?? 0) >= ISOLATED_SUBACCOUNT_START;
   const marginType = isIsolated ? 'Isolated' : 'Cross';
 
-  const apiLeverage = position.leverage ? parseFloat(position.leverage) : 0;
-  const storedLeverage = (() => {
-    const raw =
-      localStorage.getItem(`dydx_leverage_${position.market}`) ??
-      localStorage.getItem('dydx_leverage');
-    const parsed = raw ? parseFloat(raw) : 0;
-    return parsed > 0 ? parsed : 0;
-  })();
-  const effectiveLeverage = Math.min(
-    apiLeverage > 0 ? apiLeverage : storedLeverage > 0 ? storedLeverage : maxLeverage,
-    maxLeverage
-  );
+  let leverage: number;
+  let margin: number;
 
-  const subaccount = childSubaccounts.find(
-    sub => sub.subaccountNumber === position.subaccountNumber
-  );
-  const equity = parseFloat(subaccount?.equity || '0');
-
-  const margin = isIsolated
-    ? equity > 0 ? equity : notional / effectiveLeverage
-    : notional / effectiveLeverage;
+  if (isIsolated) {
+    margin = isolatedEquityBySubaccount.get(position.subaccountNumber ?? 0) ?? 0;
+    leverage = margin > 0 ? Math.min(notional / margin, maxLeverage) : maxLeverage;
+  } else {
+    const apiLeverage = position.leverage ? parseFloat(position.leverage) : 0;
+    const storedLeverage = (() => {
+      const raw =
+        localStorage.getItem(`dydx_leverage_${position.market}`) ??
+        localStorage.getItem('dydx_leverage');
+      const parsed = raw ? parseFloat(raw) : 0;
+      return parsed > 0 ? parsed : 0;
+    })();
+    leverage = Math.min(
+      apiLeverage > 0 ? apiLeverage : storedLeverage > 0 ? storedLeverage : maxLeverage,
+      maxLeverage
+    );
+    margin = notional / leverage;
+  }
 
   const side = position.side === 'LONG' ? 'BUY' : 'SELL';
 
   let liquidationPrice: number | null = null;
   if (isIsolated) {
-    liquidationPrice = calculateIsolatedLiquidationPrice(absSize, oraclePrice, equity, mmf, side);
+    liquidationPrice = calculateIsolatedLiquidationPrice(absSize, oraclePrice, margin, mmf, side);
   } else {
+    const subaccount = childSubaccounts.find(
+      sub => sub.subaccountNumber === position.subaccountNumber
+    );
+    const crossEquity = parseFloat(subaccount?.equity || '0');
     const otherPositionsMMR = positions
       .filter(
         p => p.subaccountNumber === position.subaccountNumber && p.market !== position.market
@@ -473,7 +479,7 @@ function computePositionMetrics(
     liquidationPrice = calculateCrossLiquidationPrice(
       absSize,
       oraclePrice,
-      equity,
+      crossEquity,
       mmf,
       otherPositionsMMR,
       side
@@ -487,7 +493,7 @@ function computePositionMetrics(
     notional,
     imf,
     mmf,
-    leverage: effectiveLeverage,
+    leverage,
     margin,
     marginType,
     liquidationPrice,
@@ -506,15 +512,56 @@ const PositionsPanel: React.FC = () => {
 
   const positions = rawPositions as Position[];
   const { closePosition, closeAllPositions, setTriggers, isSettingTriggers, orderError, clearOrderError } = useDydxTrading();
-  const { childSubaccounts } = useSubaccounts();
   const marketCache = useMarketStore(state => state.marketCache);
+  const parentKey = useMemo(() => {
+    const address = dydxWalletService.getAddress();
+    const subNum = dydxWalletService.getSubaccountNumber();
+    return address ? `parent_subaccount_${address}_${subNum}` : null;
+  }, []);
+
+  const updateTrigger = useWebSocketStore(s => s.updateTrigger);
+
+  const marketsMap = useWebSocketStore(s => s.marketsSnapshot ?? s.markets);
+
+  const parentData = useWebSocketStore(
+    useCallback(
+      s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined),
+      [parentKey, updateTrigger]
+    )
+  );
+
+  const childSubaccounts = parentData?.childSubaccounts ?? [];
+  const isolatedEquityBySubaccount = useMemo((): Map<number, number> => {
+    const map = new Map<number, number>();
+
+    childSubaccounts.forEach(child => {
+      if (child.subaccountNumber < ISOLATED_SUBACCOUNT_START) return;
+      let childEquity = 0;
+
+      Object.values(child.assetPositions || {}).forEach((asset: any) => {
+        const size = parseFloat(asset.size || '0');
+        childEquity += asset.side === 'SHORT' ? -size : size;
+      });
+
+      Object.values(child.openPerpetualPositions || {}).forEach((pos: any) => {
+        const mktData = marketsMap.get(pos.market);
+        if (!mktData) return;
+        const size = parseFloat(pos.size || '0');
+        const oraclePrice = parseFloat(mktData.oraclePrice || '0');
+        childEquity += size * oraclePrice;
+      });
+
+      map.set(child.subaccountNumber, childEquity);
+    });
+
+    return map;
+  }, [childSubaccounts, marketsMap, updateTrigger]);
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
   const [addMarginPosition, setAddMarginPosition] = useState<Position | null>(null);
   const [closingMarket, setClosingMarket] = useState<string | null>(null);
   const [isClosingAll, setIsClosingAll] = useState(false);
-  const [hiddenPositions, setHiddenPositions] = useState<Set<string>>(new Set());
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [newPositionsCount, setNewPositionsCount] = useState(0);
 
@@ -539,11 +586,6 @@ const PositionsPanel: React.FC = () => {
   );
 
   const oraclePrices = useOraclePrices(activeMarkets);
-
-  const visiblePositions = useMemo(
-    () => positions.filter(p => !hiddenPositions.has(p.market)),
-    [positions, hiddenPositions]
-  );
 
   useEffect(() => {
     const currentLength = positions.length;
@@ -588,19 +630,6 @@ const PositionsPanel: React.FC = () => {
 
     fetchIcons();
   }, [activeMarkets]);
-
-  useEffect(() => {
-    if (hiddenPositions.size === 0) return;
-    const currentMarkets = new Set(positions.map(p => p.market));
-    const staleMarkets = [...hiddenPositions].filter(m => !currentMarkets.has(m));
-    if (staleMarkets.length > 0) {
-      setHiddenPositions(prev => {
-        const next = new Set(prev);
-        staleMarkets.forEach(m => next.delete(m));
-        return next;
-      });
-    }
-  }, [positions, hiddenPositions]);
 
   const handleEdit = useCallback(
     (position: Position) => {
@@ -666,7 +695,6 @@ const PositionsPanel: React.FC = () => {
       const result = await closePosition(position);
 
       if (result.success) {
-        setHiddenPositions(prev => new Set(prev).add(position.market));
         showNotification(`Position ${position.market} closed successfully!`, 'success');
         setTimeout(refreshPositions, 1000);
       } else {
@@ -680,35 +708,24 @@ const PositionsPanel: React.FC = () => {
   }, [positionToClose, closePosition, refreshPositions, showNotification]);
 
   const handleCloseAll = useCallback(() => {
-    if (visiblePositions.length === 0) return;
+    if (positions.length === 0) return;
     setIsCloseAllConfirmOpen(true);
-  }, [visiblePositions.length]);
+  }, [positions.length]);
 
   const executeCloseAll = useCallback(async () => {
     setIsCloseAllConfirmOpen(false);
-    if (visiblePositions.length === 0) return;
+    if (positions.length === 0) return;
 
     setIsClosingAll(true);
 
     try {
       const marketInfoMap = Object.fromEntries(
-        visiblePositions
+        positions
           .map(p => [p.market, marketCache[p.market]])
           .filter(([, v]) => v != null)
       );
 
-      const result = await closeAllPositions(visiblePositions, marketInfoMap);
-
-      if (result.closed > 0) {
-        const closedMarkets = result.results
-          .filter((r: any) => r.success)
-          .map((r: any) => r.market);
-        setHiddenPositions(prev => {
-          const next = new Set(prev);
-          closedMarkets.forEach((m: string) => next.add(m));
-          return next;
-        });
-      }
+      const result = await closeAllPositions(positions, marketInfoMap);
 
       if (result.success) {
         showNotification(`All ${result.closed} position${result.closed > 1 ? 's' : ''} closed successfully!`, 'success');
@@ -724,7 +741,7 @@ const PositionsPanel: React.FC = () => {
     } finally {
       setIsClosingAll(false);
     }
-  }, [visiblePositions, marketCache, closeAllPositions, refreshPositions, showNotification]);
+  }, [positions, marketCache, closeAllPositions, refreshPositions, showNotification]);
 
   const formatPrice = useCallback((value: string | number) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -759,12 +776,19 @@ const PositionsPanel: React.FC = () => {
         const liveOracle = oraclePrices[position.market];
         map.set(
           position.market,
-          computePositionMetrics(position, marketCache, childSubaccounts, positions, liveOracle)
+          computePositionMetrics(
+            position,
+            marketCache,
+            childSubaccounts,
+            positions,
+            isolatedEquityBySubaccount,
+            liveOracle,
+          )
         );
       }
     });
     return map;
-  }, [positions, marketCache, childSubaccounts, oraclePrices]);
+  }, [positions, marketCache, childSubaccounts, isolatedEquityBySubaccount, oraclePrices]);
 
   if (!isConnected) {
     return (
@@ -867,7 +891,7 @@ const PositionsPanel: React.FC = () => {
               <th className="p-2 border-b border-color text-center text-[10px]">
                 <div className="flex items-center justify-center gap-2">
                   Actions
-                  {visiblePositions.length > 1 && (
+                  {positions.length > 1 && (
                     <button
                       onClick={handleCloseAll}
                       disabled={isClosingAll || !!closingMarket}
@@ -888,7 +912,6 @@ const PositionsPanel: React.FC = () => {
           </thead>
           <tbody>
             {positions.map(position => {
-              if (hiddenPositions.has(position.market)) return null;
               const metrics = positionMetrics.get(position.market);
               if (!metrics) return null;
 
@@ -913,7 +936,7 @@ const PositionsPanel: React.FC = () => {
 
       <div className="md:hidden space-y-1.5 p-2">
         <div className="flex gap-2">
-          {visiblePositions.length > 1 && (
+          {positions.length > 1 && (
             <button
               onClick={handleCloseAll}
               disabled={isClosingAll || !!closingMarket}
@@ -924,14 +947,13 @@ const PositionsPanel: React.FC = () => {
               ) : (
                 <X size={12} />
               )}
-              {isClosingAll ? 'Closing...' : `Close All (${visiblePositions.length})`}
+              {isClosingAll ? 'Closing...' : `Close All (${positions.length})`}
             </button>
           )}
           <RefreshAllButton markets={activeMarkets} label />
         </div>
 
         {positions.map(position => {
-          if (hiddenPositions.has(position.market)) return null;
           const metrics = positionMetrics.get(position.market);
           if (!metrics) return null;
 
@@ -990,7 +1012,7 @@ const PositionsPanel: React.FC = () => {
       <ConfirmationModal
         isOpen={isCloseAllConfirmOpen}
         title="Close All Positions"
-        message={`Are you sure you want to close all ${visiblePositions.length} open position${visiblePositions.length > 1 ? 's' : ''}?`}
+        message={`Are you sure you want to close all ${positions.length} open position${positions.length > 1 ? 's' : ''}?`}
         confirmText="Close All"
         confirmButtonType="danger"
         onConfirm={executeCloseAll}

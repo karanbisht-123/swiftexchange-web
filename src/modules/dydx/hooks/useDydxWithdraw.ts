@@ -16,7 +16,8 @@ import {
   NOBLE_CHAIN_ID,
   NOBLE_USDC_DENOM,
   SKIP_BRIDGES,
-  USDC_EVM_CONTRACTS,
+  // getUsdcAddress,
+  getEvmSourceDenom,
   buildCosmosSigner,
   buildEvmSigner,
   buildUserAddresses,
@@ -114,7 +115,7 @@ export const useDydxWithdraw = () => {
       onBridgeTxHash: (hash: string, chainId: string) => void
     ): Promise<{ success: boolean; transactionHash?: string; error?: string }> => {
       const chainId = destChainId ?? Number(evmWallet?.chainId ?? 1);
-      const destAssetDenom = USDC_EVM_CONTRACTS[chainId] ?? USDC_EVM_CONTRACTS[1];
+      const destAssetDenom = getEvmSourceDenom('USDC', chainId);
 
       const baseRouteParams = {
         sourceAssetDenom: NOBLE_USDC_DENOM,
@@ -166,7 +167,6 @@ export const useDydxWithdraw = () => {
       });
 
       let finalBridgeTxHash = '';
-      let finalBridgeChainId = '';
 
       await executeRoute({
         route: rawRoute,
@@ -176,7 +176,6 @@ export const useDydxWithdraw = () => {
         slippageTolerancePercent: '1',
         onTransactionBroadcast: async ({ chainId: cid, txHash: hash }: any) => {
           finalBridgeTxHash = hash;
-          finalBridgeChainId = String(cid);
           setBridgeTxHash(hash);
           setBridgeTxChainId(String(cid));
           setTxHash(hash);
@@ -252,7 +251,7 @@ export const useDydxWithdraw = () => {
           SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
         );
 
-        // ── Minimum-balance handling (same-transaction top-up) ─────────────
+        // ── Minimum-balance handling (same-transaction top-up)
         // Check how much USDC the native wallet currently holds.
         // If it's below the required gas reserve (~$1.24), we pull the shortfall
         // OUT of the subaccount in the same withdraw() call — no separate tx.
@@ -279,8 +278,6 @@ export const useDydxWithdraw = () => {
           Long.fromString(withdrawQuantums.toString())
         );
         setTxHash(formatTxHash((withdrawResult as any)?.hash));
-
-        // Wait for the withdrawal to settle in the native wallet
         {
           const POLL_INTERVAL_MS = 3_000;
           const POLL_TIMEOUT_MS = 60_000;

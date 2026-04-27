@@ -183,7 +183,7 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
             )}
           </div>
 
-          <div className="flex justify-between items-center pt-3 mt-2 border-t border-color/30">
+          {/* <div className="flex justify-between items-center pt-3 mt-2 border-t border-color/30">
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm bg-green-500" />
               <span className="text-[10px] text-muted">Bids</span>
@@ -192,7 +192,7 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
               <span className="text-[10px] text-muted">Asks</span>
               <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
             </div>
-          </div>
+          </div> */}
         </div>
       )}
     </div>

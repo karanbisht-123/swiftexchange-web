@@ -1,240 +1,359 @@
-import { Search, X, ChevronRight } from 'lucide-react';
-import { type FC, useMemo, useState, useEffect } from 'react';
+import { Search, X, Copy, SearchX, Check } from 'lucide-react';
+import { type FC, useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-
+import { FixedSizeList } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
-import { CHAIN_REGISTRY } from '../../evm/utils/Chainregistry';
+import { CHAIN_REGISTRY, getChainById } from '../../evm/utils/Chainregistry';
 import { useAssetSelectorModal } from './useAssetSelectorModal';
+import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
+import { getTokensForChain } from '../../evm/service/tokenListService';
+
+const ROW_HEIGHT = 72;
+const STELLAR_CHAIN_ID = 9000000;
+
+interface NetworkOption {
+  id: string | number;
+  name: string;
+  logo?: string;
+  sendEnable: boolean;
+  receiveEnable: boolean;
+  bridgeEnable: boolean;
+  swapEnable: boolean;
+}
 
 const AssetSelectorModal: FC = () => {
   const navigate = useNavigate();
-  const { isOpen, actionType, closeAssetSelector } = useAssetSelectorModal();
-  const { network: currentNetwork } = useWalletStore();
-  const { assets, loading } = useWalletAssets(currentNetwork);
+  const { isOpen, actionType, defaultNetwork, pairedChainId, onSelect, closeAssetSelector } = useAssetSelectorModal();
+  const { network: currentNetwork, connectedWallets } = useWalletStore();
+  const { assets: walletAssets } = useWalletAssets(currentNetwork);
+
+  const isStellarConnected = !!connectedWallets.stellar?.address;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
-
-  const networks = useMemo(() => {
-    const evmChains = getEVMChains(currentNetwork);
-    const stellarChain = getStellarConfig(currentNetwork);
-
-    return [
-      { id: 'all', name: 'All Networks' },
-      ...evmChains.map(c => ({ id: c.chainId, name: c.name, logo: c.logoUrl })),
-      { id: 'stellar', name: 'Stellar', logo: stellarChain.logoUrl }
-    ];
-  }, [currentNetwork]);
-
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      const originalStyle = window.getComputedStyle(document.body).overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = originalStyle;
-      };
+      setSelectedNetwork(defaultNetwork || 'all');
+      setSearchQuery('');
     }
-  }, [isOpen]);
+  }, [isOpen, defaultNetwork]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const networks = useMemo(() => {
+    const allNetworks: NetworkOption[] = [
+      { id: 'all', name: 'All Networks', sendEnable: true, receiveEnable: true, bridgeEnable: true, swapEnable: true },
+      ...getEVMChains(currentNetwork).map(c => ({
+        id: c.chainId, name: c.name, logo: c.logoUrl,
+        ...getChainById(c.chainId)
+      } as any)),
+      {
+        id: STELLAR_CHAIN_ID, name: 'Stellar', logo: getStellarConfig(currentNetwork).logoUrl,
+        ...getChainById(STELLAR_CHAIN_ID)
+      } as any,
+    ];
+
+    return allNetworks.filter(net => {
+      if (net.id === STELLAR_CHAIN_ID && !isStellarConnected) return false;
+      if (net.id === 'all') return true;
+      if (actionType === 'SEND') return net.sendEnable;
+      if (actionType === 'RECEIVE') return net.receiveEnable;
+      if (actionType === 'SWAP') return net.swapEnable;
+      if (actionType === 'BRIDGE') return net.bridgeEnable;
+      return true;
+    });
+  }, [currentNetwork, actionType, isStellarConnected]);
+  const allNetworkOption = networks[0];
+  const chainNetworks = networks.slice(1);
+
+  const effectiveActionType = useMemo(() => {
+    if (selectedNetwork === 'all') return actionType;
+    if (pairedChainId && selectedNetwork !== pairedChainId) {
+      if (actionType === 'SWAP' || actionType === 'BRIDGE') return 'BRIDGE';
+    }
+    if (pairedChainId && selectedNetwork === pairedChainId) {
+      if (actionType === 'SWAP' || actionType === 'BRIDGE') return 'SWAP';
+    }
+    return actionType;
+  }, [selectedNetwork, pairedChainId, actionType]);
 
   const filteredAssets = useMemo(() => {
-    let result = assets;
-
-    if (actionType === 'RECEIVE') {
-      const registryAssets: any[] = [];
-      const evmChains = getEVMChains(currentNetwork);
-
-      const stellarConfig = getStellarConfig(currentNetwork);
-      registryAssets.push({
-        symbol: 'XLM',
-        name: 'Stellar Lumens',
-        image: stellarConfig.logoUrl,
-        balance: 0,
-        chainId: 'stellar',
-        chainType: 'stellar',
-        current_price: 0
-      });
-
-      for (const chain of evmChains) {
-        const config = CHAIN_REGISTRY.find(c => c.chainId === chain.chainId);
-        if (config) {
-
-          registryAssets.push({
-            symbol: config.nativeCurrency.symbol,
-            name: config.nativeCurrency.name,
-            image: config.nativeCurrency.logoURI,
-            balance: 0,
-            chainId: config.chainId,
-            chainType: 'evm',
-            current_price: 0
+    let result: any[] = [];
+    if (effectiveActionType === 'SEND') {
+      result = walletAssets.filter(a => (a.balance || 0) > 0);
+    } else if (effectiveActionType === 'RECEIVE') {
+      for (const config of CHAIN_REGISTRY) {
+        if (config.chainId === STELLAR_CHAIN_ID && !isStellarConnected) continue;
+        if (config.receiveEnable) {
+          result.push({
+            id: `receive-${config.chainId}-native`, symbol: config.nativeCurrency.symbol, name: config.nativeCurrency.name, image: config.nativeCurrency.logoURI, chainId: config.chainId, isNative: true
           });
-          // Tokens
           config.assets.forEach(asset => {
-            registryAssets.push({
-              symbol: asset.symbol,
-              name: asset.name,
-              image: asset.logoURI,
-              balance: 0,
-              chainId: config.chainId,
-              chainType: 'evm',
-              current_price: 0
+            if (asset.symbol === config.nativeCurrency.symbol) return;
+            result.push({
+              id: `receive-${config.chainId}-${asset.symbol}`, symbol: asset.symbol, name: asset.name, image: asset.logoURI, chainId: config.chainId, address: asset.address
             });
           });
         }
       }
-
-      const mergedMap = new Map();
-      registryAssets.forEach(a => mergedMap.set(`${a.symbol}-${a.chainId}`, a));
-      // Overwrite with wallet assets if they exist
-      assets.forEach(a => mergedMap.set(`${a.symbol}-${a.chainId}`, a));
-
-      result = Array.from(mergedMap.values());
+    } else if (effectiveActionType === 'SWAP') {
+      const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
+      if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) {
+        result = [];
+      } else {
+        const registryTokens = getTokensForChain(activeChainId);
+        result = registryTokens.map(t => ({
+          id: `swap-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative, balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+        }));
+      }
+    } else if (effectiveActionType === 'BRIDGE') {
+      const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
+      const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
+      if (isStellarInvolved && !isStellarConnected) {
+        result = [];
+      } else {
+        const registryTokens = getTokensForChain(activeChainId);
+        if (isStellarInvolved) {
+          const chainConfig = getChainById(activeChainId);
+          const supportedSymbols = chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
+          result = registryTokens
+            .filter(t => supportedSymbols.includes(t.symbol.toUpperCase()))
+            .map(t => ({
+              id: `bridge-${activeChainId}-${t.symbol}`,
+              symbol: t.symbol,
+              name: t.name,
+              image: t.logoURI,
+              chainId: activeChainId,
+              address: t.address,
+              decimals: t.decimals,
+              isNative: t.isNative,
+              balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+            }));
+        } else {
+          result = registryTokens.map(t => ({
+            id: `bridge-${activeChainId}-${t.symbol}`,
+            symbol: t.symbol,
+            name: t.name,
+            image: t.logoURI,
+            chainId: activeChainId,
+            address: t.address,
+            decimals: t.decimals,
+            isNative: t.isNative,
+            balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+          }));
+        }
+      }
     }
 
-    // Filter by network tab
     if (selectedNetwork !== 'all') {
-      result = result.filter(asset => {
-        if (selectedNetwork === 'stellar') return asset.chainType === 'stellar';
-        return asset.chainId === selectedNetwork;
-      });
+      result = result.filter(a => a.chainId === Number(selectedNetwork) || (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar'));
     }
 
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(asset =>
-        asset.symbol.toLowerCase().includes(query) ||
-        asset.name?.toLowerCase().includes(query)
-      );
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter(a => a.symbol.toLowerCase().includes(q) || a.name?.toLowerCase().includes(q));
     }
 
-    // Filter by action type (SEND: balance > 0)
-    if (actionType === 'SEND') {
-      result = result.filter(asset => (asset.balance || 0) > 0);
+    return result.sort((a, b) => {
+      if (a.isNative && !b.isNative) return -1;
+      if (!a.isNative && b.isNative) return 1;
+      return a.symbol.toLowerCase().localeCompare(b.symbol.toLowerCase());
+    });
+  }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType]);
+
+  const handleSelect = useCallback((asset: any) => {
+    if (onSelect) {
+      onSelect(asset);
+      closeAssetSelector();
+      if (actionType === 'SEND' || actionType === 'RECEIVE') {
+        const path = actionType === 'SEND' ? '/send' : '/receive';
+        const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId;
+        navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
+      }
+      return;
     }
-
-    return result;
-  }, [assets, selectedNetwork, searchQuery, actionType, currentNetwork]);
-
-  const handleSelect = (asset: any) => {
-    const chainId = asset.chainType === 'stellar' ? 'stellar' : asset.chainId;
-    const path = actionType === 'SEND' ? '/send' : '/receive';
-    navigate(`${path}?asset=${asset.symbol}&chainId=${chainId}`);
+    const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId;
+    const path = actionType === 'SEND' ? '/send' : actionType === 'RECEIVE' ? '/receive' : actionType === 'BRIDGE' ? '/bridge' : '/swap';
+    navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
     closeAssetSelector();
-  };
+  }, [actionType, navigate, closeAssetSelector, onSelect]);
+
+  const handleCopyAddress = useCallback((e: React.MouseEvent, asset: any) => {
+    e.stopPropagation();
+    if (!asset.address) return;
+    navigator.clipboard.writeText(asset.address);
+    setCopiedId(asset.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }, []);
+
+  const AssetRow = useCallback(({ index, style }: any) => {
+    const asset = filteredAssets[index];
+    const chainConfig = getChainById(asset.chainId || 0);
+    const showBalance = actionType === 'SEND';
+
+    return (
+      <div style={{ ...style, padding: '0 16px' }}>
+        <button
+          onClick={() => handleSelect(asset)}
+          className="group flex w-full items-center justify-between px-3 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left"
+        >
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="relative flex-shrink-0">
+              <img src={asset.image || asset.logoURI} alt="" className="w-10 h-10 rounded-full bg-bg-tertiary object-cover" />
+              {chainConfig?.logoURI && (
+                <img src={chainConfig.logoURI} alt="" className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-bg-secondary" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-bold text-text-primary">{asset.symbol}</span>
+                {asset.isNative ? (
+                  <span className="text-[10px] bg-primary text-brand-primary px-1.5 py-1 rounded-md font-black uppercase">Native</span>
+                ) : (
+                  <span className="text-[10px] bg-bg-tertiary text-text-secondary px-1.5 py-0.5 rounded-md font-bold uppercase overflow-hidden text-ellipsis whitespace-nowrap max-w-[80px]">
+                    {asset.address?.slice(0, 6)}...{asset.address?.slice(-4)}
+                  </span>
+                )}
+                {asset.address && !asset.isNative && (
+                  <button
+                    onClick={(e) => handleCopyAddress(e, asset)}
+                    className="p-1 hover:bg-bg-tertiary rounded-md text-text-muted transition-colors"
+                  >
+                    {copiedId === asset.id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-text-secondary truncate">{asset.name || asset.symbol}</div>
+            </div>
+          </div>
+          {showBalance && (
+            <div className="text-right ml-4">
+              <div className="text-[14px] font-bold text-text-primary">
+                {portfolioUtils.formatBalance(asset.balance || 0)}
+              </div>
+            </div>
+          )}
+        </button>
+      </div>
+    );
+  }, [filteredAssets, handleSelect, actionType, copiedId, handleCopyAddress]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-      {/* Backdrop for closing */}
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 backdrop-blur-sm">
       <div className="absolute inset-0" onClick={closeAssetSelector} />
+      <div className="relative w-full max-w-lg bg-bg-secondary rounded-t-[28px] shadow-2xl flex flex-col h-[75vh] border border-divider border-b-0 animate-slide-up">
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-9 h-1 rounded-full bg-bg-tertiary" />
+        </div>
 
-      <div className="relative w-full max-w-lg bg-secondary sm:rounded-2xl rounded-t-3xl shadow-premium overflow-hidden animate-slide-up flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-color flex items-center justify-between">
-          <h2 className="heading-4">{actionType === 'SEND' ? 'Send Asset' : 'Receive Asset'}</h2>
+        <div className="px-5 pt-3 pb-3 flex items-center justify-between">
+          <h2 className="text-base font-bold text-text-primary uppercase tracking-widest">
+            {effectiveActionType}
+          </h2>
           <button
             onClick={closeAssetSelector}
-            className="p-2 hover:bg-hover rounded-full transition-colors"
+            className="w-9 h-9 flex items-center justify-center bg-bg-tertiary rounded-full text-text-secondary hover:text-text-primary transition-colors"
           >
-            <X size={20} className="text-muted" />
+            <X size={18} />
           </button>
         </div>
 
         {/* Search */}
-        <div className="px-6 py-4">
+        <div className="px-5 pb-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={18} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
             <input
               type="text"
-              placeholder="Search by name or symbol"
-              className="input pl-10"
+              placeholder="Search tokens"
+              className="w-full bg-bg-primary border-none pl-11 pr-4 py-2.5 rounded-xl text-sm focus:ring-1 focus:ring-brand-primary/20 transition-all"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              autoFocus
+              onChange={e => setSearchQuery(e.target.value)}
             />
           </div>
         </div>
-
-        {/* Network Tabs */}
-        <div className="px-6 pb-2 overflow-x-auto hide-scrollbar flex gap-2">
-          {networks.map(net => (
+        <div className="pb-3 flex items-center border-b border-divider">
+          <div className="pl-5 pr-3 flex-shrink-0">
             <button
-              key={net.id}
-              onClick={() => setSelectedNetwork(net.id)}
-              title={net.name}
-              className={`flex-shrink-0 rounded-full text-sm font-medium transition-all ${selectedNetwork === net.id
-                  ? 'bg-brand-primary text-white shadow-md'
-                  : 'bg-primary text-secondary hover:bg-hover'
-                } ${net.id === 'all' ? 'px-4 py-2' : 'p-2'}`}
+              onClick={() => setSelectedNetwork(allNetworkOption.id)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all"
+              style={
+                selectedNetwork === 'all'
+                  ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                  : undefined
+              }
             >
-              <div className="flex items-center justify-center min-w-[20px] min-h-[20px]">
-                {net.id === 'all' ? (
-                  <span>All</span>
-                ) : net.logo ? (
-                  <img src={net.logo} alt={net.name} className="w-5 h-5 rounded-full" />
-                ) : (
-                  <span className="px-2">{net.name.slice(0, 3)}</span>
-                )}
-              </div>
+              All
             </button>
-          ))}
+          </div>
+
+          <div className="w-px self-stretch bg-divider flex-shrink-0 my-1" />
+          <div
+            className="flex gap-2 px-3 flex-1 hide-scrollbar"
+            style={{ overflowX: 'auto', minWidth: 0 }}
+          >
+            {chainNetworks.map(net => (
+              <button
+                key={net.id}
+                onClick={() => setSelectedNetwork(net.id)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0"
+                style={
+                  selectedNetwork === net.id
+                    ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                    : undefined
+                }
+              >
+                {net.logo && <img src={net.logo} alt="" className="w-4 h-4 rounded-full" />}
+                {net.name}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Asset List */}
-        <div className="flex-1 overflow-y-auto px-2 py-2 min-h-[300px]">
-          {loading ? (
-            <div className="flex flex-col gap-2 p-4">
-              {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="h-16 bg-primary animate-pulse rounded-xl" />
-              ))}
-            </div>
-          ) : filteredAssets.length > 0 ? (
-            <div className="flex flex-col">
-              {filteredAssets.map(asset => (
-                <button
-                  key={`${asset.symbol}-${asset.chainId}`}
-                  onClick={() => handleSelect(asset)}
-                  className="flex items-center justify-between p-4 hover:bg-hover rounded-xl transition-colors text-left"
+        <div className="flex-1 overflow-hidden">
+          {filteredAssets.length > 0 ? (
+            <AutoSizer
+              renderProp={({ height, width }) => (
+                <FixedSizeList
+                  height={height || 0}
+                  itemCount={filteredAssets.length}
+                  itemSize={ROW_HEIGHT}
+                  width={width || 0}
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="relative">
-                      <img src={asset.image} alt={asset.symbol} className="w-10 h-10 rounded-full" />
-                      <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center border border-color">
-                        <img
-                          src={asset.chainType === 'stellar' ? networks.find(n => n.id === 'stellar')?.logo : networks.find(n => n.id === asset.chainId)?.logo}
-                          alt=""
-                          className="w-3.5 h-3.5 rounded-full"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="font-bold text-primary">{asset.symbol}</div>
-                      <div className="text-xs text-muted">{asset.name || asset.symbol}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <div className="font-semibold text-primary">
-                        {(asset.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                      </div>
-                      {asset.current_price > 0 && (asset.balance || 0) > 0 && (
-                        <div className="text-xs text-muted">
-                          ${((asset.balance || 0) * asset.current_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                      )}
-                    </div>
-                    <ChevronRight size={18} className="text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                </button>
-              ))}
-            </div>
+                  {AssetRow}
+                </FixedSizeList>
+              )}
+            />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full py-12 text-muted">
-              <p>No assets found</p>
+            <div className="flex flex-col items-center justify-center h-full text-center px-10">
+              <div className="w-16 h-16 bg-bg-tertiary rounded-full flex items-center justify-center mb-4">
+                <SearchX size={32} className="text-text-muted opacity-25" />
+              </div>
+              <h3 className="text-base font-bold text-text-primary mb-1">No assets found</h3>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                {searchQuery
+                  ? `No results for "${searchQuery}" on this network.`
+                  : 'No assets available on this network.'}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="mt-6 text-brand-primary font-bold text-xs uppercase tracking-widest hover:underline"
+                >
+                  Clear search
+                </button>
+              )}
             </div>
           )}
         </div>

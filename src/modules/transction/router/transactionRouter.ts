@@ -386,7 +386,7 @@ class TransactionRouter {
         typeof request.networkKey === 'string'
           ? request.networkKey
           : String(session.chainId) || 'pubnet';
-      const chainCAIP = `${stellarChainId}`;
+      const chainCAIP = stellarChainId.includes(':') ? stellarChainId : `stellar:${stellarChainId}`;
 
       console.log('Using Stellar chain:', chainCAIP);
 

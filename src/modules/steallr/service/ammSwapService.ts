@@ -1,70 +1,14 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
-
+import { StellarBaseService } from './StellarBaseService';
 import type {
   LiquidityPool,
   SwapOptions,
   SwapPath,
   SwapQuote,
-  TokenInfo,
 } from '../types/ammSwap.types';
 import { signAndSubmitTransaction } from '../utils/transactionService';
 
-export class AmmSwapService {
-  private server: StellarSDK.Horizon.Server;
-  private networkPassphrase: string;
-  private networkKey: string;
-
-  constructor(horizonUrl: string, networkPassphrase: string, networkKey: string) {
-    console.log('AMM Swap Service Init:', { horizonUrl, networkPassphrase, networkKey });
-    const serverOptions: any = {};
-    if (horizonUrl.startsWith('http://')) {
-      serverOptions.allowHttp = true;
-    }
-
-    this.server = new StellarSDK.Horizon.Server(horizonUrl, serverOptions);
-    this.networkPassphrase = networkPassphrase;
-    this.networkKey = networkKey;
-  }
-
-  async getTokenBalances(address: string): Promise<TokenInfo[]> {
-    if (!StellarSDK.StrKey.isValidEd25519PublicKey(address)) {
-      throw new Error('Invalid Stellar address');
-    }
-
-    try {
-      const account = await this.server.loadAccount(address);
-      const tokens: TokenInfo[] = [];
-
-      for (const balance of account.balances) {
-        if (balance.asset_type === 'native') {
-          tokens.push({
-            asset: StellarSDK.Asset.native(),
-            code: 'XLM',
-            balance: balance.balance,
-            isPopular: true,
-          });
-        } else if (
-          balance.asset_type === 'credit_alphanum4' ||
-          balance.asset_type === 'credit_alphanum12'
-        ) {
-          const asset = new StellarSDK.Asset(balance.asset_code, balance.asset_issuer);
-          tokens.push({
-            asset,
-            code: balance.asset_code,
-            issuer: balance.asset_issuer,
-            balance: balance.balance,
-            isPopular: false,
-          });
-        }
-      }
-
-      return tokens;
-    } catch (error) {
-      console.error('Failed to fetch token balances:', error);
-      throw new Error('Failed to load account balances');
-    }
-  }
-
+export class AmmSwapService extends StellarBaseService {
   async findLiquidityPools(
     assetA: StellarSDK.Asset,
     assetB?: StellarSDK.Asset
@@ -262,10 +206,13 @@ export class AmmSwapService {
 
     try {
       const sourceAccount = await this.server.loadAccount(fromAddress);
+
       const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
         fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
+
+      this.ensureTrustline(txBuilder, sourceAccount, quote.toAsset);
 
       let path: StellarSDK.Asset[] = [];
       if (quote.path.hops > 1) {
@@ -311,7 +258,6 @@ export class AmmSwapService {
     }
   }
 
-
   async executeSwapWithWalletConnect(transaction: any, walletProvider: any): Promise<string> {
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
     const network = isMainnet ? 'mainnet' : 'testnet';
@@ -328,12 +274,6 @@ export class AmmSwapService {
     }
 
     throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
-  }
-
-  private assetsEqual(a: StellarSDK.Asset, b: StellarSDK.Asset): boolean {
-    if (a.isNative() && b.isNative()) return true;
-    if (a.isNative() || b.isNative()) return false;
-    return a.code === b.code && a.issuer === b.issuer;
   }
 
   async checkLiquidityAvailable(
@@ -357,28 +297,5 @@ export class AmmSwapService {
       console.error('Failed to check liquidity availability:', error);
       return false;
     }
-  }
-
-  getPopularAssets(): StellarSDK.Asset[] {
-    const popular = [StellarSDK.Asset.native()];
-    const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-
-    if (isMainnet) {
-      popular.push(
-        new StellarSDK.Asset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'),
-        new StellarSDK.Asset('AQUA', 'GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA'),
-        new StellarSDK.Asset('yXLM', 'GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55')
-      );
-    } else {
-      popular.push(
-        new StellarSDK.Asset('USDC', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('USDT', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('BTC', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('ETH', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'),
-        new StellarSDK.Asset('AQUA', 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER')
-      );
-    }
-
-    return popular;
   }
 }

@@ -59,7 +59,7 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
     const { getBalance, transfer, isTransferring, transferError, clearTransferError, childSubaccounts } = useSubaccounts();
 
     const crossFreeCollateral = parseFloat(balance?.freeCollateral ?? '0');
-    const crossMarginUsage = 0; // Provide default fallback
+    const crossMarginUsage = 0;
 
     const isolatedBalance = getBalance(subaccountNumber);
     const isolatedEquity = parseFloat(isolatedBalance?.equity ?? '0');
@@ -73,21 +73,20 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
             positions as Position[],
             marketCache
         );
-        
+
         return [
             {
                 value: 0,
                 label: 'Cross Account',
                 available: crossFreeCollateral,
-                equity: parseFloat(balance?.equity ?? '0')
+                equity: parseFloat(balance?.crossEquity ?? '0')
             },
             ...sources
         ].filter((s: { value: number; label: string; available: number; equity: number }) => s.available > 0 || s.value === 0);
-    }, [subaccountNumber, childSubaccounts, positions, marketCache, crossFreeCollateral, balance?.equity]);
+    }, [subaccountNumber, childSubaccounts, positions, marketCache, crossFreeCollateral, balance?.crossEquity]);
 
     useEffect(() => {
         if (isOpen && activeTab === 'add' && eligibleSources.length > 0) {
-            // Default to Cross Account if available, else first isolated
             const crossSource = eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === 0);
             setSelectedSource(crossSource ? 0 : eligibleSources[0].value);
         }
@@ -102,7 +101,6 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
             clearTransferError();
             setTimeout(() => inputRef.current?.focus(), 100);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     useEffect(() => {
@@ -112,10 +110,14 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
         }
     }, [transferError]);
 
-    const available = activeTab === 'add' 
-        ? (eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === selectedSource)?.available ?? 0)
+    const selectedSourceData = useMemo(() =>
+        eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === selectedSource)
+        , [eligibleSources, selectedSource]);
+
+    const available = activeTab === 'add'
+        ? (selectedSourceData?.available ?? 0)
         : isolatedEquity;
-        
+
     const amountError = amount ? validateAmount(amount, available, activeTab, isolatedEquity) : null;
     const loading = modalState === 'loading' || isTransferring;
     const numericAmount = parseFloat(amount) || 0;
@@ -173,7 +175,7 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
 
     if (!isOpen || !isIsolated) return null;
 
-    const positionMargin = (parseFloat(position.size) * parseFloat(position.entryPrice)) / (parseFloat(position.leverage || '1'));
+    const positionMargin = isolatedEquity;
     const positionLeverage = position.leverage || '0.00';
     const liquidationPrice = position.liquidationPrice ? parseFloat(position.liquidationPrice) : 0;
 
@@ -296,9 +298,9 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
 
                     <div className="flex justify-between items-center px-1 text-[11px] text-[#8b94a5]">
                         <span>Available to transfer: ${available.toFixed(2)}</span>
-                        {activeTab === 'add' && selectedSource !== 0 && (
+                        {activeTab === 'add' && selectedSource !== 0 && selectedSourceData && (
                             <span>Minimum retained in source: ${(
-                                (eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === selectedSource)?.equity ?? 0) - available
+                                selectedSourceData.equity - available
                             ).toFixed(2)}</span>
                         )}
                     </div>
@@ -310,12 +312,12 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                         </div>
                     )}
 
-                    {activeTab === 'add' && selectedSource !== 0 ? (
+                    {activeTab === 'add' && selectedSource !== 0 && selectedSourceData ? (
                         <div className="space-y-2 py-1">
                             <div className="flex justify-between items-center text-[13px]">
                                 <span className="text-[#8b94a5]">Source Bal. after transfer</span>
                                 <span className="text-white font-medium">
-                                    ${Math.max(0, (eligibleSources.find((s: { value: number; label: string; available: number; equity: number }) => s.value === selectedSource)?.equity ?? 0) - numericAmount).toFixed(2)}
+                                    ${Math.max(0, selectedSourceData.equity - numericAmount).toFixed(2)}
                                 </span>
                             </div>
                             <div className="flex justify-between items-center text-[13px]">

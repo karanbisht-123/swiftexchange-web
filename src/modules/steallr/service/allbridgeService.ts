@@ -9,7 +9,7 @@ import {
 const SOROBAN_RPC = 'https://rpc.ankr.com/stellar_soroban';
 
 export const STELLAR_NETWORK_PASSPHRASE: Record<'mainnet' | 'testnet', string> = {
-  mainnet: 'Public Global Stellar Network ; September 2015',
+  mainnet: 'Public Global Stellar Network ; October 2015',
   testnet: 'Test SDF Network ; September 2015',
 };
 
@@ -171,6 +171,7 @@ export interface QuoteRequest {
   sourceToken: any;
   destinationToken: any;
   messenger?: Messenger;
+  slippageTolerance?: number;
 }
 
 export interface QuoteResult {
@@ -201,12 +202,19 @@ export const getBridgeQuote = async ({
   });
 
   const sdk = getAllbridgeSdk();
+  console.log('[Allbridge] SDK instance ready for quote');
 
   const transferTimeMs = getTransferTimeMs(sourceToken, destinationToken, messenger);
+  console.log('[Allbridge] Transfer time calculated:', transferTimeMs);
 
+  console.log('[Allbridge] Calling sdk.getAmountToBeReceived and getFeeOptions...');
   const [amountToBeReceived, feeOptions] = await Promise.all([
-    sdk.getAmountToBeReceived(amount, sourceToken, destinationToken),
-    getFeeOptions(sourceToken, destinationToken, messenger),
+    sdk.getAmountToBeReceived(amount, sourceToken, destinationToken)
+      .then(res => { console.log('[Allbridge] sdk.getAmountToBeReceived success:', res); return res; })
+      .catch(err => { console.error('[Allbridge] sdk.getAmountToBeReceived failed:', err); throw err; }),
+    getFeeOptions(sourceToken, destinationToken, messenger)
+      .then(res => { console.log('[Allbridge] getFeeOptions success:', res); return res; })
+      .catch(err => { console.error('[Allbridge] getFeeOptions failed:', err); throw err; }),
   ]);
 
   const inputNum = parseFloat(amount);
@@ -243,6 +251,7 @@ export interface PrepareTransferRequest {
   toAccountAddress: string;
   messenger?: Messenger;
   feePaymentMethod?: FeePaymentMethod;
+  slippageTolerance?: number;
 }
 
 export const prepareStellarToEvmRawTransaction = async ({
@@ -282,7 +291,6 @@ export const prepareStellarToEvmRawTransaction = async ({
   console.log('[Allbridge] Raw XDR built successfully', {
     xdrLength: typeof rawTx === 'string' ? rawTx.length : 'N/A',
     xdrPreview: typeof rawTx === 'string' ? `${rawTx.slice(0, 60)}…` : rawTx,
-    broadcastTarget: `${HORIZON_URLS.mainnet}/transactions  (or testnet equivalent)`,
     signingMethod: 'stellar_signAndSubmitXDR via wallet provider',
   });
 

@@ -153,11 +153,15 @@ export const calculateIsolatedLiquidationPrice = (
   maintenanceMarginFraction: number,
   side: 'BUY' | 'SELL'
 ): number => {
+  // p' = (e_0 - s * p_0) / (s * (MMF - 1))  for Buy
+  // p' = (e_0 + s * p_0) / (s * (1 + MMF))  for Sell
   const s = side === 'BUY' ? size : -size;
-  const numerator = equity - s * price;
-  const denominator = Math.abs(s) * maintenanceMarginFraction - s;
-  if (denominator === 0) return 0;
-  return Math.max(0, numerator / denominator);
+  const denominator = s * (maintenanceMarginFraction - (side === 'BUY' ? 1 : -1));
+
+  if (Math.abs(denominator) < 1e-12) return 0;
+
+  const liqPrice = (equity - s * price) / denominator;
+  return Math.max(0, liqPrice);
 };
 
 /**
@@ -186,10 +190,12 @@ export const calculateCrossLiquidationPrice = (
   side: 'BUY' | 'SELL'
 ): number => {
   const s = side === 'BUY' ? size : -size;
-  const numerator = equity - s * price - otherPositionsMMR;
-  const denominator = Math.abs(s) * maintenanceMarginFraction - s;
-  if (denominator === 0) return 0;
-  return Math.max(0, numerator / denominator);
+  const denominator = s * (maintenanceMarginFraction - (side === 'BUY' ? 1 : -1));
+
+  if (Math.abs(denominator) < 1e-12) return 0;
+
+  const liqPrice = (equity - s * price - otherPositionsMMR) / denominator;
+  return Math.max(0, liqPrice);
 };
 
 /**

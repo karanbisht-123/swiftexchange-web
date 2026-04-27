@@ -29,6 +29,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [transaction, setTransaction] = useState<LargeOrderTransaction | null>(null);
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
   const [orderBook, setOrderBook] = useState<any>(null);
+  const [subentryCount, setSubentryCount] = useState<number>(0);
 
   const network = useWalletStore(state => state.network);
   const currentStellarConfig = getStellarConfig(network);
@@ -59,7 +60,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
     setIsLoading(true);
     try {
-      const balances = await service.getTokenBalances(userAddress);
+      const { tokens: balances, subentryCount: count } = await service.getAssetsWithBalances(userAddress);
       if (!mountedRef.current) return;
 
       if (balances.length === 0) {
@@ -74,7 +75,11 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
           const firstNonXlm = balances.find(t => t.code !== 'XLM');
           return isBuy ? firstNonXlm || balances[0] : xlm || balances[0];
         }
-        return balances.find(t => t.code === prev.code && t.issuer === prev.issuer) || prev;
+        const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+        if (!existing) return prev;
+        // Optimization: only update if balance changed
+        if (existing.balance === prev.balance) return prev;
+        return existing;
       });
       setToToken(prev => {
         if (!prev) {
@@ -82,8 +87,13 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
           const firstNonXlm = balances.find(t => t.code !== 'XLM');
           return isBuy ? xlm || balances[1] || balances[0] : firstNonXlm || balances[1] || balances[0];
         }
-        return balances.find(t => t.code === prev.code && t.issuer === prev.issuer) || prev;
+        const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+        if (!existing) return prev;
+        // Optimization: only update if balance changed
+        if (existing.balance === prev.balance) return prev;
+        return existing;
       });
+      setSubentryCount(count);
 
       setError(null);
     } catch (err) {
@@ -157,7 +167,14 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         closeStream();
       }
     };
-  }, [fromToken, toToken, isBuy, service]);
+  }, [
+    fromToken?.code,
+    fromToken?.issuer,
+    toToken?.code,
+    toToken?.issuer,
+    isBuy,
+    service
+  ]);
 
   // Calculate quote
   useEffect(() => {
@@ -198,7 +215,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
       }
 
       const balance = parseFloat(fromToken.balance);
-      const reserve = fromToken.code === 'XLM' ? 2 : 0;
+      const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
       const availableBalance = Math.max(0, balance - reserve);
       const newAmount = ((availableBalance * percentage) / 100).toFixed(7);
       setAmount(newAmount);
@@ -213,10 +230,10 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
 
     const balance = parseFloat(fromToken.balance);
-    const reserve = fromToken.code === 'XLM' ? 2 : 0;
+    const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
     const maxAmount = Math.max(0, balance - reserve);
     setAmount(maxAmount.toFixed(7));
-  }, [fromToken]);
+  }, [fromToken, subentryCount]);
 
   const toggleOrderType = useCallback(() => {
     setIsBuyState(prev => !prev);
@@ -342,6 +359,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     error,
     slippageTolerance,
     availableTokens,
+    subentryCount,
     orderBook,
     setIsBuy: toggleOrderType,
     setFromToken,

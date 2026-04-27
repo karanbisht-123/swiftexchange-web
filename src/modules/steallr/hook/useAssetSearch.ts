@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 
 import { Horizon } from '@stellar/stellar-sdk';
 
-import { KNOWN_ASSETS } from '../constants/stellarAssets';
+import { getAssetBySymbol, getChainById } from '../../evm/utils/Chainregistry';
+import * as ChainUrlHelpers from '../../evm/utils/ChainUrlHelpers';
 
 interface DisplayAsset {
   code: string;
@@ -73,8 +74,8 @@ export const useAssetSearch = ({
             type: r.asset_type,
             balance: '0.0000000',
             isTrusted: false,
-            name: KNOWN_ASSETS[r.asset_code]?.name || r.asset_code,
-            iconUrl: KNOWN_ASSETS[r.asset_code]?.iconUrl,
+            name: getAssetBySymbol(9000000, r.asset_code)?.name || r.asset_code,
+            iconUrl: ChainUrlHelpers.getTokenIcon(r.asset_code, getChainById(9000000), r.asset_issuer),
           }))
           .filter(
             (g: DisplayAsset) =>

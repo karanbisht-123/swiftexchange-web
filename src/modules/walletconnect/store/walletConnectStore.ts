@@ -240,10 +240,14 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         };
       });
 
-      if (type === 'evm') {
-        usePortfolioStore.getState().clearAssetsByType('evm');
-      } else if (type === 'stellar') {
-        usePortfolioStore.getState().clearAssetsByType('stellar');
+      if (Object.keys(get().connectedWallets).length === 0) {
+        usePortfolioStore.getState().clearAssets();
+      } else {
+        if (type === 'evm') {
+          usePortfolioStore.getState().clearAssetsByType('evm');
+        } else if (type === 'stellar') {
+          usePortfolioStore.getState().clearAssetsByType('stellar');
+        }
       }
 
       listenerInitialized = false;

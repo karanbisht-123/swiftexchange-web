@@ -43,16 +43,8 @@ export interface LargeOrderTransaction {
   offerId?: number;
 }
 
-export interface TokenInfo {
-  asset: StellarSDK.Asset;
-  code: string;
-  issuer?: string;
-  name?: string;
-  icon?: string;
-  balance: string;
-  price?: number;
-  isPopular?: boolean;
-}
+import type { TokenInfo } from './stellar.types';
+export type { TokenInfo };
 
 export interface LargeOrderState {
   isBuy: boolean;

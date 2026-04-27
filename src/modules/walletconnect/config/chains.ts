@@ -1,8 +1,7 @@
 export interface EVMChainConfig {
   chainId: number;
   name: string;
-  rpcUrl: string;
-  fallbackRpcUrls?: string[];
+  rpcUrls: string[];
   nativeCurrency: {
     coingeckoId: any;
     logoURI: any;
@@ -41,16 +40,15 @@ export interface StellarChainConfig {
 export type NetworkType = 'mainnet' | 'testnet';
 
 
-import { getChainsForNetwork } from '../../evm/utils/Chainregistry';
+import { getEvmChainsForNetwork } from '../../evm/utils/Chainregistry';
 
 export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
-  const chains = getChainsForNetwork(network);
+  const chains = getEvmChainsForNetwork(network);
 
   return chains.map((c) => ({
     chainId: c.chainId,
     name: c.name,
-    rpcUrl: c.rpcUrl,
-    fallbackRpcUrls: c.fallbackRpcUrls,
+    rpcUrls: c.rpcUrls,
     nativeCurrency: {
       name: c.nativeCurrency.name,
       symbol: c.nativeCurrency.symbol,

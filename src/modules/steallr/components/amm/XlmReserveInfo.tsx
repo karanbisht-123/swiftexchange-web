@@ -1,5 +1,5 @@
 import { AlertCircle, HelpCircle, Info, Lock, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 interface XlmReserveInfoProps {
   xlmBalance: string;
@@ -162,17 +162,6 @@ export const XlmReserveButton = ({ xlmBalance, trustlineCount }: XlmReserveButto
       />
     </>
   );
-};
-
-export const useTrustlineCount = (availableTokens: any[]): number => {
-  const [trustlineCount, setTrustlineCount] = useState(0);
-
-  useEffect(() => {
-    const count = availableTokens.filter(token => token.code !== 'XLM').length;
-    setTrustlineCount(count);
-  }, [availableTokens]);
-
-  return trustlineCount;
 };
 
 export default XlmReserveInfoModal;

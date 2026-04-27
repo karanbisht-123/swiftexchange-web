@@ -1,6 +1,7 @@
 import { fromBech32, toBech32 } from '@cosmjs/encoding';
 import { createWalletClient, custom } from 'viem';
 import * as viemChains from 'viem/chains';
+import { getTokenAddress, getChainById } from '../../evm/utils/Chainregistry';
 
 export const DYDX_CHAIN_ID = 'dydx-mainnet-1';
 export const NOBLE_CHAIN_ID = 'noble-1';
@@ -10,16 +11,14 @@ export const DYDX_USDC_DENOM =
 
 export const NOBLE_USDC_DENOM = 'uusdc';
 
-export const USDC_EVM_CONTRACTS: Record<number, string> = {
-  1: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-  137: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
-  42161: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  10: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-};
-
-const ETH_EVM_DENOMS: Record<number, string> = {
-  1: 'ethereum-native',
+const SKIP_CHAIN_NAME_MAP: Record<number, string> = {
+  1: 'ethereum',
+  56: 'binance',
+  137: 'polygon',
+  10: 'optimism',
+  42161: 'arbitrum',
+  8453: 'base',
+  43114: 'avalanche',
 };
 
 export const SKIP_BRIDGES = ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as const;
@@ -61,21 +60,80 @@ export function makeNobleSignerFromDydx(dydxSigner: any) {
   };
 }
 
-export function getEvmSourceDenom(symbol: string, chainId: number): string {
-  switch (symbol.toUpperCase()) {
-    case 'ETH':
-      return ETH_EVM_DENOMS[chainId] ?? 'ethereum-native';
-    case 'USDC':
-    case 'USDT':
-      return USDC_EVM_CONTRACTS[chainId] ?? USDC_EVM_CONTRACTS[1];
-    default:
-      return USDC_EVM_CONTRACTS[chainId] ?? USDC_EVM_CONTRACTS[1];
+export function getEvmSourceDenom(
+  symbol: string,
+  chainId: number,
+  address?: string,
+  isNative?: boolean
+): string {
+
+
+  if (chainId === 9000000 || chainId === 9000001) {
+    if (isNative || symbol.toUpperCase() === 'XLM') {
+      return 'stellar-native';
+    }
+    if (address && address.startsWith('G')) {
+      return `stellar:${address}`;
+    }
+    const issuer = getTokenAddress(chainId, symbol as any);
+    if (issuer) return `stellar:${issuer}`;
+    return 'stellar-native';
   }
+
+  // EVM native coins
+  const lowerAddress = (address || "").toLowerCase();
+  const isZeroAddress = lowerAddress === '0x0000000000000000000000000000000000000000' || lowerAddress === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  
+  if (isNative || isZeroAddress) {
+    const skipName = SKIP_CHAIN_NAME_MAP[chainId] || getChainById(chainId)?.slug || 'native';
+    return skipName === 'native' ? 'native' : `${skipName}-native`;
+  }
+
+  if (lowerAddress.startsWith('0x')) {
+    return lowerAddress;
+  }
+
+  // Fallback to registry lookup by symbol
+  const registryAddress = getTokenAddress(chainId, symbol as any);
+  if (registryAddress && registryAddress.startsWith('0x')) {
+    return registryAddress.toLowerCase();
+  }
+
+  return (address || "").toLowerCase();
 }
 
-export function toAtomicAmount(amount: number, symbol: string): string {
-  const decimals = symbol.toUpperCase() === 'ETH' ? 18 : 6;
-  return Math.floor(amount * 10 ** decimals).toString();
+export function toAtomicAmount(amount: number, symbol: string, customDecimals?: number, chainId?: number): string {
+  if (!amount || isNaN(amount)) return '0';
+
+  let decimals: number;
+  if (customDecimals !== undefined) {
+    decimals = Number(customDecimals);
+  } else if (symbol.toUpperCase() === 'ETH') {
+    decimals = 18;
+  } else if (
+    chainId === 9000000 || chainId === 9000001
+  ) {
+    decimals = 7;
+  } else {
+    decimals = 6;
+  }
+
+  try {
+    const parts = amount.toString().split('.');
+    const integerPart = parts[0];
+    let fractionalPart = parts[1] || '';
+
+    if (fractionalPart.length > decimals) {
+      fractionalPart = fractionalPart.slice(0, decimals);
+    } else {
+      fractionalPart = fractionalPart.padEnd(decimals, '0');
+    }
+
+    const result = (integerPart + fractionalPart).replace(/^0+/, '');
+    return result || '0';
+  } catch (err) {
+    return Math.floor(amount * Math.pow(10, decimals)).toString();
+  }
 }
 
 export function formatBridgeDuration(seconds: number): string {

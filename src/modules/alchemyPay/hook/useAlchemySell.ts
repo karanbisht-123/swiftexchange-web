@@ -92,6 +92,9 @@ export const useAlchemySell = () => {
   const { country, isLoading: isLoadingCountry } = useUserCountry();
   const [hasAutoSelectedCountry, setHasAutoSelectedCountry] = useState(false);
 
+  const effectiveMin = selectedCryptoOption?.minSellAmount || MIN_AMOUNT_SELL;
+  const effectiveMax = selectedCryptoOption?.maxSellAmount || Number.MAX_SAFE_INTEGER;
+
   useEffect(() => {
     if (!hasAutoSelectedCountry && country && !isLoadingCountry) {
       const matchingOption = paymentOptions.find(option => option.country === country);
@@ -124,20 +127,10 @@ export const useAlchemySell = () => {
     if (parsedResponse.returnCode && ERROR_CODES[parsedResponse.returnCode]) {
       return ERROR_CODES[parsedResponse.returnCode];
     }
-
     if (parsedResponse.returnMsg) {
       return parsedResponse.returnMsg;
     }
-
     return fallback;
-  };
-
-  const getEffectiveMinCryptoAmount = () => {
-    return selectedCryptoOption?.minSellAmount || MIN_AMOUNT_SELL;
-  };
-
-  const getEffectiveMaxCryptoAmount = () => {
-    return selectedCryptoOption?.maxSellAmount || Number.MAX_SAFE_INTEGER;
   };
 
   useEffect(() => {
@@ -167,9 +160,6 @@ export const useAlchemySell = () => {
         setQuote(null);
         return;
       }
-
-      const effectiveMin = getEffectiveMinCryptoAmount();
-      const effectiveMax = getEffectiveMaxCryptoAmount();
 
       if (amount < effectiveMin) {
         setFiatAmount('0.0');
@@ -226,10 +216,12 @@ export const useAlchemySell = () => {
           ...parsedResponse.data,
           networkFee: parsedResponse.data.networkFee || '0',
         };
+
         const fiatValue = parseFloat(quoteData.fiatQuantity || '0');
+
         if (fiatValue < selectedPaymentOption.payMin) {
           throw new Error(
-            `The resulting fiat amount (${fiatValue} ${selectedPaymentOption.currency}) is below the minimum for this payment method (${selectedPaymentOption.payMin} ${selectedPaymentOption.currency}). Please increase the crypto amount.`
+            `The resulting fiat amount (${fiatValue} ${selectedPaymentOption.currency}) is below the minimum (${selectedPaymentOption.payMin}).`
           );
         }
 
@@ -247,7 +239,7 @@ export const useAlchemySell = () => {
 
     const debounceTimer = setTimeout(fetchQuote, 500);
     return () => clearTimeout(debounceTimer);
-  }, [cryptoAmount, selectedCryptoOption, selectedPaymentOption]);
+  }, [cryptoAmount, selectedCryptoOption, selectedPaymentOption, effectiveMin, effectiveMax]);
 
   const handleCreateOrder = async () => {
     if (paymentTab && !paymentTab.closed) {
@@ -267,9 +259,6 @@ export const useAlchemySell = () => {
       return;
     }
 
-    const effectiveMin = getEffectiveMinCryptoAmount();
-    const effectiveMax = getEffectiveMaxCryptoAmount();
-
     if (amount < effectiveMin) {
       setOrderError(ERROR_MESSAGES.MIN_AMOUNT(effectiveMin, selectedCryptoOption.crypto));
       return;
@@ -282,9 +271,7 @@ export const useAlchemySell = () => {
 
     const fiatValue = parseFloat(fiatAmount);
     if (fiatValue < selectedPaymentOption.payMin) {
-      setOrderError(
-        `The resulting fiat amount (${fiatValue} ${selectedPaymentOption.currency}) is below the minimum for this payment method (${selectedPaymentOption.payMin} ${selectedPaymentOption.currency}).`
-      );
+      setOrderError(`Fiat amount below minimum.`);
       return;
     }
 
@@ -313,11 +300,9 @@ export const useAlchemySell = () => {
       if (typeof response.success === 'string' && response.success.startsWith('http')) {
         setOrderUrl(response.success);
         const tab = window.open(response.success, '_blank');
-        if (tab) {
-          setPaymentTab(tab);
-        } else {
-          setOrderError(ERROR_MESSAGES.NO_TAB_OPEN);
-        }
+        if (tab) setPaymentTab(tab);
+        else setOrderError(ERROR_MESSAGES.NO_TAB_OPEN);
+
         setOrderSuccess(true);
         return;
       }
@@ -328,11 +313,7 @@ export const useAlchemySell = () => {
         throw new Error(getErrorMessage(parsedResponse));
       }
 
-      if (parsedResponse.data) {
-        setOrderSuccess(true);
-      } else {
-        throw new Error('Order creation completed but no confirmation received');
-      }
+      setOrderSuccess(true);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.ORDER_FAILED;
       setOrderError(errorMessage);
@@ -340,6 +321,7 @@ export const useAlchemySell = () => {
       setIsCreatingOrder(false);
     }
   };
+
 
   useEffect(() => {
     if (paymentTab) {
@@ -389,8 +371,8 @@ export const useAlchemySell = () => {
 
   const isFormValid = () => {
     const amount = parseFloat(cryptoAmount);
-    const effectiveMin = getEffectiveMinCryptoAmount();
-    const effectiveMax = getEffectiveMaxCryptoAmount();
+    const effectiveMin = selectedCryptoOption?.minSellAmount || MIN_AMOUNT_SELL;
+    const effectiveMax = selectedCryptoOption?.maxSellAmount || Number.MAX_SAFE_INTEGER;
     const fiatValue = parseFloat(fiatAmount);
 
     return (
@@ -405,6 +387,7 @@ export const useAlchemySell = () => {
       !quoteError
     );
   };
+
 
   return {
     cryptoAmount,
@@ -422,15 +405,15 @@ export const useAlchemySell = () => {
     orderSuccess,
     orderUrl,
     paymentTab,
-    cryptoOptions,
-    paymentOptions,
-    handleCreateOrder,
     handleCloseTab,
     handleRetryQuote,
     resetForm,
     isFormValid,
     setOrderError,
-    MIN_AMOUNT: getEffectiveMinCryptoAmount(),
+    cryptoOptions,
+    paymentOptions,
+    handleCreateOrder,
+    MIN_AMOUNT: effectiveMin,
     SUCCESS_MESSAGES,
     ERROR_MESSAGES,
   };

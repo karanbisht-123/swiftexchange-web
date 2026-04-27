@@ -1,6 +1,7 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
-
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
+import { getChainById } from '../../evm/utils/Chainregistry';
+import { getTokenIcon } from '../../evm/utils/ChainUrlHelpers';
 
 export function formatAssetName(asset: StellarSDK.Asset): string {
   if (asset.isNative()) {
@@ -165,11 +166,11 @@ export function formatTxHash(hash: string, length: number = 8): string {
 }
 
 export function getTokenIconUrl(asset: StellarSDK.Asset): string {
-  if (asset.isNative()) {
-    return 'https://stellar.org/assets/icons/stellar-xlm-logo.svg';
-  }
+  const chainId = 9000000;
+  const chain = getChainById(chainId);
+  if (!chain) return asset.isNative() ? 'https://stellar.org/assets/icons/stellar-xlm-logo.svg' : '';
 
-  return `https://stellar.expert/asset-icon/${assetToString(asset)}`;
+  return getTokenIcon(asset.isNative() ? 'XLM' : asset.code, chain, asset.isNative() ? undefined : asset.issuer);
 }
 
 export function createTokenInfo(

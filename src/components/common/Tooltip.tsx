@@ -19,8 +19,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
 
-  const updatePosition = () => {
+  const updatePosition = React.useCallback(() => {
     if (!isVisible || !triggerRef.current || !tooltipRef.current) return;
+
     const triggerRect = triggerRef.current.getBoundingClientRect();
     const tooltipRect = tooltipRef.current.getBoundingClientRect();
 
@@ -47,11 +48,39 @@ export const Tooltip: React.FC<TooltipProps> = ({
     }
 
     setCoords({ top: top + window.scrollY, left: left + window.scrollX });
-  };
+  }, [isVisible, position]);
 
   useLayoutEffect(() => {
     updatePosition();
-  }, [isVisible, position, content]);
+  }, [updatePosition, content]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const handleScroll = () => updatePosition();
+    const handleResize = () => updatePosition();
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node) &&
+        tooltipRef.current &&
+        !tooltipRef.current.contains(e.target as Node)
+      ) {
+        setIsVisible(false);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleResize);
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleResize);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isVisible, updatePosition]);
 
   useEffect(() => {
     if (!isVisible) return;

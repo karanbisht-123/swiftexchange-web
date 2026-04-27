@@ -11,7 +11,7 @@ const TRADING_CONSTRAINTS = {
   MIN_CONDITIONAL_ORDER_EQUITY: 20,
   MIN_TRADING_EQUITY: 1,
   MIN_ISOLATED_MARGIN_EQUITY: SUBACCOUNT_CONSTANTS.MIN_ISOLATED_EQUITY,
-  SAFETY_MARGIN_MULTIPLIER: 1.1,
+  SAFETY_MARGIN_MULTIPLIER: 1.02,
   PRECISION_TOLERANCE: 0.0000001,
 } as const;
 
@@ -144,10 +144,17 @@ function validateAccountBalance(
     );
   }
 
+  if (requiredMargin > freeCollateral * 0.9) {
+    return {
+      isValid: true,
+      warning: `Warning: This order uses >90% of available collateral. High leverage orders near the limit often fail the on-chain collateral check. Consider reducing size or leverage.`,
+    };
+  }
+
   if (requiredMargin > freeCollateral * 0.8) {
     return {
       isValid: true,
-      warning: 'Using >80% of free collateral. Consider reducing order size.',
+      warning: 'Using >80% of free collateral. Higher leverage increases the risk of on-chain rejection.',
     };
   }
 
@@ -262,6 +269,15 @@ export function getMaxBuyingPower(
   return calculateMaxOrderSize(freeCollateral, leverage, initialMarginFraction);
 }
 
+export function getSafeMaxBuyingPower(
+  balance: any | null,
+  marketData: MarketData | null,
+  leverage: number = 1
+): number {
+  const raw = getMaxBuyingPower(balance, marketData, leverage);
+  return raw / TRADING_CONSTRAINTS.SAFETY_MARGIN_MULTIPLIER;
+}
+
 function createError(message: string): OrderValidationResult {
   return {
     isValid: false,
@@ -291,7 +307,7 @@ export function validateIsolatedPosition(
     const difference = TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY - subaccountEquity;
     return createError(
       `Isolated positions require minimum $${TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY} equity. ` +
-        `Need $${difference.toFixed(2)} more. Transfer funds to this subaccount first.`
+      `Need $${difference.toFixed(2)} more. Transfer funds to this subaccount first.`
     );
   }
 
@@ -324,14 +340,13 @@ export function calculateLiquidationPrice(
   mmf: number,
   side: 'BUY' | 'SELL'
 ): number {
-  // Formula: p' = (e - s * p) / (|s| * MMF - s)
-  // s: signed size (positive for long, negative for short)
-  const signedSize = side === 'BUY' ? size : -size;
-  const numerator = equity - signedSize * price;
-  const denominator = Math.abs(signedSize) * mmf - signedSize;
+  // p' = (e_0 - s * p_0) / (s * (MMF - 1))  for Buy
+  // p' = (e_0 + s * p_0) / (s * (1 + MMF))  for Sell
+  const s = side === 'BUY' ? size : -size;
+  const denominator = s * (mmf - (side === 'BUY' ? 1 : -1));
 
-  if (denominator === 0) return 0;
+  if (Math.abs(denominator) < 1e-12) return 0;
 
-  const liqPrice = numerator / denominator;
+  const liqPrice = (equity - s * price) / denominator;
   return Math.max(0, liqPrice);
 }

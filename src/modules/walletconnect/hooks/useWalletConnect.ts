@@ -31,7 +31,7 @@ export const useWalletConnect = () => {
 
   useEffect(() => {
     restoreSessions();
-  }, [restoreSessions]);
+  }, []);
 
   const isAnyWalletConnected = useMemo(
     () => Object.keys(connectedWallets).length > 0,

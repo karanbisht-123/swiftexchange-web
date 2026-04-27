@@ -99,8 +99,11 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     let initialMarginRequired = notional / effectiveLeverage;
 
     if (marginMode === 'ISOLATED' && orderType !== 'MARKET') {
-      initialMarginRequired = Math.max(initialMarginRequired, 20);
+      initialMarginRequired = Math.max(initialMarginRequired, 20.1);
     }
+
+    // Apply 2% buffer to required collateral for isolation/safety
+    const requiredCollateral = initialMarginRequired * 1.02;
 
     const isMaker =
       orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
@@ -131,6 +134,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     return {
       expectedPrice: executionPrice,
       initialMarginRequired,
+      requiredCollateral,
       liquidationPrice,
       fee,
       feeRate,
@@ -154,7 +158,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
   useEffect(() => {
     const { setPendingMargin, clearPendingMargin } = useOrderPreviewStore.getState();
     if (calculations) {
-      setPendingMargin(calculations.initialMarginRequired);
+      setPendingMargin(calculations.requiredCollateral);
     } else {
       clearPendingMargin();
     }
@@ -192,7 +196,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
               />
               <Row
                 label={marginLabel}
-                value={`→ $${calculations.initialMarginRequired.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                value={`→ $${calculations.requiredCollateral.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                 tooltip={marginTooltip}
               />
               <Row

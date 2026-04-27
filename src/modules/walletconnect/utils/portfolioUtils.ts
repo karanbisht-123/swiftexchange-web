@@ -1,4 +1,5 @@
-import { type Asset } from '../hooks/useWalletAssets';
+import { formatMarketPrice, formatNumericWithCommas } from '../../dydx/utils/BigNumberUtils';
+import { type Asset } from '../store/portfolioStore';
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
@@ -10,38 +11,59 @@ export const portfolioUtils = {
     }, 0);
   },
 
-  async fetchPrices(
-    ids: string[]
-  ): Promise<Record<string, { usd: number; usd_24h_change: number }>> {
-    if (!ids.length) return {};
-    try {
-      const uniqueIds = Array.from(new Set(ids)).join(',');
-      const response = await fetch(
-        `${COINGECKO_BASE}/simple/price?ids=${uniqueIds}&vs_currencies=usd&include_24hr_change=true`
-      );
-      return response.ok ? await response.json() : {};
-    } catch (error) {
-      console.error('Price fetch error:', error);
-      return {};
-    }
+  formatBalance(value: number | string | null | undefined): string {
+    if (value === null || value === undefined) return '0';
+    return formatMarketPrice(value, '');
   },
 
-  async getAssetMetadata(symbol: string): Promise<{ id: string; name: string; image: string }> {
+  formatUSD(value: number | string | null | undefined): string {
+    if (value === null || value === undefined) return '$0.00';
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (num < 0.01 && num > 0) {
+      return formatMarketPrice(value, '$');
+    }
+    return formatNumericWithCommas(value, 2, '$');
+  },
+
+  async fetchBatchPrices(symbols: string[]): Promise<Record<string, { usd: number; usd_24h_change: number }>> {
+    const COMMON_TOKENS: Record<string, string> = {
+      XLM: 'stellar',
+      USDC: 'usd-coin',
+      USDT: 'tether',
+      BTC: 'bitcoin',
+      ETH: 'ethereum',
+      AQUA: 'aquarius',
+      YXLM: 'yxlm',
+      EURC: 'euro-coin',
+      DAI: 'dai',
+      WBTC: 'wrapped-bitcoin',
+      BSC: 'binancecoin',
+      MATIC: 'matic-network',
+      AVAX: 'avalanche-2',
+      TRX: 'tron'
+    };
+
+    const idsToFetch = Array.from(new Set(symbols.map(s => COMMON_TOKENS[s.toUpperCase()]))).filter(Boolean);
+
+    if (idsToFetch.length === 0) return {};
+
     try {
-      const response = await fetch(`${COINGECKO_BASE}/search?query=${symbol}`);
+      const response = await fetch(
+        `${COINGECKO_BASE}/simple/price?ids=${idsToFetch.join(',')}&vs_currencies=usd&include_24hr_change=true`
+      );
+      if (!response.ok) return {};
       const data = await response.json();
 
-      const match =
-        data.coins?.find((c: any) => c.symbol.toLowerCase() === symbol.toLowerCase()) ||
-        data.coins?.[0];
-
-      return {
-        id: match?.id || symbol.toLowerCase(),
-        name: match?.name || symbol,
-        image: match?.large || `https://ui-avatars.com/api/?name=${symbol}&background=random`,
-      };
+      const result: Record<string, { usd: number; usd_24h_change: number }> = {};
+      symbols.forEach(symbol => {
+        const id = COMMON_TOKENS[symbol.toUpperCase()];
+        if (id && data[id]) {
+          result[symbol.toUpperCase()] = data[id];
+        }
+      });
+      return result;
     } catch {
-      return { id: symbol.toLowerCase(), name: symbol, image: '' };
+      return {};
     }
-  },
+  }
 };

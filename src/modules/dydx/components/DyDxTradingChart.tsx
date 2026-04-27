@@ -84,8 +84,6 @@ export default function DyDxTradingChart() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  const [hasInitialData, setHasInitialData] = useState(false);
-  const [chartKey, setChartKey] = useState(0);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -95,7 +93,7 @@ export default function DyDxTradingChart() {
 
   const { selectedMarket } = useMarketStore();
 
-  const { candles, latestCandle, isLoading, error } = useRealtimeChart(
+  const { candles, latestCandle, isLoading, isFetchingMore, error, fetchMore } = useRealtimeChart(
     selectedMarket,
     timeframe,
     1000
@@ -103,19 +101,6 @@ export default function DyDxTradingChart() {
 
   const lastDatasetIdRef = useRef('');
   const lastBarTimeRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (candles.length > 0 && !hasInitialData) {
-      setHasInitialData(true);
-    }
-  }, [candles, hasInitialData]);
-
-  useEffect(() => {
-    setHasInitialData(false);
-    lastDatasetIdRef.current = '';
-    lastBarTimeRef.current = 0;
-  }, [selectedMarket, timeframe]);
-
 
   const getThemeColors = useCallback(() => {
     if (isDark) {
@@ -142,6 +127,11 @@ export default function DyDxTradingChart() {
     };
   }, [isDark]);
 
+  const isFetchingMoreRef = useRef(false);
+  useEffect(() => {
+    isFetchingMoreRef.current = isFetchingMore;
+  }, [isFetchingMore]);
+
   const candlesRef = useRef(candles);
   useEffect(() => {
     candlesRef.current = candles;
@@ -150,18 +140,15 @@ export default function DyDxTradingChart() {
 
 
   useEffect(() => {
-    if (!seriesRef.current) return;
-    if (candles.length === 0) {
-      seriesRef.current.setData([]);
-      if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
-      lastDatasetIdRef.current = '';
-      lastBarTimeRef.current = 0;
-      return;
-    }
+    const firstCandleTime = candles[0]?.startedAt || 'none';
+    const lastCandleTime = candles[candles.length - 1]?.startedAt || 'none';
+    const currentDatasetId = `${selectedMarket}-${timeframe}-${candles.length}-${firstCandleTime}-${lastCandleTime}`;
 
-    // NOT include chartType in the dataset ID to avoid race conditions
-    const currentDatasetId = `${selectedMarket}-${timeframe}`;
-    if (lastDatasetIdRef.current !== currentDatasetId) {
+    const currentCandleTicker = candles[0]?.ticker || '';
+
+    const isMatchingMarket = !currentCandleTicker || currentCandleTicker === selectedMarket || selectedMarket.startsWith(currentCandleTicker);
+
+    if (lastDatasetIdRef.current !== currentDatasetId && isMatchingMarket) {
       const colors = getThemeColors();
       const candleData = candles
         .map(c => ({
@@ -175,35 +162,45 @@ export default function DyDxTradingChart() {
         .filter(isValidCandle)
         .sort((a, b) => a.time - b.time);
 
-      if (candleData.length === 0) {
-        seriesRef.current.setData([]);
-        if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
-        return;
-      }
+      if (!seriesRef.current) return;
 
-      if (chartType === 'candlestick') {
-        seriesRef.current.setData(candleData);
-      } else {
-        seriesRef.current.setData(candleData.map(c => ({ time: c.time, value: c.close })));
-      }
+      try {
+        if (candleData.length === 0) {
+          seriesRef.current.setData([]);
+          if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
+          return;
+        }
 
-      // Track the latest bar time
-      if (candleData.length > 0) {
-        lastBarTimeRef.current = candleData[candleData.length - 1].time;
-      }
+        if (chartType === 'candlestick') {
+          seriesRef.current.setData(candleData);
+        } else {
+          seriesRef.current.setData(candleData.map(c => ({ time: c.time, value: c.close })));
+        }
 
-      if (showVolume && volumeSeriesRef.current) {
-        volumeSeriesRef.current.setData(
-          candleData.map(c => ({
-            time: c.time,
-            value: c.volume,
-            color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
-          }))
-        );
-      }
+        // Track the latest bar time
+        if (candleData.length > 0) {
+          lastBarTimeRef.current = candleData[candleData.length - 1].time;
+        }
 
-      chartRef.current?.timeScale().fitContent();
-      lastDatasetIdRef.current = currentDatasetId;
+        if (showVolume && volumeSeriesRef.current) {
+          volumeSeriesRef.current.setData(
+            candleData.map(c => ({
+              time: c.time,
+              value: c.volume,
+              color: c.close >= c.open ? colors.upColor + '40' : colors.downColor + '40',
+            }))
+          );
+        }
+
+        // ONLY fitContent on initial load (when length is small or the market just changed)
+        if (lastDatasetIdRef.current.split('-')[0] !== selectedMarket || candles.length <= 1000) {
+          chartRef.current?.timeScale().fitContent();
+        }
+
+        lastDatasetIdRef.current = currentDatasetId;
+      } catch (err) {
+        console.error('[Chart] Error setting data:', err);
+      }
     }
   }, [candles, selectedMarket, timeframe, chartType, showVolume, getThemeColors]);
 
@@ -283,6 +280,14 @@ export default function DyDxTradingChart() {
         mouseWheel: true,
         pinch: true,
       },
+    });
+    chart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (!range || isFetchingMoreRef.current) return;
+
+      const logicalRange = chart.timeScale().getVisibleLogicalRange();
+      if (logicalRange && logicalRange.from < 10) {
+        fetchMore();
+      }
     });
 
     chartRef.current = chart;
@@ -374,10 +379,14 @@ export default function DyDxTradingChart() {
 
       if (width > 0 && height > 0) {
         requestAnimationFrame(() => {
-          chartRef.current?.applyOptions({
-            width: Math.floor(width),
-            height: Math.floor(height),
-          });
+          try {
+            chartRef.current?.applyOptions({
+              width: Math.floor(width),
+              height: Math.floor(height),
+            });
+          } catch (e) {
+            // Safe ignore: Object is disposed during rapid unmount resize events
+          }
         });
       }
     });
@@ -388,7 +397,7 @@ export default function DyDxTradingChart() {
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     };
-  }, [chartKey]);
+  }, []);
 
   useEffect(() => {
     createChartInstance();
@@ -399,22 +408,8 @@ export default function DyDxTradingChart() {
         chartRef.current = null;
       }
     };
-  }, [createChartInstance, chartKey]);
+  }, [createChartInstance]);
 
-  useEffect(() => {
-    if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-      volumeSeriesRef.current = null;
-    }
-
-    const timeoutId = setTimeout(() => {
-      setChartKey(prev => prev + 1);
-    }, 100);
-
-    return () => clearTimeout(timeoutId);
-  }, [isFullscreen]);
 
   useEffect(() => {
     if (!latestCandle || !seriesRef.current || !chartRef.current) return;
@@ -599,75 +594,33 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-  // Loading overlay component - shown when changing timeframe
-  const LoadingOverlay = () => {
-    if (!isLoading || !hasInitialData) return null;
+  const HistoryLoadingOverlay = () => {
+    if (!isFetchingMore) return null;
 
     return (
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] z-20 flex items-center justify-center transition-opacity">
-        <div className="flex items-center gap-3 bg-secondary/90 px-4 py-2 rounded-lg border border-color">
-          <div className="w-5 h-5 border-2 border-brand/30 border-t-brand rounded-full animate-spin" />
-          <span className="text-sm text-gray-300">Loading...</span>
-        </div>
+      <div className={`absolute top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-secondary/90 px-4 py-2 rounded-full border border-color shadow-lg transition-all ${isFetchingMore ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+        <div className="w-4 h-4 border-2 border-brand/30 border-t-brand rounded-full animate-spin" />
+        <span className="text-xs text-gray-300 font-medium whitespace-nowrap">Loading history...</span>
       </div>
     );
   };
 
-  const InitialLoadingSpinner = () => {
-    if (!isLoading || hasInitialData) return null;
+  const MarketTransitionOverlay = () => {
+    if (!isLoading) return null;
 
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-secondary/80 backdrop-blur-md transition-all duration-300">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-brand/30 border-t-brand rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400 text-sm font-medium">Loading chart...</p>
-        </div>
-      </div>
-    );
-  };
-
-  const MobileFullscreenModal = () => {
-    if (!isFullscreen || !isMobile) return null;
-
-    return (
-      <div className="fixed inset-0 z-50 bg-primary flex flex-col animate-fade-in">
-        <div className="bg-secondary border-b border-color flex-shrink-0 safe-area-top">
-          <div className="flex items-center justify-between px-2 py-1">
-            <div className="flex items-center gap-0.5">
-              <ChartTypeDropdown />
-              <SettingsDropdown />
-            </div>
-
-            <button
-              onClick={toggleFullscreen}
-              className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            >
-              <X className="w-5 h-5 text-gray-400" />
-            </button>
+          <div className="relative w-16 h-16 mx-auto mb-6">
+            <div className="absolute inset-0 border-4 border-brand/10 rounded-full" />
+            <div className="absolute inset-0 border-4 border-t-brand rounded-full animate-spin" />
+            <div className="absolute inset-2 border-2 border-brand/5 rounded-full" />
+            <div className="absolute inset-2 border-2 border-b-brand/40 rounded-full animate-spin-reverse" />
           </div>
-        </div>
-
-        <div className="flex-1 bg-secondary relative overflow-hidden">
-          <TimeframeSelector />
-
-          <LoadingOverlay />
-
-          {error && (
-            <div className="absolute top-14 left-2 right-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg z-10">
-              <p className="text-xs text-red-400">{error}</p>
-            </div>
-          )}
-
-          {!hasInitialData && isLoading && (
-            <div className="absolute inset-0 z-20">
-              <InitialLoadingSpinner />
-            </div>
-          )}
-          <div
-            key={chartKey}
-            ref={chartContainerRef}
-            className={`absolute inset-0 w-full h-full ${!hasInitialData && isLoading ? 'opacity-0' : 'opacity-100'}`}
-          />
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-white tracking-tight">Loading Chart</h3>
+            <p className="text-gray-400 text-xs font-medium uppercase tracking-widest">{selectedMarket}</p>
+          </div>
         </div>
       </div>
     );
@@ -710,7 +663,7 @@ export default function DyDxTradingChart() {
       <div className="flex-1 bg-secondary relative overflow-hidden">
         <TimeframeSelector />
 
-        <LoadingOverlay />
+        <HistoryLoadingOverlay />
 
         {error && (
           <div className="absolute top-14 left-2 right-2 sm:mx-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg z-10 backdrop-blur-sm">
@@ -718,42 +671,53 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        {!hasInitialData && isLoading && (
-          <div className="absolute inset-0 z-20">
-            <InitialLoadingSpinner />
-          </div>
-        )}
+        <MarketTransitionOverlay />
+
         <div
-          key={chartKey}
           ref={chartContainerRef}
-          className={`absolute inset-0 w-full h-full ${!hasInitialData && isLoading ? 'opacity-0' : 'opacity-100'}`}
+          className="absolute inset-0 w-full h-full opacity-100 transition-opacity duration-300"
         />
       </div>
     </div>
   );
 
   const renderMobileChart = () => (
-    <div className="h-full bg-primary flex flex-col">
-      <div className="bg-secondary border-b border-color flex-shrink-0">
-        <div className="flex items-center justify-end px-2 py-1">
-          <div className="flex items-center gap-0.5">
-            <ChartTypeDropdown />
-            <SettingsDropdown />
-            <button
-              onClick={toggleFullscreen}
-              className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-              title="Expand Chart"
-            >
-              <Maximize2 className="w-4 h-4 text-gray-400" />
-            </button>
-          </div>
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50 animate-fade-in' : 'h-full'} bg-primary flex flex-col`}>
+      <div className={`bg-secondary border-b border-color flex-shrink-0 ${isFullscreen ? 'safe-area-top' : ''}`}>
+        <div className={`flex items-center px-2 py-1 ${isFullscreen ? 'justify-between' : 'justify-end'}`}>
+          {isFullscreen ? (
+            <>
+              <div className="flex items-center gap-0.5">
+                <ChartTypeDropdown />
+                <SettingsDropdown />
+              </div>
+              <button
+                onClick={toggleFullscreen}
+                className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </>
+          ) : (
+            <div className="flex items-center gap-0.5">
+              <ChartTypeDropdown />
+              <SettingsDropdown />
+              <button
+                onClick={toggleFullscreen}
+                className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                title="Expand Chart"
+              >
+                <Maximize2 className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]">
         <TimeframeSelector />
 
-        <LoadingOverlay />
+        <HistoryLoadingOverlay />
 
         {error && (
           <div className="absolute top-14 left-2 right-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg z-10">
@@ -761,23 +725,15 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        {!hasInitialData && isLoading && (
-          <div className="absolute inset-0 z-20">
-            <InitialLoadingSpinner />
-          </div>
-        )}
+        <MarketTransitionOverlay />
+
         <div
-          key={chartKey}
           ref={chartContainerRef}
-          className={`absolute inset-0 w-full h-full ${!hasInitialData && isLoading ? 'opacity-0' : 'opacity-100'}`}
+          className="absolute inset-0 w-full h-full opacity-100 transition-opacity duration-300"
         />
       </div>
     </div>
   );
-
-  if (isMobile && isFullscreen) {
-    return <MobileFullscreenModal />;
-  }
 
   return isMobile ? renderMobileChart() : renderDesktopChart();
 }

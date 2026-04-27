@@ -101,15 +101,27 @@ export const useDydxDeposit = () => {
       assetSymbol: string,
       amountHuman: number,
       evmChainId?: number,
-      goFast = false
+      goFast = false,
+      tokenAddress?: string,
+      isNative?: boolean,
+      decimals?: number
     ): Promise<DepositRoute | null> => {
+      // Stellar assets go through the CCTP panel, not Skip route
+      const chainId = evmChainId ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
+      if (chainId === 9000000 || chainId === 9000001) return null;
+
       setStep('routing');
       setError(null);
       try {
-        const chainId =
-          evmChainId ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
-
-        const raw = await skipApiService.getDepositRoute(assetSymbol, chainId, amountHuman, goFast);
+        const raw = await skipApiService.getDepositRoute(
+          assetSymbol,
+          chainId,
+          amountHuman,
+          goFast,
+          tokenAddress,
+          isNative,
+          decimals
+        );
 
         const result: DepositRoute = {
           estimatedTime: skipApiService.formatDuration(raw.estimatedDurationSeconds),
@@ -136,7 +148,10 @@ export const useDydxDeposit = () => {
       amountHuman: number,
       evmChainId?: number,
       goFast = false,
-      slippageTolerancePercent = '1'
+      slippageTolerancePercent = '1',
+      tokenAddress?: string,
+      isNative?: boolean,
+      decimals?: number
     ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
       setError(null);
       setErrorRetryable(true);
@@ -159,10 +174,20 @@ export const useDydxDeposit = () => {
 
         const chainId = evmChainId ?? Number(evmWallet?.chainId ?? 1);
 
+        // Stellar assets are handled by the CCTP panel — never send them through Skip
+        if (chainId === 9000000 || chainId === 9000001) {
+          throw new Error('Stellar deposits must use the CCTP bridge panel.');
+        }
+
         setStep('routing');
 
-        const sourceDenom = skipApiService.getSourceDenomForAsset(assetSymbol, chainId);
-        const amountIn = skipApiService.toAmountIn(amountHuman, assetSymbol);
+        const sourceDenom = skipApiService.getSourceDenomForAsset(
+          assetSymbol,
+          chainId,
+          tokenAddress,
+          isNative
+        );
+        const amountIn = skipApiService.toAmountIn(amountHuman, assetSymbol, decimals, chainId);
 
         const rawRoute = await fetchSkipRoute({
           sourceAssetDenom: sourceDenom,
@@ -171,9 +196,10 @@ export const useDydxDeposit = () => {
           destAssetChainId: DYDX_CHAIN_ID,
           amountIn,
           cumulativeAffiliateFeeBps: '0',
-          allowUnsafe: false,
+          allowUnsafe: true,
           smartRelay: true,
-          smartSwapOptions: { splitRoutes: false, evmSwaps: true },
+          smartSwapOptions: { splitRoutes: true, evmSwaps: true },
+          experimentalFeatures: ['hyperlane', 'stargate', 'eureka', 'layer_zero'] as any,
           bridges: ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as any,
           allowMultiTx: true,
           goFast,

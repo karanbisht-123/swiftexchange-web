@@ -1,38 +1,98 @@
-import { createContext, useContext, useState, type ReactNode, type FC } from 'react';
+import {
+  createContext,
+  useContext,
+  useReducer,
+  useMemo,
+  type ReactNode,
+  type FC,
+} from 'react';
 
-type ActionType = 'SEND' | 'RECEIVE';
+export type ActionType = 'SEND' | 'RECEIVE' | 'BRIDGE' | 'SWAP';
 
-interface AssetSelectorContextType {
+
+export interface AssetSelectorState {
   isOpen: boolean;
   actionType: ActionType;
-  openAssetSelector: (type: ActionType) => void;
-  closeAssetSelector: () => void;
+  defaultNetwork: string | number | null;
+  pairedChainId: string | number | null;
+  onSelect: ((asset: any) => void) | null;
 }
 
-const AssetSelectorContext = createContext<AssetSelectorContextType | undefined>(undefined);
+interface OpenOptions {
+  onSelect?: (asset: any) => void;
+  defaultNetwork?: string | number;
+  pairedChainId?: string | number;
+}
+
+interface AssetSelectorDispatch {
+  openAssetSelector: (type: ActionType, options?: OpenOptions) => void;
+  closeAssetSelector: () => void;
+}
+const StateContext = createContext<AssetSelectorState | undefined>(undefined);
+const DispatchContext = createContext<AssetSelectorDispatch | undefined>(undefined);
+
+type Action =
+  | { type: 'OPEN'; actionType: ActionType; options?: OpenOptions }
+  | { type: 'CLOSE' };
+
+const initialState: AssetSelectorState = {
+  isOpen: false,
+  actionType: 'SEND',
+  defaultNetwork: null,
+  pairedChainId: null,
+  onSelect: null,
+};
+
+function reducer(state: AssetSelectorState, action: Action): AssetSelectorState {
+  switch (action.type) {
+    case 'OPEN':
+      return {
+        isOpen: true,
+        actionType: action.actionType,
+        defaultNetwork: action.options?.defaultNetwork ?? null,
+        pairedChainId: action.options?.pairedChainId ?? null,
+        onSelect: action.options?.onSelect ?? null,
+      };
+    case 'CLOSE':
+      return initialState;
+    default:
+      return state;
+  }
+}
 
 export const AssetSelectorProvider: FC<{ children: ReactNode }> = ({ children }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [actionType, setActionType] = useState<ActionType>('SEND');
-
-  const openAssetSelector = (type: ActionType) => {
-    setActionType(type);
-    setIsOpen(true);
-  };
-
-  const closeAssetSelector = () => setIsOpen(false);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const actions = useMemo<AssetSelectorDispatch>(
+    () => ({
+      openAssetSelector: (type: ActionType, options?: OpenOptions) =>
+        dispatch({ type: 'OPEN', actionType: type, options }),
+      closeAssetSelector: () => dispatch({ type: 'CLOSE' }),
+    }),
+    []
+  );
 
   return (
-    <AssetSelectorContext.Provider value={{ isOpen, actionType, openAssetSelector, closeAssetSelector }}>
-      {children}
-    </AssetSelectorContext.Provider>
+    <DispatchContext.Provider value={actions}>
+      <StateContext.Provider value={state}>
+        {children}
+      </StateContext.Provider>
+    </DispatchContext.Provider>
   );
 };
 
-export const useAssetSelectorModal = () => {
-  const context = useContext(AssetSelectorContext);
-  if (context === undefined) {
-    throw new Error('useAssetSelectorModal must be used within an AssetSelectorProvider');
+export function useAssetSelectorModal(): AssetSelectorState & AssetSelectorDispatch {
+  const state = useContext(StateContext);
+  const dispatch = useContext(DispatchContext);
+  if (!state || !dispatch) {
+    throw new Error('useAssetSelectorModal must be used within AssetSelectorProvider');
   }
-  return context;
-};
+  return { ...state, ...dispatch };
+}
+
+export function useAssetSelectorDispatch(): AssetSelectorDispatch {
+  const dispatch = useContext(DispatchContext);
+  if (!dispatch) {
+    throw new Error('useAssetSelectorDispatch must be used within AssetSelectorProvider');
+  }
+  return dispatch;
+}

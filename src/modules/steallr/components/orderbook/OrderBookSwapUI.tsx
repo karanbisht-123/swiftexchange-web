@@ -1,5 +1,6 @@
-import { AlertCircle, ArrowDownUp, CheckCircle, RefreshCw, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle, RefreshCw, X, ChevronDown, ArrowUpDown } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
@@ -15,19 +16,15 @@ import StellarTradingChart from '../chart/StellarTradingChart';
 import LastTrades from '../tradescreen/LastTrades';
 import OrderBook from './OrderBook';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import StellarTransactionModal from '../modals/StellarTransactionModal';
+import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
 
-const TOKEN_ICONS: Record<string, string> = {
-  XLM: 'https://coin-images.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png',
-  USDC: 'https://coin-images.coingecko.com/coins/images/6319/small/usdc.png',
-  USDT: 'https://coin-images.coingecko.com/coins/images/325/small/Tether.png',
-};
+import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
+import { getChainById } from '../../../evm/utils/Chainregistry';
+import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 
-const getTokenIcon = (code: string): string | null => {
-  return TOKEN_ICONS[code?.toUpperCase()] || null;
-};
-
-// ── Inline toast ──────────────────────────────────────────────────────────────
+// Inline toast
 interface Toast {
   id: number;
   message: string;
@@ -45,6 +42,8 @@ const OrderBookSwapUI = () => {
   }>({ isOpen: false, status: 'success' });
   const [activeTab, setActiveTab] = useState<'overview' | 'orderBook' | 'trades'>('overview');
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectingAssetFor, setSelectingAssetFor] = useState<'from' | 'to' | null>(null);
 
   const pushToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Date.now();
@@ -53,6 +52,7 @@ const OrderBookSwapUI = () => {
   }, []);
 
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
+  const currentNetwork = useWalletStore(state => state.network);
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
 
@@ -78,6 +78,7 @@ const OrderBookSwapUI = () => {
     executeOrderWithWalletConnect,
     refreshOrderBook,
     reset,
+    subentryCount,
   } = useLargeOrder({
     userAddress: stellarAddress,
   });
@@ -85,16 +86,57 @@ const OrderBookSwapUI = () => {
   const { addTransaction } = useLargeOrderStore();
   const { setSelectedChartPair } = useAmmSwapStore();
 
+  const isMainnet = currentNetwork === 'mainnet';
+  const stellarChainId = isMainnet ? 9000000 : 9000001;
+  const chainConfig = getChainById(stellarChainId);
+
+  const lastChartPairRef = useRef<string>('');
+
   useEffect(() => {
     if (fromToken && toToken) {
-      setSelectedChartPair({
-        base: fromToken.code,
-        counter: toToken.code,
-        baseIssuer: fromToken.issuer,
-        counterIssuer: toToken.issuer,
-      });
+      const pairId = `${fromToken.code}:${fromToken.issuer}-${toToken.code}:${toToken.issuer}`;
+      
+      if (lastChartPairRef.current !== pairId) {
+        lastChartPairRef.current = pairId;
+        setSelectedChartPair({
+          base: fromToken.code,
+          counter: toToken.code,
+          baseIssuer: fromToken.issuer,
+          counterIssuer: toToken.issuer,
+        });
+      }
+
+      const newParams = new URLSearchParams(searchParams);
+      if (fromToken) newParams.set('sellAsset', fromToken.code);
+      if (toToken) newParams.set('buyAsset', toToken.code);
+      setSearchParams(newParams, { replace: true });
     }
-  }, [fromToken, toToken, setSelectedChartPair]);
+  }, [
+    fromToken?.code, 
+    fromToken?.issuer, 
+    toToken?.code, 
+    toToken?.issuer, 
+    setSelectedChartPair,
+    searchParams,
+    setSearchParams
+  ]);
+
+  useEffect(() => {
+    if (availableTokens.length === 0) return;
+
+    const sellAsset = searchParams.get('sellAsset');
+    const buyAsset = searchParams.get('buyAsset');
+
+    if (sellAsset) {
+      const token = availableTokens.find(t => t.code === sellAsset);
+      if (token && token.code !== toToken?.code) setFromToken(token);
+    }
+
+    if (buyAsset) {
+      const token = availableTokens.find(t => t.code === buyAsset);
+      if (token && token.code !== fromToken?.code) setToToken(token);
+    }
+  }, [availableTokens]);
 
   const handlePlaceOrder = useCallback(async () => {
     if (!fromToken || !toToken || !amount || !price) {
@@ -135,6 +177,8 @@ const OrderBookSwapUI = () => {
         timestamp: Date.now(),
         description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
         status: 'success',
+        from: stellarAddress,
+        network: currentNetwork,
       });
 
       setTxModal({
@@ -242,9 +286,8 @@ const OrderBookSwapUI = () => {
         <div className="flex sm:hidden bg-secondary border-b border-white/5">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
-              activeTab === 'overview' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'overview' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
           >
             Overview
             {activeTab === 'overview' && (
@@ -253,9 +296,8 @@ const OrderBookSwapUI = () => {
           </button>
           <button
             onClick={() => setActiveTab('orderBook')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
-              activeTab === 'orderBook' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'orderBook' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
           >
             Orderbook
             {activeTab === 'orderBook' && (
@@ -264,9 +306,8 @@ const OrderBookSwapUI = () => {
           </button>
           <button
             onClick={() => setActiveTab('trades')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${
-              activeTab === 'trades' ? 'text-primary' : 'text-muted hover:text-primary'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'trades' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
           >
             Last Trades
             {activeTab === 'trades' && (
@@ -283,7 +324,7 @@ const OrderBookSwapUI = () => {
               <StellarTradingChart />
             </div>
 
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between ">
               <h2 className="text-lg font-semibold text-primary">
                 {UI_STRINGS.TITLE || 'Limit Order'}
               </h2>
@@ -300,22 +341,20 @@ const OrderBookSwapUI = () => {
             <div className="flex gap-2 mb-6">
               <button
                 onClick={() => !isBuy && setIsBuy()}
-                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${
-                  isBuy
-                    ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
-                    : 'bg-white/5 text-muted hover:text-primary'
-                }`}
+                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${isBuy
+                  ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
+                  : 'bg-white/5 text-muted hover:text-primary'
+                  }`}
                 disabled={isLoading}
               >
                 Buy
               </button>
               <button
                 onClick={() => isBuy && setIsBuy()}
-                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${
-                  !isBuy
-                    ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
-                    : 'bg-white/5 text-muted hover:text-primary'
-                }`}
+                className={`flex-1 h-16 rounded-xl font-bold text-lg transition-all ${!isBuy
+                  ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+                  : 'bg-white/5 text-muted hover:text-primary'
+                  }`}
                 disabled={isLoading}
               >
                 Sell
@@ -329,45 +368,44 @@ const OrderBookSwapUI = () => {
                     From
                   </label>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {getTokenIcon(fromToken?.code || '') ? (
-                        <img
-                          src={getTokenIcon(fromToken?.code || '')!}
-                          alt={fromToken?.code}
-                          className="w-10 h-10 rounded-full"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
-                          {fromToken?.code?.[0] || '?'}
-                        </div>
-                      )}
-                      <select
-                        value={fromToken?.code || ''}
-                        onChange={e => {
-                          const selected = availableTokens.find(t => t.code === e.target.value);
-                          if (selected && selected.code !== toToken?.code) {
-                            setFromToken(selected);
-                          }
-                        }}
-                        className="bg-transparent text-primary font-bold text-xl focus:outline-none cursor-pointer"
-                        disabled={isLoading}
-                      >
-                        <option value="">Select</option>
-                        {availableTokens.map(token => (
-                          <option
-                            key={`${token.code}-${token.issuer || 'native'}`}
-                            value={token.code}
-                            disabled={token.code === toToken?.code}
-                          >
-                            {token.code}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <button
+                      onClick={() => setSelectingAssetFor('from')}
+                      className="flex items-center gap-3 bg-secondary/50 p-2 rounded-xl border border-divider/50 hover:bg-hover transition-all"
+                    >
+                      <div className="relative">
+                        {(() => {
+                          const icon = getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
+                          return (
+                            <img
+                              src={icon || `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`}
+                              alt={fromToken?.code}
+                              className="w-10 h-10 rounded-full"
+                            />
+                          );
+                        })()}
+                      </div>
+                      <div className="flex flex-col items-start pr-2">
+                        <span className="text-primary font-black text-lg">{fromToken?.code || 'Select'}</span>
+                        <ChevronDown size={14} className="text-muted" />
+                      </div>
+                    </button>
                     <div className="text-right">
                       <p className="text-lg text-primary font-bold">{fromBalance}</p>
                       <p className="text-[10px] text-muted uppercase font-medium">Balance</p>
                     </div>
+                  </div>
+                  <div className="flex justify-between items-center text-xs text-muted mt-2 font-bold px-1">
+                    <span>Spendable Balance</span>
+                    <span className="text-primary">
+                      {fromToken?.balance 
+                        ? portfolioUtils.formatBalance(
+                            fromToken.code === 'XLM' 
+                              ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
+                              : fromToken.balance
+                          ) 
+                        : '0.00'}{' '}
+                      {fromToken?.code || ''}
+                    </span>
                   </div>
                 </div>
 
@@ -375,13 +413,13 @@ const OrderBookSwapUI = () => {
                   <button
                     onClick={() => {
                       const temp = fromToken;
-                      setFromToken(toToken);
-                      setToToken(temp);
+                      setFromToken(toToken as any);
+                      setToToken(temp as any);
                     }}
                     className="p-3 rounded-xl bg-secondary hover:bg-hover transition-colors border border-white/10 shadow-lg"
                     disabled={isLoading || !fromToken || !toToken}
                   >
-                    <ArrowDownUp className="w-5 h-5 text-muted md:rotate-90 transition-transform" />
+                    <ArrowUpDown className="w-5 h-5 text-muted md:rotate-90 transition-transform" />
                   </button>
                 </div>
 
@@ -390,41 +428,27 @@ const OrderBookSwapUI = () => {
                     To
                   </label>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {getTokenIcon(toToken?.code || '') ? (
-                        <img
-                          src={getTokenIcon(toToken?.code || '')!}
-                          alt={toToken?.code}
-                          className="w-10 h-10 rounded-full"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
-                          {toToken?.code?.[0] || '?'}
-                        </div>
-                      )}
-                      <select
-                        value={toToken?.code || ''}
-                        onChange={e => {
-                          const selected = availableTokens.find(t => t.code === e.target.value);
-                          if (selected && selected.code !== fromToken?.code) {
-                            setToToken(selected);
-                          }
-                        }}
-                        className="bg-transparent text-primary font-bold text-xl focus:outline-none cursor-pointer"
-                        disabled={isLoading}
-                      >
-                        <option value="">Select</option>
-                        {availableTokens.map(token => (
-                          <option
-                            key={`${token.code}-${token.issuer || 'native'}`}
-                            value={token.code}
-                            disabled={token.code === fromToken?.code}
-                          >
-                            {token.code}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <button
+                      onClick={() => setSelectingAssetFor('to')}
+                      className="flex items-center gap-3 bg-secondary/50 p-2 rounded-xl border border-divider/50 hover:bg-hover transition-all"
+                    >
+                      <div className="relative">
+                        {(() => {
+                          const icon = getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
+                          return (
+                            <img
+                              src={icon || `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`}
+                              alt={toToken?.code}
+                              className="w-10 h-10 rounded-full"
+                            />
+                          );
+                        })()}
+                      </div>
+                      <div className="flex flex-col items-start pr-2">
+                        <span className="text-primary font-black text-lg">{toToken?.code || 'Select'}</span>
+                        <ChevronDown size={14} className="text-muted" />
+                      </div>
+                    </button>
                     <div className="text-right">
                       <p className="text-lg text-primary font-bold">{toBalance}</p>
                       <p className="text-[10px] text-muted uppercase font-medium">Balance</p>
@@ -436,53 +460,58 @@ const OrderBookSwapUI = () => {
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-muted mb-2 block">Amount</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={amount}
-                      onChange={e => setAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-4 text-primary text-xl font-medium focus:outline-none focus:border-primary/50"
-                      step="0.0000001"
-                      disabled={isLoading}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-muted mb-2 block uppercase tracking-wider font-semibold">
-                    Price
-                  </label>
+                <div className="bg-tertiary rounded-2xl p-4 border border-divider/50 relative overflow-hidden">
+                  <label className="text-[10px] font-black uppercase tracking-[0.1em] text-muted mb-2 block">Amount</label>
                   <input
-                    type="number"
-                    value={price}
-                    onChange={e => setPrice(e.target.value)}
+                    type="text"
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setAmount(val);
+                      }
+                    }}
                     placeholder="0.00"
-                    className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-4 text-primary text-xl font-medium focus:outline-none focus:border-primary/50"
-                    step="0.0000001"
+                    className="peer w-full bg-transparent border-none p-0 text-primary text-xl font-black focus:ring-0 placeholder:text-muted/20 outline-none"
                     disabled={isLoading}
                   />
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-8 bg-brand opacity-0 transition-opacity peer-focus:opacity-100" />
+                </div>
+
+                <div className="bg-tertiary rounded-2xl p-4 border border-divider/50 relative overflow-hidden">
+                  <label className="text-[10px] font-black uppercase tracking-[0.1em] text-muted mb-2 block">Price</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={price}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setPrice(val);
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="peer w-full bg-transparent border-none p-0 text-primary text-xl font-black focus:ring-0 placeholder:text-muted/20 outline-none"
+                    disabled={isLoading}
+                  />
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-8 bg-brand opacity-0 transition-opacity peer-focus:opacity-100" />
                 </div>
               </div>
 
               <div>
                 <div className="flex justify-between mb-2">
-                  <label className="text-xs text-muted">Total</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.1em] text-muted">Total</label>
                   <button
                     onClick={setMaxAmount}
-                    className="text-xs text-primary hover:underline uppercase font-bold tracking-wide"
+                    className="text-[10px] font-black text-brand hover:underline uppercase tracking-widest"
                   >
                     Max Available
                   </button>
                 </div>
-                <input
-                  type="text"
-                  value={total || '0.00'}
-                  readOnly
-                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-4 text-muted text-xl font-medium cursor-not-allowed"
-                />
+                <div className="bg-tertiary rounded-2xl p-4 border border-divider/50">
+                  <span className="text-muted text-xl font-black">{total || '0.00'}</span>
+                </div>
               </div>
             </div>
 
@@ -496,13 +525,12 @@ const OrderBookSwapUI = () => {
             <button
               onClick={handlePlaceOrder}
               disabled={!canPlaceOrder || orderStatus === 'pending'}
-              className={`w-full mt-6 py-5 rounded-xl font-bold text-lg transition-all ${
-                canPlaceOrder && orderStatus !== 'pending'
-                  ? isBuy
-                    ? 'bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
-                    : 'bg-red-500 hover:bg-red-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
-                  : 'bg-white/5 text-muted cursor-not-allowed border border-white/5'
-              }`}
+              className={`w-full mt-6 py-5 rounded-xl font-bold text-lg transition-all ${canPlaceOrder && orderStatus !== 'pending'
+                ? isBuy
+                  ? 'bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
+                  : 'bg-red-500 hover:bg-red-600 text-white shadow-xl hover:shadow-2xl hover:-translate-y-0.5'
+                : 'bg-white/5 text-muted cursor-not-allowed border border-white/5'
+                }`}
             >
               {orderStatus === 'pending' ? (
                 <span className="flex items-center justify-center gap-3">
@@ -514,6 +542,8 @@ const OrderBookSwapUI = () => {
                   <CheckCircle className="w-6 h-6" />
                   {SUCCESS_MESSAGES.ORDER_SUCCESS || 'Order Placed!'}
                 </span>
+              ) : !toToken?.hasTrustline && !toToken?.asset.isNative() ? (
+                `Add Trustline & ${isBuy ? 'Buy' : 'Sell'}`
               ) : (
                 `${isBuy ? 'Buy' : 'Sell'} ${toToken?.code || 'Token'}`
               )}
@@ -521,15 +551,18 @@ const OrderBookSwapUI = () => {
           </div>
 
           <div
-            className={`lg:w-80 lg:border-l lg:border-white/5 bg-secondary ${
-              activeTab === 'orderBook' ? 'block' : 'hidden sm:block'
-            }`}
+            className={`lg:w-80 lg:border-l lg:border-white/5 bg-secondary flex flex-col ${activeTab === 'orderBook' || activeTab === 'trades' ? 'block' : 'hidden lg:flex'
+              }`}
           >
-            <OrderBook orderBook={orderBook} isBuy={isBuy} setPrice={setPrice} />
-          </div>
+            {/* Order Book Section */}
+            <div className={`${activeTab === 'orderBook' ? 'block' : 'hidden lg:block'} flex-1 min-h-[300px]`}>
+              <OrderBook orderBook={orderBook} isBuy={isBuy} setPrice={setPrice} />
+            </div>
 
-          <div className={`lg:hidden bg-secondary ${activeTab === 'trades' ? 'block' : 'hidden'}`}>
-            <LastTrades baseAsset={fromToken || undefined} counterAsset={toToken || undefined} />
+            {/* Last Trades Section - Visible below Order Book on Desktop */}
+            <div className={`lg:border-t lg:border-white/5 ${activeTab === 'trades' ? 'block' : 'hidden lg:block'} lg:h-[400px] overflow-y-auto`}>
+              <LastTrades baseAsset={fromToken || undefined} counterAsset={toToken || undefined} />
+            </div>
           </div>
         </div>
       </div>
@@ -541,6 +574,21 @@ const OrderBookSwapUI = () => {
         type="Order"
         hash={txModal.hash}
         error={txModal.error}
+      />
+
+      <StellarAssetSelectorModal
+        isOpen={selectingAssetFor !== null}
+        onClose={() => setSelectingAssetFor(null)}
+        tokens={availableTokens}
+        selectedToken={selectingAssetFor === 'from' ? (fromToken as any) : (toToken as any)}
+        onSelect={(token) => {
+          if (selectingAssetFor === 'from') {
+            setFromToken(token as any);
+          } else {
+            setToToken(token as any);
+          }
+        }}
+        title={`Select ${selectingAssetFor === 'from' ? 'Sell' : 'Buy'} Asset`}
       />
     </>
   );

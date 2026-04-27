@@ -1,6 +1,5 @@
 import {
-  Infinity,
-  ArrowRightLeft,
+  Infinity as InfinityIcon,
   BarChart2,
   CandlestickChart,
   History,
@@ -89,11 +88,11 @@ const Sidebar: FC = () => {
       label: 'Swap',
       icon: <Repeat2 className="w-5 h-5" />,
     },
-    {
-      href: ROUTES.BRIDGE,
-      label: 'Bridge',
-      icon: <ArrowRightLeft className="w-5 h-5" />,
-    },
+    // {
+    //   href: ROUTES.BRIDGE,
+    //   label: 'Bridge',
+    //   icon: <ArrowRightLeft className="w-5 h-5" />,
+    // },
     {
       href: ROUTES.TRADING_EVM_FIAT,
       label: 'Fiat On/Off Ramp',
@@ -118,7 +117,7 @@ const Sidebar: FC = () => {
     {
       href: ROUTES.TRADING_DYDX_FUTURES,
       label: 'Perps',
-      icon: <Infinity className="w-5 h-5" />,
+      icon: <InfinityIcon className="w-5 h-5" />,
       queryParam: '?view=trade',
     },
   ];
@@ -204,7 +203,7 @@ const Sidebar: FC = () => {
                   }}
                   title={item.label}
                 >
-                  <span className="flex-shrink-0 mb-1">{item.icon}</span>
+                  <span className="shrink-0 mb-1">{item.icon}</span>
                   <span className="text-[10px] leading-tight font-medium text-center">
                     {item.label}
                   </span>
