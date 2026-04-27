@@ -334,10 +334,11 @@ class TransactionRouter {
 
       return { hash: lastTxHash, status: 'success' };
     } catch (error: any) {
-      console.error('EVM transaction failed:', {
+      console.error('EVM transaction failed during signing/submission:', {
         message: error.message,
         code: error.code,
         data: error.data,
+        errorObject: error,
       });
       console.groupEnd();
       throw error;
@@ -349,6 +350,8 @@ class TransactionRouter {
     request: TransactionRequest
   ): Promise<TransactionResponse> {
     console.group('[Router] handleStellarTransaction');
+
+    console.log(request, '-----++++++++++');
 
     const { provider } = session;
 
@@ -373,13 +376,40 @@ class TransactionRouter {
       console.log('XDR data present:', {
         xdrLength: request.data.xdr.length,
         networkPassphrase: request.data.networkPassphrase,
-        network: request.data.network,
+        network: request.data.networkKey,
+      });
+
+
+      const STELLAR_PASSPHRASES: Record<string, string> = {
+        pubnet: 'Public Global Stellar Network ; September 2015',
+        mainnet: 'Public Global Stellar Network ; September 2015',
+        PUBLIC: 'Public Global Stellar Network ; September 2015',
+        testnet: 'Test SDF Network ; September 2015',
+        TESTNET: 'Test SDF Network ; September 2015',
+      };
+
+      const networkKeyStr = String(request.networkKey);
+
+      const resolvedPassphrase =
+        request.data.networkPassphrase ||
+        STELLAR_PASSPHRASES[networkKeyStr] ||
+        STELLAR_PASSPHRASES[request.data.network] ||
+        'Test SDF Network ; September 2015';
+
+      const resolvedNetwork =
+        request.data.network ||
+        (['pubnet', 'mainnet', 'PUBLIC'].includes(networkKeyStr) ? 'PUBLIC' : 'TESTNET');
+
+      console.log('Resolved Stellar network params:', {
+        networkKeyStr,
+        resolvedNetwork,
+        resolvedPassphrase,
       });
 
       const signParams = {
         xdr: request.data.xdr,
-        networkPassphrase: request.data.networkPassphrase || 'Test SDF Network ; September 2015',
-        network: request.data.network || 'TESTNET',
+        networkPassphrase: resolvedPassphrase,
+        network: resolvedNetwork,
       };
 
       const stellarChainId =
@@ -432,14 +462,17 @@ class TransactionRouter {
           },
         });
       } else {
-        console.log('Using direct provider.request() for Stellar');
+        console.log(
+          'Direct provider.request() - calling stellar_signAndSubmitXDR with:',
+          signParams
+        );
         result = await provider.request({
           method: 'stellar_signAndSubmitXDR',
           params: signParams,
         });
       }
 
-      console.log('Provider response:', result);
+      console.log('Stellar provider response received:', result);
 
       if (result?.status === 'success' || result?.hash || result?.signedXDR) {
         console.log('Stellar transaction successful!');

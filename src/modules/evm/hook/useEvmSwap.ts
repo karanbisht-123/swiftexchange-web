@@ -49,7 +49,8 @@ interface UseEvmSwapActions {
   fetchFusionQuote: (
     sellAsset: TokenInfo,
     buyAsset: TokenInfo,
-    amount: string
+    amount: string,
+    decimals?: number
   ) => Promise<FusionQuote>;
 
   performSwap: (
@@ -316,7 +317,8 @@ export const useEvmSwap = ({
           sellAsset.address,
           buyAsset.address,
           amount,
-          senderAddress
+          senderAddress,
+          sellAsset.decimals
         );
 
         updateState({

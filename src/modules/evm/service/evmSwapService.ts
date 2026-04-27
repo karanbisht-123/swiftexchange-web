@@ -255,8 +255,6 @@ export async function prepareBridgeTransaction(
 }
 
 export async function get1InchFusionQuote(
-
-
   chainId: number,
   request: {
     tokenIn: string;
@@ -265,13 +263,16 @@ export async function get1InchFusionQuote(
     walletAddress: string;
     decimals?: number;
   }
-
-
 ): Promise<any> {
+  const decimals = request.decimals ?? 6;
+  const amountStr = request.amount.includes('.') 
+    ? request.amount.split('.')[0] + '.' + request.amount.split('.')[1].slice(0, decimals)
+    : request.amount;
+
   const payload = {
     ...request,
     chain: getChainSymbol(chainId),
-    amount: ethers.parseUnits(request.amount, request.decimals ?? 6).toString(),
+    amount: ethers.parseUnits(amountStr, decimals).toString(),
     walletAddress: request.walletAddress,
   };
 

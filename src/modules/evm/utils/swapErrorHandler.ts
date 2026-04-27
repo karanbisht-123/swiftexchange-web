@@ -28,6 +28,22 @@ export function parseSwapError(error: any): string {
   if (!message && typeof error === 'object' && error !== null) {
     if (error.message) {
       message = error.message;
+      if (message.includes('{"') || message.includes('error=')) {
+        try {
+          const jsonMatch = message.match(/error=({.*})/);
+          const jsonToParse = jsonMatch ? jsonMatch[1] : message;
+          const parsed = JSON.parse(jsonToParse);
+
+          const deepError = parsed.error || parsed;
+          const body = deepError.body ? JSON.parse(deepError.body) : null;
+
+          if (body?.error?.message) message = body.error.message;
+          else if (deepError.message) message = deepError.message;
+          else if (parsed.reason) message = parsed.reason;
+        } catch (e) {
+          // Fallback to original message if parsing fails
+        }
+      }
     } else {
       try {
         const parsed = JSON.parse(error.toString());
@@ -52,6 +68,28 @@ export function parseSwapError(error: any): string {
   const errorMessageLower = processedMessage.toLowerCase();
 
   if (
+    errorMessageLower.includes('insufficient funds') ||
+    errorMessageLower.includes('insufficient eth balance') ||
+    errorMessageLower.includes('insufficient eth for gas fees') ||
+    errorMessageLower.includes('insufficient balance')
+  ) {
+    if (errorMessageLower.includes('need') && errorMessageLower.includes('have')) return processedMessage;
+    return 'Insufficient native tokens to cover network gas fees.';
+  }
+
+  // Gas Estimation & Execution failures
+  if (
+    errorMessageLower.includes('cannot estimate gas') ||
+    errorMessageLower.includes('gas estimation failed') ||
+    errorMessageLower.includes('unpredictable_gas_limit')
+  ) {
+    if (errorMessageLower.includes('gas required exceeds allowance')) {
+      return 'The transaction is likely to fail. This often happens if you have insufficient token balance for the transfer or the contract execution reverted.';
+    }
+    return 'Transaction gas estimation failed. This usually happens if the transaction will fail on-chain. Please check your balance or parameters.';
+  }
+
+  if (
     error?.code === 4001 ||
     error?.code === 'ACTION_REJECTED' ||
     errorMessageLower.includes('user rejected') ||
@@ -59,22 +97,6 @@ export function parseSwapError(error: any): string {
     errorMessageLower.includes('transaction rejected')
   ) {
     return 'Transaction was cancelled during confirmation.';
-  }
-  if (
-    errorMessageLower.includes('insufficient funds') ||
-    errorMessageLower.includes('insufficient eth balance') ||
-    errorMessageLower.includes('insufficient eth for gas fees')
-  ) {
-    if (errorMessageLower.includes('need') && errorMessageLower.includes('have')) return processedMessage;
-    return 'Insufficient native tokens to cover network gas fees.';
-  }
-
-  // Gas Estimation
-  if (
-    errorMessageLower.includes('cannot estimate gas') ||
-    errorMessageLower.includes('gas estimation failed')
-  ) {
-    return 'Transaction gas estimation failed. Please check your balance or try a smaller amount.';
   }
 
   // Prevent leaking RPC URLs

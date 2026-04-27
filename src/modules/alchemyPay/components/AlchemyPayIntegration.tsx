@@ -31,12 +31,12 @@ const AlchemyPayIntegration = () => {
     {
       id: 'buy',
       label: 'Buy Crypto',
-      icon: '↗',
+      icon: '↙',
     },
     {
       id: 'sell',
       label: 'Sell Crypto',
-      icon: '↙',
+      icon: '↗',
     },
   ];
 
@@ -59,13 +59,12 @@ const AlchemyPayIntegration = () => {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative py-1 lg:py-2 px-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
-                    isActive
+                  className={`relative py-1 lg:py-2 px-2 text-sm font-semibold rounded-lg transition-all duration-200 ${isActive
                       ? tab.id === 'buy'
                         ? 'bg-green-500 text-white shadow-md'
                         : 'bg-red-500 text-white shadow-md'
                       : 'bg-transparent text-secondary hover:bg-hover'
-                  }`}
+                    }`}
                 >
                   <span className="flex items-center justify-center gap-2">
                     <span className="text-lg">{tab.icon}</span>

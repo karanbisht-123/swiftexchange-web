@@ -97,10 +97,10 @@ export const useTransactionRouter = () => {
       }
 
       try {
-        console.log('Routing transaction through transaction router...');
+        console.log('[useTransactionRouter] Routing transaction through transaction router...');
         const response = await transactionRouter.routeTransaction(request);
 
-        console.log('Transaction successful!', {
+        console.log('[useTransactionRouter] Transaction successful!', {
           hash: response.hash,
           status: response.status,
         });
@@ -108,10 +108,11 @@ export const useTransactionRouter = () => {
 
         return response;
       } catch (error: any) {
-        console.error('Transaction failed:', {
+        console.error('[useTransactionRouter] sendTransaction caught error:', {
           message: error.message,
           code: error.code,
           name: error.name,
+          errorObject: error, // Log full object for inspection
           stack: error.stack?.slice(0, 300),
         });
         console.groupEnd();

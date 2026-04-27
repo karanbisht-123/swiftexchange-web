@@ -16,6 +16,8 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { ethers } from 'ethers';
+import { parseSwapError } from '../../evm/utils/swapErrorHandler';
+import BigNumber from 'bignumber.js';
 
 interface TransactionState {
   txHash: string | null;
@@ -43,15 +45,10 @@ export interface EnhancedSendAsset {
   blockExplorerUrl?: string;
 }
 
-const isUserRejection = (error: any): boolean => {
-  if (!error) return false;
-  const msg = error.message?.toLowerCase() || '';
-  return error.code === 4001 || msg.includes('rejected') || msg.includes('cancelled');
-};
 
-const formatErrorMessage = (error: any, context: string): string => {
-  if (isUserRejection(error)) return 'Cancelled.';
-  return error.message || `${context} failed.`;
+
+const formatErrorMessage = (error: any, _context: string): string => {
+  return parseSwapError(error);
 };
 
 export const useSendAsset = (onBack?: () => void) => {
@@ -64,7 +61,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const [recipientAddress, setRecipientAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
-  const [balance, setBalance] = useState(0);
+  const [balance, setBalance] = useState('0');
   const [isFetchingBalance, setIsFetchingBalance] = useState(false);
   const [transactionState, setTransactionState] = useState<TransactionState>({ txHash: null, step: 'form', error: null });
   const [isEstimatingFees, setIsEstimatingFees] = useState(false);
@@ -116,9 +113,9 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const fetchBalance = useCallback(async () => {
     if (!currentAsset || !senderAddress) return;
-    
+
     const storeItem = storeAssets.find(a => a.id === currentAsset.value);
-    if (storeItem) setBalance(storeItem.balance || 0);
+    if (storeItem) setBalance(storeItem.balance?.toString() || '0');
 
     setIsFetchingBalance(true);
     try {
@@ -134,7 +131,7 @@ export const useSendAsset = (onBack?: () => void) => {
         const key = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
         balStr = await getStellarBalance(key, senderAddress);
       }
-      setBalance(parseFloat(balStr));
+      setBalance(balStr);
     } catch (e) {
       console.error('Balance error:', e);
     } finally {
@@ -164,14 +161,14 @@ export const useSendAsset = (onBack?: () => void) => {
 
   useEffect(() => {
     const estimate = async () => {
-      if (!currentAsset || !senderAddress || !recipientAddress || !amount || parseFloat(amount) <= 0 || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
+      if (!currentAsset || !senderAddress || !recipientAddress || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
         setEstimatedFees(null); return;
       }
       setIsEstimatingFees(true);
       try {
         let fees;
         if (currentAsset.type === 'evm') {
-          fees = await estimateEVMFees(Number(currentAsset.networkKey), senderAddress, recipientAddress, amount, currentAsset.isNative ? undefined : currentAsset.tokenAddress, currentAsset.decimals);
+          fees = await estimateEVMFees(Number(currentAsset.networkKey), senderAddress, recipientAddress, amount || '0.0001', currentAsset.isNative ? undefined : currentAsset.tokenAddress, currentAsset.decimals);
         } else {
           fees = await estimateStellarFees();
         }
@@ -185,37 +182,93 @@ export const useSendAsset = (onBack?: () => void) => {
   }, [currentAsset, senderAddress, recipientAddress, amount, memo]);
 
   const handleConfirmTransaction = async () => {
-    if (!currentAsset || !senderAddress) return;
+    if (!currentAsset || !senderAddress) {
+      console.warn('[useSendAsset] Cannot confirm transaction: missing asset or sender address');
+      return;
+    }
+
+    console.log('[useSendAsset] handleConfirmTransaction initiated', {
+      asset: currentAsset.symbol,
+      network: currentAsset.network,
+      recipient: recipientAddress,
+      amount: amount
+    });
+
     try {
       setTransactionState(p => ({ ...p, step: 'signing', error: null }));
       let req: TransactionRequest;
+
       if (currentAsset.type === 'evm') {
+        console.log('[useSendAsset] Building EVM transaction request');
         let data: string | undefined = memo || undefined;
         let to = recipientAddress;
         let sendAmt = amount;
+
         if (!currentAsset.isNative && currentAsset.tokenAddress) {
+          console.log('[useSendAsset] Preparing ERC20 transfer data');
           data = new ethers.Interface(SendErcAbi).encodeFunctionData('transfer', [recipientAddress, ethers.parseUnits(amount, currentAsset.decimals)]);
-          to = currentAsset.tokenAddress; sendAmt = '0';
+          to = currentAsset.tokenAddress;
+          sendAmt = '0';
         }
+
         req = { type: 'evm', network: currentAsset.network, networkKey: Number(currentAsset.networkKey), from: senderAddress, to, amount: sendAmt, data };
       } else {
+        console.log('[useSendAsset] Building Stellar transaction request');
         const tx = await sendCryptoStellarBuild(senderAddress, recipientAddress, amount, memo ? { memo } : {}, { code: currentAsset.symbol, issuer: currentAsset.tokenAddress, isNative: currentAsset.isNative });
-        req = { type: 'stellar', network: currentAsset.network, networkKey: currentNetwork === 'testnet' ? 'testnet' : 'pubnet', from: senderAddress, to: recipientAddress, amount, data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' } };
+        console.log('[useSendAsset] Stellar build result:', { xdr: tx.xdr });
+
+        req = {
+          type: 'stellar',
+          network: currentAsset.network,
+          networkKey: currentNetwork === 'testnet' ? 'testnet' : 'pubnet',
+          from: senderAddress,
+          to: recipientAddress,
+          amount,
+          data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' }
+        };
       }
+
+      console.log('[useSendAsset] Sending transaction request to router:', req);
       const res = await sendTransaction(req);
+      console.log('[useSendAsset] Router response:', res);
+
       if (res.status === 'success') {
         addLocalTransaction({ hash: res.hash || '', chainId: currentAsset.type === 'evm' ? Number(currentAsset.networkKey) : 9000000, type: 'send', timestamp: Date.now(), status: 'success', from: senderAddress, network: currentNetwork, description: `Send ${amount} ${currentAsset.symbol}` });
         setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
         setTimeout(() => { setRecipientAddress(''); setAmount(''); setMemo(''); setTransactionState({ txHash: null, step: 'form', error: null }); }, 3000);
-      } else throw new Error(res.error || 'Failed');
-    } catch (e: any) { setTransactionState(p => ({ ...p, step: 'error', error: formatErrorMessage(e, 'Tx') })); }
+      } else {
+        console.error('[useSendAsset] Transaction status failed:', res.error);
+        throw new Error(res.error || 'Failed');
+      }
+    } catch (e: any) {
+      console.error('[useSendAsset] Transaction exception caught:', e);
+      setTransactionState(p => ({ ...p, step: 'error', error: formatErrorMessage(e, 'Tx') }));
+    }
   };
 
   const handleMaxClick = useCallback(() => {
     if (!currentAsset) return;
-    const fee = estimatedFees?.totalCost ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee;
-    const max = Math.max(0, balance - fee);
-    setAmount(max.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals));
+
+    const bnBalance = new BigNumber(balance);
+    const fee = estimatedFees?.totalCost
+      ? new BigNumber(estimatedFees.totalCost)
+      : new BigNumber(currentAsset.baseFee);
+
+    let maxAmount: BigNumber;
+
+    if (currentAsset.isNative) {
+      maxAmount = bnBalance.minus(fee);
+    } else {
+      maxAmount = bnBalance;
+    }
+
+    if (maxAmount.isLessThanOrEqualTo(0)) {
+      setAmount('0');
+      return;
+    }
+
+    const amountStr = maxAmount.toFixed(currentAsset.decimals, BigNumber.ROUND_DOWN);
+    setAmount(amountStr.replace(/(\.[0-9]*[1-9])0+$/, "$1").replace(/\.0+$/, ""));
   }, [currentAsset, estimatedFees, balance]);
 
   const copyToClipboard = async (text: string, _label?: string) => {
@@ -234,7 +287,7 @@ export const useSendAsset = (onBack?: () => void) => {
     handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
-    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (!validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (parseFloat(amount) > balance && hasTrustline) ? 'Insufficient funds' : null,
+    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (!validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (new BigNumber(amount || '0').isGreaterThan(balance) && hasTrustline) ? 'Insufficient funds' : null,
     assets: allAssets, availableChains: [], onBack,
     needsTrustline: hasTrustline === false,
     buttonLabel: (hasTrustline === false) ? 'Trust Asset' : (transactionState.step === 'review' ? 'Send Now' : 'Continue to Review')

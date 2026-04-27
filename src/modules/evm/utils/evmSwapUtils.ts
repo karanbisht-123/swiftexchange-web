@@ -255,15 +255,16 @@ export async function fetch1InchFusionQuote(
   tokenIn: string,
   tokenOut: string,
   amount: string,
-  walletAddress: string
+  walletAddress: string,
+  decimals?: number
 ): Promise<any> {
   try {
     const quote = await get1InchFusionQuote(chainId, {
       tokenIn,
       tokenOut,
       amount,
-      walletAddress
-      // walletAddress: "0xd015be36019f67e8dd4Df202787aec69F2A59101",
+      walletAddress,
+      decimals
     });
     return quote;
   } catch (error: any) {
@@ -289,11 +290,15 @@ export async function execute1InchFusionSwap(
     const chainConfig = getChainById(chainId);
     const chainSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
 
+    const amountStr = sellAmount.includes('.') 
+      ? sellAmount.split('.')[0] + '.' + sellAmount.split('.')[1].slice(0, sellAsset.decimals)
+      : sellAmount;
+
     const buildRequest = {
       quote,
       tokenIn: sellAsset.address,
       tokenOut: buyAsset.address,
-      amount: ethers.parseUnits(sellAmount, sellAsset.decimals).toString(),
+      amount: ethers.parseUnits(amountStr, sellAsset.decimals).toString(),
       walletAddress: senderAddress,
       chain: chainSymbol,
       preset,

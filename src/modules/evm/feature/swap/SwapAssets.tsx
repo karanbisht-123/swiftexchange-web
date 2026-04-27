@@ -22,6 +22,7 @@ import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetada
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
+import StellarTransactionModal from '../../../steallr/components/modals/StellarTransactionModal';
 import { EvmActionGuard } from '../../components/EvmActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
 import FusionQuoteScreen from './components/FusionQuoteScreen';
@@ -161,7 +162,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       return stellarAssets.find(a => a.symbol === sellAssetSymbol);
     }
     if (sellAssetAddress) {
-        return swapAssets.find(a => a.address.toLowerCase() === sellAssetAddress.toLowerCase());
+      return swapAssets.find(a => a.address.toLowerCase() === sellAssetAddress.toLowerCase());
     }
     return swapAssets.find(a => a.symbol === sellAssetSymbol);
   }, [swapAssets, sellAssetSymbol, sellAssetAddress, stellarAssets, fromChainId]);
@@ -173,12 +174,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (fromChainId !== toChainId) {
       const destTokens = getTokensForChain(toChainId);
       if (buyAssetAddress) {
-          return destTokens.find(t => t.address.toLowerCase() === buyAssetAddress.toLowerCase());
+        return destTokens.find(t => t.address.toLowerCase() === buyAssetAddress.toLowerCase());
       }
       return destTokens.find(t => t.symbol === buyAssetSymbol);
     }
     if (buyAssetAddress) {
-        return swapAssets.find(a => a.address.toLowerCase() === buyAssetAddress.toLowerCase());
+      return swapAssets.find(a => a.address.toLowerCase() === buyAssetAddress.toLowerCase());
     }
     return swapAssets.find(a => a.symbol === buyAssetSymbol);
   }, [swapAssets, buyAssetSymbol, buyAssetAddress, stellarAssets, toChainId, fromChainId]);
@@ -906,7 +907,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
     if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
     if (swapError && actionType === 'SWAP') return 'SWAP FAILED';
-    
+
     if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
       return actionType === 'SWAP' ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE & BRIDGE';
     }
@@ -978,9 +979,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               onClick={() => openAssetSelector(actionType, {
                 defaultNetwork: fromChainId,
                 pairedChainId: toChainId,
-                onSelect: (a: any) => { 
-                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), true); 
-                  setSellAssetSymbol(a.symbol); 
+                onSelect: (a: any) => {
+                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), true);
+                  setSellAssetSymbol(a.symbol);
                   setSellAssetAddress(a.address || "");
                 }
               })}
@@ -1074,9 +1075,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               onClick={() => openAssetSelector(actionType, {
                 defaultNetwork: toChainId,
                 pairedChainId: fromChainId,
-                onSelect: (a: any) => { 
-                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false); 
-                  setBuyAssetSymbol(a.symbol); 
+                onSelect: (a: any) => {
+                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false);
+                  setBuyAssetSymbol(a.symbol);
                   setBuyAssetAddress(a.address || "");
                 }
               })}
@@ -1334,11 +1335,41 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         </div>
 
         {swapTxHash && fromChainConfig && actionType === 'SWAP' && (
-          <EvmTransactionSuccessModal txHash={swapTxHash} explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${swapTxHash}`} onDone={handleReset} networkName={fromChainConfig.name} />
+          isStellar(fromChainId) ? (
+            <StellarTransactionModal
+              isOpen={!!swapTxHash}
+              onClose={handleReset}
+              status="success"
+              type="Swap"
+              hash={swapTxHash}
+            />
+          ) : (
+            <EvmTransactionSuccessModal
+              txHash={swapTxHash}
+              explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${swapTxHash}`}
+              onDone={handleReset}
+              networkName={fromChainConfig.name}
+            />
+          )
         )}
 
         {bridgeTxHash && fromChainConfig && actionType === 'BRIDGE' && (
-          <EvmTransactionSuccessModal txHash={bridgeTxHash} explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${bridgeTxHash}`} onDone={handleReset} networkName={fromChainConfig.name} />
+          isStellar(fromChainId) ? (
+            <StellarTransactionModal
+              isOpen={!!bridgeTxHash}
+              onClose={handleReset}
+              status="success"
+              type="Bridge"
+              hash={bridgeTxHash}
+            />
+          ) : (
+            <EvmTransactionSuccessModal
+              txHash={bridgeTxHash}
+              explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${bridgeTxHash}`}
+              onDone={handleReset}
+              networkName={fromChainConfig.name}
+            />
+          )
         )}
       </div>
 

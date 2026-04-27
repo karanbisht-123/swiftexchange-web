@@ -10,6 +10,7 @@ import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 import TransactionButton from '../components/TransactionButton';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import BigNumber from 'bignumber.js';
 
 interface SendCryptoProps {
   onBack?: () => void;
@@ -85,11 +86,13 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   );
 
   const totalAmount = useMemo(() => {
-    if (!amount || !currentAsset) return 0;
-    return (
-      parseFloat(amount) +
-      (estimatedFees ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee)
-    );
+    if (!amount || !currentAsset) return new BigNumber(0);
+    const bnAmount = new BigNumber(amount);
+    const fee = estimatedFees?.totalCost ? new BigNumber(estimatedFees.totalCost) : new BigNumber(currentAsset.baseFee);
+    if (currentAsset.isNative) {
+      return bnAmount.plus(fee);
+    }
+    return bnAmount;
   }, [amount, estimatedFees, currentAsset]);
 
   const isFormValid = useMemo(() => {
@@ -201,9 +204,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   </div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-text-primary">Total Cost</span>
+                  <span className="text-sm font-bold text-text-primary">Total {currentAsset.isNative ? 'Cost' : 'to Send'}</span>
                   <span className="text-xl font-black text-brand-primary">
-                    {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals)}{' '}
+                    {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals).replace(/(\.[0-9]*[1-9])0+$/, "$1").replace(/\.0+$/, "")}{' '}
                     {currentAsset.symbol}
                   </span>
                 </div>
@@ -218,7 +221,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </button>
           <TransactionButton
             label={buttonLabel}
-            onClick={handleConfirmTransaction}
+            onClick={() => {
+              console.log('[SendAssets] Confirming transaction button clicked');
+              handleConfirmTransaction();
+            }}
             className="font-black"
           />
         </div>
@@ -490,7 +496,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <div className="flex justify-between items-center">
                 <span className="text-sm font-bold text-text-primary">Total to Send</span>
                 <span className="text-lg font-black text-brand-primary">
-                  {portfolioUtils.formatBalance(totalAmount)} {currentAsset.symbol}
+                  {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals).replace(/(\.[0-9]*[1-9])0+$/, "$1").replace(/\.0+$/, "")} {currentAsset.symbol}
                 </span>
               </div>
             </div>

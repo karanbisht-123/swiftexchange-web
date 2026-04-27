@@ -287,12 +287,12 @@ const AmmSwapUI = () => {
           <div className="flex items-center gap-2 text-muted">
             <span>Spendable Balance:</span>
             <span className="text-primary font-black">
-              {fromToken?.balance 
+              {fromToken?.balance
                 ? portfolioUtils.formatBalance(
-                    fromToken.code === 'XLM' 
-                      ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
-                      : fromToken.balance
-                  ) 
+                  fromToken.code === 'XLM'
+                    ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
+                    : fromToken.balance
+                )
                 : '0.0000'} {fromToken?.code}
             </span>
           </div>
@@ -360,12 +360,12 @@ const AmmSwapUI = () => {
           <div className="flex items-center gap-2 text-muted">
             <span>Spendable Balance:</span>
             <span className="text-primary font-black">
-              {toToken?.balance 
+              {toToken?.balance
                 ? portfolioUtils.formatBalance(
-                    toToken.code === 'XLM' 
-                      ? Math.max(0, parseFloat(toToken.balance) - (1 + subentryCount * 0.5)).toString()
-                      : toToken.balance
-                  ) 
+                  toToken.code === 'XLM'
+                    ? Math.max(0, parseFloat(toToken.balance) - (1 + subentryCount * 0.5)).toString()
+                    : toToken.balance
+                )
                 : '0.0000'} {toToken?.code}
             </span>
           </div>
@@ -385,7 +385,7 @@ const AmmSwapUI = () => {
         onClick={handleSwap}
         disabled={!canSwap || swapStatus === 'pending'}
         className={`w-full py-4 sm:py-5 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] transition-all duration-500 mt-6 ${canSwap && swapStatus !== 'pending'
-          ? 'bg-brand hover:bg-brand-hover text-white shadow-[0_8px_20px_-4px_rgba(59,79,217,0.4)] hover:shadow-[0_12px_28px_-6px_rgba(59,79,217,0.5)] active:scale-[0.98]'
+          ? 'btn btn-primary'
           : 'bg-tertiary text-muted opacity-50 cursor-not-allowed border border-divider'
           }`}
       >
