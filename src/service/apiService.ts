@@ -39,7 +39,7 @@ async function fetchWithRetry(
     try {
       const response = await fetch(url, options);
       if (response.ok) return response;
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
+      if (response.status >= 400 && response.status < 500) {
         return response;
       }
       if (i === retries - 1) return response;

@@ -1,8 +1,8 @@
 import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet, RefreshCw } from 'lucide-react';
 import React, { useCallback, useMemo, useRef } from 'react';
 import PageLayout from '../../../components/layout/PageLayout';
-import TransactionSuccess from '../../transction/component/TransactionSuccess';
 import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
+import StellarTransactionModal from '../../steallr/components/modals/StellarTransactionModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { useSendAsset } from '../hook/useSendassets';
@@ -273,18 +273,28 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         );
       }
       return (
-        <TransactionSuccess
-          txHash={txHash}
-          explorerUrl={explorerUrl}
-          assetType={currentAsset?.type}
-          onCopyHash={handleCopyTxHash}
+        <StellarTransactionModal
+          isOpen={true}
+          status="success"
+          type="Send"
+          hash={txHash || ''}
           onClose={onBack || handleBackToForm}
-          onSendAnother={handleBackToForm}
         />
       );
     }
 
     if (step === 'error' && error) {
+      if (currentAsset?.type === 'stellar') {
+        return (
+          <StellarTransactionModal
+            isOpen={true}
+            status="error"
+            type="Send"
+            error={error}
+            onClose={handleBackToForm}
+          />
+        );
+      }
       return (
         <div className="bg-bg-secondary border border-divider rounded-xl text-center py-12 px-6 max-w-sm mx-auto shadow-sm">
           <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mb-6 mx-auto">
@@ -295,10 +305,16 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             <p className="text-xs text-danger font-bold leading-relaxed">{error}</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <button onClick={handleRetryTransaction} className="btn-primary py-3 rounded-lg font-bold text-sm">
+            <button
+              onClick={handleRetryTransaction}
+              className="btn-primary py-3 rounded-lg font-bold text-sm"
+            >
               Retry
             </button>
-            <button onClick={handleBackToForm} className="btn-secondary py-3 rounded-lg font-bold text-sm">
+            <button
+              onClick={handleBackToForm}
+              className="btn-secondary py-3 rounded-lg font-bold text-sm"
+            >
               Back
             </button>
           </div>

@@ -85,6 +85,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
+  const [timeLeft, setTimeToNextRefresh] = useState(30);
 
   const [bridgeQuoteData, setBridgeQuoteData] = useState<any>(null);
   const [isFetchingBridgeQuote, setIsFetchingBridgeQuote] = useState(false);
@@ -381,39 +382,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
       if (isStellar(fromChainId)) {
         setIsFetchingBridgeQuote(true);
-        console.log('[SwapAssets] Fetching Stellar to EVM bridge quote', {
-          fromChainId,
-          toChainId,
-          sellAssetSymbol,
-          buyAssetSymbol,
-          sellAmount
-        });
         try {
           const tokens = await getSupportedTokens();
           const fromChainSym = ChainSymbol.SRB;
           let toChainSym: any = toChainConfig?.nativeCurrency.symbol;
 
-          console.log("toChainSym", toChainSym)
-
           // Locally map BNB and AVAX symbols to Allbridge-specific codes
           if (toChainSym === 'BNB') toChainSym = ChainSymbol.BSC;
           if (toChainSym === 'AVAX') toChainSym = ChainSymbol.AVA;
 
-          console.log('[SwapAssets] Chain Symbols for Allbridge', { fromChainSym, toChainSym });
-
-          const destTokens = tokens.filter(t => t.chainSymbol === toChainSym);
-          console.log(`[SwapAssets] Available tokens on ${toChainSym}:`, destTokens.map(t => t.symbol));
-
           const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol.toUpperCase() === sellAssetSymbol.toUpperCase());
           const dst = tokens.find(t => t.chainSymbol === toChainSym && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
-
-          console.log('[SwapAssets] Bridge tokens found', {
-            hasSrc: !!src,
-            hasDst: !!dst,
-            srcSymbol: src?.symbol,
-            dstSymbol: dst?.symbol,
-            toChainConfigSymbol: toChainConfig?.nativeCurrency.symbol
-          });
 
           if (src && dst) {
             const sq = await getStellarBridgeQuote({ amount: sellAmount, sourceToken: src, destinationToken: dst, slippageTolerance });
@@ -502,6 +481,38 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setBridgeTxStatus('idle');
   }, [resetSwap]);
 
+  const isInsufficientBalance = useMemo(() => {
+    if (!sellAmount || !selectedSellAsset) return false;
+    return parseFloat(sellAmount) > parseFloat((selectedSellAsset as any)?.balance || '0');
+  }, [sellAmount, selectedSellAsset]);
+
+  const isSameAssetSelected = useMemo(() => {
+    return actionType === 'SWAP' && fromChainId === toChainId && selectedSellAsset?.symbol === selectedBuyAsset?.symbol && !!selectedSellAsset;
+  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
+
+  const hasActiveCrossChainQuote = useMemo(() => {
+    if (actionType !== 'BRIDGE' || isStellar(fromChainId)) return false;
+    return crossChainQuoteSource === 'bridge' ? !!bridgeQuoteData : !!rangoQuote;
+  }, [actionType, fromChainId, crossChainQuoteSource, bridgeQuoteData, rangoQuote]);
+
+  const isErrorState = swapError || isInsufficientBalance || bridgeTxStatus === 'error' || isSameAssetSelected;
+
+  const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
+
+  const buttonLabel = useMemo(() => {
+    if (isFetchingSwapAssets || isFetchingBridgeQuote || isFetchingStellarAssets) return 'FETCHING QUOTES...';
+    if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
+    if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
+    if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
+    if (swapError && actionType === 'SWAP') return 'SWAP FAILED';
+
+    if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
+      return actionType === 'SWAP' ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE & BRIDGE';
+    }
+
+    return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
+  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset]);
+
   // Clear quotes when amount is empty
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
@@ -514,16 +525,28 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return () => clearTimeout(timeoutId);
   }, [fetchUnifiedQuote]);
 
-  // Auto-refresh quotes every 25 seconds
+  // Integrated countdown timer effect for professional quote refreshing
   useEffect(() => {
-    if (!sellAmount || parseFloat(sellAmount) <= 0 || isChainSwitching || showFusionScreen) return;
+    let timer: NodeJS.Timeout;
 
-    const intervalId = setInterval(() => {
-      fetchUnifiedQuote();
-    }, 25000);
+    if (sellAmount && parseFloat(sellAmount) > 0 && !isLoadingExecution && !isChainSwitching && !showFusionScreen && !isErrorState) {
+      timer = setInterval(() => {
+        setTimeToNextRefresh((prev) => {
+          if (prev <= 1) {
+            fetchUnifiedQuote();
+            return 30;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setTimeToNextRefresh(30);
+    }
 
-    return () => clearInterval(intervalId);
-  }, [fetchUnifiedQuote, sellAmount, isChainSwitching, showFusionScreen]);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [sellAmount, isLoadingExecution, isChainSwitching, showFusionScreen, fetchUnifiedQuote, isErrorState]);
 
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset && selectedSellAsset.balance !== undefined) {
@@ -603,10 +626,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           addLocalTransaction({
             hash,
             chainId: fromChainId,
-            type: 'bridge',
+            type: 'swap',
             timestamp: Date.now(),
-            description: `Bridge ${sellAssetSymbol} to ${buyAssetSymbol}`,
-            from: evmAddress,
+            description: `Swap ${sellAssetSymbol} to ${buyAssetSymbol}`,
+            from: stellarAddress,
             status: 'pending',
             network: currentNetwork
           });
@@ -726,9 +749,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             addLocalTransaction({
               hash: swapTxId,
               chainId: fromChainId,
-              type: 'bridge',
+              type: 'crosschain-swap',
               timestamp: Date.now(),
-              description: `Rango Bridge: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+              description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
               from: evmAddress,
               status: 'pending',
               network: currentNetwork
@@ -885,37 +908,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
   }, [isConnected, isChainSwitching, fromChainId, stellarAddress, ammService, selectedSellAsset, updateTokenBalances]);
 
-  const isInsufficientBalance = useMemo(() => {
-    if (!sellAmount || !selectedSellAsset) return false;
-    return parseFloat(sellAmount) > parseFloat((selectedSellAsset as any)?.balance || '0');
-  }, [sellAmount, selectedSellAsset]);
-
-  const isSameAssetSelected = useMemo(() => {
-    return actionType === 'SWAP' && fromChainId === toChainId && selectedSellAsset?.symbol === selectedBuyAsset?.symbol && !!selectedSellAsset;
-  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
-
-  const hasActiveCrossChainQuote = useMemo(() => {
-    if (actionType !== 'BRIDGE' || isStellar(fromChainId)) return false;
-    return crossChainQuoteSource === 'bridge' ? !!bridgeQuoteData : !!rangoQuote;
-  }, [actionType, fromChainId, crossChainQuoteSource, bridgeQuoteData, rangoQuote]);
-
-  const isErrorState = swapError || isInsufficientBalance || bridgeTxStatus === 'error' || isSameAssetSelected;
-
-  const buttonLabel = useMemo(() => {
-    if (isFetchingSwapAssets || isFetchingBridgeQuote || isFetchingStellarAssets) return 'FETCHING QUOTES...';
-    if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
-    if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
-    if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
-    if (swapError && actionType === 'SWAP') return 'SWAP FAILED';
-
-    if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
-      return actionType === 'SWAP' ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE & BRIDGE';
-    }
-
-    return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
-  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset]);
-
-  const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
   const isSwapDisabled = !sellAmount ||
     parseFloat(sellAmount) <= 0 ||
     isInsufficientBalance ||
@@ -1115,8 +1107,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
               {(swapQuote || bridgeQuoteData || rangoQuote || stellarSwapQuote) && !isSameAssetSelected && (
                 <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
-                  <div className="w-1 h-1 rounded-full bg-green-500" />
-                  {crossChainQuoteSource === 'rango' ? '~ Via Rango' : '~ Estimated'}
+                  <div className="w-1.5 h-1.5 rounded-full border border-green-500/30 flex items-center justify-center">
+                    <div className="w-0.5 h-0.5 rounded-full bg-green-500" />
+                  </div>
+                  {crossChainQuoteSource === 'rango' ? '~ Via Rango' : `Refreshing in ${timeLeft}s`}
                 </div>
               )}
             </div>

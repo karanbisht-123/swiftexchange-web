@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
+import { rpcManager } from '../../evm/utils/rpcProvider';
 
 function isMainnet(): boolean {
   return useWalletStore.getState().network === 'mainnet';
@@ -223,17 +225,10 @@ class TransactionRouter {
     session: WalletSession,
     request: TransactionRequest
   ): Promise<TransactionResponse> {
-    console.group('[Router] handleEVMTransaction');
-
     const { provider } = session;
 
-    console.log('Provider:', provider);
-    console.log('Is WalletConnect provider:', this.isWalletConnectProvider(provider));
-
     try {
-      console.log('Preparing EVM transaction...');
       const amountInWei = BigInt(Math.floor(parseFloat(request.amount) * 1e18));
-
       this.ensureProviderNamespaces(provider);
 
       const chainId =
@@ -242,46 +237,68 @@ class TransactionRouter {
           : parseInt(String(session.chainId)) || 1;
       const chainIdCAIP = `eip155:${chainId}`;
 
-      if (provider.setDefaultChain) {
-        try {
-          const availableChains = provider.namespaces?.eip155?.chains || [];
-          if (availableChains.includes(chainIdCAIP)) {
-            provider.setDefaultChain(chainIdCAIP);
-            console.log(`Set default chain to ${chainIdCAIP}`);
-          } else {
-            console.warn(`Chain ${chainIdCAIP} not in namespaces, skipping setDefaultChain`);
-          }
-        } catch (e) {
-          console.warn('Failed to set default chain:', e);
-        }
-      }
-
-      let lastTxHash: string;
-
-      if (isMainnet()) {
-        const txParams: any = {
-          from: request.from,
-          to: request.to,
-          value: '0x' + amountInWei.toString(16),
-        };
-        if (
+      const txParams: any = {
+        from: session.address,
+        to: request.to,
+        value: '0x' + amountInWei.toString(16),
+        data:
           request.data &&
           typeof request.data === 'string' &&
           request.data.startsWith('0x') &&
           request.data.length > 2
-        ) {
-          txParams.data = request.data;
+            ? request.data
+            : '0x',
+        chainId: chainId,
+      };
+
+      const networkCfg = getEVMNetworkConfig(chainId);
+      let gasLimitBigInt = txParams.data === '0x' ? BigInt(21000) : BigInt(100000);
+
+      try {
+        const { estimate, feeData, balance } = await rpcManager.fetchWithFallback(
+          chainId,
+          networkCfg.rpcUrls,
+          async p => {
+            const est = await p.estimateGas({
+              from: txParams.from,
+              to: txParams.to,
+              value: txParams.value,
+              data: txParams.data,
+            });
+            const fd = await p.getFeeData();
+            const bal = await p.getBalance(txParams.from);
+            return { estimate: BigInt(est), feeData: fd, balance: bal };
+          }
+        );
+
+        gasLimitBigInt = estimate + estimate / BigInt(5); // 20% cushion
+
+        const price = feeData.maxFeePerGas || feeData.gasPrice || BigInt(20000000000);
+        const totalRequired = (txParams.data === '0x' ? amountInWei : BigInt(0)) + (gasLimitBigInt * price);
+
+        if (balance < totalRequired) {
+          const have = parseFloat(ethers.formatEther(balance)).toPrecision(6);
+          const need = parseFloat(ethers.formatEther(totalRequired)).toPrecision(6);
+          throw new Error(
+            `Insufficient funds. Have ${have} ${networkCfg.nativeCurrency.symbol}, Need ${need} ${networkCfg.nativeCurrency.symbol}`
+          );
         }
 
-        console.log('Transaction params (Mainnet):', txParams);
+        if (feeData.maxFeePerGas) txParams.maxFeePerGas = '0x' + feeData.maxFeePerGas.toString(16);
+        if (feeData.maxPriorityFeePerGas)
+          txParams.maxPriorityFeePerGas = '0x' + feeData.maxPriorityFeePerGas.toString(16);
+      } catch (simError: any) {
+        if (simError.message.includes('Insufficient funds')) throw simError;
+      }
 
-        // Check if this is a WalletConnect provider
+      txParams.gasLimit = '0x' + gasLimitBigInt.toString(16);
+
+      let lastTxHash: string;
+
+      if (isMainnet()) {
         if (this.isWalletConnectProvider(provider)) {
-          console.log('Using WalletConnect client.request() for EVM');
           const topic = provider.session?.topic;
-          if (!topic) {
-            throw new Error('No WalletConnect session topic found');
-          }
+          if (!topic) throw new Error('No WalletConnect session topic found');
 
           lastTxHash = await provider.client.request({
             topic,
@@ -292,55 +309,26 @@ class TransactionRouter {
             },
           });
         } else {
-          // Direct provider (MetaMask, injected, etc.)
-          console.log('Using direct provider.request() for EVM');
           lastTxHash = await provider.request({
             method: 'eth_sendTransaction',
             params: [txParams],
           });
         }
       } else {
-        // Testnet using ethers
-        console.log('Using ethers.BrowserProvider for Testnet transaction');
         const ethersProvider = new ethers.BrowserProvider(provider);
         const signer = await ethersProvider.getSigner();
-
-        const tx = {
-          to: request.to,
-          value: amountInWei,
-          from: request.from,
-          data:
-            request.data && typeof request.data === 'string' && request.data.startsWith('0x')
-              ? request.data
-              : undefined,
-        };
-
-        console.log('Transaction params (Testnet/Ethers):', tx);
-
-        const txResponse = await signer.sendTransaction(tx);
-        console.log('Transaction sent, waiting for receipt...');
+        const txResponse = await signer.sendTransaction(txParams);
         const receipt = await txResponse.wait();
 
         if (!receipt || receipt.status === 0) {
-          throw new Error('Transaction failed');
+          throw new Error('Transaction failed on-chain');
         }
-
         lastTxHash = txResponse.hash;
       }
 
-      console.log('Transaction sent successfully!');
-      console.log('Transaction hash:', lastTxHash);
-      console.groupEnd();
-
       return { hash: lastTxHash, status: 'success' };
     } catch (error: any) {
-      console.error('EVM transaction failed during signing/submission:', {
-        message: error.message,
-        code: error.code,
-        data: error.data,
-        errorObject: error,
-      });
-      console.groupEnd();
+      console.error('EVM Transaction Error:', error);
       throw error;
     }
   }
@@ -350,8 +338,6 @@ class TransactionRouter {
     request: TransactionRequest
   ): Promise<TransactionResponse> {
     console.group('[Router] handleStellarTransaction');
-
-    console.log(request, '-----++++++++++');
 
     const { provider } = session;
 
@@ -376,47 +362,20 @@ class TransactionRouter {
       console.log('XDR data present:', {
         xdrLength: request.data.xdr.length,
         networkPassphrase: request.data.networkPassphrase,
-        network: request.data.networkKey,
-      });
-
-
-      const STELLAR_PASSPHRASES: Record<string, string> = {
-        pubnet: 'Public Global Stellar Network ; September 2015',
-        mainnet: 'Public Global Stellar Network ; September 2015',
-        PUBLIC: 'Public Global Stellar Network ; September 2015',
-        testnet: 'Test SDF Network ; September 2015',
-        TESTNET: 'Test SDF Network ; September 2015',
-      };
-
-      const networkKeyStr = String(request.networkKey);
-
-      const resolvedPassphrase =
-        request.data.networkPassphrase ||
-        STELLAR_PASSPHRASES[networkKeyStr] ||
-        STELLAR_PASSPHRASES[request.data.network] ||
-        'Test SDF Network ; September 2015';
-
-      const resolvedNetwork =
-        request.data.network ||
-        (['pubnet', 'mainnet', 'PUBLIC'].includes(networkKeyStr) ? 'PUBLIC' : 'TESTNET');
-
-      console.log('Resolved Stellar network params:', {
-        networkKeyStr,
-        resolvedNetwork,
-        resolvedPassphrase,
+        network: request.data.network,
       });
 
       const signParams = {
         xdr: request.data.xdr,
-        networkPassphrase: resolvedPassphrase,
-        network: resolvedNetwork,
+        networkPassphrase: request.data.networkPassphrase || 'Test SDF Network ; September 2015',
+        network: request.data.network || 'TESTNET',
       };
 
       const stellarChainId =
         typeof request.networkKey === 'string'
           ? request.networkKey
           : String(session.chainId) || 'pubnet';
-      const chainCAIP = stellarChainId.includes(':') ? stellarChainId : `stellar:${stellarChainId}`;
+      const chainCAIP = `${stellarChainId}`;
 
       console.log('Using Stellar chain:', chainCAIP);
 
@@ -462,17 +421,14 @@ class TransactionRouter {
           },
         });
       } else {
-        console.log(
-          'Direct provider.request() - calling stellar_signAndSubmitXDR with:',
-          signParams
-        );
+        console.log('Using direct provider.request() for Stellar');
         result = await provider.request({
           method: 'stellar_signAndSubmitXDR',
           params: signParams,
         });
       }
 
-      console.log('Stellar provider response received:', result);
+      console.log('Provider response:', result);
 
       if (result?.status === 'success' || result?.hash || result?.signedXDR) {
         console.log('Stellar transaction successful!');

@@ -109,6 +109,7 @@ export const useEvmSwap = ({
 
   const activeSwapId = useRef<string | null>(null);
   const quoteAbortController = useRef<AbortController | null>(null);
+  const rangoAbortController = useRef<AbortController | null>(null);
   const latestQuoteRequestId = useRef<number>(0);
   const isMounted = useRef<boolean>(true);
   useEffect(() => {
@@ -116,6 +117,7 @@ export const useEvmSwap = ({
     return () => {
       isMounted.current = false;
       quoteAbortController.current?.abort();
+      rangoAbortController.current?.abort();
     };
   }, []);
 
@@ -468,6 +470,7 @@ export const useEvmSwap = ({
     activeSwapId.current = null;
     latestQuoteRequestId.current++;
     quoteAbortController.current?.abort();
+    rangoAbortController.current?.abort();
     updateState({
       quote: null,
       txHash: null,
@@ -488,11 +491,14 @@ export const useEvmSwap = ({
       amount: string,
       slippage: string = "1.0"
     ): Promise<any> => {
+      rangoAbortController.current?.abort();
+      rangoAbortController.current = new AbortController();
+
       updateState({ quoteLoading: true, error: null, rangoQuote: null });
 
       try {
         const toChainTokens = getTokensForChain(toChainId);
-        const toChainAsset = buyAsset.address 
+        const toChainAsset = buyAsset.address
           ? toChainTokens.find((t: any) => t.address.toLowerCase() === buyAsset.address.toLowerCase())
           : toChainTokens.find((t: any) => t.symbol.toUpperCase() === buyAsset.symbol.toUpperCase());
 
@@ -510,6 +516,10 @@ export const useEvmSwap = ({
           slippage
         );
 
+        if (rangoAbortController.current.signal.aborted) {
+          throw new Error('Quote request cancelled');
+        }
+
         if ((!rangoData.result || (Array.isArray(rangoData.result) && rangoData.result.length === 0)) && rangoData.diagnosisMessages) {
           throw rangoData;
         }
@@ -517,6 +527,9 @@ export const useEvmSwap = ({
         updateState({ rangoQuote: rangoData, quoteLoading: false });
         return rangoData;
       } catch (err: any) {
+        if (err?.message === 'Quote request cancelled' || rangoAbortController.current?.signal.aborted) {
+          throw new Error('Quote request cancelled');
+        }
         const errorMsg = parseSwapError(err);
         updateState({ error: errorMsg, quoteLoading: false, rangoQuote: null });
         throw new Error(errorMsg);

@@ -73,7 +73,13 @@ export function parseSwapError(error: any): string {
     errorMessageLower.includes('insufficient eth for gas fees') ||
     errorMessageLower.includes('insufficient balance')
   ) {
-    if (errorMessageLower.includes('need') && errorMessageLower.includes('have')) return processedMessage;
+    if (
+      errorMessageLower.includes('need') ||
+      errorMessageLower.includes('have') ||
+      errorMessageLower.includes('required')
+    ) {
+      return processedMessage;
+    }
     return 'Insufficient native tokens to cover network gas fees.';
   }
 

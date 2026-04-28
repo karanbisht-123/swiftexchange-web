@@ -23,8 +23,8 @@ export const EvmTransactionSuccessModal: React.FC<EvmTransactionSuccessModalProp
   const navigate = useNavigate();
 
   const handleGoToHistory = () => {
-    onDone();
     navigate(`${ROUTES.TRANSACTIONS}?hash=${txHash}`);
+    onDone();
   };
 
   useEffect(() => {

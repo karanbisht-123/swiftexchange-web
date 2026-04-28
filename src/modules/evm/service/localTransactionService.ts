@@ -2,7 +2,7 @@ const STORAGE_KEY = 'swiftex_local_transactions';
 const MAX_TRANSACTIONS = 30;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval' | 'trustline' | 'claim' | 'orderbook';
+export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval' | 'trustline' | 'claim' | 'orderbook' | 'crosschain-swap';
 
 export interface LocalTransaction {
   hash: string;
