@@ -146,15 +146,48 @@ export async function sendCryptoStellarBuild(
     stellarAsset = new StellarSDK.Asset(asset.code, asset.issuer!);
   }
 
+  // 1. Ensure sender has trustline
   ensureTrustlineOp(txBuilder, sourceAccount, stellarAsset);
 
-  txBuilder.addOperation(
-    StellarSDK.Operation.payment({
-      destination: to,
-      asset: stellarAsset,
-      amount: stellarAmount,
-    })
-  );
+  // 2. Check if recipient has trustline (for non-native assets)
+  let useClaimableBalance = false;
+  if (!stellarAsset.isNative()) {
+    try {
+      const destAccount = await server.loadAccount(to);
+      const hasDestTrust = destAccount.balances.some(
+        (b: any) =>
+          b.asset_code === stellarAsset.getCode() && b.asset_issuer === stellarAsset.getIssuer()
+      );
+      if (!hasDestTrust) {
+        useClaimableBalance = true;
+      }
+    } catch (e) {
+      // If account doesn't exist, we must use CreateAccount (for XLM) or it's a failed payment for others.
+      // But for non-native, if it doesn't exist, CreateClaimableBalance still works.
+      useClaimableBalance = true;
+    }
+  }
+
+  if (useClaimableBalance) {
+    txBuilder.addOperation(
+      StellarSDK.Operation.createClaimableBalance({
+        asset: stellarAsset,
+        amount: stellarAmount,
+        claimants: [
+          new StellarSDK.Claimant(to, StellarSDK.Claimant.predicateUnconditional()),
+          new StellarSDK.Claimant(from, StellarSDK.Claimant.predicateUnconditional()),
+        ],
+      })
+    );
+  } else {
+    txBuilder.addOperation(
+      StellarSDK.Operation.payment({
+        destination: to,
+        asset: stellarAsset,
+        amount: stellarAmount,
+      })
+    );
+  }
 
   if (memo) {
     txBuilder.addMemo(memo);
@@ -167,7 +200,7 @@ export async function sendCryptoStellarBuild(
 
   const transaction: StellarSendTransaction = {
     id: generateTransactionId('stellar'),
-    type: 'send',
+    type: useClaimableBalance ? 'claimable_balance' : 'send',
     from,
     to,
     amount: stellarAmount,
@@ -177,7 +210,7 @@ export async function sendCryptoStellarBuild(
     sequence: sourceAccount.sequenceNumber(),
     operations: [
       {
-        type: 'payment',
+        type: useClaimableBalance ? 'create_claimable_balance' : 'payment',
         destination: to,
         asset: asset.isNative ? 'native' : asset.code,
         amount: stellarAmount,

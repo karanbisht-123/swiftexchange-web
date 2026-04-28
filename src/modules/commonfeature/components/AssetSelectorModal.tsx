@@ -1,3 +1,6 @@
+// 
+
+
 import { Search, X, Copy, SearchX, Check } from 'lucide-react';
 import { type FC, useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -31,6 +34,7 @@ const AssetSelectorModal: FC = () => {
   const { assets: walletAssets } = useWalletAssets(currentNetwork);
 
   const isStellarConnected = !!connectedWallets.stellar?.address;
+  const isEvmConnected = !!connectedWallets.evm?.address;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
@@ -64,6 +68,7 @@ const AssetSelectorModal: FC = () => {
 
     return allNetworks.filter(net => {
       if (net.id === STELLAR_CHAIN_ID && !isStellarConnected) return false;
+      if (net.id !== STELLAR_CHAIN_ID && net.id !== 'all' && !isEvmConnected) return false;
       if (net.id === 'all') return true;
       if (actionType === 'SEND') return net.sendEnable;
       if (actionType === 'RECEIVE') return net.receiveEnable;
@@ -71,7 +76,8 @@ const AssetSelectorModal: FC = () => {
       if (actionType === 'BRIDGE') return net.bridgeEnable;
       return true;
     });
-  }, [currentNetwork, actionType, isStellarConnected]);
+  }, [currentNetwork, actionType, isStellarConnected, isEvmConnected]);
+
   const allNetworkOption = networks[0];
   const chainNetworks = networks.slice(1);
 
@@ -93,6 +99,7 @@ const AssetSelectorModal: FC = () => {
     } else if (effectiveActionType === 'RECEIVE') {
       for (const config of CHAIN_REGISTRY) {
         if (config.chainId === STELLAR_CHAIN_ID && !isStellarConnected) continue;
+        if (config.chainId !== STELLAR_CHAIN_ID && !isEvmConnected) continue;
         if (config.receiveEnable) {
           result.push({
             id: `receive-${config.chainId}-native`, symbol: config.nativeCurrency.symbol, name: config.nativeCurrency.name, image: config.nativeCurrency.logoURI, chainId: config.chainId, isNative: true
@@ -168,7 +175,7 @@ const AssetSelectorModal: FC = () => {
       if (!a.isNative && b.isNative) return 1;
       return a.symbol.toLowerCase().localeCompare(b.symbol.toLowerCase());
     });
-  }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType]);
+  }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType, isStellarConnected, isEvmConnected]);
 
   const handleSelect = useCallback((asset: any) => {
     if (onSelect) {
@@ -257,7 +264,6 @@ const AssetSelectorModal: FC = () => {
           <div className="w-9 h-1 rounded-full bg-bg-tertiary" />
         </div>
 
-        {/* Header */}
         <div className="px-5 pt-3 pb-3 flex items-center justify-between">
           <h2 className="text-base font-bold text-text-primary uppercase tracking-widest">
             {effectiveActionType}
@@ -270,7 +276,6 @@ const AssetSelectorModal: FC = () => {
           </button>
         </div>
 
-        {/* Search */}
         <div className="px-5 pb-3">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={16} />

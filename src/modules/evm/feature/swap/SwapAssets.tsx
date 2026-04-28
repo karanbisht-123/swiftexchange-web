@@ -23,7 +23,7 @@ import { useAssetSelectorModal } from '../../../commonfeature/components/useAsse
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
 import StellarTransactionModal from '../../../steallr/components/modals/StellarTransactionModal';
-import { EvmActionGuard } from '../../components/EvmActionGuard';
+import { ActionGuard } from '../../../commonfeature/components/ActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
 import FusionQuoteScreen from './components/FusionQuoteScreen';
 import { parseSwapError } from '../../utils/swapErrorHandler';
@@ -104,6 +104,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const actionType = useMemo(() => fromChainId === toChainId ? 'SWAP' : 'BRIDGE', [fromChainId, toChainId]);
 
+  const requiredWallets = useMemo(() => {
+    const wallets = new Set<WalletType>();
+    if (isStellar(fromChainId)) wallets.add(WalletType.STELLAR);
+    else wallets.add(WalletType.EVM);
+
+    if (actionType === 'BRIDGE') {
+      if (isStellar(toChainId)) wallets.add(WalletType.STELLAR);
+      else wallets.add(WalletType.EVM);
+    }
+    return Array.from(wallets);
+  }, [actionType, fromChainId, toChainId]);
+
   const { openAssetSelector } = useAssetSelectorModal();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -135,6 +147,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     senderAddress: evmAddress,
     getProvider,
   });
+
+
 
   const [showFusionScreen, setShowFusionScreen] = useState(false);
   const [isFusionLoading, setIsFusionLoading] = useState(false);
@@ -330,6 +344,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       return;
     }
 
+    setCrossChainWarning(null);
+
     if (actionType === 'SWAP') {
       if (isStellar(fromChainId) && ammService) {
         if (!selectedSellAsset || !selectedBuyAsset) return;
@@ -373,7 +389,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           };
           await fetchSwapQuoteInternal(quoteRequest, selectedSellAsset as any, selectedBuyAsset as any);
         } catch (err: any) {
-          if (err?.message === 'Quote request cancelled') return;
+          if (err?.message === 'Quote request cancelled' || err?.message === 'Quote request superseded') return;
           console.error('Swap quote error:', err);
         }
       }
@@ -455,11 +471,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           setBridgeQuoteData(null);
           try {
             await fetchRangoQuote(fromChainId, toChainId, selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
-          } catch (rangoErr) {
+          } catch (rangoErr: any) {
+            if (rangoErr?.message === 'Quote request cancelled' || rangoErr?.message === 'Quote request superseded') return;
             console.error('Rango fallback also failed:', rangoErr);
             setCrossChainWarning(parseSwapError(rangoErr));
           }
         } else {
+          if (err?.message === 'Quote request cancelled' || err?.message === 'Quote request superseded') return;
           console.error('Rango quote failed:', err);
           const customError = parseSwapError(err);
           setCrossChainWarning(customError);
@@ -512,24 +530,31 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
     return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
   }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset]);
-
-  // Clear quotes when amount is empty
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
+    } else {
+      if (bridgeErrorMsg) setBridgeErrorMsg(null);
+      if (bridgeTxStatus === 'error') setBridgeTxStatus('idle');
     }
-  }, [sellAmount, resetQuotes]);
+  }, [sellAmount, resetQuotes, bridgeErrorMsg, bridgeTxStatus]);
+
+  useEffect(() => {
+    setTimeToNextRefresh(30);
+    resetSwap();
+  }, [fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol, resetSwap]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => { fetchUnifiedQuote(); }, 800);
     return () => clearTimeout(timeoutId);
   }, [fetchUnifiedQuote]);
 
-  // Integrated countdown timer effect for professional quote refreshing
   useEffect(() => {
     let timer: NodeJS.Timeout;
 
-    if (sellAmount && parseFloat(sellAmount) > 0 && !isLoadingExecution && !isChainSwitching && !showFusionScreen && !isErrorState) {
+    const shouldPauseTimer = isLoadingExecution || isChainSwitching || showFusionScreen || isSameAssetSelected;
+
+    if (sellAmount && parseFloat(sellAmount) > 0 && !shouldPauseTimer) {
       timer = setInterval(() => {
         setTimeToNextRefresh((prev) => {
           if (prev <= 1) {
@@ -540,13 +565,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         });
       }, 1000);
     } else {
-      setTimeToNextRefresh(30);
+
+      if (!shouldPauseTimer) setTimeToNextRefresh(30);
     }
 
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [sellAmount, isLoadingExecution, isChainSwitching, showFusionScreen, fetchUnifiedQuote, isErrorState]);
+  }, [sellAmount, isLoadingExecution, isChainSwitching, showFusionScreen, fetchUnifiedQuote, isSameAssetSelected]);
 
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset && selectedSellAsset.balance !== undefined) {
@@ -831,7 +857,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         const fallback = fromSupported.includes('USDC') ? 'USDC' : (fromSupported.includes('XLM') ? 'XLM' : fromSupported[0]);
         if (fallback) {
           setSellAssetSymbol(fallback);
-          setSellAssetAddress(""); // Fallback resets address to symbol-only search
+          setSellAssetAddress("");
         }
       }
 
@@ -1110,7 +1136,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   <div className="w-1.5 h-1.5 rounded-full border border-green-500/30 flex items-center justify-center">
                     <div className="w-0.5 h-0.5 rounded-full bg-green-500" />
                   </div>
-                  {crossChainQuoteSource === 'rango' ? '~ Via Rango' : `Refreshing in ${timeLeft}s`}
+                  {`Refreshing in ${timeLeft}s`}
                 </div>
               )}
             </div>
@@ -1315,7 +1341,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             </div>
           </div>
 
-          <EvmActionGuard title="Connect Wallet" message="You need an active EVM connection to transact." disabled={isLoadingExecution}>
+          <ActionGuard
+            title="Connect Wallet"
+            requiredWallets={requiredWallets}
+            disabled={isLoadingExecution}
+          >
             <TransactionButton
               label={buttonLabel}
               isLoading={isLoadingExecution}
@@ -1325,21 +1355,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
               className={`relative z-10 ${isErrorState && !isLoadingExecution ? '!rounded-t-none border-t-red-500/20' : ''}`}
             />
-          </EvmActionGuard>
+          </ActionGuard>
         </div>
 
-        {swapTxHash && fromChainConfig && actionType === 'SWAP' && (
+        {(swapTxHash || (isStellar(fromChainId) && bridgeTxHash)) && fromChainConfig && actionType === 'SWAP' && (
           isStellar(fromChainId) ? (
             <StellarTransactionModal
-              isOpen={!!swapTxHash}
+              isOpen={!!(swapTxHash || bridgeTxHash)}
               onClose={handleReset}
               status="success"
               type="Swap"
-              hash={swapTxHash}
+              hash={(swapTxHash || bridgeTxHash)!}
             />
           ) : (
             <EvmTransactionSuccessModal
-              txHash={swapTxHash}
+              txHash={swapTxHash!}
               explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${swapTxHash}`}
               onDone={handleReset}
               networkName={fromChainConfig.name}

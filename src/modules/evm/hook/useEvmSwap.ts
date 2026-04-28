@@ -528,7 +528,8 @@ export const useEvmSwap = ({
         return rangoData;
       } catch (err: any) {
         if (err?.message === 'Quote request cancelled' || rangoAbortController.current?.signal.aborted) {
-          throw new Error('Quote request cancelled');
+          // Silent return for cancelled requests
+          return;
         }
         const errorMsg = parseSwapError(err);
         updateState({ error: errorMsg, quoteLoading: false, rangoQuote: null });

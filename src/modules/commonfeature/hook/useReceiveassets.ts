@@ -82,15 +82,21 @@ export const useReceiveAssets = () => {
   }, [assets, assetParam, chainIdParam]);
 
   useEffect(() => {
-    // Only update search params if no valid asset is selected from URL AND we have assets
-    if (!currentAsset && assets.length > 0) {
-      const first = assets[0];
-      const targetChainId = first.chainId === 9000000 ? 'stellar' : String(first.chainId);
-      if (assetParam !== first.symbol || chainIdParam !== targetChainId) {
-        setSearchParams({ asset: first.symbol, chainId: targetChainId }, { replace: true });
+    if (assets.length === 0) return;
+
+    const connectedFirst = assets.find(a => !!connectedWallets[a.walletType as WalletType]);
+    const fallback = connectedFirst ?? assets[0];
+    const targetChainId = fallback.chainId === 9000000 ? 'stellar' : String(fallback.chainId);
+
+    // Redirect if no asset selected, OR if the selected asset's wallet isn't connected
+    const selectedWalletMissing = currentAsset && !connectedWallets[currentAsset.walletType as WalletType];
+
+    if (!currentAsset || selectedWalletMissing) {
+      if (assetParam !== fallback.symbol || chainIdParam !== targetChainId) {
+        setSearchParams({ asset: fallback.symbol, chainId: targetChainId }, { replace: true });
       }
     }
-  }, [currentAsset, assets, assetParam, chainIdParam, setSearchParams]);
+  }, [currentAsset, assets, assetParam, chainIdParam, setSearchParams, connectedWallets]);
 
   const walletAddress = useMemo(() => {
     if (!currentAsset) return '';

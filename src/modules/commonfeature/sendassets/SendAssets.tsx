@@ -44,7 +44,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     copyToClipboard,
     formError,
     buttonLabel,
-    needsTrustline
+    needsTrustline,
+    recipientNeedsTrustline,
+    isFetchingRecipientTrust
   } = useSendAsset(onBack);
 
   const handleRecipientChange = useCallback(
@@ -192,6 +194,34 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <div className="bg-bg-secondary/50 p-3.5 rounded-lg">
                 <label className="block text-[10px] font-bold text-text-muted uppercase mb-1">Memo</label>
                 <div className="text-sm text-text-primary font-medium break-all">{memo}</div>
+              </div>
+            )}
+
+            {recipientNeedsTrustline && currentAsset.type === 'stellar' && (
+              <div className="bg-brand-primary/5 border border-brand-primary/20 rounded-xl p-3.5 flex gap-3 items-center">
+                <div className="w-8 h-8 rounded-full bg-brand-primary/10 flex items-center justify-center shrink-0">
+                  <Info size={14} className="text-brand-primary" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-brand-primary leading-tight">Claimable Balance</p>
+                  <p className="text-[9px] text-text-secondary font-medium opacity-80 leading-tight mt-0.5">
+                    Recipient lacks trustline. Asset will be sent as a claimable balance.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {needsTrustline && currentAsset.type === 'stellar' && (
+              <div className="bg-brand-primary/5 border border-brand-primary/20 rounded-xl p-3.5 flex gap-3 items-center">
+                <div className="w-8 h-8 rounded-full bg-brand-primary/10 flex items-center justify-center shrink-0">
+                  <RefreshCw size={14} className="text-brand-primary" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-brand-primary leading-tight">Add Trustline</p>
+                  <p className="text-[9px] text-text-secondary font-medium opacity-80 leading-tight mt-0.5">
+                    Your account will first add a trustline for {currentAsset.symbol} in this transaction.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -529,10 +559,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
         <TransactionButton
           label={buttonLabel}
-          loadingLabel="Calculating Fees..."
-          isLoading={isEstimatingFees}
+          loadingLabel={isFetchingRecipientTrust ? "Checking Recipient..." : "Calculating Fees..."}
+          isLoading={isEstimatingFees || isFetchingRecipientTrust}
           isDisabled={!isFormValid && !needsTrustline}
-          onClick={needsTrustline ? handleConfirmTransaction : handleReviewTransaction}
+          onClick={handleReviewTransaction}
           className="mt-2"
         />
       </div>

@@ -243,9 +243,9 @@ class TransactionRouter {
         value: '0x' + amountInWei.toString(16),
         data:
           request.data &&
-          typeof request.data === 'string' &&
-          request.data.startsWith('0x') &&
-          request.data.length > 2
+            typeof request.data === 'string' &&
+            request.data.startsWith('0x') &&
+            request.data.length > 2
             ? request.data
             : '0x',
         chainId: chainId,
@@ -338,20 +338,11 @@ class TransactionRouter {
     request: TransactionRequest
   ): Promise<TransactionResponse> {
     console.group('[Router] handleStellarTransaction');
+    console.log(request, '-----++++++++++');
 
     const { provider } = session;
 
     try {
-      console.log('Preparing Stellar transaction...');
-      console.log('Session info:', {
-        hasProvider: !!provider,
-        hasClient: !!provider?.client,
-        hasSession: !!provider?.session,
-        sessionTopic: provider?.session?.topic,
-        chainId: session.chainId,
-        requestNetworkKey: request.networkKey,
-      });
-
       if (!request.data?.xdr) {
         console.error('Missing XDR data');
         throw new Error('Stellar transaction requires XDR data');
@@ -362,20 +353,61 @@ class TransactionRouter {
       console.log('XDR data present:', {
         xdrLength: request.data.xdr.length,
         networkPassphrase: request.data.networkPassphrase,
-        network: request.data.network,
+        networkKey: request.networkKey,
+      });
+
+      console.log('Session info:', {
+        hasProvider: !!provider,
+        hasClient: !!provider?.client,
+        hasSession: !!provider?.session,
+        sessionTopic: provider?.session?.topic,
+        chainId: session.chainId,
+        requestNetworkKey: request.networkKey,
+      });
+
+
+      const STELLAR_PASSPHRASES: Record<string, string> = {
+        pubnet: 'Public Global Stellar Network ; October 2015',
+        mainnet: 'Public Global Stellar Network ; October 2015',
+        PUBLIC: 'Public Global Stellar Network ; October 2015',
+        publink: 'Public Global Stellar Network ; October 2015',
+        testnet: 'Test SDF Network ; September 2015',
+        TESTNET: 'Test SDF Network ; September 2015',
+      };
+
+      const networkKeyStr = String(request.networkKey);
+
+      const resolvedPassphrase =
+        request.data.networkPassphrase ||
+        STELLAR_PASSPHRASES[networkKeyStr] ||
+        STELLAR_PASSPHRASES[request.data.network] ||
+        'Test SDF Network ; September 2015';
+
+      const resolvedNetwork =
+        request.data.network ||
+        (['pubnet', 'mainnet', 'PUBLIC', 'publink'].includes(networkKeyStr) ? 'PUBLIC' : 'TESTNET');
+
+      console.log('Resolved Stellar network params:', {
+        networkKeyStr,
+        resolvedNetwork,
+        resolvedPassphrase,
       });
 
       const signParams = {
         xdr: request.data.xdr,
-        networkPassphrase: request.data.networkPassphrase || 'Test SDF Network ; September 2015',
-        network: request.data.network || 'TESTNET',
+        networkPassphrase: resolvedPassphrase,
+        network: resolvedNetwork,
       };
 
+      // ✅ FIX 2: must include stellar: prefix for CAIP — current code strips it
       const stellarChainId =
         typeof request.networkKey === 'string'
           ? request.networkKey
           : String(session.chainId) || 'pubnet';
-      const chainCAIP = `${stellarChainId}`;
+
+      const chainCAIP = stellarChainId.includes(':')
+        ? stellarChainId
+        : `stellar:${stellarChainId}`;
 
       console.log('Using Stellar chain:', chainCAIP);
 
@@ -396,6 +428,7 @@ class TransactionRouter {
       console.log('Calling Stellar transaction method...');
 
       let result: any;
+
       if (this.isWalletConnectProvider(provider)) {
         console.log('Using WalletConnect client.request() for Stellar');
         const topic = provider.session?.topic;
@@ -412,6 +445,14 @@ class TransactionRouter {
           params: signParams,
         });
 
+        console.log('=== STELLAR WC DEBUG ===', {
+          topic,
+          chainCAIP,
+          availableChains: provider.namespaces?.stellar?.chains,
+          sessionChains: provider.session?.namespaces?.stellar?.chains,
+          sessionAccounts: provider.session?.namespaces?.stellar?.accounts,
+        });
+
         result = await provider.client.request({
           topic,
           chainId: chainCAIP,
@@ -421,14 +462,14 @@ class TransactionRouter {
           },
         });
       } else {
-        console.log('Using direct provider.request() for Stellar');
+        console.log('Direct provider.request() - calling stellar_signAndSubmitXDR with:', signParams);
         result = await provider.request({
           method: 'stellar_signAndSubmitXDR',
           params: signParams,
         });
       }
 
-      console.log('Provider response:', result);
+      console.log('Stellar provider response received:', result);
 
       if (result?.status === 'success' || result?.hash || result?.signedXDR) {
         console.log('Stellar transaction successful!');
@@ -447,6 +488,7 @@ class TransactionRouter {
 
       console.error('Stellar transaction failed - unexpected response:', result);
       throw new Error('Stellar transaction failed - unexpected response format');
+
     } catch (error: any) {
       console.error('Stellar transaction failed:', {
         message: error.message,

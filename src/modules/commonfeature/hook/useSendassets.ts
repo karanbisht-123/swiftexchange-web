@@ -67,6 +67,8 @@ export const useSendAsset = (onBack?: () => void) => {
   const [isEstimatingFees, setIsEstimatingFees] = useState(false);
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
   const [hasTrustline, setHasTrustline] = useState<boolean | null>(null);
+  const [recipientHasTrustline, setRecipientHasTrustline] = useState<boolean | null>(null);
+  const [isFetchingRecipientTrust, setIsFetchingRecipientTrust] = useState(false);
 
   const allAssets: EnhancedSendAsset[] = useMemo(() => {
     return storeAssets
@@ -160,6 +162,27 @@ export const useSendAsset = (onBack?: () => void) => {
   }, [currentAsset, senderAddress]);
 
   useEffect(() => {
+    const checkRecipientTrust = async () => {
+      if (currentAsset?.type === 'stellar' && !currentAsset.isNative && recipientAddress && validateAddress(recipientAddress, { addressType: 'stellar', network: currentAsset.network })) {
+        setIsFetchingRecipientTrust(true);
+        try {
+          const exists = await checkTrustlineExists(recipientAddress, currentAsset.symbol, currentAsset.tokenAddress || '');
+          setRecipientHasTrustline(exists);
+        } catch (e) {
+          setRecipientHasTrustline(false);
+        } finally {
+          setIsFetchingRecipientTrust(false);
+        }
+      } else {
+        setRecipientHasTrustline(true);
+        setIsFetchingRecipientTrust(false);
+      }
+    };
+    const timer = setTimeout(checkRecipientTrust, 500);
+    return () => clearTimeout(timer);
+  }, [currentAsset, recipientAddress]);
+
+  useEffect(() => {
     const estimate = async () => {
       if (!currentAsset || !senderAddress || !recipientAddress || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
         setEstimatedFees(null); return;
@@ -233,7 +256,17 @@ export const useSendAsset = (onBack?: () => void) => {
       console.log('[useSendAsset] Router response:', res);
 
       if (res.status === 'success') {
-        addLocalTransaction({ hash: res.hash || '', chainId: currentAsset.type === 'evm' ? Number(currentAsset.networkKey) : 9000000, type: 'send', timestamp: Date.now(), status: 'success', from: senderAddress, network: currentNetwork, description: `Send ${amount} ${currentAsset.symbol}` });
+        const txType = res.hash === 'stellar_submitted' || !res.hash ? 'send' : 'send'; // Default to send for history consistency
+        addLocalTransaction({ 
+          hash: res.hash || '', 
+          chainId: currentAsset.type === 'evm' ? Number(currentAsset.networkKey) : 9000000, 
+          type: txType, 
+          timestamp: Date.now(), 
+          status: 'success', 
+          from: senderAddress, 
+          network: currentNetwork, 
+          description: `Send ${amount} ${currentAsset.symbol}${recipientHasTrustline === false ? ' (Claimable)' : ''}` 
+        });
         setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
         setTimeout(() => { setRecipientAddress(''); setAmount(''); setMemo(''); setTransactionState({ txHash: null, step: 'form', error: null }); }, 3000);
       } else {
@@ -290,6 +323,8 @@ export const useSendAsset = (onBack?: () => void) => {
     formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (!validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (new BigNumber(amount || '0').isGreaterThan(balance) && hasTrustline) ? 'Insufficient funds' : null,
     assets: allAssets, availableChains: [], onBack,
     needsTrustline: hasTrustline === false,
-    buttonLabel: (hasTrustline === false) ? 'Trust Asset' : (transactionState.step === 'review' ? 'Send Now' : 'Continue to Review')
+    recipientNeedsTrustline: recipientHasTrustline === false,
+    isFetchingRecipientTrust,
+    buttonLabel: (hasTrustline === false) ? 'Add Trust & Send' : (transactionState.step === 'review' ? 'Send Now' : 'Continue to Review')
   };
 };

@@ -272,6 +272,11 @@ export class AmmSwapService extends StellarBaseService {
     if (result.success && result.hash) {
       return result.hash;
     }
+    if (result.success && !result.hash) {
+      return 'Transaction submitted successfully!';
+    }
+
+    throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
 
     throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
   }
