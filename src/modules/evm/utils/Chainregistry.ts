@@ -173,7 +173,12 @@ export function getChainsForNetwork(networkType: NetworkType): ChainConfig[] {
 }
 
 export function isEvmChain(chainId: number | string): boolean {
-    return chainId !== 'pubnet' && chainId !== 'testnet' && chainId !== 'dydx-mainnet-1' && chainId !== 0;
+    return (
+        chainId !== 'pubnet' &&
+        chainId !== 'testnet' &&
+        !(typeof chainId === 'string' && chainId.startsWith('dydx-')) &&
+        chainId !== 0
+    );
 }
 
 export function getEvmChainsForNetwork(networkType: NetworkType): ChainConfig[] {

@@ -39,7 +39,22 @@ export function mapIChainToChainConfig(chain: IChain): ChainConfig {
         decimals: chain.nativeToken.decimals,
         logoURI: chain.nativeToken.logoURI,
         coingeckoId: chain.nativeChainKey,
+        isNative: true,
       },
+      ...(Array.isArray(chain.supportedTokenList)
+        ? chain.supportedTokenList
+            .filter((t: any) => t.symbol !== chain.nativeToken.symbol)
+            .map((t: any) => ({
+              asset: t.asset,
+              type: t.type,
+              address: t.address,
+              name: t.name,
+              symbol: t.symbol,
+              decimals: t.decimals,
+              logoURI: t.logoURI,
+              isNative: false,
+            }))
+        : []),
     ],
   } as unknown as ChainConfig;
 }

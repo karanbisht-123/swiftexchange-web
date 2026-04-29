@@ -38,7 +38,7 @@ export interface EnhancedSendAsset {
   tokenAddress?: string;
   decimals: number;
   isNative: boolean;
-  type: 'evm' | 'stellar';
+  type: 'evm' | 'stellar' | 'dydx';
   networkKey: number | string;
   baseFee: number;
   balance: number;
@@ -74,15 +74,15 @@ export const useSendAsset = (onBack?: () => void) => {
     return storeAssets
       .filter(a => (a.balance || 0) > 0)
       .map(asset => {
-        const type = asset.chainType === 'stellar' ? 'stellar' : 'evm' as const;
+        const type = asset.chainType === 'stellar' ? 'stellar' : (asset.chainType === 'dydx' ? 'dydx' : 'evm' as const);
         const chainId = asset.chainId || (type === 'stellar' ? 'pubnet' : 0);
         return {
           value: asset.id, symbol: asset.symbol, label: `${asset.symbol} (${asset.chainName})`, logo: asset.image,
-          network: asset.chainName, chainId, addressType: type, walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
+          network: asset.chainName, chainId, addressType: type === 'dydx' ? 'cosmos' : type, walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
           tokenAddress: asset.address, decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
           isNative: asset.isNative || false, type, networkKey: chainId,
-          baseFee: type === 'stellar' ? 0.00001 : 0.001, balance: asset.balance || 0,
-          blockExplorerUrl: (asset as any).blockExplorerUrl
+          baseFee: type === 'stellar' ? 0.00001 : (type === 'dydx' ? 0.0001 : 0.001), balance: asset.balance || 0,
+          blockExplorerUrl: asset.blockExplorerUrl
         };
       });
   }, [storeAssets]);
@@ -111,7 +111,13 @@ export const useSendAsset = (onBack?: () => void) => {
     }
   }, [currentAsset, allAssets, assetParam, chainIdParam, setSearchParams]);
 
-  const senderAddress = useMemo(() => currentAsset ? connectedWallets[currentAsset.walletType]?.address || null : null, [connectedWallets, currentAsset]);
+  const senderAddress = useMemo(() => {
+    if (!currentAsset) return null;
+    if (currentAsset.type === 'dydx') {
+      return (connectedWallets.evm as any)?.dydxAddress || (connectedWallets.cosmos as any)?.dydxAddress || localStorage.getItem('sx_dkm_addr');
+    }
+    return connectedWallets[currentAsset.walletType]?.address || null;
+  }, [connectedWallets, currentAsset]);
 
   const fetchBalance = useCallback(async () => {
     if (!currentAsset || !senderAddress) return;
@@ -129,9 +135,12 @@ export const useSendAsset = (onBack?: () => void) => {
           config.rpcUrls,
           async (provider) => fetchSingleTokenBalance(senderAddress, provider, currentAsset.tokenAddress || '', currentAsset.isNative, currentAsset.decimals)
         );
-      } else {
+      } else if (currentAsset.type === 'stellar') {
         const key = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
         balStr = await getStellarBalance(key, senderAddress);
+      } else {
+        // dydx balance is already in storeAssets, but we can refresh via service if needed
+        balStr = currentAsset.balance.toString();
       }
       setBalance(balStr);
     } catch (e) {
@@ -192,8 +201,10 @@ export const useSendAsset = (onBack?: () => void) => {
         let fees;
         if (currentAsset.type === 'evm') {
           fees = await estimateEVMFees(Number(currentAsset.networkKey), senderAddress, recipientAddress, amount || '0.0001', currentAsset.isNative ? undefined : currentAsset.tokenAddress, currentAsset.decimals);
-        } else {
+        } else if (currentAsset.type === 'stellar') {
           fees = await estimateStellarFees();
+        } else {
+          fees = { totalCost: '0.0001', error: null }; // dYdX fees are very low/fixed for now
         }
         setEstimatedFees(fees);
       } catch (e: any) {
@@ -235,11 +246,13 @@ export const useSendAsset = (onBack?: () => void) => {
         }
 
         req = { type: 'evm', network: currentAsset.network, networkKey: Number(currentAsset.networkKey), from: senderAddress, to, amount: sendAmt, data };
-      } else {
+        console.log('[useSendAsset] Sending transaction request to router:', req);
+        const res = await sendTransaction(req);
+        if (res.status !== 'success') throw new Error(res.error || 'Failed');
+        setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
+      } else if (currentAsset.type === 'stellar') {
         console.log('[useSendAsset] Building Stellar transaction request');
         const tx = await sendCryptoStellarBuild(senderAddress, recipientAddress, amount, memo ? { memo } : {}, { code: currentAsset.symbol, issuer: currentAsset.tokenAddress, isNative: currentAsset.isNative });
-        console.log('[useSendAsset] Stellar build result:', { xdr: tx.xdr });
-
         req = {
           type: 'stellar',
           network: currentAsset.network,
@@ -249,29 +262,38 @@ export const useSendAsset = (onBack?: () => void) => {
           amount,
           data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' }
         };
-      }
+        console.log('[useSendAsset] Sending transaction request to router:', req);
+        const res = await sendTransaction(req);
+        if (res.status !== 'success') throw new Error(res.error || 'Failed');
+        setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
+      } else {
+        // dYdX direct handling via service
+        console.log('[useSendAsset] Handling dYdX transaction via service');
+        const { dydxWalletService } = await import('../../dydx/service/dydxWalletService');
+        let result;
+        if (currentAsset.symbol === 'USDC') {
+          // USDC is collateral, needs withdraw
+          result = await dydxWalletService.withdraw(amount, recipientAddress);
+        } else {
+          // Native DYDX
+          result = await dydxWalletService.send(amount, recipientAddress);
+        }
 
-      console.log('[useSendAsset] Sending transaction request to router:', req);
-      const res = await sendTransaction(req);
-      console.log('[useSendAsset] Router response:', res);
-
-      if (res.status === 'success') {
-        const txType = res.hash === 'stellar_submitted' || !res.hash ? 'send' : 'send'; // Default to send for history consistency
+        if (!result.success) throw new Error(result.error || 'Transaction failed');
+        
         addLocalTransaction({ 
-          hash: res.hash || '', 
-          chainId: currentAsset.type === 'evm' ? Number(currentAsset.networkKey) : 'pubnet', 
-          type: txType, 
+          hash: result.transactionHash || 'unknown', 
+          chainId: currentAsset.chainId, 
+          type: 'send', 
           timestamp: Date.now(), 
           status: 'success', 
           from: senderAddress, 
           network: currentNetwork, 
-          description: `Send ${amount} ${currentAsset.symbol}${recipientHasTrustline === false ? ' (Claimable)' : ''}` 
+          description: `Send ${amount} ${currentAsset.symbol} (dYdX)` 
         });
-        setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
+
+        setTransactionState(p => ({ ...p, txHash: result.transactionHash || 'unknown', step: 'success' }));
         setTimeout(() => { setRecipientAddress(''); setAmount(''); setMemo(''); setTransactionState({ txHash: null, step: 'form', error: null }); }, 3000);
-      } else {
-        console.error('[useSendAsset] Transaction status failed:', res.error);
-        throw new Error(res.error || 'Failed');
       }
     } catch (e: any) {
       console.error('[useSendAsset] Transaction exception caught:', e);

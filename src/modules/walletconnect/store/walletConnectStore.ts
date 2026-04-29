@@ -247,6 +247,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           usePortfolioStore.getState().clearAssetsByType('evm');
         } else if (type === 'stellar') {
           usePortfolioStore.getState().clearAssetsByType('stellar');
+        } else if (type === 'cosmos') {
+          usePortfolioStore.getState().clearAssetsByType('dydx');
         }
       }
 
@@ -349,6 +351,8 @@ export const initWalletListener = async () => {
             usePortfolioStore.getState().clearAssetsByType('evm');
           } else if (type === 'stellar') {
             usePortfolioStore.getState().clearAssetsByType('stellar');
+          } else if (type === 'cosmos') {
+            usePortfolioStore.getState().clearAssetsByType('dydx');
           }
 
           return;

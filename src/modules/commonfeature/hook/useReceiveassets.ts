@@ -24,7 +24,13 @@ export const useReceiveAssets = () => {
     const list: any[] = [];
     for (const config of CHAIN_REGISTRY) {
       if (config.receiveEnable) {
-        const nativeId = `${config.chainId === 'pubnet' ? 'stellar' : 'evm'}-${config.chainId}-native`;
+        const isStellar = config.chainId === 'pubnet';
+        const isDydx = String(config.chainId).startsWith('dydx');
+        const chainPrefix = isStellar ? 'stellar' : (isDydx ? 'cosmos' : 'evm');
+        const walletType = isStellar ? WalletType.STELLAR : (isDydx ? WalletType.EVM : WalletType.EVM);
+        const addressType = isStellar ? 'stellar' : (isDydx ? 'cosmos' : 'evm');
+
+        const nativeId = `${chainPrefix}-${config.chainId}-native`;
         list.push({
           id: nativeId,
           value: nativeId,
@@ -34,17 +40,17 @@ export const useReceiveAssets = () => {
           label: `${config.nativeCurrency.symbol} (${config.name})`,
           network: config.name,
           chainId: config.chainId,
-          chainType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
-          walletType: config.chainId === 'pubnet' ? WalletType.STELLAR : WalletType.EVM,
+          chainType: addressType,
+          walletType,
           decimals: config.nativeCurrency.decimals,
           tokenAddress: config.nativeCurrency.address,
-          addressType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
+          addressType,
           isNative: true
         });
 
         config.assets.forEach(asset => {
           if (asset.symbol === config.nativeCurrency.symbol) return;
-          const assetId = `${config.chainId === 'pubnet' ? 'stellar' : 'evm'}-${config.chainId}-${asset.symbol}`;
+          const assetId = `${chainPrefix}-${config.chainId}-${asset.symbol}`;
           list.push({
             id: assetId,
             value: assetId,
@@ -54,11 +60,11 @@ export const useReceiveAssets = () => {
             label: `${asset.symbol} (${config.name})`,
             network: config.name,
             chainId: config.chainId,
-            chainType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
-            walletType: config.chainId === 'pubnet' ? WalletType.STELLAR : WalletType.EVM,
+            chainType: addressType,
+            walletType,
             decimals: asset.decimals,
             tokenAddress: asset.address,
-            addressType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
+            addressType,
             isNative: false
           });
         });
@@ -72,9 +78,12 @@ export const useReceiveAssets = () => {
 
   const currentAsset = useMemo(() => {
     if (assetParam && chainIdParam) {
+      // Normalize chainId for search
+      const normalizedParam = chainIdParam === 'dydx' ? 'dydx-mainnet-1' : chainIdParam;
+      
       return assets.find(a => {
         const aChainIdStr = String(a.chainId);
-        const paramIdStr = chainIdParam === 'stellar' ? 'pubnet' : chainIdParam;
+        const paramIdStr = normalizedParam === 'stellar' ? 'pubnet' : normalizedParam;
         return a.symbol === assetParam && aChainIdStr === paramIdStr;
       });
     }
@@ -84,12 +93,25 @@ export const useReceiveAssets = () => {
   useEffect(() => {
     if (assets.length === 0) return;
 
-    const connectedFirst = assets.find(a => !!connectedWallets[a.walletType as WalletType]);
+    const connectedFirst = assets.find(a => {
+      const isDydx = a.chainId && String(a.chainId).startsWith('dydx');
+      if (isDydx) {
+        return !!(connectedWallets.evm as any)?.dydxAddress || !!(connectedWallets.cosmos as any)?.dydxAddress || !!localStorage.getItem('sx_dkm_addr');
+      }
+      return !!connectedWallets[a.walletType as WalletType];
+    });
+
     const fallback = connectedFirst ?? assets[0];
     const targetChainId = fallback.chainId === 'pubnet' ? 'stellar' : String(fallback.chainId);
 
-    // Redirect if no asset selected, OR if the selected asset's wallet isn't connected
-    const selectedWalletMissing = currentAsset && !connectedWallets[currentAsset.walletType as WalletType];
+    const isCurrentDydx = currentAsset?.chainId && String(currentAsset.chainId).startsWith('dydx');
+    const isCurrentDydxAvailable = isCurrentDydx && (
+      !!(connectedWallets.evm as any)?.dydxAddress || 
+      !!(connectedWallets.cosmos as any)?.dydxAddress || 
+      !!localStorage.getItem('sx_dkm_addr')
+    );
+
+    const selectedWalletMissing = currentAsset && (isCurrentDydx ? !isCurrentDydxAvailable : !connectedWallets[currentAsset.walletType as WalletType]);
 
     if (!currentAsset || selectedWalletMissing) {
       if (assetParam !== fallback.symbol || chainIdParam !== targetChainId) {
@@ -101,6 +123,10 @@ export const useReceiveAssets = () => {
   const walletAddress = useMemo(() => {
     if (!currentAsset) return '';
     const walletType = currentAsset.walletType as WalletType;
+    if (currentAsset.chainId && String(currentAsset.chainId).startsWith('dydx')) {
+      const addr = (connectedWallets.evm as any)?.dydxAddress || (connectedWallets.cosmos as any)?.dydxAddress;
+      return addr || localStorage.getItem('sx_dkm_addr') || '';
+    }
     return connectedWallets[walletType]?.address || '';
   }, [connectedWallets, currentAsset]);
 
@@ -213,7 +239,11 @@ export const useReceiveAssets = () => {
     walletAddress,
     isAddressValid,
     isConnected: Object.keys(connectedWallets).length > 0,
-    isWalletTypeConnected: !!currentAsset && !!connectedWallets[currentAsset.walletType as WalletType],
+    isWalletTypeConnected: !!currentAsset && (
+      currentAsset.chainId && String(currentAsset.chainId).startsWith('dydx')
+        ? (!!(connectedWallets.evm as any)?.dydxAddress || !!(connectedWallets.cosmos as any)?.dydxAddress || !!localStorage.getItem('sx_dkm_addr'))
+        : !!connectedWallets[currentAsset.walletType as WalletType]
+    ),
     handleCopy,
     handleShare,
     copyFeedback,

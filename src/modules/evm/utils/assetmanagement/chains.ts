@@ -543,7 +543,7 @@ export const CHAINS: Record<string, IChain> = {
         asset: DYDX.symbol,
         symbol: DYDX.symbol,
         address: "Native",
-        chainId: DYDX.symbol,
+        chainId: DYDX.chainId,
         type: "NATIVE",
         decimals: 18,
         logoURI: DYDX.imageUrl
@@ -553,7 +553,7 @@ export const CHAINS: Record<string, IChain> = {
         asset: DYDX.symbol,
         symbol: 'USDC',
         address: 'USDC',
-        chainId: DYDX.symbol,
+        chainId: DYDX.chainId,
         type: "",
         decimals: 6,
         logoURI: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png"
@@ -568,11 +568,11 @@ export const CHAINS: Record<string, IChain> = {
       "logoURI": DYDX.imageUrl
     },
     bridgeSupportTokens: DYDX.bridgeSupportTokens,
-    sendEnable: false,
+    sendEnable: true,
     receiveEnable: true,
-    bridgeEnable: false,
+    bridgeEnable: true,
     swapEnable: false,
     importForSetupApp: false,
-    importForSetupedApp: false
+    importForSetupedApp: true
   }
 };

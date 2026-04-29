@@ -9,7 +9,7 @@ import { useSendAsset } from '../hook/useSendassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 import TransactionButton from '../components/TransactionButton';
-import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { getChainLogoUrl, getExplorerUrl } from '../../evm/utils/Chainregistry';
 import BigNumber from 'bignumber.js';
 
 interface SendCryptoProps {
@@ -56,6 +56,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       if (currentAsset?.type === 'evm' && val.length === 42) {
         amountRef.current?.focus();
       } else if (currentAsset?.type === 'stellar' && val.length === 56) {
+        amountRef.current?.focus();
+      } else if (currentAsset?.type === 'dydx' && val.startsWith('dydx1') && val.length >= 43) {
         amountRef.current?.focus();
       }
     },
@@ -109,8 +111,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   }, [formError, senderAddress, isEstimatingFees, amount, isFetchingBalance]);
 
   const explorerUrl = useMemo(() => {
-    if (!currentAsset?.blockExplorerUrl || !transactionState.txHash) return '';
-    return `${currentAsset.blockExplorerUrl}/tx/${transactionState.txHash}`;
+    if (!currentAsset || !transactionState.txHash) return '';
+    return getExplorerUrl(currentAsset.chainId, 'tx', transactionState.txHash);
   }, [currentAsset, transactionState.txHash]);
 
   const currentChainLogo = useMemo(() => {
@@ -461,7 +463,13 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   id="recipientAddress"
                   className={`w-full bg-transparent border-none focus:ring-0 outline-none text-xs font-mono placeholder:text-text-muted ${formError && formError.includes('address') ? 'text-danger' : 'text-text-primary'
                     }`}
-                  placeholder={currentAsset?.type === 'stellar' ? 'Stellar Address (G...)' : 'EVM Address (0x...)'}
+                  placeholder={
+                    currentAsset?.type === 'stellar' 
+                      ? 'Stellar Address (G...)' 
+                      : currentAsset?.type === 'dydx' 
+                        ? 'dYdX Address (dydx1...)' 
+                        : 'EVM Address (0x...)'
+                  }
                   value={recipientAddress}
                   onChange={handleRecipientChange}
                   autoFocus

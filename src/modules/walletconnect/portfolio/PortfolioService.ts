@@ -2,6 +2,7 @@ import { type Asset } from '../store/portfolioStore';
 import { type IPortfolioProvider, type PortfolioFetchParams } from './types';
 import { EVMPortfolioProvider } from './providers/EVMPortfolioProvider';
 import { StellarPortfolioProvider } from './providers/StellarPortfolioProvider';
+import { DydxPortfolioProvider } from './providers/DydxPortfolioProvider';
 
 
 export class PortfolioService {
@@ -10,6 +11,7 @@ export class PortfolioService {
   constructor() {
     this.registerProvider(new EVMPortfolioProvider());
     this.registerProvider(new StellarPortfolioProvider());
+    this.registerProvider(new DydxPortfolioProvider());
   }
 
   public registerProvider(provider: IPortfolioProvider): void {

@@ -8,7 +8,7 @@ import { FixedSizeList } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains, getStellarConfig, getDydxConfig } from '../../walletconnect/config/chains';
 import { CHAIN_REGISTRY, getChainById } from '../../evm/utils/Chainregistry';
 import { useAssetSelectorModal } from './useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
@@ -16,6 +16,7 @@ import { getTokensForChain } from '../../evm/service/tokenListService';
 
 const ROW_HEIGHT = 72;
 const STELLAR_CHAIN_ID = 'pubnet';
+const DYDX_CHAIN_ID = 'dydx-mainnet-1';
 
 interface NetworkOption {
   id: string | number;
@@ -35,6 +36,7 @@ const AssetSelectorModal: FC = () => {
 
   const isStellarConnected = !!connectedWallets.stellar?.address;
   const isEvmConnected = !!connectedWallets.evm?.address;
+  const isDydxConnected = !!(connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress || localStorage.getItem('sx_dkm_addr'));
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
@@ -64,11 +66,16 @@ const AssetSelectorModal: FC = () => {
         id: STELLAR_CHAIN_ID, name: 'Stellar', logo: getStellarConfig(currentNetwork).logoUrl,
         ...getChainById(STELLAR_CHAIN_ID)
       } as any,
+      {
+        id: DYDX_CHAIN_ID, name: 'dYdX', logo: getDydxConfig(currentNetwork).logoUrl,
+        ...getChainById(DYDX_CHAIN_ID)
+      } as any,
     ];
 
     return allNetworks.filter(net => {
       if (net.id === STELLAR_CHAIN_ID && !isStellarConnected) return false;
-      if (net.id !== STELLAR_CHAIN_ID && net.id !== 'all' && !isEvmConnected) return false;
+      if (net.id === DYDX_CHAIN_ID && !isDydxConnected) return false;
+      if (net.id !== STELLAR_CHAIN_ID && net.id !== DYDX_CHAIN_ID && net.id !== 'all' && !isEvmConnected) return false;
       if (net.id === 'all') return true;
       if (actionType === 'SEND') return net.sendEnable;
       if (actionType === 'RECEIVE') return net.receiveEnable;
@@ -99,7 +106,8 @@ const AssetSelectorModal: FC = () => {
     } else if (effectiveActionType === 'RECEIVE') {
       for (const config of CHAIN_REGISTRY) {
         if (config.chainId === STELLAR_CHAIN_ID && !isStellarConnected) continue;
-        if (config.chainId !== STELLAR_CHAIN_ID && !isEvmConnected) continue;
+        if (config.chainId === DYDX_CHAIN_ID && !isDydxConnected) continue;
+        if (config.chainId !== STELLAR_CHAIN_ID && config.chainId !== DYDX_CHAIN_ID && !isEvmConnected) continue;
         if (config.receiveEnable) {
           result.push({
             id: `receive-${config.chainId}-native`, symbol: config.nativeCurrency.symbol, name: config.nativeCurrency.name, image: config.nativeCurrency.logoURI, chainId: config.chainId, isNative: true
@@ -116,6 +124,8 @@ const AssetSelectorModal: FC = () => {
       const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
       if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) {
         result = [];
+      } else if (activeChainId === DYDX_CHAIN_ID && !isDydxConnected) {
+        result = [];
       } else {
         const registryTokens = getTokensForChain(activeChainId);
         result = registryTokens.map(t => ({
@@ -125,7 +135,10 @@ const AssetSelectorModal: FC = () => {
     } else if (effectiveActionType === 'BRIDGE') {
       const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
       const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
+      const isDydxInvolved = activeChainId === DYDX_CHAIN_ID || pairedChainId === DYDX_CHAIN_ID;
       if (isStellarInvolved && !isStellarConnected) {
+        result = [];
+      } else if (isDydxInvolved && !isDydxConnected) {
         result = [];
       } else {
         const registryTokens = getTokensForChain(activeChainId);
@@ -162,7 +175,7 @@ const AssetSelectorModal: FC = () => {
     }
 
     if (selectedNetwork !== 'all') {
-      result = result.filter(a => a.chainId === selectedNetwork || (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar'));
+      result = result.filter(a => a.chainId === selectedNetwork || (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar') || (selectedNetwork === DYDX_CHAIN_ID && a.chainType === 'cosmos'));
     }
 
     if (debouncedSearch.trim()) {
@@ -183,12 +196,12 @@ const AssetSelectorModal: FC = () => {
       closeAssetSelector();
       if (actionType === 'SEND' || actionType === 'RECEIVE') {
         const path = actionType === 'SEND' ? '/send' : '/receive';
-        const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId;
+        const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId === DYDX_CHAIN_ID ? 'dydx' : asset.chainId;
         navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
       }
       return;
     }
-    const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId;
+    const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId === DYDX_CHAIN_ID ? 'dydx' : asset.chainId;
     const path = actionType === 'SEND' ? '/send' : actionType === 'RECEIVE' ? '/receive' : actionType === 'BRIDGE' ? '/bridge' : '/swap';
     navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
     closeAssetSelector();

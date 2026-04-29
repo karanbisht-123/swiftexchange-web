@@ -27,6 +27,7 @@ export interface CosmosChainConfig {
     coinDecimals: number;
   }>;
   logoUrl: string;
+  blockExplorerUrl?: string;
 }
 
 export interface StellarChainConfig {
@@ -70,6 +71,7 @@ export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
     bech32Config: { bech32PrefixAccAddr: 'dydx' },
     currencies: [{ coinDenom: 'DYDX', coinMinimalDenom: 'adydx', coinDecimals: 18 }],
     logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png',
+    blockExplorerUrl: 'https://www.mintscan.io/dydx',
   },
   {
     chainId: 'cosmoshub-4',
@@ -149,6 +151,11 @@ export const getCosmosChains = (network: NetworkType): CosmosChainConfig[] => {
 
 export const getStellarConfig = (network: NetworkType): StellarChainConfig => {
   return network === 'mainnet' ? STELLAR_CONFIG_MAINNET : STELLAR_CONFIG_TESTNET;
+};
+
+export const getDydxConfig = (network: NetworkType): CosmosChainConfig => {
+  const chains = getCosmosChains(network);
+  return chains.find((c) => c.chainId.startsWith('dydx')) || chains[0];
 };
 
 export const WALLETCONNECT_PROJECT_ID =

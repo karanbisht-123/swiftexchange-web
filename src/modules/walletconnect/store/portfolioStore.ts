@@ -14,10 +14,11 @@ export interface Asset {
   price_change_percentage_24h: number;
   chainName: string;
   chainId?: number | string;
-  chainType?: 'evm' | 'stellar';
+  chainType?: 'evm' | 'stellar' | 'dydx';
   isNative?: boolean;
   address?: string;
   decimals?: number;
+  blockExplorerUrl?: string;
 }
 
 export interface ProviderStatus {
@@ -40,18 +41,18 @@ interface PortfolioState {
 
 interface PortfolioActions {
   fetchAssets: (
-    connectedWallets: Record<string, { address: string } | undefined>,
+    connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
     network: string,
     force?: boolean
   ) => Promise<void>;
   refreshAssets: (
-    connectedWallets: Record<string, { address: string } | undefined>,
+    connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
     network: string
   ) => Promise<void>;
   updateAsset: (asset: Asset) => void;
   getAssetBalance: (chainId: number | string, symbol: string) => number;
   clearAssets: () => void;
-  clearAssetsByType: (chainType: 'evm' | 'stellar') => void;
+  clearAssetsByType: (chainType: 'evm' | 'stellar' | 'dydx') => void;
   enrichPrices: () => Promise<void>;
 }
 
@@ -108,7 +109,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           }
         },
 
-        clearAssetsByType: (chainType: 'evm' | 'stellar') => {
+        clearAssetsByType: (chainType: 'evm' | 'stellar' | 'dydx') => {
           set((state) => ({
             assets: state.assets.filter((a) => a.chainType !== chainType),
             lastFetched: 0,
@@ -120,7 +121,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         },
 
         fetchAssets: async (
-          connectedWallets: Record<string, { address: string } | undefined>,
+          connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
           network: string,
           force: boolean = false
         ) => {
@@ -143,6 +144,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           const providersToFetch = portfolioService.getProviders().filter(p => {
             if (p.id === 'evm') return !!connectedWallets.evm?.address;
             if (p.id === 'stellar') return !!connectedWallets.stellar?.address;
+            if (p.id === 'dydx') return !!(connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress);
             return true;
           });
 
@@ -225,7 +227,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         },
 
         refreshAssets: async (
-          connectedWallets: Record<string, { address: string } | undefined>,
+          connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
           network: string
         ) => {
           await get().fetchAssets(connectedWallets, network, true);

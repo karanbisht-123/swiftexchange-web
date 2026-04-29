@@ -40,7 +40,8 @@ export const portfolioUtils = {
       BSC: 'binancecoin',
       MATIC: 'matic-network',
       AVAX: 'avalanche-2',
-      TRX: 'tron'
+      TRX: 'tron',
+      DYDX: 'dydx'
     };
 
     const idsToFetch = Array.from(new Set(symbols.map(s => COMMON_TOKENS[s.toUpperCase()]))).filter(Boolean);

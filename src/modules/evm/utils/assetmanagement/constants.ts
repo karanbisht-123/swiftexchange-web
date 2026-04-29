@@ -121,7 +121,7 @@ export const EXPLORER_URLS = {
   AMOY: 'https://www.oklink.com/amoy',
   STR: 'https://stellar.expert/explorer/public',
   STR_TESTNET: 'https://stellar.expert/explorer/testnet',
-  DYDX: 'https://dydx.explorers.guru',
+  DYDX: 'https://www.mintscan.io/dydx',
 };
 
 
