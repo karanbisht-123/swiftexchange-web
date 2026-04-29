@@ -8,7 +8,7 @@ import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../ut
 
 interface TransactionDetailsViewProps {
   transaction: TransactionItem | LocalTransactionWithStatus;
-  chainId: number;
+  chainId: number | string;
   incoming?: boolean;
   isSelf?: boolean;
   onRefresh?: () => void;

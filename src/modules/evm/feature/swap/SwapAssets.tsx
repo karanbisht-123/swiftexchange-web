@@ -42,8 +42,8 @@ import { signAndSubmitTransaction } from '../../../steallr/utils/transactionServ
 import { AmmSwapService } from '../../../steallr/service/ammSwapService';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
 
-const STELLAR_CHAIN_ID = 9000000;
-const isStellar = (id: any) => id === 'stellar' || Number(id) === STELLAR_CHAIN_ID || Number(id) === 9000001;
+const STELLAR_CHAIN_ID = 'pubnet';
+const isStellar = (id: any) => id === 'stellar' || id === STELLAR_CHAIN_ID || id === 'testnet';
 
 interface SwapAssetsProps {
   onClose?: () => void;
@@ -58,19 +58,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const isConnected = !!evmWallet;
   const evmAddress = evmWallet?.address || '';
   const stellarAddress = stellarWallet?.address || '';
-  const currentChainId = evmWallet?.chainId ? Number(evmWallet.chainId) : null;
+  const currentChainId = evmWallet?.chainId || null;
   const currentNetwork = useWalletStore((state: any) => state.network) as 'mainnet' | 'testnet';
   const swapEnabledChains = getEvmSwapEnabledChains(currentNetwork);
-  const [fromChainId, setFromChainId] = useState<number>(() => {
+  const [fromChainId, setFromChainId] = useState<number | string>(() => {
     const raw = searchParams.get('fromChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
-    return raw ? Number(raw) : (currentChainId || 1);
+    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
   });
 
-  const [toChainId, setToChainId] = useState<number>(() => {
+  const [toChainId, setToChainId] = useState<number | string>(() => {
     const raw = searchParams.get('toChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
-    return raw ? Number(raw) : (currentChainId || 1);
+    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
   });
 
   const [sellAssetSymbol, setSellAssetSymbol] = useState<string>(searchParams.get('sellAsset') || '');
@@ -331,7 +331,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return null;
   }, []);
 
-  const isBridgeSupported = useCallback((symbol: string, chainId: number): boolean => {
+  const isBridgeSupported = useCallback((symbol: string, chainId: number | string): boolean => {
     const chainConfig = getChainById(chainId);
     if (!chainConfig?.bridgeSupportTokens?.length) return false;
     return chainConfig.bridgeSupportTokens.some((t: any) => t.symbol.toUpperCase() === symbol.toUpperCase());
@@ -842,7 +842,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isGasless, fetchFusionQuote, crossChainQuoteSource, feePayType, sellAssetSymbol, buyAssetSymbol, currentNetwork,
     confirmRangoRoute, checkRangoApproval, prepareRangoTx
   ]);
-  const handleChainSelectInModal = useCallback(async (newChainId: number, isSource: boolean) => {
+  const handleChainSelectInModal = useCallback(async (newChainId: number | string, isSource: boolean) => {
     const finalFromId = isSource ? newChainId : fromChainId;
     const finalToId = !isSource ? newChainId : toChainId;
 

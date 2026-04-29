@@ -19,7 +19,7 @@ import { parseSwapError } from '../utils/swapErrorHandler';
 import { isEvmChain } from '../utils/Chainregistry';
 
 interface UseEvmSwapProps {
-  chainId: number;
+  chainId: number | string;
   senderAddress: string;
   getProvider: (type: WalletType) => any;
 }
@@ -70,8 +70,8 @@ interface UseEvmSwapActions {
 
   setGasless: (enabled: boolean) => void;
   fetchRangoQuote: (
-    fromChainId: number,
-    toChainId: number,
+    fromChainId: number | string,
+    toChainId: number | string,
     sellAsset: TokenInfo,
     buyAsset: TokenInfo,
     amount: string,
@@ -79,8 +79,8 @@ interface UseEvmSwapActions {
   ) => Promise<any>;
   confirmRangoRoute: (
     requestId: string,
-    fromChainId: number,
-    toChainId: number,
+    fromChainId: number | string,
+    toChainId: number | string,
     fromAddress: string,
     toAddress: string
   ) => Promise<any>;
@@ -484,8 +484,8 @@ export const useEvmSwap = ({
 
   const fetchRangoQuote = useCallback(
     async (
-      fromChainId: number,
-      toChainId: number,
+      fromChainId: number | string,
+      toChainId: number | string,
       sellAsset: TokenInfo,
       buyAsset: TokenInfo,
       amount: string,
@@ -543,8 +543,8 @@ export const useEvmSwap = ({
   const confirmRangoRoute = useCallback(
     async (
       requestId: string,
-      fromChainId: number,
-      toChainId: number,
+      fromChainId: number | string,
+      toChainId: number | string,
       fromAddress: string,
       toAddress: string
     ): Promise<any> => {

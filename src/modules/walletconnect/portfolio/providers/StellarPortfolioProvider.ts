@@ -17,7 +17,7 @@ export class StellarPortfolioProvider implements IPortfolioProvider {
       const config = getStellarConfig(network as any);
       const server = new StellarSdk.Horizon.Server(config.horizonUrl);
       const account = await server.loadAccount(stellarAddress);
-      const stellarChainId = network === 'mainnet' ? 9000000 : 9000001;
+      const stellarChainId = network === 'mainnet' ? 'pubnet' : 'testnet';
 
       const assets: Asset[] = [];
 

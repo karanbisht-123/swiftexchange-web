@@ -227,7 +227,7 @@ export const BSC = {
 
 export const STR = {
   RPC: RPC.STRRPC,
-  chainId: 9000000,
+  chainId: 'pubnet',
   nativeChainKey: "stellar",
   minGasGwei: 100,
   imageUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
@@ -240,7 +240,7 @@ export const STR = {
       "name": "USD Coin",
       "symbol": "USDC",
       "address": "USDC",
-      "chainId": 9000000,
+      "chainId": 'pubnet',
       "decimals": 7,
       "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png"
     }
@@ -249,7 +249,7 @@ export const STR = {
 
 export const DYDX = {
   RPC: RPC.DYDXRPC,
-  chainId: 0,
+  chainId: 'dydx-mainnet-1',
   nativeChainKey: "dydx",
   minGasGwei: 0,
   imageUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png',

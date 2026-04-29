@@ -190,7 +190,7 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
     }
   };
 
-  const chainId = network === 'mainnet' ? 9000000 : 9000001;
+  const chainId = network === 'mainnet' ? 'pubnet' : 'testnet';
   const getExplorerUrl = (hash: string) =>
     getRegistryExplorerUrl(chainId, 'tx', hash);
 

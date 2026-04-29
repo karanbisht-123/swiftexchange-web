@@ -33,9 +33,9 @@ interface UseLocalTransactionsReturn {
 }
 
 const REFRESH_INTERVAL = 30000;
-const STELLAR_CHAIN_ID = 9000000;
+const STELLAR_CHAIN_ID = 'pubnet';
 
-const getChainSymbol = (chainId: number): string => {
+const getChainSymbol = (chainId: number | string): string => {
   switch (chainId) {
     case 1:
       return 'ETH';

@@ -87,7 +87,7 @@ const OrderBookSwapUI = () => {
   const { setSelectedChartPair } = useAmmSwapStore();
 
   const isMainnet = currentNetwork === 'mainnet';
-  const stellarChainId = isMainnet ? 9000000 : 9000001;
+  const stellarChainId = isMainnet ? 'pubnet' : 'testnet';
   const chainConfig = getChainById(stellarChainId);
 
   const lastChartPairRef = useRef<string>('');
@@ -172,7 +172,7 @@ const OrderBookSwapUI = () => {
 
       addLocalTransaction({
         hash: txHash,
-        chainId: 9000000,
+        chainId: 'pubnet',
         type: 'orderbook',
         timestamp: Date.now(),
         description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,

@@ -15,7 +15,7 @@ import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 import { getTokensForChain } from '../../evm/service/tokenListService';
 
 const ROW_HEIGHT = 72;
-const STELLAR_CHAIN_ID = 9000000;
+const STELLAR_CHAIN_ID = 'pubnet';
 
 interface NetworkOption {
   id: string | number;
@@ -113,7 +113,7 @@ const AssetSelectorModal: FC = () => {
         }
       }
     } else if (effectiveActionType === 'SWAP') {
-      const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
+      const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
       if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) {
         result = [];
       } else {
@@ -123,7 +123,7 @@ const AssetSelectorModal: FC = () => {
         }));
       }
     } else if (effectiveActionType === 'BRIDGE') {
-      const activeChainId = selectedNetwork === 'all' ? 1 : Number(selectedNetwork);
+      const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
       const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
       if (isStellarInvolved && !isStellarConnected) {
         result = [];
@@ -162,7 +162,7 @@ const AssetSelectorModal: FC = () => {
     }
 
     if (selectedNetwork !== 'all') {
-      result = result.filter(a => a.chainId === Number(selectedNetwork) || (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar'));
+      result = result.filter(a => a.chainId === selectedNetwork || (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar'));
     }
 
     if (debouncedSearch.trim()) {

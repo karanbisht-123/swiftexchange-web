@@ -11,7 +11,7 @@ export function mapIChainToChainConfig(chain: IChain): ChainConfig {
 
   return {
     ...chain,
-    chainId: typeof chain.chainId === 'string' ? 0 : chain.chainId,
+    chainId: chain.chainId,
     rpcUrl: chain.rpcUrl || chain.rpcUrls[0],
     fallbackRpcUrls: chain.rpcUrls.slice(1),
     available: true,
@@ -24,6 +24,7 @@ export function mapIChainToChainConfig(chain: IChain): ChainConfig {
       logoURI: chain.nativeToken.logoURI,
       wrappedAddress: chain.wrappedAddress || chain.nativeToken.address,
       coingeckoId: chain.nativeChainKey,
+      address: chain.nativeToken.address,
     },
     logoURI: chain.imageUrl,
     coingeckoPlatform: chain.nativeChainKey,

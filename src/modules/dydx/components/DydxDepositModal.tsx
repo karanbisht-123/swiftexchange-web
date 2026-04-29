@@ -153,7 +153,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     clearNotification,
   } = useDydxDeposit();
 
-  const evmChainId = Number(evmWallet?.chainId ?? 1);
+  const evmChainId = (evmWallet?.chainId as number | string ?? 1);
   const store = useTransactionStore();
   const depositIsPending = useHasActivePendingDeposit();
   const withdrawIsPending = useHasActivePendingWithdraw();
@@ -248,10 +248,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (initialAsset && initialAsset.chainId !== 9000000 && initialAsset.chainId !== 9000001) {
+    if (initialAsset && initialAsset.chainId !== 'pubnet' && initialAsset.chainId !== 'testnet') {
       setSelectedAsset(initialAsset);
     } else if (assets.length > 0 && !selectedAsset) {
-      const evmAssets = assets.filter(a => a.chainId !== 9000000 && a.chainId !== 9000001);
+      const evmAssets = assets.filter(a => a.chainId !== 'pubnet' && a.chainId !== 'testnet');
       const evmBalAssets = evmAssets.filter(a => (a.balance || 0) > 0);
       const candidates = evmBalAssets.length > 0 ? evmBalAssets : evmAssets;
       const usdc = candidates.find(a => a.symbol.toUpperCase() === 'USDC');
@@ -323,8 +323,8 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const filteredAssets = useMemo(() => {
     let result = assets.filter(a => {
-      if (a.chainId === 9000000 || a.chainId === 9000001) return false;
-      if (selectedNetwork !== 'all' && a.chainId !== Number(selectedNetwork)) return false;
+      if (a.chainId === 'pubnet' || a.chainId === 'testnet') return false;
+      if (selectedNetwork !== 'all' && a.chainId !== selectedNetwork) return false;
       if ((a.balance || 0) <= 0) return false;
       return true;
     });

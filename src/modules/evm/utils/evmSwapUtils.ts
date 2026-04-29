@@ -82,7 +82,7 @@ async function pollForReceipt(
 }
 
 export async function fetchEvmQuote(
-  chainId: number,
+  chainId: number | string,
   request: SwapQuoteRequest,
   selectedSellAsset: TokenInfo,
   selectedBuyAsset: TokenInfo
@@ -136,7 +136,7 @@ export async function fetchEvmQuote(
 }
 
 export async function executeSwap(
-  chainId: number,
+  chainId: number | string,
   quote: SwapQuote,
   selectedSellAsset: TokenInfo,
   selectedBuyAsset: TokenInfo,
@@ -251,7 +251,7 @@ export async function executeSwap(
 }
 
 export async function fetch1InchFusionQuote(
-  chainId: number,
+  chainId: number | string,
   tokenIn: string,
   tokenOut: string,
   amount: string,
@@ -274,7 +274,7 @@ export async function fetch1InchFusionQuote(
 }
 
 export async function execute1InchFusionSwap(
-  chainId: number,
+  chainId: number | string,
   quote: any,
   preset: string,
   senderAddress: string,
@@ -352,10 +352,10 @@ function toRangoAddress(address: string | null | undefined): string {
 }
 
 export async function fetchRangoBestRoute(
-  fromChainId: number,
+  fromChainId: number | string,
   fromSymbol: string,
   fromAddress: string | null,
-  toChainId: number,
+  toChainId: number | string,
   toSymbol: string,
   toAddress: string | null,
   amount: string,
@@ -377,8 +377,8 @@ export async function fetchRangoBestRoute(
 
 export async function fetchRangoConfirmRoute(
   requestId: string,
-  fromChainId: number,
-  toChainId: number,
+  fromChainId: number | string,
+  toChainId: number | string,
   fromAddress: string,
   toAddress: string
 ): Promise<any> {

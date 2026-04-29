@@ -116,8 +116,8 @@ const CIRCUIT_CONFIG = {
 class RPCManager {
   private providerCache: Map<string, ethers.JsonRpcProvider> = new Map();
   private urlStats: Map<string, UrlStats> = new Map();
-  private roundRobinIndex: Map<number, number> = new Map();
-  private chainDeadUntil: Map<number, number> = new Map();
+  private roundRobinIndex: Map<number | string, number> = new Map();
+  private chainDeadUntil: Map<number | string, number> = new Map();
   private probeInFlight: Set<string> = new Set();
 
   private readonly REQUEST_TIMEOUT_MS = 8_000;
@@ -271,7 +271,7 @@ class RPCManager {
     return false;
   }
 
-  isChainDead(chainId: number, urls: string[]): boolean {
+  isChainDead(chainId: number | string, urls: string[]): boolean {
     const deadUntil = this.chainDeadUntil.get(chainId);
     if (deadUntil && Date.now() < deadUntil) return true;
 
@@ -279,7 +279,7 @@ class RPCManager {
     return unique.length > 0 && unique.every(u => !this.isUrlAvailable(u));
   }
 
-  private pickUrls(chainId: number, urls: string[]): string[] {
+  private pickUrls(chainId: number | string, urls: string[]): string[] {
     const unique = Array.from(new Set(urls.filter(Boolean)));
     const available = unique.filter(u => this.isUrlAvailable(u));
 
@@ -304,7 +304,7 @@ class RPCManager {
   }
 
   async fetchWithFallback<T>(
-    chainId: number,
+    chainId: number | string,
     urls: string[],
     action: (provider: ethers.JsonRpcProvider) => Promise<T>
   ): Promise<T> {
@@ -391,7 +391,7 @@ class RPCManager {
     };
   }
 
-  getChainStatus(chainId: number, urls: string[]): Record<string, ReturnType<typeof this.getUrlStatus>> {
+  getChainStatus(_chainId: number | string, urls: string[]): Record<string, ReturnType<typeof this.getUrlStatus>> {
     const result: Record<string, ReturnType<typeof this.getUrlStatus>> = {};
     for (const url of urls) {
       result[url] = this.getUrlStatus(url);
@@ -409,7 +409,7 @@ class RPCManager {
     this.evict(url);
   }
 
-  resetChain(chainId: number, urls: string[]): void {
+  resetChain(chainId: number | string, urls: string[]): void {
     this.chainDeadUntil.delete(chainId);
     for (const url of urls) this.resetUrl(url);
   }

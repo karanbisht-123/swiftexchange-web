@@ -75,7 +75,7 @@ export const useSendAsset = (onBack?: () => void) => {
       .filter(a => (a.balance || 0) > 0)
       .map(asset => {
         const type = asset.chainType === 'stellar' ? 'stellar' : 'evm' as const;
-        const chainId = asset.chainId || (type === 'stellar' ? 9000000 : 0);
+        const chainId = asset.chainId || (type === 'stellar' ? 'pubnet' : 0);
         return {
           value: asset.id, symbol: asset.symbol, label: `${asset.symbol} (${asset.chainName})`, logo: asset.image,
           network: asset.chainName, chainId, addressType: type, walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
@@ -94,7 +94,7 @@ export const useSendAsset = (onBack?: () => void) => {
     if (assetParam && chainIdParam) {
       return allAssets.find(a => {
         const aChainIdStr = String(a.chainId);
-        const paramIdStr = chainIdParam === 'stellar' ? '9000000' : chainIdParam;
+        const paramIdStr = chainIdParam === 'stellar' ? 'pubnet' : chainIdParam;
         return a.symbol === assetParam && aChainIdStr === paramIdStr;
       });
     }
@@ -104,7 +104,7 @@ export const useSendAsset = (onBack?: () => void) => {
   useEffect(() => {
     if (!currentAsset && allAssets.length > 0) {
       const first = allAssets[0];
-      const tarChain = first.chainId === 9000000 ? 'stellar' : String(first.chainId);
+      const tarChain = first.chainId === 'pubnet' ? 'stellar' : String(first.chainId);
       if (assetParam !== first.symbol || chainIdParam !== tarChain) {
         setSearchParams({ asset: first.symbol, chainId: tarChain }, { replace: true });
       }
@@ -259,7 +259,7 @@ export const useSendAsset = (onBack?: () => void) => {
         const txType = res.hash === 'stellar_submitted' || !res.hash ? 'send' : 'send'; // Default to send for history consistency
         addLocalTransaction({ 
           hash: res.hash || '', 
-          chainId: currentAsset.type === 'evm' ? Number(currentAsset.networkKey) : 9000000, 
+          chainId: currentAsset.type === 'evm' ? Number(currentAsset.networkKey) : 'pubnet', 
           type: txType, 
           timestamp: Date.now(), 
           status: 'success', 

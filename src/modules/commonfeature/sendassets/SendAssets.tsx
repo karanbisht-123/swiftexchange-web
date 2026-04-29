@@ -116,7 +116,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   const currentChainLogo = useMemo(() => {
     if (!currentAsset) return null;
     const chainId = currentAsset.chainId;
-    if (chainId === 'stellar' || chainId === 9000000) {
+    if (chainId === 'stellar' || chainId === 'pubnet') {
       return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png';
     }
     return getChainLogoUrl(chainId as number);

@@ -24,7 +24,7 @@ export const useReceiveAssets = () => {
     const list: any[] = [];
     for (const config of CHAIN_REGISTRY) {
       if (config.receiveEnable) {
-        const nativeId = `${config.chainId === 9000000 ? 'stellar' : 'evm'}-${config.chainId}-native`;
+        const nativeId = `${config.chainId === 'pubnet' ? 'stellar' : 'evm'}-${config.chainId}-native`;
         list.push({
           id: nativeId,
           value: nativeId,
@@ -34,17 +34,17 @@ export const useReceiveAssets = () => {
           label: `${config.nativeCurrency.symbol} (${config.name})`,
           network: config.name,
           chainId: config.chainId,
-          chainType: config.chainId === 9000000 ? 'stellar' : 'evm',
-          walletType: config.chainId === 9000000 ? WalletType.STELLAR : WalletType.EVM,
+          chainType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
+          walletType: config.chainId === 'pubnet' ? WalletType.STELLAR : WalletType.EVM,
           decimals: config.nativeCurrency.decimals,
-          tokenAddress: '0x0000000000000000000000000000000000000000',
-          addressType: config.chainId === 9000000 ? 'stellar' : 'evm',
+          tokenAddress: config.nativeCurrency.address,
+          addressType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
           isNative: true
         });
 
         config.assets.forEach(asset => {
           if (asset.symbol === config.nativeCurrency.symbol) return;
-          const assetId = `${config.chainId === 9000000 ? 'stellar' : 'evm'}-${config.chainId}-${asset.symbol}`;
+          const assetId = `${config.chainId === 'pubnet' ? 'stellar' : 'evm'}-${config.chainId}-${asset.symbol}`;
           list.push({
             id: assetId,
             value: assetId,
@@ -54,11 +54,11 @@ export const useReceiveAssets = () => {
             label: `${asset.symbol} (${config.name})`,
             network: config.name,
             chainId: config.chainId,
-            chainType: config.chainId === 9000000 ? 'stellar' : 'evm',
-            walletType: config.chainId === 9000000 ? WalletType.STELLAR : WalletType.EVM,
+            chainType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
+            walletType: config.chainId === 'pubnet' ? WalletType.STELLAR : WalletType.EVM,
             decimals: asset.decimals,
             tokenAddress: asset.address,
-            addressType: config.chainId === 9000000 ? 'stellar' : 'evm',
+            addressType: config.chainId === 'pubnet' ? 'stellar' : 'evm',
             isNative: false
           });
         });
@@ -74,7 +74,7 @@ export const useReceiveAssets = () => {
     if (assetParam && chainIdParam) {
       return assets.find(a => {
         const aChainIdStr = String(a.chainId);
-        const paramIdStr = chainIdParam === 'stellar' ? '9000000' : chainIdParam;
+        const paramIdStr = chainIdParam === 'stellar' ? 'pubnet' : chainIdParam;
         return a.symbol === assetParam && aChainIdStr === paramIdStr;
       });
     }
@@ -86,7 +86,7 @@ export const useReceiveAssets = () => {
 
     const connectedFirst = assets.find(a => !!connectedWallets[a.walletType as WalletType]);
     const fallback = connectedFirst ?? assets[0];
-    const targetChainId = fallback.chainId === 9000000 ? 'stellar' : String(fallback.chainId);
+    const targetChainId = fallback.chainId === 'pubnet' ? 'stellar' : String(fallback.chainId);
 
     // Redirect if no asset selected, OR if the selected asset's wallet isn't connected
     const selectedWalletMissing = currentAsset && !connectedWallets[currentAsset.walletType as WalletType];
@@ -148,7 +148,7 @@ export const useReceiveAssets = () => {
       if (res.status === 'success') {
         addLocalTransaction({
           hash: res.hash || '',
-          chainId: 9000000,
+          chainId: 'pubnet',
           type: 'trustline',
           timestamp: Date.now(),
           status: 'success',

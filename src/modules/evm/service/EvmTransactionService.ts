@@ -1,7 +1,7 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
 import { type NetworkType, CHAIN_REGISTRY } from '../utils/Chainregistry';
 
-export type ChainType = number;
+export type ChainType = number | string;
 
 export interface TransactionItem {
   blockNum: string;
@@ -22,7 +22,7 @@ export interface TransactionItem {
   };
   metadata: any | null;
   formattedAmount: string | null;
-  chainId: number;
+  chainId: number | string;
 }
 
 export interface TransactionPagination {

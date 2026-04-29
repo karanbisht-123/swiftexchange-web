@@ -68,7 +68,7 @@ const AmmSwapUI = () => {
   } = useAmmSwapStore();
 
   const isMainnet = currentNetwork === 'mainnet';
-  const stellarChainId = isMainnet ? 9000000 : 9000001;
+  const stellarChainId = isMainnet ? 'pubnet' : 'testnet';
   const chainConfig = getChainById(stellarChainId);
 
   useEffect(() => {
@@ -158,7 +158,7 @@ const AmmSwapUI = () => {
 
       addLocalTransaction({
         hash: txHash,
-        chainId: 9000000,
+        chainId: 'pubnet',
         type: 'swap',
         timestamp: Date.now(),
         description: `Swap ${fromAmount} ${fromToken.code} for ${toAmount} ${toToken.code}`,

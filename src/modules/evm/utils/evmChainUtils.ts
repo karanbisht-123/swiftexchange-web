@@ -1,6 +1,6 @@
 import { getChainById, isEvmChain } from './Chainregistry';
 
-export async function switchOrAddChain(provider: any, chainId: number): Promise<void> {
+export async function switchOrAddChain(provider: any, chainId: number | string): Promise<void> {
   if (!provider) {
     throw new Error('No EVM provider found');
   }
@@ -15,7 +15,7 @@ export async function switchOrAddChain(provider: any, chainId: number): Promise<
     throw new Error(`Chain config not found for chainId: ${chainId}`);
   }
 
-  const hexChainId = `0x${chainId.toString(16)}`;
+  const hexChainId = typeof chainId === 'number' ? `0x${chainId.toString(16)}` : chainId;
 
   try {
     await provider.request({

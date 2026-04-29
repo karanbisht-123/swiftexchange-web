@@ -9,7 +9,7 @@ interface TransactionDetailsSheetProps {
   transaction: TransactionItem | LocalTransactionWithStatus;
   isOpen: boolean;
   onClose: () => void;
-  chainId: number;
+  chainId: number | string;
   incoming?: boolean;
   isSelf?: boolean;
   onRefresh?: () => void;

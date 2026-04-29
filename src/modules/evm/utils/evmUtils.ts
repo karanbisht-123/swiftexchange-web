@@ -7,19 +7,19 @@ import { SendErcAbi } from '../../../abi/SendErcAbi';
 import { ERC20_ABI } from '../../../abi/Erc20AbI';
 
 export type EVMNetworkConfig = {
-  chainId: number;
+  chainId: number | string;
   name: string;
   rpcUrls: string[];
   nativeCurrency: { name: string; symbol: string; decimals: number };
   blockExplorerUrl: string;
 };
 
-export type NetworkKey = number;
+export type NetworkKey = number | string;
 
 export function isValidEVMNetwork(networkKey: unknown): networkKey is NetworkKey {
   const currentNetwork = useWalletStore.getState().network;
   return (
-    typeof networkKey === 'number' &&
+    (typeof networkKey === 'number' || typeof networkKey === 'string') &&
     getEVMChains(currentNetwork).some(c => c.chainId === networkKey)
   );
 }

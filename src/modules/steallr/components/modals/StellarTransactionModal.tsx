@@ -25,7 +25,7 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const chainId = currentNetwork === 'mainnet' ? 9000000 : 9000001;
+  const chainId = currentNetwork === 'mainnet' ? 'pubnet' : 'testnet';
 
   const isRejected = error?.toLowerCase().includes('reject') || error?.toLowerCase().includes('cancel');
 

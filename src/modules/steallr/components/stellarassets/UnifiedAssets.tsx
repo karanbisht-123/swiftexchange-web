@@ -167,7 +167,7 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
   const allAssets = useMemo(() => {
     const assetsMap = new Map<string, DisplayAsset>();
 
-    const stellarChain = getChainById(9000000);
+    const stellarChain = getChainById('pubnet');
 
     balances.forEach((b: any) => {
       const code = b.asset_type === 'native' ? 'XLM' : b.asset_code;
@@ -186,7 +186,7 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       });
     });
 
-    getAssetsForChain(9000000).forEach(asset => {
+    getAssetsForChain('pubnet').forEach(asset => {
       const code = asset.symbol;
       const issuer = asset.address === 'native' ? '' : asset.address;
       const key = getAssetKey(code, issuer);
@@ -239,7 +239,7 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       if (result.success) {
         addLocalTransaction({
           hash: result.transactionHash || '',
-          chainId: 9000000,
+          chainId: 'pubnet',
           type: 'trustline',
           timestamp: Date.now(),
           description: `Added trustline for ${asset.code}`,
@@ -292,7 +292,7 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       if (result.success) {
         addLocalTransaction({
           hash: result.transactionHash || '',
-          chainId: 9000000,
+          chainId: 'pubnet',
           type: 'trustline',
           timestamp: Date.now(),
           description: `Removed trustline for ${asset.code}`,

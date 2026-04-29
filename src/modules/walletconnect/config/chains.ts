@@ -1,5 +1,5 @@
 export interface EVMChainConfig {
-  chainId: number;
+  chainId: number | string;
   name: string;
   rpcUrls: string[];
   nativeCurrency: {

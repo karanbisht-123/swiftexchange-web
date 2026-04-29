@@ -49,7 +49,7 @@ const TradeTransactionUI = () => {
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [offerToCancel, setOfferToCancel] = useState<ActiveOffer | null>(null);
 
-  const chainId = network === 'mainnet' ? 9000000 : 9000001;
+  const chainId = network === 'mainnet' ? 'pubnet' : 'testnet';
   const getExplorerUrl = (type: 'trade' | 'offer' | 'tx' | 'op', id: string) =>
     getRegistryExplorerUrl(chainId, type as any, id);
 

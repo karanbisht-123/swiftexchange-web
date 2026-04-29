@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { rpcManager } from '../../evm/utils/rpcProvider';
 
-export const RPC_BY_CHAIN_ID: Record<number, string[]> = {
+export const RPC_BY_CHAIN_ID: Record<number | string, string[]> = {
   1: ['https://eth.llamarpc.com'],
   137: ['https://polygon.llamarpc.com'],
   42161: ['https://arbitrum.llamarpc.com'],
@@ -11,7 +11,7 @@ export const RPC_BY_CHAIN_ID: Record<number, string[]> = {
   56: ['https://bsc.llamarpc.com'],
 };
 
-export const EXPLORER_BY_CHAIN_ID: Record<number, string> = {
+export const EXPLORER_BY_CHAIN_ID: Record<number | string, string> = {
   1: 'https://etherscan.io',
   137: 'https://polygonscan.com',
   42161: 'https://arbiscan.io',
@@ -30,7 +30,7 @@ export interface BridgeTxState {
   isPolling: boolean;
 }
 
-export function getExplorerUrl(txHash: string, chainId: number): string {
+export function getExplorerUrl(txHash: string, chainId: number | string): string {
   const base = EXPLORER_BY_CHAIN_ID[chainId] ?? 'https://etherscan.io';
   return `${base}/tx/${txHash}`;
 }
@@ -38,7 +38,7 @@ export function getExplorerUrl(txHash: string, chainId: number): string {
 const POLL_INTERVAL_MS = 4_000;
 const POLL_TIMEOUT_MS = 10 * 60 * 1_000;
 
-export function useBridgeTxStatus(txHash: string | null, chainId: number) {
+export function useBridgeTxStatus(txHash: string | null, chainId: number | string) {
   const [state, setState] = useState<BridgeTxState>({
     status: 'idle',
     confirmations: 0,

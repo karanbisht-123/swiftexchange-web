@@ -6,7 +6,7 @@ export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval' | 'trustli
 
 export interface LocalTransaction {
   hash: string;
-  chainId: number;
+  chainId: number | string;
   type: TransactionType;
   timestamp: number;
   description?: string;
@@ -115,7 +115,7 @@ export const clearLocalTransactions = (): void => {
   }
 };
 
-export const getTransactionsByChain = (chainId: number): LocalTransaction[] => {
+export const getTransactionsByChain = (chainId: number | string): LocalTransaction[] => {
   return getLocalTransactions().filter(tx => tx.chainId === chainId);
 };
 

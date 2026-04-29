@@ -15,7 +15,7 @@ const ROW_HEIGHT = 80;
 
 const getChainIcon = (asset: Asset): string | undefined => {
   const chainId = asset.chainType === 'stellar'
-    ? (asset.chainName?.toLowerCase().includes('testnet') ? 9000001 : 9000000)
+    ? (asset.chainName?.toLowerCase().includes('testnet') ? 'testnet' : 'pubnet')
     : asset.chainId;
   return getChainLogoUrl(chainId || 0);
 };
@@ -149,7 +149,7 @@ const AssetRow = memo(
                   />
                 ) : (
                   <span className="text-[8px] font-bold text-primary">
-                    {asset.chainType === 'stellar' ? '★' : asset.chainName?.[0] || '?'}
+                    {asset.chainType === 'stellar' ? asset.chainId : asset.chainName?.[0] || '?'}
                   </span>
                 )}
               </div>

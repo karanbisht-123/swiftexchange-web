@@ -17,7 +17,7 @@ interface TokenSelectorProps {
 export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelectorProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const network = useWalletStore(state => state.network);
-  const chainId = network === 'mainnet' ? 9000000 : 9000001;
+  const chainId = network === 'mainnet' ? 'pubnet' : 'testnet';
   const chainConfig = getChainById(chainId);
 
   const tokenIcon = getTokenIcon(selectedToken.code, chainConfig, 'issuer' in selectedToken ? selectedToken.issuer : undefined);

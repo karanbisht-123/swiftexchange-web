@@ -4,19 +4,19 @@ import { getChainById } from '../utils/Chainregistry';
 import { ethers } from 'ethers';
 
 
-const getChainSymbol = (chainId: number) => {
+const getChainSymbol = (chainId: number | string) => {
   const chain = getChainById(chainId);
   return (chain?.symbol || chain?.nativeCurrency.symbol || 'ETH').toUpperCase();
 };
 
-const getBridgeChainSymbol = (chainId: number) => {
+const getBridgeChainSymbol = (chainId: number | string) => {
   const symbol = getChainSymbol(chainId).toUpperCase();
   if (symbol === 'BNB') return 'BSC';
   return symbol.slice(0, 3);
 };
 
 interface SwapTransactionRequest {
-  chainId: number;
+  chainId: number | string;
   quote: SwapQuote;
   tokenIn: {
     address: string;
@@ -40,7 +40,7 @@ export interface SwapTransactionData {
   from: string;
   data: string;
   value: string;
-  chainId: number;
+  chainId: number | string;
   nonce?: number;
   type?: number;
   maxFeePerGas?: string;
@@ -123,7 +123,7 @@ function buildQuotePayload(request: any, chainId: any) {
   };
 }
 
-export async function getSwapQuote(chainId: number, request: SwapQuoteRequest): Promise<SwapQuote> {
+export async function getSwapQuote(chainId: number | string, request: SwapQuoteRequest): Promise<SwapQuote> {
   const payload = buildQuotePayload(request, chainId);
   const res = await fetchApiResponseFromProxy<any>(getSwapEndpoint('quote'), 'POST', payload);
 
@@ -174,8 +174,8 @@ export async function prepareSwapTransaction(
 }
 
 export async function getBridgeQuote(
-  sourceChainId: number,
-  destinationChainId: number,
+  sourceChainId: number | string,
+  destinationChainId: number | string,
   amount: string,
   sourceToken: string = 'usdt',
   destinationToken: string = 'usdt'
@@ -192,8 +192,8 @@ export async function getBridgeQuote(
 }
 
 export interface BridgeTransactionRequest {
-  fromChainId: number;
-  toChainId: number;
+  fromChainId: number | string;
+  toChainId: number | string;
   amount: string;
   feePayType: 'stablecoin' | 'native';
   fromAddress: string;
@@ -255,7 +255,7 @@ export async function prepareBridgeTransaction(
 }
 
 export async function get1InchFusionQuote(
-  chainId: number,
+  chainId: number | string,
   request: {
     tokenIn: string;
     tokenOut: string;

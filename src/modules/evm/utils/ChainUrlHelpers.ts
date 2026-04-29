@@ -27,7 +27,7 @@ export function getTokenIcon(symbol: string, chainConfig?: any, address?: string
     if (symbol === chainConfig.nativeCurrency?.symbol) {
         return chainConfig.nativeCurrency.logoURI || getChainLogoUrlBySlug(chainConfig.slug);
     }
-    if (chainConfig.chainId === 9000000 || chainConfig.chainId === 9000001) {
+    if (chainConfig.chainId === 'pubnet' || chainConfig.chainId === 'testnet') {
         if (tokenAddress) {
             return `${ASSET_CDN_BASE}/stellar/assets/${symbol}-${tokenAddress}/logo.png`;
         }

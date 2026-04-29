@@ -13,7 +13,7 @@ export interface Asset {
   current_price: number;
   price_change_percentage_24h: number;
   chainName: string;
-  chainId?: number;
+  chainId?: number | string;
   chainType?: 'evm' | 'stellar';
   isNative?: boolean;
   address?: string;
@@ -49,7 +49,7 @@ interface PortfolioActions {
     network: string
   ) => Promise<void>;
   updateAsset: (asset: Asset) => void;
-  getAssetBalance: (chainId: number, symbol: string) => number;
+  getAssetBalance: (chainId: number | string, symbol: string) => number;
   clearAssets: () => void;
   clearAssetsByType: (chainType: 'evm' | 'stellar') => void;
   enrichPrices: () => Promise<void>;
@@ -92,7 +92,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           });
         },
 
-        getAssetBalance: (chainId: number, symbol: string) => {
+        getAssetBalance: (chainId: number | string, symbol: string) => {
           const asset = get().assets.find(
             (a) => a.chainId === chainId && a.symbol.toUpperCase() === symbol.toUpperCase()
           );
@@ -285,7 +285,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
 export const selectTotalValue = (state: PortfolioState) =>
   portfolioUtils.calculateTotalUSD(state.assets);
 
-export const selectAssetsByChain = (chainId: number) => (state: PortfolioState) =>
+export const selectAssetsByChain = (chainId: number | string) => (state: PortfolioState) =>
   state.assets.filter((a) => a.chainId === chainId);
 
 export const selectEvmAssets = (state: PortfolioState) =>
