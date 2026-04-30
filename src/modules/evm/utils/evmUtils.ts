@@ -211,3 +211,45 @@ export async function signEVMTransaction(
     );
   }
 }
+
+export async function simulateEVMTransaction(
+  networkKey: NetworkKey,
+  from: string,
+  to: string,
+  value: string | bigint,
+  data: string = '0x'
+): Promise<{ gasLimit: bigint; feeData: ethers.FeeData; totalRequired: bigint }> {
+  const { rpcUrls, nativeCurrency } = getEVMNetworkConfig(networkKey);
+  const amountInWei = typeof value === 'string' ? BigInt(value) : value;
+
+  const { estimate, feeData, balance } = await rpcManager.fetchWithFallback(
+    networkKey,
+    rpcUrls,
+    async (p) => {
+      const est = await p.estimateGas({
+        from,
+        to,
+        value: amountInWei,
+        data,
+      });
+      const fd = await p.getFeeData();
+      const bal = await p.getBalance(from);
+      return { estimate: BigInt(est), feeData: fd, balance: bal };
+    }
+  );
+
+  const gasLimitBigInt = estimate + estimate / BigInt(5); // 20% cushion
+
+  const price = feeData.maxFeePerGas || feeData.gasPrice || BigInt(20000000000);
+  const totalRequired = (data === '0x' ? amountInWei : BigInt(0)) + (gasLimitBigInt * price);
+
+  if (balance < totalRequired) {
+    const have = parseFloat(ethers.formatEther(balance)).toPrecision(6);
+    const need = parseFloat(ethers.formatEther(totalRequired)).toPrecision(6);
+    throw new Error(
+      `Insufficient funds for gas. Have ${have} ${nativeCurrency.symbol}, Need ${need} ${nativeCurrency.symbol}`
+    );
+  }
+
+  return { gasLimit: gasLimitBigInt, feeData, totalRequired };
+}

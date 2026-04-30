@@ -262,6 +262,7 @@ export class AmmSwapService extends StellarBaseService {
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
     const network = isMainnet ? 'mainnet' : 'testnet';
 
+    console.log(this.networkPassphrase, "--- ammswap service ")
     const result = await signAndSubmitTransaction({
       xdr: transaction.xdr,
       network,

@@ -10,10 +10,19 @@ export function parseSwapError(error: any): string {
   if (data?.diagnosisMessages && Array.isArray(data.diagnosisMessages) && data.diagnosisMessages.length > 0) {
     return String(data.diagnosisMessages[0]);
   }
+
+  //  Rango style array responses where one or more items have ok: false
   if (Array.isArray(data) && data.length > 0) {
-    if (data[0]?.error) message = String(data[0].error);
-    else if (data[0]?.message) message = String(data[0].message);
+    const firstErrorItem = data.find((item: any) => item.ok === false || item.error || item.message);
+    if (firstErrorItem) {
+      message = String(firstErrorItem.error || firstErrorItem.message || 'Unknown swap error');
+    } else if (data[0]?.error) {
+      message = String(data[0].error);
+    } else if (data[0]?.message) {
+      message = String(data[0].message);
+    }
   }
+
   if (!message && typeof data === 'object' && data !== null) {
     if (data.message) {
       message = data.message;
@@ -48,7 +57,10 @@ export function parseSwapError(error: any): string {
       try {
         const parsed = JSON.parse(error.toString());
         if (parsed.message) message = parsed.message;
-        else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.error) message = String(parsed[0].error);
+        else if (Array.isArray(parsed) && parsed.length > 0) {
+          const errItem = parsed.find((i: any) => i.error || i.message);
+          if (errItem) message = String(errItem.error || errItem.message);
+        }
       } catch (e) {
         message = error.toString();
       }
@@ -66,6 +78,14 @@ export function parseSwapError(error: any): string {
     .replace(' [object Object]', '');
 
   const errorMessageLower = processedMessage.toLowerCase();
+
+  // Rango specific balance/fee reasons
+  if (errorMessageLower.includes('balance is empty') || errorMessageLower.includes('insufficient')) {
+    if (errorMessageLower.includes('fee')) {
+      return 'Insufficient native tokens for gas fees.';
+    }
+    return processedMessage;
+  }
 
   if (
     errorMessageLower.includes('insufficient funds') ||
@@ -116,6 +136,23 @@ export function parseSwapError(error: any): string {
       return `Transaction failed: ${revertMatch[1].trim()}`;
     }
     return 'Transaction failed due to a network provider error. Please try again.';
+  }
+
+  // Stellar specific errors
+  if (
+    errorMessageLower.includes('tx_bad_seq') ||
+    errorMessageLower.includes('sequence_mismatch') ||
+    errorMessageLower.includes('bad sequence')
+  ) {
+    return 'Transaction sequence number mismatch. This can happen if another transaction was recently submitted. Please try again.';
+  }
+
+  if (errorMessageLower.includes('op_no_trust')) {
+    return 'Recipient does not have a trustline for this asset.';
+  }
+
+  if (errorMessageLower.includes('tx_insufficient_balance')) {
+    return 'Insufficient balance to cover transaction fees and minimum reserve.';
   }
 
   return processedMessage || 'Swap failed. Please try again.';

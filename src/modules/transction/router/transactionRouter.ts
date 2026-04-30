@@ -2,8 +2,8 @@ import { ethers } from 'ethers';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
-import { rpcManager } from '../../evm/utils/rpcProvider';
+
+
 
 function isMainnet(): boolean {
   return useWalletStore.getState().network === 'mainnet';
@@ -251,42 +251,22 @@ class TransactionRouter {
         chainId: chainId,
       };
 
-      const networkCfg = getEVMNetworkConfig(chainId);
       let gasLimitBigInt = txParams.data === '0x' ? BigInt(21000) : BigInt(100000);
 
       try {
-        const { estimate, feeData, balance } = await rpcManager.fetchWithFallback(
+        const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
+        const sim = await simulateEVMTransaction(
           chainId,
-          networkCfg.rpcUrls,
-          async p => {
-            const est = await p.estimateGas({
-              from: txParams.from,
-              to: txParams.to,
-              value: txParams.value,
-              data: txParams.data,
-            });
-            const fd = await p.getFeeData();
-            const bal = await p.getBalance(txParams.from);
-            return { estimate: BigInt(est), feeData: fd, balance: bal };
-          }
+          txParams.from,
+          txParams.to,
+          txParams.value,
+          txParams.data
         );
+        gasLimitBigInt = sim.gasLimit;
 
-        gasLimitBigInt = estimate + estimate / BigInt(5); // 20% cushion
-
-        const price = feeData.maxFeePerGas || feeData.gasPrice || BigInt(20000000000);
-        const totalRequired = (txParams.data === '0x' ? amountInWei : BigInt(0)) + (gasLimitBigInt * price);
-
-        if (balance < totalRequired) {
-          const have = parseFloat(ethers.formatEther(balance)).toPrecision(6);
-          const need = parseFloat(ethers.formatEther(totalRequired)).toPrecision(6);
-          throw new Error(
-            `Insufficient funds. Have ${have} ${networkCfg.nativeCurrency.symbol}, Need ${need} ${networkCfg.nativeCurrency.symbol}`
-          );
-        }
-
-        if (feeData.maxFeePerGas) txParams.maxFeePerGas = '0x' + feeData.maxFeePerGas.toString(16);
-        if (feeData.maxPriorityFeePerGas)
-          txParams.maxPriorityFeePerGas = '0x' + feeData.maxPriorityFeePerGas.toString(16);
+        if (sim.feeData.maxFeePerGas) txParams.maxFeePerGas = '0x' + sim.feeData.maxFeePerGas.toString(16);
+        if (sim.feeData.maxPriorityFeePerGas)
+          txParams.maxPriorityFeePerGas = '0x' + sim.feeData.maxPriorityFeePerGas.toString(16);
       } catch (simError: any) {
         if (simError.message.includes('Insufficient funds')) throw simError;
       }
@@ -367,10 +347,10 @@ class TransactionRouter {
 
 
       const STELLAR_PASSPHRASES: Record<string, string> = {
-        pubnet: 'Public Global Stellar Network ; October 2015',
-        mainnet: 'Public Global Stellar Network ; October 2015',
-        PUBLIC: 'Public Global Stellar Network ; October 2015',
-        publink: 'Public Global Stellar Network ; October 2015',
+        pubnet: 'Public Global Stellar Network ; September 2015',
+        mainnet: 'Public Global Stellar Network ; September 2015',
+        PUBNET: 'Public Global Stellar Network ; September 2015',
+        publink: 'Public Global Stellar Network ; September 2015',
         testnet: 'Test SDF Network ; September 2015',
         TESTNET: 'Test SDF Network ; September 2015',
       };
@@ -385,7 +365,7 @@ class TransactionRouter {
 
       const resolvedNetwork =
         request.data.network ||
-        (['pubnet', 'mainnet', 'PUBLIC', 'publink'].includes(networkKeyStr) ? 'PUBLIC' : 'TESTNET');
+        (['pubnet', 'mainnet', 'PUBLIC', 'publink'].includes(networkKeyStr) ? 'PUBNET' : 'TESTNET');
 
       console.log('Resolved Stellar network params:', {
         networkKeyStr,
@@ -445,22 +425,49 @@ class TransactionRouter {
           params: signParams,
         });
 
-        console.log('=== STELLAR WC DEBUG ===', {
-          topic,
-          chainCAIP,
-          availableChains: provider.namespaces?.stellar?.chains,
-          sessionChains: provider.session?.namespaces?.stellar?.chains,
-          sessionAccounts: provider.session?.namespaces?.stellar?.accounts,
-        });
+        try {
+          result = await provider.client.request({
+            topic,
+            chainId: chainCAIP,
+            request: {
+              method: 'stellar_signAndSubmitXDR',
+              params: signParams,
+            },
+          });
+        } catch (wcError: any) {
+          console.warn('[Router] stellar_signAndSubmitXDR failed, trying fallback sign-only...', wcError);
+          const signResult = await provider.client.request({
+            topic,
+            chainId: chainCAIP,
+            request: {
+              method: 'stellar_signTransaction',
+              params: signParams,
+            },
+          });
 
-        result = await provider.client.request({
-          topic,
-          chainId: chainCAIP,
-          request: {
-            method: 'stellar_signAndSubmitXDR',
-            params: signParams,
-          },
-        });
+          const signedXdr = signResult?.signedXDR || (typeof signResult === 'string' ? signResult : null);
+          if (!signedXdr) throw new Error('Wallet failed to sign the transaction');
+
+          console.log('[Router] Fallback sign successful, submitting to Horizon...');
+          const { getStellarConfig } = await import('../../walletconnect/config/chains');
+          const config = getStellarConfig(resolvedNetwork.toLowerCase() as any);
+
+          // Submit to Horizon
+          const broadcastUrl = `${config.horizonUrl}/transactions`;
+          const body = new URLSearchParams({ tx: signedXdr });
+          const res = await fetch(broadcastUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body,
+          });
+
+          if (!res.ok) {
+            const json = await res.json();
+            throw new Error(json?.extras?.result_codes?.transaction || json?.title || 'Submission failed');
+          }
+          const json = await res.json();
+          result = { hash: json.hash, status: 'success' };
+        }
       } else {
         console.log('Direct provider.request() - calling stellar_signAndSubmitXDR with:', signParams);
         result = await provider.request({
@@ -495,8 +502,29 @@ class TransactionRouter {
         code: error.code,
         fullError: error,
       });
+
+      let errorMessage = error.message || 'Stellar transaction failed';
+      if (error.response?.data?.extras?.result_codes?.transaction) {
+        errorMessage = `Stellar Error: ${error.response.data.extras.result_codes.transaction}`;
+        if (error.response.data.extras.result_codes.operations) {
+          errorMessage += ` (${error.response.data.extras.result_codes.operations.join(', ')})`;
+        }
+      } else if (error.data?.extras?.result_codes?.transaction) {
+        errorMessage = `Stellar Error: ${error.data.extras.result_codes.transaction}`;
+      } else if (error.response?.data?.detail) {
+        errorMessage = `Stellar Error: ${error.response.data.detail}`;
+      } else if (typeof error === 'object' && error !== null) {
+        // Handle generic WalletConnect or RPC errors that might contain Stellar codes
+        const errorJson = JSON.stringify(error).toLowerCase();
+        if (errorJson.includes('tx_bad_seq')) errorMessage = 'Stellar Error: tx_bad_seq (Sequence Number Mismatch)';
+        else if (errorJson.includes('tx_insufficient_balance')) errorMessage = 'Stellar Error: tx_insufficient_balance';
+      }
+
       console.groupEnd();
-      throw error;
+      const enhancedError = new Error(errorMessage);
+      (enhancedError as any).originalError = error;
+      (enhancedError as any).code = error.code;
+      throw enhancedError;
     }
   }
 

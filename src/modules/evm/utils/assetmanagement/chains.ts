@@ -232,7 +232,7 @@ export const STR = {
   minGasGwei: 100,
   imageUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
   name: "Stellar",
-  symbol: "SRB",
+  symbol: "XLM",
   chainName: "Stellar",
   subName: "Network",
   bridgeSupportTokens: [
@@ -570,7 +570,7 @@ export const CHAINS: Record<string, IChain> = {
     bridgeSupportTokens: DYDX.bridgeSupportTokens,
     sendEnable: true,
     receiveEnable: true,
-    bridgeEnable: true,
+    bridgeEnable: false,
     swapEnable: false,
     importForSetupApp: false,
     importForSetupedApp: true

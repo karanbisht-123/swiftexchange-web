@@ -11,7 +11,7 @@ import {
   findChain,
   type NetworkType
 } from '../../../evm/utils/Chainregistry';
-import { NATIVE_ADDRESS } from '../../../evm/utils/assetmanagement/constants';
+import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from '../../../evm/utils/assetmanagement/constants';
 
 
 interface BackendResponse {
@@ -77,7 +77,9 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
 
         const chainId = chain.chainId as number;
         const lowerTokenAddress = (token.tokenAddress || "").toLowerCase();
-        const isNative = !token.tokenAddress || lowerTokenAddress === NATIVE_ADDRESS.toLowerCase();
+        const isNative = !token.tokenAddress ||
+          lowerTokenAddress === NATIVE_ADDRESS.toLowerCase() ||
+          lowerTokenAddress === AGGREGATOR_NATIVE_ADDRESS.toLowerCase();
         const assetAddress = isNative ? NATIVE_ADDRESS : token.tokenAddress!;
 
         const registryAsset = getAssetByAddress(chainId, assetAddress);
@@ -123,8 +125,8 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
         const isNative = address.toLowerCase() === NATIVE_ADDRESS.toLowerCase();
         const isInRegistry = !!getAssetByAddress(chainId, address);
 
-        const hasPrice = asset.current_price > 0;
-        return isNative || isInRegistry || hasPrice;
+        // const hasPrice = asset.current_price > 0;
+        return isNative || isInRegistry;
       });
 
 

@@ -139,8 +139,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     rangoQuote,
     fetchRangoQuote,
     confirmRangoRoute,
-    checkRangoApproval,
-    prepareRangoTx,
     reset: resetSwap,
   } = useEvmSwap({
     chainId: fromChainId,
@@ -152,6 +150,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const [showFusionScreen, setShowFusionScreen] = useState(false);
   const [isFusionLoading, setIsFusionLoading] = useState(false);
+  const [fusionStatus, setFusionStatus] = useState<'idle' | 'approving' | 'signing'>('idle');
 
 
   const fromChainConfig = getChainById(fromChainId);
@@ -339,7 +338,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
 
   const fetchUnifiedQuote = useCallback(async () => {
-    if (!sellAmount || parseFloat(sellAmount) <= 0 || isChainSwitching || isFusionLoading || showFusionScreen) {
+    if (!sellAmount || parseFloat(sellAmount) <= 0 || isChainSwitching || showFusionScreen) {
       setBridgeQuoteData(null);
       return;
     }
@@ -366,28 +365,32 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       } else {
         if (!selectedSellAsset || !selectedBuyAsset || selectedSellAsset.address?.toLowerCase() === selectedBuyAsset.address?.toLowerCase()) return;
         try {
-          const swapType = determineSwapType(selectedSellAsset as any, selectedBuyAsset as any);
-          const quoteRequest: SwapQuoteRequest = {
-            tokenIn: {
-              symbol: selectedSellAsset.symbol,
-              name: selectedSellAsset.symbol,
-              decimals: (selectedSellAsset as any).decimals || 18,
-              address: selectedSellAsset.address || '',
-              balance: (selectedSellAsset as any).balance || '0',
-              logoUri: null,
-            },
-            tokenOut: {
-              symbol: selectedBuyAsset.symbol,
-              name: selectedBuyAsset.symbol,
-              decimals: (selectedBuyAsset as any).decimals || 18,
-              address: selectedBuyAsset.address || '',
-              balance: (selectedBuyAsset as any).balance || '0',
-              logoUri: null,
-            },
-            amount: sellAmount,
-            swapType,
-          };
-          await fetchSwapQuoteInternal(quoteRequest, selectedSellAsset as any, selectedBuyAsset as any);
+          if (isGasless) {
+            await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+          } else {
+            const swapType = determineSwapType(selectedSellAsset as any, selectedBuyAsset as any);
+            const quoteRequest: SwapQuoteRequest = {
+              tokenIn: {
+                symbol: selectedSellAsset.symbol,
+                name: selectedSellAsset.symbol,
+                decimals: (selectedSellAsset as any).decimals || 18,
+                address: selectedSellAsset.address || '',
+                balance: (selectedSellAsset as any).balance || '0',
+                logoUri: null,
+              },
+              tokenOut: {
+                symbol: selectedBuyAsset.symbol,
+                name: selectedBuyAsset.symbol,
+                decimals: (selectedBuyAsset as any).decimals || 18,
+                address: selectedBuyAsset.address || '',
+                balance: (selectedBuyAsset as any).balance || '0',
+                logoUri: null,
+              },
+              amount: sellAmount,
+              swapType,
+            };
+            await fetchSwapQuoteInternal(quoteRequest, selectedSellAsset as any, selectedBuyAsset as any);
+          }
         } catch (err: any) {
           if (err?.message === 'Quote request cancelled' || err?.message === 'Quote request superseded') return;
           console.error('Swap quote error:', err);
@@ -486,7 +489,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         setIsFetchingBridgeQuote(false);
       }
     }
-  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, slippageTolerance, isFusionLoading, showFusionScreen, isBridgeSupported, getUsdValue, fetchRangoQuote, ammService]);
+  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, slippageTolerance, showFusionScreen, isBridgeSupported, getUsdValue, fetchRangoQuote, ammService]);
 
 
   const resetQuotes = useCallback(() => {
@@ -528,8 +531,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       return actionType === 'SWAP' ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE & BRIDGE';
     }
 
+    if (crossChainQuoteSource === 'rango' && !isInsufficientBalance && !swapError) return 'SWAP';
     return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
-  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset]);
+  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, crossChainQuoteSource]);
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
@@ -712,7 +716,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const requestId = rangoQuote.requestId || rangoQuote.result?.requestId;
           if (!requestId) throw new Error('No Rango requestId available');
 
-          setBridgeTxStatus('preparing');
           const confirmResult = await confirmRangoRoute(
             requestId,
             fromChainId,
@@ -725,66 +728,48 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             throw new Error(confirmResult?.error || 'Failed to confirm Rango route');
           }
 
-          const provider = getProvider(WalletType.EVM) as any;
+          const validationStatus = confirmResult.result?.validationStatus;
+          if (validationStatus && Array.isArray(validationStatus)) {
+            for (const chainStatus of validationStatus) {
+              for (const wallet of (chainStatus.wallets || [])) {
+                for (const asset of (wallet.requiredAssets || [])) {
+                  if (!asset.ok) {
+                    const symbol = asset.asset?.symbol || 'token';
+                    const reason = asset.reason;
+                    const required = asset.requiredAmount?.amount || 'unknown';
+                    const current = asset.currentAmount?.amount || '0';
 
-          const buildTxParams = (tx: any) => ({
-            from: tx.from || evmAddress,
-            to: tx.to,
-            data: tx.data || '0x',
-            value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : '0x0',
-            ...(tx.gasLimit ? { gas: tx.gasLimit } : {}),
-            ...(tx.maxFeePerGas ? { maxFeePerGas: `0x${BigInt(tx.maxFeePerGas).toString(16)}` } : {}),
-            ...(tx.maxPriorityFeePerGas ? { maxPriorityFeePerGas: `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}` } : {}),
-          });
-
-          const step1Response = await prepareRangoTx(requestId, 1);
-          const step1Result = Array.isArray(step1Response) ? step1Response[0] : step1Response;
-          if (!step1Result?.ok) throw new Error(step1Result?.error || 'Failed to prepare Rango transaction');
-
-          const step1Tx = step1Result.transaction;
-          if (!step1Tx?.to) throw new Error('No transaction data from Rango');
-
-          if (step1Tx.isApprovalTx) {
-            const approvalTxId = await provider.request({ method: 'eth_sendTransaction', params: [buildTxParams(step1Tx)] });
-            await checkRangoApproval(requestId, approvalTxId);
-
-            const step2Response = await prepareRangoTx(requestId, 2);
-            const step2Result = Array.isArray(step2Response) ? step2Response[0] : step2Response;
-            if (!step2Result?.ok) throw new Error(step2Result?.error || 'Failed to prepare Rango swap transaction');
-
-            const step2Tx = step2Result.transaction;
-            if (!step2Tx?.to) throw new Error('No swap transaction data from Rango');
-
-            setBridgeTxStatus('signing');
-            const swapTxId = await provider.request({ method: 'eth_sendTransaction', params: [buildTxParams(step2Tx)] });
-            setBridgeTxHash(swapTxId);
-            addLocalTransaction({
-              hash: swapTxId,
-              chainId: fromChainId,
-              type: 'bridge',
-              timestamp: Date.now(),
-              description: `Rango Bridge: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
-              from: evmAddress,
-              status: 'pending',
-              network: currentNetwork
-            });
-          } else {
-            setBridgeTxStatus('signing');
-            const swapTxId = await provider.request({ method: 'eth_sendTransaction', params: [buildTxParams(step1Tx)] });
-            setBridgeTxHash(swapTxId);
-            addLocalTransaction({
-              hash: swapTxId,
-              chainId: fromChainId,
-              type: 'crosschain-swap',
-              timestamp: Date.now(),
-              description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
-              from: evmAddress,
-              status: 'pending',
-              network: currentNetwork
-            });
+                    if (reason === 'FEE') {
+                      throw new Error(`Insufficient native tokens for gas fees on ${chainStatus.blockchain}. Required: ${required}, Current: ${current}`);
+                    }
+                    if (reason === 'INPUT_ASSET') {
+                      throw new Error(`Insufficient ${symbol} balance for swap. Required: ${required}, Current: ${current}`);
+                    }
+                    if (reason === 'FEE_AND_INPUT_ASSET') {
+                      throw new Error(`Insufficient ${symbol} and native tokens for fees on ${chainStatus.blockchain}.`);
+                    }
+                    throw new Error(asset.error || `Rango validation failed: ${reason || 'Insufficient balance'} for ${symbol} (Required: ${required}, Current: ${current})`);
+                  }
+                }
+              }
+            }
           }
 
-          setBridgeTxStatus('success');
+          const { executeRangoSwap } = await import('../../utils/evmSwapUtils');
+          await executeRangoSwap(
+            requestId,
+            fromChainId,
+            evmAddress,
+            currentNetwork,
+            sellAssetSymbol,
+            buyAssetSymbol,
+            getProvider,
+            {
+              setStatus: setBridgeTxStatus,
+              setHash: setBridgeTxHash,
+              addTransaction: addLocalTransaction
+            }
+          );
 
         } else {
           const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
@@ -840,7 +825,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, slippageTolerance, performSwap, evmAddress,
     stellarAddress, bridgeQuoteData, rangoQuote, fromChainId, toChainId, stellarSwapQuote, ammService, getProvider,
     isGasless, fetchFusionQuote, crossChainQuoteSource, feePayType, sellAssetSymbol, buyAssetSymbol, currentNetwork,
-    confirmRangoRoute, checkRangoApproval, prepareRangoTx
+    confirmRangoRoute
   ]);
   const handleChainSelectInModal = useCallback(async (newChainId: number | string, isSource: boolean) => {
     const finalFromId = isSource ? newChainId : fromChainId;
@@ -948,13 +933,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const calculatedBuyAmount = useMemo(() => {
     if (actionType === 'SWAP') {
       if (isSameAssetSelected) return 'SELECT DIFFERENT PAIR';
+      if (isGasless && fusionQuote) {
+        const decimals = (selectedBuyAsset as any)?.decimals || 18;
+        return ethers.formatUnits(fusionQuote.toTokenAmount, decimals);
+      }
       return isStellar(fromChainId) ? (stellarSwapQuote?.estimatedOutput || '0.00') : (swapQuote?.outputAmount || '0.00');
     }
     if (isStellar(fromChainId)) return bridgeQuoteData?.minimumAmountOut || '0.00';
     if (crossChainQuoteSource === 'bridge') return bridgeQuoteData?.minimumAmountOut || rangoQuote?.result?.outputAmount || '0.00';
     if (crossChainQuoteSource === 'rango') return rangoQuote?.result?.outputAmount || '0.00';
     return bridgeQuoteData?.minimumAmountOut || '0.00';
-  }, [actionType, swapQuote, bridgeQuoteData, rangoQuote, fromChainId, stellarSwapQuote, isSameAssetSelected, crossChainQuoteSource]);
+  }, [actionType, swapQuote, fusionQuote, isGasless, selectedBuyAsset, bridgeQuoteData, rangoQuote, fromChainId, stellarSwapQuote, isSameAssetSelected, crossChainQuoteSource]);
 
 
   const minimumReceived = (() => {
@@ -1402,24 +1391,31 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           quote={fusionQuote}
           sellAsset={selectedSellAsset}
           buyAsset={selectedBuyAsset}
-          onBack={() => setShowFusionScreen(false)}
+          onBack={() => {
+            resetSwap();
+            setShowFusionScreen(false);
+          }}
           loading={isFusionLoading}
+          fusionStatus={fusionStatus}
           error={swapError}
           txHash={swapTxHash}
           onConfirm={async (preset) => {
             setIsFusionLoading(true);
+            setFusionStatus('idle');
             try {
               const hash = await performFusionSwap(
                 selectedSellAsset as any,
                 selectedBuyAsset as any,
                 sellAmount,
-                preset
+                preset,
+                (step) => setFusionStatus(step)
               );
-              console.log(hash, " Fustoin screen hash ---")
+              console.log(hash, " Fusion screen hash ---");
             } catch (err) {
               console.error('Fusion swap execution failed:', err);
             } finally {
               setIsFusionLoading(false);
+              setFusionStatus('idle');
             }
           }}
         />

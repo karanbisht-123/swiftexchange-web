@@ -45,6 +45,7 @@ interface WalletActions {
   connectUnified: (walletId: string) => Promise<void>;
   deriveDydx: () => Promise<void>;
   disconnect: (type: WalletType) => Promise<void>;
+  disconnectAll: () => Promise<void>;
   restoreSessions: () => Promise<void>;
   checkSessionHealth: () => Promise<{ type: WalletType; valid: boolean }[]>;
   openModal: () => void;
@@ -227,6 +228,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     disconnect: async type => {
+      console.log(`[WalletStore] Disconnecting ${type}...`);
       await walletService.disconnect(type);
 
       set(state => {
@@ -240,18 +242,35 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         };
       });
 
+      // Thorough clearing of portfolio data
+      const portfolio = usePortfolioStore.getState();
       if (Object.keys(get().connectedWallets).length === 0) {
-        usePortfolioStore.getState().clearAssets();
+        portfolio.clearAssets();
       } else {
         if (type === 'evm') {
-          usePortfolioStore.getState().clearAssetsByType('evm');
+          portfolio.clearAssetsByType('evm');
+          portfolio.clearAssetsByType('dydx'); // dYdX usually derived from EVM
         } else if (type === 'stellar') {
-          usePortfolioStore.getState().clearAssetsByType('stellar');
+          portfolio.clearAssetsByType('stellar');
         } else if (type === 'cosmos') {
-          usePortfolioStore.getState().clearAssetsByType('dydx');
+          portfolio.clearAssetsByType('dydx');
         }
       }
 
+      listenerInitialized = false;
+    },
+
+    disconnectAll: async () => {
+      console.log('[WalletStore] Disconnecting all wallets...');
+      await walletService.disconnectAll();
+
+      set({
+        connectedWallets: {},
+        connectionStatus: {},
+        sessionLastPingAt: {},
+      });
+
+      usePortfolioStore.getState().clearAssets();
       listenerInitialized = false;
     },
 

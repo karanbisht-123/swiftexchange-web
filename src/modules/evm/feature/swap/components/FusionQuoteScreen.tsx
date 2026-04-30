@@ -7,6 +7,7 @@ interface FusionQuoteScreenProps {
   quote: FusionQuote;
   sellAsset: any;
   buyAsset: any;
+  fusionStatus?: 'idle' | 'approving' | 'signing';
   onConfirm: (preset: keyof FusionQuote['presets']) => void;
   onBack: () => void;
   loading?: boolean;
@@ -35,6 +36,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   quote,
   sellAsset,
   buyAsset,
+  fusionStatus = 'idle',
   onConfirm,
   onBack,
   loading = false,
@@ -255,7 +257,13 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                 <>
                   <TransactionButton
                     label="CONFIRM & SIGN ORDER"
-                    loadingLabel="PREPARING ORDER..."
+                    loadingLabel={
+                      fusionStatus === 'approving'
+                        ? 'APPROVING TOKEN...'
+                        : fusionStatus === 'signing'
+                        ? 'PREPARING ORDER...'
+                        : 'PROCESSING...'
+                    }
                     isLoading={loading}
                     onClick={() => onConfirm(preset)}
                   />

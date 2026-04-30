@@ -6,6 +6,7 @@ import {
   Loader2,
   RefreshCw,
   SearchX,
+  ShieldCheck,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -38,8 +39,9 @@ const STATUS_STYLES: Record<LocalTransactionWithStatus['status'], string> = {
   failed: 'bg-red-500/10 border-red-500/20 text-red-500',
 };
 
-const StatusIcon: React.FC<{ status: LocalTransactionWithStatus['status'] }> = ({ status }) => {
+const StatusIcon: React.FC<{ status: LocalTransactionWithStatus['status']; type: string }> = ({ status, type }) => {
   if (status === 'pending') return <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />;
+  if (type === 'approval' && status === 'success') return <ShieldCheck className="w-5 h-5 text-blue-500" />;
   if (status === 'success') return <CheckCircle className="w-5 h-5 text-green-500" />;
   return <XCircle className="w-5 h-5 text-red-500" />;
 };
@@ -218,7 +220,7 @@ const EvmTransactionHistory: React.FC = () => {
           {availableChains.map(chain => (
             <button
               key={chain.chainId}
-              onClick={() => switchView(chain.chainId)}
+              onClick={() => switchView(chain.chainId as ViewType)}
               className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
             >
               <img src={chain.imageUrl} alt={chain.nativeCurrency.symbol} className="w-4 h-4 rounded-full bg-secondary" />
@@ -296,9 +298,9 @@ const EvmTransactionHistory: React.FC = () => {
                 className="flex items-center gap-4 flex-1 text-left"
               >
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border ${statusStyle}`}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border ${tx.type === 'approval' && tx.status === 'success' ? 'bg-blue-500/10 border-blue-500/20' : statusStyle}`}
                 >
-                  <StatusIcon status={tx.status} />
+                  <StatusIcon status={tx.status} type={tx.type} />
                 </div>
                 <div>
                   <div className="font-bold text-primary text-base flex items-center gap-2">

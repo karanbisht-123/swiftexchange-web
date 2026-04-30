@@ -65,7 +65,8 @@ interface UseEvmSwapActions {
     sellAsset: TokenInfo,
     buyAsset: TokenInfo,
     sellAmount: string,
-    preset?: string
+    preset?: string,
+    onProgress?: (step: 'approving' | 'signing') => void
   ) => Promise<string>;
 
   setGasless: (enabled: boolean) => void;
@@ -311,7 +312,12 @@ export const useEvmSwap = ({
       buyAsset: TokenInfo,
       amount: string
     ): Promise<FusionQuote> => {
-      updateState({ quoteLoading: true, error: null });
+      // Cancel any in-flight normal quote so it can't overwrite state after fusion resolves
+      quoteAbortController.current?.abort();
+      quoteAbortController.current = new AbortController();
+      latestQuoteRequestId.current++;
+
+      updateState({ quoteLoading: true, error: null, quote: null });
 
       try {
         const fusionQuoteData = await fetch1InchFusionQuote(
@@ -323,12 +329,7 @@ export const useEvmSwap = ({
           sellAsset.decimals
         );
 
-        updateState({
-          fusionQuote: fusionQuoteData,
-          quoteLoading: false,
-          error: null,
-        });
-
+        updateState({ fusionQuote: fusionQuoteData, quoteLoading: false, error: null });
         return fusionQuoteData;
       } catch (err: any) {
         const errorMsg = parseSwapError(err);
@@ -408,7 +409,8 @@ export const useEvmSwap = ({
       sellAsset: TokenInfo,
       buyAsset: TokenInfo,
       sellAmount: string,
-      preset?: string
+      preset?: string,
+      onProgress?: (step: 'approving' | 'signing') => void
     ): Promise<string> => {
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
@@ -426,7 +428,8 @@ export const useEvmSwap = ({
           sellAsset,
           buyAsset,
           sellAmount,
-          getProvider
+          getProvider,
+          onProgress
         );
 
         const currentNetwork = useWalletStore.getState().network;

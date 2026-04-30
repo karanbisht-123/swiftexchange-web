@@ -252,18 +252,42 @@ export const useSendAsset = (onBack?: () => void) => {
         setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
       } else if (currentAsset.type === 'stellar') {
         console.log('[useSendAsset] Building Stellar transaction request');
-        const tx = await sendCryptoStellarBuild(senderAddress, recipientAddress, amount, memo ? { memo } : {}, { code: currentAsset.symbol, issuer: currentAsset.tokenAddress, isNative: currentAsset.isNative });
-        req = {
-          type: 'stellar',
-          network: currentAsset.network,
-          networkKey: currentNetwork === 'testnet' ? 'testnet' : 'pubnet',
-          from: senderAddress,
-          to: recipientAddress,
-          amount,
-          data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' }
+
+        const executeStellarWithRetry = async (retryCount = 0): Promise<any> => {
+          try {
+            const tx = await sendCryptoStellarBuild(senderAddress, recipientAddress, amount, memo ? { memo } : {}, {
+              code: currentAsset.symbol,
+              issuer: currentAsset.tokenAddress,
+              isNative: currentAsset.isNative
+            });
+
+            req = {
+              type: 'stellar',
+              network: currentAsset.network,
+              networkKey: currentNetwork === 'testnet' ? 'testnet' : 'pubnet',
+              from: senderAddress,
+              to: recipientAddress,
+              amount,
+              data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBNET' }
+            };
+
+            console.log(`[useSendAsset] Sending transaction request to router (attempt ${retryCount + 1}):`, req);
+            const res = await sendTransaction(req);
+            return res;
+          } catch (err: any) {
+            const errorStr = (err.message || JSON.stringify(err)).toLowerCase();
+            const isSequenceError = errorStr.includes('tx_bad_seq') || errorStr.includes('sequence_mismatch') || errorStr.includes('bad sequence');
+
+            if (retryCount < 1 && isSequenceError) {
+              console.warn('[useSendAsset] Stellar sequence mismatch detected. Retrying with fresh account data...');
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              return executeStellarWithRetry(retryCount + 1);
+            }
+            throw err;
+          }
         };
-        console.log('[useSendAsset] Sending transaction request to router:', req);
-        const res = await sendTransaction(req);
+
+        const res = await executeStellarWithRetry();
         if (res.status !== 'success') throw new Error(res.error || 'Failed');
         setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
       } else {
@@ -280,16 +304,16 @@ export const useSendAsset = (onBack?: () => void) => {
         }
 
         if (!result.success) throw new Error(result.error || 'Transaction failed');
-        
-        addLocalTransaction({ 
-          hash: result.transactionHash || 'unknown', 
-          chainId: currentAsset.chainId, 
-          type: 'send', 
-          timestamp: Date.now(), 
-          status: 'success', 
-          from: senderAddress, 
-          network: currentNetwork, 
-          description: `Send ${amount} ${currentAsset.symbol} (dYdX)` 
+
+        addLocalTransaction({
+          hash: result.transactionHash || 'unknown',
+          chainId: currentAsset.chainId,
+          type: 'send',
+          timestamp: Date.now(),
+          status: 'success',
+          from: senderAddress,
+          network: currentNetwork,
+          description: `Send ${amount} ${currentAsset.symbol} (dYdX)`
         });
 
         setTransactionState(p => ({ ...p, txHash: result.transactionHash || 'unknown', step: 'success' }));

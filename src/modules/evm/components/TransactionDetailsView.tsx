@@ -1,4 +1,4 @@
-import { ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
 import React, { useState } from 'react';
 
 import { type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
@@ -85,8 +85,10 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             <RefreshCw size={18} className={status === 'pending' ? 'animate-spin' : ''} />
           </button>
         )}
-        <div className="w-20 h-20 rounded-full bg-tertiary flex items-center justify-center mb-6 shadow-inner border border-color overflow-hidden">
-          {displayIcon ? (
+        <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-inner border border-color overflow-hidden ${type === 'approval' ? 'bg-blue-500/10 border-blue-500/20' : 'bg-tertiary'}`}>
+          {type === 'approval' ? (
+            <ShieldCheck className="w-10 h-10 text-blue-500" />
+          ) : displayIcon ? (
             <img src={displayIcon} alt={chainSymbol} className="w-full h-full object-cover" />
           ) : (
             <div className="w-12 h-12 rounded-xl bg-brand-primary/10 flex items-center justify-center text-xl font-black text-brand-primary">
@@ -106,7 +108,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
         <div className="flex items-center gap-3 mt-2">
           {getStatusDisplay()}
           <div className="h-1 w-1 rounded-full bg-muted/30" />
-          <span className="text-xs font-bold text-muted uppercase tracking-[0.2em] bg-tertiary/50 px-3 py-1 rounded-full border border-color/30">
+          <span className={`text-xs font-bold text-muted uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-color/30 ${type === 'approval' ? 'bg-blue-500/10 text-blue-500' : 'bg-tertiary/50'}`}>
             {isLocal ? type : (transaction as TransactionItem).category}
           </span>
         </div>

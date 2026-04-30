@@ -7,6 +7,64 @@ import type { TokenInfo } from '../service/tokenListService';
 import { getChainById, getChainRangoSymbol } from './Chainregistry';
 import { parseSwapError } from './swapErrorHandler';
 import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from './assetmanagement/constants';
+import { rpcManager } from './rpcProvider';
+import { getEVMNetworkConfig } from './evmUtils';
+
+
+// 1inch limit order_PROTOCOL 
+const LIMIT_ORDER_PROTOCOL = '0x111111125421ca6dc452d289314280a0f8842a65';
+
+const ERC20_ALLOWANCE_ABI = [
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+];
+
+export async function ensureFusionAllowance(
+  tokenAddress: string,
+  walletAddress: string,
+  amountBN: bigint,
+  provider: any,
+  chainId: number | string
+): Promise<void> {
+  if (!tokenAddress || tokenAddress.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) return;
+
+  let rpcUrls: string[] = [];
+  try {
+    rpcUrls = getEVMNetworkConfig(chainId).rpcUrls;
+  } catch { /* proceed without RPC read — will attempt approval regardless */ }
+
+  let allowance: bigint = 0n;
+  if (rpcUrls.length > 0) {
+    try {
+      allowance = await rpcManager.fetchWithFallback(chainId, rpcUrls, async (rpcProvider) => {
+        const contract = new ethers.Contract(tokenAddress, ERC20_ALLOWANCE_ABI, rpcProvider);
+        return contract.allowance(walletAddress, LIMIT_ORDER_PROTOCOL) as Promise<bigint>;
+      });
+    } catch { /* fall through — approve anyway */ }
+  }
+
+  if (BigInt(allowance) >= amountBN) return;
+
+  const iface = new ethers.Interface(ERC20_ALLOWANCE_ABI);
+  const data = iface.encodeFunctionData('approve', [LIMIT_ORDER_PROTOCOL, ethers.MaxUint256]);
+
+  let gasHex = '0x186a0'; // Default 100k
+  try {
+    const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
+    const sim = await simulateEVMTransaction(chainId, walletAddress, tokenAddress, 0n, data);
+    gasHex = '0x' + sim.gasLimit.toString(16);
+  } catch (err: any) {
+    if (err.message.includes('Insufficient funds')) throw err;
+  }
+
+  const approveTxHash: string = await provider.request({
+    method: 'eth_sendTransaction',
+    params: [{ from: walletAddress, to: tokenAddress, data, gas: gasHex }],
+  });
+
+  const ethersProvider = new ethers.BrowserProvider(provider);
+  await pollForReceipt(ethersProvider, approveTxHash, 2000, 120_000);
+}
 
 
 export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
@@ -195,12 +253,26 @@ export async function executeSwap(
         value: safeValue(tx.value),
       };
 
-      if (gasLimitFromApi !== undefined) {
-        txParams.gasLimit = gasLimitFromApi;
-      } else {
-        const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
-        if (estimated !== undefined) {
-          txParams.gasLimit = estimated;
+      try {
+        const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
+        const sim = await simulateEVMTransaction(
+          chainId,
+          txParams.from as string,
+          txParams.to as string,
+          txParams.value?.toString() || '0',
+          txParams.data?.toString() || '0x'
+        );
+        txParams.gasLimit = sim.gasLimit;
+      } catch (simError: any) {
+        if (simError.message.includes('Insufficient funds')) throw simError;
+        // Fallback to API gas limit or basic estimate if simulation fails for other reasons
+        if (gasLimitFromApi !== undefined) {
+          txParams.gasLimit = gasLimitFromApi;
+        } else {
+          const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
+          if (estimated !== undefined) {
+            txParams.gasLimit = estimated;
+          }
         }
       }
 
@@ -281,7 +353,8 @@ export async function execute1InchFusionSwap(
   sellAsset: TokenInfo,
   buyAsset: TokenInfo,
   sellAmount: string,
-  getProvider: (type: WalletType) => any
+  getProvider: (type: WalletType) => any,
+  onProgress?: (step: 'approving' | 'signing') => void
 ): Promise<string> {
   try {
     const provider = getProvider(WalletType.EVM);
@@ -290,15 +363,30 @@ export async function execute1InchFusionSwap(
     const chainConfig = getChainById(chainId);
     const chainSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
 
-    const amountStr = sellAmount.includes('.') 
+    const amountStr = sellAmount.includes('.')
       ? sellAmount.split('.')[0] + '.' + sellAmount.split('.')[1].slice(0, sellAsset.decimals)
       : sellAmount;
+
+    const amountBN = ethers.parseUnits(amountStr, sellAsset.decimals);
+
+    // --- Allowance gate: check and approve before building the order ---
+    onProgress?.('approving');
+    await ensureFusionAllowance(
+      sellAsset.address,
+      senderAddress,
+      amountBN,
+      provider,
+      chainId
+    );
+    // ------------------------------------------------------------------
+
+    onProgress?.('signing');
 
     const buildRequest = {
       quote,
       tokenIn: sellAsset.address,
       tokenOut: buyAsset.address,
-      amount: ethers.parseUnits(amountStr, sellAsset.decimals).toString(),
+      amount: amountBN.toString(),
       walletAddress: senderAddress,
       chain: chainSymbol,
       preset,
@@ -420,3 +508,145 @@ export async function fetchRangoPrepareTx(
     throw new Error(message);
   }
 }
+
+export async function executeRangoSwap(
+  requestId: string,
+  fromChainId: number | string,
+  evmAddress: string,
+  currentNetwork: string,
+  sellAssetSymbol: string,
+  buyAssetSymbol: string,
+  getProvider: (type: WalletType) => any,
+  callbacks: {
+    setStatus: (status: 'idle' | 'preparing' | 'signing' | 'success' | 'error') => void;
+    setHash: (hash: string) => void;
+    addTransaction: (tx: any) => void;
+  }
+): Promise<void> {
+  const provider = getProvider(WalletType.EVM);
+  if (!provider) throw new Error('EVM wallet not connected');
+
+  const buildTxParams = (tx: any) => ({
+    from: tx.from || evmAddress,
+    to: tx.to,
+    data: tx.data || '0x',
+    value: tx.value ? '0x' + BigInt(tx.value).toString(16) : '0x0',
+    ...(tx.gasLimit ? { gas: '0x' + BigInt(tx.gasLimit).toString(16) } : {}),
+    ...(tx.maxFeePerGas ? { maxFeePerGas: '0x' + BigInt(tx.maxFeePerGas).toString(16) } : {}),
+    ...(tx.maxPriorityFeePerGas ? { maxPriorityFeePerGas: '0x' + BigInt(tx.maxPriorityFeePerGas).toString(16) } : {}),
+  });
+
+  callbacks.setStatus('preparing');
+
+  const step1Response = await fetchRangoPrepareTx(requestId, 1);
+  const step1Items = Array.isArray(step1Response) ? step1Response : [step1Response];
+
+  const step1Error = step1Items.find((item: any) => item && !item.ok && item.error);
+  if (step1Error) throw new Error(step1Error.error);
+
+  const step1Result = step1Items.find((item: any) => item && item.ok && item.transaction);
+  if (!step1Result) throw new Error('Failed to prepare Rango transaction');
+
+  const step1Tx = step1Result.transaction;
+
+  if (step1Tx.isApprovalTx) {
+    callbacks.setStatus('signing');
+    const approvalTxId = await provider.request({
+      method: 'eth_sendTransaction',
+      params: [buildTxParams(step1Tx)]
+    });
+
+    callbacks.addTransaction({
+      hash: approvalTxId,
+      chainId: fromChainId,
+      type: 'approval',
+      timestamp: Date.now(),
+      description: `Approve ${sellAssetSymbol}`,
+      from: evmAddress,
+      status: 'pending',
+      network: currentNetwork
+    });
+
+    await fetchRangoCheckApproval(requestId, approvalTxId);
+
+    let isApproved = false;
+    let attempts = 0;
+    const maxAttempts = 60;
+
+    while (!isApproved && attempts < maxAttempts) {
+      attempts++;
+      try {
+        const step2Response = await fetchRangoPrepareTx(requestId, 2);
+        const step2Items = Array.isArray(step2Response) ? step2Response : [step2Response];
+
+        const step2Error = step2Items.find((item: any) => item && !item.ok && item.error);
+        if (step2Error) {
+          const errMsg = step2Error.error.toLowerCase();
+          if (!errMsg.includes('approve') && !errMsg.includes('allowance') && !errMsg.includes('balance')) {
+            throw new Error(step2Error.error);
+          }
+        }
+
+        const step2Result = step2Items.find((item: any) => item && item.ok && item.transaction);
+        if (step2Result) {
+          isApproved = true;
+          break;
+        }
+      } catch (e: any) {
+        const msg = e.message?.toLowerCase() || '';
+        if (!msg.includes('approve') && !msg.includes('allowance') && !msg.includes('balance')) throw e;
+      }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    if (!isApproved) throw new Error('Timed out waiting for Rango to confirm approval transaction');
+
+    callbacks.setStatus('preparing');
+    const step2Response = await fetchRangoPrepareTx(requestId, 2);
+    const step2Items = Array.isArray(step2Response) ? step2Response : [step2Response];
+
+    const step2ErrorFinal = step2Items.find((item: any) => item && !item.ok && item.error);
+    if (step2ErrorFinal) throw new Error(step2ErrorFinal.error);
+
+    const step2Result = step2Items.find((item: any) => item && item.ok && item.transaction);
+    if (!step2Result) throw new Error('Failed to prepare Rango swap transaction after approval');
+
+    const step2Tx = step2Result.transaction;
+    callbacks.setStatus('signing');
+    const swapTxId = await provider.request({
+      method: 'eth_sendTransaction',
+      params: [buildTxParams(step2Tx)]
+    });
+
+    callbacks.setHash(swapTxId);
+    callbacks.addTransaction({
+      hash: swapTxId,
+      chainId: fromChainId,
+      type: 'crosschain-swap',
+      timestamp: Date.now(),
+      description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+      from: evmAddress,
+      status: 'pending',
+      network: currentNetwork
+    });
+  } else {
+    callbacks.setStatus('signing');
+    const swapTxId = await provider.request({
+      method: 'eth_sendTransaction',
+      params: [buildTxParams(step1Tx)]
+    });
+    callbacks.setHash(swapTxId);
+    callbacks.addTransaction({
+      hash: swapTxId,
+      chainId: fromChainId,
+      type: 'crosschain-swap',
+      timestamp: Date.now(),
+      description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+      from: evmAddress,
+      status: 'pending',
+      network: currentNetwork
+    });
+  }
+  callbacks.setStatus('success');
+}
+

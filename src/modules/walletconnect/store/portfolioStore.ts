@@ -101,7 +101,16 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         },
 
         clearAssets: () => {
-          set({ assets: [], lastFetched: 0 });
+          set({ 
+            assets: [], 
+            lastFetched: 0,
+            providerStatus: {},
+            lastConnectedWalletsStr: '',
+            isLoading: false,
+            isFetching: false,
+            hasError: false,
+            errorMessage: null
+          });
           try {
             usePortfolioStore.persist?.clearStorage();
           } catch {
@@ -113,6 +122,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           set((state) => ({
             assets: state.assets.filter((a) => a.chainType !== chainType),
             lastFetched: 0,
+            isFetching: false,
+            isLoading: false,
             providerStatus: {
               ...state.providerStatus,
               [chainType]: { status: 'idle', lastUpdated: 0 }
