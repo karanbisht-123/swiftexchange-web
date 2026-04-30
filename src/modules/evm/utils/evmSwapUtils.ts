@@ -31,7 +31,7 @@ export async function ensureFusionAllowance(
   let rpcUrls: string[] = [];
   try {
     rpcUrls = getEVMNetworkConfig(chainId).rpcUrls;
-  } catch { /* proceed without RPC read — will attempt approval regardless */ }
+  } catch { }
 
   let allowance: bigint = 0n;
   if (rpcUrls.length > 0) {
@@ -508,7 +508,34 @@ export async function fetchRangoPrepareTx(
     throw new Error(message);
   }
 }
+export function validateRangoResult(result: any): void {
+  const validationStatus = result?.validationStatus;
+  if (validationStatus && Array.isArray(validationStatus)) {
+    for (const chainStatus of validationStatus) {
+      for (const wallet of (chainStatus.wallets || [])) {
+        for (const asset of (wallet.requiredAssets || [])) {
+          if (!asset.ok) {
+            const symbol = asset.asset?.symbol || 'token';
+            const reason = asset.reason;
+            const required = asset.requiredAmount?.amount || 'unknown';
+            const current = asset.currentAmount?.amount || '0';
 
+            if (reason === 'FEE') {
+              throw new Error(`Insufficient native tokens for gas fees on ${chainStatus.blockchain}. Required: ${required}, Current: ${current}`);
+            }
+            if (reason === 'INPUT_ASSET') {
+              throw new Error(`Insufficient ${symbol} balance for swap. Required: ${required}, Current: ${current}`);
+            }
+            if (reason === 'FEE_AND_INPUT_ASSET') {
+              throw new Error(`Insufficient ${symbol} and native tokens for fees on ${chainStatus.blockchain}.`);
+            }
+            throw new Error(asset.error || `Rango validation failed: ${reason || 'Insufficient balance'} for ${symbol} (Required: ${required}, Current: ${current})`);
+          }
+        }
+      }
+    }
+  }
+}
 export async function executeRangoSwap(
   requestId: string,
   fromChainId: number | string,

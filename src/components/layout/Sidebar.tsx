@@ -14,7 +14,8 @@ import {
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-
+import { useGeolocationGuard } from '../../modules/commonfeature/hook/useGeolocationGuard';
+import { RESTRICTED_TRADING_LOCATIONS } from '../../modules/commonfeature/constants/compliance';
 import { ROUTES } from '../../constants/routes';
 
 interface NavItem {
@@ -22,6 +23,7 @@ interface NavItem {
   label: string;
   icon: JSX.Element;
   queryParam?: string;
+  isRestricted?: boolean;
 }
 
 const Sidebar: FC = () => {
@@ -29,6 +31,8 @@ const Sidebar: FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const activeItem = location.pathname;
+
+  const { isRestricted: isDydxRestricted } = useGeolocationGuard(RESTRICTED_TRADING_LOCATIONS);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -119,10 +123,12 @@ const Sidebar: FC = () => {
       label: 'Perps',
       icon: <InfinityIcon className="w-5 h-5" />,
       queryParam: '?view=trade',
+      isRestricted: isDydxRestricted,
     },
   ];
 
   const handleNavClick = (item: NavItem) => {
+    if (item.isRestricted) return;
     setIsOpen(false);
     if (item.queryParam) {
       navigate(`${item.href}${item.queryParam}`);
@@ -177,13 +183,17 @@ const Sidebar: FC = () => {
                     w-full flex flex-col items-center justify-center gap-1 px-1 py-3 rounded-md
                     transition-colors duration-150
                     ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
+                    ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale' : ''}
                   `}
                   style={{
-                    backgroundColor: isActive ? 'var(--color-brand-primary)' : 'transparent',
+                    backgroundColor: isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
                   }}
-                  title={item.label}
+                  title={item.isRestricted ? `${item.label} (Restricted in your region)` : item.label}
                 >
-                  <span className="flex-shrink-0 mb-1">{item.icon}</span>
+                  <span className="flex-shrink-0 mb-1">
+                    {item.isRestricted ? <X className="w-4 h-4 absolute top-2 right-2 text-red-500" /> : null}
+                    {item.icon}
+                  </span>
                   <span className="text-[10px] leading-tight font-medium text-center">
                     {item.label}
                   </span>
@@ -197,13 +207,17 @@ const Sidebar: FC = () => {
                     flex flex-col items-center justify-center gap-1 px-1 py-3 rounded-lg
                     transition-colors duration-150 w-full
                     ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
+                    ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale pointer-events-none' : ''}
                   `}
                   style={{
-                    backgroundColor: isActive ? 'var(--color-brand-primary)' : 'transparent',
+                    backgroundColor: isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
                   }}
-                  title={item.label}
+                  title={item.isRestricted ? `${item.label} (Restricted in your region)` : item.label}
                 >
-                  <span className="shrink-0 mb-1">{item.icon}</span>
+                  <span className="shrink-0 mb-1">
+                    {item.isRestricted ? <X className="w-4 h-4 absolute top-2 right-2 text-red-500" /> : null}
+                    {item.icon}
+                  </span>
                   <span className="text-[10px] leading-tight font-medium text-center">
                     {item.label}
                   </span>

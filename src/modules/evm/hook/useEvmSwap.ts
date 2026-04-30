@@ -262,7 +262,7 @@ export const useEvmSwap = ({
 
       const requestId = ++latestQuoteRequestId.current;
 
-      updateState({ quoteLoading: true, error: null, quote: null });
+      updateState({ quoteLoading: true, error: null });
 
       try {
         if (!request.amount || parseFloat(request.amount) <= 0) {
@@ -317,7 +317,7 @@ export const useEvmSwap = ({
       quoteAbortController.current = new AbortController();
       latestQuoteRequestId.current++;
 
-      updateState({ quoteLoading: true, error: null, quote: null });
+      updateState({ quoteLoading: true, error: null });
 
       try {
         const fusionQuoteData = await fetch1InchFusionQuote(
@@ -531,8 +531,7 @@ export const useEvmSwap = ({
         return rangoData;
       } catch (err: any) {
         if (err?.message === 'Quote request cancelled' || rangoAbortController.current?.signal.aborted) {
-          // Silent return for cancelled requests
-          return;
+          return err?.message;
         }
         const errorMsg = parseSwapError(err);
         updateState({ error: errorMsg, quoteLoading: false, rangoQuote: null });

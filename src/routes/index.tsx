@@ -18,6 +18,8 @@ import StallerTradescreen from '../modules/steallr/components/tradescreen/Stalle
 import Dashboard from '../pages/Dashboard';
 import Home from '../pages/Home';
 import ProtectedRoute from './ProtectedRoute';
+import { GeolocationGuard } from '../modules/commonfeature/components/GeolocationGuard';
+import { RESTRICTED_TRADING_LOCATIONS } from '../modules/commonfeature/constants/compliance';
 
 const router = createBrowserRouter([
   {
@@ -100,8 +102,9 @@ const router = createBrowserRouter([
             path: ROUTES.TRADING_DYDX_FUTURES,
             element: (
               <Layout>
-                <TradingintrFace />
-                {/* <WebSocketDebugger /> */}
+                <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
+                  <TradingintrFace />
+                </GeolocationGuard>
               </Layout>
             ),
           },

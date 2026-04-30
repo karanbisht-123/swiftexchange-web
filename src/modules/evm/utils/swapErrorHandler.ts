@@ -1,4 +1,7 @@
 export function parseSwapError(error: any): string {
+  console.error(error, "error-----------------------------")
+
+
   console.error('[Swap Error]', {
     code: error?.code,
     message: error?.message,
@@ -82,6 +85,14 @@ export function parseSwapError(error: any): string {
   // Rango specific balance/fee reasons
   if (errorMessageLower.includes('balance is empty') || errorMessageLower.includes('insufficient')) {
     if (errorMessageLower.includes('fee')) {
+      if (
+        errorMessageLower.includes('required') ||
+        errorMessageLower.includes('current') ||
+        errorMessageLower.includes('need') ||
+        errorMessageLower.includes('have')
+      ) {
+        return processedMessage;
+      }
       return 'Insufficient native tokens for gas fees.';
     }
     return processedMessage;

@@ -516,9 +516,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return crossChainQuoteSource === 'bridge' ? !!bridgeQuoteData : !!rangoQuote;
   }, [actionType, fromChainId, crossChainQuoteSource, bridgeQuoteData, rangoQuote]);
 
-  const isErrorState = swapError || isInsufficientBalance || bridgeTxStatus === 'error' || isSameAssetSelected;
+  const isErrorState = !!(swapError || isInsufficientBalance || bridgeTxStatus === 'error' || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning));
 
   const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
+
+  const errorMessage = useMemo(() => {
+    if (isInsufficientBalance) return 'Insufficient balance for this transaction';
+    if (isSameAssetSelected) return 'Please select different assets to swap';
+    if (bridgeTxStatus === 'error') return bridgeErrorMsg || 'Transaction failed. Please try again.';
+    if (swapError) return swapError;
+    if (actionType === 'BRIDGE' && crossChainWarning) return crossChainWarning;
+    return null;
+  }, [isInsufficientBalance, isSameAssetSelected, bridgeTxStatus, bridgeErrorMsg, swapError, actionType, crossChainWarning]);
 
   const buttonLabel = useMemo(() => {
     if (isFetchingSwapAssets || isFetchingBridgeQuote || isFetchingStellarAssets) return 'FETCHING QUOTES...';
@@ -537,11 +546,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
-    } else {
-      if (bridgeErrorMsg) setBridgeErrorMsg(null);
-      if (bridgeTxStatus === 'error') setBridgeTxStatus('idle');
+      setBridgeErrorMsg(null);
+      setBridgeTxStatus('idle');
     }
-  }, [sellAmount, resetQuotes, bridgeErrorMsg, bridgeTxStatus]);
+  }, [sellAmount, resetQuotes]);
+
+  useEffect(() => {
+    setBridgeErrorMsg(null);
+    if (bridgeTxStatus === 'error') setBridgeTxStatus('idle');
+  }, [fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol]);
 
   useEffect(() => {
     setTimeToNextRefresh(30);
@@ -674,6 +687,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, slippageTolerance);
         } catch (err) {
           console.error('Swap execution failed:', err);
+          setBridgeErrorMsg(parseSwapError(err));
+          setBridgeTxStatus('error');
         }
       }
     } else {
@@ -728,34 +743,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             throw new Error(confirmResult?.error || 'Failed to confirm Rango route');
           }
 
-          const validationStatus = confirmResult.result?.validationStatus;
-          if (validationStatus && Array.isArray(validationStatus)) {
-            for (const chainStatus of validationStatus) {
-              for (const wallet of (chainStatus.wallets || [])) {
-                for (const asset of (wallet.requiredAssets || [])) {
-                  if (!asset.ok) {
-                    const symbol = asset.asset?.symbol || 'token';
-                    const reason = asset.reason;
-                    const required = asset.requiredAmount?.amount || 'unknown';
-                    const current = asset.currentAmount?.amount || '0';
-
-                    if (reason === 'FEE') {
-                      throw new Error(`Insufficient native tokens for gas fees on ${chainStatus.blockchain}. Required: ${required}, Current: ${current}`);
-                    }
-                    if (reason === 'INPUT_ASSET') {
-                      throw new Error(`Insufficient ${symbol} balance for swap. Required: ${required}, Current: ${current}`);
-                    }
-                    if (reason === 'FEE_AND_INPUT_ASSET') {
-                      throw new Error(`Insufficient ${symbol} and native tokens for fees on ${chainStatus.blockchain}.`);
-                    }
-                    throw new Error(asset.error || `Rango validation failed: ${reason || 'Insufficient balance'} for ${symbol} (Required: ${required}, Current: ${current})`);
-                  }
-                }
-              }
-            }
+          const { executeRangoSwap, validateRangoResult } = await import('../../utils/evmSwapUtils');
+          
+          if (confirmResult.result) {
+            validateRangoResult(confirmResult.result);
           }
 
-          const { executeRangoSwap } = await import('../../utils/evmSwapUtils');
           await executeRangoSwap(
             requestId,
             fromChainId,
@@ -925,6 +918,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isLoadingExecution ||
     (actionType === 'SWAP' && isStellar(fromChainId) && !stellarSwapQuote) ||
     (actionType === 'SWAP' && !isStellar(fromChainId) && !swapQuote && !isGasless) ||
+    (actionType === 'BRIDGE' && !bridgeQuoteData && !rangoQuote && !isFetchingBridgeQuote && !isStellar(fromChainId)) ||
     isFetchingSwapAssets ||
     isFetchingBridgeQuote ||
     isChainSwitching ||
@@ -1321,11 +1315,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             <div className="bg-red-500/10 border-x border-t border-red-500/30 rounded-t-2xl p-4 flex items-center gap-3 relative z-0">
               <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
               <p className="text-[10px] sm:text-xs font-bold text-red-500 uppercase tracking-widest leading-relaxed">
-                {isInsufficientBalance ? 'Insufficient balance for this transaction' :
-                  isSameAssetSelected ? 'Please select different assets to swap' :
-                    (actionType === 'SWAP' && !isStellar(fromChainId) && swapError) ? `Swap Error: ${swapError}` :
-                      bridgeTxStatus === 'error' ? (bridgeErrorMsg || 'Transaction failed. Please try again.') :
-                        'An error occurred. Please check your inputs.'}
+                {errorMessage || 'An error occurred. Please check your inputs.'}
               </p>
             </div>
           </div>
@@ -1392,8 +1382,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           sellAsset={selectedSellAsset}
           buyAsset={selectedBuyAsset}
           onBack={() => {
-            resetSwap();
             setShowFusionScreen(false);
+            fetchUnifiedQuote();
           }}
           loading={isFusionLoading}
           fusionStatus={fusionStatus}

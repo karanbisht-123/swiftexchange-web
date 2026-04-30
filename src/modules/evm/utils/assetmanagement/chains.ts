@@ -232,7 +232,7 @@ export const STR = {
   minGasGwei: 100,
   imageUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
   name: "Stellar",
-  symbol: "XLM",
+  symbol: "SRB",
   chainName: "Stellar",
   subName: "Network",
   bridgeSupportTokens: [
