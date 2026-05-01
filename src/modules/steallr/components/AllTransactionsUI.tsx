@@ -9,8 +9,9 @@ import {
   Layers,
   Search,
   Shield,
+  Loader2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
@@ -35,7 +36,8 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
 
   console.log(isLoading, "=====================")
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
-  const [dateFilter, setDateFilter] = useState<'ALL' | '7D' | '30D'>('ALL');
+  const [dateFilter, setDateFilter] = useState<'ALL' | '7D' | '30D' | 'CUSTOM'>('ALL');
+  const [customDate, setCustomDate] = useState<{ start: string; end: string }>({ start: '', end: '' });
 
   const filteredTransactions = transactions.filter(tx => {
     let matchesType = true;
@@ -54,11 +56,36 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
         matchesDate = now - txDate <= 7 * oneDay;
       } else if (dateFilter === '30D') {
         matchesDate = now - txDate <= 30 * oneDay;
+      } else if (dateFilter === 'CUSTOM' && customDate.start && customDate.end) {
+        const start = new Date(customDate.start).getTime();
+        const end = new Date(customDate.end).getTime() + oneDay - 1;
+        matchesDate = txDate >= start && txDate <= end;
       }
     }
 
     return matchesType && matchesDate;
   });
+
+  const [autoFetchCount, setAutoFetchCount] = useState(0);
+
+  useEffect(() => {
+    setAutoFetchCount(0);
+  }, [filterType, dateFilter, customDate.start, customDate.end]);
+
+  useEffect(() => {
+    if (
+      (filterType !== 'ALL' || dateFilter !== 'ALL') &&
+      filteredTransactions.length === 0 &&
+      hasMore &&
+      !isLoading &&
+      autoFetchCount < 10
+    ) {
+      if (dateFilter === 'CUSTOM' && (!customDate.start || !customDate.end)) return;
+      setAutoFetchCount(prev => prev + 1);
+      loadMore();
+    }
+  }, [filterType, dateFilter, customDate.start, customDate.end, filteredTransactions.length, hasMore, isLoading, autoFetchCount, loadMore]);
+
 
   if (!stellarWallet) {
     if (embedded) {
@@ -212,38 +239,60 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
             <h2 className="heading-4">All Transactions</h2>
             <p className="text-muted text-sm mt-1">History of your account activity</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex bg-white/5 rounded-lg border border-white/5 p-1">
-              {['ALL', '7D', '30D'].map(d => (
-                <button
-                  key={d}
-                  onClick={() => setDateFilter(d as any)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${dateFilter === d
-                    ? 'bg-primary/20 text-primary'
-                    : 'text-muted hover:text-text-primary'
-                    }`}
-                >
-                  {d === 'ALL' ? 'All Time' : d}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
-      <div className={`flex flex-wrap gap-2 ${embedded ? 'mb-4' : 'mb-6'} shrink-0`}>
-        {filterOptions.map(option => (
-          <button
-            key={option.value}
-            onClick={() => setFilterType(option.value)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-sm  transition-all duration-200  ${filterType === option.value
-              ? 'bg-primary text-text-inverse '
-              : 'bg-white/5 text-muted border-white/5 hover:bg-white/10 hover:text-text-primary'
-              }`}
-          >
-            {option.label}
-          </button>
-        ))}
+      <div className={`flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 ${embedded ? 'mb-4' : 'mb-6'} shrink-0`}>
+        <div className="flex flex-wrap gap-2">
+          {filterOptions.map(option => (
+            <button
+              key={option.value}
+              onClick={() => setFilterType(option.value)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-all duration-200 ${filterType === option.value
+                ? 'bg-primary text-text-inverse '
+                : 'bg-white/5 text-muted border-white/5 hover:bg-white/10 hover:text-text-primary'
+                }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        
+        <div className="flex flex-col items-start lg:items-end gap-2 w-full lg:w-auto">
+          <div className="flex bg-white/5 rounded-lg border border-white/5 p-1">
+            {['ALL', '7D', '30D', 'CUSTOM'].map(d => (
+              <button
+                key={d}
+                onClick={() => setDateFilter(d as any)}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${dateFilter === d
+                  ? 'bg-primary/20 text-primary'
+                  : 'text-muted hover:text-text-primary'
+                  }`}
+              >
+                {d === 'ALL' ? 'All Time' : d === 'CUSTOM' ? 'Custom' : d}
+              </button>
+            ))}
+          </div>
+          {dateFilter === 'CUSTOM' && (
+            <div className="flex items-center gap-2 bg-white/5 rounded-lg border border-white/5 p-1 px-2 animate-in fade-in slide-in-from-top-2">
+              <input
+                type="date"
+                value={customDate.start}
+                onChange={e => setCustomDate(prev => ({ ...prev, start: e.target.value }))}
+                className="bg-transparent text-xs text-muted outline-none border-none focus:ring-0 [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer"
+                max={customDate.end || undefined}
+              />
+              <span className="text-muted text-xs">-</span>
+              <input
+                type="date"
+                value={customDate.end}
+                onChange={e => setCustomDate(prev => ({ ...prev, end: e.target.value }))}
+                className="bg-transparent text-xs text-muted outline-none border-none focus:ring-0 [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer"
+                min={customDate.start || undefined}
+              />
+            </div>
+          )}
+        </div>
       </div>
       {error && (
         <div className="mb-6 p-4 rounded-xl bg-danger/10 border border-danger/20 flex items-start gap-3 shrink-0">
@@ -281,6 +330,13 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
                   <td colSpan={5} className="px-6 py-12 text-center text-muted">
                     <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
                     <p>No transactions found for this category.</p>
+                  </td>
+                </tr>
+              ) : filteredTransactions.length === 0 && isLoading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-muted">
+                    <Loader2 className="w-10 h-10 mx-auto mb-3 animate-spin text-brand-primary" />
+                    <p className="animate-pulse">Scanning history for matching transactions...</p>
                   </td>
                 </tr>
               ) : (
@@ -359,6 +415,11 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
             <div className="text-center py-12 text-muted">
               <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
               <p>No transactions found.</p>
+            </div>
+          ) : filteredTransactions.length === 0 && isLoading ? (
+            <div className="text-center py-12 text-muted">
+              <Loader2 className="w-10 h-10 mx-auto mb-3 animate-spin text-brand-primary" />
+              <p className="animate-pulse">Scanning history...</p>
             </div>
           ) : (
             filteredTransactions.map(tx => (

@@ -14,7 +14,9 @@ export const fetchGeolocation = async (): Promise<GeolocationData> => {
             throw new Error('Failed to fetch geolocation data');
         }
         const data = await response.json();
-        
+
+        console.log("data", data)
+
         return {
             country: data.countryName,
             countryCode: data.countryCode,
@@ -35,8 +37,8 @@ export const isLocationRestricted = (
 ): boolean => {
     if (!userLocation) return false;
 
-    const uCountry = userLocation.countryCode.toUpperCase();
-    const uRegion = userLocation.region.toUpperCase();
+    const uCountry = userLocation?.countryCode?.toUpperCase();
+    const uRegion = userLocation?.region?.toUpperCase();
 
     return restrictedLocations.some((loc) => {
         const cleanLoc = loc.toUpperCase().trim();

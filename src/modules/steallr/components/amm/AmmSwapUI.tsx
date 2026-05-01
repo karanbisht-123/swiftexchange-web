@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, RefreshCw, Settings, ChevronDown, ArrowUpDown, Clock } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { WalletType } from '../../../walletconnect/constants/Wallet';
@@ -7,7 +7,7 @@ import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect'
 import { SUCCESS_MESSAGES, UI_STRINGS } from '../../constants/ammSwapConstants';
 import { useAmmSwap } from '../../hook/useAmmSwap';
 import { useAmmSwapStore } from '../../store/ammSwapStore';
-import StellarTradingChart from '../chart/StellarTradingChart';
+const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
 import { SettingsPanel, SwapDetails } from './AmmSwapSubComponents';
 import { XlmReserveButton } from './XlmReserveInfo';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
@@ -95,25 +95,35 @@ const AmmSwapUI = () => {
     const sellAsset = searchParams.get('sellAsset');
     const buyAsset = searchParams.get('buyAsset');
 
-    if (sellAsset) {
+    if (sellAsset && sellAsset !== fromToken?.code) {
       const token = availableTokens.find(t => t.code === sellAsset);
       if (token) setFromToken(token);
     }
 
-    if (buyAsset) {
+    if (buyAsset && buyAsset !== toToken?.code) {
       const token = availableTokens.find(t => t.code === buyAsset);
       if (token) setToToken(token);
     }
-  }, [availableTokens]);
+  }, [availableTokens, searchParams, fromToken?.code, toToken?.code]);
 
   useEffect(() => {
     if (fromToken || toToken) {
       const newParams = new URLSearchParams(searchParams);
-      if (fromToken) newParams.set('sellAsset', fromToken.code);
-      if (toToken) newParams.set('buyAsset', toToken.code);
-      setSearchParams(newParams, { replace: true });
+      let needsUpdate = false;
+      if (fromToken && newParams.get('sellAsset') !== fromToken.code) {
+        newParams.set('sellAsset', fromToken.code);
+        needsUpdate = true;
+      }
+      if (toToken && newParams.get('buyAsset') !== toToken.code) {
+        newParams.set('buyAsset', toToken.code);
+        needsUpdate = true;
+      }
+      if (needsUpdate) {
+        setSearchParams(newParams, { replace: true });
+      }
     }
-  }, [fromToken, toToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromToken?.code, toToken?.code]);
 
   useEffect(() => {
     if (fromToken && toToken) {
@@ -449,7 +459,13 @@ const AmmSwapUI = () => {
   return (
     <div className="flex flex-col lg:flex-row gap-1  lg:gap-4 h-full lg:p-0 overflow-y-auto lg:overflow-visible">
       <div className="w-full h-[300px] bg-secondary lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0">
-        <StellarTradingChart />
+        <Suspense fallback={
+          <div className="w-full h-full flex items-center justify-center bg-secondary">
+            <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        }>
+          <StellarTradingChart />
+        </Suspense>
       </div>
       <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0">
         {renderSwapForm()}

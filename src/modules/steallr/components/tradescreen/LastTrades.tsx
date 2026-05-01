@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react';
+import { Radio, RefreshCw } from 'lucide-react';
 import React from 'react';
 
 import { useRecentTrades } from '../../hook/useRecentTrades';
@@ -9,7 +9,7 @@ interface LastTradesProps {
 }
 
 const LastTrades: React.FC<LastTradesProps> = ({ baseAsset, counterAsset }) => {
-  const { trades, isLoading, newTradeIds, refresh } = useRecentTrades({ baseAsset, counterAsset });
+  const { trades, isLoading, isStreaming, newTradeIds, refresh } = useRecentTrades({ baseAsset, counterAsset });
 
   const formatTime = (timeStr: string) => {
     const date = new Date(timeStr);
@@ -30,6 +30,10 @@ const LastTrades: React.FC<LastTradesProps> = ({ baseAsset, counterAsset }) => {
         <div className="hidden  px-4 py-3 lg:flex items-center justify-between border-b border-white/5">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-primary">Recent Trades</h3>
+            <div className="flex items-center gap-1.5 ml-2">
+              <Radio className={`w-3 h-3 ${isStreaming ? 'text-green-500 animate-pulse' : 'text-muted'}`} />
+              <span className="text-[10px] text-muted">{isStreaming ? 'Live' : 'Ready'}</span>
+            </div>
           </div>
           <button
             onClick={refresh}

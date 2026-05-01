@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useAmmSwapStore } from '../store/ammSwapStore';
 import { OrderBookSwapService } from '../service/orderBookSwapService';
 import type {
   LargeOrderOptions,
@@ -9,6 +10,13 @@ import type {
   LargeOrderTransaction,
   TokenInfo,
 } from '../types/orderBookSwap.types';
+
+const globalOrderBookCache = new Map<string, any>();
+
+const getCacheKey = (from?: TokenInfo | null, to?: TokenInfo | null, isBuy?: boolean) => {
+  if (!from || !to) return '';
+  return `${from.code}-${from.issuer || ''}-${to.code}-${to.issuer || ''}-${isBuy}`;
+};
 
 interface UseLargeOrderProps {
   userAddress?: string;
@@ -28,7 +36,8 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [slippageTolerance, setSlippageTolerance] = useState<number>(1);
   const [transaction, setTransaction] = useState<LargeOrderTransaction | null>(null);
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
-  const [orderBook, setOrderBook] = useState<any>(null);
+  const cacheKey = getCacheKey(fromToken, toToken, isBuy);
+  const [orderBook, setOrderBook] = useState<any>(globalOrderBookCache.get(cacheKey) || null);
   const [subentryCount, setSubentryCount] = useState<number>(0);
 
   const network = useWalletStore(state => state.network);
@@ -69,27 +78,38 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         return;
       }
       setAvailableTokens(balances);
+      const currentPair = useAmmSwapStore.getState().selectedChartPair;
+
       setFromToken(prev => {
         if (!prev) {
+          if (currentPair) {
+            const token = balances.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer);
+            return token || balances[0];
+          }
           const xlm = balances.find(t => t.code === 'XLM');
           const firstNonXlm = balances.find(t => t.code !== 'XLM');
           return isBuy ? firstNonXlm || balances[0] : xlm || balances[0];
         }
         const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
         if (!existing) return prev;
-        // Optimization: only update if balance changed
         if (existing.balance === prev.balance) return prev;
         return existing;
       });
+
       setToToken(prev => {
         if (!prev) {
+          if (currentPair) {
+            const token = balances.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer);
+            if (token) return token;
+            const nonSelectedToken = balances.find(t => t.code !== (currentPair.base || balances[0].code));
+            return nonSelectedToken || balances[1] || balances[0];
+          }
           const xlm = balances.find(t => t.code === 'XLM');
           const firstNonXlm = balances.find(t => t.code !== 'XLM');
           return isBuy ? xlm || balances[1] || balances[0] : firstNonXlm || balances[1] || balances[0];
         }
         const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
         if (!existing) return prev;
-        // Optimization: only update if balance changed
         if (existing.balance === prev.balance) return prev;
         return existing;
       });
@@ -102,7 +122,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }
-  }, [service, userAddress, isBuy]);
+  }, [service, userAddress]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -119,13 +139,18 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
 
     let closeStream: (() => void) | null = null;
     let isMounted = true;
+    let pollingInterval: NodeJS.Timeout | null = null;
 
     const initOrderBook = async () => {
-      setIsLoading(true);
+      const key = getCacheKey(fromToken, toToken, isBuy);
+      if (!globalOrderBookCache.has(key)) {
+        setIsLoading(true);
+      }
       try {
         const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
         if (isMounted) {
           setOrderBook(book);
+          if (key) globalOrderBookCache.set(key, book);
         }
 
         if (!price) {
@@ -141,10 +166,25 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
           (updatedBook: any) => {
             if (isMounted) {
               setOrderBook(updatedBook);
+              const k = getCacheKey(fromToken, toToken, isBuy);
+              if (k) globalOrderBookCache.set(k, updatedBook);
             }
           },
           (err: any) => {
-            console.error('[useOrderBookSwap] Stream error:', err);
+            console.error('[useOrderBookSwap] Stream error, falling back to polling:', err);
+            if (isMounted && !pollingInterval) {
+              pollingInterval = setInterval(() => {
+                service.getOrderBook(fromToken.asset!, toToken.asset!, 20)
+                  .then(book => {
+                    if (isMounted) {
+                      setOrderBook(book);
+                      const k = getCacheKey(fromToken, toToken, isBuy);
+                      if (k) globalOrderBookCache.set(k, book);
+                    }
+                  })
+                  .catch(e => console.error('[useOrderBookSwap] Polling error:', e));
+              }, 8000);
+            }
           }
         );
       } catch (err) {
@@ -165,6 +205,9 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
       isMounted = false;
       if (closeStream) {
         closeStream();
+      }
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
       }
     };
   }, [

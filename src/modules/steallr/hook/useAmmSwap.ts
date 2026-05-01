@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { AmmSwapService } from '../service/ammSwapService';
+import { useAmmSwapStore } from '../store/ammSwapStore';
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
 
 interface UseAmmSwapProps {
@@ -56,16 +57,32 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
 
         setAvailableTokens(userTokens);
         setSubentryCount(count);
+        const currentPair = useAmmSwapStore.getState().selectedChartPair;
+
         if (!fromToken && userTokens.length > 0) {
-          const xlmToken = userTokens.find(t => t.code === 'XLM');
-          setFromToken(xlmToken || userTokens[0]);
+          if (currentPair) {
+            const token = userTokens.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer);
+            setFromToken(token || userTokens[0]);
+          } else {
+            const xlmToken = userTokens.find(t => t.code === 'XLM');
+            setFromToken(xlmToken || userTokens[0]);
+          }
         }
 
         if (!toToken && userTokens.length > 1) {
-          const nonSelectedToken = userTokens.find(
-            t => t.code !== (fromToken?.code || userTokens[0].code)
-          );
-          setToToken(nonSelectedToken || userTokens[1]);
+          if (currentPair) {
+            const token = userTokens.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer);
+            if (token) setToToken(token);
+            else {
+              const nonSelectedToken = userTokens.find(t => t.code !== (currentPair.base || userTokens[0].code));
+              setToToken(nonSelectedToken || userTokens[1]);
+            }
+          } else {
+            const nonSelectedToken = userTokens.find(
+              t => t.code !== (fromToken?.code || userTokens[0].code)
+            );
+            setToToken(nonSelectedToken || userTokens[1]);
+          }
         }
 
         setError(null);

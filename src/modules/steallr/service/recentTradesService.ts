@@ -62,6 +62,7 @@ export class RecentTradesService extends StellarBaseService {
           },
           onerror: (error: any) => {
             console.error('[RecentTradesService] Stream error:', error);
+            if (closeStream) closeStream();
             if (onError) onError(error);
           },
         }) as unknown as () => void;

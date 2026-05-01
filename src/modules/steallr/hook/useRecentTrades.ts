@@ -11,10 +11,19 @@ interface UseRecentTradesProps {
   counterAsset?: { code: string; issuer?: string };
 }
 
+const globalTradesCache = new Map<string, RecentTrade[]>();
+
+const getCacheKey = (base?: { code: string; issuer?: string }, counter?: { code: string; issuer?: string }) => {
+  if (!base || !counter) return '';
+  return `${base.code}-${base.issuer || ''}-${counter.code}-${counter.issuer || ''}`;
+};
+
 export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProps) => {
   const currentNetwork = useWalletStore(state => state.network);
-  const [trades, setTrades] = useState<RecentTrade[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const cacheKey = getCacheKey(baseAsset, counterAsset);
+  const [trades, setTrades] = useState<RecentTrade[]>(globalTradesCache.get(cacheKey) || []);
+  const [isLoading, setIsLoading] = useState(!globalTradesCache.has(cacheKey));
+  const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newTradeIds, setNewTradeIds] = useState<Set<string>>(new Set());
 
@@ -55,9 +64,12 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
         }
       }, 2000);
 
-      return [newTrade, ...prev].slice(0, 50);
+      const updated = [newTrade, ...prev].slice(0, 50);
+      const key = getCacheKey(baseAsset, counterAsset);
+      if (key) globalTradesCache.set(key, updated);
+      return updated;
     });
-  }, []);
+  }, [baseAsset, counterAsset]);
 
   const fetchTrades = useCallback(async () => {
     if (!baseAsset?.code || !counterAsset?.code || !serviceRef.current) return;
@@ -78,6 +90,8 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
 
       if (mountedRef.current) {
         setTrades(formattedTrades);
+        const key = getCacheKey(baseAsset, counterAsset);
+        if (key) globalTradesCache.set(key, formattedTrades);
       }
     } catch (err) {
       console.error('[useRecentTrades] Fetch failed:', err);
@@ -113,10 +127,13 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
       streamCloseRef.current = serviceRef.current.streamRecentTrades(
         base,
         counter,
-        handleNewTrade
+        handleNewTrade,
+        () => { if (mountedRef.current) setIsStreaming(false); }
       );
+      if (mountedRef.current) setIsStreaming(true);
     } catch (err) {
       console.warn('[useRecentTrades] Stream failed to start', err);
+      if (mountedRef.current) setIsStreaming(false);
     }
   }, [
     baseAsset?.code,
@@ -150,5 +167,5 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
     return () => window.removeEventListener('stellar:order-placed', handler);
   }, [fetchTrades]);
 
-  return { trades, isLoading, error, newTradeIds, refresh: fetchTrades };
+  return { trades, isLoading, isStreaming, error, newTradeIds, refresh: fetchTrades };
 };

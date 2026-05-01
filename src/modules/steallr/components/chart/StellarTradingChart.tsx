@@ -340,11 +340,20 @@ export default function StellarTradingChart({
       }
     };
 
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+
+    if (chartContainerRef.current) {
+      resizeObserver.observe(chartContainerRef.current);
+    }
+
     window.addEventListener('resize', handleResize);
     handleResize();
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
   }, [chartData, chartType, showVolume, showGrid, showCrosshair, isDark]);
 
@@ -612,8 +621,9 @@ export default function StellarTradingChart({
         </div>
 
         <div className="flex-1 bg-secondary relative min-h-0">
-          {isLoading && chartData.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center">
+          <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-secondary/80 backdrop-blur-sm z-20">
               <div className="text-center">
                 <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                 <p className="text-secondary text-sm">Loading chart data...</p>
@@ -622,8 +632,6 @@ export default function StellarTradingChart({
                 ) : null}
               </div>
             </div>
-          ) : (
-            <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
           )}
         </div>
 

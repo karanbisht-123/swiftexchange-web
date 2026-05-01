@@ -36,7 +36,11 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   const status = isLocal ? (transaction as LocalTransactionWithStatus).status : 'success';
   const type = isLocal ? (transaction as LocalTransactionWithStatus).type : 'transaction';
   const description = isLocal ? (transaction as LocalTransactionWithStatus).description : null;
-  const timestamp = isLocal ? (transaction as LocalTransactionWithStatus).timestamp : null;
+  const timestamp = isLocal 
+    ? (transaction as LocalTransactionWithStatus).timestamp 
+    : (transaction as TransactionItem).metadata?.blockTimestamp 
+      ? new Date((transaction as TransactionItem).metadata.blockTimestamp).getTime()
+      : null;
   const destinationHash = isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null;
 
   let assetLogo = undefined;
@@ -194,7 +198,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary">Time</span>
               <span className="text-sm text-primary font-medium">
-                {timestamp ? new Date(timestamp).toLocaleString() : 'Just now'}
+                {timestamp ? new Date(timestamp).toLocaleString() : isLocal ? 'Just now' : 'Unknown Time'}
               </span>
             </div>
           </div>

@@ -80,7 +80,7 @@ export const useReceiveAssets = () => {
     if (assetParam && chainIdParam) {
       // Normalize chainId for search
       const normalizedParam = chainIdParam === 'dydx' ? 'dydx-mainnet-1' : chainIdParam;
-      
+
       return assets.find(a => {
         const aChainIdStr = String(a.chainId);
         const paramIdStr = normalizedParam === 'stellar' ? 'pubnet' : normalizedParam;
@@ -106,8 +106,8 @@ export const useReceiveAssets = () => {
 
     const isCurrentDydx = currentAsset?.chainId && String(currentAsset.chainId).startsWith('dydx');
     const isCurrentDydxAvailable = isCurrentDydx && (
-      !!(connectedWallets.evm as any)?.dydxAddress || 
-      !!(connectedWallets.cosmos as any)?.dydxAddress || 
+      !!(connectedWallets.evm as any)?.dydxAddress ||
+      !!(connectedWallets.cosmos as any)?.dydxAddress ||
       !!localStorage.getItem('sx_dkm_addr')
     );
 
@@ -199,7 +199,7 @@ export const useReceiveAssets = () => {
     // Auto-trigger trustline addition ONLY if it's missing AND we haven't tried for THIS asset in this session
     if (hasTrustline === false && currentAsset && walletAddress && !isAddingTrustline && lastAutoEnbaledAsset !== currentAsset.id) {
       setLastAutoEnabledAsset(currentAsset.id);
-      // Wait a tiny bit to avoid flashing when switching assets
+      // Wait a bit to avoid flashing when switching assets
       const timer = setTimeout(() => {
         handleAddTrustline();
       }, 800);

@@ -19,6 +19,13 @@ const STREAM_MAX_RETRIES = 3;
 const STREAM_RECONNECT_DELAY = 2000;
 const POLLING_INTERVAL = 30000;
 
+const globalChartCache = new Map<string, ChartDataPoint[]>();
+
+const getCacheKey = (pair: ChartAssetPair | null, resolution: ChartResolution) => {
+  if (!pair) return '';
+  return `${pair.base}-${pair.baseIssuer || ''}-${pair.counter}-${pair.counterIssuer || ''}-${resolution}`;
+};
+
 interface UseStellarChartProps {
   assetPair?: ChartAssetPair;
   resolution?: ChartResolution;
@@ -33,8 +40,9 @@ export function useStellarChart({
   autoStream = false,
 }: UseStellarChartProps = {}): UseChartReturn {
   const [service, setService] = useState<StellarChartService | null>(null);
-  const [data, setData] = useState<ChartDataPoint[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const cacheKey = getCacheKey(assetPair || null, resolution);
+  const [data, setData] = useState<ChartDataPoint[]>(globalChartCache.get(cacheKey) || []);
+  const [isLoading, setIsLoading] = useState<boolean>(!globalChartCache.has(cacheKey));
   const [error, setError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
@@ -101,14 +109,14 @@ export function useStellarChart({
     }
   }, [currentStellarConfig, assetPair]);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     if (!service || !currentAssetPair?.base || !currentAssetPair?.counter) {
       setError('Invalid asset pair configuration');
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    if (!isBackground) setIsLoading(true);
+    if (!isBackground) setError(null);
 
     try {
       const chartData = await service.fetchTradeAggregations(currentAssetPair, currentTimeRange, {
@@ -118,6 +126,8 @@ export function useStellarChart({
       if (mountedRef.current) {
         setData(chartData);
         setLastUpdate(Date.now());
+        const key = getCacheKey(currentAssetPair, currentResolution);
+        if (key) globalChartCache.set(key, chartData);
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -126,7 +136,7 @@ export function useStellarChart({
         console.error('Chart data fetch error:', err);
       }
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && !isBackground) {
         setIsLoading(false);
       }
     }
@@ -138,7 +148,7 @@ export function useStellarChart({
     }
     setIsPolling(true);
     pollingIntervalRef.current = setInterval(() => {
-      fetchData();
+      fetchData(true);
     }, POLLING_INTERVAL);
   }, [fetchData]);
 
@@ -181,7 +191,7 @@ export function useStellarChart({
     try {
       const recentData = await service.fetchTradeAggregations(
         currentAssetPair,
-        { startTime: Date.now() - 3600000, endTime: Date.now() },
+        { startTime: Date.now() - Math.max(3600000, currentResolution * 2), endTime: Date.now() },
         { resolution: currentResolution, limit: 1 }
       );
 

@@ -119,21 +119,4 @@ export const getTransactionsByChain = (chainId: number | string): LocalTransacti
   return getLocalTransactions().filter(tx => tx.chainId === chainId);
 };
 
-export const cleanupOldWalletTransactions = (currentWallets: string[], currentNetwork: string): void => {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
 
-    const lowerAddresses = currentWallets.map(addr => addr.toLowerCase());
-    const transactions: LocalTransaction[] = JSON.parse(stored);
-    const filtered = transactions.filter(tx =>
-      tx.from && lowerAddresses.includes(tx.from.toLowerCase()) && tx.network === currentNetwork
-    );
-
-    if (filtered.length !== transactions.length) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-    }
-  } catch (error) {
-    console.error('Failed to cleanup old wallet transactions:', error);
-  }
-};

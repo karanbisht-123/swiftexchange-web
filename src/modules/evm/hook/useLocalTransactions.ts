@@ -8,11 +8,11 @@ import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   type LocalTransaction,
-  cleanupOldWalletTransactions,
   getLocalTransactions,
   removeLocalTransaction,
   updateLocalTransactionStatus,
 } from '../service/localTransactionService';
+import { getChainById } from '../utils/Chainregistry';
 
 export type TransactionStatus = 'pending' | 'success' | 'failed';
 
@@ -33,27 +33,11 @@ interface UseLocalTransactionsReturn {
 }
 
 const REFRESH_INTERVAL = 30000;
-const STELLAR_CHAIN_ID = 'pubnet';
 
 const getChainSymbol = (chainId: number | string): string => {
-  switch (chainId) {
-    case 1:
-      return 'ETH';
-    case 56:
-      return 'BSC';
-    case 137:
-      return 'POL';
-    case 42161:
-      return 'ARB';
-    case 10:
-      return 'OPT';
-    case 43114:
-      return 'AVA';
-    case 8453:
-      return 'BASE';
-    default:
-      return 'ETH';
-  }
+  if (chainId === 'pubnet' || chainId === 'testnet') return 'XLM';
+  const chain = getChainById(chainId);
+  return chain?.symbol || chain?.nativeCurrency.symbol || 'ETH';
 };
 
 export const useLocalTransactions = (): UseLocalTransactionsReturn => {
@@ -63,10 +47,13 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const cosmosWallet = connectedWallets[WalletType.COSMOS];
 
   const currentAddresses = [
     evmWallet?.address,
+    evmWallet?.dydxAddress,
     stellarWallet?.address,
+    cosmosWallet?.address,
   ].filter(Boolean) as string[];
 
   const currentAddress = currentAddresses[0];
@@ -75,9 +62,8 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const [isLoading, setIsLoading] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    if (currentAddresses.length > 0) {
-      cleanupOldWalletTransactions(currentAddresses, currentNetwork);
-    }
+    // Read-time filtering in getLocalTransactions is sufficient to hide other wallets' txs.
+    // Destructive cleanup causes race conditions when wallets load asynchronously.
   }, [JSON.stringify(currentAddresses), currentNetwork]);
 
   const fetchTransactionStatus = useCallback(
@@ -97,7 +83,7 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         let fromAddress: string | undefined = tx.from;
         let toAddress: string | undefined = tx.to;
 
-        if (tx.chainId === STELLAR_CHAIN_ID) {
+        if (tx.chainId === 'pubnet' || tx.chainId === 'testnet') {
           try {
             const horizonBase = currentNetwork === 'mainnet'
               ? 'https://horizon.stellar.org'
