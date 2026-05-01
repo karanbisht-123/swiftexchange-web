@@ -8,7 +8,7 @@ import {
 
 import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import { ethers } from 'ethers';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
@@ -52,6 +52,8 @@ interface SwapAssetsProps {
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const { connectedWallets, getProvider } = useWalletConnect();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const locationState = location.state as { selectedAsset?: any; isPerp?: boolean };
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
@@ -61,20 +63,39 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const currentChainId = evmWallet?.chainId || null;
   const currentNetwork = useWalletStore((state: any) => state.network) as 'mainnet' | 'testnet';
   const swapEnabledChains = getEvmSwapEnabledChains(currentNetwork);
+
   const [fromChainId, setFromChainId] = useState<number | string>(() => {
+    if (locationState?.selectedAsset) {
+      return locationState.selectedAsset.chainType === 'stellar'
+        ? STELLAR_CHAIN_ID
+        : (locationState.selectedAsset.chainId || 1);
+    }
     const raw = searchParams.get('fromChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
     return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
   });
 
   const [toChainId, setToChainId] = useState<number | string>(() => {
+    if (locationState?.selectedAsset) {
+      return locationState.selectedAsset.chainType === 'stellar'
+        ? STELLAR_CHAIN_ID
+        : (locationState.selectedAsset.chainId || 1);
+    }
     const raw = searchParams.get('toChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
     return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
   });
 
-  const [sellAssetSymbol, setSellAssetSymbol] = useState<string>(searchParams.get('sellAsset') || '');
-  const [sellAssetAddress, setSellAssetAddress] = useState<string>(searchParams.get('sellAddress') || '');
+  const [sellAssetSymbol, setSellAssetSymbol] = useState<string>(() => {
+    if (locationState?.selectedAsset) return locationState.selectedAsset.symbol;
+    return searchParams.get('sellAsset') || '';
+  });
+
+  const [sellAssetAddress, setSellAssetAddress] = useState<string>(() => {
+    if (locationState?.selectedAsset) return locationState.selectedAsset.address || '';
+    return searchParams.get('sellAddress') || '';
+  });
+
   const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>(searchParams.get('buyAsset') || '');
   const [buyAssetAddress, setBuyAssetAddress] = useState<string>(searchParams.get('buyAddress') || '');
   const [sellAmount, setSellAmount] = useState<string>('');
@@ -211,10 +232,27 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   useEffect(() => {
     if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
-      if (!searchParams.get('fromChainId')) setFromChainId(currentChainId);
-      if (!searchParams.get('toChainId')) setToChainId(currentChainId);
+      if (!searchParams.get('fromChainId') && !locationState?.selectedAsset) setFromChainId(currentChainId);
+      if (!searchParams.get('toChainId') && !locationState?.selectedAsset) setToChainId(currentChainId);
     }
-  }, [currentChainId, searchParams, swapEnabledChains]);
+  }, [currentChainId, searchParams, swapEnabledChains, locationState]);
+
+  // Main logic: Auto-select chain and asset from location state
+  useEffect(() => {
+    if (locationState?.selectedAsset) {
+      const asset = locationState.selectedAsset;
+      const targetChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : (asset.chainId || 1);
+
+      setFromChainId(targetChainId);
+      setSellAssetSymbol(asset.symbol);
+      setSellAssetAddress(asset.address || '');
+
+      // For Perp flow specifically, ensure same chain is selected to start with a swap
+      if (locationState.isPerp) {
+        setToChainId(targetChainId);
+      }
+    }
+  }, [locationState]);
 
   useEffect(() => {
     resetSwap();
@@ -303,20 +341,33 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fromChainId, toChainId, stellarAddress, ammService, sellAssetSymbol, actionType]);
 
   useEffect(() => {
-    if (swapAssets.length > 0 && !sellAssetSymbol && !buyAssetSymbol && !isChainSwitching) {
-      const nativeAsset = swapAssets.find(a => a.isNative);
-      const usdcAsset = swapAssets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS');
+    if (swapAssets.length > 0 && !isChainSwitching) {
+      if (!sellAssetSymbol && !buyAssetSymbol) {
+        const nativeAsset = swapAssets.find(a => a.isNative);
+        const usdcAsset = swapAssets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS');
 
-      if (nativeAsset && usdcAsset) {
-        setSellAssetSymbol(nativeAsset.symbol);
-        setSellAssetAddress(nativeAsset.address);
-        setBuyAssetSymbol(usdcAsset.symbol);
-        setBuyAssetAddress(usdcAsset.address);
-      } else if (swapAssets.length >= 2) {
-        setSellAssetSymbol(swapAssets[0].symbol);
-        setSellAssetAddress(swapAssets[0].address);
-        setBuyAssetSymbol(swapAssets[1].symbol);
-        setBuyAssetAddress(swapAssets[1].address);
+        if (nativeAsset && usdcAsset) {
+          setSellAssetSymbol(nativeAsset.symbol);
+          setSellAssetAddress(nativeAsset.address);
+          setBuyAssetSymbol(usdcAsset.symbol);
+          setBuyAssetAddress(usdcAsset.address);
+        } else if (swapAssets.length >= 2) {
+          setSellAssetSymbol(swapAssets[0].symbol);
+          setSellAssetAddress(swapAssets[0].address);
+          setBuyAssetSymbol(swapAssets[1].symbol);
+          setBuyAssetAddress(swapAssets[1].address);
+        }
+      } else if (sellAssetSymbol && !buyAssetSymbol) {
+        // Sell asset is pre-filled, pick a default buy asset
+        const usdcAsset = swapAssets.find(a => (a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS') && a.symbol !== sellAssetSymbol);
+        const nativeAsset = swapAssets.find(a => a.isNative && a.symbol !== sellAssetSymbol);
+        const fallback = swapAssets.find(a => a.symbol !== sellAssetSymbol);
+
+        const bestBuy = usdcAsset || nativeAsset || fallback;
+        if (bestBuy) {
+          setBuyAssetSymbol(bestBuy.symbol);
+          setBuyAssetAddress(bestBuy.address);
+        }
       }
     }
   }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching]);
@@ -516,6 +567,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return crossChainQuoteSource === 'bridge' ? !!bridgeQuoteData : !!rangoQuote;
   }, [actionType, fromChainId, crossChainQuoteSource, bridgeQuoteData, rangoQuote]);
 
+  const isWrongNetwork = useMemo(() => {
+    return isConnected && !isStellar(fromChainId) && currentChainId !== fromChainId;
+  }, [isConnected, fromChainId, currentChainId]);
+
   const isErrorState = !!(swapError || isInsufficientBalance || bridgeTxStatus === 'error' || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning));
 
   const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
@@ -531,6 +586,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const buttonLabel = useMemo(() => {
     if (isFetchingSwapAssets || isFetchingBridgeQuote || isFetchingStellarAssets) return 'FETCHING QUOTES...';
+    if (isWrongNetwork) return 'SWITCH NETWORK';
     if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
     if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
     if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
@@ -542,7 +598,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
     if (crossChainQuoteSource === 'rango' && !isInsufficientBalance && !swapError) return 'SWAP';
     return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
-  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, crossChainQuoteSource]);
+  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, isWrongNetwork, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, crossChainQuoteSource]);
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
@@ -637,6 +693,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleUnifiedSwap = useCallback(async () => {
     if (!sellAmount) return;
+
+    if (isWrongNetwork) {
+      setIsChainSwitching(true);
+      try {
+        const provider = getProvider(WalletType.EVM);
+        await switchOrAddChain(provider, fromChainId);
+      } catch (err) {
+        console.error('Failed to switch network:', err);
+      } finally {
+        setIsChainSwitching(false);
+      }
+      return;
+    }
 
     if (actionType === 'SWAP') {
       if (isGasless && !isStellar(fromChainId)) {
