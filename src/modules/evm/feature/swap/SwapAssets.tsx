@@ -9,6 +9,8 @@ import {
 import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { useSearchParams, useLocation } from 'react-router-dom';
+import { useNotificationStore } from '../../../../store/notificationStore';
+import { addLocalTransaction } from '../../service/localTransactionService';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
@@ -28,7 +30,6 @@ import { switchOrAddChain } from '../../utils/evmChainUtils';
 import FusionQuoteScreen from './components/FusionQuoteScreen';
 import { parseSwapError } from '../../utils/swapErrorHandler';
 import { getTokensForChain } from '../../service/tokenListService';
-import { addLocalTransaction } from '../../service/localTransactionService';
 
 import { getBridgeQuote as getEvmBridgeQuote, prepareBridgeTransaction } from '../../service/evmSwapService';
 import {
@@ -54,6 +55,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const locationState = location.state as { selectedAsset?: any; isPerp?: boolean };
+  const { showToast } = useNotificationStore();
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
@@ -567,9 +569,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return crossChainQuoteSource === 'bridge' ? !!bridgeQuoteData : !!rangoQuote;
   }, [actionType, fromChainId, crossChainQuoteSource, bridgeQuoteData, rangoQuote]);
 
-  const isWrongNetwork = useMemo(() => {
-    return isConnected && !isStellar(fromChainId) && currentChainId !== fromChainId;
-  }, [isConnected, fromChainId, currentChainId]);
+  // const isWrongNetwork = useMemo(() => {
+  //   return isConnected && !isStellar(fromChainId) && currentChainId !== fromChainId;
+  // }, [isConnected, fromChainId, currentChainId]);
 
   const isErrorState = !!(swapError || isInsufficientBalance || bridgeTxStatus === 'error' || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning));
 
@@ -586,7 +588,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const buttonLabel = useMemo(() => {
     if (isFetchingSwapAssets || isFetchingBridgeQuote || isFetchingStellarAssets) return 'FETCHING QUOTES...';
-    if (isWrongNetwork) return 'SWITCH NETWORK';
     if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
     if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
     if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
@@ -598,7 +599,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
     if (crossChainQuoteSource === 'rango' && !isInsufficientBalance && !swapError) return 'SWAP';
     return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
-  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, isWrongNetwork, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, crossChainQuoteSource]);
+  }, [isFetchingSwapAssets, isFetchingBridgeQuote, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, crossChainQuoteSource]);
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
@@ -694,19 +695,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const handleUnifiedSwap = useCallback(async () => {
     if (!sellAmount) return;
 
-    if (isWrongNetwork) {
-      setIsChainSwitching(true);
-      try {
-        const provider = getProvider(WalletType.EVM);
-        await switchOrAddChain(provider, fromChainId);
-      } catch (err) {
-        console.error('Failed to switch network:', err);
-      } finally {
-        setIsChainSwitching(false);
-      }
-      return;
-    }
-
     if (actionType === 'SWAP') {
       if (isGasless && !isStellar(fromChainId)) {
         if (!selectedSellAsset || !selectedBuyAsset) return;
@@ -747,17 +735,34 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           });
         } catch (err) {
           console.error('Stellar swap execution failed:', err);
-          setBridgeErrorMsg(parseSwapError(err));
+          const errMsg = parseSwapError(err);
+          setBridgeErrorMsg(errMsg);
           setBridgeTxStatus('error');
+          showToast({
+            type: 'STELLAR',
+            title: 'Swap Failed',
+            message: errMsg
+          });
         }
       } else {
         if (!swapQuote || !selectedSellAsset || !selectedBuyAsset) return;
         try {
           await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, slippageTolerance);
+          showToast({
+            type: 'EVM_SWAP',
+            title: 'Swap Transaction Sent',
+            message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
+          });
         } catch (err) {
           console.error('Swap execution failed:', err);
-          setBridgeErrorMsg(parseSwapError(err));
+          const errMsg = parseSwapError(err);
+          setBridgeErrorMsg(errMsg);
           setBridgeTxStatus('error');
+          showToast({
+            type: 'EVM_SWAP',
+            title: 'Swap Failed',
+            message: errMsg
+          });
         }
       }
     } else {
@@ -813,7 +818,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }
 
           const { executeRangoSwap, validateRangoResult } = await import('../../utils/evmSwapUtils');
-          
+
           if (confirmResult.result) {
             validateRangoResult(confirmResult.result);
           }
@@ -861,6 +866,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 data: tx.transaction.data,
               }]
             });
+            if (tx.type === 'approve') {
+              addLocalTransaction({
+                hash,
+                chainId: fromChainId,
+                type: 'approval',
+                timestamp: Date.now(),
+                description: `Approve ${sellAssetSymbol} for Bridge`,
+                from: evmAddress,
+                status: 'success',
+                network: currentNetwork
+              });
+            }
             if (tx.type === 'transfer') {
               setBridgeTxHash(hash);
               addLocalTransaction({
@@ -876,11 +893,22 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             }
           }
           setBridgeTxStatus('success');
+          showToast({
+            type: 'BRIDGE',
+            title: 'Bridge Initiated',
+            message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
+          });
         }
       } catch (err: any) {
         console.error('Bridge failed:', err);
-        setBridgeErrorMsg(parseSwapError(err));
+        const errMsg = parseSwapError(err);
+        setBridgeErrorMsg(errMsg);
         setBridgeTxStatus('error');
+        showToast({
+          type: 'BRIDGE',
+          title: 'Bridge Failed',
+          message: errMsg
+        });
       }
     }
   }, [
@@ -1467,14 +1495,25 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 selectedBuyAsset as any,
                 sellAmount,
                 preset,
-                (step) => setFusionStatus(step)
+                (status) => setBridgeTxStatus(status as any)
               );
-              console.log(hash, " Fusion screen hash ---");
+              setBridgeTxHash(hash);
+              setBridgeTxStatus('success');
+              showToast({
+                type: 'EVM_SWAP',
+                title: 'Order Submitted',
+                message: `Gasless order for ${sellAmount} ${sellAssetSymbol} submitted successfully.`
+              });
             } catch (err) {
-              console.error('Fusion swap execution failed:', err);
-            } finally {
-              setIsFusionLoading(false);
-              setFusionStatus('idle');
+              console.error('Fusion swap failed:', err);
+              const errMsg = parseSwapError(err);
+              setBridgeErrorMsg(errMsg);
+              setBridgeTxStatus('error');
+              showToast({
+                type: 'EVM_SWAP',
+                title: 'Swap Failed',
+                message: errMsg
+              });
             }
           }}
         />

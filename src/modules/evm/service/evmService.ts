@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-import { fetchApiResponseFromProxy } from '../../../service/apiService';
+import { fetchApiResponseFromProxy, getWalletGasInfo } from '../../../service/apiService';
 import type {
   EVMSendTransaction,
   EVMTransactionOptions,
@@ -13,48 +13,68 @@ export async function sendCryptoEVMPrepare(
   networkKey: any,
   from: string,
   to: string,
-  amount: string
+  amount: string,
+  options: EVMTransactionOptions = {}
 ): Promise<{ unsignedTx: any }> {
   console.log(networkKey, 'key', from, 'from', to, 'to', amount, 'amount');
   if (!isValidEVMNetwork(networkKey)) {
     throw new Error(`Unsupported EVM network: ${networkKey}`);
   }
 
-  const config = getEVMNetworkConfig(networkKey);
+  const config = getEVMNetworkConfig(networkKey) as any;
   const prefix = getNetworkPrefix(networkKey);
-  const endpoint = prefix + '/transaction/prepare';
 
   try {
     const { rpcUrls } = config;
-    const { feeData, nonce } = await rpcManager.fetchWithFallback(config.chainId, rpcUrls, async p => {
+    const rpcData = await rpcManager.fetchWithFallback(config.chainId, rpcUrls, async p => {
       const fd = await p.getFeeData();
       const n = await p.getTransactionCount(from);
       return { feeData: fd, nonce: n };
-    });
+    }).catch(() => null);
+
+    // 2. Try to get data from Wallet API (Production flow)
+    const walletInfo = await getWalletGasInfo(prefix, from);
+
+    const nonce = walletInfo?.transactionCount ?? rpcData?.nonce ?? 0;
+    const feeData = walletInfo?.gasFeeData || rpcData?.feeData;
+
+    if (!feeData) {
+      throw new Error('Could not fetch fee data from API or RPC');
+    }
+
     const amountInWei = ethers.parseEther(amount);
+
+    const gasLimitInt = options.gasLimit
+      ? BigInt(options.gasLimit)
+      : (config.gasLimit ? BigInt(config.gasLimit) : BigInt(21000));
 
     const unsignedTxData: any = {
       to,
       value: '0x' + amountInWei.toString(16),
       chainId: config.chainId,
       nonce,
-      gasLimit: '0x5208',
+      gasLimit: '0x' + gasLimitInt.toString(16),
     };
 
+
     if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-      unsignedTxData.maxFeePerGas = '0x' + feeData.maxFeePerGas.toString(16);
-      unsignedTxData.maxPriorityFeePerGas = '0x' + feeData.maxPriorityFeePerGas.toString(16);
+      unsignedTxData.maxFeePerGas = '0x' + BigInt(feeData.maxFeePerGas).toString(16);
+      unsignedTxData.maxPriorityFeePerGas = '0x' + BigInt(feeData.maxPriorityFeePerGas).toString(16);
       unsignedTxData.type = 2;
     } else if (feeData.gasPrice) {
-      unsignedTxData.gasPrice = '0x' + feeData.gasPrice.toString(16);
+      unsignedTxData.gasPrice = '0x' + BigInt(feeData.gasPrice).toString(16);
     }
 
     const serializedTx = ethers.Transaction.from(unsignedTxData).unsignedSerialized;
 
-    const response = await fetchApiResponseFromProxy<{ unsignedTx: string }>(endpoint, 'POST', {
-      unsignedTx: serializedTx,
-      walletAddress: from,
-    });
+    const response = await fetchApiResponseFromProxy<{ unsignedTx: string }>(
+      prefix + '/transaction/prepare',
+      'POST',
+      {
+        unsignedTx: serializedTx,
+        walletAddress: from,
+      }
+    );
 
     const unsignedTx = response.data;
     if (!unsignedTx) {
@@ -77,9 +97,9 @@ export async function sendCryptoEVMBuild(
   amount: string,
   options: EVMTransactionOptions = {}
 ): Promise<EVMSendTransaction> {
-  const { unsignedTx } = await sendCryptoEVMPrepare(networkKey, from, to, amount);
+  const { unsignedTx } = await sendCryptoEVMPrepare(networkKey, from, to, amount, options);
 
-  const config = getEVMNetworkConfig(networkKey);
+  const config = getEVMNetworkConfig(networkKey) as any;
   let parsedTx;
   try {
     parsedTx = ethers.Transaction.from(unsignedTx);
@@ -100,7 +120,9 @@ export async function sendCryptoEVMBuild(
     value: parsedTx.value
       ? '0x' + parsedTx.value.toString(16)
       : '0x' + ethers.parseEther(amount).toString(16),
-    gasLimit: parsedTx.gasLimit ? '0x' + parsedTx.gasLimit.toString(16) : '0x5208',
+    gasLimit: parsedTx.gasLimit
+      ? '0x' + parsedTx.gasLimit.toString(16)
+      : (config.gasLimit ? '0x' + BigInt(config.gasLimit).toString(16) : '0x5208'),
     nonce: parsedTx.nonce ?? 0,
     timestamp: Date.now(),
     status: 'pending',

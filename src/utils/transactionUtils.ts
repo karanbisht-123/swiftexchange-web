@@ -1,9 +1,8 @@
 import {
   type EVMChainConfig,
   type StellarChainConfig,
-  getEVMChains,
 } from '../modules/walletconnect/config/chains';
-import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
+import { getChainById } from '../modules/evm/utils/Chainregistry';
 
 export function isEVMNetwork(
   config: EVMChainConfig | StellarChainConfig
@@ -18,25 +17,20 @@ export function isStellarNetwork(
 }
 
 export function getNetworkPrefix(networkKey: any): string {
-  const currentNetwork = useWalletStore.getState().network;
-
-  if (typeof networkKey === 'number') {
-    const evmChains = getEVMChains(currentNetwork);
-    const evmChain = evmChains.find(c => c.chainId === networkKey);
-    if (!evmChain) throw new Error(`Unsupported EVM network: ${networkKey}`);
-
-    if (evmChain.chainId === 1 || evmChain.chainId === 11155111) return '/eth';
-    if (evmChain.chainId === 56 || evmChain.chainId === 97) return '/bsc';
-    if (evmChain.chainId === 137 || evmChain.chainId === 80002) return '/polygon';
-    if (evmChain.chainId === 43114 || evmChain.chainId === 43113) return '/avalanche';
-    if (evmChain.chainId === 10 || evmChain.chainId === 11155420) return '/optimism';
-    if (evmChain.chainId === 42161 || evmChain.chainId === 421614) return '/arbitrum';
-
-    return `/${evmChain.name.toLowerCase().replace(/\s+/g, '')}`;
-  }
-
   if (networkKey === 'stellar' || networkKey === 'pubnet' || networkKey === 'testnet') {
     return '/stellar';
+  }
+
+  if (typeof networkKey === 'number') {
+    const chain = getChainById(networkKey);
+    if (!chain) throw new Error(`Unsupported EVM network: ${networkKey}`);
+
+    const symbol = chain.symbol;
+    if (symbol) {
+      return `/${symbol.toLowerCase()}`;
+    }
+
+    return `/${chain.slug || chain.name.toLowerCase().replace(/\s+/g, '')}`;
   }
 
   if (typeof networkKey === 'string') {

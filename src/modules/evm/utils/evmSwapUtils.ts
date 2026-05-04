@@ -19,13 +19,15 @@ const ERC20_ALLOWANCE_ABI = [
   'function approve(address spender, uint256 amount) returns (bool)',
 ];
 
+// Fetches the pending nonce to prevent nonce collisions on fast sequential submissions.
 export async function ensureFusionAllowance(
   tokenAddress: string,
   walletAddress: string,
   amountBN: bigint,
   provider: any,
-  chainId: number | string
+  chainId: number | string,
 ): Promise<void> {
+  const spender = LIMIT_ORDER_PROTOCOL;
   if (!tokenAddress || tokenAddress.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) return;
 
   let rpcUrls: string[] = [];
@@ -33,20 +35,24 @@ export async function ensureFusionAllowance(
     rpcUrls = getEVMNetworkConfig(chainId).rpcUrls;
   } catch { }
 
+  // Use 'pending' block tag so an in-flight approval is counted and we don't double-approve.
   let allowance: bigint = 0n;
   if (rpcUrls.length > 0) {
     try {
       allowance = await rpcManager.fetchWithFallback(chainId, rpcUrls, async (rpcProvider) => {
         const contract = new ethers.Contract(tokenAddress, ERC20_ALLOWANCE_ABI, rpcProvider);
-        return contract.allowance(walletAddress, LIMIT_ORDER_PROTOCOL) as Promise<bigint>;
+        // Pass {blockTag: 'pending'} so a pending approval tx is reflected immediately
+        return contract.allowance(walletAddress, spender, { blockTag: 'pending' }) as Promise<bigint>;
       });
-    } catch { /* fall through — approve anyway */ }
+    } catch (err) {
+      console.warn('[ensureFusionAllowance] Failed to fetch allowance, proceeding with approval fallback:', err);
+    }
   }
 
   if (BigInt(allowance) >= amountBN) return;
 
   const iface = new ethers.Interface(ERC20_ALLOWANCE_ABI);
-  const data = iface.encodeFunctionData('approve', [LIMIT_ORDER_PROTOCOL, ethers.MaxUint256]);
+  const data = iface.encodeFunctionData('approve', [spender, ethers.MaxUint256]);
 
   let gasHex = '0x186a0'; // Default 100k
   try {
@@ -54,16 +60,40 @@ export async function ensureFusionAllowance(
     const sim = await simulateEVMTransaction(chainId, walletAddress, tokenAddress, 0n, data);
     gasHex = '0x' + sim.gasLimit.toString(16);
   } catch (err: any) {
+    console.warn('[ensureFusionAllowance] Gas simulation failed for approval:', err);
     if (err.message.includes('Insufficient funds')) throw err;
+  }
+
+  // Fetch the pending nonce via rpcManager to prevent nonce collisions
+  // when multiple transactions are submitted back-to-back.
+  let nonceHex: string | undefined;
+  if (rpcUrls.length > 0) {
+    try {
+      const pendingNonce = await rpcManager.fetchWithFallback(chainId, rpcUrls, async (rpcProvider) => {
+        return rpcProvider.getTransactionCount(walletAddress, 'pending');
+      });
+      nonceHex = '0x' + pendingNonce.toString(16);
+    } catch (err) {
+      console.warn('[ensureFusionAllowance] Failed to fetch pending nonce, wallet will assign nonce:', err);
+    }
+  }
+
+  const approveTxParams: Record<string, string> = {
+    from: walletAddress,
+    to: tokenAddress,
+    data,
+    gas: gasHex,
+  };
+  if (nonceHex !== undefined) {
+    approveTxParams.nonce = nonceHex;
   }
 
   const approveTxHash: string = await provider.request({
     method: 'eth_sendTransaction',
-    params: [{ from: walletAddress, to: tokenAddress, data, gas: gasHex }],
+    params: [approveTxParams],
   });
 
-  const ethersProvider = new ethers.BrowserProvider(provider);
-  await pollForReceipt(ethersProvider, approveTxHash, 2000, 120_000);
+  console.log('[ensureFusionAllowance] Approval transaction sent:', approveTxHash);
 }
 
 
@@ -102,6 +132,7 @@ function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefin
   }
 }
 
+// Estimates gas for a transaction and adds a 20% safety buffer.
 async function estimateGasWithBuffer(
   provider: ethers.BrowserProvider,
   txParams: ethers.TransactionRequest
@@ -115,15 +146,23 @@ async function estimateGasWithBuffer(
   }
 }
 
+// Polls the blockchain for a transaction receipt with a configurable timeout and 'slow' notification hook. 
 async function pollForReceipt(
   provider: ethers.BrowserProvider,
   txHash: string,
   intervalMs = 2000,
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  onSlow?: () => void
 ): Promise<ethers.TransactionReceipt | null> {
   const start = Date.now();
+  let notifiedSlow = false;
 
   while (Date.now() - start < timeoutMs) {
+    if (!notifiedSlow && Date.now() - start > 45_000) {
+      onSlow?.();
+      notifiedSlow = true;
+    }
+
     try {
       const receipt = await provider.getTransactionReceipt(txHash);
       if (receipt !== null) {
@@ -139,6 +178,7 @@ async function pollForReceipt(
   return null;
 }
 
+// Fetches a standard EVM swap quote from the internal swap service. 
 export async function fetchEvmQuote(
   chainId: number | string,
   request: SwapQuoteRequest,
@@ -193,6 +233,7 @@ export async function fetchEvmQuote(
   }
 }
 
+// Executes a sequence of transactions (e.g., approval + swap) for a standard EVM exchange. 
 export async function executeSwap(
   chainId: number | string,
   quote: SwapQuote,
@@ -251,8 +292,19 @@ export async function executeSwap(
         to: tx.to,
         data: tx.data,
         value: safeValue(tx.value),
+        type: tx.type === 2 ? 2 : undefined,
       };
 
+      // Apply EIP-1559 fees if provided by proxy
+      if (tx.maxFeePerGas) txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
+      if (tx.maxPriorityFeePerGas) txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
+
+      // Use proxy-provided nonce to allow fast sequential submission
+      if (tx.nonce !== undefined && tx.nonce !== null) {
+        txParams.nonce = Number(tx.nonce);
+      }
+
+      // Simulation/Gas Estimation logic
       try {
         const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
         const sim = await simulateEVMTransaction(
@@ -264,8 +316,8 @@ export async function executeSwap(
         );
         txParams.gasLimit = sim.gasLimit;
       } catch (simError: any) {
+        console.warn('[executeSwap] Gas simulation failed, falling back to estimation:', simError);
         if (simError.message.includes('Insufficient funds')) throw simError;
-        // Fallback to API gas limit or basic estimate if simulation fails for other reasons
         if (gasLimitFromApi !== undefined) {
           txParams.gasLimit = gasLimitFromApi;
         } else {
@@ -276,39 +328,21 @@ export async function executeSwap(
         }
       }
 
-      if (tx.maxFeePerGas) {
-        txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
-      }
-      if (tx.maxPriorityFeePerGas) {
-        txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
-      }
-
       console.log('[executeSwap] Sending transaction:', {
         to: txParams.to,
-        value: txParams.value?.toString(),
+        nonce: txParams.nonce,
         gasLimit: txParams.gasLimit?.toString(),
-        maxFeePerGas: txParams.maxFeePerGas?.toString(),
-        maxPriorityFeePerGas: txParams.maxPriorityFeePerGas?.toString(),
       });
 
       const txResponse = await signer.sendTransaction(txParams);
       lastTxHash = txResponse.hash;
-
       if (!isLastTx) {
-        console.log('[executeSwap] Transaction sent, polling for confirmation:', txResponse.hash);
-        const receipt = await pollForReceipt(ethersProvider, txResponse.hash);
-        if (!receipt || receipt.status === 0) {
-          throw new Error('Transaction failed or reverted on-chain');
-        }
-        console.log('[executeSwap] Transaction confirmed, continuing to next.');
+        console.log('[executeSwap] Intermediate transaction sent:', lastTxHash);
       } else {
-        console.log('[executeSwap] Final swap tx sent, returning hash immediately:', txResponse.hash);
-
+        console.log('[executeSwap] Final transaction sent:', lastTxHash);
         pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
           if (!receipt || receipt.status === 0) {
-            console.error('[executeSwap] Final tx reverted on-chain:', txResponse.hash);
-          } else {
-            console.log('[executeSwap] Final tx confirmed on-chain:', txResponse.hash);
+            console.error('[executeSwap] Final tx reverted or timed out:', lastTxHash);
           }
         });
       }
@@ -322,6 +356,7 @@ export async function executeSwap(
   }
 }
 
+// Fetches a gasless Fusion quote from 1inch. 
 export async function fetch1InchFusionQuote(
   chainId: number | string,
   tokenIn: string,
@@ -345,6 +380,7 @@ export async function fetch1InchFusionQuote(
   }
 }
 
+// Handles the full 1inch Fusion flow: check allowance -> sign typed data -> submit order. 
 export async function execute1InchFusionSwap(
   chainId: number | string,
   quote: any,
@@ -360,6 +396,13 @@ export async function execute1InchFusionSwap(
     const provider = getProvider(WalletType.EVM);
     if (!provider) throw new Error('EVM wallet not connected');
 
+    // Guard against expired Fusion quotes before doing any work.
+    // Fusion quotes have a short TTL; building an order on a stale quote wastes gas on the approval
+    // and produces a guaranteed submission rejection from the relayer.
+    if (quote.deadline && Math.floor(Date.now() / 1000) > Number(quote.deadline)) {
+      throw new Error('Fusion quote has expired — please refresh the quote and try again');
+    }
+
     const chainConfig = getChainById(chainId);
     const chainSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
 
@@ -369,7 +412,9 @@ export async function execute1InchFusionSwap(
 
     const amountBN = ethers.parseUnits(amountStr, sellAsset.decimals);
 
-    // --- Allowance gate: check and approve before building the order ---
+    //  check and approve before building the order.
+    // ensureFusionAllowance now uses the 'pending' block tag and pending nonce internally,
+    // so back-to-back calls are safe without waiting for the approval receipt.
     onProgress?.('approving');
     await ensureFusionAllowance(
       sellAsset.address,
@@ -378,7 +423,6 @@ export async function execute1InchFusionSwap(
       provider,
       chainId
     );
-    // ------------------------------------------------------------------
 
     onProgress?.('signing');
 
@@ -424,7 +468,27 @@ export async function execute1InchFusionSwap(
       signature,
     };
 
-    await submit1InchFusionOrder(submitPayload);
+    // retry if allowance hasn't propagated to the relayer yet.
+    // The pending-block-tag allowance check in ensureFusionAllowance reduces how often
+    // we hit this path, but the retry remains as a true safety net.
+    let retries = 0;
+    const maxRetries = 4;
+    while (retries < maxRetries) {
+      try {
+        await submit1InchFusionOrder(submitPayload);
+        break;
+      } catch (err: any) {
+        retries++;
+        const errMsg = err.message?.toLowerCase() || '';
+        const isAllowanceError = errMsg.includes('allowance') || errMsg.includes('balance') || errMsg.includes('insufficient');
+        if (isAllowanceError && retries < maxRetries) {
+          console.warn(`[execute1InchFusionSwap] Submission failed (likely allowance delay). Retrying in 4s... (${retries}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, 4000));
+          continue;
+        }
+        throw err;
+      }
+    }
 
     return orderHash;
   } catch (error: any) {
@@ -439,6 +503,7 @@ function toRangoAddress(address: string | null | undefined): string {
   return address;
 }
 
+// Finds the most efficient cross-chain route using the Rango aggregator. 
 export async function fetchRangoBestRoute(
   fromChainId: number | string,
   fromSymbol: string,
@@ -463,6 +528,7 @@ export async function fetchRangoBestRoute(
   }
 }
 
+// Confirms a selected Rango route to lock in the quote and prepare for execution. 
 export async function fetchRangoConfirmRoute(
   requestId: string,
   fromChainId: number | string,
@@ -485,6 +551,7 @@ export async function fetchRangoConfirmRoute(
   }
 }
 
+// Checks if an approval is still required for a specific Rango swap step. 
 export async function fetchRangoCheckApproval(
   requestId: string,
   txId: string = ""
@@ -497,6 +564,7 @@ export async function fetchRangoCheckApproval(
   }
 }
 
+// Retrieves the raw transaction data for a specific step in a Rango cross-chain swap. 
 export async function fetchRangoPrepareTx(
   requestId: string,
   swapsIndex: number = 1
@@ -508,6 +576,8 @@ export async function fetchRangoPrepareTx(
     throw new Error(message);
   }
 }
+
+// Validates the Rango route response for balance, fee, and input asset requirements. 
 export function validateRangoResult(result: any): void {
   const validationStatus = result?.validationStatus;
   if (validationStatus && Array.isArray(validationStatus)) {
@@ -536,6 +606,8 @@ export function validateRangoResult(result: any): void {
     }
   }
 }
+
+// Coordinates the multi-step execution of a Rango cross-chain swap, including approvals and bridge calls. 
 export async function executeRangoSwap(
   requestId: string,
   fromChainId: number | string,
@@ -563,117 +635,101 @@ export async function executeRangoSwap(
     ...(tx.maxPriorityFeePerGas ? { maxPriorityFeePerGas: '0x' + BigInt(tx.maxPriorityFeePerGas).toString(16) } : {}),
   });
 
+
   callbacks.setStatus('preparing');
 
-  const step1Response = await fetchRangoPrepareTx(requestId, 1);
-  const step1Items = Array.isArray(step1Response) ? step1Response : [step1Response];
+  const firstResponse = await fetchRangoPrepareTx(requestId, 1);
+  const firstItems = Array.isArray(firstResponse) ? firstResponse : [firstResponse];
+  const firstError = firstItems.find((item: any) => item && !item.ok && item.error);
+  if (firstError) throw new Error(firstError.error);
+  const firstResult = firstItems.find((item: any) => item && item.ok);
+  if (!firstResult) throw new Error('Failed to prepare Rango transaction');
 
-  const step1Error = step1Items.find((item: any) => item && !item.ok && item.error);
-  if (step1Error) throw new Error(step1Error.error);
+  const stepCount: number = firstResult.stepsCount ?? firstResult.route?.swaps?.length ?? 1;
 
-  const step1Result = step1Items.find((item: any) => item && item.ok && item.transaction);
-  if (!step1Result) throw new Error('Failed to prepare Rango transaction');
-
-  const step1Tx = step1Result.transaction;
-
-  if (step1Tx.isApprovalTx) {
-    callbacks.setStatus('signing');
-    const approvalTxId = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [buildTxParams(step1Tx)]
-    });
-
-    callbacks.addTransaction({
-      hash: approvalTxId,
-      chainId: fromChainId,
-      type: 'approval',
-      timestamp: Date.now(),
-      description: `Approve ${sellAssetSymbol}`,
-      from: evmAddress,
-      status: 'pending',
-      network: currentNetwork
-    });
-
-    await fetchRangoCheckApproval(requestId, approvalTxId);
-
-    let isApproved = false;
-    let attempts = 0;
-    const maxAttempts = 60;
-
-    while (!isApproved && attempts < maxAttempts) {
-      attempts++;
-      try {
-        const step2Response = await fetchRangoPrepareTx(requestId, 2);
-        const step2Items = Array.isArray(step2Response) ? step2Response : [step2Response];
-
-        const step2Error = step2Items.find((item: any) => item && !item.ok && item.error);
-        if (step2Error) {
-          const errMsg = step2Error.error.toLowerCase();
-          if (!errMsg.includes('approve') && !errMsg.includes('allowance') && !errMsg.includes('balance')) {
-            throw new Error(step2Error.error);
-          }
-        }
-
-        const step2Result = step2Items.find((item: any) => item && item.ok && item.transaction);
-        if (step2Result) {
-          isApproved = true;
-          break;
-        }
-      } catch (e: any) {
-        const msg = e.message?.toLowerCase() || '';
-        if (!msg.includes('approve') && !msg.includes('allowance') && !msg.includes('balance')) throw e;
-      }
-      await new Promise(r => setTimeout(r, 3000));
-    }
-
-    if (!isApproved) throw new Error('Timed out waiting for Rango to confirm approval transaction');
-
+  for (let stepIndex = 1; stepIndex <= stepCount; stepIndex++) {
     callbacks.setStatus('preparing');
-    const step2Response = await fetchRangoPrepareTx(requestId, 2);
-    const step2Items = Array.isArray(step2Response) ? step2Response : [step2Response];
 
-    const step2ErrorFinal = step2Items.find((item: any) => item && !item.ok && item.error);
-    if (step2ErrorFinal) throw new Error(step2ErrorFinal.error);
+    // For step 1 we already have the response; for subsequent steps fetch fresh.
+    const stepResponse = stepIndex === 1 ? firstResponse : await fetchRangoPrepareTx(requestId, stepIndex);
+    const stepItems = Array.isArray(stepResponse) ? stepResponse : [stepResponse];
 
-    const step2Result = step2Items.find((item: any) => item && item.ok && item.transaction);
-    if (!step2Result) throw new Error('Failed to prepare Rango swap transaction after approval');
+    const stepError = stepItems.find((item: any) => item && !item.ok && item.error);
+    if (stepError) throw new Error(stepError.error);
 
-    const step2Tx = step2Result.transaction;
-    callbacks.setStatus('signing');
-    const swapTxId = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [buildTxParams(step2Tx)]
-    });
+    const stepResult = stepItems.find((item: any) => item && item.ok && item.transaction);
+    if (!stepResult) throw new Error(`Failed to prepare Rango transaction for step ${stepIndex}`);
 
-    callbacks.setHash(swapTxId);
-    callbacks.addTransaction({
-      hash: swapTxId,
-      chainId: fromChainId,
-      type: 'crosschain-swap',
-      timestamp: Date.now(),
-      description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
-      from: evmAddress,
-      status: 'pending',
-      network: currentNetwork
-    });
-  } else {
-    callbacks.setStatus('signing');
-    const swapTxId = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [buildTxParams(step1Tx)]
-    });
-    callbacks.setHash(swapTxId);
-    callbacks.addTransaction({
-      hash: swapTxId,
-      chainId: fromChainId,
-      type: 'crosschain-swap',
-      timestamp: Date.now(),
-      description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
-      from: evmAddress,
-      status: 'pending',
-      network: currentNetwork
-    });
+    const stepTx = stepResult.transaction;
+
+    if (stepTx.isApprovalTx) {
+      callbacks.setStatus('signing');
+      const approvalTxId = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [buildTxParams(stepTx)]
+      });
+
+      callbacks.addTransaction({
+        hash: approvalTxId,
+        chainId: fromChainId,
+        type: 'approval',
+        timestamp: Date.now(),
+        description: `Approve ${sellAssetSymbol} for Swap`,
+        from: evmAddress,
+        status: 'pending',
+        network: currentNetwork
+      });
+
+      // No receipt wait — proceed directly to fetch the main swap tx for this same step.
+      console.log(`[executeRangoSwap] Step ${stepIndex} approval sent:`, approvalTxId);
+      callbacks.setStatus('preparing');
+
+      const swapTxResponse = await fetchRangoPrepareTx(requestId, stepIndex);
+      const swapTxItems = Array.isArray(swapTxResponse) ? swapTxResponse : [swapTxResponse];
+
+      const swapTxError = swapTxItems.find((item: any) => item && !item.ok && item.error);
+      if (swapTxError) throw new Error(swapTxError.error);
+
+      const swapTxResult = swapTxItems.find((item: any) => item && item.ok && item.transaction);
+      if (!swapTxResult) throw new Error(`Failed to prepare Rango swap transaction for step ${stepIndex} after approval`);
+
+      callbacks.setStatus('signing');
+      const swapTxId = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [buildTxParams(swapTxResult.transaction)]
+      });
+
+      callbacks.setHash(swapTxId);
+      callbacks.addTransaction({
+        hash: swapTxId,
+        chainId: fromChainId,
+        type: 'crosschain-swap',
+        timestamp: Date.now(),
+        description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+        from: evmAddress,
+        status: 'pending',
+        network: currentNetwork
+      });
+    } else {
+      callbacks.setStatus('signing');
+      const swapTxId = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [buildTxParams(stepTx)]
+      });
+
+      callbacks.setHash(swapTxId);
+      callbacks.addTransaction({
+        hash: swapTxId,
+        chainId: fromChainId,
+        type: 'crosschain-swap',
+        timestamp: Date.now(),
+        description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+        from: evmAddress,
+        status: 'pending',
+        network: currentNetwork
+      });
+    }
   }
+
   callbacks.setStatus('success');
 }
-

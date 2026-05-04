@@ -148,3 +148,62 @@ export async function fetchApiResponseFromServer<T>(
   const data = await response.json();
   return { data };
 }
+
+export interface WalletGasInfo {
+  transactionCount: number;
+  gasFeeData: {
+    _type: string;
+    gasPrice: string;
+    maxFeePerGas: string;
+    maxPriorityFeePerGas: string;
+  };
+}
+
+const GAS_CACHE_PREFIX = 'sx_gas_cache_';
+const GAS_CACHE_TTL = 30 * 1000; // 30 seconds cache for gas
+
+export async function getWalletGasInfo(
+  prefix: string,
+  address: string
+): Promise<WalletGasInfo | null> {
+  const cacheKey = `${GAS_CACHE_PREFIX}${prefix}_${address}`;
+
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    try {
+      const { timestamp, data } = JSON.parse(cached);
+      if (Date.now() - timestamp < GAS_CACHE_TTL) {
+        return data;
+      }
+    } catch (e) {
+      console.warn('Failed to parse gas cache', e);
+    }
+  }
+
+  try {
+    const endpoint = `eth/wallet-address/${address}/info`;
+    const response = await fetchApiResponseFromServer<WalletGasInfo>(endpoint, 'GET');
+
+    if (response.data) {
+
+      localStorage.setItem(cacheKey, JSON.stringify({
+        timestamp: Date.now(),
+        data: response.data
+      }));
+      return response.data;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to fetch wallet gas info:', error);
+
+    if (cached) {
+      try {
+        const { data } = JSON.parse(cached);
+        return data;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
