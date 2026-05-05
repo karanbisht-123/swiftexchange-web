@@ -1,9 +1,7 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
 import type { SwapQuote, SwapQuoteRequest, BuildFusionOrderRequest, FusionOrder } from '../../../types/evm/swap.types';
 import { getChainById } from '../utils/Chainregistry';
-import { ethers } from 'ethers';
-
-
+// import { ethers } from 'ethers';
 const getChainSymbol = (chainId: number | string) => {
   const chain = getChainById(chainId);
   return (chain?.symbol || chain?.nativeCurrency.symbol || 'ETH').toUpperCase();
@@ -66,20 +64,8 @@ export interface SubmitFusionOrderRequest {
   signature: string;
 }
 
-export interface RangoBestRouteRequest {
-  from: {
-    blockchain: string;
-    symbol: string;
-    address: string;
-  };
-  to: {
-    blockchain: string;
-    symbol: string;
-    address: string;
-  };
-  amount: string;
-  slippage: string;
-}
+
+
 
 export interface RangoConfirmRouteRequest {
   requestId: string;
@@ -103,66 +89,79 @@ export interface RangoPrepareTxRequest {
 const getSwapEndpoint = (action: 'quote' | 'prepare') =>
   action === 'quote' ? `/quoter/quote` : `/quoter/swap`;
 
-function buildQuotePayload(request: any, chainId: any) {
+function buildQuotePayload(request: SwapQuoteRequest, chainId: any) {
   return {
-    tokenIn: {
-      address: request.tokenIn.address,
-      symbol: request.tokenIn.symbol,
-      name: request.tokenIn.name,
-      decimals: request.tokenIn.decimals,
-    },
-    tokenOut: {
-      address: request.tokenOut.address,
-      symbol: request.tokenOut.symbol,
-      name: request.tokenOut.name,
-      decimals: request.tokenOut.decimals,
-    },
-    amount: request.amount,
+    ...request,
+    tokenIn: { ...request.tokenIn, chainId: request.tokenIn.chainId || chainId },
+    tokenOut: { ...request.tokenOut, chainId: request.tokenOut.chainId || chainId },
     recipient: request.recipient || '',
-    chainId: getChainSymbol(chainId),
   };
 }
 
+
 export async function getSwapQuote(chainId: number | string, request: SwapQuoteRequest): Promise<SwapQuote> {
+
+  console.log(request, "-------------")
   const payload = buildQuotePayload(request, chainId);
   const res = await fetchApiResponseFromProxy<any>(getSwapEndpoint('quote'), 'POST', payload);
 
-  const quoteData = res.data?.data || res.data;
-  if (!quoteData) throw new Error('No quote data received');
+  if (!res.data || !res.data.success) {
+    throw new Error(res.data?.message || 'Failed to fetch swap quote');
+  }
 
+  const { provider, data } = res.data;
+
+  if (provider === 'RANGO') {
+    const { parseRangoQuoteResponse } = await import('../utils/swapErrorHandler');
+    const rangoError = parseRangoQuoteResponse(data);
+    if (rangoError) {
+      throw new Error(`${rangoError.title}: ${rangoError.message}`);
+    }
+
+    const result = data.result;
+    return {
+      inputAmount: data.requestAmount || request.amount,
+      inputToken: data.from?.symbol || request.tokenIn.symbol,
+      outputAmount: result?.outputAmount || '0',
+      outputToken: data.to?.symbol || request.tokenOut.symbol,
+      pricePerToken: '0',
+      fee: 0,
+      networkFee: 0,
+      poolAddress: '',
+      priceImpact: result?.priceImpactUsdPercent || '0',
+      rawQuote: data,
+      provider: 'RANGO',
+    };
+  }
   return {
-    inputAmount: quoteData.inputAmount || request.amount,
-    inputToken: quoteData.inputToken || request.tokenIn.symbol,
-    outputAmount: quoteData.outputAmount,
-    outputToken: quoteData.outputToken || request.tokenOut.symbol,
-    pricePerToken: quoteData.pricePerToken || '0',
-    fee: typeof quoteData.fee === 'string' ? parseInt(quoteData.fee, 10) : quoteData.fee || 0,
-    networkFee: quoteData.networkFee || 0,
-    poolAddress: quoteData.poolAddress || '',
-    priceImpact: quoteData.priceImpact || '0',
-    rawQuote: quoteData,
+    inputAmount: data.inputAmount || request.amount,
+    inputToken: data.inputToken || request.tokenIn.symbol,
+    outputAmount: data.outputAmount || '0',
+    outputToken: data.outputToken || request.tokenOut.symbol,
+    pricePerToken: data.pricePerToken || '0',
+    fee: typeof data.fee === 'string' ? parseInt(data.fee, 10) : data.fee || 0,
+    networkFee: data.networkFee || 0,
+    poolAddress: data.poolAddress || '',
+    priceImpact: data.priceImpact || '0',
+    rawQuote: data,
+    provider: provider || 'UNISWAP',
+    minimumReceived: data.minimumReceived || undefined,
   };
 }
+
+
 
 export async function prepareSwapTransaction(
   request: SwapTransactionRequest
 ): Promise<SwapTransactionData[]> {
+  const { quote, senderAddress, slippageTolerance, ...rest } = request;
+
   const payload = {
-    tokenIn: {
-      address: request.tokenIn.address,
-      symbol: request.tokenIn.symbol,
-      name: request.tokenIn.symbol,
-      decimals: request.tokenIn.decimals,
-    },
-    tokenOut: {
-      address: request.tokenOut.address,
-      symbol: request.tokenOut.symbol,
-      name: request.tokenOut.symbol,
-      decimals: request.tokenOut.decimals,
-    },
-    amount: request.amount,
+    ...rest,
+    tokenIn: { ...request.tokenIn, name: request.tokenIn.symbol },
+    tokenOut: { ...request.tokenOut, name: request.tokenOut.symbol },
     recipient: request.senderAddress,
-    chainId: getChainSymbol(request.chainId)
+    chainId: getChainSymbol(request.chainId),
   };
 
   const res = await fetchApiResponseFromProxy<any>(getSwapEndpoint('prepare'), 'POST', payload);
@@ -177,8 +176,8 @@ export async function getBridgeQuote(
   sourceChainId: number | string,
   destinationChainId: number | string,
   amount: string,
-  sourceToken: string = 'usdt',
-  destinationToken: string = 'usdt'
+  sourceToken: string,
+  destinationToken: string
 ): Promise<any> {
   const res = await fetchApiResponseFromProxy<any>(`/bridge/swap-quotes`, 'POST', {
     amount,
@@ -190,6 +189,7 @@ export async function getBridgeQuote(
 
   return res.data;
 }
+
 
 export interface BridgeTransactionRequest {
   fromChainId: number | string;
@@ -264,18 +264,14 @@ export async function get1InchFusionQuote(
     decimals?: number;
   }
 ): Promise<any> {
-  const decimals = request.decimals ?? 6;
-  const amountStr = request.amount.includes('.') 
-    ? request.amount.split('.')[0] + '.' + request.amount.split('.')[1].slice(0, decimals)
-    : request.amount;
+
 
   const payload = {
     ...request,
     chain: getChainSymbol(chainId),
-    amount: ethers.parseUnits(amountStr, decimals).toString(),
+    amount: request.amount,
     walletAddress: request.walletAddress,
   };
-
   const res = await fetchApiResponseFromProxy<any>(`/swap/1inch/getSwapQuote`, 'POST', payload);
   const data = res.data?.data || res.data;
   if (!data) throw new Error('No 1inch quote data received');
@@ -298,14 +294,6 @@ export async function submit1InchFusionOrder(
   const res = await fetchApiResponseFromProxy<any>(`/swap/1inch/submitOrder`, 'POST', request);
   const data = res.data?.data || res.data;
   if (!data) throw new Error('Failed to submit 1inch Fusion order');
-  return data;
-}
-
-
-export async function getRangoBestRoute(payload: RangoBestRouteRequest): Promise<any> {
-  const res = await fetchApiResponseFromProxy<any>(`/swap/rango/best/route`, 'POST', payload);
-  const data = res.data?.data || res.data;
-  if (!data) throw new Error('No Rango route data received');
   return data;
 }
 

@@ -1,8 +1,18 @@
 import { ethers } from 'ethers';
 
-import type { SwapQuote, SwapQuoteRequest, SwapType } from '../../../types/evm/swap.types';
+import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
-import { getSwapQuote, prepareSwapTransaction, get1InchFusionQuote, build1InchFusionOrder, submit1InchFusionOrder, getRangoBestRoute, confirmRangoRoute, checkRangoApproval, prepareRangoTx } from '../service/evmSwapService';
+import {
+  getSwapQuote,
+  prepareSwapTransaction,
+  get1InchFusionQuote,
+  build1InchFusionOrder,
+  submit1InchFusionOrder,
+  confirmRangoRoute,
+  checkRangoApproval,
+  prepareRangoTx,
+} from '../service/evmSwapService';
+
 import type { TokenInfo } from '../service/tokenListService';
 import { getChainById, getChainRangoSymbol } from './Chainregistry';
 import { parseSwapError } from './swapErrorHandler';
@@ -10,107 +20,113 @@ import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from './assetmanagement/con
 import { rpcManager } from './rpcProvider';
 import { getEVMNetworkConfig } from './evmUtils';
 
-
-// 1inch limit order_PROTOCOL 
 const LIMIT_ORDER_PROTOCOL = '0x111111125421ca6dc452d289314280a0f8842a65';
+const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
 const ERC20_ALLOWANCE_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
   'function approve(address spender, uint256 amount) returns (bool)',
 ];
 
-// Fetches the pending nonce to prevent nonce collisions on fast sequential submissions.
 export async function ensureFusionAllowance(
   tokenAddress: string,
   walletAddress: string,
   amountBN: bigint,
   provider: any,
   chainId: number | string,
-): Promise<void> {
-  const spender = LIMIT_ORDER_PROTOCOL;
-  if (!tokenAddress || tokenAddress.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) return;
+): Promise<{
+  usedPermit2: boolean;
+  approvalTxHash?: string;
+  permit?: string;
+}> {
+  if (!tokenAddress || tokenAddress.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) {
+    return { usedPermit2: false };
+  }
 
+  // For Fusion, always check against Permit2 first
+  // Fall back to Limit Order Protocol for classic approval
+  let allowance: bigint = 0n;
   let rpcUrls: string[] = [];
+
   try {
     rpcUrls = getEVMNetworkConfig(chainId).rpcUrls;
   } catch { }
 
-  // Use 'pending' block tag so an in-flight approval is counted and we don't double-approve.
-  let allowance: bigint = 0n;
+  // Check Permit2 allowance first
   if (rpcUrls.length > 0) {
     try {
       allowance = await rpcManager.fetchWithFallback(chainId, rpcUrls, async (rpcProvider) => {
         const contract = new ethers.Contract(tokenAddress, ERC20_ALLOWANCE_ABI, rpcProvider);
-        // Pass {blockTag: 'pending'} so a pending approval tx is reflected immediately
-        return contract.allowance(walletAddress, spender, { blockTag: 'pending' }) as Promise<bigint>;
+        return contract.allowance(walletAddress, PERMIT2_ADDRESS, { blockTag: 'pending' }) as Promise<bigint>;
       });
     } catch (err) {
-      console.warn('[ensureFusionAllowance] Failed to fetch allowance, proceeding with approval fallback:', err);
+      console.warn('[ensureFusionAllowance] RPC fallback failed, trying injected provider:', err);
     }
   }
 
-  if (BigInt(allowance) >= amountBN) return;
-
-  const iface = new ethers.Interface(ERC20_ALLOWANCE_ABI);
-  const data = iface.encodeFunctionData('approve', [spender, ethers.MaxUint256]);
-
-  let gasHex = '0x186a0'; // Default 100k
-  try {
-    const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
-    const sim = await simulateEVMTransaction(chainId, walletAddress, tokenAddress, 0n, data);
-    gasHex = '0x' + sim.gasLimit.toString(16);
-  } catch (err: any) {
-    console.warn('[ensureFusionAllowance] Gas simulation failed for approval:', err);
-    if (err.message.includes('Insufficient funds')) throw err;
-  }
-
-  // Fetch the pending nonce via rpcManager to prevent nonce collisions
-  // when multiple transactions are submitted back-to-back.
-  let nonceHex: string | undefined;
-  if (rpcUrls.length > 0) {
+  if (allowance === 0n && provider) {
     try {
-      const pendingNonce = await rpcManager.fetchWithFallback(chainId, rpcUrls, async (rpcProvider) => {
-        return rpcProvider.getTransactionCount(walletAddress, 'pending');
-      });
-      nonceHex = '0x' + pendingNonce.toString(16);
+      const ethersProvider = new ethers.BrowserProvider(provider);
+      const contract = new ethers.Contract(tokenAddress, ERC20_ALLOWANCE_ABI, ethersProvider);
+      allowance = await contract.allowance(walletAddress, PERMIT2_ADDRESS, { blockTag: 'pending' });
     } catch (err) {
-      console.warn('[ensureFusionAllowance] Failed to fetch pending nonce, wallet will assign nonce:', err);
+      console.warn('[ensureFusionAllowance] Injected provider Permit2 allowance check failed:', err);
     }
   }
 
-  const approveTxParams: Record<string, string> = {
-    from: walletAddress,
-    to: tokenAddress,
-    data,
-    gas: gasHex,
-  };
-  if (nonceHex !== undefined) {
-    approveTxParams.nonce = nonceHex;
+  // Permit2 allowance is sufficient — no approval needed
+  if (BigInt(allowance) >= amountBN) {
+    return { usedPermit2: true };
   }
 
-  const approveTxHash: string = await provider.request({
-    method: 'eth_sendTransaction',
-    params: [approveTxParams],
-  });
+  // No sufficient allowance found — build and send approval tx
+  if (provider) {
+    try {
+      const ethersProvider = new ethers.BrowserProvider(provider);
+      const signer = await ethersProvider.getSigner();
 
-  console.log('[ensureFusionAllowance] Approval transaction sent:', approveTxHash);
+
+      const spender = allowance === 0n ? PERMIT2_ADDRESS : LIMIT_ORDER_PROTOCOL;
+
+      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ALLOWANCE_ABI, signer);
+
+      const approveTx = await tokenContract.approve(spender, ethers.MaxUint256);
+      const receipt = await approveTx.wait();
+
+      console.log('[ensureFusionAllowance] Approval tx confirmed:', receipt.hash);
+
+      return {
+        usedPermit2: spender === PERMIT2_ADDRESS,
+        approvalTxHash: receipt.hash,
+        permit: undefined,
+      };
+    } catch (err: any) {
+      console.error('[ensureFusionAllowance] Approval tx failed:', err);
+      throw new Error(`Token approval failed: ${err.message}`);
+    }
+  }
+
+
+  return {
+    usedPermit2: true,
+    permit: undefined,
+  };
 }
 
-
-export function determineSwapType(sellAsset: TokenInfo, buyAsset: TokenInfo): SwapType {
-  const isSellNative = sellAsset.isNative;
-  const isBuyNative = buyAsset.isNative;
-  const isSellUsdc = sellAsset.symbol.toUpperCase() === 'USDC';
-  const isBuyUsdc = buyAsset.symbol.toUpperCase() === 'USDC';
-
-  if (isSellNative && isBuyUsdc) return 'EthToUsdc';
-  if (isSellUsdc && isBuyNative) return 'UsdcToWeth';
-  if (isSellNative) return 'EthToToken';
-  if (isBuyNative) return 'TokenToEth';
-
-  return 'TokenToToken';
+export function formatAmount(amount: string, decimals: number): string {
+  if (!amount) return '0';
+  try {
+    const parts = amount.split('.');
+    let cleanAmount = amount;
+    if (parts.length > 1) {
+      cleanAmount = parts[0] + '.' + parts[1].slice(0, decimals);
+    }
+    return ethers.parseUnits(cleanAmount, decimals).toString();
+  } catch (err) {
+    console.warn('[formatAmount] Fallback to raw amount due to error:', err);
+    return amount;
+  }
 }
-
 
 function safeValue(raw: string | undefined | null): bigint {
   if (raw === undefined || raw === null || raw === '') return 0n;
@@ -132,7 +148,6 @@ function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefin
   }
 }
 
-// Estimates gas for a transaction and adds a 20% safety buffer.
 async function estimateGasWithBuffer(
   provider: ethers.BrowserProvider,
   txParams: ethers.TransactionRequest
@@ -146,7 +161,6 @@ async function estimateGasWithBuffer(
   }
 }
 
-// Polls the blockchain for a transaction receipt with a configurable timeout and 'slow' notification hook. 
 async function pollForReceipt(
   provider: ethers.BrowserProvider,
   txHash: string,
@@ -178,7 +192,7 @@ async function pollForReceipt(
   return null;
 }
 
-// Fetches a standard EVM swap quote from the internal swap service. 
+
 export async function fetchEvmQuote(
   chainId: number | string,
   request: SwapQuoteRequest,
@@ -186,39 +200,40 @@ export async function fetchEvmQuote(
   selectedBuyAsset: TokenInfo
 ): Promise<SwapQuote> {
   try {
-    if (!selectedSellAsset.isNative && !ethers.isAddress(selectedSellAsset.address)) {
+    console.log(request, "-------------");
+
+    const normalizedSellAddress = request.tokenIn?.address?.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : selectedSellAsset.address;
+    const normalizedBuyAddress = request.tokenOut?.address?.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : selectedBuyAsset.address;
+
+    console.log(normalizedBuyAddress, "bueksnfkd")
+    console.log(normalizedSellAddress, "-----")
+    const isNativeSell = selectedSellAsset.isNative || normalizedSellAddress === AGGREGATOR_NATIVE_ADDRESS;
+    const isNativeBuy = selectedBuyAsset.isNative || normalizedBuyAddress === AGGREGATOR_NATIVE_ADDRESS;
+
+    if (!isNativeSell && !ethers.isAddress(normalizedSellAddress)) {
       throw new Error(`Invalid sell token address: ${selectedSellAsset.address}`);
     }
-    if (!selectedBuyAsset.isNative && !ethers.isAddress(selectedBuyAsset.address)) {
+    if (!isNativeBuy && !ethers.isAddress(normalizedBuyAddress)) {
       throw new Error(`Invalid buy token address: ${selectedBuyAsset.address}`);
     }
 
-    const swapType = determineSwapType(selectedSellAsset, selectedBuyAsset);
-
-    const chainConfig = getChainById(chainId);
-    const nativeSymbol = chainConfig?.nativeCurrency.symbol || 'ETH';
-
-    const adjustedRequest: any = {
+    const adjustedRequest: SwapQuoteRequest = {
       ...request,
-      nativeSymbol,
       tokenIn: {
-        symbol: selectedSellAsset.symbol,
-        name: selectedSellAsset.name,
-        decimals: selectedSellAsset.decimals,
-        address: selectedSellAsset.address,
-        balance: selectedSellAsset.balance ?? undefined,
+        ...selectedSellAsset,
+        address: normalizedSellAddress,
+        balance: selectedSellAsset.balance || '0',
         logoUri: selectedSellAsset.logoURI || null,
+        chainId,
       },
       tokenOut: {
-        symbol: selectedBuyAsset.symbol,
-        name: selectedBuyAsset.name,
-        decimals: selectedBuyAsset.decimals,
-        address: selectedBuyAsset.address,
-        balance: selectedBuyAsset.balance ?? undefined,
+        ...selectedBuyAsset,
+        address: normalizedBuyAddress,
+        balance: selectedBuyAsset.balance || '0',
         logoUri: selectedBuyAsset.logoURI || null,
+        chainId: selectedBuyAsset.chainId || chainId,
       },
-      swapType,
-    };
+    } as any;
 
     const quote = await getSwapQuote(chainId, adjustedRequest);
 
@@ -233,7 +248,7 @@ export async function fetchEvmQuote(
   }
 }
 
-// Executes a sequence of transactions (e.g., approval + swap) for a standard EVM exchange. 
+
 export async function executeSwap(
   chainId: number | string,
   quote: SwapQuote,
@@ -246,100 +261,69 @@ export async function executeSwap(
 ): Promise<string> {
   try {
     const provider = getProvider(WalletType.EVM);
-    if (!provider) {
-      throw new Error('EVM wallet not connected');
-    }
+    if (!provider) throw new Error('EVM wallet not connected');
 
-    const swapRequest = {
+    const transactions = await prepareSwapTransaction({
       chainId,
       quote,
-      tokenIn: {
-        address: selectedSellAsset.address,
-        symbol: selectedSellAsset.symbol,
-        decimals: selectedSellAsset.decimals,
-        isNative: selectedSellAsset.isNative,
-      },
-      tokenOut: {
-        address: selectedBuyAsset.address,
-        symbol: selectedBuyAsset.symbol,
-        decimals: selectedBuyAsset.decimals,
-        isNative: selectedBuyAsset.isNative,
-      },
+      tokenIn: { ...selectedSellAsset, chainId },
+      tokenOut: { ...selectedBuyAsset, chainId: selectedBuyAsset.chainId || chainId },
       senderAddress,
       amount: sellAmount,
       slippageTolerance,
-    };
+    } as any);
 
-    const transactions = await prepareSwapTransaction(swapRequest);
-
-    if (!transactions || transactions.length === 0) {
-      throw new Error('No transactions received from API');
-    }
+    if (!transactions?.length) throw new Error('No transactions received from API');
 
     const ethersProvider = new ethers.BrowserProvider(provider);
     const signer = await ethersProvider.getSigner();
+    const txParamsList = await Promise.all(
+      transactions.map(async (tx) => {
+        const txParams: ethers.TransactionRequest = {
+          from: tx.from || senderAddress,
+          to: tx.to,
+          data: tx.data,
+          value: safeValue(tx.value),
+          type: tx.type === 2 ? 2 : undefined,
+        };
+
+        if (tx.maxFeePerGas) txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
+        if (tx.maxPriorityFeePerGas) txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
+        if (tx.nonce != null) txParams.nonce = Number(tx.nonce);
+
+        try {
+          const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
+          const sim = await simulateEVMTransaction(
+            chainId,
+            txParams.from as string,
+            txParams.to as string,
+            txParams.value?.toString() || '0',
+            txParams.data?.toString() || '0x'
+          );
+          txParams.gasLimit = sim.gasLimit;
+        } catch (simError: any) {
+          if (simError.message.includes('Insufficient funds')) throw simError;
+          console.warn('[executeSwap] Gas sim failed, using fallback:', simError.message);
+          const apiLimit = safeGasLimit(tx);
+          txParams.gasLimit = apiLimit !== undefined
+            ? apiLimit
+            : await estimateGasWithBuffer(ethersProvider, txParams);
+        }
+
+        return txParams;
+      })
+    );
 
     let lastTxHash = '';
 
-    for (let i = 0; i < transactions.length; i++) {
-      const tx = transactions[i];
-      const isLastTx = i === transactions.length - 1;
-
-      const gasLimitFromApi = safeGasLimit(tx);
-
-      const txParams: ethers.TransactionRequest = {
-        from: tx.from || senderAddress,
-        to: tx.to,
-        data: tx.data,
-        value: safeValue(tx.value),
-        type: tx.type === 2 ? 2 : undefined,
-      };
-
-      // Apply EIP-1559 fees if provided by proxy
-      if (tx.maxFeePerGas) txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
-      if (tx.maxPriorityFeePerGas) txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
-
-      // Use proxy-provided nonce to allow fast sequential submission
-      if (tx.nonce !== undefined && tx.nonce !== null) {
-        txParams.nonce = Number(tx.nonce);
-      }
-
-      // Simulation/Gas Estimation logic
-      try {
-        const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
-        const sim = await simulateEVMTransaction(
-          chainId,
-          txParams.from as string,
-          txParams.to as string,
-          txParams.value?.toString() || '0',
-          txParams.data?.toString() || '0x'
-        );
-        txParams.gasLimit = sim.gasLimit;
-      } catch (simError: any) {
-        console.warn('[executeSwap] Gas simulation failed, falling back to estimation:', simError);
-        if (simError.message.includes('Insufficient funds')) throw simError;
-        if (gasLimitFromApi !== undefined) {
-          txParams.gasLimit = gasLimitFromApi;
-        } else {
-          const estimated = await estimateGasWithBuffer(ethersProvider, txParams);
-          if (estimated !== undefined) {
-            txParams.gasLimit = estimated;
-          }
-        }
-      }
-
-      console.log('[executeSwap] Sending transaction:', {
-        to: txParams.to,
-        nonce: txParams.nonce,
-        gasLimit: txParams.gasLimit?.toString(),
-      });
-
-      const txResponse = await signer.sendTransaction(txParams);
+    for (let i = 0; i < txParamsList.length; i++) {
+      const txResponse = await signer.sendTransaction(txParamsList[i]);
       lastTxHash = txResponse.hash;
-      if (!isLastTx) {
-        console.log('[executeSwap] Intermediate transaction sent:', lastTxHash);
-      } else {
-        console.log('[executeSwap] Final transaction sent:', lastTxHash);
+
+      const isLast = i === txParamsList.length - 1;
+      console.log(`[executeSwap] tx ${i + 1}/${txParamsList.length} broadcast:`, lastTxHash);
+
+      if (isLast) {
         pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
           if (!receipt || receipt.status === 0) {
             console.error('[executeSwap] Final tx reverted or timed out:', lastTxHash);
@@ -349,29 +333,34 @@ export async function executeSwap(
     }
 
     return lastTxHash;
+
   } catch (error: any) {
     console.error('[executeSwap] Error:', error);
-    const message = parseSwapError(error);
-    throw new Error(message);
+    throw new Error(parseSwapError(error));
   }
 }
 
-// Fetches a gasless Fusion quote from 1inch. 
 export async function fetch1InchFusionQuote(
-  chainId: number | string,
+  chain: number | string,
   tokenIn: string,
   tokenOut: string,
   amount: string,
   walletAddress: string,
-  decimals?: number
+  decimals: number,
 ): Promise<any> {
+
+  console.log("[fetch1InchFusionQuote] chain:", chain);
+  console.log("[fetch1InchFusionQuote] tokenIn:", tokenIn);
+  console.log("[fetch1InchFusionQuote] tokenOut:", tokenOut);
+  console.log("[fetch1InchFusionQuote] amount:", amount);
+  console.log("[fetch1InchFusionQuote] walletAddress:", walletAddress);
+  console.log("[fetch1InchFusionQuote] decimals:", decimals);
   try {
-    const quote = await get1InchFusionQuote(chainId, {
+    const quote = await get1InchFusionQuote(chain, {
       tokenIn,
       tokenOut,
-      amount,
+      amount: formatAmount(amount, decimals),
       walletAddress,
-      decimals
     });
     return quote;
   } catch (error: any) {
@@ -380,7 +369,6 @@ export async function fetch1InchFusionQuote(
   }
 }
 
-// Handles the full 1inch Fusion flow: check allowance -> sign typed data -> submit order. 
 export async function execute1InchFusionSwap(
   chainId: number | string,
   quote: any,
@@ -396,9 +384,6 @@ export async function execute1InchFusionSwap(
     const provider = getProvider(WalletType.EVM);
     if (!provider) throw new Error('EVM wallet not connected');
 
-    // Guard against expired Fusion quotes before doing any work.
-    // Fusion quotes have a short TTL; building an order on a stale quote wastes gas on the approval
-    // and produces a guaranteed submission rejection from the relayer.
     if (quote.deadline && Math.floor(Date.now() / 1000) > Number(quote.deadline)) {
       throw new Error('Fusion quote has expired — please refresh the quote and try again');
     }
@@ -406,17 +391,11 @@ export async function execute1InchFusionSwap(
     const chainConfig = getChainById(chainId);
     const chainSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
 
-    const amountStr = sellAmount.includes('.')
-      ? sellAmount.split('.')[0] + '.' + sellAmount.split('.')[1].slice(0, sellAsset.decimals)
-      : sellAmount;
+    const amountBN = BigInt(formatAmount(sellAmount, sellAsset.decimals));
 
-    const amountBN = ethers.parseUnits(amountStr, sellAsset.decimals);
-
-    //  check and approve before building the order.
-    // ensureFusionAllowance now uses the 'pending' block tag and pending nonce internally,
-    // so back-to-back calls are safe without waiting for the approval receipt.
     onProgress?.('approving');
-    await ensureFusionAllowance(
+
+    const allowanceResult = await ensureFusionAllowance(
       sellAsset.address,
       senderAddress,
       amountBN,
@@ -434,6 +413,8 @@ export async function execute1InchFusionSwap(
       walletAddress: senderAddress,
       chain: chainSymbol,
       preset,
+      isPermit2: allowanceResult.usedPermit2,
+      permit: allowanceResult.permit || '',
     };
 
     const fusionOrder = await build1InchFusionOrder(buildRequest);
@@ -451,6 +432,7 @@ export async function execute1InchFusionSwap(
     if (!signature) throw new Error('Signature cancelled or failed');
 
     const orderMessage = typedData.message;
+
     const submitPayload = {
       chain: chainSymbol,
       order: {
@@ -466,13 +448,13 @@ export async function execute1InchFusionSwap(
       quoteId: quote.quoteId,
       extension,
       signature,
+      isPermit2: allowanceResult.usedPermit2,
+      permit: allowanceResult.permit || '',
     };
 
-    // retry if allowance hasn't propagated to the relayer yet.
-    // The pending-block-tag allowance check in ensureFusionAllowance reduces how often
-    // we hit this path, but the retry remains as a true safety net.
     let retries = 0;
     const maxRetries = 4;
+
     while (retries < maxRetries) {
       try {
         await submit1InchFusionOrder(submitPayload);
@@ -480,9 +462,14 @@ export async function execute1InchFusionSwap(
       } catch (err: any) {
         retries++;
         const errMsg = err.message?.toLowerCase() || '';
-        const isAllowanceError = errMsg.includes('allowance') || errMsg.includes('balance') || errMsg.includes('insufficient');
+        const isAllowanceError =
+          errMsg.includes('allowance') ||
+          errMsg.includes('permit') ||
+          errMsg.includes('balance') ||
+          errMsg.includes('insufficient');
+
         if (isAllowanceError && retries < maxRetries) {
-          console.warn(`[execute1InchFusionSwap] Submission failed (likely allowance delay). Retrying in 4s... (${retries}/${maxRetries})`);
+          console.warn(`[execute1InchFusionSwap] Submission failed. Retrying... (${retries}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, 4000));
           continue;
         }
@@ -498,37 +485,6 @@ export async function execute1InchFusionSwap(
   }
 }
 
-function toRangoAddress(address: string | null | undefined): string {
-  if (!address || address.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) return AGGREGATOR_NATIVE_ADDRESS;
-  return address;
-}
-
-// Finds the most efficient cross-chain route using the Rango aggregator. 
-export async function fetchRangoBestRoute(
-  fromChainId: number | string,
-  fromSymbol: string,
-  fromAddress: string | null,
-  toChainId: number | string,
-  toSymbol: string,
-  toAddress: string | null,
-  amount: string,
-  slippage: string = "1.0"
-): Promise<any> {
-  try {
-    const payload = {
-      from: { blockchain: getChainRangoSymbol(fromChainId), symbol: fromSymbol, address: toRangoAddress(fromAddress) },
-      to: { blockchain: getChainRangoSymbol(toChainId), symbol: toSymbol, address: toRangoAddress(toAddress) },
-      amount,
-      slippage
-    };
-    return await getRangoBestRoute(payload);
-  } catch (error: any) {
-    const message = parseSwapError(error);
-    throw new Error(message);
-  }
-}
-
-// Confirms a selected Rango route to lock in the quote and prepare for execution. 
 export async function fetchRangoConfirmRoute(
   requestId: string,
   fromChainId: number | string,
@@ -542,7 +498,7 @@ export async function fetchRangoConfirmRoute(
       sourceChain: getChainRangoSymbol(fromChainId),
       destinationChain: getChainRangoSymbol(toChainId),
       fromAddress,
-      toAddress
+      toAddress,
     };
     return await confirmRangoRoute(payload);
   } catch (error: any) {
@@ -551,10 +507,9 @@ export async function fetchRangoConfirmRoute(
   }
 }
 
-// Checks if an approval is still required for a specific Rango swap step. 
 export async function fetchRangoCheckApproval(
   requestId: string,
-  txId: string = ""
+  txId: string = ''
 ): Promise<any> {
   try {
     return await checkRangoApproval({ requestId, txId });
@@ -564,7 +519,6 @@ export async function fetchRangoCheckApproval(
   }
 }
 
-// Retrieves the raw transaction data for a specific step in a Rango cross-chain swap. 
 export async function fetchRangoPrepareTx(
   requestId: string,
   swapsIndex: number = 1
@@ -577,7 +531,6 @@ export async function fetchRangoPrepareTx(
   }
 }
 
-// Validates the Rango route response for balance, fee, and input asset requirements. 
 export function validateRangoResult(result: any): void {
   const validationStatus = result?.validationStatus;
   if (validationStatus && Array.isArray(validationStatus)) {
@@ -599,7 +552,10 @@ export function validateRangoResult(result: any): void {
             if (reason === 'FEE_AND_INPUT_ASSET') {
               throw new Error(`Insufficient ${symbol} and native tokens for fees on ${chainStatus.blockchain}.`);
             }
-            throw new Error(asset.error || `Rango validation failed: ${reason || 'Insufficient balance'} for ${symbol} (Required: ${required}, Current: ${current})`);
+            throw new Error(
+              asset.error ||
+              `Rango validation failed: ${reason || 'Insufficient balance'} for ${symbol} (Required: ${required}, Current: ${current})`
+            );
           }
         }
       }
@@ -607,7 +563,6 @@ export function validateRangoResult(result: any): void {
   }
 }
 
-// Coordinates the multi-step execution of a Rango cross-chain swap, including approvals and bridge calls. 
 export async function executeRangoSwap(
   requestId: string,
   fromChainId: number | string,
@@ -635,7 +590,6 @@ export async function executeRangoSwap(
     ...(tx.maxPriorityFeePerGas ? { maxPriorityFeePerGas: '0x' + BigInt(tx.maxPriorityFeePerGas).toString(16) } : {}),
   });
 
-
   callbacks.setStatus('preparing');
 
   const firstResponse = await fetchRangoPrepareTx(requestId, 1);
@@ -650,7 +604,6 @@ export async function executeRangoSwap(
   for (let stepIndex = 1; stepIndex <= stepCount; stepIndex++) {
     callbacks.setStatus('preparing');
 
-    // For step 1 we already have the response; for subsequent steps fetch fresh.
     const stepResponse = stepIndex === 1 ? firstResponse : await fetchRangoPrepareTx(requestId, stepIndex);
     const stepItems = Array.isArray(stepResponse) ? stepResponse : [stepResponse];
 
@@ -666,7 +619,7 @@ export async function executeRangoSwap(
       callbacks.setStatus('signing');
       const approvalTxId = await provider.request({
         method: 'eth_sendTransaction',
-        params: [buildTxParams(stepTx)]
+        params: [buildTxParams(stepTx)],
       });
 
       callbacks.addTransaction({
@@ -677,12 +630,30 @@ export async function executeRangoSwap(
         description: `Approve ${sellAssetSymbol} for Swap`,
         from: evmAddress,
         status: 'pending',
-        network: currentNetwork
+        network: currentNetwork,
       });
 
-      // No receipt wait — proceed directly to fetch the main swap tx for this same step.
-      console.log(`[executeRangoSwap] Step ${stepIndex} approval sent:`, approvalTxId);
       callbacks.setStatus('preparing');
+
+      let isApproved = false;
+      let approvalAttempts = 0;
+      while (!isApproved && approvalAttempts < 20) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        try {
+          const approvalStatus = await fetchRangoCheckApproval(requestId, approvalTxId);
+          if (approvalStatus?.isApproved) {
+            isApproved = true;
+            break;
+          }
+        } catch (e) {
+          console.warn('Rango checkApproval poll failed:', e);
+        }
+        approvalAttempts++;
+      }
+
+      if (!isApproved) {
+        throw new Error('Approval transaction was not confirmed in time');
+      }
 
       const swapTxResponse = await fetchRangoPrepareTx(requestId, stepIndex);
       const swapTxItems = Array.isArray(swapTxResponse) ? swapTxResponse : [swapTxResponse];
@@ -696,37 +667,37 @@ export async function executeRangoSwap(
       callbacks.setStatus('signing');
       const swapTxId = await provider.request({
         method: 'eth_sendTransaction',
-        params: [buildTxParams(swapTxResult.transaction)]
+        params: [buildTxParams(swapTxResult.transaction)],
       });
 
       callbacks.setHash(swapTxId);
       callbacks.addTransaction({
         hash: swapTxId,
         chainId: fromChainId,
-        type: 'crosschain-swap',
+        type: 'swap',
         timestamp: Date.now(),
         description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
         from: evmAddress,
         status: 'pending',
-        network: currentNetwork
+        network: currentNetwork,
       });
     } else {
       callbacks.setStatus('signing');
       const swapTxId = await provider.request({
         method: 'eth_sendTransaction',
-        params: [buildTxParams(stepTx)]
+        params: [buildTxParams(stepTx)],
       });
 
       callbacks.setHash(swapTxId);
       callbacks.addTransaction({
         hash: swapTxId,
         chainId: fromChainId,
-        type: 'crosschain-swap',
+        type: 'swap',
         timestamp: Date.now(),
         description: `Rango Swap: ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
         from: evmAddress,
         status: 'pending',
-        network: currentNetwork
+        network: currentNetwork,
       });
     }
   }

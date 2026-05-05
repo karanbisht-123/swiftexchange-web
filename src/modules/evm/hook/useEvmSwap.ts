@@ -12,7 +12,8 @@ import {
 } from '../service/tokenListService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
-import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap, fetchRangoBestRoute, fetchRangoConfirmRoute, fetchRangoCheckApproval, fetchRangoPrepareTx } from '../utils/evmSwapUtils';
+import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap, fetchRangoConfirmRoute, fetchRangoCheckApproval, fetchRangoPrepareTx } from '../utils/evmSwapUtils';
+
 import { rpcManager } from '../utils/rpcProvider';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
@@ -70,14 +71,8 @@ interface UseEvmSwapActions {
   ) => Promise<string>;
 
   setGasless: (enabled: boolean) => void;
-  fetchRangoQuote: (
-    fromChainId: number | string,
-    toChainId: number | string,
-    sellAsset: TokenInfo,
-    buyAsset: TokenInfo,
-    amount: string,
-    slippage?: string
-  ) => Promise<any>;
+
+
   confirmRangoRoute: (
     requestId: string,
     fromChainId: number | string,
@@ -110,7 +105,8 @@ export const useEvmSwap = ({
 
   const activeSwapId = useRef<string | null>(null);
   const quoteAbortController = useRef<AbortController | null>(null);
-  const rangoAbortController = useRef<AbortController | null>(null);
+
+
   const latestQuoteRequestId = useRef<number>(0);
   const isMounted = useRef<boolean>(true);
   useEffect(() => {
@@ -118,7 +114,8 @@ export const useEvmSwap = ({
     return () => {
       isMounted.current = false;
       quoteAbortController.current?.abort();
-      rangoAbortController.current?.abort();
+
+
     };
   }, []);
 
@@ -257,6 +254,9 @@ export const useEvmSwap = ({
       sellAsset: TokenInfo,
       buyAsset: TokenInfo
     ): Promise<SwapQuote> => {
+
+      console.log(request, "+++++++++++++++++++++++++++")
+
       quoteAbortController.current?.abort();
       quoteAbortController.current = new AbortController();
 
@@ -271,7 +271,10 @@ export const useEvmSwap = ({
         if (!sellAsset || !buyAsset) {
           throw new Error('Invalid assets selected');
         }
-        if (sellAsset.address.toLowerCase() === buyAsset.address.toLowerCase()) {
+        if (
+          sellAsset.address.toLowerCase() === buyAsset.address.toLowerCase() &&
+          sellAsset.chainId === buyAsset.chainId
+        ) {
           throw new Error('Cannot swap same token');
         }
 
@@ -286,9 +289,14 @@ export const useEvmSwap = ({
         }
 
         if (!quoteAbortController.current.signal.aborted) {
-          updateState({ quote: quoteResponse, quoteLoading: false });
+          updateState({
+            quote: quoteResponse,
+            rangoQuote: quoteResponse.provider === 'RANGO' ? quoteResponse.rawQuote : null,
+            quoteLoading: false
+          });
         }
         return quoteResponse;
+
       } catch (err: any) {
         if (err.name === 'AbortError' || quoteAbortController.current?.signal.aborted) {
           return Promise.reject(new Error('Quote request cancelled'));
@@ -312,7 +320,6 @@ export const useEvmSwap = ({
       buyAsset: TokenInfo,
       amount: string
     ): Promise<FusionQuote> => {
-      // Cancel any in-flight normal quote so it can't overwrite state after fusion resolves
       quoteAbortController.current?.abort();
       quoteAbortController.current = new AbortController();
       latestQuoteRequestId.current++;
@@ -473,7 +480,8 @@ export const useEvmSwap = ({
     activeSwapId.current = null;
     latestQuoteRequestId.current++;
     quoteAbortController.current?.abort();
-    rangoAbortController.current?.abort();
+
+
     updateState({
       quote: null,
       txHash: null,
@@ -485,61 +493,8 @@ export const useEvmSwap = ({
     });
   }, [updateState]);
 
-  const fetchRangoQuote = useCallback(
-    async (
-      fromChainId: number | string,
-      toChainId: number | string,
-      sellAsset: TokenInfo,
-      buyAsset: TokenInfo,
-      amount: string,
-      slippage: string = "1.0"
-    ): Promise<any> => {
-      rangoAbortController.current?.abort();
-      rangoAbortController.current = new AbortController();
 
-      updateState({ quoteLoading: true, error: null, rangoQuote: null });
 
-      try {
-        const toChainTokens = getTokensForChain(toChainId);
-        const toChainAsset = buyAsset.address
-          ? toChainTokens.find((t: any) => t.address.toLowerCase() === buyAsset.address.toLowerCase())
-          : toChainTokens.find((t: any) => t.symbol.toUpperCase() === buyAsset.symbol.toUpperCase());
-
-        const fromAddress = sellAsset.address || null;
-        const toAddress = toChainAsset?.address || buyAsset.address || null;
-
-        const rangoData = await fetchRangoBestRoute(
-          fromChainId,
-          sellAsset.symbol,
-          fromAddress,
-          toChainId,
-          buyAsset.symbol,
-          toAddress,
-          amount,
-          slippage
-        );
-
-        if (rangoAbortController.current.signal.aborted) {
-          throw new Error('Quote request cancelled');
-        }
-
-        if ((!rangoData.result || (Array.isArray(rangoData.result) && rangoData.result.length === 0)) && rangoData.diagnosisMessages) {
-          throw rangoData;
-        }
-
-        updateState({ rangoQuote: rangoData, quoteLoading: false });
-        return rangoData;
-      } catch (err: any) {
-        if (err?.message === 'Quote request cancelled' || rangoAbortController.current?.signal.aborted) {
-          return err?.message;
-        }
-        const errorMsg = parseSwapError(err);
-        updateState({ error: errorMsg, quoteLoading: false, rangoQuote: null });
-        throw new Error(errorMsg);
-      }
-    },
-    [updateState]
-  );
 
 
   const confirmRangoRoute = useCallback(
@@ -608,7 +563,7 @@ export const useEvmSwap = ({
     fetchFusionQuote,
     performSwap,
     performFusionSwap,
-    fetchRangoQuote,
+
     confirmRangoRoute,
     checkRangoApproval: checkRangoApprovalAction,
     prepareRangoTx: prepareRangoTxAction,
