@@ -181,7 +181,7 @@ export async function getWalletGasInfo(
   }
 
   try {
-    const endpoint = `eth/wallet-address/${address}/info`;
+    const endpoint = `/eth/wallet-address/${address}/info`;
     const response = await fetchApiResponseFromServer<WalletGasInfo>(endpoint, 'GET');
 
     if (response.data) {
