@@ -65,10 +65,7 @@ export const useWalletConnect = () => {
 
   const getInstalledWallets = useCallback(() => walletService.getInstalledWallets(), []);
 
-  const disconnectAll = useCallback(async () => {
-    const types = Object.keys(connectedWallets) as WalletType[];
-    await Promise.all(types.map(type => disconnect(type)));
-  }, [connectedWallets, disconnect]);
+  const disconnectAll = useWalletStore(state => state.disconnectAll);
 
   return {
     connectedWallets,

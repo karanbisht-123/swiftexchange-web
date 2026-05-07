@@ -17,7 +17,7 @@ const PlatformPreview: React.FC = () => {
   };
 
   return (
-    <section className="py-24 bg-gradient-to-b from-primary to-bg-tertiary overflow-hidden">
+    <section className="py-24 bg-primary overflow-hidden">
       <div className="max-w-[1400px] mx-auto px-6 text-center">
         <div className=" mb-32 space-y-4">
           <h2 className="heading-1">Powerful Trading Platform Built for Everyone</h2>

@@ -783,7 +783,7 @@ class WalletService {
   }
 
   private async clearAppData(): Promise<void> {
-    const PRESERVE_KEYS = ['swiftex_local_transactions', 'theme-storage'];
+    const PRESERVE_KEYS = ['swiftex_local_transactions', 'theme-storage', 'network'];
 
     Object.keys(localStorage).forEach(key => {
       if (!PRESERVE_KEYS.includes(key)) {
@@ -794,15 +794,48 @@ class WalletService {
     try {
       if (typeof indexedDB !== 'undefined' && indexedDB.databases) {
         const dbs = await indexedDB.databases();
-        dbs.forEach(db => {
+        for (const db of dbs) {
           if (db.name && db.name !== 'WALLET_CONNECT_V2_INDEXED_DB') {
             indexedDB.deleteDatabase(db.name);
           }
-        });
+        }
       }
     } catch (error) {
       console.error('[WalletService] Failed to clear IndexedDB:', error);
     }
+    
+    // Also clear session vault and dydx keys
+    await purge();
+    sessionVault.clear();
+  }
+
+  async disconnectAll(): Promise<void> {
+    console.log('[WalletService] Disconnecting all wallets...');
+    
+    // Disconnect each provider properly
+    const providers = new Set(this.providers.values());
+    for (const provider of providers) {
+      if (provider?.session) {
+        try {
+          if (typeof provider.removeAllListeners === 'function') {
+            provider.removeAllListeners();
+          }
+          await provider.disconnect();
+        } catch (err) {
+          console.warn('[WalletService] Error disconnecting provider:', err);
+        }
+      }
+    }
+
+    this.sessions.clear();
+    this.providers.clear();
+    this.modals.clear();
+    this.lastPingAt.clear();
+    this.disconnecting.clear();
+    this.registeredProviders.clear();
+    
+    await this.clearAppData();
+    this.saveSession();
   }
 
   private clearWCStorageForKey(providerKey: string): void {

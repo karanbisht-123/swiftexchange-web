@@ -9,7 +9,7 @@ import {
 const SOROBAN_RPC = 'https://rpc.ankr.com/stellar_soroban';
 
 export const STELLAR_NETWORK_PASSPHRASE: Record<'mainnet' | 'testnet', string> = {
-  mainnet: 'Public Global Stellar Network ; October 2015',
+  mainnet: 'Public Global Stellar Network ; September 2015',
   testnet: 'Test SDF Network ; September 2015',
 };
 

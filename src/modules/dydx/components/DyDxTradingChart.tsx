@@ -105,25 +105,25 @@ export default function DyDxTradingChart() {
   const getThemeColors = useCallback(() => {
     if (isDark) {
       return {
-        background: '#0a0e1a',
-        textColor: '#f8f9fa',
-        gridColor: '#1a1f2e',
-        borderColor: '#2d3241',
-        upColor: '#00ff9d',
-        downColor: '#ff3b69',
+        background: '#0f1528',
+        textColor: '#e8edf8',
+        gridColor: '#1e28405d',
+        borderColor: '#1e2840',
+        upColor: '#10b981',
+        downColor: '#ef4444',
         volumeColor: 'rgba(128, 128, 128, 0.2)',
-        crosshairColor: '#6b7280',
+        crosshairColor: '#4a5680',
       };
     }
     return {
-      background: '#ffffff',
-      textColor: '#1a1d29',
-      gridColor: '#f0f0f0',
-      borderColor: '#e5e7eb',
+      background: '#f7f8fc',
+      textColor: '#0f1729',
+      gridColor: '#dce3ed',
+      borderColor: '#e4e8f0',
       upColor: '#10b981',
       downColor: '#ef4444',
       volumeColor: 'rgba(107, 114, 128, 0.2)',
-      crosshairColor: '#9ca3af',
+      crosshairColor: '#8896b3',
     };
   }, [isDark]);
 

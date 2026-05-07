@@ -262,6 +262,7 @@ export class AmmSwapService extends StellarBaseService {
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
     const network = isMainnet ? 'mainnet' : 'testnet';
 
+    console.log(this.networkPassphrase, "--- ammswap service ")
     const result = await signAndSubmitTransaction({
       xdr: transaction.xdr,
       network,
@@ -272,6 +273,11 @@ export class AmmSwapService extends StellarBaseService {
     if (result.success && result.hash) {
       return result.hash;
     }
+    if (result.success && !result.hash) {
+      return 'Transaction submitted successfully!';
+    }
+
+    throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
 
     throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
   }

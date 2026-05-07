@@ -34,9 +34,9 @@ import { ChainSymbol, FeePaymentMethod, Messenger } from '@allbridge/bridge-core
 import { Tooltip } from '../../../../components/common/Tooltip';
 
 const SLIPPAGE_PRESETS = [0.1, 0.5, 1.0, 3.0, 5.0];
-const STELLAR_CHAIN_ID = 9000000;
+const STELLAR_CHAIN_ID = 'pubnet';
 
-const isStellar = (id: any) => id === 'stellar' || Number(id) === STELLAR_CHAIN_ID || Number(id) === 9000001;
+const isStellar = (id: any) => id === 'stellar' || id === STELLAR_CHAIN_ID || id === 'testnet';
 
 const Bridge: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();

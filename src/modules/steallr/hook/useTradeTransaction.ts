@@ -155,6 +155,7 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
           },
           onerror: () => {
             if (mountedRef.current) setIsStreaming(false);
+            if (closeOffers) closeOffers();
           },
         }) as unknown as () => void;
       offersStreamRef.current = closeOffers;
@@ -171,6 +172,7 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
           },
           onerror: () => {
             if (mountedRef.current) setIsStreaming(false);
+            if (closeTrades) closeTrades();
           },
         }) as unknown as () => void;
       tradesStreamRef.current = closeTrades;

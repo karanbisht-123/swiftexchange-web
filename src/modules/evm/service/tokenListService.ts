@@ -6,7 +6,7 @@ import { CHAIN_REGISTRY, getChainById } from '../utils/Chainregistry';
 import { NATIVE_ADDRESS } from '../utils/assetmanagement/constants';
 
 export interface TokenInfo {
-  chainId: number;
+  chainId: number | string;
   address: string;
   name: string;
   symbol: string;
@@ -28,7 +28,7 @@ function isNativeAddress(address: string): boolean {
   return address.toLowerCase() === NATIVE_ADDRESS.toLowerCase();
 }
 
-export function getTokensForChain(chainId: number): TokenInfo[] {
+export function getTokensForChain(chainId: number | string): TokenInfo[] {
   const chainConfig = getChainById(chainId);
   if (!chainConfig) return [];
 
@@ -115,7 +115,7 @@ export async function fetchSingleTokenBalance(
   }
 }
 
-export function getNativeTokenConfig(chainId: number): ChainNativeConfig | undefined {
+export function getNativeTokenConfig(chainId: number | string): ChainNativeConfig | undefined {
   const chainConfig = getChainById(chainId);
   if (!chainConfig) return undefined;
   return {
@@ -126,21 +126,21 @@ export function getNativeTokenConfig(chainId: number): ChainNativeConfig | undef
   };
 }
 
-export function isChainSupported(chainId: number): boolean {
+export function isChainSupported(chainId: number | string): boolean {
   const chain = getChainById(chainId);
   return !!chain && chain.available;
 }
 
-export function isSwapEnabled(chainId: number): boolean {
+export function isSwapEnabled(chainId: number | string): boolean {
   const chain = getChainById(chainId);
   return !!chain && chain.available && chain.swapEnabled;
 }
 
-export function getSupportedChainIds(): number[] {
+export function getSupportedChainIds(): (number | string)[] {
   return CHAIN_REGISTRY.filter(c => c.available).map(c => c.chainId);
 }
 
-export function getSwapEnabledChainIds(): number[] {
+export function getSwapEnabledChainIds(): (number | string)[] {
   return CHAIN_REGISTRY.filter(c => c.available && c.swapEnabled).map(c => c.chainId);
 }
 

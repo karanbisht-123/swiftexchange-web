@@ -241,8 +241,8 @@ export class StellarChartService {
 
       const { base, counter } = this.getAssetObjects(assetPair);
 
-      const startTime = Date.now() - 3600000;
       const endTime = Date.now();
+      const startTime = endTime - Math.max(3600000, options.resolution * 2);
 
       const aggregationBuilder = this.server
         .tradeAggregation(
@@ -271,6 +271,9 @@ export class StellarChartService {
           }
         },
         onerror: (error: any) => {
+          if (closer && typeof closer === 'function') {
+            try { closer(); } catch(e) {}
+          }
           if (errorReported) return;
 
           errorReported = true;

@@ -43,6 +43,7 @@ export type DepositStep =
 
 export interface DepositRoute {
   estimatedTime: string;
+  estimatedDurationSeconds: number;
   fee: number;
   receivedAmount: number;
   usdAmountOut: string;
@@ -100,15 +101,15 @@ export const useDydxDeposit = () => {
     async (
       assetSymbol: string,
       amountHuman: number,
-      evmChainId?: number,
+      evmChainId?: number | string,
       goFast = false,
       tokenAddress?: string,
       isNative?: boolean,
       decimals?: number
     ): Promise<DepositRoute | null> => {
       // Stellar assets go through the CCTP panel, not Skip route
-      const chainId = evmChainId ?? Number(useWalletStore.getState().connectedWallets.evm?.chainId ?? 1);
-      if (chainId === 9000000 || chainId === 9000001) return null;
+      const chainId = evmChainId ?? (useWalletStore.getState().connectedWallets.evm?.chainId as number | string ?? 1);
+      if (chainId === 'pubnet' || chainId === 'testnet') return null;
 
       setStep('routing');
       setError(null);
@@ -125,6 +126,7 @@ export const useDydxDeposit = () => {
 
         const result: DepositRoute = {
           estimatedTime: skipApiService.formatDuration(raw.estimatedDurationSeconds),
+          estimatedDurationSeconds: raw.estimatedDurationSeconds,
           fee: raw.estimatedFeesUsd,
           receivedAmount: parseInt(raw.amountOut, 10) / 1e6,
           usdAmountOut: raw.usdAmountOut,
@@ -146,7 +148,7 @@ export const useDydxDeposit = () => {
     async (
       assetSymbol: string,
       amountHuman: number,
-      evmChainId?: number,
+      evmChainId?: number | string,
       goFast = false,
       slippageTolerancePercent = '1',
       tokenAddress?: string,
@@ -172,10 +174,10 @@ export const useDydxDeposit = () => {
         if (!evmAddress) throw new Error('EVM wallet not connected');
         if (!dydxAddress) throw new Error('dYdX wallet not derived -- please onboard first');
 
-        const chainId = evmChainId ?? Number(evmWallet?.chainId ?? 1);
+        const chainId = evmChainId ?? (evmWallet?.chainId as number | string ?? 1);
 
         // Stellar assets are handled by the CCTP panel — never send them through Skip
-        if (chainId === 9000000 || chainId === 9000001) {
+        if (chainId === 'pubnet' || chainId === 'testnet') {
           throw new Error('Stellar deposits must use the CCTP bridge panel.');
         }
 

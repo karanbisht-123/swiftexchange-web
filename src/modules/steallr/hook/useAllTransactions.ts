@@ -225,11 +225,15 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
     }
   }, [userAddress, fetchTransactions]);
 
-  const loadMore = () => {
+  const loadMore = useCallback(() => {
     if (pagination.hasMore && pagination.cursor) {
       fetchTransactions(pagination.cursor);
     }
-  };
+  }, [pagination.hasMore, pagination.cursor, fetchTransactions]);
+
+  const refresh = useCallback(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
 
   return {
     transactions,
@@ -237,6 +241,6 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
     error,
     hasMore: pagination.hasMore,
     loadMore,
-    refresh: () => fetchTransactions(),
+    refresh,
   };
 }

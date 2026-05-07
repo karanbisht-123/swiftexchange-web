@@ -57,9 +57,9 @@ const HeroComponent: React.FC = () => {
               Start Trading
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
-            <button className="btn btn-secondary btn-lg w-full sm:w-auto flex items-center justify-center gap-2 bg-secondary/10 border-transparent hover:bg-secondary/20">
+            {/* <button className="btn btn-secondary btn-lg w-full sm:w-auto flex items-center justify-center gap-2 bg-secondary/10 border-transparent hover:bg-secondary/20">
               Explore Markets
-            </button>
+            </button> */}
           </div>
 
           <div className="w-full hidden lg:block pt-4">
@@ -152,9 +152,8 @@ const HeroComponent: React.FC = () => {
                   key={index}
                   src={img}
                   alt={`Swiftex App Screen ${index + 1}`}
-                  className={`w-full h-auto drop-shadow-2xl absolute inset-0 object-contain transition-opacity duration-500 ${
-                    index === currentImageIndex ? 'opacity-100' : 'opacity-0'
-                  }`}
+                  className={`w-full h-auto drop-shadow-2xl absolute inset-0 object-contain transition-opacity duration-500 ${index === currentImageIndex ? 'opacity-100' : 'opacity-0'
+                    }`}
                 />
               ))}
             </div>

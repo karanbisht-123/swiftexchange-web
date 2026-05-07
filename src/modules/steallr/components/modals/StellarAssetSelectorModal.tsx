@@ -25,7 +25,7 @@ const StellarAssetSelectorModal: React.FC<StellarAssetSelectorModalProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const network = useWalletStore((state: any) => state.network);
-  const stellarChainId = network === 'mainnet' ? 9000000 : 9000001;
+  const stellarChainId = network === 'mainnet' ? 'pubnet' : 'testnet';
   const chainConfig = getChainById(stellarChainId);
 
   const filteredTokens = useMemo(() => {

@@ -74,8 +74,8 @@ export const useAssetSearch = ({
             type: r.asset_type,
             balance: '0.0000000',
             isTrusted: false,
-            name: getAssetBySymbol(9000000, r.asset_code)?.name || r.asset_code,
-            iconUrl: ChainUrlHelpers.getTokenIcon(r.asset_code, getChainById(9000000), r.asset_issuer),
+            name: getAssetBySymbol('pubnet', r.asset_code)?.name || r.asset_code,
+            iconUrl: ChainUrlHelpers.getTokenIcon(r.asset_code, getChainById('pubnet'), r.asset_issuer),
           }))
           .filter(
             (g: DisplayAsset) =>

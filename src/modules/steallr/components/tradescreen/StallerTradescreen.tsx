@@ -9,6 +9,9 @@ import AmmSwapUI from '../amm/AmmSwapUI';
 import ClaimableBalanceModal from '../modals/ClaimableBalanceModal';
 import OrderBookSwapUI from '../orderbook/OrderBookSwapUI';
 import AssetManager from '../stellarassets/AssetManager';
+import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { WalletType } from '../../../walletconnect/constants/Wallet';
+import { TradeTransactionService } from '../../service/tradeTransactionService';
 
 interface NavigationAsset {
   symbol: string;
@@ -17,7 +20,10 @@ interface NavigationAsset {
 
 const StellarTradeScreen = () => {
   const [activeTab, setActiveTab] = useState('amm');
-  const [showClaimModal, setShowClaimModal] = useState(true);
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [hasCheckedClaims, setHasCheckedClaims] = useState(false);
+  const { connectedWallets } = useWalletConnect();
+  const stellarWallet = connectedWallets[WalletType.STELLAR];
   const location = useLocation();
   const navigate = useNavigate();
   const { setPreSelectedToken } = useAmmSwapStore();
@@ -32,6 +38,24 @@ const StellarTradeScreen = () => {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, location.pathname, navigate, setPreSelectedToken]);
+
+  useEffect(() => {
+    const checkClaims = async () => {
+      if (stellarWallet?.address && !hasCheckedClaims) {
+        try {
+          const service = new TradeTransactionService();
+          const balances = await service.getClaimableBalances(stellarWallet.address);
+          if (balances.length > 0) {
+            setShowClaimModal(true);
+          }
+          setHasCheckedClaims(true);
+        } catch (err) {
+          console.error('Error checking claims:', err);
+        }
+      }
+    };
+    checkClaims();
+  }, [stellarWallet?.address, hasCheckedClaims]);
 
   return (
     <StellarActiveGuard>
@@ -61,11 +85,10 @@ const StellarTradeScreen = () => {
           <div className="hidden md:inline-flex rounded-lg border border-color bg-secondary p-1 shadow-sm">
             <button
               onClick={() => setActiveTab('amm')}
-              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-                activeTab === 'amm'
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'amm'
                   ? 'text-white shadow-sm'
                   : 'text-secondary hover:text-primary hover:bg-tertiary'
-              }`}
+                }`}
               style={{
                 backgroundColor: activeTab === 'amm' ? 'var(--color-brand-primary)' : 'transparent',
               }}
@@ -74,11 +97,10 @@ const StellarTradeScreen = () => {
             </button>
             <button
               onClick={() => setActiveTab('orderbook')}
-              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-                activeTab === 'orderbook'
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'orderbook'
                   ? 'text-white shadow-sm'
                   : 'text-secondary hover:text-primary hover:bg-tertiary'
-              }`}
+                }`}
               style={{
                 backgroundColor:
                   activeTab === 'orderbook' ? 'var(--color-brand-primary)' : 'transparent',
@@ -88,11 +110,10 @@ const StellarTradeScreen = () => {
             </button>
             <button
               onClick={() => setActiveTab('assets')}
-              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-                activeTab === 'assets'
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'assets'
                   ? 'text-white shadow-sm'
                   : 'text-secondary hover:text-primary hover:bg-tertiary'
-              }`}
+                }`}
               style={{
                 backgroundColor:
                   activeTab === 'assets' ? 'var(--color-brand-primary)' : 'transparent',
@@ -105,9 +126,15 @@ const StellarTradeScreen = () => {
 
         <div className="animate-fade-in">
           <div className="mb-1 lg:mb-4">
-            {activeTab === 'amm' && <AmmSwapUI />}
-            {activeTab === 'orderbook' && <OrderBookSwapUI />}
-            {activeTab === 'assets' && <AssetManager />}
+            <div className={activeTab === 'amm' ? 'block' : 'hidden'}>
+              <AmmSwapUI />
+            </div>
+            <div className={activeTab === 'orderbook' ? 'block' : 'hidden'}>
+              <OrderBookSwapUI />
+            </div>
+            <div className={activeTab === 'assets' ? 'block' : 'hidden'}>
+              <AssetManager />
+            </div>
           </div>
           {activeTab !== 'assets' && <TradeTransactionUI />}
         </div>
@@ -116,33 +143,30 @@ const StellarTradeScreen = () => {
           <div className="bg-secondary/90 backdrop-blur-lg border border-white/10 p-1.5 rounded-2xl shadow-2xl flex items-center gap-1">
             <button
               onClick={() => setActiveTab('amm')}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
-                activeTab === 'amm'
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${activeTab === 'amm'
                   ? 'bg-primary text-white shadow-lg'
                   : 'text-muted hover:text-text-primary'
-              }`}
+                }`}
             >
               <ArrowLeftRight className="w-5 h-5" />
               <span className="text-[10px] font-medium leading-none">Swap</span>
             </button>
             <button
               onClick={() => setActiveTab('orderbook')}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
-                activeTab === 'orderbook'
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${activeTab === 'orderbook'
                   ? 'bg-primary text-white shadow-lg'
                   : 'text-muted hover:text-text-primary'
-              }`}
+                }`}
             >
               <BookOpen className="w-5 h-5" />
               <span className="text-[10px] font-medium leading-none">Trade</span>
             </button>
             <button
               onClick={() => setActiveTab('assets')}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
-                activeTab === 'assets'
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${activeTab === 'assets'
                   ? 'bg-primary text-white shadow-lg'
                   : 'text-muted hover:text-text-primary'
-              }`}
+                }`}
             >
               <Wallet className="w-5 h-5" />
               <span className="text-[10px] font-medium leading-none">Assets</span>

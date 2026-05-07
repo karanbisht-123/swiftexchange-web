@@ -11,7 +11,7 @@ export const DYDX_USDC_DENOM =
 
 export const NOBLE_USDC_DENOM = 'uusdc';
 
-const SKIP_CHAIN_NAME_MAP: Record<number, string> = {
+const SKIP_CHAIN_NAME_MAP: Record<number | string, string> = {
   1: 'ethereum',
   56: 'binance',
   137: 'polygon',
@@ -62,13 +62,13 @@ export function makeNobleSignerFromDydx(dydxSigner: any) {
 
 export function getEvmSourceDenom(
   symbol: string,
-  chainId: number,
+  chainId: number | string,
   address?: string,
   isNative?: boolean
 ): string {
 
 
-  if (chainId === 9000000 || chainId === 9000001) {
+  if (chainId === 'pubnet' || chainId === 'testnet') {
     if (isNative || symbol.toUpperCase() === 'XLM') {
       return 'stellar-native';
     }
@@ -102,7 +102,7 @@ export function getEvmSourceDenom(
   return (address || "").toLowerCase();
 }
 
-export function toAtomicAmount(amount: number, symbol: string, customDecimals?: number, chainId?: number): string {
+export function toAtomicAmount(amount: number, symbol: string, customDecimals?: number, chainId?: number | string): string {
   if (!amount || isNaN(amount)) return '0';
 
   let decimals: number;
@@ -111,7 +111,7 @@ export function toAtomicAmount(amount: number, symbol: string, customDecimals?: 
   } else if (symbol.toUpperCase() === 'ETH') {
     decimals = 18;
   } else if (
-    chainId === 9000000 || chainId === 9000001
+    chainId === 'pubnet' || chainId === 'testnet'
   ) {
     decimals = 7;
   } else {

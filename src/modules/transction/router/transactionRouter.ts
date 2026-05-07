@@ -3,6 +3,8 @@ import { ethers } from 'ethers';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
+
+
 function isMainnet(): boolean {
   return useWalletStore.getState().network === 'mainnet';
 }
@@ -223,17 +225,10 @@ class TransactionRouter {
     session: WalletSession,
     request: TransactionRequest
   ): Promise<TransactionResponse> {
-    console.group('[Router] handleEVMTransaction');
-
     const { provider } = session;
 
-    console.log('Provider:', provider);
-    console.log('Is WalletConnect provider:', this.isWalletConnectProvider(provider));
-
     try {
-      console.log('Preparing EVM transaction...');
       const amountInWei = BigInt(Math.floor(parseFloat(request.amount) * 1e18));
-
       this.ensureProviderNamespaces(provider);
 
       const chainId =
@@ -242,46 +237,48 @@ class TransactionRouter {
           : parseInt(String(session.chainId)) || 1;
       const chainIdCAIP = `eip155:${chainId}`;
 
-      if (provider.setDefaultChain) {
-        try {
-          const availableChains = provider.namespaces?.eip155?.chains || [];
-          if (availableChains.includes(chainIdCAIP)) {
-            provider.setDefaultChain(chainIdCAIP);
-            console.log(`Set default chain to ${chainIdCAIP}`);
-          } else {
-            console.warn(`Chain ${chainIdCAIP} not in namespaces, skipping setDefaultChain`);
-          }
-        } catch (e) {
-          console.warn('Failed to set default chain:', e);
-        }
+      const txParams: any = {
+        from: session.address,
+        to: request.to,
+        value: '0x' + amountInWei.toString(16),
+        data:
+          request.data &&
+            typeof request.data === 'string' &&
+            request.data.startsWith('0x') &&
+            request.data.length > 2
+            ? request.data
+            : '0x',
+        chainId: chainId,
+      };
+
+      let gasLimitBigInt = txParams.data === '0x' ? BigInt(21000) : BigInt(100000);
+
+      try {
+        const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
+        const sim = await simulateEVMTransaction(
+          chainId,
+          txParams.from,
+          txParams.to,
+          txParams.value,
+          txParams.data
+        );
+        gasLimitBigInt = sim.gasLimit;
+
+        if (sim.feeData.maxFeePerGas) txParams.maxFeePerGas = '0x' + sim.feeData.maxFeePerGas.toString(16);
+        if (sim.feeData.maxPriorityFeePerGas)
+          txParams.maxPriorityFeePerGas = '0x' + sim.feeData.maxPriorityFeePerGas.toString(16);
+      } catch (simError: any) {
+        if (simError.message.includes('Insufficient funds')) throw simError;
       }
+
+      txParams.gasLimit = '0x' + gasLimitBigInt.toString(16);
 
       let lastTxHash: string;
 
       if (isMainnet()) {
-        const txParams: any = {
-          from: request.from,
-          to: request.to,
-          value: '0x' + amountInWei.toString(16),
-        };
-        if (
-          request.data &&
-          typeof request.data === 'string' &&
-          request.data.startsWith('0x') &&
-          request.data.length > 2
-        ) {
-          txParams.data = request.data;
-        }
-
-        console.log('Transaction params (Mainnet):', txParams);
-
-        // Check if this is a WalletConnect provider
         if (this.isWalletConnectProvider(provider)) {
-          console.log('Using WalletConnect client.request() for EVM');
           const topic = provider.session?.topic;
-          if (!topic) {
-            throw new Error('No WalletConnect session topic found');
-          }
+          if (!topic) throw new Error('No WalletConnect session topic found');
 
           lastTxHash = await provider.client.request({
             topic,
@@ -292,54 +289,26 @@ class TransactionRouter {
             },
           });
         } else {
-          // Direct provider (MetaMask, injected, etc.)
-          console.log('Using direct provider.request() for EVM');
           lastTxHash = await provider.request({
             method: 'eth_sendTransaction',
             params: [txParams],
           });
         }
       } else {
-        // Testnet using ethers
-        console.log('Using ethers.BrowserProvider for Testnet transaction');
         const ethersProvider = new ethers.BrowserProvider(provider);
         const signer = await ethersProvider.getSigner();
-
-        const tx = {
-          to: request.to,
-          value: amountInWei,
-          from: request.from,
-          data:
-            request.data && typeof request.data === 'string' && request.data.startsWith('0x')
-              ? request.data
-              : undefined,
-        };
-
-        console.log('Transaction params (Testnet/Ethers):', tx);
-
-        const txResponse = await signer.sendTransaction(tx);
-        console.log('Transaction sent, waiting for receipt...');
+        const txResponse = await signer.sendTransaction(txParams);
         const receipt = await txResponse.wait();
 
         if (!receipt || receipt.status === 0) {
-          throw new Error('Transaction failed');
+          throw new Error('Transaction failed on-chain');
         }
-
         lastTxHash = txResponse.hash;
       }
 
-      console.log('Transaction sent successfully!');
-      console.log('Transaction hash:', lastTxHash);
-      console.groupEnd();
-
       return { hash: lastTxHash, status: 'success' };
     } catch (error: any) {
-      console.error('EVM transaction failed:', {
-        message: error.message,
-        code: error.code,
-        data: error.data,
-      });
-      console.groupEnd();
+      console.error('EVM Transaction Error:', error);
       throw error;
     }
   }
@@ -349,20 +318,11 @@ class TransactionRouter {
     request: TransactionRequest
   ): Promise<TransactionResponse> {
     console.group('[Router] handleStellarTransaction');
+    console.log(request, '-----++++++++++');
 
     const { provider } = session;
 
     try {
-      console.log('Preparing Stellar transaction...');
-      console.log('Session info:', {
-        hasProvider: !!provider,
-        hasClient: !!provider?.client,
-        hasSession: !!provider?.session,
-        sessionTopic: provider?.session?.topic,
-        chainId: session.chainId,
-        requestNetworkKey: request.networkKey,
-      });
-
       if (!request.data?.xdr) {
         console.error('Missing XDR data');
         throw new Error('Stellar transaction requires XDR data');
@@ -373,20 +333,61 @@ class TransactionRouter {
       console.log('XDR data present:', {
         xdrLength: request.data.xdr.length,
         networkPassphrase: request.data.networkPassphrase,
-        network: request.data.network,
+        networkKey: request.networkKey,
+      });
+
+      console.log('Session info:', {
+        hasProvider: !!provider,
+        hasClient: !!provider?.client,
+        hasSession: !!provider?.session,
+        sessionTopic: provider?.session?.topic,
+        chainId: session.chainId,
+        requestNetworkKey: request.networkKey,
+      });
+
+
+      const STELLAR_PASSPHRASES: Record<string, string> = {
+        pubnet: 'Public Global Stellar Network ; September 2015',
+        mainnet: 'Public Global Stellar Network ; September 2015',
+        PUBNET: 'Public Global Stellar Network ; September 2015',
+        publink: 'Public Global Stellar Network ; September 2015',
+        testnet: 'Test SDF Network ; September 2015',
+        TESTNET: 'Test SDF Network ; September 2015',
+      };
+
+      const networkKeyStr = String(request.networkKey);
+
+      const resolvedPassphrase =
+        request.data.networkPassphrase ||
+        STELLAR_PASSPHRASES[networkKeyStr] ||
+        STELLAR_PASSPHRASES[request.data.network] ||
+        'Test SDF Network ; September 2015';
+
+      const resolvedNetwork =
+        request.data.network ||
+        (['pubnet', 'mainnet', 'PUBLIC', 'publink'].includes(networkKeyStr) ? 'PUBNET' : 'TESTNET');
+
+      console.log('Resolved Stellar network params:', {
+        networkKeyStr,
+        resolvedNetwork,
+        resolvedPassphrase,
       });
 
       const signParams = {
         xdr: request.data.xdr,
-        networkPassphrase: request.data.networkPassphrase || 'Test SDF Network ; September 2015',
-        network: request.data.network || 'TESTNET',
+        networkPassphrase: resolvedPassphrase,
+        network: resolvedNetwork,
       };
 
+      // ✅ FIX 2: must include stellar: prefix for CAIP — current code strips it
       const stellarChainId =
         typeof request.networkKey === 'string'
           ? request.networkKey
           : String(session.chainId) || 'pubnet';
-      const chainCAIP = stellarChainId.includes(':') ? stellarChainId : `stellar:${stellarChainId}`;
+
+      const chainCAIP = stellarChainId.includes(':')
+        ? stellarChainId
+        : `stellar:${stellarChainId}`;
 
       console.log('Using Stellar chain:', chainCAIP);
 
@@ -407,6 +408,7 @@ class TransactionRouter {
       console.log('Calling Stellar transaction method...');
 
       let result: any;
+
       if (this.isWalletConnectProvider(provider)) {
         console.log('Using WalletConnect client.request() for Stellar');
         const topic = provider.session?.topic;
@@ -423,23 +425,58 @@ class TransactionRouter {
           params: signParams,
         });
 
-        result = await provider.client.request({
-          topic,
-          chainId: chainCAIP,
-          request: {
-            method: 'stellar_signAndSubmitXDR',
-            params: signParams,
-          },
-        });
+        try {
+          result = await provider.client.request({
+            topic,
+            chainId: chainCAIP,
+            request: {
+              method: 'stellar_signAndSubmitXDR',
+              params: signParams,
+            },
+          });
+        } catch (wcError: any) {
+          console.warn('[Router] stellar_signAndSubmitXDR failed, trying fallback sign-only...', wcError);
+          const signResult = await provider.client.request({
+            topic,
+            chainId: chainCAIP,
+            request: {
+              method: 'stellar_signTransaction',
+              params: signParams,
+            },
+          });
+
+          const signedXdr = signResult?.signedXDR || (typeof signResult === 'string' ? signResult : null);
+          if (!signedXdr) throw new Error('Wallet failed to sign the transaction');
+
+          console.log('[Router] Fallback sign successful, submitting to Horizon...');
+          const { getStellarConfig } = await import('../../walletconnect/config/chains');
+          const config = getStellarConfig(resolvedNetwork.toLowerCase() as any);
+
+          // Submit to Horizon
+          const broadcastUrl = `${config.horizonUrl}/transactions`;
+          const body = new URLSearchParams({ tx: signedXdr });
+          const res = await fetch(broadcastUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body,
+          });
+
+          if (!res.ok) {
+            const json = await res.json();
+            throw new Error(json?.extras?.result_codes?.transaction || json?.title || 'Submission failed');
+          }
+          const json = await res.json();
+          result = { hash: json.hash, status: 'success' };
+        }
       } else {
-        console.log('Using direct provider.request() for Stellar');
+        console.log('Direct provider.request() - calling stellar_signAndSubmitXDR with:', signParams);
         result = await provider.request({
           method: 'stellar_signAndSubmitXDR',
           params: signParams,
         });
       }
 
-      console.log('Provider response:', result);
+      console.log('Stellar provider response received:', result);
 
       if (result?.status === 'success' || result?.hash || result?.signedXDR) {
         console.log('Stellar transaction successful!');
@@ -458,14 +495,36 @@ class TransactionRouter {
 
       console.error('Stellar transaction failed - unexpected response:', result);
       throw new Error('Stellar transaction failed - unexpected response format');
+
     } catch (error: any) {
       console.error('Stellar transaction failed:', {
         message: error.message,
         code: error.code,
         fullError: error,
       });
+
+      let errorMessage = error.message || 'Stellar transaction failed';
+      if (error.response?.data?.extras?.result_codes?.transaction) {
+        errorMessage = `Stellar Error: ${error.response.data.extras.result_codes.transaction}`;
+        if (error.response.data.extras.result_codes.operations) {
+          errorMessage += ` (${error.response.data.extras.result_codes.operations.join(', ')})`;
+        }
+      } else if (error.data?.extras?.result_codes?.transaction) {
+        errorMessage = `Stellar Error: ${error.data.extras.result_codes.transaction}`;
+      } else if (error.response?.data?.detail) {
+        errorMessage = `Stellar Error: ${error.response.data.detail}`;
+      } else if (typeof error === 'object' && error !== null) {
+        // Handle generic WalletConnect or RPC errors that might contain Stellar codes
+        const errorJson = JSON.stringify(error).toLowerCase();
+        if (errorJson.includes('tx_bad_seq')) errorMessage = 'Stellar Error: tx_bad_seq (Sequence Number Mismatch)';
+        else if (errorJson.includes('tx_insufficient_balance')) errorMessage = 'Stellar Error: tx_insufficient_balance';
+      }
+
       console.groupEnd();
-      throw error;
+      const enhancedError = new Error(errorMessage);
+      (enhancedError as any).originalError = error;
+      (enhancedError as any).code = error.code;
+      throw enhancedError;
     }
   }
 

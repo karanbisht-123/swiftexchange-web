@@ -233,6 +233,67 @@ class DydxWalletService {
     }
   }
 
+  async send(
+    amount: string,
+    toAddress: string
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    try {
+      const client = await this.getCompositeClient();
+      const address = this.getAddress();
+      if (!client || !address) {
+        throw new Error('Wallet not connected');
+      }
+
+      const localWallet = walletService.getSigningWallet();
+      if (!localWallet) {
+        throw new Error('Signing wallet not available - please derive dYdX wallet first');
+      }
+      const amountInQuantums = BigInt(Math.floor(parseFloat(amount) * 1e18));
+
+      if (amountInQuantums <= 0n) {
+        throw new Error('Send amount must be greater than 0');
+      }
+
+      const subaccount = SubaccountInfo.forLocalWallet(localWallet, 0);
+
+      const msg = {
+        typeUrl: '/cosmos.bank.v1.MsgSend',
+        value: {
+          fromAddress: address,
+          toAddress: toAddress,
+          amount: [{ denom: 'adydx', amount: amountInQuantums.toString() }],
+        },
+      };
+
+      const result = await client.validatorClient.post.send(
+        subaccount,
+        () => Promise.resolve([msg]),
+        false
+      );
+
+      let txHash = typeof result.hash === 'string' ? result.hash : 'unknown';
+      if (result.hash && typeof result.hash !== 'string') {
+        const data = (result.hash as any).data || result.hash;
+        if (Array.isArray(data) || data instanceof Uint8Array) {
+          txHash = Array.from(data)
+            .map((b: any) => b.toString(16).padStart(2, '0'))
+            .join('');
+        }
+      }
+
+      return {
+        success: true,
+        transactionHash: txHash,
+      };
+    } catch (error: any) {
+      console.error('[dydxWalletService] Send failed:', error);
+      return {
+        success: false,
+        error: error.message || 'Send failed',
+      };
+    }
+  }
+
   isConnected = () => this.status === 'connected' || this.status === 'no_subaccount';
   isReadyForTrading = () => this.status === 'connected';
   getAddress = () => this.address || this.getAddressFromStore();

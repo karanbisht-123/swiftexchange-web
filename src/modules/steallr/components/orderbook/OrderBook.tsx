@@ -34,12 +34,21 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
     return Math.min((amount / maxAmount) * 100, 100);
   };
 
-  const maxAskAmount = hasAsks
-    ? Math.max(...orderBook.asks.slice(0, 10).map((a: any) => parseFloat(a.amount)))
-    : 0;
-  const maxBidAmount = hasBids
-    ? Math.max(...orderBook.bids.slice(0, 10).map((b: any) => parseFloat(b.amount)))
-    : 0;
+  const topAsks = hasAsks ? [...orderBook.asks].slice(0, 10) : [];
+  let cumAsk = 0;
+  const asksWithTotal = topAsks.map((a: any) => {
+    cumAsk += parseFloat(a.amount);
+    return { ...a, cumulativeAmount: cumAsk };
+  });
+  const maxAskAmount = cumAsk;
+
+  const topBids = hasBids ? [...orderBook.bids].slice(0, 10) : [];
+  let cumBid = 0;
+  const bidsWithTotal = topBids.map((b: any) => {
+    cumBid += parseFloat(b.amount);
+    return { ...b, cumulativeAmount: cumBid };
+  });
+  const maxBidAmount = cumBid;
 
   const formatPrice = (price: number) => {
     if (price < 0.0001) return price.toFixed(8);
@@ -95,14 +104,14 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
 
           <div className="max-h-[180px] overflow-y-auto scrollbar-hide mb-2">
             {hasAsks ? (
-              [...orderBook.asks]
-                .slice(0, 10)
+              asksWithTotal
+                .slice()
                 .reverse()
                 .map((ask: any, idx: number) => {
                   const amount = parseFloat(ask.amount);
                   const price = parseFloat(ask.price);
                   const total = amount * price;
-                  const depthPercent = calculateDepth(amount, maxAskAmount);
+                  const depthPercent = calculateDepth(ask.cumulativeAmount, maxAskAmount);
                   const isHighlighted = highlightedPrice === ask.price;
 
                   return (
@@ -149,11 +158,11 @@ const OrderBook = ({ orderBook, setPrice, isWalletConnected = true }: OrderBookP
 
           <div className="max-h-[180px] overflow-y-auto scrollbar-hide ">
             {hasBids ? (
-              orderBook.bids.slice(0, 10).map((bid: any, idx: number) => {
+              bidsWithTotal.map((bid: any, idx: number) => {
                 const amount = parseFloat(bid.amount);
                 const price = parseFloat(bid.price);
                 const total = amount * price;
-                const depthPercent = calculateDepth(amount, maxBidAmount);
+                const depthPercent = calculateDepth(bid.cumulativeAmount, maxBidAmount);
                 const isHighlighted = highlightedPrice === bid.price;
 
                 return (

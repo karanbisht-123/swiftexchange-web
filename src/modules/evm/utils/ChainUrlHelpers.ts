@@ -19,15 +19,15 @@ export function getTokenIcon(symbol: string, chainConfig?: any, address?: string
     if (tokenAddress) {
         const registryAsset = chainConfig.assets?.find((a: any) =>
             a.address.toLowerCase() === tokenAddress.toLowerCase() ||
-            a.symbol.toUpperCase() === symbol.toUpperCase()
+            a.symbol?.toUpperCase() === symbol?.toUpperCase()
         );
         if (registryAsset?.logoURI) return registryAsset.logoURI;
     }
 
-    if (symbol === chainConfig.nativeCurrency?.symbol) {
-        return chainConfig.nativeCurrency.logoURI || getChainLogoUrlBySlug(chainConfig.slug);
+    if (symbol && symbol === chainConfig.nativeCurrency?.symbol) {
+        return chainConfig.nativeCurrency?.logoURI || getChainLogoUrlBySlug(chainConfig.slug);
     }
-    if (chainConfig.chainId === 9000000 || chainConfig.chainId === 9000001) {
+    if (chainConfig.chainId === 'pubnet' || chainConfig.chainId === 'testnet') {
         if (tokenAddress) {
             return `${ASSET_CDN_BASE}/stellar/assets/${symbol}-${tokenAddress}/logo.png`;
         }

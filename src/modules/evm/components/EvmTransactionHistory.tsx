@@ -6,7 +6,7 @@ import {
   Loader2,
   RefreshCw,
   SearchX,
-  Trash2,
+  ShieldCheck,
   XCircle,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
@@ -38,8 +38,9 @@ const STATUS_STYLES: Record<LocalTransactionWithStatus['status'], string> = {
   failed: 'bg-red-500/10 border-red-500/20 text-red-500',
 };
 
-const StatusIcon: React.FC<{ status: LocalTransactionWithStatus['status'] }> = ({ status }) => {
+const StatusIcon: React.FC<{ status: LocalTransactionWithStatus['status']; type: string }> = ({ status, type }) => {
   if (status === 'pending') return <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />;
+  if (type === 'approval' && status === 'success') return <ShieldCheck className="w-5 h-5 text-blue-500" />;
   if (status === 'success') return <CheckCircle className="w-5 h-5 text-green-500" />;
   return <XCircle className="w-5 h-5 text-red-500" />;
 };
@@ -77,13 +78,15 @@ const EvmTransactionHistory: React.FC = () => {
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
+  const cosmosWallet = connectedWallets[WalletType.COSMOS];
   const walletAddress = evmWallet?.address;
   const hasEvm = Boolean(walletAddress);
   const hasStellar = Boolean(stellarWallet);
+  const hasCosmos = Boolean(cosmosWallet);
 
   const availableChains = getEvmChainsForNetwork(currentNetwork);
 
-  const defaultView: ViewType = hasEvm ? 'recent' : hasStellar ? 'stellar' : 'recent';
+  const defaultView: ViewType = hasEvm ? 'recent' : (hasStellar || hasCosmos) ? 'recent' : 'recent';
 
   const [selectedView, setSelectedView] = useState<ViewType>(defaultView);
   const [historyData, setHistoryData] = useState<TransactionItem[]>([]);
@@ -102,7 +105,6 @@ const EvmTransactionHistory: React.FC = () => {
     isLoading: localLoading,
     refresh: refreshLocal,
     refreshTransaction,
-    removeTransaction,
     hasPendingTransactions,
   } = useLocalTransactions();
 
@@ -196,7 +198,7 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<Clock size={32} />}
           title="No Wallet Connected"
-          description="Please connect your EVM or Stellar wallet to view your transaction history."
+          description="Please connect a wallet (EVM, Stellar, or Cosmos) to view your transaction history."
         />
       </PageLayout>
     );
@@ -218,7 +220,7 @@ const EvmTransactionHistory: React.FC = () => {
           {availableChains.map(chain => (
             <button
               key={chain.chainId}
-              onClick={() => switchView(chain.chainId)}
+              onClick={() => switchView(chain.chainId as ViewType)}
               className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
             >
               <img src={chain.imageUrl} alt={chain.nativeCurrency.symbol} className="w-4 h-4 rounded-full bg-secondary" />
@@ -296,9 +298,9 @@ const EvmTransactionHistory: React.FC = () => {
                 className="flex items-center gap-4 flex-1 text-left"
               >
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border ${statusStyle}`}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border ${tx.type === 'approval' && tx.status === 'success' ? 'bg-blue-500/10 border-blue-500/20' : statusStyle}`}
                 >
-                  <StatusIcon status={tx.status} />
+                  <StatusIcon status={tx.status} type={tx.type} />
                 </div>
                 <div>
                   <div className="font-bold text-primary text-base flex items-center gap-2">
@@ -339,16 +341,6 @@ const EvmTransactionHistory: React.FC = () => {
                   title="Refresh Transaction"
                 >
                   <RefreshCw size={14} className={tx.status === 'pending' || (tx.type === 'bridge' && !tx.destinationHash) ? 'animate-spin' : ''} />
-                </button>
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    removeTransaction(tx.hash);
-                  }}
-                  className="p-2 rounded-lg bg-tertiary hover:bg-red-500/10 text-muted hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Remove"
-                >
-                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
@@ -395,66 +387,104 @@ const EvmTransactionHistory: React.FC = () => {
       );
     }
 
+    const groups: { title: string; transactions: TransactionItem[] }[] = [];
+    const groupMap: { [key: string]: number } = {};
+
+    historyData.forEach(tx => {
+      const timestamp = tx.metadata?.blockTimestamp;
+      let dateString = 'Unknown Date';
+
+      if (timestamp) {
+        const date = new Date(timestamp);
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        if (date.toDateString() === today.toDateString()) {
+          dateString = 'Today';
+        } else if (date.toDateString() === yesterday.toDateString()) {
+          dateString = 'Yesterday';
+        } else {
+          dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+      }
+
+      if (groupMap[dateString] === undefined) {
+        groupMap[dateString] = groups.length;
+        groups.push({ title: dateString, transactions: [] });
+      }
+      groups[groupMap[dateString]].transactions.push(tx);
+    });
+
+    const groupedTransactions = groups;
+
     return (
-      <div className="space-y-3 overflow-y-auto pb-4 lg:pb-0">
-        {historyData.map(tx => {
-          const isSelf = Boolean(tx.from.toLowerCase() === tx.to.toLowerCase());
-          const incoming = !isSelf && Boolean(walletAddress && tx.to.toLowerCase() === walletAddress.toLowerCase());
+      <div className="space-y-6 overflow-y-auto pb-4 lg:pb-0 custom-scrollbar pr-2">
+        {groupedTransactions.map((group, index) => (
+          <div key={index} className="space-y-3">
+            <h4 className="text-xs font-bold text-muted uppercase tracking-wider pl-1 sticky top-0 bg-secondary/90 backdrop-blur z-10 py-1">
+              {group.title}
+            </h4>
+            {group.transactions.map(tx => {
+              const isSelf = Boolean(tx.from.toLowerCase() === tx.to.toLowerCase());
+              const incoming = !isSelf && Boolean(walletAddress && tx.to.toLowerCase() === walletAddress.toLowerCase());
 
-          let actionLabel = 'Sent';
-          let Icon = ArrowUpRight;
-          if (isSelf) {
-            actionLabel = 'Self Transfer';
-            Icon = RefreshCw;
-          } else if (incoming) {
-            actionLabel = 'Received';
-            Icon = ArrowDownLeft;
-          }
+              let actionLabel = 'Sent';
+              let Icon = ArrowUpRight;
+              if (isSelf) {
+                actionLabel = 'Self Transfer';
+                Icon = RefreshCw;
+              } else if (incoming) {
+                actionLabel = 'Received';
+                Icon = ArrowDownLeft;
+              }
 
-          const isSelected = selectedTx?.uniqueId === tx.uniqueId;
-          return (
-            <button
-              key={tx.uniqueId}
-              onClick={() => handleTxClick(tx)}
-              className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${isSelected ? 'border' : 'hover:bg-tertiary/50'
-                }`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border bg-tertiary border-color text-muted">
-                  <Icon size={24} />
-                </div>
-                <div>
-                  <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-1">
-                    {actionLabel} {formatAssetName(tx)}
-                    <span className="lg:text-md text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
-                      {tx.category}
-                    </span>
+              const isSelected = selectedTx?.uniqueId === tx.uniqueId;
+              return (
+                <button
+                  key={tx.uniqueId}
+                  onClick={() => handleTxClick(tx)}
+                  className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${isSelected ? 'border' : 'hover:bg-tertiary/50'
+                    }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border bg-tertiary border-color text-muted">
+                      <Icon size={24} />
+                    </div>
+                    <div>
+                      <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-1">
+                        {actionLabel} {formatAssetName(tx)}
+                        <span className="lg:text-md text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
+                          {tx.category}
+                        </span>
+                      </div>
+                      {/* Block number display — BigInt-safe via formatBlockNumber */}
+                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
+                        <span className="opacity-75">
+                          {tx.blockNum
+                            ? `Block #${formatBlockNumber(tx.blockNum)}`
+                            : 'Pending'}
+                        </span>
+                        <span className="w-1 h-1 rounded-full bg-muted/40" />
+                        <span className="truncate max-w-[100px]">
+                          {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  {/* Block number display — BigInt-safe via formatBlockNumber */}
-                  <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
-                    <span className="opacity-75">
-                      {tx.blockNum
-                        ? `Block #${formatBlockNumber(tx.blockNum)}`
-                        : 'Pending'}
-                    </span>
-                    <span className="w-1 h-1 rounded-full bg-muted/40" />
-                    <span className="truncate max-w-[100px]">
-                      {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
-                    </span>
+                  <div className="text-right">
+                    <div className="font-bold font-mono text-base text-primary">
+                      {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
+                    </div>
+                    <div className="text-xs text-muted mt-1 font-medium bg-tertiary/50 px-2 py-0.5 rounded ml-auto w-fit">
+                      {formatAssetName(tx)}
+                    </div>
                   </div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-bold font-mono text-base text-primary">
-                  {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
-                </div>
-                <div className="text-xs text-muted mt-1 font-medium bg-tertiary/50 px-2 py-0.5 rounded ml-auto w-fit">
-                  {formatAssetName(tx)}
-                </div>
-              </div>
-            </button>
-          );
-        })}
+                </button>
+              );
+            })}
+          </div>
+        ))}
         {hasNextPage && (
           <button
             onClick={loadMoreHistory}

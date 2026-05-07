@@ -9,7 +9,7 @@ import SendAssets from '../modules/commonfeature/sendassets/SendAssets';
 // import MarketsDisplay from '../modules/dydx/components/MarketsDisplay';
 import TradingintrFace from '../modules/dydx/components/tradedashbord/TradingintrFace';
 import EvmTransactionHistory from '../modules/evm/components/EvmTransactionHistory';
-// import BridgePage from '../modules/evm/feature/bridge/BridgePage';
+import BridgePage from '../modules/evm/feature/bridge/BridgePage';
 // import WebSocketDebugger from '../modules/dydx/utils/WebSocketDebugger';
 import SwapAssets from '../modules/evm/feature/swap/SwapAssets';
 import CryptoMarket from '../modules/market/CryptoMarket';
@@ -18,6 +18,8 @@ import StallerTradescreen from '../modules/steallr/components/tradescreen/Stalle
 import Dashboard from '../pages/Dashboard';
 import Home from '../pages/Home';
 import ProtectedRoute from './ProtectedRoute';
+import { GeolocationGuard } from '../modules/commonfeature/components/GeolocationGuard';
+import { RESTRICTED_TRADING_LOCATIONS } from '../modules/commonfeature/constants/compliance';
 
 const router = createBrowserRouter([
   {
@@ -88,20 +90,21 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-          // {
-          //   path: ROUTES.BRIDGE,
-          //   element: (
-          //     <Layout>
-          //       <BridgePage />
-          //     </Layout>
-          //   ),
-          // },
+          {
+            path: ROUTES.BRIDGE,
+            element: (
+              <Layout>
+                <BridgePage />
+              </Layout>
+            ),
+          },
           {
             path: ROUTES.TRADING_DYDX_FUTURES,
             element: (
               <Layout>
-                <TradingintrFace />
-                {/* <WebSocketDebugger /> */}
+                <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
+                  <TradingintrFace />
+                </GeolocationGuard>
               </Layout>
             ),
           },

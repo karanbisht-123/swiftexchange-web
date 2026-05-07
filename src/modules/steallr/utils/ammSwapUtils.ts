@@ -166,7 +166,7 @@ export function formatTxHash(hash: string, length: number = 8): string {
 }
 
 export function getTokenIconUrl(asset: StellarSDK.Asset): string {
-  const chainId = 9000000;
+  const chainId = 'pubnet';
   const chain = getChainById(chainId);
   if (!chain) return asset.isNative() ? 'https://stellar.org/assets/icons/stellar-xlm-logo.svg' : '';
 

@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, RefreshCw, X, ChevronDown, ArrowUpDown } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { WalletType } from '../../../walletconnect/constants/Wallet';
@@ -12,7 +12,7 @@ import {
 import { useLargeOrder } from '../../hook/useOrderBookSwap';
 import { useAmmSwapStore } from '../../store/ammSwapStore';
 import { useLargeOrderStore } from '../../store/orderBookSwapStore';
-import StellarTradingChart from '../chart/StellarTradingChart';
+const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
 import LastTrades from '../tradescreen/LastTrades';
 import OrderBook from './OrderBook';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
@@ -87,7 +87,7 @@ const OrderBookSwapUI = () => {
   const { setSelectedChartPair } = useAmmSwapStore();
 
   const isMainnet = currentNetwork === 'mainnet';
-  const stellarChainId = isMainnet ? 9000000 : 9000001;
+  const stellarChainId = isMainnet ? 'pubnet' : 'testnet';
   const chainConfig = getChainById(stellarChainId);
 
   const lastChartPairRef = useRef<string>('');
@@ -95,7 +95,7 @@ const OrderBookSwapUI = () => {
   useEffect(() => {
     if (fromToken && toToken) {
       const pairId = `${fromToken.code}:${fromToken.issuer}-${toToken.code}:${toToken.issuer}`;
-      
+
       if (lastChartPairRef.current !== pairId) {
         lastChartPairRef.current = pairId;
         setSelectedChartPair({
@@ -107,18 +107,26 @@ const OrderBookSwapUI = () => {
       }
 
       const newParams = new URLSearchParams(searchParams);
-      if (fromToken) newParams.set('sellAsset', fromToken.code);
-      if (toToken) newParams.set('buyAsset', toToken.code);
-      setSearchParams(newParams, { replace: true });
+      let needsUpdate = false;
+      if (fromToken && newParams.get('sellAsset') !== fromToken.code) {
+        newParams.set('sellAsset', fromToken.code);
+        needsUpdate = true;
+      }
+      if (toToken && newParams.get('buyAsset') !== toToken.code) {
+        newParams.set('buyAsset', toToken.code);
+        needsUpdate = true;
+      }
+      if (needsUpdate) {
+        setSearchParams(newParams, { replace: true });
+      }
     }
+
   }, [
-    fromToken?.code, 
-    fromToken?.issuer, 
-    toToken?.code, 
-    toToken?.issuer, 
-    setSelectedChartPair,
-    searchParams,
-    setSearchParams
+    fromToken?.code,
+    fromToken?.issuer,
+    toToken?.code,
+    toToken?.issuer,
+    setSelectedChartPair
   ]);
 
   useEffect(() => {
@@ -127,16 +135,16 @@ const OrderBookSwapUI = () => {
     const sellAsset = searchParams.get('sellAsset');
     const buyAsset = searchParams.get('buyAsset');
 
-    if (sellAsset) {
+    if (sellAsset && sellAsset !== fromToken?.code) {
       const token = availableTokens.find(t => t.code === sellAsset);
-      if (token && token.code !== toToken?.code) setFromToken(token);
+      if (token) setFromToken(token);
     }
 
-    if (buyAsset) {
+    if (buyAsset && buyAsset !== toToken?.code) {
       const token = availableTokens.find(t => t.code === buyAsset);
-      if (token && token.code !== fromToken?.code) setToToken(token);
+      if (token) setToToken(token);
     }
-  }, [availableTokens]);
+  }, [availableTokens, searchParams, fromToken?.code, toToken?.code]);
 
   const handlePlaceOrder = useCallback(async () => {
     if (!fromToken || !toToken || !amount || !price) {
@@ -172,7 +180,7 @@ const OrderBookSwapUI = () => {
 
       addLocalTransaction({
         hash: txHash,
-        chainId: 9000000,
+        chainId: 'pubnet',
         type: 'orderbook',
         timestamp: Date.now(),
         description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
@@ -321,7 +329,13 @@ const OrderBookSwapUI = () => {
             className={`flex-1 p-4 lg:p-6 ${activeTab === 'overview' ? 'block' : 'hidden sm:block'}`}
           >
             <div className="mb-6 h-[300px] w-full bg-primary/20 rounded-xl overflow-hidden">
-              <StellarTradingChart />
+              <Suspense fallback={
+                <div className="w-full h-full flex items-center justify-center bg-secondary">
+                  <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              }>
+                <StellarTradingChart />
+              </Suspense>
             </div>
 
             <div className="flex items-center justify-between ">
@@ -397,12 +411,12 @@ const OrderBookSwapUI = () => {
                   <div className="flex justify-between items-center text-xs text-muted mt-2 font-bold px-1">
                     <span>Spendable Balance</span>
                     <span className="text-primary">
-                      {fromToken?.balance 
+                      {fromToken?.balance
                         ? portfolioUtils.formatBalance(
-                            fromToken.code === 'XLM' 
-                              ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
-                              : fromToken.balance
-                          ) 
+                          fromToken.code === 'XLM'
+                            ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
+                            : fromToken.balance
+                        )
                         : '0.00'}{' '}
                       {fromToken?.code || ''}
                     </span>

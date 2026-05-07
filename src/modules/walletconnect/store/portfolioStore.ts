@@ -13,11 +13,12 @@ export interface Asset {
   current_price: number;
   price_change_percentage_24h: number;
   chainName: string;
-  chainId?: number;
-  chainType?: 'evm' | 'stellar';
+  chainId?: number | string;
+  chainType?: 'evm' | 'stellar' | 'dydx';
   isNative?: boolean;
   address?: string;
   decimals?: number;
+  blockExplorerUrl?: string;
 }
 
 export interface ProviderStatus {
@@ -40,18 +41,18 @@ interface PortfolioState {
 
 interface PortfolioActions {
   fetchAssets: (
-    connectedWallets: Record<string, { address: string } | undefined>,
+    connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
     network: string,
     force?: boolean
   ) => Promise<void>;
   refreshAssets: (
-    connectedWallets: Record<string, { address: string } | undefined>,
+    connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
     network: string
   ) => Promise<void>;
   updateAsset: (asset: Asset) => void;
-  getAssetBalance: (chainId: number, symbol: string) => number;
+  getAssetBalance: (chainId: number | string, symbol: string) => number;
   clearAssets: () => void;
-  clearAssetsByType: (chainType: 'evm' | 'stellar') => void;
+  clearAssetsByType: (chainType: 'evm' | 'stellar' | 'dydx') => void;
   enrichPrices: () => Promise<void>;
 }
 
@@ -92,7 +93,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           });
         },
 
-        getAssetBalance: (chainId: number, symbol: string) => {
+        getAssetBalance: (chainId: number | string, symbol: string) => {
           const asset = get().assets.find(
             (a) => a.chainId === chainId && a.symbol.toUpperCase() === symbol.toUpperCase()
           );
@@ -100,7 +101,16 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         },
 
         clearAssets: () => {
-          set({ assets: [], lastFetched: 0 });
+          set({ 
+            assets: [], 
+            lastFetched: 0,
+            providerStatus: {},
+            lastConnectedWalletsStr: '',
+            isLoading: false,
+            isFetching: false,
+            hasError: false,
+            errorMessage: null
+          });
           try {
             usePortfolioStore.persist?.clearStorage();
           } catch {
@@ -108,10 +118,12 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           }
         },
 
-        clearAssetsByType: (chainType: 'evm' | 'stellar') => {
+        clearAssetsByType: (chainType: 'evm' | 'stellar' | 'dydx') => {
           set((state) => ({
             assets: state.assets.filter((a) => a.chainType !== chainType),
             lastFetched: 0,
+            isFetching: false,
+            isLoading: false,
             providerStatus: {
               ...state.providerStatus,
               [chainType]: { status: 'idle', lastUpdated: 0 }
@@ -120,7 +132,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         },
 
         fetchAssets: async (
-          connectedWallets: Record<string, { address: string } | undefined>,
+          connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
           network: string,
           force: boolean = false
         ) => {
@@ -143,6 +155,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           const providersToFetch = portfolioService.getProviders().filter(p => {
             if (p.id === 'evm') return !!connectedWallets.evm?.address;
             if (p.id === 'stellar') return !!connectedWallets.stellar?.address;
+            if (p.id === 'dydx') return !!(connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress);
             return true;
           });
 
@@ -225,7 +238,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         },
 
         refreshAssets: async (
-          connectedWallets: Record<string, { address: string } | undefined>,
+          connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>,
           network: string
         ) => {
           await get().fetchAssets(connectedWallets, network, true);
@@ -285,7 +298,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
 export const selectTotalValue = (state: PortfolioState) =>
   portfolioUtils.calculateTotalUSD(state.assets);
 
-export const selectAssetsByChain = (chainId: number) => (state: PortfolioState) =>
+export const selectAssetsByChain = (chainId: number | string) => (state: PortfolioState) =>
   state.assets.filter((a) => a.chainId === chainId);
 
 export const selectEvmAssets = (state: PortfolioState) =>

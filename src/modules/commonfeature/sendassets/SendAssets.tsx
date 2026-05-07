@@ -1,15 +1,16 @@
 import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet, RefreshCw } from 'lucide-react';
 import React, { useCallback, useMemo, useRef } from 'react';
 import PageLayout from '../../../components/layout/PageLayout';
-import TransactionSuccess from '../../transction/component/TransactionSuccess';
 import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
+import StellarTransactionModal from '../../steallr/components/modals/StellarTransactionModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { useSendAsset } from '../hook/useSendassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 import TransactionButton from '../components/TransactionButton';
-import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { getChainLogoUrl, getExplorerUrl } from '../../evm/utils/Chainregistry';
+import BigNumber from 'bignumber.js';
 
 interface SendCryptoProps {
   onBack?: () => void;
@@ -43,7 +44,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     copyToClipboard,
     formError,
     buttonLabel,
-    needsTrustline
+    needsTrustline,
+    recipientNeedsTrustline,
+    isFetchingRecipientTrust
   } = useSendAsset(onBack);
 
   const handleRecipientChange = useCallback(
@@ -53,6 +56,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       if (currentAsset?.type === 'evm' && val.length === 42) {
         amountRef.current?.focus();
       } else if (currentAsset?.type === 'stellar' && val.length === 56) {
+        amountRef.current?.focus();
+      } else if (currentAsset?.type === 'dydx' && val.startsWith('dydx1') && val.length >= 43) {
         amountRef.current?.focus();
       }
     },
@@ -85,11 +90,13 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   );
 
   const totalAmount = useMemo(() => {
-    if (!amount || !currentAsset) return 0;
-    return (
-      parseFloat(amount) +
-      (estimatedFees ? parseFloat(estimatedFees.totalCost) : currentAsset.baseFee)
-    );
+    if (!amount || !currentAsset) return new BigNumber(0);
+    const bnAmount = new BigNumber(amount);
+    const fee = estimatedFees?.totalCost ? new BigNumber(estimatedFees.totalCost) : new BigNumber(currentAsset.baseFee);
+    if (currentAsset.isNative) {
+      return bnAmount.plus(fee);
+    }
+    return bnAmount;
   }, [amount, estimatedFees, currentAsset]);
 
   const isFormValid = useMemo(() => {
@@ -104,14 +111,14 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   }, [formError, senderAddress, isEstimatingFees, amount, isFetchingBalance]);
 
   const explorerUrl = useMemo(() => {
-    if (!currentAsset?.blockExplorerUrl || !transactionState.txHash) return '';
-    return `${currentAsset.blockExplorerUrl}/tx/${transactionState.txHash}`;
+    if (!currentAsset || !transactionState.txHash) return '';
+    return getExplorerUrl(currentAsset.chainId, 'tx', transactionState.txHash);
   }, [currentAsset, transactionState.txHash]);
 
   const currentChainLogo = useMemo(() => {
     if (!currentAsset) return null;
     const chainId = currentAsset.chainId;
-    if (chainId === 'stellar' || chainId === 9000000) {
+    if (chainId === 'stellar' || chainId === 'pubnet') {
       return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png';
     }
     return getChainLogoUrl(chainId as number);
@@ -192,6 +199,34 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               </div>
             )}
 
+            {recipientNeedsTrustline && currentAsset.type === 'stellar' && (
+              <div className="bg-brand-primary/5 border border-brand-primary/20 rounded-xl p-3.5 flex gap-3 items-center">
+                <div className="w-8 h-8 rounded-full bg-brand-primary/10 flex items-center justify-center shrink-0">
+                  <Info size={14} className="text-brand-primary" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-brand-primary leading-tight">Claimable Balance</p>
+                  <p className="text-[9px] text-text-secondary font-medium opacity-80 leading-tight mt-0.5">
+                    Recipient lacks trustline. Asset will be sent as a claimable balance.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {needsTrustline && currentAsset.type === 'stellar' && (
+              <div className="bg-brand-primary/5 border border-brand-primary/20 rounded-xl p-3.5 flex gap-3 items-center">
+                <div className="w-8 h-8 rounded-full bg-brand-primary/10 flex items-center justify-center shrink-0">
+                  <RefreshCw size={14} className="text-brand-primary" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-brand-primary leading-tight">Add Trustline</p>
+                  <p className="text-[9px] text-text-secondary font-medium opacity-80 leading-tight mt-0.5">
+                    Your account will first add a trustline for {currentAsset.symbol} in this transaction.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="pt-2">
               <div className="bg-bg-primary/50 rounded-xl p-4">
                 <div className="space-y-2 mb-4">
@@ -201,9 +236,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   </div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-text-primary">Total Cost</span>
+                  <span className="text-sm font-bold text-text-primary">Total {currentAsset.isNative ? 'Cost' : 'to Send'}</span>
                   <span className="text-xl font-black text-brand-primary">
-                    {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals)}{' '}
+                    {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals).replace(/(\.[0-9]*[1-9])0+$/, "$1").replace(/\.0+$/, "")}{' '}
                     {currentAsset.symbol}
                   </span>
                 </div>
@@ -218,7 +253,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </button>
           <TransactionButton
             label={buttonLabel}
-            onClick={handleConfirmTransaction}
+            onClick={() => {
+              console.log('[SendAssets] Confirming transaction button clicked');
+              handleConfirmTransaction();
+            }}
             className="font-black"
           />
         </div>
@@ -267,18 +305,28 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         );
       }
       return (
-        <TransactionSuccess
-          txHash={txHash}
-          explorerUrl={explorerUrl}
-          assetType={currentAsset?.type}
-          onCopyHash={handleCopyTxHash}
+        <StellarTransactionModal
+          isOpen={true}
+          status="success"
+          type="Send"
+          hash={txHash || ''}
           onClose={onBack || handleBackToForm}
-          onSendAnother={handleBackToForm}
         />
       );
     }
 
     if (step === 'error' && error) {
+      if (currentAsset?.type === 'stellar') {
+        return (
+          <StellarTransactionModal
+            isOpen={true}
+            status="error"
+            type="Send"
+            error={error}
+            onClose={handleBackToForm}
+          />
+        );
+      }
       return (
         <div className="bg-bg-secondary border border-divider rounded-xl text-center py-12 px-6 max-w-sm mx-auto shadow-sm">
           <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mb-6 mx-auto">
@@ -289,10 +337,16 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             <p className="text-xs text-danger font-bold leading-relaxed">{error}</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <button onClick={handleRetryTransaction} className="btn-primary py-3 rounded-lg font-bold text-sm">
+            <button
+              onClick={handleRetryTransaction}
+              className="btn-primary py-3 rounded-lg font-bold text-sm"
+            >
               Retry
             </button>
-            <button onClick={handleBackToForm} className="btn-secondary py-3 rounded-lg font-bold text-sm">
+            <button
+              onClick={handleBackToForm}
+              className="btn-secondary py-3 rounded-lg font-bold text-sm"
+            >
               Back
             </button>
           </div>
@@ -409,7 +463,13 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   id="recipientAddress"
                   className={`w-full bg-transparent border-none focus:ring-0 outline-none text-xs font-mono placeholder:text-text-muted ${formError && formError.includes('address') ? 'text-danger' : 'text-text-primary'
                     }`}
-                  placeholder={currentAsset?.type === 'stellar' ? 'Stellar Address (G...)' : 'EVM Address (0x...)'}
+                  placeholder={
+                    currentAsset?.type === 'stellar' 
+                      ? 'Stellar Address (G...)' 
+                      : currentAsset?.type === 'dydx' 
+                        ? 'dYdX Address (dydx1...)' 
+                        : 'EVM Address (0x...)'
+                  }
                   value={recipientAddress}
                   onChange={handleRecipientChange}
                   autoFocus
@@ -490,7 +550,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               <div className="flex justify-between items-center">
                 <span className="text-sm font-bold text-text-primary">Total to Send</span>
                 <span className="text-lg font-black text-brand-primary">
-                  {portfolioUtils.formatBalance(totalAmount)} {currentAsset.symbol}
+                  {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals).replace(/(\.[0-9]*[1-9])0+$/, "$1").replace(/\.0+$/, "")} {currentAsset.symbol}
                 </span>
               </div>
             </div>
@@ -507,10 +567,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
         <TransactionButton
           label={buttonLabel}
-          loadingLabel="Calculating Fees..."
-          isLoading={isEstimatingFees}
+          loadingLabel={isFetchingRecipientTrust ? "Checking Recipient..." : "Calculating Fees..."}
+          isLoading={isEstimatingFees || isFetchingRecipientTrust}
           isDisabled={!isFormValid && !needsTrustline}
-          onClick={needsTrustline ? handleConfirmTransaction : handleReviewTransaction}
+          onClick={handleReviewTransaction}
           className="mt-2"
         />
       </div>

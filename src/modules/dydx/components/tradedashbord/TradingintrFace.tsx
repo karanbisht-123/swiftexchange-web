@@ -32,6 +32,8 @@ import FundingChart from './FundingChart';
 import ResizablePanel from './ResizablePanel';
 import ResizablePanelHorizontal from './ResizablePanelHorizontal';
 import SubscriptionKeepAlive from './SubscriptionKeepAlive';
+import { GeolocationGuard } from '../../../commonfeature/components/GeolocationGuard';
+import { RESTRICTED_TRADING_LOCATIONS } from '../../../commonfeature/constants/compliance';
 
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
@@ -42,12 +44,13 @@ const TradingintrFace = () => {
   const [activeBottomTab, setActiveBottomTab] = useState('positions');
 
   return (
-    <div className="bg-primary text-primary font-body flex flex-col h-screen max-h-screen">
-      <DydxTopBar />
-      <SubscriptionKeepAlive />
+    <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
+      <div className="bg-primary text-primary font-body flex flex-col h-screen max-h-screen">
+        <DydxTopBar />
+        <SubscriptionKeepAlive />
 
-      {view === 'trade' && (
-        <div className="flex flex-col flex-1 overflow-hidden">
+        {view === 'trade' && (
+          <div className="flex flex-col flex-1 overflow-hidden">
           <div className="hidden md:grid md:grid-cols-[1fr_auto] flex-1 overflow-hidden">
             <div className="flex flex-col overflow-hidden min-w-0">
               <div className="flex overflow-hidden flex-1">
@@ -133,7 +136,8 @@ const TradingintrFace = () => {
           <PortfolioView activeTab={activeBottomTab} setActiveTab={setActiveBottomTab} />
         </div>
       )}
-    </div>
+      </div>
+    </GeolocationGuard>
   );
 };
 

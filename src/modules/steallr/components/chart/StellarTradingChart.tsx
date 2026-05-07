@@ -123,25 +123,25 @@ export default function StellarTradingChart({
   const getThemeColors = () => {
     if (isDark) {
       return {
-        background: '#191c25',
-        textColor: '#f8f9fa',
-        gridColor: '#2d3241',
-        borderColor: '#3a3f4f',
+        background: '#0f1528',
+        textColor: '#e8edf8',
+        gridColor: '#020e46',
+        borderColor: '#1e2840',
         upColor: '#10b981',
         downColor: '#ef4444',
-        volumeColor: 'rgba(128, 128, 128, 0.3)',
-        crosshairColor: '#8b95a5',
+        volumeColor: 'rgba(128, 128, 128, 0.2)',
+        crosshairColor: '#4a5680',
       };
     }
     return {
-      background: '#fff',
-      textColor: '#1a1d29',
-      gridColor: '#e2e8f0',
-      borderColor: '#cbd5e0',
+      background: '#f7f8fc',
+      textColor: '#0f1729',
+      gridColor: '#dce3ed',
+      borderColor: '#e4e8f0',
       upColor: '#10b981',
       downColor: '#ef4444',
-      volumeColor: 'rgba(107, 114, 128, 0.3)',
-      crosshairColor: '#718096',
+      volumeColor: 'rgba(107, 114, 128, 0.2)',
+      crosshairColor: '#8896b3',
     };
   };
 
@@ -340,11 +340,20 @@ export default function StellarTradingChart({
       }
     };
 
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+
+    if (chartContainerRef.current) {
+      resizeObserver.observe(chartContainerRef.current);
+    }
+
     window.addEventListener('resize', handleResize);
     handleResize();
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
   }, [chartData, chartType, showVolume, showGrid, showCrosshair, isDark]);
 
@@ -448,9 +457,8 @@ export default function StellarTradingChart({
                       onChange(opt.value);
                       onToggle();
                     }}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${
-                      value === opt.label ? 'bg-hover text-brand' : 'text-primary'
-                    }`}
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${value === opt.label ? 'bg-hover text-brand' : 'text-primary'
+                      }`}
                   >
                     {opt.label}
                   </button>
@@ -613,8 +621,9 @@ export default function StellarTradingChart({
         </div>
 
         <div className="flex-1 bg-secondary relative min-h-0">
-          {isLoading && chartData.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center">
+          <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-secondary/80 backdrop-blur-sm z-20">
               <div className="text-center">
                 <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                 <p className="text-secondary text-sm">Loading chart data...</p>
@@ -623,8 +632,6 @@ export default function StellarTradingChart({
                 ) : null}
               </div>
             </div>
-          ) : (
-            <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
           )}
         </div>
 

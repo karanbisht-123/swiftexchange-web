@@ -11,7 +11,7 @@ export function mapIChainToChainConfig(chain: IChain): ChainConfig {
 
   return {
     ...chain,
-    chainId: typeof chain.chainId === 'string' ? 0 : chain.chainId,
+    chainId: chain.chainId,
     rpcUrl: chain.rpcUrl || chain.rpcUrls[0],
     fallbackRpcUrls: chain.rpcUrls.slice(1),
     available: true,
@@ -24,6 +24,7 @@ export function mapIChainToChainConfig(chain: IChain): ChainConfig {
       logoURI: chain.nativeToken.logoURI,
       wrappedAddress: chain.wrappedAddress || chain.nativeToken.address,
       coingeckoId: chain.nativeChainKey,
+      address: chain.nativeToken.address,
     },
     logoURI: chain.imageUrl,
     coingeckoPlatform: chain.nativeChainKey,
@@ -38,7 +39,22 @@ export function mapIChainToChainConfig(chain: IChain): ChainConfig {
         decimals: chain.nativeToken.decimals,
         logoURI: chain.nativeToken.logoURI,
         coingeckoId: chain.nativeChainKey,
+        isNative: true,
       },
+      ...(Array.isArray(chain.supportedTokenList)
+        ? chain.supportedTokenList
+            .filter((t: any) => t.symbol !== chain.nativeToken.symbol)
+            .map((t: any) => ({
+              asset: t.asset,
+              type: t.type,
+              address: t.address,
+              name: t.name,
+              symbol: t.symbol,
+              decimals: t.decimals,
+              logoURI: t.logoURI,
+              isNative: false,
+            }))
+        : []),
     ],
   } as unknown as ChainConfig;
 }

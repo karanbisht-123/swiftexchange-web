@@ -5,9 +5,9 @@ const SERVER_URL_DEV = import.meta.env.VITE_BASE_SERVER_URL_DEV as string;
 const PROXY_URL_DEV = import.meta.env.VITE_BASE_PROXY_URL_DEV as string;
 const DEVICE_AUTH_DEV = import.meta.env.VITE_API_DEVICE_AUTH_DEV as string;
 
-const SERVER_URL_PROD = import.meta.env.VITE_BASE_SERVER_URL_PROD as string;
-const PROXY_URL_PROD = import.meta.env.VITE_BASE_PROXY_URL_PROD as string;
-const DEVICE_AUTH_PROD = import.meta.env.VITE_API_DEVICE_AUTH_PROD as string;
+// const SERVER_URL_PROD = import.meta.env.VITE_BASE_SERVER_URL_PROD as string;
+// const PROXY_URL_PROD = import.meta.env.VITE_BASE_PROXY_URL_PROD as string;
+// const DEVICE_AUTH_PROD = import.meta.env.VITE_API_DEVICE_AUTH_PROD as string;
 
 const USER_API_TOKEN = import.meta.env.VITE_API_USER_AUTH;
 
@@ -32,14 +32,14 @@ function getApiConfig() {
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  retries: number = 3,
+  retries: number = 1,
   delay: number = 1000
 ): Promise<Response> {
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(url, options);
       if (response.ok) return response;
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
+      if (response.status >= 400 && response.status < 500) {
         return response;
       }
       if (i === retries - 1) return response;
@@ -147,4 +147,63 @@ export async function fetchApiResponseFromServer<T>(
 
   const data = await response.json();
   return { data };
+}
+
+export interface WalletGasInfo {
+  transactionCount: number;
+  gasFeeData: {
+    _type: string;
+    gasPrice: string;
+    maxFeePerGas: string;
+    maxPriorityFeePerGas: string;
+  };
+}
+
+const GAS_CACHE_PREFIX = 'sx_gas_cache_';
+const GAS_CACHE_TTL = 30 * 1000; // 30 seconds cache for gas
+
+export async function getWalletGasInfo(
+  prefix: string,
+  address: string
+): Promise<WalletGasInfo | null> {
+  const cacheKey = `${GAS_CACHE_PREFIX}${prefix}_${address}`;
+
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    try {
+      const { timestamp, data } = JSON.parse(cached);
+      if (Date.now() - timestamp < GAS_CACHE_TTL) {
+        return data;
+      }
+    } catch (e) {
+      console.warn('Failed to parse gas cache', e);
+    }
+  }
+
+  try {
+    const endpoint = `/eth/wallet-address/${address}/info`;
+    const response = await fetchApiResponseFromServer<WalletGasInfo>(endpoint, 'GET');
+
+    if (response.data) {
+
+      localStorage.setItem(cacheKey, JSON.stringify({
+        timestamp: Date.now(),
+        data: response.data
+      }));
+      return response.data;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to fetch wallet gas info:', error);
+
+    if (cached) {
+      try {
+        const { data } = JSON.parse(cached);
+        return data;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
 }

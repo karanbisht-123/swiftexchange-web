@@ -1,6 +1,6 @@
 export interface StellarSendTransaction {
   id: string;
-  type: 'send';
+  type: 'send' | 'claimable_balance';
   from: string;
   to: string;
   amount: string;

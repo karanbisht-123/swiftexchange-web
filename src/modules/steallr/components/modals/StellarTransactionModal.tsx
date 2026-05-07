@@ -1,8 +1,9 @@
-import { CheckCircle2, ExternalLink, X, XCircle } from 'lucide-react';
-import React from 'react';
-
+import { CheckCircle2, ExternalLink, History, X, XCircle } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { getExplorerUrl } from '../../../evm/utils/Chainregistry';
+import { ROUTES } from '../../../../constants/routes';
 
 interface StellarTransactionModalProps {
   isOpen: boolean;
@@ -22,19 +23,41 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
   error,
 }) => {
   const currentNetwork = useWalletStore(state => state.network);
+  const navigate = useNavigate();
+
+  const handleGoToHistory = () => {
+    if (hash) {
+      navigate(`${ROUTES.TRANSACTIONS}?hash=${hash}`);
+      onClose();
+    }
+  };
+
+  useEffect(() => {
+    if (status === 'success' && hash && isOpen) {
+      const timer = setTimeout(() => {
+        handleGoToHistory();
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [status, hash, isOpen]);
 
   if (!isOpen) return null;
 
-  const chainId = currentNetwork === 'mainnet' ? 9000000 : 9000001;
+  const chainId = currentNetwork === 'mainnet' ? 'pubnet' : 'testnet';
 
   const isRejected = error?.toLowerCase().includes('reject') || error?.toLowerCase().includes('cancel');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div 
+      <div
         className="relative w-full max-w-sm bg-secondary border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300"
         onClick={e => e.stopPropagation()}
       >
+        {status === 'success' && (
+          <div className="absolute top-0 left-0 h-1 bg-green-500/30 w-full z-10">
+            <div className="h-full bg-green-500 animate-[progress_4s_linear]" style={{ width: '100%' }} />
+          </div>
+        )}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-2 text-muted hover:text-primary hover:bg-white/5 rounded-full transition-all"
@@ -75,27 +98,42 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
 
           <div className="w-full space-y-3">
             {status === 'success' && hash && (
-              <a
-                href={getExplorerUrl(chainId, 'tx', hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-outline w-full gap-2 border-white/5 hover:bg-white/5 text-sm h-12 rounded-2xl"
-              >
-                View on Explorer
-                <ExternalLink size={16} />
-              </a>
+              <div className="grid grid-cols-2 gap-3 w-full">
+                <a
+                  href={getExplorerUrl(chainId, 'tx', hash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all group"
+                >
+                  <ExternalLink size={20} className="text-blue-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-[13px] font-semibold text-primary">Explorer</span>
+                </a>
+
+                <button
+                  onClick={handleGoToHistory}
+                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all group"
+                >
+                  <History size={20} className="text-purple-500 group-hover:rotate-[-10deg] transition-transform" />
+                  <span className="text-[13px] font-semibold text-primary">History</span>
+                </button>
+              </div>
             )}
-            
+
             <button
               onClick={onClose}
-              className={`w-full h-12 rounded-2xl font-bold transition-all shadow-lg hover:shadow-xl active:scale-95 ${
-                status === 'success'
+              className={`w-full h-12 rounded-2xl font-bold transition-all shadow-lg hover:shadow-xl active:scale-95 ${status === 'success'
                   ? 'bg-green-500 hover:bg-green-600 text-white shadow-green-500/20'
                   : 'bg-white/10 hover:bg-white/15 text-primary border border-white/5'
-              }`}
+                }`}
             >
-              {status === 'success' ? 'Back to Wallet' : 'Close'}
+              {status === 'success' ? 'Done' : 'Close'}
             </button>
+
+            {status === 'success' && (
+              <p className="text-[10px] text-center text-muted animate-pulse pt-2">
+                Redirecting to history in 4s...
+              </p>
+            )}
           </div>
         </div>
       </div>

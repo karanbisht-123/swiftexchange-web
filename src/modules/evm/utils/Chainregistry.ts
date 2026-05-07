@@ -31,6 +31,7 @@ export interface NativeCurrency {
     logoURI: string;
     wrappedAddress: string;
     coingeckoId: string;
+    address?: string;
 }
 
 export interface WellKnownTokens {
@@ -48,7 +49,7 @@ export interface ChainLink {
 }
 
 export interface ChainConfig {
-    chainId: number;
+    chainId: number | string;
     name: string;
     symbol?: string;
     networkType: NetworkType;
@@ -95,7 +96,7 @@ export interface ChainConfig {
 
 export const CHAIN_REGISTRY: ChainConfig[] = Object.values(CHAINS).map(mapIChainToChainConfig);
 
-const BY_CHAIN_ID = new Map<number, ChainConfig>(
+const BY_CHAIN_ID = new Map<number | string, ChainConfig>(
     CHAIN_REGISTRY.map((c) => [c.chainId, c])
 );
 
@@ -111,7 +112,7 @@ interface TokenCache {
     assets: ChainAsset[];
 }
 
-function getCachedTokenList(chainId: number): ChainAsset[] | null {
+function getCachedTokenList(chainId: number | string): ChainAsset[] | null {
     if (typeof localStorage === 'undefined') return null;
     try {
         const cached = localStorage.getItem(`${CACHE_KEY_PREFIX}${chainId}`);
@@ -129,7 +130,7 @@ function getCachedTokenList(chainId: number): ChainAsset[] | null {
     }
 }
 
-function setCachedTokenList(chainId: number, assets: ChainAsset[]) {
+function setCachedTokenList(chainId: number | string, assets: ChainAsset[]) {
     if (typeof localStorage === 'undefined') return;
     try {
         const cacheData: TokenCache = {
@@ -142,7 +143,7 @@ function setCachedTokenList(chainId: number, assets: ChainAsset[]) {
     }
 }
 
-export function getChainById(chainId: number): ChainConfig | undefined {
+export function getChainById(chainId: number | string): ChainConfig | undefined {
     return BY_CHAIN_ID.get(chainId);
 }
 
@@ -171,8 +172,13 @@ export function getChainsForNetwork(networkType: NetworkType): ChainConfig[] {
     return CHAIN_REGISTRY.filter((c) => c.networkType === networkType && c.available);
 }
 
-export function isEvmChain(chainId: number): boolean {
-    return chainId !== 9000000 && chainId !== 9000001 && chainId !== 0;
+export function isEvmChain(chainId: number | string): boolean {
+    return (
+        chainId !== 'pubnet' &&
+        chainId !== 'testnet' &&
+        !(typeof chainId === 'string' && chainId.startsWith('dydx-')) &&
+        chainId !== 0
+    );
 }
 
 export function getEvmChainsForNetwork(networkType: NetworkType): ChainConfig[] {
@@ -190,21 +196,21 @@ export function getEvmSwapEnabledChains(networkType: NetworkType): ChainConfig[]
 export const MAINNET_CHAINS = getChainsForNetwork('mainnet');
 export const TESTNET_CHAINS = getChainsForNetwork('testnet');
 
-export function getTokenAddressesForChain(chainId: number): Record<string, string> {
+export function getTokenAddressesForChain(chainId: number | string): Record<string, string> {
     const chain = getChainById(chainId);
     if (!chain) return {};
     return Object.fromEntries(chain.assets.map((a) => [a.symbol, a.address]));
 }
 
-export function getAssetsForChain(chainId: number): ChainAsset[] {
+export function getAssetsForChain(chainId: number | string): ChainAsset[] {
     return getChainById(chainId)?.assets ?? [];
 }
 
-export function getAssetBySymbol(chainId: number, symbol: string): ChainAsset | undefined {
-    return getChainById(chainId)?.assets.find((a) => a.symbol.toUpperCase() === symbol.toUpperCase());
+export function getAssetBySymbol(chainId: number | string, symbol: string): ChainAsset | undefined {
+    return getChainById(chainId)?.assets.find((a) => a.symbol?.toUpperCase() === symbol?.toUpperCase());
 }
 
-export function getAssetByAddress(chainId: number, address: string): ChainAsset | undefined {
+export function getAssetByAddress(chainId: number | string, address: string): ChainAsset | undefined {
     const chain = getChainById(chainId);
     if (!chain) return undefined;
 
@@ -225,32 +231,32 @@ export function getAssetByAddress(chainId: number, address: string): ChainAsset 
     return chain.assets.find((a) => a.address.toLowerCase() === addr);
 }
 
-export function getChainName(chainId: number): string {
+export function getChainName(chainId: number | string): string {
     return getChainById(chainId)?.name ?? 'Unknown';
 }
 
-export function getChainNativeSymbol(chainId: number): string {
+export function getChainNativeSymbol(chainId: number | string): string {
     return getChainById(chainId)?.nativeCurrency.symbol ?? 'ETH';
 }
 
-export function getChainLogoUrl(chainId: number): string | undefined {
+export function getChainLogoUrl(chainId: number | string): string | undefined {
     return getChainById(chainId)?.logoURI;
 }
 
-export function getChainRangoSymbol(chainId: number): string {
+export function getChainRangoSymbol(chainId: number | string): string {
     const chain = getChainById(chainId);
     return (chain as any)?.rangoSymbol || chain?.symbol || 'ETH';
 }
 
-export function getTokenAddress(chainId: number, symbol: keyof WellKnownTokens): string | undefined {
+export function getTokenAddress(chainId: number | string, symbol: keyof WellKnownTokens): string | undefined {
     return getChainById(chainId)?.tokens[symbol];
 }
 
 export function getGlobalAssetMetadata(symbol: string): { logoURI?: string } | undefined {
     for (const chain of CHAIN_REGISTRY) {
-        const asset = chain.assets.find(a => a.symbol.toUpperCase() === symbol.toUpperCase());
+        const asset = chain.assets.find(a => a.symbol?.toUpperCase() === symbol?.toUpperCase());
         if (asset?.logoURI) return { logoURI: asset.logoURI };
-        if (chain.nativeCurrency.symbol.toUpperCase() === symbol.toUpperCase()) {
+        if (chain.nativeCurrency.symbol?.toUpperCase() === symbol?.toUpperCase()) {
             return { logoURI: chain.nativeCurrency.logoURI };
         }
     }
@@ -258,7 +264,7 @@ export function getGlobalAssetMetadata(symbol: string): { logoURI?: string } | u
 }
 
 export function getExplorerUrl(
-    chainId: number,
+    chainId: number | string,
     type: 'tx' | 'block' | 'address',
     value: string
 ): string {
@@ -267,7 +273,7 @@ export function getExplorerUrl(
 }
 
 export function registerDynamicAssets(
-    chainId: number,
+    chainId: number | string,
     newAssets: ChainAsset[],
     newTokens?: WellKnownTokens
 ): ChainConfig | undefined {
@@ -296,7 +302,7 @@ export function registerDynamicAssets(
     return updatedChain;
 }
 
-export function chainTypeToId(slug: string, network: NetworkType): number {
+export function chainTypeToId(slug: string, network: NetworkType): number | string {
     return getChainBySlug(slug, network)?.chainId ?? 1;
 }
 
@@ -317,7 +323,7 @@ export async function initDynamicTokenLists() {
                 const tokens = await response.json();
 
                 let dynamicAssets: ChainAsset[] = [];
-                if (Array.isArray(tokens.assets) && (chain.chainId === 9000000 || chain.chainId === 9000001)) {
+                if (Array.isArray(tokens.assets) && (chain.chainId === 'pubnet' || chain.chainId === 'testnet')) {
                     dynamicAssets = tokens.assets.map((asset: any) => ({
                         asset: `${asset.code}-${asset.issuer}`,
                         type: 'STELLAR',

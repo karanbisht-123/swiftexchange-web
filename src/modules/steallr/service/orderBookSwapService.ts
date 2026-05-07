@@ -157,6 +157,7 @@ export class OrderBookSwapService extends StellarBaseService {
           },
           onerror: (error: any) => {
             console.error('[StellarOrderbook] Stream error:', error);
+            if (closeStream) closeStream();
             if (onError) {
               onError(error);
             }

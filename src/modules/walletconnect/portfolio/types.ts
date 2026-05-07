@@ -1,7 +1,7 @@
 import { type Asset } from '../store/portfolioStore';
 
 export interface PortfolioFetchParams {
-  connectedWallets: Record<string, { address: string } | undefined>;
+  connectedWallets: Record<string, { address: string; dydxAddress?: string } | undefined>;
   network: string;
 }
 

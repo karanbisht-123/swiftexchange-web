@@ -2,11 +2,11 @@ const STORAGE_KEY = 'swiftex_local_transactions';
 const MAX_TRANSACTIONS = 30;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval' | 'trustline' | 'claim' | 'orderbook';
+export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval' | 'trustline' | 'claim' | 'orderbook' | 'crosschain-swap';
 
 export interface LocalTransaction {
   hash: string;
-  chainId: number;
+  chainId: number | string;
   type: TransactionType;
   timestamp: number;
   description?: string;
@@ -115,25 +115,8 @@ export const clearLocalTransactions = (): void => {
   }
 };
 
-export const getTransactionsByChain = (chainId: number): LocalTransaction[] => {
+export const getTransactionsByChain = (chainId: number | string): LocalTransaction[] => {
   return getLocalTransactions().filter(tx => tx.chainId === chainId);
 };
 
-export const cleanupOldWalletTransactions = (currentWallets: string[], currentNetwork: string): void => {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
 
-    const lowerAddresses = currentWallets.map(addr => addr.toLowerCase());
-    const transactions: LocalTransaction[] = JSON.parse(stored);
-    const filtered = transactions.filter(tx =>
-      tx.from && lowerAddresses.includes(tx.from.toLowerCase()) && tx.network === currentNetwork
-    );
-
-    if (filtered.length !== transactions.length) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-    }
-  } catch (error) {
-    console.error('Failed to cleanup old wallet transactions:', error);
-  }
-};

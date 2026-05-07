@@ -9,7 +9,7 @@ interface TransactionDetailsSheetProps {
   transaction: TransactionItem | LocalTransactionWithStatus;
   isOpen: boolean;
   onClose: () => void;
-  chainId: number;
+  chainId: number | string;
   incoming?: boolean;
   isSelf?: boolean;
   onRefresh?: () => void;
@@ -36,7 +36,7 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-hidden p-4 bg-primary/50">
+        <div className="flex-1 overflow-hidden p-4 bg-primary">
           <TransactionDetailsView
             transaction={transaction}
             chainId={chainId}

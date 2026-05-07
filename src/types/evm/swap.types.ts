@@ -18,6 +18,7 @@ export interface SwapQuoteRequest {
     address: string;
     balance: string;
     logoUri: string | null;
+    chainId?: number | string;
   };
   tokenOut: {
     symbol: string;
@@ -26,10 +27,12 @@ export interface SwapQuoteRequest {
     address: string;
     balance: string;
     logoUri: string | null;
+    chainId?: number | string;
   };
   amount: string;
-  swapType: any;
+  recipient?: string;
 }
+
 
 export interface SwapQuote {
   inputAmount: string;
@@ -42,7 +45,17 @@ export interface SwapQuote {
   poolAddress: string;
   priceImpact: string;
   rawQuote: any;
+  provider: string;
+  minimumReceived?: string;
 }
+
+
+export interface UnifiedSwapResponse {
+  success: boolean;
+  provider: string;
+  data: any;
+}
+
 
 export interface PrepareRequest {
   address: string;
@@ -140,6 +153,7 @@ export interface FusionOrder {
     allowedSender: string;
     makingAmount: string;
     takingAmount: string;
+    makerTraits: string;
     offsets: string;
     interactions: string;
   };

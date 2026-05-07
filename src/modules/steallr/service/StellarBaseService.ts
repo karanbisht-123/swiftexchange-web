@@ -78,7 +78,7 @@ export class StellarBaseService {
 
   async getAssetsWithBalances(address: string): Promise<{ tokens: TokenInfo[], subentryCount: number }> {
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
-    const chainId = isMainnet ? 9000000 : 9000001;
+    const chainId = isMainnet ? 'pubnet' : 'testnet';
     const chainConfig = getChainById(chainId);
 
     if (!chainConfig) return { tokens: [], subentryCount: 0 };

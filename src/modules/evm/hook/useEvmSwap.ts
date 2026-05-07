@@ -12,14 +12,15 @@ import {
 } from '../service/tokenListService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
-import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap, fetchRangoBestRoute, fetchRangoConfirmRoute, fetchRangoCheckApproval, fetchRangoPrepareTx } from '../utils/evmSwapUtils';
+import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap, fetchRangoConfirmRoute, fetchRangoCheckApproval, fetchRangoPrepareTx } from '../utils/evmSwapUtils';
+
 import { rpcManager } from '../utils/rpcProvider';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
 import { isEvmChain } from '../utils/Chainregistry';
 
 interface UseEvmSwapProps {
-  chainId: number;
+  chainId: number | string;
   senderAddress: string;
   getProvider: (type: WalletType) => any;
 }
@@ -49,7 +50,8 @@ interface UseEvmSwapActions {
   fetchFusionQuote: (
     sellAsset: TokenInfo,
     buyAsset: TokenInfo,
-    amount: string
+    amount: string,
+    decimals?: number
   ) => Promise<FusionQuote>;
 
   performSwap: (
@@ -64,22 +66,17 @@ interface UseEvmSwapActions {
     sellAsset: TokenInfo,
     buyAsset: TokenInfo,
     sellAmount: string,
-    preset?: string
+    preset?: string,
+    onProgress?: (step: 'approving' | 'signing') => void
   ) => Promise<string>;
 
   setGasless: (enabled: boolean) => void;
-  fetchRangoQuote: (
-    fromChainId: number,
-    toChainId: number,
-    sellAsset: TokenInfo,
-    buyAsset: TokenInfo,
-    amount: string,
-    slippage?: string
-  ) => Promise<any>;
+
+
   confirmRangoRoute: (
     requestId: string,
-    fromChainId: number,
-    toChainId: number,
+    fromChainId: number | string,
+    toChainId: number | string,
     fromAddress: string,
     toAddress: string
   ) => Promise<any>;
@@ -108,6 +105,8 @@ export const useEvmSwap = ({
 
   const activeSwapId = useRef<string | null>(null);
   const quoteAbortController = useRef<AbortController | null>(null);
+
+
   const latestQuoteRequestId = useRef<number>(0);
   const isMounted = useRef<boolean>(true);
   useEffect(() => {
@@ -115,6 +114,8 @@ export const useEvmSwap = ({
     return () => {
       isMounted.current = false;
       quoteAbortController.current?.abort();
+
+
     };
   }, []);
 
@@ -253,12 +254,15 @@ export const useEvmSwap = ({
       sellAsset: TokenInfo,
       buyAsset: TokenInfo
     ): Promise<SwapQuote> => {
+
+      console.log(request, "+++++++++++++++++++++++++++")
+
       quoteAbortController.current?.abort();
       quoteAbortController.current = new AbortController();
 
       const requestId = ++latestQuoteRequestId.current;
 
-      updateState({ quoteLoading: true, error: null, quote: null });
+      updateState({ quoteLoading: true, error: null });
 
       try {
         if (!request.amount || parseFloat(request.amount) <= 0) {
@@ -267,7 +271,10 @@ export const useEvmSwap = ({
         if (!sellAsset || !buyAsset) {
           throw new Error('Invalid assets selected');
         }
-        if (sellAsset.address.toLowerCase() === buyAsset.address.toLowerCase()) {
+        if (
+          sellAsset.address.toLowerCase() === buyAsset.address.toLowerCase() &&
+          sellAsset.chainId === buyAsset.chainId
+        ) {
           throw new Error('Cannot swap same token');
         }
 
@@ -282,9 +289,14 @@ export const useEvmSwap = ({
         }
 
         if (!quoteAbortController.current.signal.aborted) {
-          updateState({ quote: quoteResponse, quoteLoading: false });
+          updateState({
+            quote: quoteResponse,
+            rangoQuote: quoteResponse.provider === 'RANGO' ? quoteResponse.rawQuote : null,
+            quoteLoading: false
+          });
         }
         return quoteResponse;
+
       } catch (err: any) {
         if (err.name === 'AbortError' || quoteAbortController.current?.signal.aborted) {
           return Promise.reject(new Error('Quote request cancelled'));
@@ -308,6 +320,10 @@ export const useEvmSwap = ({
       buyAsset: TokenInfo,
       amount: string
     ): Promise<FusionQuote> => {
+      quoteAbortController.current?.abort();
+      quoteAbortController.current = new AbortController();
+      latestQuoteRequestId.current++;
+
       updateState({ quoteLoading: true, error: null });
 
       try {
@@ -316,15 +332,11 @@ export const useEvmSwap = ({
           sellAsset.address,
           buyAsset.address,
           amount,
-          senderAddress
+          senderAddress,
+          sellAsset.decimals
         );
 
-        updateState({
-          fusionQuote: fusionQuoteData,
-          quoteLoading: false,
-          error: null,
-        });
-
+        updateState({ fusionQuote: fusionQuoteData, quoteLoading: false, error: null });
         return fusionQuoteData;
       } catch (err: any) {
         const errorMsg = parseSwapError(err);
@@ -404,7 +416,8 @@ export const useEvmSwap = ({
       sellAsset: TokenInfo,
       buyAsset: TokenInfo,
       sellAmount: string,
-      preset?: string
+      preset?: string,
+      onProgress?: (step: 'approving' | 'signing') => void
     ): Promise<string> => {
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
@@ -422,7 +435,8 @@ export const useEvmSwap = ({
           sellAsset,
           buyAsset,
           sellAmount,
-          getProvider
+          getProvider,
+          onProgress
         );
 
         const currentNetwork = useWalletStore.getState().network;
@@ -466,6 +480,8 @@ export const useEvmSwap = ({
     activeSwapId.current = null;
     latestQuoteRequestId.current++;
     quoteAbortController.current?.abort();
+
+
     updateState({
       quote: null,
       txHash: null,
@@ -477,58 +493,15 @@ export const useEvmSwap = ({
     });
   }, [updateState]);
 
-  const fetchRangoQuote = useCallback(
-    async (
-      fromChainId: number,
-      toChainId: number,
-      sellAsset: TokenInfo,
-      buyAsset: TokenInfo,
-      amount: string,
-      slippage: string = "1.0"
-    ): Promise<any> => {
-      updateState({ quoteLoading: true, error: null, rangoQuote: null });
 
-      try {
-        const toChainTokens = getTokensForChain(toChainId);
-        const toChainAsset = buyAsset.address 
-          ? toChainTokens.find((t: any) => t.address.toLowerCase() === buyAsset.address.toLowerCase())
-          : toChainTokens.find((t: any) => t.symbol.toUpperCase() === buyAsset.symbol.toUpperCase());
 
-        const fromAddress = sellAsset.address || null;
-        const toAddress = toChainAsset?.address || buyAsset.address || null;
-
-        const rangoData = await fetchRangoBestRoute(
-          fromChainId,
-          sellAsset.symbol,
-          fromAddress,
-          toChainId,
-          buyAsset.symbol,
-          toAddress,
-          amount,
-          slippage
-        );
-
-        if ((!rangoData.result || (Array.isArray(rangoData.result) && rangoData.result.length === 0)) && rangoData.diagnosisMessages) {
-          throw rangoData;
-        }
-
-        updateState({ rangoQuote: rangoData, quoteLoading: false });
-        return rangoData;
-      } catch (err: any) {
-        const errorMsg = parseSwapError(err);
-        updateState({ error: errorMsg, quoteLoading: false, rangoQuote: null });
-        throw new Error(errorMsg);
-      }
-    },
-    [updateState]
-  );
 
 
   const confirmRangoRoute = useCallback(
     async (
       requestId: string,
-      fromChainId: number,
-      toChainId: number,
+      fromChainId: number | string,
+      toChainId: number | string,
       fromAddress: string,
       toAddress: string
     ): Promise<any> => {
@@ -590,7 +563,7 @@ export const useEvmSwap = ({
     fetchFusionQuote,
     performSwap,
     performFusionSwap,
-    fetchRangoQuote,
+
     confirmRangoRoute,
     checkRangoApproval: checkRangoApprovalAction,
     prepareRangoTx: prepareRangoTxAction,

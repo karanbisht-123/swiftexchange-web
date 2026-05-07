@@ -9,12 +9,12 @@ import {
 
 export type ActionType = 'SEND' | 'RECEIVE' | 'BRIDGE' | 'SWAP';
 
-
 export interface AssetSelectorState {
   isOpen: boolean;
   actionType: ActionType;
   defaultNetwork: string | number | null;
   pairedChainId: string | number | null;
+  showAllStellarAssets: boolean;
   onSelect: ((asset: any) => void) | null;
 }
 
@@ -22,6 +22,7 @@ interface OpenOptions {
   onSelect?: (asset: any) => void;
   defaultNetwork?: string | number;
   pairedChainId?: string | number;
+  showAllStellarAssets?: boolean;
 }
 
 interface AssetSelectorDispatch {
@@ -40,6 +41,7 @@ const initialState: AssetSelectorState = {
   actionType: 'SEND',
   defaultNetwork: null,
   pairedChainId: null,
+  showAllStellarAssets: false,
   onSelect: null,
 };
 
@@ -51,6 +53,7 @@ function reducer(state: AssetSelectorState, action: Action): AssetSelectorState 
         actionType: action.actionType,
         defaultNetwork: action.options?.defaultNetwork ?? null,
         pairedChainId: action.options?.pairedChainId ?? null,
+        showAllStellarAssets: !!action.options?.showAllStellarAssets,
         onSelect: action.options?.onSelect ?? null,
       };
     case 'CLOSE':

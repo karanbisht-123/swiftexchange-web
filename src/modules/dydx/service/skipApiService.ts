@@ -93,7 +93,7 @@ export const skipApiService = {
 
   async getDepositRoute(
     assetSymbol: string,
-    evmChainId: number,
+    evmChainId: number | string,
     amountHuman: number,
     goFast = false,
     tokenAddress?: string,
@@ -125,7 +125,7 @@ export const skipApiService = {
   },
 
   // Fetch the optimal route from Noble → destination EVM chain.
-  async getWithdrawalRoute(destEvmChainId: number, amountHuman: number): Promise<SkipRoute> {
+  async getWithdrawalRoute(destEvmChainId: number | string, amountHuman: number): Promise<SkipRoute> {
     const destAssetDenom = getEvmSourceDenom('USDC', destEvmChainId);
     const amountIn = Math.floor(amountHuman * 1e6).toString();
 
@@ -183,11 +183,11 @@ export const skipApiService = {
     };
   },
 
-  getUsdcContractForChain: (chainId: number) => getEvmSourceDenom('USDC', chainId),
+  getUsdcContractForChain: (chainId: number | string) => getEvmSourceDenom('USDC', chainId),
 
   getSourceDenomForAsset: getEvmSourceDenom,
 
-  toAmountIn: (amount: number, symbol: string, decimals?: number, chainId?: number) =>
+  toAmountIn: (amount: number, symbol: string, decimals?: number, chainId?: number | string) =>
     toAtomicAmount(amount, symbol, decimals, chainId),
 
   formatDuration: formatBridgeDuration,
