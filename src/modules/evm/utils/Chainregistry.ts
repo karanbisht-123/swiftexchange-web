@@ -207,7 +207,7 @@ export function getAssetsForChain(chainId: number | string): ChainAsset[] {
 }
 
 export function getAssetBySymbol(chainId: number | string, symbol: string): ChainAsset | undefined {
-    return getChainById(chainId)?.assets.find((a) => a.symbol.toUpperCase() === symbol.toUpperCase());
+    return getChainById(chainId)?.assets.find((a) => a.symbol?.toUpperCase() === symbol?.toUpperCase());
 }
 
 export function getAssetByAddress(chainId: number | string, address: string): ChainAsset | undefined {
@@ -254,9 +254,9 @@ export function getTokenAddress(chainId: number | string, symbol: keyof WellKnow
 
 export function getGlobalAssetMetadata(symbol: string): { logoURI?: string } | undefined {
     for (const chain of CHAIN_REGISTRY) {
-        const asset = chain.assets.find(a => a.symbol.toUpperCase() === symbol.toUpperCase());
+        const asset = chain.assets.find(a => a.symbol?.toUpperCase() === symbol?.toUpperCase());
         if (asset?.logoURI) return { logoURI: asset.logoURI };
-        if (chain.nativeCurrency.symbol.toUpperCase() === symbol.toUpperCase()) {
+        if (chain.nativeCurrency.symbol?.toUpperCase() === symbol?.toUpperCase()) {
             return { logoURI: chain.nativeCurrency.logoURI };
         }
     }

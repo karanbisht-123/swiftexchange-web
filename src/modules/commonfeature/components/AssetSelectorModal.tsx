@@ -30,7 +30,7 @@ interface NetworkOption {
 
 const AssetSelectorModal: FC = () => {
   const navigate = useNavigate();
-  const { isOpen, actionType, defaultNetwork, pairedChainId, onSelect, closeAssetSelector } = useAssetSelectorModal();
+  const { isOpen, actionType, defaultNetwork, pairedChainId, showAllStellarAssets, onSelect, closeAssetSelector } = useAssetSelectorModal();
   const { network: currentNetwork, connectedWallets } = useWalletStore();
   const { assets: walletAssets } = useWalletAssets(currentNetwork);
 
@@ -142,7 +142,7 @@ const AssetSelectorModal: FC = () => {
         result = [];
       } else {
         const registryTokens = getTokensForChain(activeChainId);
-        if (isStellarInvolved) {
+        if (isStellarInvolved && !showAllStellarAssets) {
           const chainConfig = getChainById(activeChainId);
           const supportedSymbols = chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
           result = registryTokens

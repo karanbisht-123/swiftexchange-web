@@ -15,10 +15,10 @@ export const TransactionMonitor: React.FC = () => {
   useEffect(() => {
     const checkPendingTransactions = async () => {
       const pendingTxs = getLocalTransactions().filter(tx => tx.status === 'pending');
-      
+
       for (const tx of pendingTxs) {
         if (monitoredHashes.current.has(tx.hash)) continue;
-        
+
         monitoredHashes.current.add(tx.hash);
         monitorTransaction(tx);
       }
@@ -41,7 +41,7 @@ export const TransactionMonitor: React.FC = () => {
         if (receipt) {
           const isSuccess = receipt.status === 1;
           updateLocalTransactionStatus(tx.hash, isSuccess ? 'success' : 'failed');
-          
+
           showToast({
             type: tx.type === 'bridge' ? 'BRIDGE' : 'EVM_SWAP',
             title: isSuccess ? 'Transaction Confirmed' : 'Transaction Failed',
@@ -55,7 +55,7 @@ export const TransactionMonitor: React.FC = () => {
       }
     };
 
-    const interval = setInterval(checkPendingTransactions, 10000); // Check for new pending txs every 10s
+    const interval = setInterval(checkPendingTransactions, 10000);
     checkPendingTransactions();
 
     return () => clearInterval(interval);

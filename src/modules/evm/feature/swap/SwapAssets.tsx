@@ -448,37 +448,35 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     } else {
       if (!selectedSellAsset || !selectedBuyAsset) return;
 
-      if (isStellar(fromChainId) || isStellar(toChainId)) {
+      if (isStellar(fromChainId)) {
         setActiveQuote({ source: 'bridge', data: null, error: null, loading: true });
         try {
-          if (isStellar(fromChainId)) {
-            const tokens = await getSupportedTokens();
-            const fromChainSym = ChainSymbol.SRB;
-            let toChainSym: any = toChainConfig?.nativeCurrency.symbol;
-            if (toChainSym === 'BNB') toChainSym = ChainSymbol.BSC;
-            if (toChainSym === 'AVAX') toChainSym = ChainSymbol.AVA;
+          const tokens = await getSupportedTokens();
+          const fromChainSym = ChainSymbol.SRB;
+          let toChainSym: any = toChainConfig?.nativeCurrency.symbol;
+          if (toChainSym === 'BNB') toChainSym = ChainSymbol.BSC;
+          if (toChainSym === 'AVAX') toChainSym = ChainSymbol.AVA;
 
-            const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol.toUpperCase() === sellAssetSymbol.toUpperCase());
-            const dst = tokens.find(t => t.chainSymbol === toChainSym && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
+          const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol.toUpperCase() === sellAssetSymbol.toUpperCase());
+          const dst = tokens.find(t => t.chainSymbol === toChainSym && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
 
-            if (src && dst) {
-              const sq = await getStellarBridgeQuote({ amount: sellAmount, sourceToken: src, destinationToken: dst, slippageTolerance });
-              setActiveQuote({
-                source: 'bridge',
-                loading: false,
-                error: null,
-                data: {
-                  ...sq,
-                  minimumAmountOut: sq.amountToBeReceived,
-                  conversionRate: sq.exchangeRate,
-                  completionTime: sq.transferTimeMs,
-                  fee: {
-                    native: { amount: sq.feeOptions.native.float, symbol: fromChainConfig?.nativeCurrency.symbol },
-                    stablecoin: sq.feeOptions.stablecoin ? { amount: sq.feeOptions.stablecoin.float, symbol: 'USDC' } : null
-                  }
+          if (src && dst) {
+            const sq = await getStellarBridgeQuote({ amount: sellAmount, sourceToken: src, destinationToken: dst, slippageTolerance });
+            setActiveQuote({
+              source: 'bridge',
+              loading: false,
+              error: null,
+              data: {
+                ...sq,
+                minimumAmountOut: sq.amountToBeReceived,
+                conversionRate: sq.exchangeRate,
+                completionTime: sq.transferTimeMs,
+                fee: {
+                  native: { amount: sq.feeOptions.native.float, symbol: fromChainConfig?.nativeCurrency.symbol },
+                  stablecoin: sq.feeOptions.stablecoin ? { amount: sq.feeOptions.stablecoin.float, symbol: 'USDC' } : null
                 }
-              });
-            }
+              }
+            });
           }
         } catch (err) {
           console.error('Bridge quote error:', err);
@@ -566,9 +564,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
 
   const hasActiveCrossChainQuote = useMemo(() => {
-    if (actionType !== 'BRIDGE' || isStellar(fromChainId)) return false;
+    if (actionType !== 'BRIDGE') return false;
     return activeQuote.source === 'bridge' ? !!activeQuote.data : (!!rangoQuote || !!activeQuote.data);
-  }, [actionType, fromChainId, activeQuote.source, activeQuote.data, rangoQuote]);
+  }, [actionType, activeQuote.source, activeQuote.data, rangoQuote]);
 
   const isErrorState = !!(swapError || isInsufficientBalance || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
 
@@ -837,12 +835,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const requestId = currentRangoQuote.requestId || currentRangoQuote.result?.requestId;
           if (!requestId) throw new Error('No Rango requestId available');
 
+          const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
+          if (!destAddr) throw new Error('Destination address not found');
+
           const confirmResult = await confirmRangoRoute(
             requestId,
             fromChainId,
             toChainId,
             evmAddress,
-            evmAddress
+            destAddr
           );
 
           if (!confirmResult?.ok && !confirmResult?.result) {
@@ -1057,6 +1058,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isChainSwitching ||
     isSameAssetSelected;
 
+  console.log("{{{{{{{{{{{}}", activeQuote, "{{{{{{{{{{{")
   const calculatedBuyAmount = useMemo(() => {
     if (isSameAssetSelected) return 'SELECT DIFFERENT PAIR';
 
@@ -1297,7 +1299,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     1 {sellAssetSymbol} ≈ {actionType === 'SWAP'
                       ? (isGasless && fusionQuote && showFusionScreen
                         ? (Number(fusionQuote.prices.usd.fromToken) / Number(fusionQuote.prices.usd.toToken)).toFixed(6)
-                        : isStellar(fromChainId) && activeQuote.source === 'stellar'
+                        : isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data
                           ? (Number(activeQuote.data.estimatedOutput) / Number(activeQuote.data.inputAmount)).toFixed(6)
                           : portfolioUtils.formatBalance(swapQuote?.pricePerToken || '0'))
                       : activeQuote.source === 'rango'
@@ -1415,28 +1417,39 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       );
                     })() : (
                       <>
-                        {activeQuote.data?.fee?.[feePayType] && (
+                        {activeQuote.data?.fee && (activeQuote.data.fee.native || activeQuote.data.fee.stablecoin) && (
                           <div className="flex items-center justify-between py-2 border-b border-white/5">
                             <span className="text-[10px] font-black uppercase tracking-widest text-muted">Bridge Fee</span>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] font-black text-primary">
-                                {Number(activeQuote.data.fee[feePayType].amount).toFixed(4)}
-                              </span>
-                              <span className="text-[9px] font-black text-muted">{activeQuote.data.fee[feePayType].symbol}</span>
-                              <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5 ml-1">
-                                <button
-                                  onClick={() => setFeePayType('native')}
-                                  className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-widest transition-all ${feePayType === 'native' ? 'bg-primary text-secondary' : 'text-muted hover:text-primary/70'}`}
-                                >
-                                  {fromChainConfig?.nativeCurrency.symbol}
-                                </button>
-                                <button
-                                  onClick={() => setFeePayType('stablecoin')}
-                                  className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-widest transition-all ${feePayType === 'stablecoin' ? 'bg-primary text-secondary' : 'text-muted hover:text-primary/70'}`}
-                                >
-                                  STABLE
-                                </button>
-                              </div>
+                              {(() => {
+                                const currentFee = activeQuote.data.fee[feePayType] || activeQuote.data.fee.stablecoin || activeQuote.data.fee.native;
+                                return (
+                                  <>
+                                    <span className="text-[11px] font-black text-primary">
+                                      {Number(currentFee.amount).toFixed(4)}
+                                    </span>
+                                    <span className="text-[9px] font-black text-muted">{currentFee.symbol}</span>
+                                  </>
+                                );
+                              })()}
+                              {activeQuote.data.fee.native && activeQuote.data.fee.stablecoin && (
+                                <div className="flex items-center gap-1 bg-secondary/50 rounded-full p-0.5 ml-1">
+                                  <button
+                                    onClick={() => setFeePayType('native')}
+                                    className={`p-0.5 rounded-full transition-all flex items-center justify-center ${feePayType === 'native' ? 'bg-primary/20 ring-1 ring-primary/50' : 'opacity-40 hover:opacity-100'}`}
+                                    title={`Pay with ${activeQuote.data.fee.native.symbol}`}
+                                  >
+                                    <img src={fromChainConfig?.nativeCurrency.logoURI || `https://ui-avatars.com/api/?name=${activeQuote.data.fee.native.symbol}&background=random`} className="w-4 h-4 rounded-full object-cover" alt="Native" />
+                                  </button>
+                                  <button
+                                    onClick={() => setFeePayType('stablecoin')}
+                                    className={`p-0.5 rounded-full transition-all flex items-center justify-center ${feePayType === 'stablecoin' ? 'bg-primary/20 ring-1 ring-primary/50' : 'opacity-40 hover:opacity-100'}`}
+                                    title={`Pay with ${activeQuote.data.fee.stablecoin.symbol}`}
+                                  >
+                                    <img src={swapAssets.find(a => a.symbol.toUpperCase() === activeQuote.data.fee.stablecoin.symbol.toUpperCase())?.logoURI || `https://ui-avatars.com/api/?name=${activeQuote.data.fee.stablecoin.symbol}&background=random`} className="w-4 h-4 rounded-full object-cover" alt="Stable" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}

@@ -4,7 +4,7 @@ export const ROUTES = {
   MY_ASSETS: '/my-assets',
   SEND: '/send',
   RECEIVE: '/receive',
-  // BRIDGE: '/bridge',
+  BRIDGE: '/bridge',
   TRADING_STEALLR: '/trading/steallr',
   TRANSACTIONS: '/transactions',
   TRADING_EVM_SWAP: '/trading/evm/swap',

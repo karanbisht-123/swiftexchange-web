@@ -43,6 +43,7 @@ export type DepositStep =
 
 export interface DepositRoute {
   estimatedTime: string;
+  estimatedDurationSeconds: number;
   fee: number;
   receivedAmount: number;
   usdAmountOut: string;
@@ -125,6 +126,7 @@ export const useDydxDeposit = () => {
 
         const result: DepositRoute = {
           estimatedTime: skipApiService.formatDuration(raw.estimatedDurationSeconds),
+          estimatedDurationSeconds: raw.estimatedDurationSeconds,
           fee: raw.estimatedFeesUsd,
           receivedAmount: parseInt(raw.amountOut, 10) / 1e6,
           usdAmountOut: raw.usdAmountOut,

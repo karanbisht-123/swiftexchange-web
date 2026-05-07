@@ -4,8 +4,8 @@ export const RESTRICTED_TRADING_LOCATIONS = [
   'DO', 'VN', 'KH', 'MM', 'KW', 'LY', 'VE', 'NI', 'EC', 'ET',
   'SO', 'YE', 'SS', 'CF', 'CD', 'ZW', 'LR', 'GN', 'SL', 'ML',
 
-  "IN:UK",
-  "IN:UP",
+  // "IN:UK",
+  // "IN:UP",
   // UK
   'GB',
 

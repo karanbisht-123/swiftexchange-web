@@ -10,6 +10,7 @@ import {
   Repeat2,
   SendHorizontal,
   X,
+  ArrowRightLeft
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
@@ -92,11 +93,11 @@ const Sidebar: FC = () => {
       label: 'Swap',
       icon: <Repeat2 className="w-5 h-5" />,
     },
-    // {
-    //   href: ROUTES.BRIDGE,
-    //   label: 'Bridge',
-    //   icon: <ArrowRightLeft className="w-5 h-5" />,
-    // },
+    {
+      href: ROUTES.BRIDGE,
+      label: 'Bridge',
+      icon: <ArrowRightLeft className="w-5 h-5" />,
+    },
     {
       href: ROUTES.TRADING_EVM_FIAT,
       label: 'Fiat On/Off Ramp',
