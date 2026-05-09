@@ -13,6 +13,7 @@ export interface AssetSelectorState {
   isOpen: boolean;
   actionType: ActionType;
   defaultNetwork: string | number | null;
+  forceNetwork: string | number | null;
   pairedChainId: string | number | null;
   showAllStellarAssets: boolean;
   onSelect: ((asset: any) => void) | null;
@@ -21,6 +22,7 @@ export interface AssetSelectorState {
 interface OpenOptions {
   onSelect?: (asset: any) => void;
   defaultNetwork?: string | number;
+  forceNetwork?: string | number;
   pairedChainId?: string | number;
   showAllStellarAssets?: boolean;
 }
@@ -40,6 +42,7 @@ const initialState: AssetSelectorState = {
   isOpen: false,
   actionType: 'SEND',
   defaultNetwork: null,
+  forceNetwork: null,
   pairedChainId: null,
   showAllStellarAssets: false,
   onSelect: null,
@@ -52,6 +55,7 @@ function reducer(state: AssetSelectorState, action: Action): AssetSelectorState 
         isOpen: true,
         actionType: action.actionType,
         defaultNetwork: action.options?.defaultNetwork ?? null,
+        forceNetwork: action.options?.forceNetwork ?? null,
         pairedChainId: action.options?.pairedChainId ?? null,
         showAllStellarAssets: !!action.options?.showAllStellarAssets,
         onSelect: action.options?.onSelect ?? null,

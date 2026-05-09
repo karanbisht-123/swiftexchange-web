@@ -2,7 +2,8 @@ import {
   ArrowUpDown,
   ChevronDown,
   RefreshCw,
-  Zap
+  Zap,
+  Settings
 } from 'lucide-react';
 
 
@@ -19,6 +20,7 @@ import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect'
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import TransactionButton from '../../../commonfeature/components/TransactionButton';
 import { useEvmSwap } from '../../hook/useEvmSwap';
+import { getRangoSlippageWarning } from '../../utils/evmSwapUtils';
 import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata } from '../../utils/Chainregistry';
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
@@ -27,6 +29,7 @@ import StellarTransactionModal from '../../../steallr/components/modals/StellarT
 import { ActionGuard } from '../../../commonfeature/components/ActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
 import FusionQuoteScreen from './components/FusionQuoteScreen';
+import SlippageSettingsModal from './components/SlippageSettingsModal';
 import { parseSwapError, parseWalletError } from '../../utils/swapErrorHandler';
 import { getTokensForChain } from '../../service/tokenListService';
 
@@ -100,8 +103,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>(searchParams.get('buyAsset') || '');
   const [buyAssetAddress, setBuyAssetAddress] = useState<string>(searchParams.get('buyAddress') || '');
   const [sellAmount, setSellAmount] = useState<string>('');
-
-  const slippageTolerance = 0.5;
+  const [isSlippageSettingsOpen, setIsSlippageSettingsOpen] = useState(false);
 
 
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
@@ -165,6 +167,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
     confirmRangoRoute,
     reset: resetSwap,
+    userSlippageTolerance,
+    setUserSlippageTolerance,
   } = useEvmSwap({
     chainId: fromChainId,
     senderAddress: evmAddress,
@@ -408,7 +412,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           if (!fromAsset || !toAsset) return;
 
           setActiveQuote({ source: 'stellar', data: null, error: null, loading: true });
-          const sq = await ammService.getSwapQuote(fromAsset, toAsset, sellAmount, { slippageTolerance });
+          const sq = await ammService.getSwapQuote(fromAsset, toAsset, sellAmount, { slippageTolerance: userSlippageTolerance });
           setActiveQuote({ source: 'stellar', data: sq, error: null, loading: false });
         } catch (err) {
           console.error('Stellar quote error:', err);
@@ -439,6 +443,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             },
             amount: sellAmount,
           };
+          setActiveQuote(prev => ({ ...prev, source: 'swap', loading: false }));
           await fetchSwapQuoteInternal(quoteRequest, selectedSellAsset as any, selectedBuyAsset as any);
         } catch (err: any) {
           if (err?.message === 'Quote request cancelled' || err?.message === 'Quote request superseded') return;
@@ -461,7 +466,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const dst = tokens.find(t => t.chainSymbol === toChainSym && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
 
           if (src && dst) {
-            const sq = await getStellarBridgeQuote({ amount: sellAmount, sourceToken: src, destinationToken: dst, slippageTolerance });
+            const sq = await getStellarBridgeQuote({ amount: sellAmount, sourceToken: src, destinationToken: dst, slippageTolerance: userSlippageTolerance });
             setActiveQuote({
               source: 'bridge',
               loading: false,
@@ -536,7 +541,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         setActiveQuote({ source: shouldUseBridge ? 'bridge' : 'rango', data: null, error: parseSwapError(err), loading: false });
       }
     }
-  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, slippageTolerance, showFusionScreen, isBridgeSupported, getUsdValue, ammService]);
+  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, userSlippageTolerance, showFusionScreen, isBridgeSupported, getUsdValue, ammService]);
 
 
   const resetQuotes = useCallback(() => {
@@ -582,6 +587,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return null;
   }, [isInsufficientBalance, isSameAssetSelected, bridgeTxStatus, bridgeErrorMsg, swapError, actionType, crossChainWarning, activeQuote.error]);
 
+  const slippageWarning = useMemo(() => {
+    if (actionType !== 'BRIDGE' || activeQuote.source !== 'rango') return null;
+    const q = rangoQuote || activeQuote.data;
+    if (!q?.result) return null;
+    return getRangoSlippageWarning(q.result, userSlippageTolerance);
+  }, [actionType, activeQuote.source, rangoQuote, activeQuote.data, userSlippageTolerance]);
+
   const buttonLabel = useMemo(() => {
     if (isFetchingSwapAssets || activeQuote.loading || swapQuoteLoading || isFetchingStellarAssets) return 'FETCHING QUOTES...';
     if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
@@ -593,9 +605,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       return actionType === 'SWAP' ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE & BRIDGE';
     }
 
+    if (slippageWarning) return 'SWAP ANYWAY';
+
     if (activeQuote.source === 'rango' && !isInsufficientBalance && !swapError) return 'SWAP';
     return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
-  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.source, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset]);
+  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.source, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, slippageWarning]);
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
@@ -724,7 +738,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         try {
           setBridgeTxStatus('preparing');
           const tx = await ammService.buildSwapTransaction(stellarAddress, activeQuote.data, {
-            slippageTolerance
+            slippageTolerance: userSlippageTolerance
           });
           setBridgeTxStatus('signing');
           const provider = getProvider(WalletType.STELLAR) as any;
@@ -764,7 +778,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           return;
         }
         try {
-          await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, slippageTolerance);
+          await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, userSlippageTolerance);
           setBridgeTxStatus('idle');
           showToast({
             type: 'EVM_SWAP',
@@ -795,9 +809,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             destinationToken: activeQuote.data.destinationToken,
             fromAccountAddress: stellarAddress,
             toAccountAddress: evmAddress,
+            network: currentNetwork,
             feePaymentMethod: feePayType === 'native' ? FeePaymentMethod.WITH_NATIVE_CURRENCY : FeePaymentMethod.WITH_STABLECOIN,
             messenger: Messenger.ALLBRIDGE,
-            slippageTolerance
+            slippageTolerance: userSlippageTolerance
           });
           setBridgeTxStatus('signing');
           const provider = getProvider(WalletType.STELLAR) as any;
@@ -868,7 +883,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               setStatus: setBridgeTxStatus,
               setHash: setBridgeTxHash,
               addTransaction: addLocalTransaction
-            }
+            },
+            userSlippageTolerance
           );
           setBridgeTxStatus('success');
           showToast({
@@ -890,7 +906,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             destinationAddress: destAddr,
             sourceToken: sellAssetSymbol,
             destinationToken: buyAssetSymbol,
-            slippageTolerance
+            slippageTolerance: userSlippageTolerance
           });
 
           const provider = getProvider(WalletType.EVM) as any;
@@ -948,7 +964,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       }
     }
   }, [
-    actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, slippageTolerance, performSwap, evmAddress,
+    actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, userSlippageTolerance, performSwap, evmAddress,
     stellarAddress, activeQuote, rangoQuote, fromChainId, toChainId, ammService, getProvider,
     isGasless, fetchFusionQuote, feePayType, sellAssetSymbol, buyAssetSymbol, currentNetwork,
     confirmRangoRoute, resetLoadingState
@@ -1093,20 +1109,31 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     try {
       const decimals = (selectedBuyAsset as any).decimals || 18;
       const amountBN = ethers.parseUnits(swapQuote.outputAmount, decimals);
-      const slippageBips = BigInt(Math.floor(slippageTolerance * 100));
+      const slippageBips = BigInt(Math.floor(userSlippageTolerance * 100));
       const minReceivedBN = (amountBN * (10000n - slippageBips)) / 10000n;
       return ethers.formatUnits(minReceivedBN, decimals);
     } catch (err) { return calculatedBuyAmount; }
   })();
 
-
-
   return (
     <PageLayout title="Token Swap" subtitle="Unified Exchange & Bridge" onBack={onClose} showBackButton={!!onClose} maxWidth="lg">
-      <div className="mx-auto space-y-8 px-2 sm:px-0">
+      <div className="mx-auto  px-2 sm:px-0">
+
+        {/* Settings Header - Only show for Rango/Bridge */}
+        {((actionType === 'BRIDGE' && activeQuote.source === 'rango') || (actionType === 'SWAP' && swapQuote?.provider === 'RANGO')) && (
+          <div className="flex justify-end mb-1 relative z-10">
+            <button
+              onClick={() => setIsSlippageSettingsOpen(true)}
+              className="p-2 rounded-full bg-tertiary text-muted hover:text-primary hover:bg-white/5 transition-all"
+              title="Slippage Settings"
+            >
+              <Settings size={16} />
+            </button>
+          </div>
+        )}
 
         {/* Pay Card */}
-        <div className="bg-tertiary rounded-2xl p-4 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+        <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
           <div className={`absolute left-0 top-0 bottom-0 w-1 bg-brand transition-all duration-300 ${isInputFocused ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-50'}`} />
 
           <div className="flex justify-between items-center mb-4 sm:mb-6">
@@ -1198,14 +1225,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         </div>
 
         {/* Swap Middle Button */}
-        <div className="flex justify-center -my-8 relative z-10">
-          <button onClick={handleAssetSwap} className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-secondary flex items-center justify-center shadow-lg hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md">
+        <div className="flex justify-center -my-4 lg:-my-5  relative  z-10">
+          <button onClick={handleAssetSwap} className="w-10 h-10 md:w-12  md:h-12 rounded-xl bg-secondary flex items-center justify-center shadow-lg hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md">
             <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500" />
           </button>
         </div>
 
         {/* Receive Card */}
-        <div className="bg-tertiary rounded-2xl p-4 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+        <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
           <div className="flex justify-between items-center mb-4 sm:mb-6">
             <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
           </div>
@@ -1279,13 +1306,38 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {/* Provider row */}
                 {(swapQuote?.provider || activeQuote.data?.provider || activeQuote.source) && (
                   <div className="flex items-center justify-between py-2 border-b border-white/5">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted">Provider</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted">
+                      Provider
+                    </span>
+
                     <div className="flex items-center gap-1.5">
-                      {(swapQuote?.provider === 'RANGO' || activeQuote.data?.provider === 'RANGO' || activeQuote.source === 'rango') && (
-                        <img src="https://raw.githubusercontent.com/rango-exchange/assets/main/swappers/Across/icon.svg" className="w-4 h-4 rounded-full" alt="" />
-                      )}
+                      {/* Rango */}
+                      {(swapQuote?.provider === 'RANGO' ||
+                        activeQuote.data?.provider === 'RANGO' ||
+                        activeQuote.source === 'rango') && (
+                          <img
+                            src="https://raw.githubusercontent.com/rango-exchange/assets/main/swappers/Across/icon.svg"
+                            className="w-4 h-4 rounded-full"
+                            alt="Rango"
+                          />
+                        )}
+
+                      {/* Uniswap */}
+                      {(swapQuote?.provider === 'UNISWAP' ||
+                        activeQuote.data?.provider === 'UNISWAP'
+                      ) && (
+                          <img
+                            src="https://cryptologos.cc/logos/uniswap-uni-logo.png"
+                            className="w-4 h-4 rounded-full"
+                            alt="Uniswap"
+                          />
+                        )}
+
                       <span className="text-[11px] font-black text-brand uppercase tracking-wider">
-                        {swapQuote?.provider || activeQuote.data?.provider || activeQuote.source?.toUpperCase() || 'UNISWAP'}
+                        {swapQuote?.provider ||
+                          activeQuote.data?.provider ||
+                          activeQuote.source?.toUpperCase() ||
+                          'UNISWAP'}
                       </span>
                     </div>
                   </div>
@@ -1313,10 +1365,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {actionType === 'SWAP' && (
                   <>
                     <div className="flex items-center justify-between py-2 border-b border-white/5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-muted">Slippage</span>
-                      <span className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}>
-                        {isGasless && showFusionScreen ? 'None' : `${((swapQuote?.fee || 0) / 10000).toFixed(2)}%`}
-                      </span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
+                      {swapQuote?.provider === 'RANGO' ? (
+                        <button
+                          onClick={() => setIsSlippageSettingsOpen(true)}
+                          className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
+                        >
+                          {userSlippageTolerance}%
+                        </button>
+                      ) : (
+                        <span className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}>
+                          {isGasless && showFusionScreen ? 'None' : `${userSlippageTolerance}%`}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between py-2 border-b border-white/5">
@@ -1385,6 +1446,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                               {swap.swapperLogo && <img src={swap.swapperLogo} className="w-4 h-4 rounded-full" alt="" />}
                               <span className="text-[11px] font-black text-primary">{swap.swapperId}</span>
                             </div>
+                          </div>
+
+                          <div className="flex items-center justify-between py-2 border-b border-white/5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
+                            <button
+                              onClick={() => setIsSlippageSettingsOpen(true)}
+                              className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
+                            >
+                              {userSlippageTolerance}%
+                            </button>
                           </div>
 
                           {networkFee && (
@@ -1492,15 +1563,36 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             requiredWallets={requiredWallets}
             disabled={isLoadingExecution}
           >
-            <TransactionButton
-              label={buttonLabel}
-              isLoading={isLoadingExecution}
-              isDisabled={isSwapDisabled}
-              isError={!!isErrorState && !isLoadingExecution}
-              onClick={handleUnifiedSwap}
-              icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
-              className={`relative z-10 ${isErrorState && !isLoadingExecution ? '!rounded-t-none border-t-red-500/20' : ''}`}
-            />
+            <>
+              {slippageWarning && (
+                <div className="mb-3 bg-primary border border-blue-500/20 rounded-lg p-3 flex flex-col gap-1.5 relative z-10 shadow-inner-blue-400">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold  uppercase tracking-widest flex items-center gap-1">
+                      High Slippage Risk
+                    </span>
+                    <button
+                      onClick={() => setIsSlippageSettingsOpen(true)}
+                      className="text-[10px] font-black  bg-secondary rounded-md px-4 py-2 hover:opacity-80 transition-all uppercase tracking-widest"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-muted leading-relaxed">
+                    Provider requires <strong>{slippageWarning.recommendedSlippage}%</strong> slippage. Your current setting (<strong>{slippageWarning.userSlippage}%</strong>) may cause the transaction to fail.
+                  </span>
+                </div>
+              )}
+
+              <TransactionButton
+                label={buttonLabel}
+                isLoading={isLoadingExecution}
+                isDisabled={isSwapDisabled}
+                isError={!!isErrorState && !isLoadingExecution}
+                onClick={handleUnifiedSwap}
+                icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
+                className={`relative z-10 ${isErrorState && !isLoadingExecution ? '!rounded-t-none border-t-red-500/20' : ''}`}
+              />
+            </>
           </ActionGuard>
         </div>
 
@@ -1597,6 +1689,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }}
         />
       )}
+
+      <SlippageSettingsModal
+        isOpen={isSlippageSettingsOpen}
+        onClose={() => setIsSlippageSettingsOpen(false)}
+        userSlippageTolerance={userSlippageTolerance}
+        setUserSlippageTolerance={setUserSlippageTolerance}
+        recommendedSlippage={slippageWarning?.recommendedSlippage}
+      />
     </PageLayout>
   );
 };

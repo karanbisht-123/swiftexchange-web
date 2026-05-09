@@ -23,7 +23,7 @@ async function submitToHorizon(
 ): Promise<string> {
   const broadcastUrl = `${horizonUrl}/transactions`;
   const body = new URLSearchParams({ tx: signedXdr });
-  
+
   const res = await fetch(broadcastUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -31,7 +31,7 @@ async function submitToHorizon(
   });
 
   const json = await res.json();
-  
+
   if (!res.ok) {
     const extras = json?.extras?.result_codes;
     if (extras) {
@@ -52,21 +52,21 @@ export const signAndSubmitTransaction = async (
   params: SignAndSubmitParams
 ): Promise<SignAndSubmitResult> => {
   const { xdr, network, networkPassphrase, provider } = params;
-  
+
   try {
     // 1. Handle Freighter Extension
     const win = window as any;
     if (provider?.isFreighter || (win.freighter && provider === win.freighter)) {
       console.log('[StellarTransactionService] Using Freighter');
       const freighter = win.freighterApi || win.freighter;
-      
-      const signResult = await freighter.signTransaction(xdr, { 
-        network, 
-        networkPassphrase 
+
+      const signResult = await freighter.signTransaction(xdr, {
+        network,
+        networkPassphrase
       });
-      
+
       const signedXdr = typeof signResult === 'string' ? signResult : signResult?.signedTxXdr;
-      
+
       if (!signedXdr) {
         throw new Error('Freighter failed to sign the transaction');
       }
@@ -74,25 +74,28 @@ export const signAndSubmitTransaction = async (
       // Submit signed XDR to Horizon
       const config = getStellarConfig(network.toLowerCase() as any);
       const hash = await submitToHorizon(signedXdr, config.horizonUrl);
-      
+
       return { success: true, hash };
     }
 
     // 2. Handle WalletConnect
     if (provider?.client && provider?.session) {
       console.log('[StellarTransactionService] Using WalletConnect');
-      
+
+      console.log("-----------")
       const config = getStellarConfig(network.toLowerCase() as any);
       const stellarNetwork = config.chainId; // 'pubnet' or 'testnet'
-      
+
       const topic = provider.session.topic;
       const chainId = `stellar:${stellarNetwork}`;
-      
+
       const signParams = {
         xdr,
         network: stellarNetwork.toUpperCase(), // 'PUBNET' or 'TESTNET'
         networkPassphrase,
       };
+
+      console.log('[StellarTransactionService] signParams:', signParams);
 
       try {
         // Try signAndSubmitXDR first
@@ -108,19 +111,19 @@ export const signAndSubmitTransaction = async (
         if (result?.status === 'success' || result?.hash) {
           return { success: true, hash: result.hash };
         }
-        
+
         if (result?.signedXDR) {
           const config = getStellarConfig(network.toLowerCase() as any);
           const hash = await submitToHorizon(result.signedXDR, config.horizonUrl);
           return { success: true, hash };
         }
-        
+
         if (typeof result === 'string') {
           return { success: true, hash: result };
         }
       } catch (wcError: any) {
         console.warn('[StellarTransactionService] stellar_signAndSubmitXDR failed, trying fallback...', wcError);
-        
+
         // Fallback: Try stellar_signTransaction if signAndSubmit is not supported
         const signResult = await provider.client.request({
           topic,
@@ -132,7 +135,7 @@ export const signAndSubmitTransaction = async (
         });
 
         const signedXdr = signResult?.signedXDR || (typeof signResult === 'string' ? signResult : null);
-        
+
         if (!signedXdr) {
           throw new Error('Wallet failed to sign the transaction');
         }
@@ -158,7 +161,7 @@ export const signAndSubmitTransaction = async (
       if (result?.status === 'success' || result?.hash) {
         return { success: true, hash: result.hash };
       }
-      
+
       return { success: false, error: 'Transaction failed' };
     }
 

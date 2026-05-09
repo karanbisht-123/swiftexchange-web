@@ -270,16 +270,11 @@ export class AmmSwapService extends StellarBaseService {
       provider: walletProvider,
     });
 
-    if (result.success && result.hash) {
-      return result.hash;
+    if (result.success) {
+      return result.hash || 'Transaction submitted successfully!';
     }
-    if (result.success && !result.hash) {
-      return 'Transaction submitted successfully!';
-    }
-
-    throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
-
-    throw new Error(`Swap execution failed: ${result.error || 'Unknown error'}`);
+    
+    throw new Error(result.error || 'Swap execution failed');
   }
 
   async checkLiquidityAvailable(

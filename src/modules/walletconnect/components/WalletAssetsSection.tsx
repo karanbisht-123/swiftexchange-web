@@ -383,11 +383,11 @@ const WalletAssetsSection = () => {
 
   const handleTrade = useCallback((asset: Asset) => {
     if (asset.chainType === 'stellar') {
-      navigate(ROUTES.TRADING_STEALLR, { state: { selectedAsset: asset, fromTradeButton: true } });
+      navigate(`${ROUTES.BRIDGE}?asset=${asset.symbol}`);
       return;
     }
     navigate(ROUTES.TRADING_EVM_SWAP, { state: { selectedAsset: asset } });
-  }, [navigate]);
+  }, [navigate, ROUTES.BRIDGE, ROUTES.TRADING_EVM_SWAP]);
 
   const handleSend = useCallback((asset: Asset) => {
     const chainId = asset.chainType === 'stellar' ? 'stellar' : asset.chainId;
@@ -405,12 +405,12 @@ const WalletAssetsSection = () => {
       return;
     }
     if (asset.chainType === 'stellar') {
-      navigate(ROUTES.TRADING_EVM_SWAP, { state: { selectedAsset: asset, isPerp: true } });
+      navigate(`${ROUTES.BRIDGE}?asset=${asset.symbol}&type=perp`);
       return;
     }
     setSelectedAsset(asset);
     setIsDepositModalOpen(true);
-  }, [navigate]);
+  }, [navigate, ROUTES.BRIDGE, ROUTES.TRADING_DYDX_FUTURES]);
 
   const handleCloseDepositModal = useCallback(() => {
     setIsDepositModalOpen(false);

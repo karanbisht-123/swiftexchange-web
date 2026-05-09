@@ -182,12 +182,58 @@ export function parseSwapError(error: any): string {
     return 'Transaction sequence number mismatch. This can happen if another transaction was recently submitted. Please try again.';
   }
 
-  if (lower.includes('op_no_trust')) {
-    return 'Recipient does not have a trustline for this asset.';
+  // Stellar / Soroban Specifics
+  if (lower.includes('resulting balance is not within the allowed range')) {
+    return 'Insufficient XLM balance. You need more XLM to cover the network reserve and transaction fees.';
   }
 
-  if (lower.includes('tx_insufficient_balance')) {
+  if (lower.includes('error(contract, #10)')) {
+    if (lower.includes('transfer')) {
+      return 'Transfer failed: The contract could not complete the transfer. This is usually due to insufficient balance or trustline issues.';
+    }
+    return 'Contract execution failed. Please ensure you have enough XLM for fees and the minimum reserve.';
+  }
+
+  if (lower.includes('tx_insufficient_balance') || lower.includes('op_underfunded')) {
     return 'Insufficient balance to cover transaction fees and minimum reserve.';
+  }
+
+  if (lower.includes('tx_bad_auth') || lower.includes('op_bad_auth')) {
+    return 'Transaction signing failed. Please verify your wallet connection and try again.';
+  }
+
+  if (lower.includes('tx_insufficient_fee')) {
+    return 'Network fee is too low. Please try again or increase the fee in your wallet.';
+  }
+
+  if (lower.includes('op_no_trust')) {
+    return 'Asset trustline missing. You must enable this asset in your wallet before you can receive it.';
+  }
+
+  if (lower.includes('op_src_not_found')) {
+    return 'Stellar account not activated. Send at least 1 XLM to this address to activate it.';
+  }
+
+  if (lower.includes('op_limit_exceeded')) {
+    return 'The amount exceeds your trustline limit. Increase the limit in your wallet.';
+  }
+
+  if (lower.includes('simulation failed')) {
+    if (lower.includes('hosterror')) {
+      return 'Transaction simulation failed. This is typically caused by insufficient XLM for fees or missing account reserves.';
+    }
+    return 'Bridge simulation failed. Please check your Stellar account balance and try again.';
+  }
+
+  if (lower.includes('user declined') || lower.includes('user rejected') || lower.includes('dismissed')) {
+    return 'Transaction was cancelled by the user.';
+  }
+
+  if (processedMessage.length > 150) {
+    if (lower.includes('balance') || lower.includes('underfunded')) {
+      return 'Transaction failed due to insufficient balance or reserve requirements.';
+    }
+    return 'The transaction failed. Please ensure your wallet is funded and try again.';
   }
 
   return processedMessage || 'Swap failed. Please try again.';

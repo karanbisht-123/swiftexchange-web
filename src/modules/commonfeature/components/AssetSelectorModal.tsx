@@ -1,6 +1,3 @@
-// 
-
-
 import { Search, X, Copy, SearchX, Check } from 'lucide-react';
 import { type FC, useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -30,7 +27,7 @@ interface NetworkOption {
 
 const AssetSelectorModal: FC = () => {
   const navigate = useNavigate();
-  const { isOpen, actionType, defaultNetwork, pairedChainId, showAllStellarAssets, onSelect, closeAssetSelector } = useAssetSelectorModal();
+  const { isOpen, actionType, defaultNetwork, forceNetwork, pairedChainId, showAllStellarAssets, onSelect, closeAssetSelector } = useAssetSelectorModal();
   const { network: currentNetwork, connectedWallets } = useWalletStore();
   const { assets: walletAssets } = useWalletAssets(currentNetwork);
 
@@ -45,10 +42,10 @@ const AssetSelectorModal: FC = () => {
 
   useEffect(() => {
     if (isOpen) {
-      setSelectedNetwork(defaultNetwork || 'all');
+      setSelectedNetwork(forceNetwork || defaultNetwork || 'all');
       setSearchQuery('');
     }
-  }, [isOpen, defaultNetwork]);
+  }, [isOpen, defaultNetwork, forceNetwork]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
@@ -73,9 +70,11 @@ const AssetSelectorModal: FC = () => {
     ];
 
     return allNetworks.filter(net => {
+      if (forceNetwork && net.id !== forceNetwork) return false;
       if (net.id === STELLAR_CHAIN_ID && !isStellarConnected) return false;
       if (net.id === DYDX_CHAIN_ID && !isDydxConnected) return false;
       if (net.id !== STELLAR_CHAIN_ID && net.id !== DYDX_CHAIN_ID && net.id !== 'all' && !isEvmConnected) return false;
+      if (net.id === 'all' && forceNetwork) return false;
       if (net.id === 'all') return true;
       if (actionType === 'SEND') return net.sendEnable;
       if (actionType === 'RECEIVE') return net.receiveEnable;
@@ -83,7 +82,7 @@ const AssetSelectorModal: FC = () => {
       if (actionType === 'BRIDGE') return net.bridgeEnable;
       return true;
     });
-  }, [currentNetwork, actionType, isStellarConnected, isEvmConnected]);
+  }, [currentNetwork, actionType, isStellarConnected, isEvmConnected, forceNetwork]);
 
   const allNetworkOption = networks[0];
   const chainNetworks = networks.slice(1);
@@ -222,9 +221,13 @@ const AssetSelectorModal: FC = () => {
 
     return (
       <div style={{ ...style, padding: '0 16px' }}>
-        <button
+        {/* FIX: Changed outer <button> to <div role="button"> to prevent nested button DOM violation */}
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => handleSelect(asset)}
-          className="group flex w-full items-center justify-between px-3 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left"
+          onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleSelect(asset)}
+          className="group flex w-full items-center justify-between px-3 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left cursor-pointer"
         >
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="relative flex-shrink-0">
@@ -262,7 +265,7 @@ const AssetSelectorModal: FC = () => {
               </div>
             </div>
           )}
-        </button>
+        </div>
       </div>
     );
   }, [filteredAssets, handleSelect, actionType, copiedId, handleCopyAddress]);
@@ -301,43 +304,45 @@ const AssetSelectorModal: FC = () => {
             />
           </div>
         </div>
-        <div className="pb-3 flex items-center border-b border-divider">
-          <div className="pl-5 pr-3 flex-shrink-0">
-            <button
-              onClick={() => setSelectedNetwork(allNetworkOption.id)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all"
-              style={
-                selectedNetwork === 'all'
-                  ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
-                  : undefined
-              }
-            >
-              All
-            </button>
-          </div>
-
-          <div className="w-px self-stretch bg-divider flex-shrink-0 my-1" />
-          <div
-            className="flex gap-2 px-3 flex-1 hide-scrollbar"
-            style={{ overflowX: 'auto', minWidth: 0 }}
-          >
-            {chainNetworks.map(net => (
+        {!forceNetwork && (
+          <div className="pb-3 flex items-center border-b border-divider">
+            <div className="pl-5 pr-3 flex-shrink-0">
               <button
-                key={net.id}
-                onClick={() => setSelectedNetwork(net.id)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0"
+                onClick={() => setSelectedNetwork(allNetworkOption.id)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all"
                 style={
-                  selectedNetwork === net.id
+                  selectedNetwork === 'all'
                     ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
                     : undefined
                 }
               >
-                {net.logo && <img src={net.logo} alt="" className="w-4 h-4 rounded-full" />}
-                {net.name}
+                All
               </button>
-            ))}
+            </div>
+
+            <div className="w-px self-stretch bg-divider flex-shrink-0 my-1" />
+            <div
+              className="flex gap-2 px-3 flex-1 hide-scrollbar"
+              style={{ overflowX: 'auto', minWidth: 0 }}
+            >
+              {chainNetworks.map(net => (
+                <button
+                  key={net.id}
+                  onClick={() => setSelectedNetwork(net.id)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0"
+                  style={
+                    selectedNetwork === net.id
+                      ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                      : undefined
+                  }
+                >
+                  {net.logo && <img src={net.logo} alt="" className="w-4 h-4 rounded-full" />}
+                  {net.name}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex-1 overflow-hidden">
           {filteredAssets.length > 0 ? (

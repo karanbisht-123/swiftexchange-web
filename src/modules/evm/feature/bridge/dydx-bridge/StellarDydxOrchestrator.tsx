@@ -1,34 +1,177 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ArrowUpDown, RefreshCw, AlertCircle, CheckCircle2, Wallet, Layers, Clock, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useReducer } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import {
+  ArrowUpDown,
+  Clock,
+  Layers,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  RefreshCw,
+  // Wallet,
+  ExternalLink
+} from 'lucide-react';
 import { useWalletConnect } from '../../../../walletconnect/hooks/useWalletConnect';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../../../walletconnect/config/chains';
 import { AmmSwapService } from '../../../../steallr/service/ammSwapService';
+import { signAndSubmitTransaction } from '../../../../steallr/utils/transactionService';
 import {
   getSupportedTokens,
   getBridgeQuote as getStellarBridgeQuote,
   prepareStellarToEvmRawTransaction,
+  getBridgeStatus,
   STELLAR_NETWORK_PASSPHRASE
 } from '../../../../steallr/service/allbridgeService';
+import { parseSwapError } from '../../../utils/swapErrorHandler';
 import { useDydxDeposit } from '../../../../dydx/hooks/useDydxDeposit';
 import { ChainSymbol, FeePaymentMethod, Messenger } from '@allbridge/bridge-core-sdk';
 import { useAssetSelectorModal } from '../../../../commonfeature/components/useAssetSelectorModal';
-import { ChevronDown } from 'lucide-react';
 import { getChainById, getEvmChainsForNetwork, type ChainConfig } from '../../../utils/Chainregistry';
 import * as ChainUrlHelpers from '../../../utils/ChainUrlHelpers';
 import TransactionButton from '../../../../commonfeature/components/TransactionButton';
 import { portfolioUtils } from '../../../../walletconnect/utils/portfolioUtils';
 import * as StellarSDK from '@stellar/stellar-sdk';
+import { addLocalTransaction } from '../../../../evm/service/localTransactionService';
+import { useNotificationStore } from '../../../../../store/notificationStore';
+import { useTransactionTracker, useTransactionStore } from '../../../../dydx/hooks/useTransactionTracker';
+import { ActionGuard } from '../../../../commonfeature/components/ActionGuard';
 
-// Constants from registry
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 const STELLAR_CHAIN_ID = 'pubnet';
+const BRIDGE_STEP_KEY = 'stellar_dydx_bridge_step';
+const DEFAULT_SLIPPAGE = 1.0;
+const ARBITRUM_CHAIN_ID = 42161;
+const USDC_LOGO_URL =
+  'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png';
+const DYDX_LOGO_URL =
+  'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png';
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+type Phase = 'SETUP' | 'SWAP' | 'BRIDGE' | 'DEPOSIT' | 'DONE';
+type TxStatus = 'PENDING' | 'SUCCESS' | 'FAILED';
+
+interface StellarToken {
+  id: string;
+  symbol: string;
+  name: string;
+  logoURI?: string;
+  balance: string;
+  decimals: number;
+  isNative: boolean;
+  asset: StellarSDK.Asset;
+  chainId: string;
+  address: string;
+  hasTrustline?: boolean;
+}
+
+interface SwapQuote {
+  estimatedOutput: string;
+  minimumOutput?: string;
+  priceImpact?: number;
+  inputAmount?: string;
+  fromAsset?: { code: string };
+  path?: { path: Array<{ code: string }> };
+  [key: string]: unknown;
+}
+
+interface BridgeQuote {
+  amountToBeReceived: string;
+  exchangeRate?: string | number;
+  transferTimeMs?: number;
+  feeOptions: {
+    stablecoin?: { float: string | number };
+    native?: { float: string | number };
+  };
+  sourceToken?: { chainName?: string };
+  destinationToken?: { chainName?: string; symbol?: string };
+  [key: string]: unknown;
+}
+
+interface DepositQuote {
+  receivedAmount?: number;
+  estimatedDurationSeconds?: number;
+  estimatedTime?: string;
+  fee?: number;
+  usd_amount_in?: number;
+  usd_amount_out?: number;
+  usdAmountOut?: string | number;
+  [key: string]: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// Transaction state — grouped to avoid sync issues between hash + status
+// ---------------------------------------------------------------------------
+interface TxState {
+  hash: string | null;
+  status: TxStatus | null;
+}
+
+interface TxGroup {
+  swap: TxState;
+  bridge: TxState;
+  deposit: TxState;
+}
+
+type TxAction =
+  | { type: 'SET_SWAP'; hash: string }
+  | { type: 'SET_SWAP_STATUS'; status: TxStatus }
+  | { type: 'SET_BRIDGE'; hash: string }
+  | { type: 'SET_BRIDGE_STATUS'; status: TxStatus }
+  | { type: 'SET_DEPOSIT'; hash: string }
+  | { type: 'SET_DEPOSIT_STATUS'; status: TxStatus }
+  | { type: 'RESET' };
+
+const initialTxState: TxGroup = {
+  swap: { hash: null, status: null },
+  bridge: { hash: null, status: null },
+  deposit: { hash: null, status: null },
+};
+
+function txReducer(state: TxGroup, action: TxAction): TxGroup {
+  switch (action.type) {
+    case 'SET_SWAP':
+      return { ...state, swap: { hash: action.hash, status: 'PENDING' } };
+    case 'SET_SWAP_STATUS':
+      return { ...state, swap: { ...state.swap, status: action.status } };
+    case 'SET_BRIDGE':
+      return { ...state, bridge: { hash: action.hash, status: 'PENDING' } };
+    case 'SET_BRIDGE_STATUS':
+      return { ...state, bridge: { ...state.bridge, status: action.status } };
+    case 'SET_DEPOSIT':
+      return { ...state, deposit: { hash: action.hash, status: 'PENDING' } };
+    case 'SET_DEPOSIT_STATUS':
+      return { ...state, deposit: { ...state.deposit, status: action.status } };
+    case 'RESET':
+      return initialTxState;
+    default:
+      return state;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shimmer
+// ---------------------------------------------------------------------------
 const Shimmer: React.FC<{ className?: string }> = ({ className }) => (
   <div className={`animate-pulse bg-white/5 rounded-lg ${className}`} />
 );
 
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 export const StellarDydxOrchestrator: React.FC = () => {
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const assetParam = searchParams.get('asset');
+
   const { connectedWallets, getProvider } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network) as 'mainnet' | 'testnet';
 
@@ -37,104 +180,303 @@ export const StellarDydxOrchestrator: React.FC = () => {
   const stellarAddress = stellarWallet?.address;
   const evmAddress = evmWallet?.address;
 
-  // Flow State
-  const [phase, setPhase] = useState<'SETUP' | 'SWAP' | 'BRIDGE' | 'DEPOSIT' | 'DONE'>('SETUP');
+  // Flow state
+  const [phase, setPhase] = useState<Phase>('SETUP');
   const [destinationChain, setDestinationChain] = useState<ChainConfig | null>(null);
   const [showNetworkSelector, setShowNetworkSelector] = useState(false);
 
-  // Input State
-  const [inputToken, setInputToken] = useState<any>(null);
+  // Input state
+  const [inputToken, setInputToken] = useState<StellarToken | null>(null);
   const [inputAmount, setInputAmount] = useState<string>('');
-  const [stellarAssets, setStellarAssets] = useState<any[]>([]);
+  const [stellarAssets, setStellarAssets] = useState<StellarToken[]>([]);
+  const [loadingAssets, setLoadingAssets] = useState(true);
   const [ammService, setAmmService] = useState<AmmSwapService | null>(null);
+  const [intermediateAmount, setIntermediateAmount] = useState<string | null>(null);
 
   // Quotes
   const [isQuoting, setIsQuoting] = useState(false);
-  const [swapQuote, setSwapQuote] = useState<any>(null);
-  const [bridgeQuote, setBridgeQuote] = useState<any>(null);
-  const [depositQuote, setDepositQuote] = useState<any>(null);
-  const [rawQuotes, setRawQuotes] = useState<{ swap: any; bridge: any; dydx: any } | null>(null);
+  const [swapQuote, setSwapQuote] = useState<SwapQuote | null>(null);
+  const [bridgeQuote, setBridgeQuote] = useState<BridgeQuote | null>(null);
+  const [depositQuote, setDepositQuote] = useState<DepositQuote | null>(null);
+  const [rawQuotes, setRawQuotes] = useState<{ swap: SwapQuote | null; bridge: BridgeQuote | null; dydx: DepositQuote | null } | null>(null);
+
+  // Restore helpers
+  const [restoredTokenSymbol, setRestoredTokenSymbol] = useState<string | null>(null);
+  const restoredTokenSymbolRef = useRef<string | null>(null);
+  const [isRestored, setIsRestored] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loadingStep, setLoadingStep] = useState(false);
   const [feePaymentMethod, setFeePaymentMethod] = useState<FeePaymentMethod>(FeePaymentMethod.WITH_STABLECOIN);
+  const [nativeBalance, setNativeBalance] = useState<string>('0');
+  const { showToast } = useNotificationStore();
+
+  // hash + status always updated atomically
+  const [txState, dispatchTx] = useReducer(txReducer, initialTxState);
+  const { swap: swapTx, bridge: bridgeTx, deposit: depositTx } = txState;
 
   const { openAssetSelector } = useAssetSelectorModal();
   const { getRoute, deposit, isLoading: dydxLoading } = useDydxDeposit();
   const [showFullDetails, setShowFullDetails] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const BRIDGE_STEP_KEY = 'stellar_dydx_bridge_step';
-
+  const dydxTracker = useTransactionTracker('deposit');
+  const setDepositTxInStore = useTransactionStore(state => state.setDepositTx);
   const isUsdc = inputToken?.symbol?.toUpperCase() === 'USDC';
+  const assetMap = useMemo(
+    () => Object.fromEntries(stellarAssets.map(a => [a.symbol, a])),
+    [stellarAssets]
+  );
 
-
+  // ---------------------------------------------------------------------------
+  // Restore from localStorage on mount
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     try {
       const saved = localStorage.getItem(BRIDGE_STEP_KEY);
+      let parsed: any = null;
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.phase && parsed.phase !== 'SETUP' && parsed.phase !== 'DONE') {
-          setPhase(parsed.phase);
-          if (parsed.inputAmount) setInputAmount(parsed.inputAmount);
-          if (parsed.swapQuote) setSwapQuote(parsed.swapQuote);
-          if (parsed.bridgeQuote) setBridgeQuote(parsed.bridgeQuote);
-          if (parsed.depositQuote) setDepositQuote(parsed.depositQuote);
-          if (parsed.destinationChain) setDestinationChain(parsed.destinationChain);
+        try {
+          const sanitized = saved.trim().replace(/”|“/g, '"');
+          parsed = JSON.parse(sanitized);
+        } catch (err) {
+          console.error('Failed to parse bridge step', err);
         }
       }
-    } catch { /* silent - session restore is best-effort */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  // Persist step progress to localStorage
-  useEffect(() => {
-    if (phase === 'DONE' || phase === 'SETUP') {
-      localStorage.removeItem(BRIDGE_STEP_KEY);
-    } else {
-      try {
-        localStorage.setItem(BRIDGE_STEP_KEY, JSON.stringify({
-          phase, inputAmount, swapQuote, bridgeQuote, depositQuote, destinationChain
-        }));
-      } catch { /* silent */ }
+      if (parsed && parsed.phase && parsed.phase !== 'SETUP' && parsed.phase !== 'DONE') {
+        setPhase(parsed.phase);
+        if (parsed.inputAmount) setInputAmount(parsed.inputAmount);
+        if (parsed.destinationChainId) {
+          const chain = getEvmChainsForNetwork(currentNetwork).find(
+            c => String(c.chainId) === String(parsed.destinationChainId)
+          );
+          if (chain) setDestinationChain(chain);
+        }
+        if (parsed.swapTxHash)
+          dispatchTx({ type: 'SET_SWAP', hash: parsed.swapTxHash });
+        if (parsed.swapStatus)
+          dispatchTx({ type: 'SET_SWAP_STATUS', status: parsed.swapStatus });
+        if (parsed.bridgeTxHash)
+          dispatchTx({ type: 'SET_BRIDGE', hash: parsed.bridgeTxHash });
+        if (parsed.bridgeStatus)
+          dispatchTx({ type: 'SET_BRIDGE_STATUS', status: parsed.bridgeStatus });
+        if (parsed.depositTxHash)
+          dispatchTx({ type: 'SET_DEPOSIT', hash: parsed.depositTxHash });
+        if (parsed.depositStatus)
+          dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: parsed.depositStatus });
+        if (parsed.intermediateAmount) setIntermediateAmount(parsed.intermediateAmount);
+        if (parsed.inputTokenSymbol) {
+          setRestoredTokenSymbol(parsed.inputTokenSymbol);
+          restoredTokenSymbolRef.current = parsed.inputTokenSymbol;
+        }
+        if (parsed.depositTxHash && parsed.depositStatus === 'PENDING') {
+          const targetChainId = String(parsed.destinationChainId || '1');
+          setDepositTxInStore({
+            txHash: parsed.depositTxHash,
+            chainId: targetChainId,
+            startedAt: Date.now(),
+            status: 'pending',
+            stepLabel: 'Resuming settlement...',
+          });
+        } else if (!parsed.depositTxHash && parsed.phase === 'DEPOSIT') {
+          const storeTx = useTransactionStore.getState().depositTx;
+          if (storeTx && storeTx.txHash) {
+            dispatchTx({ type: 'SET_DEPOSIT', hash: storeTx.txHash });
+            dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: storeTx.status === 'success' ? 'SUCCESS' : 'PENDING' });
+          }
+        }
+      } else {
+        const storeTx = useTransactionStore.getState().depositTx;
+        if (storeTx && storeTx.status === 'pending' && storeTx.txHash) {
+          setPhase('DEPOSIT');
+          dispatchTx({ type: 'SET_DEPOSIT', hash: storeTx.txHash });
+          dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: 'PENDING' });
+          if (storeTx.chainId) {
+            const chain = getEvmChainsForNetwork(currentNetwork).find(
+              c => String(c.chainId) === String(storeTx.chainId)
+            );
+            if (chain) setDestinationChain(chain);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Fatal error restoring bridge state', err);
+    } finally {
+      setIsRestored(true);
     }
-  }, [phase, inputAmount, swapQuote, bridgeQuote, depositQuote, destinationChain]);
+  }, [currentNetwork]);
 
-  // Initialize Destination Chain
+  // ---------------------------------------------------------------------------
+  // Sync with dYdX tracker for the final deposit step
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!destinationChain) {
+    if (!depositTx.hash || phase !== 'DEPOSIT') return;
+
+    if (dydxTracker.overallState === 'STATE_COMPLETED_SUCCESS') {
+      dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: 'SUCCESS' });
+      setPhase('DONE');
+    } else if (
+      dydxTracker.overallState === 'STATE_COMPLETED_ERROR' ||
+      dydxTracker.overallState === 'STATE_ABANDONED'
+    ) {
+      dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: 'FAILED' });
+    } else if (dydxTracker.isLoading) {
+      dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: 'PENDING' });
+    }
+  }, [dydxTracker.overallState, dydxTracker.isLoading, depositTx.hash, phase]);
+
+  // ---------------------------------------------------------------------------
+  // Restore token once asset list is ready
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (restoredTokenSymbol && stellarAssets.length > 0) {
+      const found = stellarAssets.find(
+        a => a.symbol.toUpperCase() === restoredTokenSymbol.toUpperCase()
+      );
+      if (found) {
+        setInputToken(found);
+        setRestoredTokenSymbol(null);
+        restoredTokenSymbolRef.current = null;
+      }
+    }
+  }, [restoredTokenSymbol, stellarAssets]);
+
+  // ---------------------------------------------------------------------------
+  // Persist step progress to localStorage
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!isRestored) return;
+
+    if (phase === 'DONE') {
+      localStorage.removeItem(BRIDGE_STEP_KEY);
+    } else if (phase !== 'SETUP') {
+      console.log("stellar dydx bridge phase", phase)
+      try {
+        localStorage.setItem(
+          BRIDGE_STEP_KEY,
+          JSON.stringify({
+            phase,
+            inputAmount,
+            inputTokenSymbol: inputToken?.symbol,
+            destinationChainId: destinationChain?.chainId,
+            swapTxHash: swapTx.hash,
+            swapStatus: swapTx.status,
+            bridgeTxHash: bridgeTx.hash,
+            bridgeStatus: bridgeTx.status,
+            depositTxHash: depositTx.hash,
+            depositStatus: depositTx.status,
+            intermediateAmount,
+          })
+        );
+      } catch (err) {
+        console.log(err)
+      }
+    }
+  }, [
+    phase,
+    inputAmount,
+    inputToken,
+    destinationChain,
+    swapTx,
+    bridgeTx,
+    depositTx,
+    intermediateAmount,
+    isRestored,
+  ]);
+
+  // ---------------------------------------------------------------------------
+  // Bridge status polling
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!bridgeTx.hash || bridgeTx.status !== 'PENDING') return;
+
+    let cancelled = false;
+
+    const checkStatus = async () => {
+      try {
+        const res = await getBridgeStatus(bridgeTx.hash!);
+        if (cancelled) return;
+
+        if (res.receive) {
+          dispatchTx({ type: 'SET_BRIDGE_STATUS', status: 'SUCCESS' });
+          if (res.receive.amountFormatted) {
+            setIntermediateAmount(res.receive.amountFormatted.toString());
+          }
+          if (phase === 'BRIDGE') setPhase('DEPOSIT');
+        } else if (res.isSuspended) {
+          dispatchTx({ type: 'SET_BRIDGE_STATUS', status: 'FAILED' });
+        }
+      } catch (err) {
+        console.log(err)
+        if (!cancelled) consecutiveBridgeErrors.current += 1;
+        if (!cancelled && consecutiveBridgeErrors.current >= 3) {
+          setError('Bridge status check failed repeatedly. Please refresh or check the explorer.');
+        }
+      }
+    };
+
+    consecutiveBridgeErrors.current = 0;
+    checkStatus();
+    const interval = setInterval(checkStatus, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [bridgeTx.hash, bridgeTx.status, phase]);
+
+  const consecutiveBridgeErrors = useRef(0);
+
+  // ---------------------------------------------------------------------------
+  // Set default destination chain
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (isRestored && !destinationChain && phase === 'SETUP') {
       const evmChains = getEvmChainsForNetwork(currentNetwork);
-      const arb = evmChains.find(c => c.chainId === 42161 || c.slug === 'arb');
+      const arb = evmChains.find(c => c.chainId === ARBITRUM_CHAIN_ID || c.slug === 'arb');
       setDestinationChain(arb || evmChains[0] || null);
     }
-  }, [currentNetwork, destinationChain]);
+  }, [currentNetwork, destinationChain, isRestored, phase]);
 
+  // ---------------------------------------------------------------------------
+  // Init AMM service
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     try {
       const config = getStellarConfig(currentNetwork);
-      const service = new AmmSwapService(config.horizonUrl, config.networkPassphrase, config.chainId);
+      const service = new AmmSwapService(
+        config.horizonUrl,
+        config.networkPassphrase,
+        config.chainId
+      );
       setAmmService(service);
     } catch (err) {
       console.error('Failed to init AmmSwapService:', err);
     }
   }, [currentNetwork]);
 
+  // ---------------------------------------------------------------------------
+  // Fetch Stellar assets
+  // ---------------------------------------------------------------------------
   const isFetchingAssetsRef = useRef(false);
+
   const fetchStellarAssets = useCallback(async () => {
     if (!ammService || !stellarAddress || isFetchingAssetsRef.current) return;
     try {
       isFetchingAssetsRef.current = true;
-      const { tokens: balances, subentryCount } = await ammService.getAssetsWithBalances(stellarAddress);
+      setLoadingAssets(true);
+      const { tokens: balances, subentryCount } = await ammService.getAssetsWithBalances(
+        stellarAddress
+      );
       const reserve = 1 + subentryCount * 0.5;
-      const mapped = balances
+      const mapped: StellarToken[] = balances
         .filter((b: any) => b && b.asset)
         .map((b: any) => {
           let balanceToUse = b.balance || '0';
           if (b.code === 'XLM') {
             balanceToUse = Math.max(0, parseFloat(b.balance || '0') - reserve).toString();
           }
-
-          const isNative = typeof b.asset.isNative === 'function' ? b.asset.isNative() : (b.code === 'XLM');
-
+          const isNative =
+            typeof b.asset.isNative === 'function' ? b.asset.isNative() : b.code === 'XLM';
           return {
             id: `stellar-${b.code}`,
             symbol: b.code,
@@ -145,27 +487,34 @@ export const StellarDydxOrchestrator: React.FC = () => {
             isNative,
             asset: b.asset,
             chainId: STELLAR_CHAIN_ID,
-            address: isNative ? 'native' : (typeof b.asset.getIssuer === 'function' ? b.asset.getIssuer() : b.issuer),
-            hasTrustline: b.hasTrustline
+            address: isNative
+              ? 'native'
+              : typeof b.asset.getIssuer === 'function'
+                ? b.asset.getIssuer()
+                : b.issuer,
+            hasTrustline: b.hasTrustline,
           };
         });
 
       setStellarAssets(mapped);
 
-      setInputToken((prev: any) => {
+      const xlm = mapped.find(m => m.symbol === 'XLM');
+      if (xlm) setNativeBalance(xlm.balance);
+
+      setInputToken(prev => {
         if (prev) {
-          // Update the balance of the previously selected token
           const updated = mapped.find(m => m.symbol === prev.symbol);
-          if (updated) return updated;
-          return prev;
+          return updated ?? prev;
         }
-        const xlm = mapped.find((m: any) => m.symbol === 'XLM');
-        return xlm || mapped[0];
+        // If we are restoring a token from a previous session, do not default to XLM
+        if (restoredTokenSymbolRef.current) return null;
+        return xlm ?? mapped[0] ?? null;
       });
     } catch (err) {
       console.error('Failed to fetch Stellar balances:', err);
     } finally {
       isFetchingAssetsRef.current = false;
+      setLoadingAssets(false);
     }
   }, [ammService, stellarAddress]);
 
@@ -173,189 +522,359 @@ export const StellarDydxOrchestrator: React.FC = () => {
     fetchStellarAssets();
   }, [fetchStellarAssets]);
 
+  // ---------------------------------------------------------------------------
+  // Asset selection via URL params / location state
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (phase !== 'SETUP') return;
+
+    const symbolToMatch =
+      assetParam ||
+      location.state?.selectedAsset?.symbol ||
+      location.state?.selectedAsset?.code;
+    if (symbolToMatch && stellarAssets.length > 0) {
+      const found = stellarAssets.find(
+        a => a.symbol.toUpperCase() === symbolToMatch.toUpperCase()
+      );
+      if (found && inputToken?.symbol !== found.symbol) setInputToken(found);
+    }
+  }, [assetParam, location.state, stellarAssets, inputToken, phase]);
+
   const tokenBalance = useMemo(() => {
     if (!inputToken) return '0';
-    const found = stellarAssets.find(a => a.symbol === inputToken.symbol);
-    return found?.balance || '0';
-  }, [inputToken, stellarAssets]);
+    return assetMap[inputToken.symbol]?.balance ?? '0';
+  }, [inputToken, assetMap]);
 
-  const getStellarAsset = (token: any) => {
+  const getStellarAsset = (token: StellarToken | null): StellarSDK.Asset | null => {
     if (!token) return null;
     if (token.asset) return token.asset;
     if (token.isNative || token.symbol === 'XLM') return StellarSDK.Asset.native();
     if (token.address && token.address !== 'native') {
       return new StellarSDK.Asset(token.symbol, token.address);
     }
-    return StellarSDK.Asset.native();
+    return null;
   };
-
-  const fetchAllQuotes = useCallback(async (amount: string) => {
-    if (!amount || parseFloat(amount) <= 0 || !inputToken || !ammService || !destinationChain) {
-      setSwapQuote(null); setBridgeQuote(null); setDepositQuote(null); setRawQuotes(null);
-      return;
-    }
-
-    setIsQuoting(true);
-    setError(null);
-
-    try {
-      // Step 1 (optional): Stellar Swap + bridge tokens lookup — PARALLEL
-      let usdcAmountStellar = amount;
-      let finalSwapQuote: any = null;
-
-      const inputAsset = getStellarAsset(inputToken);
-      if (!inputAsset) throw new Error('Invalid input token');
-
-      // Run swap quote and allbridge token list in parallel
-      const [swapResult, allTokens] = await Promise.all([
-        isUsdc
-          ? Promise.resolve(null)
-          : (async () => {
-            const usdcAsset = stellarAssets.find(a => a.symbol === 'USDC');
-            if (!usdcAsset) throw new Error('USDC asset not found on Stellar');
-            const targetAsset = getStellarAsset(usdcAsset);
-            if (!targetAsset) throw new Error('Invalid target token');
-            return ammService.getSwapQuote(inputAsset, targetAsset, amount, { slippageTolerance: 1.0 });
-          })(),
-        getSupportedTokens(),
-      ]);
-
-      if (!isUsdc && swapResult) {
-        finalSwapQuote = swapResult;
-        usdcAmountStellar = finalSwapQuote.estimatedOutput;
+  const fetchAllQuotes = useCallback(
+    async (amount: string, signal: AbortSignal) => {
+      if (!amount || parseFloat(amount) <= 0 || !inputToken || !ammService || !destinationChain) {
+        setSwapQuote(null);
+        setBridgeQuote(null);
+        setDepositQuote(null);
+        setRawQuotes(null);
+        return;
       }
-      setSwapQuote(finalSwapQuote);
 
-      // Step 2: Allbridge bridge quote
-      const dstSymbol = (destinationChain.symbol === 'BNB' ? ChainSymbol.BSC : destinationChain.symbol) as ChainSymbol;
-      const [srcUsdc, dstUsdc] = [
-        allTokens.find(t => t.chainSymbol === ChainSymbol.SRB && t.symbol === 'USDC'),
-        allTokens.find(t => t.chainSymbol === dstSymbol && t.symbol === 'USDC'),
-      ];
-      if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found for selected chain');
+      setIsQuoting(true);
+      setError(null);
 
-      const bq = await getStellarBridgeQuote({
-        amount: usdcAmountStellar,
-        sourceToken: srcUsdc,
-        destinationToken: dstUsdc,
-        slippageTolerance: 1.0
-      });
-      setBridgeQuote(bq);
+      try {
+        let usdcAmountStellar = amount;
+        let finalSwapQuote: SwapQuote | null = null;
 
-      // Step 3: dYdX deposit route
-      const dstUsdcAmount = bq.amountToBeReceived;
-      const dr = await getRoute('USDC', parseFloat(dstUsdcAmount), destinationChain.chainId, false);
-      if (!dr) {
-        throw new Error('Bridge available, but no deposit route to dYdX found. Try another chain.');
+        const inputAsset = getStellarAsset(inputToken);
+        if (!inputAsset) throw new Error('Invalid input token');
+
+        const shouldFetchSwapQuote = !isUsdc && phase === 'SETUP';
+
+        const [swapResult, allTokens] = await Promise.all([
+          shouldFetchSwapQuote
+            ? (async () => {
+              const usdcAsset = stellarAssets.find(a => a.symbol === 'USDC');
+              if (!usdcAsset) throw new Error('USDC asset not found on Stellar');
+              const targetAsset = getStellarAsset(usdcAsset);
+              if (!targetAsset) throw new Error('Invalid target token');
+              return ammService.getSwapQuote(inputAsset, targetAsset, amount, {
+                slippageTolerance: DEFAULT_SLIPPAGE,
+              });
+            })()
+            : Promise.resolve(null),
+          getSupportedTokens(),
+        ]);
+
+        if (signal.aborted) return;
+
+        if (swapResult) {
+          finalSwapQuote = swapResult as unknown as SwapQuote;
+          usdcAmountStellar = finalSwapQuote.estimatedOutput;
+        } else if (intermediateAmount) {
+          usdcAmountStellar = intermediateAmount;
+        }
+        setSwapQuote(finalSwapQuote);
+
+        const dstSymbol = (
+          destinationChain.symbol === 'BNB' ? ChainSymbol.BSC : destinationChain.symbol
+        ) as ChainSymbol;
+        const srcUsdc = allTokens.find(
+          t => t.chainSymbol === ChainSymbol.SRB && t.symbol === 'USDC'
+        );
+        const dstUsdc = allTokens.find(
+          t => t.chainSymbol === dstSymbol && t.symbol === 'USDC'
+        );
+        if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found for selected chain');
+
+        let bq = bridgeQuote;
+        if (phase !== 'DEPOSIT') {
+          bq = (await getStellarBridgeQuote({
+            amount: usdcAmountStellar,
+            sourceToken: srcUsdc,
+            destinationToken: dstUsdc,
+            slippageTolerance: DEFAULT_SLIPPAGE,
+          })) as unknown as BridgeQuote;
+          if (signal.aborted) return;
+          setBridgeQuote(bq);
+        }
+
+        const dstUsdcAmount = bq?.amountToBeReceived || intermediateAmount;
+        if (!dstUsdcAmount) throw new Error('Could not determine deposit amount');
+
+        const dr = await getRoute(
+          'USDC',
+          parseFloat(dstUsdcAmount.toString()),
+          destinationChain.chainId,
+          false
+        );
+        if (signal.aborted) return;
+        if (!dr) throw new Error('No deposit route to dYdX found. Try another chain.');
+        setDepositQuote(dr as DepositQuote);
+
+        setRawQuotes({ swap: finalSwapQuote, bridge: bq, dydx: dr as DepositQuote });
+      } catch (err: any) {
+        if (signal.aborted) return;
+        console.error('Quote error:', err);
+        setError(err.message || 'Failed to fetch quotes');
+      } finally {
+        if (!signal.aborted) setIsQuoting(false);
       }
-      setDepositQuote(dr);
+    },
+    [inputToken, isUsdc, ammService, stellarAssets, destinationChain, getRoute]
+  );
 
-      setRawQuotes({
-        swap: finalSwapQuote ?? null,
-        bridge: bq,
-        dydx: dr,
-      });
-
-    } catch (err: any) {
-      console.error('Quote error:', err);
-      setError(err.message || 'Failed to fetch quotes');
-    } finally {
-      setIsQuoting(false);
-    }
-  }, [inputToken, isUsdc, ammService, stellarAssets, destinationChain, getRoute]);
-
+  // ---------------------------------------------------------------------------
+  // Quote trigger on input change
+  // ---------------------------------------------------------------------------
   useEffect(() => {
+    if (!isRestored || phase === 'DONE') return;
+    if (phase === 'SETUP' && (!inputAmount || parseFloat(inputAmount) <= 0)) return;
+    if (phase === 'SWAP' && swapTx.hash) return;
+    if (phase === 'BRIDGE' && bridgeTx.hash) return;
+    if (phase === 'DEPOSIT' && depositTx.hash) return;
+
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      if (phase === 'SETUP' && inputAmount && parseFloat(inputAmount) > 0) {
-        fetchAllQuotes(inputAmount);
+      if (!isQuoting && !loadingStep) {
+        fetchAllQuotes(inputAmount, controller.signal);
       }
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [inputAmount, inputToken, destinationChain, phase, fetchAllQuotes]);
+    }, 600);
 
-  // Step 4: Auto-refresh quotes every 30s
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    inputAmount,
+    phase,
+    inputToken,
+    destinationChain,
+    fetchAllQuotes,
+    isRestored,
+    swapTx.hash,
+    bridgeTx.hash,
+    depositTx.hash,
+  ]);
+
+  // ---------------------------------------------------------------------------
+  // Background quote refresh every 30s
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (phase === 'SETUP' && inputAmount && parseFloat(inputAmount) > 0 && !isQuoting) {
-      interval = setInterval(() => {
-        fetchAllQuotes(inputAmount);
-      }, 30000);
-    }
-    return () => clearTimeout(interval);
-  }, [inputAmount, phase, isQuoting, fetchAllQuotes]);
+    if (
+      phase === 'DONE' ||
+      (phase === 'SETUP' && (!inputAmount || parseFloat(inputAmount) <= 0))
+    )
+      return;
 
+    const controller = new AbortController();
+    const interval = setInterval(() => {
+      if (!isQuoting && !loadingStep) {
+        fetchAllQuotes(inputAmount, controller.signal);
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(interval);
+      controller.abort();
+    };
+  }, [phase, inputAmount, fetchAllQuotes, loadingStep, isQuoting]);
+
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
   const handleMaxAmount = () => {
-    if (tokenBalance && parseFloat(tokenBalance) > 0) {
-      setInputAmount(tokenBalance);
-    }
+    if (tokenBalance && parseFloat(tokenBalance) > 0) setInputAmount(tokenBalance);
   };
 
-  const executeSwap = async () => {
+  const executeSwap = async (): Promise<boolean> => {
     if (!ammService || !stellarAddress || !swapQuote || !inputToken) return false;
     try {
       const provider = getProvider(WalletType.STELLAR) as any;
       const inputAsset = getStellarAsset(inputToken);
       if (!inputAsset) throw new Error('Invalid input token');
 
-      const tx = await ammService.buildSwapTransaction(stellarAddress, swapQuote, { slippageTolerance: 1.0 });
-      await ammService.executeSwapWithWalletConnect(tx, provider);
-      await fetchStellarAssets();
-      return true;
-    } catch (err: any) {
-      setError(err.message || 'Swap failed');
-      return false;
-    }
-  };
-
-  const executeBridge = async () => {
-    if (!stellarAddress || !evmAddress || !bridgeQuote) return false;
-    try {
-      const xdr = await prepareStellarToEvmRawTransaction({
-        amount: isUsdc ? inputAmount : (swapQuote?.estimatedOutput || inputAmount),
-        sourceToken: bridgeQuote.sourceToken,
-        destinationToken: bridgeQuote.destinationToken,
-        fromAccountAddress: stellarAddress,
-        toAccountAddress: evmAddress,
-        feePaymentMethod: feePaymentMethod,
-        messenger: Messenger.ALLBRIDGE,
-        slippageTolerance: 1.0
+      const tx = await ammService.buildSwapTransaction(stellarAddress, swapQuote as any, {
+        slippageTolerance: DEFAULT_SLIPPAGE,
       });
-      const provider = getProvider(WalletType.STELLAR) as any;
-      const signParams = { xdr, networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork], network: currentNetwork === 'mainnet' ? 'pubnet' : 'TESTNET' };
-      await provider.request({ method: 'stellar_signAndSubmitXDR', params: signParams });
+      const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
+
+      addLocalTransaction({
+        hash,
+        chainId: STELLAR_CHAIN_ID,
+        type: 'swap',
+        timestamp: Date.now(),
+        description: `Swap ${inputAmount} ${inputToken.symbol} to USDC`,
+        status: 'pending',
+        from: stellarAddress,
+        network: currentNetwork,
+      });
+
+      dispatchTx({ type: 'SET_SWAP', hash });
+
+      //actual confirmed USDC balance after swap
+      await fetchStellarAssets();
+      const freshUsdcBalance = isFetchingAssetsRef.current
+        ? swapQuote.estimatedOutput
+        : (assetMap['USDC']?.balance ?? swapQuote.estimatedOutput);
+      setIntermediateAmount(freshUsdcBalance);
+
+      dispatchTx({ type: 'SET_SWAP_STATUS', status: 'SUCCESS' });
+      showToast({
+        type: 'STELLAR',
+        title: 'Swap Successful',
+        message: `Exchanged ${inputAmount} ${inputToken.symbol} for USDC on Stellar.`,
+      });
       return true;
     } catch (err: any) {
-      setError(err.message || 'Bridge failed');
+      setError(parseSwapError(err));
       return false;
     }
   };
 
-  const executeDeposit = async () => {
-    if (!bridgeQuote || !destinationChain) return false;
-    
-    // Step 1: Just-In-Time (JIT) Route Verification
-    // We re-fetch the route right before the final deposit to ensure 
-    // quotes haven't expired while waiting for the bridge.
+  const executeBridge = async (): Promise<boolean> => {
     try {
       setLoadingStep(true);
+      const allTokens = await getSupportedTokens();
+      if (!destinationChain) throw new Error('Destination chain not selected');
+
+      const dstSymbol = (
+        destinationChain.symbol === 'BNB' ? ChainSymbol.BSC : destinationChain.symbol
+      ) as ChainSymbol;
+      const srcUsdc = allTokens.find(
+        t => t.chainSymbol === ChainSymbol.SRB && t.symbol === 'USDC'
+      );
+      const dstUsdc = allTokens.find(
+        t => t.chainSymbol === dstSymbol && t.symbol === 'USDC'
+      );
+      if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found');
+
+      //confirmed on-chain USDC balance as bridge input to account for slippage
+      const confirmedUsdcBalance = assetMap['USDC']?.balance;
+      const bridgeInputAmount =
+        isUsdc
+          ? inputAmount
+          : confirmedUsdcBalance || intermediateAmount || swapQuote?.estimatedOutput || inputAmount;
+
+      const freshBridgeQuote = (await getStellarBridgeQuote({
+        amount: bridgeInputAmount,
+        sourceToken: srcUsdc,
+        destinationToken: dstUsdc,
+        slippageTolerance: DEFAULT_SLIPPAGE,
+      })) as unknown as BridgeQuote;
+      setBridgeQuote(freshBridgeQuote);
+
+      const xdr = await prepareStellarToEvmRawTransaction({
+        amount: bridgeInputAmount,
+        sourceToken: freshBridgeQuote.sourceToken,
+        destinationToken: freshBridgeQuote.destinationToken,
+        fromAccountAddress: stellarAddress!,
+        toAccountAddress: evmAddress!,
+        network: currentNetwork,
+        feePaymentMethod,
+        messenger: Messenger.ALLBRIDGE,
+        slippageTolerance: DEFAULT_SLIPPAGE,
+      });
+
+      const provider = getProvider(WalletType.STELLAR) as any;
+      const result = await signAndSubmitTransaction({
+        xdr,
+        network: currentNetwork,
+        networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
+        provider,
+        stellarAddress,
+      });
+
+      if (!result.success) throw new Error(result.error || 'Transaction failed');
+
+      addLocalTransaction({
+        hash: result.hash!,
+        chainId: STELLAR_CHAIN_ID,
+        type: 'bridge',
+        timestamp: Date.now(),
+        description: `Bridge USDC to ${destinationChain.name}`,
+        status: 'pending',
+        from: stellarAddress,
+        network: currentNetwork,
+      });
+
+      dispatchTx({ type: 'SET_BRIDGE', hash: result.hash! });
+      setIntermediateAmount(freshBridgeQuote.amountToBeReceived);
+
+      showToast({
+        type: 'BRIDGE',
+        title: 'Bridge Initiated',
+        message: `Your USDC is crossing to ${destinationChain.name}. This usually takes ~2-15 minutes.`,
+      });
+      return true;
+    } catch (err: any) {
+      setError(parseSwapError(err));
+      return false;
+    } finally {
+      setLoadingStep(false);
+    }
+  };
+
+  const executeDeposit = async (): Promise<boolean> => {
+    try {
       setError(null);
-      
-      const amountToDeposit = parseFloat(bridgeQuote.amountToBeReceived);
-      
-      // Re-fetch route from Skip API
-      const freshRoute = await getRoute('USDC', amountToDeposit, destinationChain.chainId, false);
-      
-      if (!freshRoute) {
-        throw new Error('Could not verify fresh deposit route. Please try again.');
+
+      const amountToDeposit = parseFloat(
+        bridgeQuote?.amountToBeReceived || intermediateAmount || '0'
+      );
+      if (amountToDeposit <= 0 || !destinationChain) {
+        throw new Error(
+          'Missing deposit amount or destination chain. Please wait for quotes to refresh.'
+        );
       }
 
-      // Update state with fresh quote
-      setDepositQuote(freshRoute);
-      setRawQuotes(prev => prev ? { ...prev, dydx: freshRoute } : null);
+      const dr = await getRoute('USDC', amountToDeposit, destinationChain.chainId, true);
+      if (!dr) throw new Error('Could not verify fresh deposit route. Please try again.');
+      setDepositQuote(dr as DepositQuote);
 
-      // Step 2: Execute the actual deposit
       const res = await deposit('USDC', amountToDeposit, destinationChain.chainId, true, '1');
       if (res.success) {
+        addLocalTransaction({
+          hash: res.txHash!,
+          chainId: destinationChain.chainId,
+          type: 'bridge',
+          timestamp: Date.now(),
+          description: `Deposit USDC to dYdX from ${destinationChain.name}`,
+          status: 'pending',
+          from: evmAddress,
+          network: currentNetwork,
+        });
+        dispatchTx({ type: 'SET_DEPOSIT', hash: res.txHash! });
+        showToast({
+          type: 'DYDX',
+          title: 'Deposit Started',
+          message: 'Settling funds to your dYdX trading account on Arbitrum.',
+        });
         return true;
       } else {
         setError(res.error || 'Deposit failed');
@@ -364,6 +883,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Deposit verification failed');
       return false;
+    } finally {
+      setLoadingStep(false);
     }
   };
 
@@ -389,8 +910,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
         const ok = await executeBridge();
         if (ok) setPhase('DEPOSIT');
       } else if (phase === 'DEPOSIT') {
-        const ok = await executeDeposit();
-        if (ok) setPhase('DONE');
+        await executeDeposit();
       }
     } finally {
       setLoadingStep(false);
@@ -402,104 +922,218 @@ export const StellarDydxOrchestrator: React.FC = () => {
     setInputAmount('');
     setError(null);
     setRawQuotes(null);
+    setSwapQuote(null);
+    setBridgeQuote(null);
+    setDepositQuote(null);
+    setIntermediateAmount(null);
+    dispatchTx({ type: 'RESET' });
     localStorage.removeItem(BRIDGE_STEP_KEY);
   };
 
-  const isInsufficient = parseFloat(inputAmount) > parseFloat(tokenBalance);
+  const isInsufficient = useMemo(() => {
+    if (phase !== 'SETUP' && phase !== 'SWAP') return false;
+    return parseFloat(inputAmount) > parseFloat(tokenBalance);
+  }, [phase, inputAmount, tokenBalance]);
 
+  // ---------------------------------------------------------------------------
+  // Display state
+  // ---------------------------------------------------------------------------
   const displayState = useMemo(() => {
     const stellarConfig = getStellarConfig(currentNetwork);
-    const usdcLogo = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png";
 
     if (phase === 'SETUP' || phase === 'SWAP') {
       if (isUsdc) {
         return {
-          top: { symbol: 'USDC', network: 'STELLAR', amount: inputAmount, logo: usdcLogo, balance: tokenBalance },
-          bottom: { symbol: 'USDC', network: destinationChain?.name?.toUpperCase() || 'EVM', amount: bridgeQuote?.amountToBeReceived, logo: usdcLogo },
-          title: `Bridge to ${destinationChain?.name || 'EVM'}`,
+          top: {
+            symbol: 'USDC',
+            network: 'STELLAR',
+            amount: inputAmount,
+            logo: USDC_LOGO_URL,
+            balance: tokenBalance,
+          },
+          bottom: {
+            symbol: 'USDC',
+            network: destinationChain?.name?.toUpperCase() || 'EVM',
+            amount: bridgeQuote?.amountToBeReceived,
+            logo: USDC_LOGO_URL,
+          },
+          title: `Move Assets to ${destinationChain?.name || 'EVM'}`,
         };
       }
       return {
-        top: { symbol: inputToken?.symbol || 'Select', network: 'STELLAR', amount: inputAmount, logo: inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol, stellarConfig), balance: tokenBalance },
-        bottom: { symbol: 'USDC', network: 'STELLAR', amount: swapQuote?.estimatedOutput, logo: usdcLogo },
-        title: 'Swap to USDC',
+        top: {
+          symbol: inputToken?.symbol || 'Select',
+          network: 'STELLAR',
+          amount: inputAmount,
+          logo: inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol || '', stellarConfig),
+          balance: tokenBalance,
+        },
+        bottom: {
+          symbol: 'USDC',
+          network: 'STELLAR',
+          amount: swapQuote?.estimatedOutput,
+          logo: USDC_LOGO_URL,
+        },
+        title: 'Prepare USDC on Stellar',
       };
     }
     if (phase === 'BRIDGE') {
+      const bridgeAmt = isUsdc ? inputAmount : intermediateAmount || swapQuote?.estimatedOutput;
+      const isPending = bridgeTx.status !== 'SUCCESS';
       return {
-        top: { symbol: 'USDC', network: 'STELLAR', amount: isUsdc ? inputAmount : swapQuote?.estimatedOutput, logo: usdcLogo, balance: isUsdc ? inputAmount : swapQuote?.estimatedOutput },
-        bottom: { symbol: 'USDC', network: destinationChain?.name?.toUpperCase() || 'EVM', amount: bridgeQuote?.amountToBeReceived, logo: usdcLogo },
-        title: `Bridge to ${destinationChain?.name || 'EVM'}`,
+        top: {
+          symbol: 'USDC',
+          network: 'STELLAR',
+          amount: bridgeAmt,
+          logo: USDC_LOGO_URL,
+          balance: bridgeAmt,
+        },
+        bottom: {
+          symbol: 'USDC',
+          network: destinationChain?.name?.toUpperCase() || 'EVM',
+          amount: bridgeQuote?.amountToBeReceived || bridgeAmt,
+          logo: USDC_LOGO_URL,
+          isPending,
+        },
+        title: isPending ? 'Funds Crossing Bridge...' : `Bridge to ${destinationChain?.name || 'EVM'}`,
       };
     }
     if (phase === 'DEPOSIT' || phase === 'DONE') {
+      const depositAmt = bridgeQuote?.amountToBeReceived || intermediateAmount;
       return {
-        top: { symbol: 'USDC', network: destinationChain?.name?.toUpperCase() || 'EVM', amount: bridgeQuote?.amountToBeReceived, logo: usdcLogo, balance: bridgeQuote?.amountToBeReceived },
-        bottom: { symbol: 'USDC', network: 'DYDX', amount: depositQuote?.receivedAmount, logo: usdcLogo },
-        title: phase === 'DONE' ? 'Transfer Complete' : 'Bridge to dYdX',
+        top: {
+          symbol: 'USDC',
+          network: destinationChain?.name?.toUpperCase() || 'EVM',
+          amount: depositAmt,
+          logo: USDC_LOGO_URL,
+          balance: depositAmt,
+        },
+        bottom: {
+          symbol: 'USDC',
+          network: 'DYDX',
+          amount: depositQuote?.receivedAmount || depositAmt,
+          logo: USDC_LOGO_URL,
+        },
+        title: phase === 'DONE' ? 'Transfer Successful' : 'Settle Funds to dYdX',
       };
     }
     return {
-      top: { symbol: inputToken?.symbol, network: 'STELLAR', amount: inputAmount, logo: inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol, stellarConfig), balance: '0' },
-      bottom: { symbol: 'USDC', network: 'DYDX', amount: depositQuote?.receivedAmount, logo: usdcLogo },
+      top: {
+        symbol: inputToken?.symbol,
+        network: 'STELLAR',
+        amount: inputAmount,
+        logo: inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol || '', stellarConfig),
+        balance: '0',
+      },
+      bottom: { symbol: 'USDC', network: 'DYDX', amount: depositQuote?.receivedAmount, logo: USDC_LOGO_URL },
       title: 'Transfer Complete',
     };
-  }, [phase, isUsdc, inputAmount, inputToken, swapQuote, bridgeQuote, depositQuote, tokenBalance, destinationChain, currentNetwork]);
+  }, [
+    phase,
+    isUsdc,
+    inputAmount,
+    inputToken,
+    swapQuote,
+    bridgeQuote,
+    depositQuote,
+    tokenBalance,
+    destinationChain,
+    currentNetwork,
+    bridgeTx.status,
+    intermediateAmount,
+  ]);
 
+  // ---------------------------------------------------------------------------
+  // Button label
+  // ---------------------------------------------------------------------------
   const buttonLabel = useMemo(() => {
     if (!evmAddress || !stellarAddress) return 'CONNECT WALLETS';
     if (!inputAmount || parseFloat(inputAmount) <= 0) return 'ENTER AMOUNT';
     if (isInsufficient) return 'INSUFFICIENT BALANCE';
     if (isQuoting) return 'FETCHING QUOTES...';
 
-    if (phase === 'SETUP') return 'START TRANSFER';
-    if (phase === 'SWAP') return 'APPROVE SWAP (1/3)';
-    if (phase === 'BRIDGE') return `APPROVE BRIDGE (${isUsdc ? '1/2' : '2/3'})`;
-    if (phase === 'DEPOSIT') return loadingStep ? 'VERIFYING ROUTE...' : `APPROVE DEPOSIT (${isUsdc ? '2/2' : '3/3'})`;
+    const totalSteps = isUsdc ? 2 : 3;
+
+    if (phase === 'SETUP') return 'START BRIDGE';
+    if (phase === 'SWAP' && !isUsdc) return `SWAP TO USDC (1/${totalSteps})`;
+    if (phase === 'BRIDGE') {
+      if (bridgeTx.hash && bridgeTx.status !== 'SUCCESS') return 'WAITING FOR BRIDGE...';
+      const step = isUsdc ? 1 : 2;
+      return `BRIDGE TO ${destinationChain?.name?.toUpperCase() || 'EVM'} (${step}/${totalSteps})`;
+    }
+    if (phase === 'DEPOSIT') {
+      if (depositTx.status === 'PENDING') return 'SETTLEMENT IN PROGRESS...';
+      if (bridgeTx.status !== 'SUCCESS') return 'WAITING FOR FUNDS...';
+      const step = isUsdc ? 2 : 3;
+      return loadingStep ? 'REFRESHING ROUTE...' : `SETTLE TO DYDX (${step}/${totalSteps})`;
+    }
     if (phase === 'DONE') return 'START NEW TRANSFER';
 
     return 'START';
-  }, [evmAddress, stellarAddress, inputAmount, isInsufficient, isQuoting, phase, isUsdc]);
+  }, [
+    evmAddress,
+    stellarAddress,
+    inputAmount,
+    isInsufficient,
+    isQuoting,
+    phase,
+    isUsdc,
+    bridgeTx,
+    depositTx.status,
+    destinationChain,
+    loadingStep,
+  ]);
 
-  const renderStepIndicator = () => {
-    const steps = isUsdc ? ['Bridge (1)', 'Bridge (2)'] : ['Swap', 'Bridge (1)', 'Bridge (2)'];
-    const currentStepIndex = phase === 'SETUP' ? -1 : phase === 'SWAP' ? 0 : phase === 'BRIDGE' ? (isUsdc ? 0 : 1) : phase === 'DEPOSIT' ? (isUsdc ? 1 : 2) : 3;
-
+  const isButtonDisabled = useMemo(() => {
     return (
-      <div className="flex items-center justify-between w-full mb-8 px-4">
-        {steps.map((s, i) => (
-          <React.Fragment key={s}>
-            <div className="flex flex-col items-center gap-2 relative z-10">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-700 shadow-lg ${i <= currentStepIndex ? 'bg-brand text-white shadow-brand/20' : 'bg-tertiary text-muted'}`}>
-                {i < currentStepIndex ? <CheckCircle2 size={20} /> : <span className="text-xs font-black">{i + 1}</span>}
-              </div>
-              <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${i <= currentStepIndex ? 'text-brand' : 'text-muted'}`}>{s}</span>
-            </div>
-            {i < steps.length - 1 && (
-              <div className="flex-1 h-[2px] mx-[-12px] -mt-6 bg-divider/10 relative">
-                <div
-                  className="absolute inset-0 bg-brand transition-all duration-1000 ease-out"
-                  style={{ width: i < currentStepIndex ? '100%' : '0%' }}
-                />
-              </div>
-            )}
-          </React.Fragment>
-        ))}
-      </div>
+      !evmAddress ||
+      !stellarAddress ||
+      !inputAmount ||
+      parseFloat(inputAmount) <= 0 ||
+      isInsufficient ||
+      isQuoting ||
+      loadingStep ||
+      (phase === 'BRIDGE' && bridgeTx.status === 'PENDING') ||
+      (phase === 'DEPOSIT' && depositTx.status === 'PENDING')
     );
-  };
+  }, [
+    evmAddress,
+    stellarAddress,
+    inputAmount,
+    isInsufficient,
+    isQuoting,
+    loadingStep,
+    phase,
+    bridgeTx.status,
+    depositTx.status,
+  ]);
 
+  // ---------------------------------------------------------------------------
+  // Route breakdown
+  // ---------------------------------------------------------------------------
   const routeBreakdown = useMemo(() => {
     if (!bridgeQuote && !depositQuote && !swapQuote) return null;
     const stellarConfig = getStellarConfig(currentNetwork);
-    const usdcLogo = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png";
-    const dydxLogo = "https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png";
 
-    const bridgeFee = bridgeQuote ? (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? (bridgeQuote.feeOptions.stablecoin?.float) : (bridgeQuote.feeOptions.native.float)) : 0;
+    const bridgeFee =
+      bridgeQuote
+        ? feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN
+          ? bridgeQuote.feeOptions.stablecoin?.float
+          : bridgeQuote.feeOptions.native?.float
+        : 0;
     const bridgeTime = Math.round((bridgeQuote?.transferTimeMs || 0) / 60000);
     const depositTime = Math.round((depositQuote?.estimatedDurationSeconds || 0) / 60);
 
-    const items = [];
+    const items: Array<{
+      label: string;
+      value: string;
+      fee: string;
+      amount: string;
+      time?: string;
+      icon: string;
+      chainIcon: string | undefined;
+      status: 'pending' | 'active' | 'done';
+    }> = [];
 
     if (swapQuote) {
       items.push({
@@ -507,9 +1141,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
         value: `${inputToken?.symbol} → USDC`,
         fee: 'Variable',
         amount: swapQuote.estimatedOutput ? portfolioUtils.formatBalance(swapQuote.estimatedOutput) : '',
-        icon: inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol, stellarConfig),
+        icon: inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol || '', stellarConfig),
         chainIcon: stellarConfig.logoUrl,
-        status: phase === 'SETUP' ? 'pending' : (phase === 'SWAP' ? 'active' : 'done')
+        status: phase === 'SETUP' ? 'pending' : phase === 'SWAP' ? 'active' : 'done',
       });
     }
 
@@ -518,78 +1152,352 @@ export const StellarDydxOrchestrator: React.FC = () => {
         label: 'Bridge',
         value: `Stellar → ${destinationChain?.name}`,
         fee: `${bridgeFee} ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? 'USDC' : 'XLM'}`,
-        amount: bridgeQuote.amountToBeReceived ? portfolioUtils.formatBalance(bridgeQuote.amountToBeReceived) : '',
+        amount: bridgeQuote.amountToBeReceived
+          ? portfolioUtils.formatBalance(bridgeQuote.amountToBeReceived)
+          : '',
         time: `${bridgeTime}m`,
-        icon: usdcLogo,
+        icon: USDC_LOGO_URL,
         chainIcon: stellarConfig.logoUrl,
-        status: phase === 'BRIDGE' ? 'active' : (['SETUP', 'SWAP'].includes(phase) ? 'pending' : 'done')
+        status: phase === 'BRIDGE' ? 'active' : ['SETUP', 'SWAP'].includes(phase) ? 'pending' : 'done',
       });
     }
 
     if (depositQuote) {
+      const rawFee =
+        ((depositQuote.usd_amount_in ?? 0) - (depositQuote.usd_amount_out ?? 0)) || 0.02;
       items.push({
         label: 'Bridge',
         value: `${destinationChain?.name} → dYdX`,
-        fee: `$${depositQuote.usd_amount_in - depositQuote.usd_amount_out || '0.02'}`,
-        amount: depositQuote.receivedAmount ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString()) : '',
+        fee: `$${rawFee.toFixed(4)}`,
+        amount: depositQuote.receivedAmount
+          ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString())
+          : '',
         time: `${depositTime}m`,
-        icon: usdcLogo,
+        icon: USDC_LOGO_URL,
         chainIcon: destinationChain?.logoURI,
-        status: phase === 'DEPOSIT' ? 'active' : (phase === 'DONE' ? 'done' : 'pending')
+        status:
+          phase === 'DEPOSIT' ? 'active' : phase === 'DONE' ? 'done' : 'pending',
       });
       items.push({
         label: 'Settled',
         value: 'dYdX Account',
         fee: '---',
-        amount: depositQuote.receivedAmount ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString()) : '',
-        icon: usdcLogo,
-        chainIcon: dydxLogo,
-        status: phase === 'DONE' ? 'done' : 'pending'
+        amount: depositQuote.receivedAmount
+          ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString())
+          : '',
+        icon: USDC_LOGO_URL,
+        chainIcon: DYDX_LOGO_URL,
+        status: phase === 'DONE' ? 'done' : 'pending',
       });
     }
 
-    const totalTime = bridgeTime + depositTime;
-
-    return { items, totalTime };
-  }, [bridgeQuote, depositQuote, swapQuote, inputToken, destinationChain, currentNetwork, phase, isUsdc, feePaymentMethod]);
+    return { items, totalTime: bridgeTime + depositTime };
+  }, [
+    bridgeQuote,
+    depositQuote,
+    swapQuote,
+    inputToken,
+    destinationChain,
+    currentNetwork,
+    phase,
+    feePaymentMethod,
+  ]);
 
   const evmChains = useMemo(() => getEvmChainsForNetwork(currentNetwork), [currentNetwork]);
 
+  // ---------------------------------------------------------------------------
+  // Vertical execution roadmap
+  // ---------------------------------------------------------------------------
+  const renderVerticalPath = () => {
+    const steps = isUsdc
+      ? [
+        {
+          id: 'BRIDGE',
+          label: 'Bridge to EVM',
+          description: `Move USDC from Stellar to ${destinationChain?.name || 'EVM Chain'}. This involves a cross-chain protocol and typically takes 2-15 minutes.`,
+          color: 'text-blue-400',
+          bg: 'bg-blue-400/20',
+          border: 'border-blue-400/30',
+        },
+        {
+          id: 'DEPOSIT',
+          label: 'Settle to dYdX',
+          description:
+            'Finalize the settlement from the EVM network to your dYdX trading account. This funds your dYdX position.',
+          color: 'text-brand',
+          bg: 'bg-brand/20',
+          border: 'border-brand/30',
+        },
+      ]
+      : [
+        {
+          id: 'SWAP',
+          label: 'Prepare USDC on Stellar',
+          description:
+            'Convert tokens to USDC on Stellar. This ensures compatibility with the cross-chain bridge infrastructure.',
+          color: 'text-emerald-400',
+          bg: 'bg-emerald-400/20',
+          border: 'border-emerald-400/30',
+        },
+        {
+          id: 'BRIDGE',
+          label: 'Bridge to EVM',
+          description: `Cross-chain transfer to ${destinationChain?.name || 'EVM Chain'}. Assets are moved securely via Allbridge liquidity pools.`,
+          color: 'text-blue-400',
+          bg: 'bg-blue-400/20',
+          border: 'border-blue-400/30',
+        },
+        {
+          id: 'DEPOSIT',
+          label: 'Settle to dYdX',
+          description:
+            'Depositing from EVM into the dYdX Protocol. Once confirmed, your balance will be available for trading.',
+          color: 'text-brand',
+          bg: 'bg-brand/20',
+          border: 'border-brand/30',
+        },
+      ];
+
+    const currentStepIndex =
+      phase === 'SETUP'
+        ? -1
+        : phase === 'SWAP'
+          ? 0
+          : phase === 'BRIDGE'
+            ? isUsdc ? 0 : 1
+            : phase === 'DEPOSIT'
+              ? isUsdc ? 1 : 2
+              : 3;
+
+    return (
+      <div className="bg-tertiary/90 backdrop-blur-2xl rounded-b-[3rem] mx-1 -mt-10 pt-12 pb-12 px-6 mx-2 shadow-[0_10px_40px_-15px_rgba(0,0,0,0.4)] animate-slide-up relative z-0 overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-64 bg-brand/5 blur-[120px] pointer-events-none opacity-60" />
+
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 mb-10 opacity-80">
+            <Info size={12} className="text-brand" />
+            <h3 className="text-[10px] font-black text-brand uppercase tracking-[0.4em]">
+              Execution Roadmap
+            </h3>
+          </div>
+
+          <div className="relative space-y-12 ml-2">
+            <div className="absolute top-4 left-[15px] bottom-4 w-0 border-l-2 border-dotted border-divider" />
+
+            {steps.map((s, i) => {
+              const stepTxStatus =
+                s.id === 'SWAP'
+                  ? swapTx.status
+                  : s.id === 'BRIDGE'
+                    ? bridgeTx.status
+                    : depositTx.status;
+              const isActive = i === currentStepIndex;
+              const isCompleted = stepTxStatus === 'SUCCESS' || i < currentStepIndex;
+              const isStepPending = stepTxStatus === 'PENDING';
+              const isFailed = stepTxStatus === 'FAILED';
+              const isLocked = i > currentStepIndex && !stepTxStatus;
+
+              const stepTxHash =
+                s.id === 'SWAP' ? swapTx.hash : s.id === 'BRIDGE' ? bridgeTx.hash : depositTx.hash;
+
+              return (
+                <div
+                  key={s.id}
+                  className={`flex gap-6 transition-all duration-700 ${isLocked ? 'opacity-20 blur-[0.5px]' : 'opacity-100'
+                    }`}
+                >
+                  <div className="relative z-10">
+                    <div
+                      className={`w-8 h-8 rounded-full z-20 flex items-center justify-center border-2 transition-all duration-700 ${isActive
+                        ? `${s.bg} ${s.border} ${s.color} shadow-[0_0_20px_rgba(var(--brand-rgb),0.1)] scale-110`
+                        : isCompleted
+                          ? 'bg-brand border-brand text-white shadow-[0_0_15px_rgba(var(--brand-rgb),0.2)]'
+                          : isFailed
+                            ? 'bg-rose-500/20 border-rose-500 text-rose-500'
+                            : 'bg-bg-primary border-divider text-muted'
+                        }`}
+                    >
+                      {isCompleted ? (
+                        <CheckCircle2 size={16} />
+                      ) : isFailed ? (
+                        <AlertCircle size={16} />
+                      ) : isStepPending ? (
+                        <RefreshCw size={14} className="animate-spin" />
+                      ) : (
+                        <span className="text-[10px] font-black">{i + 1}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 pt-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h4
+                        className={`text-xs font-black uppercase tracking-widest transition-colors ${isActive
+                          ? s.color
+                          : isCompleted
+                            ? 'text-primary'
+                            : isFailed
+                              ? 'text-rose-500'
+                              : 'text-muted'
+                          }`}
+                      >
+                        {s.label}
+                      </h4>
+                      {isStepPending && (
+                        <span className="text-[8px] font-black bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full border border-blue-500/20 animate-pulse uppercase tracking-tighter">
+                          Pending
+                        </span>
+                      )}
+                      {isFailed && (
+                        <span className="text-[8px] font-black bg-rose-500/10 text-rose-500 px-2 py-0.5 rounded-full border border-rose-500/20 uppercase tracking-tighter">
+                          Failed
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] font-bold text-muted leading-relaxed max-w-[280px]">
+                      {s.description}
+                    </p>
+
+                    {isActive && !isFailed && (
+                      <div className="mt-4 space-y-4">
+                        <div className="flex items-center gap-2 text-[9px] font-black text-brand uppercase tracking-widest animate-pulse">
+                          <div className="flex gap-1">
+                            <div className="w-1 h-1 rounded-full bg-brand animate-bounce" />
+                            <div className="w-1 h-1 rounded-full bg-brand animate-bounce delay-100" />
+                            <div className="w-1 h-1 rounded-full bg-brand animate-bounce delay-200" />
+                          </div>
+                          <span>Active Step</span>
+                        </div>
+
+                        {s.id === 'DEPOSIT' && dydxTracker.steps.length > 0 && (
+                          <div className="pl-2 border-l border-divider/50 space-y-4 ml-0.5">
+                            {dydxTracker.steps.map((step: any, idx: number) => {
+                              const isStepSuccess =
+                                step.state === 'TRANSFER_SUCCESS' ||
+                                step.state === 'TRANSFER_RECEIVED';
+                              const isStepFailure = step.state === 'TRANSFER_FAILURE';
+                              const explorerLink =
+                                step.packet_txs?.send_tx?.explorer_link ||
+                                step.packet_txs?.receive_tx?.explorer_link;
+
+                              return (
+                                <div key={idx} className="flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between group/sub">
+                                    <div className="flex items-center gap-3">
+                                      <div
+                                        className={`w-1.5 h-1.5 rounded-full ${isStepSuccess
+                                          ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)]'
+                                          : isStepFailure
+                                            ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]'
+                                            : 'bg-brand animate-pulse'
+                                          }`}
+                                      />
+                                      <span
+                                        className={`text-[8px] font-black uppercase tracking-widest ${isStepSuccess
+                                          ? 'text-emerald-400/80'
+                                          : isStepFailure
+                                            ? 'text-rose-500/80'
+                                            : 'text-muted'
+                                          }`}
+                                      >
+                                        {step.type
+                                          .replace('_transfer', '')
+                                          .replace('_', ' ')}
+                                      </span>
+                                    </div>
+                                    {explorerLink && (
+                                      <a
+                                        href={explorerLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[7px] font-black text-brand/40 hover:text-brand flex items-center gap-1 transition-colors uppercase tracking-tighter"
+                                      >
+                                        Explorer <ExternalLink size={8} />
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {((s.id === 'SWAP' && swapTx.hash) ||
+                          (s.id === 'BRIDGE' && bridgeTx.hash)) && (
+                            <a
+                              href={
+                                s.id === 'SWAP'
+                                  ? `https://stellar.expert/explorer/public/tx/${stepTxHash}`
+                                  : `https://explorer.allbridge.io/tx/${stepTxHash}`
+                              }
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-[8px] font-black text-brand/60 hover:text-brand transition-colors uppercase tracking-widest"
+                            >
+                              <ExternalLink size={10} />
+                              <span>View on Explorer</span>
+                            </a>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
   return (
     <div className="w-full mx-auto px-4 pb-4 animate-fade-in">
-      {/* Header Section */}
+      {/* Header */}
       <div className={`-mb-3 flex px-2 ${phase === 'SETUP' ? 'justify-end' : 'justify-center'}`}>
-
         {phase === 'SETUP' && (
           <div className="relative">
             <button
               onClick={() => setShowNetworkSelector(!showNetworkSelector)}
-              className="flex items-center gap-3 bg-tertiary  hover:bg-hover px-5 py-2.5 rounded-xl rounded-b-none pb-5 border border-divider transition-all  group"
+              className="flex items-center gap-3 bg-tertiary hover:bg-hover px-5 py-2.5 rounded-xl rounded-b-none pb-5 border border-divider transition-all group"
             >
               <div className="flex flex-col items-start leading-none">
-                <span className="text-[8px] font-black text-brand uppercase tracking-widest mb-1">Bridge Conduit</span>
+                <span className="text-[8px] font-black text-brand uppercase tracking-widest mb-1">
+                  Bridge Conduit
+                </span>
                 <div className="flex items-center gap-2">
                   <img src={destinationChain?.logoURI} className="w-4 h-4 rounded-full" alt="" />
-                  <span className="text-xs font-black text-primary uppercase">{destinationChain?.name}</span>
+                  <span className="text-xs font-black text-primary uppercase">
+                    {destinationChain?.name}
+                  </span>
                 </div>
               </div>
-              <ChevronDown size={14} className={`text-muted transition-transform duration-300 ml-2 ${showNetworkSelector ? 'rotate-180' : ''}`} />
+              <ChevronDown
+                size={14}
+                className={`text-muted transition-transform duration-300 ml-2 ${showNetworkSelector ? 'rotate-180' : ''
+                  }`}
+              />
             </button>
 
             {showNetworkSelector && (
               <div className="absolute top-full right-0 mt-3 w-64 bg-tertiary border border-divider rounded-[2rem] p-3 z-[100] shadow-2xl animate-slide-up backdrop-blur-xl">
                 <div className="px-3 py-2 mb-2 border-b border-divider/50">
-                  <span className="text-[10px] font-black text-muted uppercase tracking-widest">Select Bridge Pathway</span>
-                  <p className="text-[8px] font-bold text-muted/60 uppercase mt-1">Funds will pass through here to dYdX</p>
+                  <span className="text-[10px] font-black text-muted uppercase tracking-widest">
+                    Select Bridge Pathway
+                  </span>
+                  <p className="text-[8px] font-bold text-muted/60 uppercase mt-1">
+                    Funds will pass through here to dYdX
+                  </p>
                 </div>
-                {evmChains.map((c) => (
+                {evmChains.map(c => (
                   <button
                     key={c.chainId}
                     onClick={() => {
                       setDestinationChain(c);
                       setShowNetworkSelector(false);
                     }}
-                    className={`flex items-center gap-4 w-full px-4 py-3.5 rounded-xl transition-all ${destinationChain?.chainId === c.chainId ? 'bg-brand/10 text-brand' : 'hover:bg-hover text-secondary'}`}
+                    className={`flex items-center gap-4 w-full px-4 py-3.5 rounded-xl transition-all ${destinationChain?.chainId === c.chainId
+                      ? 'bg-brand/10 text-brand'
+                      : 'hover:bg-hover text-secondary'
+                      }`}
                   >
                     <img src={c.logoURI} className="w-6 h-6 rounded-full shadow-md" alt="" />
                     <span className="text-sm font-black uppercase tracking-tight">{c.name}</span>
@@ -602,38 +1510,81 @@ export const StellarDydxOrchestrator: React.FC = () => {
       </div>
 
       <div className="space-y-4 relative">
-        {phase !== 'SETUP' && phase !== 'DONE' && renderStepIndicator()}
-
-        <div className="space-y-1 relative">
-          <div className="bg-tertiary rounded-xl p-8 group transition-all duration-500 shadow-sm relative z-0">
+        <div className="space-y-1 relative z-10">
+          {/* You Pay */}
+          <div className="bg-tertiary rounded-2xl p-8 group transition-all duration-500 shadow-xl relative z-20 border border-divider/10">
             <div className="flex justify-between items-center mb-6">
-              <span className="text-[10px] font-black text-muted uppercase tracking-[0.3em]">You Pay</span>
+              <span className="text-[10px] font-black text-muted uppercase tracking-[0.3em]">
+                You Pay
+              </span>
               {phase === 'SETUP' && (
                 <button
                   onClick={handleMaxAmount}
-                  className="text-[10px] font-black text-brand bg-brand/10 px-4 py-1.5 rounded-full hover:bg-brand hover:text-white transition-all tracking-widest"
+                  className="text-[10px] font-black text-brand bg-brand/10 px-4 py-1.5 rounded-full hover:bg-brand hover:text-white transition-all tracking-widest min-h-[24px] min-w-[100px] flex items-center justify-center"
                 >
-                  MAX: {portfolioUtils.formatBalance(tokenBalance)}
+                  {loadingAssets ? (
+                    <Shimmer className="h-2 w-16" />
+                  ) : (
+                    `MAX: ${portfolioUtils.formatBalance(tokenBalance)}`
+                  )}
                 </button>
               )}
             </div>
 
             <div className="flex items-center gap-6">
               <button
-                onClick={() => phase === 'SETUP' && openAssetSelector('BRIDGE', { defaultNetwork: STELLAR_CHAIN_ID, showAllStellarAssets: true, onSelect: (a) => setInputToken(a) })}
-                className={`flex items-center gap-4 bg-secondary hover:bg-hover rounded-2xl px-5 py-4 transition-all border border-divider/50 shadow-sm min-w-[190px] ${phase === 'SETUP' ? 'active:scale-95' : 'pointer-events-none opacity-80'}`}
+                onClick={() =>
+                  phase === 'SETUP' &&
+                  openAssetSelector('BRIDGE', {
+                    forceNetwork: STELLAR_CHAIN_ID,
+                    showAllStellarAssets: true,
+                    onSelect: (a: StellarToken) => setInputToken(a),
+                  })
+                }
+                className={`flex items-center gap-4 bg-secondary hover:bg-hover rounded-2xl px-5 py-4 transition-all border border-divider/50 shadow-sm min-w-[190px] ${phase === 'SETUP' ? 'active:scale-95' : 'pointer-events-none opacity-80'
+                  }`}
               >
-                <div className="relative">
-                  <img src={displayState.top.logo} className="w-10 h-10 rounded-full object-cover shadow-md" alt="" />
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-secondary bg-primary flex items-center justify-center p-0.5 shadow-sm">
-                    <img src={getStellarConfig(currentNetwork).logoUrl} className="w-full h-full object-contain" alt="" />
+                {loadingAssets ? (
+                  <div className="flex items-center gap-4">
+                    <Shimmer className="w-10 h-10 rounded-full" />
+                    <div className="flex flex-col gap-2">
+                      <Shimmer className="h-4 w-12" />
+                      <Shimmer className="h-2 w-8" />
+                    </div>
                   </div>
-                </div>
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="font-black text-lg text-primary uppercase tracking-tight">{displayState.top.symbol}</span>
-                  <span className="text-[9px] font-black text-muted uppercase tracking-tighter">Stellar</span>
-                </div>
-                {phase === 'SETUP' && <ChevronDown size={14} className="text-muted ml-auto" />}
+                ) : (
+                  <>
+                    <div className="relative">
+                      <img
+                        src={displayState.top.logo}
+                        className="w-10 h-10 rounded-full object-cover shadow-md"
+                        alt=""
+                      />
+                      <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-secondary bg-primary flex items-center justify-center p-0.5 shadow-sm">
+                        <img
+                          src={
+                            phase === 'DEPOSIT' || phase === 'DONE'
+                              ? destinationChain?.logoURI
+                              : getStellarConfig(currentNetwork).logoUrl
+                          }
+                          className="w-full h-full object-contain rounded-full"
+                          alt=""
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-start leading-tight">
+                      <span className="font-black text-lg text-primary uppercase tracking-tight">
+                        {displayState.top.symbol}
+                      </span>
+                      <span className="text-[9px] font-black text-muted uppercase tracking-tighter">
+                        {phase === 'DEPOSIT' || phase === 'DONE'
+                          ? destinationChain?.name || 'EVM'
+                          : 'Stellar'}
+                      </span>
+                    </div>
+                    {phase === 'SETUP' && <ChevronDown size={14} className="text-muted ml-auto" />}
+                  </>
+                )}
               </button>
 
               <div className="flex-1 text-right">
@@ -645,50 +1596,74 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     placeholder="0.00"
                     className="w-full bg-transparent border-none text-right text-5xl font-black focus:ring-0 p-0 placeholder:text-muted/10 truncate outline-none text-primary tracking-tighter"
                     value={inputAmount}
-                    onChange={(e) => setInputAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    onChange={e => setInputAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                   />
                 ) : (
                   <div className="text-5xl font-black text-primary truncate tracking-tighter">
-                    {displayState.top.amount ? portfolioUtils.formatBalance(displayState.top.amount) : '0.00'}
+                    {displayState.top.amount
+                      ? portfolioUtils.formatBalance(displayState.top.amount)
+                      : '0.00'}
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
-            <div className="w-12 h-12 bg-secondary rounded-2xl  border-secondary flex items-center justify-center shadow-xl">
-              <ArrowUpDown size={20} className="text-brand" />
+          {/* Arrow divider */}
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
+            <div className="w-11 h-11 bg-secondary rounded-2xl flex items-center justify-center shadow-2xl">
+              <ArrowUpDown size={18} className="text-brand" />
             </div>
           </div>
 
-          <div className="bg-tertiary rounded-xl p-8 group transition-all duration-500 shadow-sm relative overflow-hidden border border-divider/20">
+          {/* You Receive */}
+          <div className="bg-tertiary rounded-2xl p-8 group transition-all duration-500 shadow-xl relative overflow-hidden border border-divider/20 z-20">
             <div className="flex justify-between items-center mb-6">
-              <span className="text-[10px] font-black text-muted uppercase tracking-[0.3em]">You Receive</span>
+              <span className="text-[10px] font-black text-muted uppercase tracking-[0.3em]">
+                You Receive
+              </span>
               {phase === 'SETUP' || phase === 'SWAP' || phase === 'BRIDGE' ? (
                 <div className="flex items-center gap-1.5 bg-brand/5 px-3 py-1 rounded-full border border-brand/10">
-                  <span className="text-[9px] font-black text-brand uppercase tracking-tighter italic">Pending Final Settlement</span>
+                  <span className="text-[9px] font-black text-brand uppercase tracking-tighter italic">
+                    Pending Final Settlement
+                  </span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 bg-brand/10 px-3 py-1 rounded-full border border-brand/20">
                   <CheckCircle2 size={10} className="text-brand" />
-                  <span className="text-[9px] font-black text-brand uppercase tracking-tighter">Settled on dYdX</span>
+                  <span className="text-[9px] font-black text-brand uppercase tracking-tighter">
+                    Settled on dYdX
+                  </span>
                 </div>
               )}
             </div>
 
             <div className="flex items-center gap-6">
-              <div className="flex items-center gap-4  bg-secondary rounded-2xl px-5 py-4 border border-divider/50 shadow-sm min-w-[190px] opacity-90">
+              <div className="flex items-center gap-4 bg-secondary rounded-2xl px-5 py-4 border border-divider/50 shadow-sm min-w-[190px] opacity-90">
                 <div className="relative">
-                  <img src={displayState.bottom.logo} className="w-10 h-10 rounded-full object-cover shadow-md" alt="" />
+                  <img
+                    src={displayState.bottom.logo}
+                    className="w-10 h-10 rounded-full object-cover shadow-md"
+                    alt=""
+                  />
                   <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-secondary bg-bg-primary flex items-center justify-center p-0.5 shadow-sm">
                     {displayState.bottom.network === 'DYDX' ? (
                       <div className="w-full h-full bg-black rounded-full flex items-center justify-center p-1">
-                        <img src="https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png" className="w-full h-full object-contain" alt="" />
+                        <img
+                          src={DYDX_LOGO_URL}
+                          className="w-full h-full object-contain"
+                          alt=""
+                        />
                       </div>
                     ) : (
                       <img
-                        src={getChainById(displayState.bottom.network === 'STELLAR' ? STELLAR_CHAIN_ID : (destinationChain?.chainId || 42161))?.logoURI}
+                        src={
+                          getChainById(
+                            displayState.bottom.network === 'STELLAR'
+                              ? STELLAR_CHAIN_ID
+                              : destinationChain?.chainId || ARBITRUM_CHAIN_ID
+                          )?.logoURI
+                        }
                         className="w-full h-full object-contain"
                         alt=""
                       />
@@ -696,8 +1671,12 @@ export const StellarDydxOrchestrator: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex flex-col items-start leading-tight">
-                  <span className="font-black text-lg text-primary uppercase tracking-tight">{displayState.bottom.symbol}</span>
-                  <span className="text-[9px] font-black text-muted uppercase tracking-tighter">{displayState.bottom.network}</span>
+                  <span className="font-black text-lg text-primary uppercase tracking-tight">
+                    {displayState.bottom.symbol}
+                  </span>
+                  <span className="text-[9px] font-black text-muted uppercase tracking-tighter">
+                    {displayState.bottom.network}
+                  </span>
                 </div>
               </div>
 
@@ -706,7 +1685,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
                   <Shimmer className="h-10 w-full mb-1" />
                 ) : (
                   <div className="text-5xl font-black text-primary truncate tracking-tighter">
-                    {displayState.bottom.amount ? portfolioUtils.formatBalance(displayState.bottom.amount) : '0.00'}
+                    {displayState.bottom.amount
+                      ? portfolioUtils.formatBalance(displayState.bottom.amount)
+                      : '0.00'}
                   </div>
                 )}
               </div>
@@ -714,46 +1695,81 @@ export const StellarDydxOrchestrator: React.FC = () => {
           </div>
         </div>
 
-        {/* Route Transparency - Show More Option */}
+        {/* Execution Roadmap */}
+        {phase !== 'SETUP' && phase !== 'DONE' && renderVerticalPath()}
+
+        {/* Show full details toggle */}
         {phase === 'SETUP' && routeBreakdown && (
-          <div className="flex justify-center -mt-2 -mb-1 ">
+          <div className="flex justify-center -mt-2 -mb-1">
             <button
               onClick={() => setShowFullDetails(!showFullDetails)}
               className="text-[10px] bg-primary p-3 px-5 rounded-t-lg font-black text-muted hover:text-brand uppercase tracking-widest flex items-center gap-1.5 transition-colors"
             >
-              {showFullDetails ? (
-                <EyeOff size={12} />
-              ) : (
-                <Eye size={12} />
-              )}
+              {showFullDetails ? <EyeOff size={12} /> : <Eye size={12} />}
               {showFullDetails ? 'Hide Full Quote' : 'View Full Route Details'}
             </button>
           </div>
         )}
-        {/* Fee & Time Details */}
+
+        {/* Route details */}
         {phase === 'SETUP' && routeBreakdown && (
           <div className="bg-tertiary rounded-xl border border-divider p-6 pb-0 animate-fade-in relative">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-2">
                 <Layers size={14} className="text-brand" />
-                <h4 className="text-[10px] font-black text-primary uppercase tracking-widest">Route Details</h4>
+                <h4 className="text-[10px] font-black text-primary uppercase tracking-widest">
+                  Route Details
+                </h4>
               </div>
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-secondary px-3 py-1.5 rounded-xl border border-divider">
-                  <span className="text-[9px] font-black text-muted uppercase">Bridge Fee:</span>
-                  <button
-                    onClick={() => setFeePaymentMethod(feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? FeePaymentMethod.WITH_NATIVE_CURRENCY : FeePaymentMethod.WITH_STABLECOIN)}
-                    className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-                  >
-                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? 'bg-brand/10 border-brand/20' : 'bg-tertiary border-divider'}`}>
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png" className="w-3 h-3 rounded-full" alt="" />
-                      <span className={`text-[8px] font-black ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? 'text-brand' : 'text-muted'}`}>USDC</span>
-                    </div>
-                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 'bg-brand/10 border-brand/20' : 'bg-tertiary border-divider'}`}>
-                      <img src={getStellarConfig(currentNetwork).logoUrl} className="w-3 h-3 rounded-full" alt="" />
-                      <span className={`text-[8px] font-black ${feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 'text-brand' : 'text-muted'}`}>XLM</span>
-                    </div>
-                  </button>
+                <div className="flex items-center gap-3 bg-secondary/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-divider shadow-inner">
+                  <div className="flex flex-col">
+                    <span className="text-[8px] font-black text-muted uppercase tracking-tighter">
+                      XLM Balance
+                    </span>
+                    <span className="text-[10px] font-black text-primary tracking-tight">
+                      {portfolioUtils.formatBalance(nativeBalance)} XLM
+                    </span>
+                  </div>
+                  <div className="w-[1px] h-6 bg-divider/30" />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[8px] font-black text-muted uppercase tracking-tighter">
+                      Pay Fee In
+                    </span>
+                    <button
+                      onClick={() =>
+                        setFeePaymentMethod(
+                          feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN
+                            ? FeePaymentMethod.WITH_NATIVE_CURRENCY
+                            : FeePaymentMethod.WITH_STABLECOIN
+                        )
+                      }
+                      className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                    >
+                      <div
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border transition-all ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN
+                          ? 'bg-brand text-white border-brand shadow-lg shadow-brand/20'
+                          : 'bg-tertiary border-divider text-muted opacity-50'
+                          }`}
+                      >
+                        <img src={USDC_LOGO_URL} className="w-2.5 h-2.5 rounded-full" alt="" />
+                        <span className="text-[7px] font-black">USDC</span>
+                      </div>
+                      <div
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border transition-all ${feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY
+                          ? 'bg-brand text-white border-brand shadow-lg shadow-brand/20'
+                          : 'bg-tertiary border-divider text-muted opacity-50'
+                          }`}
+                      >
+                        <img
+                          src={getStellarConfig(currentNetwork).logoUrl}
+                          className="w-2.5 h-2.5 rounded-full"
+                          alt=""
+                        />
+                        <span className="text-[7px] font-black">XLM</span>
+                      </div>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -761,119 +1777,269 @@ export const StellarDydxOrchestrator: React.FC = () => {
             <div className="flex items-center justify-between px-2 mb-10 relative">
               {isQuoting ? (
                 <div className="flex justify-between w-full px-4">
-                  {[1, 2, 3].map(i => <Shimmer key={i} className="w-16 h-16 rounded-2xl" />)}
+                  {[1, 2, 3].map(i => (
+                    <Shimmer key={i} className="w-16 h-16 rounded-2xl" />
+                  ))}
                 </div>
               ) : (
                 routeBreakdown.items.map((item, idx) => (
                   <React.Fragment key={idx}>
-                    <div className="flex flex-col items-center gap-3 relative z-10 ">
-                      <div className={`w-14 h-14 relative rounded-2xl bg-tertiary flex items-center justify-center border transition-all duration-500 shadow-sm ${item.status === 'done' ? 'border-success/50' : item.status === 'active' ? 'border-brand shadow-lg shadow-brand/10' : 'border-divider'}`}>
+                    <div className="flex flex-col items-center gap-3 relative z-10">
+                      <div
+                        className={`w-14 h-14 relative rounded-2xl bg-tertiary flex items-center justify-center border transition-all duration-500 shadow-sm ${item.status === 'done'
+                          ? 'border-success/50'
+                          : item.status === 'active'
+                            ? 'border-brand shadow-lg shadow-brand/10'
+                            : 'border-divider'
+                          }`}
+                      >
                         <img src={item.icon} className="w-8 h-8 rounded-full shadow-sm" alt="" />
                         <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full border-2 border-secondary bg-bg-primary flex items-center justify-center p-0.5 shadow-sm">
-                          <img src={item.chainIcon} className="w-full h-full object-contain" alt="" />
+                          <img
+                            src={item.chainIcon}
+                            className="w-full h-full object-contain"
+                            alt=""
+                          />
                         </div>
                       </div>
                       <div className="flex flex-col items-center">
-                        <span className={`text-[9px] font-black uppercase tracking-widest ${item.status === 'active' ? 'text-brand' : 'text-muted'}`}>{item.label}</span>
-                        <span className="text-[8px] font-bold text-white/40 mt-0.5">{item.amount ? `${item.amount} USDC` : '---'}</span>
+                        <span
+                          className={`text-[9px] font-black uppercase tracking-widest ${item.status === 'active' ? 'text-brand' : 'text-muted'
+                            }`}
+                        >
+                          {item.label}
+                        </span>
+                        <span className="text-[8px] font-bold text-white/40 mt-0.5">
+                          {item.amount ? `${item.amount} USDC` : '---'}
+                        </span>
                         {item.time && (
                           <div className="flex items-center gap-1 mt-0.5 opacity-80">
                             <Clock size={8} className="text-brand" />
-                            <span className="text-[10px] font-black text-brand uppercase tracking-tighter">{item.time}</span>
+                            <span className="text-[10px] font-black text-brand uppercase tracking-tighter">
+                              {item.time}
+                            </span>
                           </div>
                         )}
                       </div>
                     </div>
                     {idx < routeBreakdown.items.length - 1 && (
-                      <div className="flex-1 h-0 border-t-2 border-dotted mx-2 mb-12 transition-all duration-500 opacity-30"
-                        style={{ borderColor: item.status === 'done' ? 'var(--success)' : 'var(--divider)' }} />
+                      <div
+                        className="flex-1 h-0 border-t-2 border-dotted mx-2 mb-12 transition-all duration-500 opacity-30"
+                        style={{
+                          borderColor:
+                            item.status === 'done' ? 'var(--success)' : 'var(--divider)',
+                        }}
+                      />
                     )}
                   </React.Fragment>
                 ))
               )}
             </div>
 
-            {/* Always-visible per-step fee breakdown */}
+            {/* Per-step fee breakdown */}
             <div className="space-y-2 py-4 border-t border-divider/50">
-              {routeBreakdown.items.map((item, idx) => item.fee !== '---' && (
-                <div key={idx} className="flex justify-between items-center text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <img src={item.icon} className="w-4 h-4 rounded-full" alt="" />
-                    <span className="text-muted font-bold">{item.label}</span>
-                    {item.time && (
-                      <div className="flex items-center gap-0.5 opacity-40">
-                        <Clock size={8} />
-                        <span className="text-[8px] font-black uppercase">{item.time}</span>
+              {routeBreakdown.items.map(
+                (item, idx) =>
+                  item.fee !== '---' && (
+                    <div key={idx} className="flex justify-between items-center text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <img src={item.icon} className="w-4 h-4 rounded-full" alt="" />
+                        <span className="text-muted font-bold">{item.label}</span>
+                        {item.time && (
+                          <div className="flex items-center gap-0.5 opacity-40">
+                            <Clock size={8} />
+                            <span className="text-[8px] font-black uppercase">{item.time}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <span className="text-primary font-black">{item.fee}</span>
-                </div>
-              ))}
+                      <span className="text-primary font-black">{item.fee}</span>
+                    </div>
+                  )
+              )}
             </div>
 
+            {/* Full quote details */}
             {showFullDetails && rawQuotes && (
               <div className="space-y-3 py-4 border-t border-divider/50 animate-fade-in">
-                <p className="text-[9px] font-black text-brand uppercase tracking-[0.2em] mb-2">Full Quote Breakdown</p>
+                <p className="text-[9px] font-black text-brand uppercase tracking-[0.2em] mb-2">
+                  Full Quote Breakdown
+                </p>
 
-                {/* Stellar Swap Quote */}
                 {rawQuotes.swap && (
                   <details className="group" open>
                     <summary className="cursor-pointer flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted hover:text-brand py-2.5 border-b border-divider/30 transition-colors">
                       <span className="group-open:text-brand transition-colors">Stellar Swap</span>
-                      <ChevronDown size={10} className="group-open:rotate-180 group-open:text-brand transition-all duration-300" />
+                      <ChevronDown
+                        size={10}
+                        className="group-open:rotate-180 group-open:text-brand transition-all duration-300"
+                      />
                     </summary>
                     <div className="mt-2 space-y-1.5 text-[9px] font-mono pl-2">
-                      <div className="flex justify-between"><span className="text-muted">You Pay</span><span className="text-primary font-black">{rawQuotes.swap.inputAmount} {rawQuotes.swap.fromAsset?.code || inputToken?.symbol}</span></div>
-                      <div className="flex justify-between"><span className="text-muted">You Get (USDC)</span><span className="text-brand font-black">{parseFloat(rawQuotes.swap.estimatedOutput || '0').toFixed(6)}</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Min. Received</span><span className="text-primary">{parseFloat(rawQuotes.swap.minimumOutput || '0').toFixed(6)} USDC</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Price Impact</span><span className={`font-black ${(rawQuotes.swap.priceImpact || 0) > 1 ? 'text-red-400' : 'text-green-400'}`}>{((rawQuotes.swap.priceImpact || 0)).toFixed(3)}%</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Route</span>
+                      <div className="flex justify-between">
+                        <span className="text-muted">You Pay</span>
+                        <span className="text-primary font-black">
+                          {rawQuotes.swap.inputAmount}{' '}
+                          {rawQuotes.swap.fromAsset?.code || inputToken?.symbol}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">You Get (USDC)</span>
+                        <span className="text-brand font-black">
+                          {parseFloat(rawQuotes.swap.estimatedOutput || '0').toFixed(6)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Min. Received</span>
+                        <span className="text-primary">
+                          {parseFloat(rawQuotes.swap.minimumOutput as string || '0').toFixed(6)} USDC
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Price Impact</span>
+                        <span
+                          className={`font-black ${(rawQuotes.swap.priceImpact || 0) > 1
+                            ? 'text-red-400'
+                            : 'text-green-400'
+                            }`}
+                        >
+                          {(rawQuotes.swap.priceImpact || 0).toFixed(3)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Route</span>
                         <span className="text-primary text-right max-w-[140px] truncate">
                           {Array.isArray(rawQuotes.swap.path?.path)
-                            ? rawQuotes.swap.path.path.map((p: any) => p.code).join(' → ')
+                            ? (rawQuotes.swap.path!.path as Array<{ code: string }>)
+                              .map(p => p.code)
+                              .join(' → ')
                             : 'AMM Pool'}
                         </span>
                       </div>
-                      <div className="flex justify-between"><span className="text-muted">Slippage</span><span>1.0%</span></div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Slippage</span>
+                        <span>{DEFAULT_SLIPPAGE}%</span>
+                      </div>
                     </div>
                   </details>
                 )}
 
-                {/* Allbridge Quote */}
                 {rawQuotes.bridge && (
                   <details className="group" open={!rawQuotes.swap}>
                     <summary className="cursor-pointer flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted hover:text-brand py-2.5 border-b border-divider/30 transition-colors">
-                      <span className="group-open:text-brand transition-colors">Allbridge (Stellar → {rawQuotes.bridge.destinationToken?.chainName || destinationChain?.name})</span>
-                      <ChevronDown size={10} className="group-open:rotate-180 group-open:text-brand transition-all duration-300" />
+                      <span className="group-open:text-brand transition-colors">
+                        Allbridge (Stellar →{' '}
+                        {rawQuotes.bridge.destinationToken?.chainName || destinationChain?.name})
+                      </span>
+                      <ChevronDown
+                        size={10}
+                        className="group-open:rotate-180 group-open:text-brand transition-all duration-300"
+                      />
                     </summary>
                     <div className="mt-2 space-y-1.5 text-[9px] font-mono pl-2">
-                      <div className="flex justify-between"><span className="text-muted">Bridge Amount In</span><span className="text-primary font-black">{rawQuotes.bridge.amountToBeReceived ? (parseFloat(rawQuotes.bridge.amountToBeReceived) + parseFloat(rawQuotes.bridge.feeOptions?.stablecoin?.float || '0')).toFixed(4) : '—'} USDC</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Amount Out</span><span className="text-brand font-black">{parseFloat(rawQuotes.bridge.amountToBeReceived || '0').toFixed(4)} USDC</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Exchange Rate</span><span>{rawQuotes.bridge.exchangeRate}</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Transfer Time</span><span>{Math.round((rawQuotes.bridge.transferTimeMs || 0) / 60000)} min</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Fee (pay in USDC)</span><span className="text-yellow-400 font-black">{rawQuotes.bridge.feeOptions?.stablecoin?.float} USDC</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Fee (pay in XLM)</span><span className="text-yellow-400">{rawQuotes.bridge.feeOptions?.native?.float} XLM</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Source</span><span className="text-primary">Stellar ({rawQuotes.bridge.sourceToken?.chainName})</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Destination</span><span className="text-primary">{rawQuotes.bridge.destinationToken?.chainName} ({rawQuotes.bridge.destinationToken?.symbol})</span></div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Bridge Amount In</span>
+                        <span className="text-primary font-black">
+                          {rawQuotes.bridge.amountToBeReceived
+                            ? (
+                              parseFloat(rawQuotes.bridge.amountToBeReceived) +
+                              parseFloat(
+                                String(rawQuotes.bridge.feeOptions?.stablecoin?.float || '0')
+                              )
+                            ).toFixed(4)
+                            : '—'}{' '}
+                          USDC
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Amount Out</span>
+                        <span className="text-brand font-black">
+                          {parseFloat(rawQuotes.bridge.amountToBeReceived || '0').toFixed(4)} USDC
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Exchange Rate</span>
+                        <span>{rawQuotes.bridge.exchangeRate}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Transfer Time</span>
+                        <span>
+                          {Math.round((rawQuotes.bridge.transferTimeMs || 0) / 60000)} min
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Fee (pay in USDC)</span>
+                        <span className="text-yellow-400 font-black">
+                          {rawQuotes.bridge.feeOptions?.stablecoin?.float} USDC
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Fee (pay in XLM)</span>
+                        <span className="text-yellow-400">
+                          {rawQuotes.bridge.feeOptions?.native?.float} XLM
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Source</span>
+                        <span className="text-primary">
+                          Stellar ({rawQuotes.bridge.sourceToken?.chainName})
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Destination</span>
+                        <span className="text-primary">
+                          {rawQuotes.bridge.destinationToken?.chainName} (
+                          {rawQuotes.bridge.destinationToken?.symbol})
+                        </span>
+                      </div>
                     </div>
                   </details>
                 )}
 
-                {/* dYdX / Skip Route */}
                 {rawQuotes.dydx && (
                   <details className="group">
                     <summary className="cursor-pointer flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted hover:text-brand py-2.5 border-b border-divider/30 transition-colors">
-                      <span className="group-open:text-brand transition-colors">dYdX Settlement (Skip / CCTP)</span>
-                      <ChevronDown size={10} className="group-open:rotate-180 group-open:text-brand transition-all duration-300" />
+                      <span className="group-open:text-brand transition-colors">
+                        dYdX Settlement (Skip / CCTP)
+                      </span>
+                      <ChevronDown
+                        size={10}
+                        className="group-open:rotate-180 group-open:text-brand transition-all duration-300"
+                      />
                     </summary>
                     <div className="mt-2 space-y-1.5 text-[9px] font-mono pl-2">
-                      <div className="flex justify-between"><span className="text-muted">Bridge</span><span className="text-brand font-black">CCTP</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Est. Time</span><span>{rawQuotes.dydx.estimatedTime || `~${Math.round((rawQuotes.dydx.estimatedDurationSeconds || 0) / 60)} min`}</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Bridge Fee</span><span className="text-yellow-400 font-black">${(rawQuotes.dydx.fee || 0.02).toFixed(4)} USD</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Settled (USDC)</span><span className="text-brand font-black">{(rawQuotes.dydx.receivedAmount || 0).toFixed(4)}</span></div>
-                      <div className="flex justify-between"><span className="text-muted">USD Value Out</span><span className="text-primary">${rawQuotes.dydx.usdAmountOut}</span></div>
-                      <div className="flex justify-between"><span className="text-muted">Settled On</span><span className="text-brand">dYdX Chain</span></div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Bridge</span>
+                        <span className="text-brand font-black">CCTP</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Est. Time</span>
+                        <span>
+                          {rawQuotes.dydx.estimatedTime ||
+                            `~${Math.round(
+                              (rawQuotes.dydx.estimatedDurationSeconds || 0) / 60
+                            )} min`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Bridge Fee</span>
+                        <span className="text-yellow-400 font-black">
+                          ${(rawQuotes.dydx.fee || 0.02).toFixed(4)} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Settled (USDC)</span>
+                        <span className="text-brand font-black">
+                          {(rawQuotes.dydx.receivedAmount || 0).toFixed(4)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">USD Value Out</span>
+                        <span className="text-primary">${rawQuotes.dydx.usdAmountOut}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Settled On</span>
+                        <span className="text-brand">dYdX Chain</span>
+                      </div>
                     </div>
                   </details>
                 )}
@@ -884,17 +2050,23 @@ export const StellarDydxOrchestrator: React.FC = () => {
               </div>
             )}
 
-
-            <div className="mt-4 p-4 bg-brand rounded-2xl rounded-b-none bg-secondary  flex justify-between items-center">
+            {/* Total row */}
+            <div className="mt-4 p-4 bg-brand rounded-2xl rounded-b-none bg-secondary flex justify-between items-center">
               <div>
-                <p className="text-[10px] font-black text-muted uppercase tracking-widest mb-1">Total Estimated Received</p>
+                <p className="text-[10px] font-black text-muted uppercase tracking-widest mb-1">
+                  Total Estimated Received
+                </p>
                 <div className="flex items-center gap-2.5">
                   <div className="flex -space-x-1.5">
                     <div className="w-5.5 h-5.5 rounded-full bg-black flex items-center justify-center p-1 border border-secondary shadow-sm">
-                      <img src="https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png" className="w-full h-full object-contain" alt="" />
+                      <img src={DYDX_LOGO_URL} className="w-full h-full object-contain" alt="" />
                     </div>
                     <div className="w-5 h-5 rounded-full bg-bg-primary flex items-center justify-center p-0.5 border border-secondary shadow-sm">
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png" className="w-full h-full object-contain rounded-full" alt="" />
+                      <img
+                        src={USDC_LOGO_URL}
+                        className="w-full h-full object-contain rounded-full"
+                        alt=""
+                      />
                     </div>
                   </div>
                   {isQuoting ? (
@@ -904,7 +2076,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
                       <span className="text-2xl font-black text-brand tracking-tighter leading-none">
                         {routeBreakdown.items[routeBreakdown.items.length - 1]?.amount || '0.00'}
                       </span>
-                      <span className="text-brand text-[10px] font-black uppercase opacity-60">USDC</span>
+                      <span className="text-brand text-[10px] font-black uppercase opacity-60">
+                        USDC
+                      </span>
                     </div>
                   )}
                 </div>
@@ -919,40 +2093,67 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     <Clock size={10} className="text-brand" />
                     <span>~{routeBreakdown.totalTime} MINS</span>
                   </div>
-                  <span className="text-[8px] font-bold text-white/20 uppercase">Total EST. TIME</span>
+                  <span className="text-[8px] font-bold text-white/20 uppercase">
+                    Total EST. TIME
+                  </span>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Phase Progress */}
-        {(phase !== 'SETUP' && phase !== 'DONE') && (
-          <div className="p-6 bg-brand/5 rounded-xl border border-brand/10 animate-fade-in">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-brand flex items-center justify-center shadow-lg shadow-brand/20">
-                <RefreshCw size={24} className={`text-white ${loadingStep ? 'animate-spin' : ''}`} />
-              </div>
-              <div>
-                <span className="text-[10px] font-black text-brand uppercase tracking-widest block mb-1">{displayState.title}</span>
-                <p className="text-xs font-bold text-primary">Confirm in your {phase === 'DEPOSIT' ? 'EVM' : 'Stellar'} wallet</p>
-              </div>
-            </div>
-            <div className="w-full h-2 bg-divider rounded-full overflow-hidden">
-              <div
-                className="h-full bg-brand transition-all duration-1000 shadow-[0_0_10px_rgba(var(--brand-rgb),0.5)]"
-                style={{ width: phase === 'SWAP' ? '33%' : phase === 'BRIDGE' ? '66%' : '95%' }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Action Button */}
+        {/* Action section */}
         <div className="pt-2">
           {error && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 flex items-center gap-3 mb-4 animate-shake">
               <AlertCircle size={18} className="text-red-500" />
               <p className="text-xs font-bold text-red-500">{error}</p>
+            </div>
+          )}
+
+          {phase === 'BRIDGE' && (
+            <div className="mb-4 bg-secondary/50 p-4 rounded-2xl border border-divider flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black text-muted uppercase tracking-widest">
+                  Bridge Fee Currency
+                </span>
+                <span className="text-[11px] font-bold text-primary mt-1">
+                  Select how you want to pay network fees:
+                </span>
+              </div>
+              <button
+                onClick={() =>
+                  setFeePaymentMethod(
+                    feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN
+                      ? FeePaymentMethod.WITH_NATIVE_CURRENCY
+                      : FeePaymentMethod.WITH_STABLECOIN
+                  )
+                }
+                className="flex items-center gap-2 bg-secondary p-1 rounded-xl border border-divider shadow-sm"
+              >
+                <div
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN
+                    ? 'bg-brand text-white shadow-lg shadow-brand/20'
+                    : 'text-muted opacity-50'
+                    }`}
+                >
+                  <img src={USDC_LOGO_URL} className="w-3.5 h-3.5 rounded-full" alt="" />
+                  <span className="text-[10px] font-black">USDC</span>
+                </div>
+                <div
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY
+                    ? 'bg-brand text-white shadow-lg shadow-brand/20'
+                    : 'text-muted opacity-50'
+                    }`}
+                >
+                  <img
+                    src={getStellarConfig(currentNetwork).logoUrl}
+                    className="w-3.5 h-3.5 rounded-full"
+                    alt=""
+                  />
+                  <span className="text-[10px] font-black">XLM</span>
+                </div>
+              </button>
             </div>
           )}
 
@@ -972,20 +2173,16 @@ export const StellarDydxOrchestrator: React.FC = () => {
             </div>
           ) : (
             <div className="relative">
-              {phase === 'SETUP' && !evmAddress && (
-                <div className="absolute inset-0 bg-secondary/80 backdrop-blur-sm z-[60] flex flex-col items-center justify-center rounded-xl border border-divider p-6 text-center">
-                  <Wallet size={32} className="text-brand mb-3 opacity-50" />
-                  <p className="text-sm font-bold text-primary">Connect Wallets to Begin</p>
-                </div>
-              )}
-              <TransactionButton
-                label={buttonLabel}
-                isLoading={isQuoting || loadingStep || dydxLoading}
-                isDisabled={!inputAmount || parseFloat(inputAmount) <= 0 || isInsufficient || (phase === 'SETUP' && !depositQuote)}
-                isError={!!error}
-                onClick={handleActionClick}
-                className="py-8 rounded-xl text-lg font-bold tracking-widest shadow-xl uppercase"
-              />
+              <ActionGuard requiredWallets={[WalletType.EVM, WalletType.STELLAR]}>
+                <TransactionButton
+                  label={buttonLabel}
+                  isLoading={isQuoting || loadingStep || dydxLoading}
+                  isDisabled={isButtonDisabled}
+                  isError={!!error}
+                  onClick={handleActionClick}
+                  className="py-8 rounded-xl text-lg font-bold tracking-widest shadow-xl uppercase"
+                />
+              </ActionGuard>
             </div>
           )}
         </div>

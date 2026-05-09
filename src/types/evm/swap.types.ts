@@ -31,6 +31,7 @@ export interface SwapQuoteRequest {
   };
   amount: string;
   recipient?: string;
+  slippage?: string;
 }
 
 
@@ -141,6 +142,7 @@ export interface BuildFusionOrderRequest {
   walletAddress: string;
   chain: string;
   preset: string;
+  permit?: string;
 }
 
 export interface FusionOrder {
