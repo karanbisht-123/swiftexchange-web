@@ -6,11 +6,13 @@ import {
   nodeRpcUrlsDefault,
 } from '@allbridge/bridge-core-sdk';
 
+import { Networks, Transaction, rpc } from '@stellar/stellar-sdk';
+
 const SOROBAN_RPC = 'https://rpc.ankr.com/stellar_soroban';
 
 export const STELLAR_NETWORK_PASSPHRASE: Record<'mainnet' | 'testnet', string> = {
-  mainnet: 'Public Global Stellar Network ; September 2015',
-  testnet: 'Test SDF Network ; September 2015',
+  mainnet: Networks.PUBLIC,
+  testnet: Networks.TESTNET,
 };
 
 const HORIZON_URLS: Record<'mainnet' | 'testnet', string> = {
@@ -249,6 +251,7 @@ export interface PrepareTransferRequest {
   destinationToken: any;
   fromAccountAddress: string;
   toAccountAddress: string;
+  network: 'mainnet' | 'testnet';
   messenger?: Messenger;
   feePaymentMethod?: FeePaymentMethod;
   slippageTolerance?: number;
@@ -260,19 +263,17 @@ export const prepareStellarToEvmRawTransaction = async ({
   destinationToken,
   fromAccountAddress,
   toAccountAddress,
+  network,
   messenger = Messenger.ALLBRIDGE,
   feePaymentMethod = FeePaymentMethod.WITH_NATIVE_CURRENCY,
 }: PrepareTransferRequest): Promise<string> => {
-  console.log('[Allbridge]Building raw Stellar XDR transaction', {
+  console.log('[Allbridge] Building raw Stellar XDR transaction', {
     amount,
     fromAccountAddress,
     toAccountAddress,
+    network,
     sourceChain: sourceToken?.chainSymbol,
-    sourceToken: sourceToken?.symbol,
-    sourceTokenAddress: sourceToken?.tokenAddress,
     destinationChain: destinationToken?.chainSymbol,
-    destinationToken: destinationToken?.symbol,
-    destinationTokenAddress: destinationToken?.tokenAddress,
     messenger,
     feePaymentMethod,
     sorobanRpc: SOROBAN_RPC,
@@ -288,11 +289,31 @@ export const prepareStellarToEvmRawTransaction = async ({
     feePaymentMethod,
   });
 
-  console.log('[Allbridge] Raw XDR built successfully', {
-    xdrLength: typeof rawTx === 'string' ? rawTx.length : 'N/A',
-    xdrPreview: typeof rawTx === 'string' ? `${rawTx.slice(0, 60)}…` : rawTx,
-    signingMethod: 'stellar_signAndSubmitXDR via wallet provider',
+  const rawXdr = rawTx as string;
+  const networkPassphrase = STELLAR_NETWORK_PASSPHRASE[network];
+
+  console.log('[Allbridge] Simulating transaction...');
+  const tx = new Transaction(rawXdr, networkPassphrase);
+  const server = new rpc.Server(SOROBAN_RPC);
+
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) {
+    throw new Error('Simulation failed: ' + sim.error);
+  }
+
+  console.log('[Allbridge] Assembling simulated transaction...');
+  const assembled = rpc.assembleTransaction(tx, sim).build();
+  const finalXdr = assembled.toXDR();
+
+  console.log('[Allbridge] Assembled XDR ready', {
+    originalLength: rawXdr.length,
+    finalLength: finalXdr.length,
   });
 
-  return rawTx as string;
+  return finalXdr;
+};
+
+export const getBridgeStatus = async (hash: string): Promise<any> => {
+  const sdk = getAllbridgeSdk();
+  return sdk.getTransferStatus(ChainSymbol.SRB, hash);
 };

@@ -83,20 +83,24 @@ export async function fetchApiResponseFromProxy<T>(
   if (!response.ok) {
     let errorMsg = response.statusText;
     try {
-      const errorData = await response.json();
-      const rawMessage = errorData.message || errorData.error;
-      if (Array.isArray(rawMessage)) {
-        errorMsg = rawMessage.join('. ');
-      } else if (typeof rawMessage === 'string') {
-        errorMsg = rawMessage;
+      const text = await response.text();
+      if (text) {
+        const errorData = JSON.parse(text);
+        const rawMessage = errorData.message || errorData.error;
+        if (Array.isArray(rawMessage)) {
+          errorMsg = rawMessage.join('. ');
+        } else if (typeof rawMessage === 'string') {
+          errorMsg = rawMessage;
+        }
       }
     } catch {
-      // Ignore JSON parse error, let it use statusText
+      // Ignore parse error, let it use statusText
     }
     throw new Error(`API error: ${errorMsg}`);
   }
 
-  const data = await response.json();
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {} as T;
   return { data };
 }
 
@@ -145,7 +149,8 @@ export async function fetchApiResponseFromServer<T>(
     throw new Error(`API error: ${errorMsg}`);
   }
 
-  const data = await response.json();
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {} as T;
   return { data };
 }
 

@@ -36,6 +36,8 @@ interface UseEvmSwapState {
   isGasless: boolean;
   fusionQuote: FusionQuote | null;
   rangoQuote: any | null;
+  userSlippageTolerance: number;
+  recommendedSlippage: string | null;
 }
 
 interface UseEvmSwapActions {
@@ -82,6 +84,8 @@ interface UseEvmSwapActions {
   ) => Promise<any>;
   checkRangoApproval: (requestId: string, txId?: string) => Promise<any>;
   prepareRangoTx: (requestId: string, swapsIndex?: number) => Promise<any>;
+  setUserSlippageTolerance: (slippage: number) => void;
+  setRecommendedSlippage: (slippage: string | null) => void;
   reset: () => void;
 }
 
@@ -101,6 +105,8 @@ export const useEvmSwap = ({
     isGasless: false,
     fusionQuote: null,
     rangoQuote: null,
+    userSlippageTolerance: 1.0,
+    recommendedSlippage: null,
   });
 
   const activeSwapId = useRef<string | null>(null);
@@ -180,14 +186,17 @@ export const useEvmSwap = ({
             if (provider) {
               try {
                 const ethersProvider = new ethers.BrowserProvider(provider);
-                bal = await fetchSingleTokenBalance(
-                  senderAddress,
-                  ethersProvider,
-                  token.address,
-                  !!token.isNative,
-                  token.decimals
-                );
-                if (bal !== '0') return { address: token.address, balance: bal };
+                const network = await ethersProvider.getNetwork();
+                if (Number(network.chainId) === Number(chainId)) {
+                  bal = await fetchSingleTokenBalance(
+                    senderAddress,
+                    ethersProvider,
+                    token.address,
+                    !!token.isNative,
+                    token.decimals
+                  );
+                  if (bal !== '0') return { address: token.address, balance: bal };
+                }
               } catch (err) {
                 console.warn(`Provider balance fetch failed for ${token.symbol}:`, err);
               }
@@ -278,10 +287,11 @@ export const useEvmSwap = ({
           throw new Error('Cannot swap same token');
         }
 
-        const adjustedRequest = {
+        const adjustedRequest: SwapQuoteRequest = {
           ...request,
           recipient: senderAddress,
-        } as any;
+          slippage: state.userSlippageTolerance.toString(),
+        };
 
         const quoteResponse = await fetchEvmQuote(chainId, adjustedRequest, sellAsset, buyAsset);
         if (requestId !== latestQuoteRequestId.current) {
@@ -555,6 +565,14 @@ export const useEvmSwap = ({
     updateState({ isGasless: enabled });
   }, [updateState]);
 
+  const setUserSlippageTolerance = useCallback((slippage: number) => {
+    updateState({ userSlippageTolerance: slippage });
+  }, [updateState]);
+
+  const setRecommendedSlippage = useCallback((slippage: string | null) => {
+    updateState({ recommendedSlippage: slippage });
+  }, [updateState]);
+
   return {
     ...state,
     fetchTokenList,
@@ -568,6 +586,8 @@ export const useEvmSwap = ({
     checkRangoApproval: checkRangoApprovalAction,
     prepareRangoTx: prepareRangoTxAction,
     setGasless,
+    setUserSlippageTolerance,
+    setRecommendedSlippage,
     reset,
   };
 };

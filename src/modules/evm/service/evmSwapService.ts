@@ -95,6 +95,7 @@ function buildQuotePayload(request: SwapQuoteRequest, chainId: any) {
     tokenIn: { ...request.tokenIn, chainId: request.tokenIn.chainId || chainId },
     tokenOut: { ...request.tokenOut, chainId: request.tokenOut.chainId || chainId },
     recipient: request.recipient || '',
+    slippage: request.slippage,
   };
 }
 

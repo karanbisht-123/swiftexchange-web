@@ -36,7 +36,7 @@ const PageLayout: React.FC<PageLayoutProps> = ({
   };
 
   return (
-    <div className="flex  flex-col items-center h-[calc(100vh-4rem)] md:h-[calc(100dvh-4rem)] lg:p-6 bg-primary overflow-hidden">
+    <div className="flex  flex-col items-center h-full md:h-[calc(100dvh-4rem)] lg:p-6 bg-primary overflow-hidden">
       <div
         className={`
           w-full ${maxWidthClasses[maxWidth]} 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet } from 'lucide-react';
+import { Wallet, ShieldCheck } from 'lucide-react';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { ConfirmationModal } from '../../../components/common/ConfirmationModal';
@@ -12,9 +12,15 @@ interface ActionGuardProps {
   requiredWallets?: WalletType[];
 }
 
+const WALLET_NAMES: Record<WalletType, string> = {
+  [WalletType.EVM]: 'EVM',
+  [WalletType.STELLAR]: 'Stellar',
+  [WalletType.COSMOS]: 'Cosmos',
+};
+
 export const ActionGuard: React.FC<ActionGuardProps> = ({
   children,
-  title = 'Connection Required',
+  title = 'Wallet Connection Required',
   message,
   disabled = false,
   requiredWallets = [WalletType.EVM],
@@ -29,13 +35,11 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
   const isConnected = missingWallets.length === 0;
 
   const handleClick = (e: React.MouseEvent) => {
-    if (disabled) return;
-    
-    if (!isConnected) {
-      e.preventDefault();
-      e.stopPropagation();
-      setShowPrompt(true);
-    }
+    if (disabled || isConnected) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    setShowPrompt(true);
   };
 
   const handleConfirm = () => {
@@ -43,24 +47,24 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
     openModal();
   };
 
-  const getWalletDisplayName = (type: WalletType) => {
-    switch (type) {
-      case WalletType.EVM: return 'EVM';
-      case WalletType.STELLAR: return 'Stellar';
-      case WalletType.COSMOS: return 'Cosmos';
-      default: return type;
+  const displayMessage = useMemo(() => {
+    if (message) return message;
+    if (missingWallets.length === 0) return '';
+    
+    const names = missingWallets.map(w => WALLET_NAMES[w] || w);
+    if (names.length === 1) {
+      return `Please connect your ${names[0]} wallet to proceed with this transaction.`;
     }
-  };
-
-  const displayMessage = message || (
-    missingWallets.length === 1 
-      ? `Please connect your ${getWalletDisplayName(missingWallets[0])} wallet to proceed.`
-      : `Please connect your ${missingWallets.map(getWalletDisplayName).join(' and ')} wallets to proceed.`
-  );
+    const last = names.pop();
+    return `Please connect your ${names.join(', ')} and ${last} wallets to proceed.`;
+  }, [message, missingWallets]);
 
   return (
     <>
-      <div onClickCapture={handleClick} className="contents">
+      <div 
+        onClickCapture={handleClick} 
+        className={`contents ${!isConnected && !disabled ? 'cursor-pointer' : ''}`}
+      >
         {children}
       </div>
 
@@ -69,14 +73,22 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
         title={title}
         onConfirm={handleConfirm}
         onCancel={() => setShowPrompt(false)}
-        confirmText="Connect Wallet"
-        cancelText="Cancel"
+        confirmText="Connect Wallets"
+        cancelText="Maybe Later"
         message={
-          <div className="flex flex-col items-center text-center py-2">
-            <div className="w-16 h-16 rounded-full bg-brand/10 flex items-center justify-center mb-4">
-              <Wallet className="w-8 h-8 text-brand" />
+          <div className="flex flex-col items-center text-center py-4">
+            <div className="relative mb-6">
+              <div className="w-20 h-20 rounded-3xl bg-brand/10 flex items-center justify-center rotate-3 group-hover:rotate-6 transition-transform">
+                <Wallet className="w-10 h-10 text-brand" />
+              </div>
+              <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-secondary border-4 border-bg-primary flex items-center justify-center shadow-lg">
+                <ShieldCheck className="w-4 h-4 text-brand" />
+              </div>
             </div>
-            <p className="text-secondary">{displayMessage}</p>
+            <h4 className="text-primary font-bold mb-2 tracking-tight">Almost there!</h4>
+            <p className="text-secondary text-sm leading-relaxed max-w-[240px]">
+              {displayMessage}
+            </p>
           </div>
         }
       />
