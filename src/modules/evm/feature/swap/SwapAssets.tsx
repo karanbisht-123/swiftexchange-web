@@ -1117,7 +1117,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   return (
     <PageLayout title="Token Swap" subtitle="Unified Exchange & Bridge" onBack={onClose} showBackButton={!!onClose} maxWidth="lg">
-      <div className="mx-auto  px-2 sm:px-0">
+      <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden">
 
         {/* Settings Header - Only show for Rango/Bridge */}
         {((actionType === 'BRIDGE' && activeQuote.source === 'rango') || (actionType === 'SWAP' && swapQuote?.provider === 'RANGO')) && (
@@ -1133,7 +1133,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         )}
 
         {/* Pay Card */}
-        <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+        <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
           <div className={`absolute left-0 top-0 bottom-0 w-1 bg-brand transition-all duration-300 ${isInputFocused ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-50'}`} />
 
           <div className="flex justify-between items-center mb-4 sm:mb-6">
@@ -1153,7 +1153,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 }
               })}
               className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
-              style={{ width: 'clamp(130px, 35vw, 160px)' }}
+              style={{ width: 'clamp(120px, 32vw, 160px)' }}
             >
               <div className="relative min-w-[36px] sm:min-w-[40px]">
                 <img
@@ -1172,7 +1172,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
             </button>
 
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 w-0 min-w-0">
               <input
                 ref={inputRef}
                 type="text"
@@ -1180,7 +1180,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 placeholder="0.00"
                 onFocus={() => setIsInputFocused(true)}
                 onBlur={() => setIsInputFocused(false)}
-                className="w-full bg-transparent border-none text-right text-3xl sm:text-4xl font-black focus:ring-0 p-0 placeholder:text-muted/10 truncate transition-all outline-none"
+                className="w-full bg-transparent border-none text-right text-3xl sm:text-4xl font-black focus:ring-0 p-0 placeholder:text-muted/10 transition-all outline-none min-w-0 block"
                 value={sellAmount}
                 onChange={(e) => {
                   let val = e.target.value.replace(/[^0-9.]/g, '');
@@ -1232,7 +1232,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         </div>
 
         {/* Receive Card */}
-        <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+        <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
           <div className="flex justify-between items-center mb-4 sm:mb-6">
             <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
           </div>
@@ -1249,7 +1249,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 }
               })}
               className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
-              style={{ width: 'clamp(130px, 35vw, 160px)' }}
+              style={{ width: 'clamp(120px, 32vw, 160px)' }}
             >
               <div className="relative min-w-[36px] sm:min-w-[40px]">
                 <img
@@ -1268,17 +1268,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
             </button>
 
-            <div className="flex-1 text-right min-w-0">
-              <div className={`font-black truncate text-primary transition-all duration-300 ${isSameAssetSelected ? 'text-sm sm:text-base opacity-40 tracking-wider' : 'text-3xl sm:text-4xl tabular-nums'}`}>
-                {(activeQuote.loading || swapQuoteLoading) ? (
-                  <div className="flex justify-end gap-1 items-end mt-2">
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md" />
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-75" />
-                    <div className="w-1 h-1 bg-white/5 animate-pulse rounded-full mb-2" />
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
-                  </div>
-                ) : ((swapQuote || activeQuote.data || rangoQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
+            <div className="flex-1 w-0 min-w-0 flex flex-col items-end">
+              <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide">
+                <div className={`font-black text-primary transition-all duration-300 ${isSameAssetSelected ? 'text-sm sm:text-base opacity-40 tracking-wider' : 'text-3xl sm:text-4xl tabular-nums'}`}>
+                  {(activeQuote.loading || swapQuoteLoading) ? (
+                    <div className="flex justify-end gap-1 items-end mt-2">
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md" />
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-75" />
+                      <div className="w-1 h-1 bg-white/5 animate-pulse rounded-full mb-2" />
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
+                    </div>
+                  ) : ((swapQuote || activeQuote.data || rangoQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
+                </div>
               </div>
               {(swapQuote || activeQuote.data || rangoQuote) && !isSameAssetSelected && (
                 <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
@@ -1347,7 +1349,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {/* Rate row */}
                 <div className="flex items-center justify-between py-2 border-b border-white/5">
                   <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rate</span>
-                  <span className="text-[11px] font-black text-primary">
+                  <span className="text-[11px] font-black text-primary truncate ml-2 flex-1 w-0 text-right min-w-0">
                     1 {sellAssetSymbol} ≈ {actionType === 'SWAP'
                       ? (isGasless && fusionQuote && showFusionScreen
                         ? (Number(fusionQuote.prices.usd.fromToken) / Number(fusionQuote.prices.usd.toToken)).toFixed(6)
@@ -1538,7 +1540,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {/* Min received */}
                 <div className="flex items-center justify-between py-2">
                   <span className="text-[10px] font-black uppercase tracking-widest text-muted">Min. Received</span>
-                  <span className="text-[12px] font-black text-brand">
+                  <span className="text-[12px] font-black text-brand truncate ml-2 flex-1 w-0 text-right min-w-0">
                     {portfolioUtils.formatBalance(minimumReceived)} {buyAssetSymbol}
                   </span>
                 </div>

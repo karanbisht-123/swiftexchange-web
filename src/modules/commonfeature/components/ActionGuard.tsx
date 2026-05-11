@@ -50,7 +50,7 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
   const displayMessage = useMemo(() => {
     if (message) return message;
     if (missingWallets.length === 0) return '';
-    
+
     const names = missingWallets.map(w => WALLET_NAMES[w] || w);
     if (names.length === 1) {
       return `Please connect your ${names[0]} wallet to proceed with this transaction.`;
@@ -61,8 +61,8 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
 
   return (
     <>
-      <div 
-        onClickCapture={handleClick} 
+      <div
+        onClickCapture={handleClick}
         className={`contents ${!isConnected && !disabled ? 'cursor-pointer' : ''}`}
       >
         {children}

@@ -66,7 +66,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
   const handleAmountChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setAmount(e.target.value);
+      const val = e.target.value;
+      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+        setAmount(val);
+      }
     },
     [setAmount]
   );
@@ -90,8 +93,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   );
 
   const totalAmount = useMemo(() => {
-    if (!amount || !currentAsset) return new BigNumber(0);
-    const bnAmount = new BigNumber(amount);
+    if (!currentAsset) return new BigNumber(0);
+    const bnAmount = (amount === '.' || !amount) ? new BigNumber(0) : new BigNumber(amount);
     const fee = estimatedFees?.totalCost ? new BigNumber(estimatedFees.totalCost) : new BigNumber(currentAsset.baseFee);
     if (currentAsset.isNative) {
       return bnAmount.plus(fee);
@@ -106,9 +109,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       !isEstimatingFees &&
       amount &&
       parseFloat(amount) > 0 &&
-      !isFetchingBalance
+      !isFetchingBalance &&
+      !!recipientAddress
     );
-  }, [formError, senderAddress, isEstimatingFees, amount, isFetchingBalance]);
+  }, [formError, senderAddress, isEstimatingFees, amount, isFetchingBalance, recipientAddress]);
 
   const explorerUrl = useMemo(() => {
     if (!currentAsset || !transactionState.txHash) return '';

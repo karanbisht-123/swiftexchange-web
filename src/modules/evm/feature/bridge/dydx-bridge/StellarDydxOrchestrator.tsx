@@ -1450,7 +1450,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     );
   };
   return (
-    <div className="w-full mx-auto px-4 pb-4 animate-fade-in">
+    <div className="w-full mx-auto lg:px-4 pb-4 animate-fade-in">
       {/* Header */}
       <div className={`-mb-3 flex px-2 ${phase === 'SETUP' ? 'justify-end' : 'justify-center'}`}>
         {phase === 'SETUP' && (
@@ -1512,7 +1512,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
       <div className="space-y-4 relative">
         <div className="space-y-1 relative z-10">
           {/* You Pay */}
-          <div className="bg-tertiary rounded-2xl p-8 group transition-all duration-500 shadow-xl relative z-20 border border-divider/10">
+          <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-8  group transition-all duration-500 shadow-xl relative z-20 border border-divider/10">
             <div className="flex justify-between items-center mb-6">
               <span className="text-[10px] font-black text-muted uppercase tracking-[0.3em]">
                 You Pay
@@ -1587,19 +1587,19 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 )}
               </button>
 
-              <div className="flex-1 text-right">
+              <div className="flex-1 w-0 min-w-0 flex flex-col items-end">
                 {phase === 'SETUP' ? (
                   <input
                     ref={inputRef}
                     type="text"
                     inputMode="decimal"
                     placeholder="0.00"
-                    className="w-full bg-transparent border-none text-right text-5xl font-black focus:ring-0 p-0 placeholder:text-muted/10 truncate outline-none text-primary tracking-tighter"
+                    className="w-full bg-transparent border-none text-right text-5xl font-black focus:ring-0 p-0 placeholder:text-muted/10 outline-none text-primary tracking-tighter min-w-0"
                     value={inputAmount}
                     onChange={e => setInputAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                   />
                 ) : (
-                  <div className="text-5xl font-black text-primary truncate tracking-tighter">
+                  <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide text-5xl font-black text-primary tracking-tighter">
                     {displayState.top.amount
                       ? portfolioUtils.formatBalance(displayState.top.amount)
                       : '0.00'}
@@ -1617,7 +1617,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           </div>
 
           {/* You Receive */}
-          <div className="bg-tertiary rounded-2xl p-8 group transition-all duration-500 shadow-xl relative overflow-hidden border border-divider/20 z-20">
+          <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-8   group transition-all duration-500 shadow-xl relative overflow-hidden border border-divider/20 z-20 w-full max-w-full">
             <div className="flex justify-between items-center mb-6">
               <span className="text-[10px] font-black text-muted uppercase tracking-[0.3em]">
                 You Receive
@@ -1680,11 +1680,11 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex-1 text-right">
+              <div className="flex-1 w-0 min-w-0 flex flex-col items-end">
                 {isQuoting ? (
                   <Shimmer className="h-10 w-full mb-1" />
                 ) : (
-                  <div className="text-5xl font-black text-primary truncate tracking-tighter">
+                  <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide text-5xl font-black text-primary tracking-tighter">
                     {displayState.bottom.amount
                       ? portfolioUtils.formatBalance(displayState.bottom.amount)
                       : '0.00'}
@@ -1713,7 +1713,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
         {/* Route details */}
         {phase === 'SETUP' && routeBreakdown && (
-          <div className="bg-tertiary rounded-xl border border-divider p-6 pb-0 animate-fade-in relative">
+          <div className="bg-tertiary rounded-xl border border-divider  p-4 py-6   lg:p-6 pb-0 animate-fade-in relative">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-2">
                 <Layers size={14} className="text-brand" />
@@ -1774,7 +1774,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-between px-2 mb-10 relative">
+            <div className="flex items-center justify-between px-2 mb-10 relative overflow-x-auto scrollbar-hide py-4 min-w-0 w-full">
               {isQuoting ? (
                 <div className="flex justify-between w-full px-4">
                   {[1, 2, 3].map(i => (
@@ -1784,7 +1784,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
               ) : (
                 routeBreakdown.items.map((item, idx) => (
                   <React.Fragment key={idx}>
-                    <div className="flex flex-col items-center gap-3 relative z-10">
+                    <div className="flex flex-col items-center gap-3 relative z-10 flex-shrink-0">
                       <div
                         className={`w-14 h-14 relative rounded-2xl bg-tertiary flex items-center justify-center border transition-all duration-500 shadow-sm ${item.status === 'done'
                           ? 'border-success/50'
@@ -1824,7 +1824,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     </div>
                     {idx < routeBreakdown.items.length - 1 && (
                       <div
-                        className="flex-1 h-0 border-t-2 border-dotted mx-2 mb-12 transition-all duration-500 opacity-30"
+                        className="flex-1 h-0 border-t-2 border-dotted mx-2 mb-12 transition-all duration-500 opacity-30 min-w-[30px]"
                         style={{
                           borderColor:
                             item.status === 'done' ? 'var(--success)' : 'var(--divider)',

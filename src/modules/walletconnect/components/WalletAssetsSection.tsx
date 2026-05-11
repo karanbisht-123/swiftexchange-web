@@ -382,12 +382,8 @@ const WalletAssetsSection = () => {
   const isPositive = portfolioChange >= 0;
 
   const handleTrade = useCallback((asset: Asset) => {
-    if (asset.chainType === 'stellar') {
-      navigate(`${ROUTES.BRIDGE}?asset=${asset.symbol}`);
-      return;
-    }
     navigate(ROUTES.TRADING_EVM_SWAP, { state: { selectedAsset: asset } });
-  }, [navigate, ROUTES.BRIDGE, ROUTES.TRADING_EVM_SWAP]);
+  }, [navigate, ROUTES.TRADING_EVM_SWAP]);
 
   const handleSend = useCallback((asset: Asset) => {
     const chainId = asset.chainType === 'stellar' ? 'stellar' : asset.chainId;

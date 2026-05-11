@@ -1151,9 +1151,12 @@ export async function fetch1InchFusionQuote(
   decimals: number,
 ): Promise<any> {
   try {
+    const normalizedTokenIn = tokenIn.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : tokenIn;
+    const normalizedTokenOut = tokenOut.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : tokenOut;
+
     return await get1InchFusionQuote(chain, {
-      tokenIn,
-      tokenOut,
+      tokenIn: normalizedTokenIn,
+      tokenOut: normalizedTokenOut,
       amount: formatAmount(amount, decimals),
       walletAddress,
     });
@@ -1366,7 +1369,7 @@ export function getRangoSlippageWarning(
 
   for (const rec of recs) {
     const val = parseFloat(rec.recommendedSlippage);
-    if (isNaN(val) || val <= userSlippage) continue;
+    if (isNaN(val) || val <= (userSlippage + 1)) continue;
     if (!worst || val > parseFloat(worst.recommendedSlippage)) worst = rec;
   }
 

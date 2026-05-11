@@ -193,7 +193,7 @@ export const useSendAsset = (onBack?: () => void) => {
 
   useEffect(() => {
     const estimate = async () => {
-      if (!currentAsset || !senderAddress || !recipientAddress || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
+      if (!currentAsset || !senderAddress || !recipientAddress || !amount || parseFloat(amount) <= 0 || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
         setEstimatedFees(null); return;
       }
       setIsEstimatingFees(true);
@@ -391,7 +391,7 @@ export const useSendAsset = (onBack?: () => void) => {
     handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
-    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (!validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (new BigNumber(amount || '0').isGreaterThan(balance) && hasTrustline) ? 'Insufficient funds' : null,
+    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (recipientAddress && !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (amount && amount !== '.' && new BigNumber(amount).isGreaterThan(balance) && hasTrustline) ? 'Insufficient funds' : null,
     assets: allAssets, availableChains: [], onBack,
     needsTrustline: hasTrustline === false,
     recipientNeedsTrustline: recipientHasTrustline === false,

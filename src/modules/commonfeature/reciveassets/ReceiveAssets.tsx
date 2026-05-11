@@ -50,7 +50,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
 
   return (
     <div className="bg-bg-tertiary rounded-2xl overflow-hidden">
-      <div className="p-8 flex flex-col items-center gap-8">
+      <div className="p-4 py-8 lg:p-8 flex flex-col items-center gap-8">
         {canInteract ? (
           <div className="relative group">
             <div className="bg-white rounded-xl p-4 shadow-xl ring-1 ring-black/5 transition-transform duration-500 group-hover:scale-[1.02]">
@@ -169,15 +169,15 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
     return getChainLogoUrl(chainId as number);
   }, [currentAsset]);
 
-  const qrCardProps = { 
-    walletAddress, 
-    isAddressValid, 
-    currentAsset, 
-    handleCopy, 
-    handleShare, 
-    hasTrustline, 
-    isAddingTrustline, 
-    onAddTrustlineClick: () => setIsConfirmModalOpen(true) 
+  const qrCardProps = {
+    walletAddress,
+    isAddressValid,
+    currentAsset,
+    handleCopy,
+    handleShare,
+    hasTrustline,
+    isAddingTrustline,
+    onAddTrustlineClick: () => setIsConfirmModalOpen(true)
   };
 
   return (

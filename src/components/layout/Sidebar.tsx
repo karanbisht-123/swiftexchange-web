@@ -141,7 +141,9 @@ const Sidebar: FC = () => {
       <button
         id="hamburger-btn"
         onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-3 left-4 z-50 btn-secondary p-2.5 rounded-lg"
+        className={`lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl transition-all duration-300 shadow-lg ${
+          isOpen ? 'bg-secondary text-primary translate-x-[72px]' : 'bg-brand-primary text-white'
+        }`}
       >
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
@@ -158,6 +160,7 @@ const Sidebar: FC = () => {
           fixed left-0 top-0 h-screen z-40 
           bg-secondary 
           transition-all duration-200 w-20
+          flex flex-col
           ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
@@ -165,13 +168,8 @@ const Sidebar: FC = () => {
           <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
             <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>
-
-          {/* Mobile Close Button */}
-          <button onClick={() => setIsOpen(false)} className="lg:hidden btn-ghost p-1.5 rounded">
-            <X className="w-4 h-4" />
-          </button>
         </div>
-        <nav className="flex-1 p-2 overflow-y-auto scrollbar-thin">
+        <nav className="flex-1 p-2 overflow-y-auto hide-scrollbar">
           <div className="space-y-1">
             {navItems.map(item => {
               const isActive = activeItem === item.href;
@@ -181,13 +179,14 @@ const Sidebar: FC = () => {
                   key={item.href}
                   onClick={() => handleNavClick(item)}
                   className={`
-                    w-full flex flex-col items-center justify-center gap-1 px-1 py-3 rounded-md
-                    transition-colors duration-150
-                    ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
+                    w-full flex flex-col items-center justify-center gap-1.5 px-1 py-3 rounded-xl
+                    transition-all duration-200 relative
+                    ${isActive ? 'text-white shadow-sm' : 'text-primary hover:bg-tertiary'}
                     ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale' : ''}
                   `}
                   style={{
                     backgroundColor: isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
+                    transform: isActive ? 'scale(1.02)' : 'scale(1)',
                   }}
                   title={item.isRestricted ? `${item.label} (Restricted in your region)` : item.label}
                 >
@@ -205,13 +204,14 @@ const Sidebar: FC = () => {
                   to={item.href}
                   onClick={() => handleNavClick(item)}
                   className={`
-                    flex flex-col items-center justify-center gap-1 px-1 py-3 rounded-lg
-                    transition-colors duration-150 w-full
-                    ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
+                    flex flex-col items-center justify-center gap-1.5 px-1 py-3 rounded-xl
+                    transition-all duration-200 w-full relative
+                    ${isActive ? 'text-white shadow-sm' : 'text-primary hover:bg-tertiary'}
                     ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale pointer-events-none' : ''}
                   `}
                   style={{
                     backgroundColor: isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
+                    transform: isActive ? 'scale(1.02)' : 'scale(1)',
                   }}
                   title={item.isRestricted ? `${item.label} (Restricted in your region)` : item.label}
                 >

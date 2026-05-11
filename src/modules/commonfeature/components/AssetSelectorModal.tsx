@@ -179,7 +179,11 @@ const AssetSelectorModal: FC = () => {
 
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
-      result = result.filter(a => a.symbol.toLowerCase().includes(q) || a.name?.toLowerCase().includes(q));
+      result = result.filter(a => 
+        a.symbol.toLowerCase().includes(q) || 
+        a.name?.toLowerCase().includes(q) ||
+        (a.address && a.address.toLowerCase().includes(q))
+      );
     }
 
     return result.sort((a, b) => {

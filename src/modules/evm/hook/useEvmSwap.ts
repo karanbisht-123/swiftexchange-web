@@ -321,7 +321,7 @@ export const useEvmSwap = ({
         throw new Error(errorMsg);
       }
     },
-    [chainId, senderAddress, updateState]
+    [chainId, senderAddress, updateState, state.userSlippageTolerance]
   );
 
   const fetchFusionQuote = useCallback(

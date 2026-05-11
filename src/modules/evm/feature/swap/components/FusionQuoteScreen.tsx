@@ -252,11 +252,11 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                 {/* Sell / Receive cards */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between bg-tertiary rounded-2xl px-4 py-4 border border-color">
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 w-0">
                       <p className="text-xs text-muted mb-1 font-medium">You pay</p>
-                      <p className="text-2xl font-black text-primary leading-none tracking-tight">
+                      <div className="text-2xl font-black text-primary leading-none tracking-tight overflow-x-auto whitespace-nowrap scrollbar-hide max-w-full">
                         {sellAmount}
-                      </p>
+                      </div>
                       <p className="text-sm text-muted font-semibold mt-1">{sellAsset?.symbol}</p>
                     </div>
                     <img
@@ -274,11 +274,11 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
 
                   {/* You receive — derived from preset.auctionStartAmount */}
                   <div className="flex items-center justify-between bg-brand/5 rounded-2xl px-4 py-4 border border-brand/20">
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 w-0">
                       <p className="text-xs text-brand/60 mb-1 font-medium">You receive</p>
-                      <p className="text-2xl font-black text-brand leading-none tracking-tight">
+                      <div className="text-2xl font-black text-brand leading-none tracking-tight overflow-x-auto whitespace-nowrap scrollbar-hide max-w-full">
                         {receiveAmount}
-                      </p>
+                      </div>
                       <p className="text-sm text-brand/60 font-semibold mt-1">{buyAsset?.symbol}</p>
                     </div>
                     <img
@@ -302,7 +302,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                         <span className="text-sm text-muted">{row.label}</span>
                       </div>
                       {typeof row.value === 'string' ? (
-                        <span className="text-sm font-semibold text-primary">{row.value}</span>
+                        <span className="text-sm font-semibold text-primary truncate ml-2 min-w-0">{row.value}</span>
                       ) : (
                         row.value
                       )}

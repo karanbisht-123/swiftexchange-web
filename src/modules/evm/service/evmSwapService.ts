@@ -1,6 +1,7 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
 import type { SwapQuote, SwapQuoteRequest, BuildFusionOrderRequest, FusionOrder } from '../../../types/evm/swap.types';
 import { getChainById } from '../utils/Chainregistry';
+import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from '../utils/assetmanagement/constants';
 // import { ethers } from 'ethers';
 const getChainSymbol = (chainId: number | string) => {
   const chain = getChainById(chainId);
@@ -90,12 +91,15 @@ const getSwapEndpoint = (action: 'quote' | 'prepare') =>
   action === 'quote' ? `/quoter/quote` : `/quoter/swap`;
 
 function buildQuotePayload(request: SwapQuoteRequest, chainId: any) {
+  const slippageValue = parseFloat(request.slippage || '0');
+  const adjustedSlippage = (slippageValue + 1).toString();
+
   return {
     ...request,
     tokenIn: { ...request.tokenIn, chainId: request.tokenIn.chainId || chainId },
     tokenOut: { ...request.tokenOut, chainId: request.tokenOut.chainId || chainId },
     recipient: request.recipient || '',
-    slippage: request.slippage,
+    slippage: adjustedSlippage,
   };
 }
 
@@ -157,10 +161,26 @@ export async function prepareSwapTransaction(
 ): Promise<SwapTransactionData[]> {
   const { quote, senderAddress, slippageTolerance, ...rest } = request;
 
+  const normalizedTokenInAddress = request.tokenIn.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase()
+    ? AGGREGATOR_NATIVE_ADDRESS
+    : request.tokenIn.address;
+
+  const normalizedTokenOutAddress = request.tokenOut.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase()
+    ? AGGREGATOR_NATIVE_ADDRESS
+    : request.tokenOut.address;
+
   const payload = {
     ...rest,
-    tokenIn: { ...request.tokenIn, name: request.tokenIn.symbol },
-    tokenOut: { ...request.tokenOut, name: request.tokenOut.symbol },
+    tokenIn: {
+      ...request.tokenIn,
+      address: normalizedTokenInAddress,
+      name: request.tokenIn.symbol
+    },
+    tokenOut: {
+      ...request.tokenOut,
+      address: normalizedTokenOutAddress,
+      name: request.tokenOut.symbol
+    },
     recipient: request.senderAddress,
     chainId: getChainSymbol(request.chainId),
   };
@@ -249,7 +269,7 @@ export async function prepareBridgeTransaction(
     fromAddress: request.fromAddress,
     toAddress: request.destinationAddress,
     feePayType: request.feePayType,
-    slippageTolerance: request.slippageTolerance || 0.5,
+    slippageTolerance: (request.slippageTolerance || 0.5) + 1,
   });
 
   return res.data;

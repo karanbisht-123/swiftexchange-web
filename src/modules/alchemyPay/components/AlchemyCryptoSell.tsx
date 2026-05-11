@@ -1,9 +1,10 @@
 import { AlertCircle, CheckCircle, Loader2, RefreshCw, X } from 'lucide-react';
+import { useEffect } from 'react';
 import Select from 'react-select';
 
 import { useAlchemySell } from '../hook/useAlchemySell';
 
-const AlchemyCryptoSell = () => {
+const AlchemyCryptoSell = ({ onOrderStateChange }: { onOrderStateChange: (active: boolean) => void }) => {
   const {
     cryptoAmount,
     setCryptoAmount,
@@ -28,7 +29,12 @@ const AlchemyCryptoSell = () => {
     setOrderError,
     MIN_AMOUNT,
     SUCCESS_MESSAGES,
+    paymentTab,
   } = useAlchemySell();
+
+  useEffect(() => {
+    onOrderStateChange(!!(paymentTab && !paymentTab.closed));
+  }, [paymentTab, onOrderStateChange]);
 
   const getSelectStyles = () => {
     const bgColor = getComputedStyle(document.documentElement)
@@ -113,15 +119,19 @@ const AlchemyCryptoSell = () => {
         <label className="block text-sm font-semibold text-primary mb-3">You Pay</label>
         <div className="flex flex-col sm:flex-row gap-3">
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             value={cryptoAmount}
-            onChange={e => setCryptoAmount(e.target.value)}
-            onWheel={e => e.currentTarget.blur()}
+            onChange={e => {
+              const val = e.target.value;
+              if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                setCryptoAmount(val);
+              }
+            }}
             className={`input flex-1 ${quoteError ? 'input-danger' : ''}`}
             placeholder={`Enter amount (Min: ${
               selectedCryptoOption?.minSellAmount || MIN_AMOUNT
             } ${selectedCryptoOption?.crypto || ''})`}
-            min={selectedCryptoOption?.minSellAmount || MIN_AMOUNT}
           />
           <div className="w-full sm:w-1/3">
             <Select
