@@ -327,7 +327,10 @@ export const useDydxDeposit = () => {
             maximumFractionDigits: 2,
           })} USDC added to your trading account.`,
         });
-        await new Promise(r => setTimeout(r, 2_000));
+        const currentTx = useTransactionStore.getState().depositTx;
+        if (currentTx && currentTx.status === 'pending') {
+          useTransactionStore.getState().setDepositTx({ ...currentTx, status: 'success' });
+        }
         setStep('success');
 
         return { success: true, txHash: bridgeTxHash };

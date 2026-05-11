@@ -12,7 +12,8 @@ import {
   Info,
   RefreshCw,
   // Wallet,
-  ExternalLink
+  ExternalLink,
+  ArrowLeft
 } from 'lucide-react';
 import { useWalletConnect } from '../../../../walletconnect/hooks/useWalletConnect';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
@@ -52,6 +53,17 @@ const USDC_LOGO_URL =
   'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png';
 const DYDX_LOGO_URL =
   'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+const sanitizeAmount = (val: any, decimals: number = 7): string => {
+  if (val === null || val === undefined || val === '') return '';
+  const str = String(val);
+  const parts = str.split('.');
+  if (parts.length <= 1) return str;
+  return `${parts[0]}.${parts[1].slice(0, decimals)}`;
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,11 +135,11 @@ interface TxGroup {
 
 type TxAction =
   | { type: 'SET_SWAP'; hash: string }
-  | { type: 'SET_SWAP_STATUS'; status: TxStatus }
+  | { type: 'SET_SWAP_STATUS'; status: TxStatus | null }
   | { type: 'SET_BRIDGE'; hash: string }
-  | { type: 'SET_BRIDGE_STATUS'; status: TxStatus }
+  | { type: 'SET_BRIDGE_STATUS'; status: TxStatus | null }
   | { type: 'SET_DEPOSIT'; hash: string }
-  | { type: 'SET_DEPOSIT_STATUS'; status: TxStatus }
+  | { type: 'SET_DEPOSIT_STATUS'; status: TxStatus | null }
   | { type: 'RESET' };
 
 const initialTxState: TxGroup = {
@@ -245,7 +257,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
       if (parsed && parsed.phase && parsed.phase !== 'SETUP' && parsed.phase !== 'DONE') {
         setPhase(parsed.phase);
-        if (parsed.inputAmount) setInputAmount(parsed.inputAmount);
+        if (parsed.inputAmount) setInputAmount(sanitizeAmount(parsed.inputAmount));
         if (parsed.destinationChainId) {
           const chain = getEvmChainsForNetwork(currentNetwork).find(
             c => String(c.chainId) === String(parsed.destinationChainId)
@@ -278,12 +290,25 @@ export const StellarDydxOrchestrator: React.FC = () => {
             status: 'pending',
             stepLabel: 'Resuming settlement...',
           });
-        } else if (!parsed.depositTxHash && parsed.phase === 'DEPOSIT') {
+        } else if (!parsed.depositTxHash && (parsed.phase === 'DEPOSIT' || (parsed.bridgeStatus === 'SUCCESS' && parsed.phase === 'BRIDGE'))) {
           const storeTx = useTransactionStore.getState().depositTx;
           if (storeTx && storeTx.txHash) {
             dispatchTx({ type: 'SET_DEPOSIT', hash: storeTx.txHash });
             dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: storeTx.status === 'success' ? 'SUCCESS' : 'PENDING' });
           }
+        }
+
+        // QA Fix-up: If a previous step was successful but the phase wasn't advanced, advance it now
+        if (parsed.swapStatus === 'SUCCESS' && parsed.phase === 'SWAP') setPhase('BRIDGE');
+        if (parsed.bridgeStatus === 'SUCCESS' && parsed.phase === 'BRIDGE') setPhase('DEPOSIT');
+
+        // QA Safety: Clear future step statuses if we are in an earlier phase
+        if (parsed.phase === 'SWAP') {
+          dispatchTx({ type: 'SET_BRIDGE_STATUS', status: null });
+          dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: null });
+        }
+        if (parsed.phase === 'BRIDGE') {
+          dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: null });
         }
       } else {
         const storeTx = useTransactionStore.getState().depositTx;
@@ -473,7 +498,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
         .map((b: any) => {
           let balanceToUse = b.balance || '0';
           if (b.code === 'XLM') {
-            balanceToUse = Math.max(0, parseFloat(b.balance || '0') - reserve).toString();
+            balanceToUse = sanitizeAmount(Math.max(0, parseFloat(b.balance || '0') - reserve).toString());
           }
           const isNative =
             typeof b.asset.isNative === 'function' ? b.asset.isNative() : b.code === 'XLM';
@@ -506,7 +531,6 @@ export const StellarDydxOrchestrator: React.FC = () => {
           const updated = mapped.find(m => m.symbol === prev.symbol);
           return updated ?? prev;
         }
-        // If we are restoring a token from a previous session, do not default to XLM
         if (restoredTokenSymbolRef.current) return null;
         return xlm ?? mapped[0] ?? null;
       });
@@ -542,8 +566,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
   const tokenBalance = useMemo(() => {
     if (!inputToken) return '0';
-    return assetMap[inputToken.symbol]?.balance ?? '0';
-  }, [inputToken, assetMap]);
+    return sanitizeAmount(inputToken.balance || '0');
+  }, [inputToken]);
 
   const getStellarAsset = (token: StellarToken | null): StellarSDK.Asset | null => {
     if (!token) return null;
@@ -574,7 +598,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
         const inputAsset = getStellarAsset(inputToken);
         if (!inputAsset) throw new Error('Invalid input token');
 
-        const shouldFetchSwapQuote = !isUsdc && phase === 'SETUP';
+        const shouldFetchSwapQuote = !isUsdc && (phase === 'SETUP' || phase === 'SWAP');
+        const shouldFetchBridgeData = phase !== 'DEPOSIT';
 
         const [swapResult, allTokens] = await Promise.all([
           shouldFetchSwapQuote
@@ -583,39 +608,46 @@ export const StellarDydxOrchestrator: React.FC = () => {
               if (!usdcAsset) throw new Error('USDC asset not found on Stellar');
               const targetAsset = getStellarAsset(usdcAsset);
               if (!targetAsset) throw new Error('Invalid target token');
-              return ammService.getSwapQuote(inputAsset, targetAsset, amount, {
+              return ammService.getSwapQuote(inputAsset, targetAsset, sanitizeAmount(amount), {
                 slippageTolerance: DEFAULT_SLIPPAGE,
               });
             })()
             : Promise.resolve(null),
-          getSupportedTokens(),
+          shouldFetchBridgeData ? getSupportedTokens() : Promise.resolve(null),
         ]);
 
         if (signal.aborted) return;
 
         if (swapResult) {
           finalSwapQuote = swapResult as unknown as SwapQuote;
-          usdcAmountStellar = finalSwapQuote.estimatedOutput;
+          usdcAmountStellar = sanitizeAmount(finalSwapQuote.estimatedOutput);
+        } else if (isUsdc) {
+          usdcAmountStellar = amount;
         } else if (intermediateAmount) {
           usdcAmountStellar = intermediateAmount;
+        } else if (phase === 'BRIDGE' || phase === 'DEPOSIT') {
+          const usdcAsset = stellarAssets.find(a => a.symbol === 'USDC');
+          if (usdcAsset && parseFloat(usdcAsset.balance) > 0) {
+            usdcAmountStellar = usdcAsset.balance;
+          }
         }
         setSwapQuote(finalSwapQuote);
 
-        const dstSymbol = (
-          destinationChain.symbol === 'BNB' ? ChainSymbol.BSC : destinationChain.symbol
-        ) as ChainSymbol;
-        const srcUsdc = allTokens.find(
-          t => t.chainSymbol === ChainSymbol.SRB && t.symbol === 'USDC'
-        );
-        const dstUsdc = allTokens.find(
-          t => t.chainSymbol === dstSymbol && t.symbol === 'USDC'
-        );
-        if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found for selected chain');
-
         let bq = bridgeQuote;
-        if (phase !== 'DEPOSIT') {
+        if (shouldFetchBridgeData && allTokens) {
+          const dstSymbol = (
+            destinationChain.symbol === 'BNB' ? ChainSymbol.BSC : destinationChain.symbol
+          ) as ChainSymbol;
+          const srcUsdc = allTokens.find(
+            t => t.chainSymbol === ChainSymbol.SRB && t.symbol === 'USDC'
+          );
+          const dstUsdc = allTokens.find(
+            t => t.chainSymbol === dstSymbol && t.symbol === 'USDC'
+          );
+          if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found for selected chain');
+
           bq = (await getStellarBridgeQuote({
-            amount: usdcAmountStellar,
+            amount: sanitizeAmount(usdcAmountStellar),
             sourceToken: srcUsdc,
             destinationToken: dstUsdc,
             slippageTolerance: DEFAULT_SLIPPAGE,
@@ -643,10 +675,10 @@ export const StellarDydxOrchestrator: React.FC = () => {
         console.error('Quote error:', err);
         setError(err.message || 'Failed to fetch quotes');
       } finally {
-        if (!signal.aborted) setIsQuoting(false);
+        setIsQuoting(false);
       }
     },
-    [inputToken, isUsdc, ammService, stellarAssets, destinationChain, getRoute]
+    [inputToken, isUsdc, ammService, stellarAssets, destinationChain, getRoute, phase, intermediateAmount]
   );
 
   // ---------------------------------------------------------------------------
@@ -655,9 +687,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
   useEffect(() => {
     if (!isRestored || phase === 'DONE') return;
     if (phase === 'SETUP' && (!inputAmount || parseFloat(inputAmount) <= 0)) return;
-    if (phase === 'SWAP' && swapTx.hash) return;
-    if (phase === 'BRIDGE' && bridgeTx.hash) return;
-    if (phase === 'DEPOSIT' && depositTx.hash) return;
+    if (phase === 'SWAP' && swapTx.hash && swapTx.status !== 'FAILED') return;
+    if (phase === 'BRIDGE' && bridgeTx.hash && bridgeTx.status !== 'FAILED') return;
+    if (phase === 'DEPOSIT' && depositTx.hash && depositTx.status !== 'FAILED') return;
 
     const controller = new AbortController();
     const timer = setTimeout(() => {
@@ -703,13 +735,13 @@ export const StellarDydxOrchestrator: React.FC = () => {
       clearInterval(interval);
       controller.abort();
     };
-  }, [phase, inputAmount, fetchAllQuotes, loadingStep, isQuoting]);
+  }, [phase, inputAmount, fetchAllQuotes, loadingStep]);
 
   // ---------------------------------------------------------------------------
   // Handlers
   // ---------------------------------------------------------------------------
   const handleMaxAmount = () => {
-    if (tokenBalance && parseFloat(tokenBalance) > 0) setInputAmount(tokenBalance);
+    if (tokenBalance && parseFloat(tokenBalance) > 0) setInputAmount(sanitizeAmount(tokenBalance));
   };
 
   const executeSwap = async (): Promise<boolean> => {
@@ -782,7 +814,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           : confirmedUsdcBalance || intermediateAmount || swapQuote?.estimatedOutput || inputAmount;
 
       const freshBridgeQuote = (await getStellarBridgeQuote({
-        amount: bridgeInputAmount,
+        amount: sanitizeAmount(bridgeInputAmount),
         sourceToken: srcUsdc,
         destinationToken: dstUsdc,
         slippageTolerance: DEFAULT_SLIPPAGE,
@@ -790,7 +822,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
       setBridgeQuote(freshBridgeQuote);
 
       const xdr = await prepareStellarToEvmRawTransaction({
-        amount: bridgeInputAmount,
+        amount: sanitizeAmount(bridgeInputAmount),
         sourceToken: freshBridgeQuote.sourceToken,
         destinationToken: freshBridgeQuote.destinationToken,
         fromAccountAddress: stellarAddress!,
@@ -888,6 +920,54 @@ export const StellarDydxOrchestrator: React.FC = () => {
     }
   };
 
+  const handleBack = () => {
+    if (phase === 'DONE') {
+      handleReset();
+      return;
+    }
+
+    // 1. Block navigation if a transaction is in-flight
+    const isPending =
+      swapTx.status === 'PENDING' ||
+      bridgeTx.status === 'PENDING' ||
+      depositTx.status === 'PENDING';
+
+    if (isPending) {
+      showToast({
+        type: 'SYSTEM',
+        title: 'Action Blocked',
+        message: 'A transaction is currently in progress. Please wait for it to settle.',
+      });
+      return;
+    }
+    const fundsCommitted = swapTx.status === 'SUCCESS' || bridgeTx.status === 'SUCCESS' || depositTx.status === 'SUCCESS';
+
+    if (phase === 'SWAP') {
+      if (!swapTx.hash || swapTx.status === 'FAILED') {
+        setPhase('SETUP');
+      } else {
+        showToast({ type: 'SYSTEM', title: 'Cannot Edit', message: 'Transaction already submitted. Use Reset if you are stuck.' });
+      }
+    } else if (phase === 'BRIDGE') {
+      if (bridgeTx.status === 'SUCCESS') {
+        setPhase('DEPOSIT');
+      } else if (!bridgeTx.hash || bridgeTx.status === 'FAILED') {
+        if (fundsCommitted && !isUsdc) {
+          setPhase('SWAP');
+          showToast({ type: 'SYSTEM', title: 'Funds Swapped', message: 'You have already swapped to USDC. You can retry the bridge step here.' });
+        } else {
+          setPhase(isUsdc ? 'SETUP' : 'SWAP');
+        }
+      }
+    } else if (phase === 'DEPOSIT') {
+      if (depositTx.status === 'SUCCESS') {
+        setPhase('DONE');
+      } else if (!depositTx.hash || depositTx.status === 'FAILED') {
+        setPhase('BRIDGE');
+      }
+    }
+  };
+
   const handleActionClick = async () => {
     if (!evmAddress || !stellarAddress) {
       setError('Please connect both Stellar and EVM wallets');
@@ -895,6 +975,11 @@ export const StellarDydxOrchestrator: React.FC = () => {
     }
 
     if (phase === 'SETUP') {
+      const minXlmNeeded = feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 5 : 1;
+      if (parseFloat(nativeBalance) < minXlmNeeded) {
+        setError(`Insufficient XLM for fees and gas. Please ensure you have at least ${minXlmNeeded} XLM available.`);
+        return;
+      }
       setPhase(isUsdc ? 'BRIDGE' : 'SWAP');
       return;
     }
@@ -918,6 +1003,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   };
 
   const handleReset = () => {
+    dydxTracker.acknowledge();
     setPhase('SETUP');
     setInputAmount('');
     setError(null);
@@ -934,6 +1020,12 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (phase !== 'SETUP' && phase !== 'SWAP') return false;
     return parseFloat(inputAmount) > parseFloat(tokenBalance);
   }, [phase, inputAmount, tokenBalance]);
+
+  const isInsufficientXlm = useMemo(() => {
+    if (phase === 'DONE') return false;
+    const minXlm = feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 5 : 1;
+    return parseFloat(nativeBalance) < minXlm;
+  }, [phase, nativeBalance, feePaymentMethod]);
 
   // ---------------------------------------------------------------------------
   // Display state
@@ -971,14 +1063,14 @@ export const StellarDydxOrchestrator: React.FC = () => {
         bottom: {
           symbol: 'USDC',
           network: 'STELLAR',
-          amount: swapQuote?.estimatedOutput,
+          amount: swapQuote?.estimatedOutput || (isUsdc ? inputAmount : '0.00'),
           logo: USDC_LOGO_URL,
         },
         title: 'Prepare USDC on Stellar',
       };
     }
     if (phase === 'BRIDGE') {
-      const bridgeAmt = isUsdc ? inputAmount : intermediateAmount || swapQuote?.estimatedOutput;
+      const bridgeAmt = isUsdc ? inputAmount : intermediateAmount || swapQuote?.estimatedOutput || (assetMap['USDC']?.balance ?? '0.00');
       const isPending = bridgeTx.status !== 'SUCCESS';
       return {
         top: {
@@ -1050,6 +1142,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (!evmAddress || !stellarAddress) return 'CONNECT WALLETS';
     if (!inputAmount || parseFloat(inputAmount) <= 0) return 'ENTER AMOUNT';
     if (isInsufficient) return 'INSUFFICIENT BALANCE';
+    if (isInsufficientXlm) return 'INSUFFICIENT XLM FOR GAS';
     if (isQuoting) return 'FETCHING QUOTES...';
 
     const totalSteps = isUsdc ? 2 : 3;
@@ -1088,9 +1181,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
     return (
       !evmAddress ||
       !stellarAddress ||
-      !inputAmount ||
       parseFloat(inputAmount) <= 0 ||
       isInsufficient ||
+      isInsufficientXlm ||
       isQuoting ||
       loadingStep ||
       (phase === 'BRIDGE' && bridgeTx.status === 'PENDING') ||
@@ -1452,7 +1545,18 @@ export const StellarDydxOrchestrator: React.FC = () => {
   return (
     <div className="w-full mx-auto lg:px-4 pb-4 animate-fade-in">
       {/* Header */}
-      <div className={`-mb-3 flex px-2 ${phase === 'SETUP' ? 'justify-end' : 'justify-center'}`}>
+      <div className={`-mb-1 flex px-2 items-center ${phase === 'SETUP' ? 'justify-end' : 'justify-between'}`}>
+        {phase !== 'SETUP' && (
+          <button
+            onClick={handleBack}
+            className="flex items-center gap-2 py-3 text-muted hover:text-brand transition-all bg-primary hover:bg-tertiary px-3 py-1.5 rounded-lg rounded-b-none border border-divider/50 group"
+          >
+            <ArrowLeft size={12} className="group-hover:-translate-x-0.5 transition-transform" />
+            <span className="text-[9px] font-black uppercase tracking-widest">
+              {phase === 'DONE' ? 'Start New' : 'Back to Edit'}
+            </span>
+          </button>
+        )}
         {phase === 'SETUP' && (
           <div className="relative">
             <button
@@ -1525,7 +1629,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                   {loadingAssets ? (
                     <Shimmer className="h-2 w-16" />
                   ) : (
-                    `MAX: ${portfolioUtils.formatBalance(tokenBalance)}`
+                    `MAX: ${parseFloat(parseFloat(tokenBalance).toFixed(7)).toString()}`
                   )}
                 </button>
               )}
@@ -1538,7 +1642,10 @@ export const StellarDydxOrchestrator: React.FC = () => {
                   openAssetSelector('BRIDGE', {
                     forceNetwork: STELLAR_CHAIN_ID,
                     showAllStellarAssets: true,
-                    onSelect: (a: StellarToken) => setInputToken(a),
+                    onSelect: (a: StellarToken) => {
+                      const found = stellarAssets.find(s => s.symbol === a.symbol);
+                      setInputToken(found || a);
+                    },
                   })
                 }
                 className={`flex items-center gap-4 bg-secondary hover:bg-hover rounded-2xl px-5 py-4 transition-all border border-divider/50 shadow-sm min-w-[190px] ${phase === 'SETUP' ? 'active:scale-95' : 'pointer-events-none opacity-80'
@@ -1596,12 +1703,12 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     placeholder="0.00"
                     className="w-full bg-transparent border-none text-right text-5xl font-black focus:ring-0 p-0 placeholder:text-muted/10 outline-none text-primary tracking-tighter min-w-0"
                     value={inputAmount}
-                    onChange={e => setInputAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    onChange={e => setInputAmount(sanitizeAmount(e.target.value.replace(/[^0-9.]/g, '')))}
                   />
                 ) : (
                   <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide text-5xl font-black text-primary tracking-tighter">
                     {displayState.top.amount
-                      ? portfolioUtils.formatBalance(displayState.top.amount)
+                      ? parseFloat(parseFloat(displayState.top.amount).toFixed(7)).toString()
                       : '0.00'}
                   </div>
                 )}
@@ -2177,6 +2284,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 <TransactionButton
                   label={buttonLabel}
                   isLoading={isQuoting || loadingStep || dydxLoading}
+                  loadingLabel={isQuoting ? 'FETCHING QUOTES...' : 'PROCESSING...'}
                   isDisabled={isButtonDisabled}
                   isError={!!error}
                   onClick={handleActionClick}

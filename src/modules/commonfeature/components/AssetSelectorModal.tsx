@@ -265,7 +265,9 @@ const AssetSelectorModal: FC = () => {
           {showBalance && (
             <div className="text-right ml-4">
               <div className="text-[14px] font-bold text-text-primary">
-                {portfolioUtils.formatBalance(asset.balance || 0)}
+                {asset.chainId === STELLAR_CHAIN_ID
+                  ? parseFloat(parseFloat(asset.balance || 0).toFixed(7)).toString()
+                  : portfolioUtils.formatBalance(asset.balance || 0)}
               </div>
             </div>
           )}
