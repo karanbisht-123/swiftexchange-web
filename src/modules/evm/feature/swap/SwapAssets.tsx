@@ -76,7 +76,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
     const raw = searchParams.get('fromChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
-    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
+    
+    const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
+    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : defaultChainId;
   });
 
   const [toChainId, setToChainId] = useState<number | string>(() => {
@@ -87,7 +89,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
     const raw = searchParams.get('toChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
-    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
+
+    const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
+    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : defaultChainId;
   });
 
   const [sellAssetSymbol, setSellAssetSymbol] = useState<string>(() => {
@@ -240,11 +244,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fromChainId, toChainId, sellAssetSymbol, sellAssetAddress, buyAssetSymbol, buyAssetAddress, setSearchParams]);
 
   useEffect(() => {
-    if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
-      if (!searchParams.get('fromChainId') && !locationState?.selectedAsset) setFromChainId(currentChainId);
-      if (!searchParams.get('toChainId') && !locationState?.selectedAsset) setToChainId(currentChainId);
+    const hasFromParam = !!searchParams.get('fromChainId');
+    const hasToParam = !!searchParams.get('toChainId');
+    const hasLocationAsset = !!locationState?.selectedAsset;
+
+    if (!hasFromParam && !hasToParam && !hasLocationAsset) {
+      if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
+        setFromChainId(currentChainId);
+        setToChainId(currentChainId);
+      } else if (!evmWallet && stellarWallet) {
+        setFromChainId(STELLAR_CHAIN_ID);
+        setToChainId(STELLAR_CHAIN_ID);
+      }
     }
-  }, [currentChainId, searchParams, swapEnabledChains, locationState]);
+  }, [currentChainId, evmWallet, stellarWallet, searchParams, swapEnabledChains, locationState]);
   useEffect(() => {
     if (locationState?.selectedAsset) {
       const asset = locationState.selectedAsset;
@@ -325,15 +338,28 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             };
           });
           setStellarAssets(mapped);
-          if (actionType === 'SWAP') {
-            if (!sellAssetSymbol && mapped.length > 0) {
-              setSellAssetSymbol(mapped[0].symbol);
-              setSellAssetAddress(mapped[0].address || "");
+          if (actionType === 'SWAP' && isStellar(fromChainId)) {
+            const currentSellInStellar = mapped.find(t => t.symbol === sellAssetSymbol);
+            const currentBuyInStellar = mapped.find(t => t.symbol === buyAssetSymbol);
+
+            let finalSellSymbol = sellAssetSymbol;
+
+            if (!currentSellInStellar && mapped.length > 0) {
+              const defaultSell = mapped.find(t => t.symbol === 'XLM') || mapped[0];
+              setSellAssetSymbol(defaultSell.symbol);
+              setSellAssetAddress(defaultSell.address || "");
+              finalSellSymbol = defaultSell.symbol;
             }
-            if (!buyAssetSymbol && mapped.length > 1) {
-              const destToken = mapped.find(t => t.symbol !== sellAssetSymbol) || mapped[1];
-              setBuyAssetSymbol(destToken.symbol);
-              setBuyAssetAddress(destToken.address || "");
+
+            if ((!currentBuyInStellar || finalSellSymbol === buyAssetSymbol) && mapped.length > 1) {
+              const defaultBuy = (finalSellSymbol === 'XLM' ? mapped.find(t => t.symbol === 'USDC') : mapped.find(t => t.symbol === 'XLM'))
+                || mapped.find(t => t.symbol !== finalSellSymbol)
+                || mapped[1];
+              
+              if (defaultBuy) {
+                setBuyAssetSymbol(defaultBuy.symbol);
+                setBuyAssetAddress(defaultBuy.address || "");
+              }
             }
           }
         } catch (err) {
@@ -347,21 +373,31 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fromChainId, toChainId, stellarAddress, ammService, sellAssetSymbol, actionType]);
 
   useEffect(() => {
-    if (swapAssets.length > 0 && !isChainSwitching) {
-      if (!sellAssetSymbol && !buyAssetSymbol) {
+    if (swapAssets.length > 0 && !isChainSwitching && !isStellar(fromChainId)) {
+      const currentSellInEvm = swapAssets.find(a => a.symbol === sellAssetSymbol || (sellAssetAddress && a.address.toLowerCase() === sellAssetAddress.toLowerCase()));
+      const currentBuyInEvm = swapAssets.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address.toLowerCase() === buyAssetAddress.toLowerCase()));
+
+      if (!currentSellInEvm || !currentBuyInEvm || sellAssetSymbol === buyAssetSymbol) {
         const nativeAsset = swapAssets.find(a => a.isNative);
         const usdcAsset = swapAssets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS');
 
-        if (nativeAsset && usdcAsset) {
-          setSellAssetSymbol(nativeAsset.symbol);
-          setSellAssetAddress(nativeAsset.address);
-          setBuyAssetSymbol(usdcAsset.symbol);
-          setBuyAssetAddress(usdcAsset.address);
-        } else if (swapAssets.length >= 2) {
-          setSellAssetSymbol(swapAssets[0].symbol);
-          setSellAssetAddress(swapAssets[0].address);
-          setBuyAssetSymbol(swapAssets[1].symbol);
-          setBuyAssetAddress(swapAssets[1].address);
+        let finalSell = currentSellInEvm;
+        if (!currentSellInEvm) {
+          finalSell = nativeAsset || swapAssets[0];
+          setSellAssetSymbol(finalSell.symbol);
+          setSellAssetAddress(finalSell.address);
+        }
+
+        if (!currentBuyInEvm || (finalSell && finalSell.symbol === buyAssetSymbol)) {
+          const bestBuy = (finalSell?.symbol === nativeAsset?.symbol ? usdcAsset : nativeAsset)
+            || swapAssets.find(a => a.symbol !== finalSell?.symbol)
+            || swapAssets[1]
+            || swapAssets[0];
+          
+          if (bestBuy) {
+            setBuyAssetSymbol(bestBuy.symbol);
+            setBuyAssetAddress(bestBuy.address);
+          }
         }
       } else if (sellAssetSymbol && !buyAssetSymbol) {
         // Sell asset is pre-filled, pick a default buy asset

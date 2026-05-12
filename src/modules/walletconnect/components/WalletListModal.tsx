@@ -511,7 +511,7 @@ export const WalletListModal: React.FC = () => {
 
           {!bothConnected && (
             <div style={{ borderColor: 'var(--color-border)' }} className="border-t pt-5 space-y-5">
-              {!evmConnected && (
+              {!evmConnected && !stellarConnected && (
                 <div className="space-y-3">
                   <div>
                     <h3

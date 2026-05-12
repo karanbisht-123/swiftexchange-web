@@ -259,7 +259,7 @@ const MarketSwitcher: React.FC = () => {
 
   return (
     <>
-      <div className="lg:hidden flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color">
+      <div className="lg:hidden px-4 py-2 lg:py-0 lg:px-0 flex items-center justify-between w-full bg-secondary text-sm text-primary border-b border-color">
         <button
           onClick={() => setIsModalOpen(true)}
           disabled={isLoading}

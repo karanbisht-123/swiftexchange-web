@@ -132,7 +132,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     if (!currentAsset || !recipientAddress || !amount) return null;
 
     return (
-      <div className="space-y-4 max-w-2xl mx-auto">
+      <div className="space-y-4 w-[95vw] overflow-hidden">
         <div className="bg-brand-primary/5 rounded-xl border border-brand-primary/10 p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center">
@@ -147,7 +147,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         </div>
 
-        <div className="bg-bg-tertiary rounded-xl overflow-hidden">
+        <div className="bg-bg-tertiary rounded-xl overflow-hidden ">
           <div className="p-4 space-y-5">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -468,10 +468,10 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   className={`w-full bg-transparent border-none focus:ring-0 outline-none text-xs font-mono placeholder:text-text-muted ${formError && formError.includes('address') ? 'text-danger' : 'text-text-primary'
                     }`}
                   placeholder={
-                    currentAsset?.type === 'stellar' 
-                      ? 'Stellar Address (G...)' 
-                      : currentAsset?.type === 'dydx' 
-                        ? 'dYdX Address (dydx1...)' 
+                    currentAsset?.type === 'stellar'
+                      ? 'Stellar Address (G...)'
+                      : currentAsset?.type === 'dydx'
+                        ? 'dYdX Address (dydx1...)'
                         : 'EVM Address (0x...)'
                   }
                   value={recipientAddress}

@@ -368,6 +368,7 @@ export const initWalletListener = async () => {
 
           if (type === 'evm') {
             usePortfolioStore.getState().clearAssetsByType('evm');
+            usePortfolioStore.getState().clearAssetsByType('dydx');
           } else if (type === 'stellar') {
             usePortfolioStore.getState().clearAssetsByType('stellar');
           } else if (type === 'cosmos') {

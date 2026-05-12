@@ -50,7 +50,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
 
   return (
     <div className="bg-bg-tertiary rounded-2xl overflow-hidden">
-      <div className="p-4 py-8 lg:p-8 flex flex-col items-center gap-8">
+      <div className="p-2 py-8 lg:p-8 flex flex-col items-center gap-8">
         {canInteract ? (
           <div className="relative group">
             <div className="bg-white rounded-xl p-4 shadow-xl ring-1 ring-black/5 transition-transform duration-500 group-hover:scale-[1.02]">
@@ -77,7 +77,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
           </div>
         )}
 
-        <div className="w-full space-y-4">
+        <div className=" space-y-4 max-w-[88vw]">
           <div className="text-center">
             <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">
               Your {currentAsset?.symbol} Address
@@ -129,7 +129,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
         </div>
       </div>
 
-      <div className="bg-bg-secondary/30 p-4">
+      <div className="bg-primary p-2 lg:p-4">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-warning/10 flex items-center justify-center">
             <AlertCircle size={14} className="text-warning" />

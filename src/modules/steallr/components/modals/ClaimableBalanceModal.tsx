@@ -16,6 +16,7 @@ const ClaimableBalanceModal = ({ onClose }: ClaimableBalanceModalProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [claimSuccess, setClaimSuccess] = useState(false);
+  const [lastHash, setLastHash] = useState<string | null>(null);
   const [service] = useState(() => new TradeTransactionService());
 
   const fetchBalances = useCallback(async () => {
@@ -41,22 +42,24 @@ const ClaimableBalanceModal = ({ onClose }: ClaimableBalanceModalProps) => {
 
     try {
       setProcessingId(balance.id);
+      setLastHash(null);
 
       const transaction = await service.buildClaimBalanceTransaction(
         stellarWallet.address,
         balance.id
       );
 
-      await service.executeClaimBalanceWithWalletConnect(transaction, provider);
-
-      setBalances(prev => prev.filter(b => b.id !== balance.id));
-      setClaimSuccess(true);
+      const hash = await service.executeClaimBalanceWithWalletConnect(transaction, provider);
+      setLastHash(hash);
       
-      if (balances.length <= 1) {
-        setTimeout(onClose, 2500);
-      } else {
-        setTimeout(() => setClaimSuccess(false), 3000);
-      }
+      setBalances(prev => {
+        const next = prev.filter(b => b.id !== balance.id);
+        if (next.length === 0) {
+          setClaimSuccess(true);
+        }
+        return next;
+      });
+
     } catch (err) {
       console.error(err);
     } finally {
@@ -91,16 +94,56 @@ const ClaimableBalanceModal = ({ onClose }: ClaimableBalanceModalProps) => {
               <Loader2 className="w-8 h-8 text-pink-500 animate-spin" />
               <p className="text-xs font-bold text-muted uppercase tracking-widest">Searching for rewards...</p>
             </div>
-          ) : claimSuccess && balances.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 animate-in fade-in zoom-in duration-500">
-              <div className="w-24 h-24 rounded-full bg-green-500/10 flex items-center justify-center border border-green-500/20">
-                <PartyPopper className="w-12 h-12 text-green-500" />
+          ) : (claimSuccess || (lastHash && balances.length > 0)) ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-6 animate-in fade-in zoom-in duration-500">
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full bg-green-500/10 flex items-center justify-center border border-green-500/20">
+                  <PartyPopper className="w-12 h-12 text-green-500" />
+                </div>
+                <div className="absolute -top-1 -right-1 w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-4 border-secondary">
+                  <CheckCircle className="w-4 h-4 text-white" />
+                </div>
               </div>
+              
               <div className="space-y-2">
-                <h4 className="text-xl font-black">Claim Successful!</h4>
-                <p className="text-sm text-muted max-w-[200px] mx-auto">All rewards have been moved to your wallet.</p>
+                <h4 className="text-2xl font-black text-white">Claim Successful!</h4>
+                <p className="text-sm text-muted max-w-[240px] mx-auto">
+                  Your reward has been successfully claimed and added to your wallet.
+                </p>
               </div>
-              <button onClick={onClose} className="btn btn-primary px-8">Great!</button>
+
+              {lastHash && (
+                <div className="w-full bg-white/5 rounded-2xl p-4 border border-white/5 space-y-2">
+                  <p className="text-[10px] font-bold text-muted uppercase tracking-widest text-left">Transaction Hash</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="text-[10px] font-mono text-green-400 truncate flex-1">{lastHash}</code>
+                    <button 
+                      onClick={() => window.open(`https://stellar.expert/explorer/public/tx/${lastHash}`, '_blank')}
+                      className="text-[10px] font-bold text-pink-500 hover:text-pink-400 transition-colors shrink-0"
+                    >
+                      VIEW
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 w-full pt-4">
+                <button 
+                   onClick={() => {
+                     setClaimSuccess(false);
+                     setLastHash(null);
+                   }}
+                   className="flex-1 h-12 rounded-xl bg-white/5 hover:bg-white/10 text-primary font-black uppercase tracking-widest text-xs border border-white/10 transition-all"
+                >
+                  {balances.length > 0 ? 'Claim More' : 'Close'}
+                </button>
+                <button 
+                  onClick={onClose} 
+                  className="flex-1 h-12 rounded-xl bg-pink-500 hover:bg-pink-600 text-white font-black uppercase tracking-widest text-xs shadow-lg shadow-pink-500/20 transition-all"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           ) : balances.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 animate-in fade-in zoom-in duration-500">

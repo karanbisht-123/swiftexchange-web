@@ -120,7 +120,7 @@ const AssetSelectorModal: FC = () => {
         }
       }
     } else if (effectiveActionType === 'SWAP') {
-      const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
+      const activeChainId = selectedNetwork === 'all' ? (isEvmConnected ? 1 : (isStellarConnected ? STELLAR_CHAIN_ID : 1)) : selectedNetwork;
       if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) {
         result = [];
       } else if (activeChainId === DYDX_CHAIN_ID && !isDydxConnected) {
@@ -132,7 +132,7 @@ const AssetSelectorModal: FC = () => {
         }));
       }
     } else if (effectiveActionType === 'BRIDGE') {
-      const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
+      const activeChainId = selectedNetwork === 'all' ? (isEvmConnected ? 1 : (isStellarConnected ? STELLAR_CHAIN_ID : 1)) : selectedNetwork;
       const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
       const isDydxInvolved = activeChainId === DYDX_CHAIN_ID || pairedChainId === DYDX_CHAIN_ID;
       if (isStellarInvolved && !isStellarConnected) {
