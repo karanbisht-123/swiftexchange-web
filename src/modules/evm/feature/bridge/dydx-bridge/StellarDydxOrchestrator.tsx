@@ -11,7 +11,8 @@ import {
   AlertCircle,
   Info,
   RefreshCw,
-  // Wallet,
+  Wallet,
+  ShieldCheck,
   ExternalLink,
   ArrowLeft
 } from 'lucide-react';
@@ -184,7 +185,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   const [searchParams] = useSearchParams();
   const assetParam = searchParams.get('asset');
 
-  const { connectedWallets, getProvider } = useWalletConnect();
+  const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network) as 'mainnet' | 'testnet';
 
   const stellarWallet = connectedWallets[WalletType.STELLAR];
@@ -1542,6 +1543,58 @@ export const StellarDydxOrchestrator: React.FC = () => {
       </div>
     );
   };
+
+  const isBothConnected = !!evmAddress && !!stellarAddress;
+
+  if (!isBothConnected && phase === 'SETUP') {
+    return (
+      <div className="w-full max-w-xl mx-auto lg:px-4 pb-4 animate-fade-in">
+        <div className="bg-tertiary rounded-[2.5rem] border border-divider/50 p-12 text-center shadow-2xl relative overflow-hidden group">
+          {/* Background decorative elements */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -mr-16 -mt-16 blur-3xl transition-all group-hover:bg-brand/10" />
+          <div className="absolute bottom-0 left-0 w-32 h-32 bg-brand/5 rounded-full -ml-16 -mb-16 blur-3xl transition-all group-hover:bg-brand/10" />
+
+          <div className="relative mb-8 flex justify-center">
+            <div className="relative">
+              <div className="w-24 h-24 rounded-3xl bg-brand/10 flex items-center justify-center rotate-3 group-hover:rotate-6 transition-transform duration-500">
+                <Layers className="w-12 h-12 text-brand" />
+              </div>
+              <div className="absolute -bottom-2 -right-2 w-10 h-10 rounded-full bg-secondary border-4 border-bg-primary flex items-center justify-center shadow-xl">
+                <ShieldCheck className="w-5 h-5 text-brand" />
+              </div>
+            </div>
+          </div>
+
+          <h2 className="text-2xl font-black text-primary mb-4 uppercase tracking-tighter">
+            Dual Connection Required
+          </h2>
+
+          <p className="text-muted text-sm leading-relaxed mb-10 max-w-[320px] mx-auto font-medium">
+            To use the Stellar-dYdX bridge, you need to connect both your
+            <span className="text-brand font-bold mx-1">Stellar</span>
+            and
+            <span className="text-brand font-bold mx-1">EVM</span>
+            wallets simultaneously.
+          </p>
+
+          <div className="space-y-3">
+            <button
+              onClick={() => openModal()}
+              className="w-full bg-brand text-white font-black py-5 rounded-2xl tracking-[0.2em] hover:brightness-110 active:scale-[0.98] transition-all uppercase shadow-lg shadow-brand/20 flex items-center justify-center gap-3"
+            >
+              <Wallet size={20} />
+              Connect Wallets
+            </button>
+
+            <p className="text-[10px] font-black text-muted/40 uppercase tracking-[0.3em]">
+              Secure Multi-Chain Settlement
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full mx-auto lg:px-4 pb-4 animate-fade-in">
       {/* Header */}
