@@ -302,18 +302,6 @@ export const useSendAsset = (onBack?: () => void) => {
 
         if (res.status !== 'success') throw new Error(res.error || 'Failed');
 
-        //  persist stellar tx to localStorage so history shows up
-        addLocalTransaction({
-          hash: res.hash || 'unknown',
-          chainId: currentAsset.chainId,
-          type: 'send',
-          timestamp: Date.now(),
-          status: 'success',
-          from: senderAddress,
-          network: currentNetwork,
-          description: `Send ${amount} ${currentAsset.symbol} (Stellar)`
-        });
-
         setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
       } else {
         // dYdX direct handling via service

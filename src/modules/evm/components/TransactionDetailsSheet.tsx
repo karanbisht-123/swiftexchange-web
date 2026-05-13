@@ -13,6 +13,7 @@ interface TransactionDetailsSheetProps {
   incoming?: boolean;
   isSelf?: boolean;
   onRefresh?: () => void;
+  backendStatus?: any;
 }
 
 const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
@@ -23,6 +24,7 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
   incoming,
   isSelf,
   onRefresh,
+  backendStatus,
 }) => {
   if (!isOpen) return null;
 
@@ -43,6 +45,7 @@ const TransactionDetailsSheet: React.FC<TransactionDetailsSheetProps> = ({
             incoming={incoming}
             isSelf={isSelf}
             onRefresh={onRefresh}
+            backendStatus={backendStatus}
           />
         </div>
       </div>

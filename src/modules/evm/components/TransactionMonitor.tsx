@@ -4,14 +4,13 @@ import { useNotificationStore } from '../../../store/notificationStore';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { rpcManager } from '../utils/rpcProvider';
 
-/**
- * Background component that monitors pending EVM transactions
- * and updates their status in the local history and notification system.
- */
+
 export const TransactionMonitor: React.FC = () => {
   const { showToast } = useNotificationStore();
   const monitoredHashes = useRef<Set<string>>(new Set());
 
+  // Monitors local non-backend transactions. Provider orders (Rango, Allbridge, Fusion)
+  // are tracked via the backend proxy, while Uniswap status updates directly from frontend history.
   useEffect(() => {
     const checkPendingTransactions = async () => {
       const pendingTxs = getLocalTransactions().filter(tx => tx.status === 'pending');
@@ -29,7 +28,7 @@ export const TransactionMonitor: React.FC = () => {
         const config = getEVMNetworkConfig(tx.chainId);
         const receipt = await rpcManager.fetchWithFallback(tx.chainId, config.rpcUrls, async (provider) => {
           let attempts = 0;
-          while (attempts < 60) { // ~5 mins
+          while (attempts < 60) {
             const r = await provider.getTransactionReceipt(tx.hash);
             if (r) return r;
             await new Promise(res => setTimeout(res, 5000));

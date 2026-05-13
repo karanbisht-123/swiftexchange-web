@@ -12,6 +12,7 @@ interface TransactionDetailsViewProps {
   incoming?: boolean;
   isSelf?: boolean;
   onRefresh?: () => void;
+  backendStatus?: any;
 }
 
 const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
@@ -20,6 +21,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   incoming = false,
   isSelf = false,
   onRefresh,
+  backendStatus,
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -33,7 +35,8 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   };
 
   const isLocal = 'type' in transaction;
-  const status = isLocal ? (transaction as LocalTransactionWithStatus).status : 'success';
+  const rawStatus = backendStatus?.status || (isLocal ? (transaction as LocalTransactionWithStatus).status : 'success');
+  const status = rawStatus === 'completed' ? 'success' : rawStatus;
   const type = isLocal ? (transaction as LocalTransactionWithStatus).type : 'transaction';
   const description = isLocal ? (transaction as LocalTransactionWithStatus).description : null;
   const timestamp = isLocal 
@@ -41,7 +44,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     : (transaction as TransactionItem).metadata?.blockTimestamp 
       ? new Date((transaction as TransactionItem).metadata.blockTimestamp).getTime()
       : null;
-  const destinationHash = isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null;
+  const destinationHash = backendStatus?.destinationHash || (isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null);
 
   let assetLogo = undefined;
   if (!isLocal) {

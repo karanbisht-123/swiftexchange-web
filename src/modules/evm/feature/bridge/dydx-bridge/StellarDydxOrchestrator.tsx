@@ -26,7 +26,6 @@ import {
   getSupportedTokens,
   getBridgeQuote as getStellarBridgeQuote,
   prepareStellarToEvmRawTransaction,
-  getBridgeStatus,
   STELLAR_NETWORK_PASSPHRASE
 } from '../../../../steallr/service/allbridgeService';
 import { parseSwapError } from '../../../utils/swapErrorHandler';
@@ -39,6 +38,7 @@ import TransactionButton from '../../../../commonfeature/components/TransactionB
 import { portfolioUtils } from '../../../../walletconnect/utils/portfolioUtils';
 import * as StellarSDK from '@stellar/stellar-sdk';
 import { addLocalTransaction } from '../../../../evm/service/localTransactionService';
+import { storeSwapOrder, getTransactionStatus } from '../../../../evm/service/evmTransactionStatusService';
 import { useNotificationStore } from '../../../../../store/notificationStore';
 import { useTransactionTracker, useTransactionStore } from '../../../../dydx/hooks/useTransactionTracker';
 import { ActionGuard } from '../../../../commonfeature/components/ActionGuard';
@@ -338,15 +338,22 @@ export const StellarDydxOrchestrator: React.FC = () => {
   useEffect(() => {
     if (!depositTx.hash || phase !== 'DEPOSIT') return;
 
-    if (dydxTracker.overallState === 'STATE_COMPLETED_SUCCESS') {
+    const s = dydxTracker.overallState;
+    console.debug('[Deposit] dYdX tracker state:', s);
+
+    if (s === 'STATE_COMPLETED_SUCCESS') {
       dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: 'SUCCESS' });
       setPhase('DONE');
     } else if (
-      dydxTracker.overallState === 'STATE_COMPLETED_ERROR' ||
-      dydxTracker.overallState === 'STATE_ABANDONED'
+      s === 'STATE_COMPLETED_ERROR' ||
+      s === 'STATE_ABANDONED'
     ) {
       dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: 'FAILED' });
-    } else if (dydxTracker.isLoading) {
+    } else if (
+      s === 'STATE_PENDING' ||
+      s === 'STATE_SUBMITTED' ||
+      dydxTracker.isLoading
+    ) {
       dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: 'PENDING' });
     }
   }, [dydxTracker.overallState, dydxTracker.isLoading, depositTx.hash, phase]);
@@ -373,10 +380,21 @@ export const StellarDydxOrchestrator: React.FC = () => {
   useEffect(() => {
     if (!isRestored) return;
 
+    const isFullyTerminal =
+      phase === 'DONE' ||
+      (swapTx.status === 'FAILED' && !bridgeTx.hash && !depositTx.hash) ||
+      (bridgeTx.status === 'FAILED' && !depositTx.hash) ||
+      depositTx.status === 'FAILED';
+
+    if (isFullyTerminal && phase !== 'DONE') {
+      console.debug('[Bridge] Terminal failure state — preserving localStorage for user review');
+    }
+
     if (phase === 'DONE') {
+      console.debug('[Bridge] DONE — clearing localStorage');
       localStorage.removeItem(BRIDGE_STEP_KEY);
     } else if (phase !== 'SETUP') {
-      console.log("stellar dydx bridge phase", phase)
+      console.debug('[Bridge] Persisting bridge state', phase, { swapTx, bridgeTx, depositTx });
       try {
         localStorage.setItem(
           BRIDGE_STEP_KEY,
@@ -395,7 +413,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           })
         );
       } catch (err) {
-        console.log(err)
+        console.error('[Bridge] Failed to persist state', err);
       }
     }
   }, [
@@ -420,20 +438,30 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     const checkStatus = async () => {
       try {
-        const res = await getBridgeStatus(bridgeTx.hash!);
+        console.debug('[Bridge] Polling backend bridge status for hash', bridgeTx.hash);
+        const res = await getTransactionStatus({
+          walletType: 'SRB',
+          txHash: bridgeTx.hash!,
+          provider: 'ALLBRIDGE',
+        });
         if (cancelled) return;
 
-        if (res.receive) {
+        console.debug('[Bridge] Backend status response', { receive: !!res.receive, isSuspended: res.isSuspended, signaturesCount: res.signaturesCount });
+
+        if (res.receive && res.receive.txId) {
+          const confirmedAmount = res.receive.amountFormatted?.toString();
+          console.debug('[Bridge] Bridge confirmed — receive amount:', confirmedAmount);
           dispatchTx({ type: 'SET_BRIDGE_STATUS', status: 'SUCCESS' });
-          if (res.receive.amountFormatted) {
-            setIntermediateAmount(res.receive.amountFormatted.toString());
+          if (confirmedAmount) {
+            setIntermediateAmount(confirmedAmount);
           }
           if (phase === 'BRIDGE') setPhase('DEPOSIT');
         } else if (res.isSuspended) {
+          console.debug('[Bridge] Bridge suspended — marking FAILED');
           dispatchTx({ type: 'SET_BRIDGE_STATUS', status: 'FAILED' });
         }
       } catch (err) {
-        console.log(err)
+        console.error('[Bridge] Backend status poll error', err);
         if (!cancelled) consecutiveBridgeErrors.current += 1;
         if (!cancelled && consecutiveBridgeErrors.current >= 3) {
           setError('Bridge status check failed repeatedly. Please refresh or check the explorer.');
@@ -443,7 +471,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     consecutiveBridgeErrors.current = 0;
     checkStatus();
-    const interval = setInterval(checkStatus, 15000);
+    const interval = setInterval(checkStatus, 30000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -843,6 +871,22 @@ export const StellarDydxOrchestrator: React.FC = () => {
         stellarAddress,
       });
 
+      if (result.hash) {
+        dispatchTx({ type: 'SET_BRIDGE', hash: result.hash });
+        setIntermediateAmount(freshBridgeQuote.amountToBeReceived);
+
+        const current = JSON.parse(localStorage.getItem(BRIDGE_STEP_KEY) || '{}');
+        localStorage.setItem(BRIDGE_STEP_KEY, JSON.stringify({
+          ...current,
+          phase: 'BRIDGE',
+          bridgeTxHash: result.hash,
+          bridgeStatus: 'PENDING',
+          intermediateAmount: freshBridgeQuote.amountToBeReceived,
+          destinationChainId: destinationChain.chainId,
+        }));
+        console.debug('[Bridge] Hash saved to localStorage immediately:', result.hash);
+      }
+
       if (!result.success) throw new Error(result.error || 'Transaction failed');
 
       addLocalTransaction({
@@ -856,8 +900,18 @@ export const StellarDydxOrchestrator: React.FC = () => {
         network: currentNetwork,
       });
 
-      dispatchTx({ type: 'SET_BRIDGE', hash: result.hash! });
-      setIntermediateAmount(freshBridgeQuote.amountToBeReceived);
+      console.debug('[Bridge] Storing Allbridge bridge order to backend', result.hash);
+      storeSwapOrder({
+        txHash: result.hash!,
+        walletAddress: evmAddress!,
+        provider: 'ALLBRIDGE',
+        fromChain: 'SRB',
+        fromToken: 'USDC',
+        toChain: destinationChain.symbol ?? '',
+        toToken: 'USDC',
+        amountIn: bridgeInputAmount,
+        amountOut: freshBridgeQuote.amountToBeReceived,
+      }).catch(err => console.error('[Bridge] Failed to store Allbridge order:', err));
 
       showToast({
         type: 'BRIDGE',
@@ -877,20 +931,27 @@ export const StellarDydxOrchestrator: React.FC = () => {
     try {
       setError(null);
 
-      const amountToDeposit = parseFloat(
-        bridgeQuote?.amountToBeReceived || intermediateAmount || '0'
-      );
-      if (amountToDeposit <= 0 || !destinationChain) {
+      const confirmedReceiveAmount = intermediateAmount
+        ? parseFloat(intermediateAmount)
+        : null;
+
+      if (!confirmedReceiveAmount || confirmedReceiveAmount <= 0) {
         throw new Error(
-          'Missing deposit amount or destination chain. Please wait for quotes to refresh.'
+          'Bridge has not confirmed the received amount yet. Please wait for bridge confirmation before depositing.'
         );
       }
 
-      const dr = await getRoute('USDC', amountToDeposit, destinationChain.chainId, true);
+      if (!destinationChain) {
+        throw new Error('Destination chain not selected.');
+      }
+
+      console.debug('[Deposit] Using confirmed bridge receive amount:', confirmedReceiveAmount);
+
+      const dr = await getRoute('USDC', confirmedReceiveAmount, destinationChain.chainId, true);
       if (!dr) throw new Error('Could not verify fresh deposit route. Please try again.');
       setDepositQuote(dr as DepositQuote);
 
-      const res = await deposit('USDC', amountToDeposit, destinationChain.chainId, true, '1');
+      const res = await deposit('USDC', confirmedReceiveAmount, destinationChain.chainId, true, '1');
       if (res.success) {
         addLocalTransaction({
           hash: res.txHash!,
@@ -903,10 +964,11 @@ export const StellarDydxOrchestrator: React.FC = () => {
           network: currentNetwork,
         });
         dispatchTx({ type: 'SET_DEPOSIT', hash: res.txHash! });
+        console.debug('[Deposit] Deposit tx submitted:', res.txHash);
         showToast({
           type: 'DYDX',
           title: 'Deposit Started',
-          message: 'Settling funds to your dYdX trading account on Arbitrum.',
+          message: 'Settling funds to your dYdX trading account.',
         });
         return true;
       } else {
@@ -914,7 +976,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
         return false;
       }
     } catch (err: any) {
-      setError(err.message || 'Deposit verification failed');
+      console.error('[Deposit] executeDeposit error:', err);
+      setError(err.message || 'Deposit failed');
       return false;
     } finally {
       setLoadingStep(false);
@@ -993,8 +1056,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
         const ok = await executeSwap();
         if (ok) setPhase('BRIDGE');
       } else if (phase === 'BRIDGE') {
-        const ok = await executeBridge();
-        if (ok) setPhase('DEPOSIT');
+        await executeBridge();
       } else if (phase === 'DEPOSIT') {
         await executeDeposit();
       }
@@ -1004,6 +1066,21 @@ export const StellarDydxOrchestrator: React.FC = () => {
   };
 
   const handleReset = () => {
+    const hasActiveTx =
+      (swapTx.status === 'PENDING') ||
+      (bridgeTx.status === 'PENDING') ||
+      (depositTx.status === 'PENDING');
+
+    if (hasActiveTx) {
+      showToast({
+        type: 'SYSTEM',
+        title: 'Cannot Reset',
+        message: 'A transaction is in progress. Please wait for it to complete before resetting.',
+      });
+      return;
+    }
+
+    console.debug('[Bridge] User reset — clearing localStorage and all state');
     dydxTracker.acknowledge();
     setPhase('SETUP');
     setInputAmount('');
@@ -1151,13 +1228,15 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (phase === 'SETUP') return 'START BRIDGE';
     if (phase === 'SWAP' && !isUsdc) return `SWAP TO USDC (1/${totalSteps})`;
     if (phase === 'BRIDGE') {
-      if (bridgeTx.hash && bridgeTx.status !== 'SUCCESS') return 'WAITING FOR BRIDGE...';
+      if (bridgeTx.hash && bridgeTx.status === 'PENDING') return 'WAITING FOR BRIDGE CONFIRMATION...';
+      if (bridgeTx.status === 'FAILED') return 'BRIDGE FAILED — RETRY';
       const step = isUsdc ? 1 : 2;
       return `BRIDGE TO ${destinationChain?.name?.toUpperCase() || 'EVM'} (${step}/${totalSteps})`;
     }
     if (phase === 'DEPOSIT') {
+      if (bridgeTx.status !== 'SUCCESS') return 'WAITING FOR BRIDGE FUNDS...';
       if (depositTx.status === 'PENDING') return 'SETTLEMENT IN PROGRESS...';
-      if (bridgeTx.status !== 'SUCCESS') return 'WAITING FOR FUNDS...';
+      if (depositTx.status === 'FAILED') return 'DEPOSIT FAILED — RETRY';
       const step = isUsdc ? 2 : 3;
       return loadingStep ? 'REFRESHING ROUTE...' : `SETTLE TO DYDX (${step}/${totalSteps})`;
     }
@@ -1179,26 +1258,26 @@ export const StellarDydxOrchestrator: React.FC = () => {
   ]);
 
   const isButtonDisabled = useMemo(() => {
-    return (
-      !evmAddress ||
-      !stellarAddress ||
-      parseFloat(inputAmount) <= 0 ||
-      isInsufficient ||
-      isInsufficientXlm ||
-      isQuoting ||
-      loadingStep ||
-      (phase === 'BRIDGE' && bridgeTx.status === 'PENDING') ||
-      (phase === 'DEPOSIT' && depositTx.status === 'PENDING')
-    );
+    if (!evmAddress || !stellarAddress) return true;
+    if (parseFloat(inputAmount) <= 0) return true;
+    if (isInsufficient || isInsufficientXlm) return true;
+    if (isQuoting || loadingStep) return true;
+    if (phase === 'BRIDGE' && bridgeTx.status === 'PENDING') return true;
+    if (phase === 'BRIDGE' && !bridgeTx.hash && !bridgeTx.status) return false;
+    if (phase === 'DEPOSIT' && bridgeTx.status !== 'SUCCESS') return true;
+    if (phase === 'DEPOSIT' && depositTx.status === 'PENDING') return true;
+    return false;
   }, [
     evmAddress,
     stellarAddress,
     inputAmount,
     isInsufficient,
+    isInsufficientXlm,
     isQuoting,
     loadingStep,
     phase,
     bridgeTx.status,
+    bridgeTx.hash,
     depositTx.status,
   ]);
 
@@ -2333,11 +2412,27 @@ export const StellarDydxOrchestrator: React.FC = () => {
             </div>
           ) : (
             <div className="relative">
+              {phase === 'DEPOSIT' && bridgeTx.status !== 'SUCCESS' && (
+                <div className="mb-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3 flex items-center gap-3">
+                  <RefreshCw size={14} className="text-amber-400 animate-spin flex-shrink-0" />
+                  <p className="text-[11px] font-bold text-amber-400">
+                    Waiting for bridge funds to arrive on {destinationChain?.name}. You can proceed once the bridge confirms receipt.
+                  </p>
+                </div>
+              )}
               <ActionGuard requiredWallets={[WalletType.EVM, WalletType.STELLAR]}>
                 <TransactionButton
                   label={buttonLabel}
-                  isLoading={isQuoting || loadingStep || dydxLoading}
-                  loadingLabel={isQuoting ? 'FETCHING QUOTES...' : 'PROCESSING...'}
+                  isLoading={isQuoting || loadingStep || dydxLoading || (phase === 'BRIDGE' && bridgeTx.status === 'PENDING') || (phase === 'DEPOSIT' && depositTx.status === 'PENDING')}
+                  loadingLabel={
+                    phase === 'BRIDGE' && bridgeTx.status === 'PENDING'
+                      ? 'WAITING FOR BRIDGE...'
+                      : phase === 'DEPOSIT' && depositTx.status === 'PENDING'
+                        ? 'SETTLING TO DYDX...'
+                        : isQuoting
+                          ? 'FETCHING QUOTES...'
+                          : 'PROCESSING...'
+                  }
                   isDisabled={isButtonDisabled}
                   isError={!!error}
                   onClick={handleActionClick}

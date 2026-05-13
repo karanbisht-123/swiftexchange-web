@@ -17,7 +17,8 @@ import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSw
 import { rpcManager } from '../utils/rpcProvider';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
-import { isEvmChain } from '../utils/Chainregistry';
+import { isEvmChain, getChainById } from '../utils/Chainregistry';
+import { storeSwapOrder } from '../service/evmTransactionStatusService';
 
 interface UseEvmSwapProps {
   chainId: number | string;
@@ -175,8 +176,8 @@ export const useEvmSwap = ({
         let provider: any;
         try {
           provider = getProvider(WalletType.EVM);
-        } catch {
-          // No provider
+        } catch (error) {
+          console.log("No provider", error)
         }
 
         const updates = await Promise.all(
@@ -369,6 +370,7 @@ export const useEvmSwap = ({
       activeSwapId.current = swapId;
       updateState({ loading: true, error: null, txHash: null });
 
+      console.log(quote, "----------------- 987654321")
       try {
         if (!quote) throw new Error('No quote available');
         if (!senderAddress) throw new Error('No wallet connected');
@@ -386,16 +388,38 @@ export const useEvmSwap = ({
 
         const currentNetwork = useWalletStore.getState().network;
 
-        addLocalTransaction({
-          hash,
-          chainId,
-          type: 'swap',
-          timestamp: Date.now(),
-          description: `Swap ${sellAsset.symbol} \u2192 ${buyAsset.symbol}`,
-          status: 'pending',
-          from: senderAddress,
-          network: currentNetwork,
-        });
+        console.log(quote, "----------------- 987654321")
+        // Save to backend if it's a supported provider, otherwise save to local storage
+        if (quote.provider === 'RANGO' || quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP' || quote.provider === 'ALLBRIDGE') {
+          try {
+            await storeSwapOrder({
+              txHash: hash,
+              walletAddress: senderAddress,
+              provider: quote.provider,
+              fromChain: getChainById(chainId)?.symbol || '',
+              fromToken: sellAsset.symbol,
+              toChain: getChainById(buyAsset.chainId || chainId)?.symbol || '',
+              toToken: buyAsset.symbol,
+              amountIn: sellAmount,
+              amountOut: quote.outputAmount,
+              // requestId is only for Rango
+              ...(quote.provider === 'RANGO' ? { requestId: (quote as any).requestId || (quote.rawQuote as any)?.requestId } : {})
+            } as any);
+          } catch (err) {
+            console.error('Failed to store swap order on backend:', err);
+          }
+        } else if (chainId !== 'pubnet' && chainId !== 'testnet' && chainId !== 'stellar') {
+          addLocalTransaction({
+            hash,
+            chainId,
+            type: 'swap',
+            timestamp: Date.now(),
+            description: `Swap ${sellAsset.symbol} \u2192 ${buyAsset.symbol}`,
+            status: 'pending',
+            from: senderAddress,
+            network: currentNetwork,
+          });
+        }
 
         if (activeSwapId.current === swapId) {
           activeSwapId.current = null;
@@ -449,18 +473,22 @@ export const useEvmSwap = ({
           onProgress
         );
 
-        const currentNetwork = useWalletStore.getState().network;
-
-        addLocalTransaction({
-          hash,
-          chainId,
-          type: 'swap',
-          timestamp: Date.now(),
-          description: `Swap (Gasless) ${sellAsset.symbol} \u2192 ${buyAsset.symbol}`,
-          status: 'pending',
-          from: senderAddress,
-          network: currentNetwork,
-        });
+        // 1Inch Fusion swaps always go to backend
+        try {
+          await storeSwapOrder({
+            txHash: hash, //orderHash for Fusion
+            walletAddress: senderAddress,
+            provider: 'ONEINCH',
+            fromChain: getChainById(chainId)?.symbol,
+            fromToken: sellAsset.symbol,
+            toChain: getChainById(buyAsset.chainId || chainId)?.symbol,
+            toToken: buyAsset.symbol,
+            amountIn: sellAmount,
+            amountOut: state.fusionQuote.toTokenAmount ? ethers.formatUnits(state.fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+          } as any);
+        } catch (backendErr) {
+          console.error('Failed to store fusion swap order on backend:', backendErr);
+        }
 
         if (activeSwapId.current === swapId) {
           activeSwapId.current = null;

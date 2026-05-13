@@ -22,8 +22,8 @@ export function parseWalletError(error: unknown): string {
         return parsed.message;
       }
     }
-  } catch {
-    // fall through
+  } catch (error) {
+    console.error("Error parsing wallet error:", error);
   }
   if (rawMsg.length > 0 && rawMsg !== '[object Object]' && !isNoisy(rawMsg)) {
     return rawMsg;

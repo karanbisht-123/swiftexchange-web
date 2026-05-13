@@ -21,7 +21,8 @@ import { useWalletStore } from '../../../walletconnect/store/walletConnectStore'
 import TransactionButton from '../../../commonfeature/components/TransactionButton';
 import { useEvmSwap } from '../../hook/useEvmSwap';
 import { getRangoSlippageWarning } from '../../utils/evmSwapUtils';
-import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata } from '../../utils/Chainregistry';
+import { storeSwapOrder } from '../../service/evmTransactionStatusService';
+import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata, getChainRangoSymbol } from '../../utils/Chainregistry';
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
@@ -918,7 +919,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             {
               setStatus: setBridgeTxStatus,
               setHash: setBridgeTxHash,
-              addTransaction: addLocalTransaction
+              addTransaction: (tx: any) => {
+                if (tx.type === 'swap' || tx.type === 'bridge') {
+                  storeSwapOrder({
+                    txHash: tx.hash,
+                    walletAddress: evmAddress,
+                    provider: 'RANGO',
+                    fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                    fromToken: sellAssetSymbol,
+                    toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                    toToken: buyAssetSymbol,
+                    amountIn: sellAmount,
+                    amountOut: calculatedBuyAmount,
+                    requestId: requestId
+                  } as any).catch(err => console.error('Failed to store Rango bridge order:', err));
+                } else {
+                  addLocalTransaction(tx);
+                }
+              }
             },
             userSlippageTolerance
           );
@@ -971,16 +989,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             }
             if (tx.type === 'transfer') {
               setBridgeTxHash(hash);
-              addLocalTransaction({
-                hash,
-                chainId: fromChainId,
-                type: 'bridge',
-                timestamp: Date.now(),
-                description: `Bridge ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
-                from: evmAddress,
-                status: 'pending',
-                network: currentNetwork
-              });
+              storeSwapOrder({
+                txHash: hash,
+                walletAddress: evmAddress,
+                provider: 'ALLBRIDGE',
+                fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                fromToken: sellAssetSymbol,
+                toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                toToken: buyAssetSymbol,
+                amountIn: sellAmount,
+                amountOut: calculatedBuyAmount,
+              } as any).catch(err => console.error('Failed to store Allbridge order:', err));
             }
           }
           setBridgeTxStatus('success');
