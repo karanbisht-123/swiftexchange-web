@@ -1193,10 +1193,13 @@ export async function execute1InchFusionSwap(
 
   onProgress?.('signing');
 
+  const normalizedTokenIn = sellAsset.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : sellAsset.address;
+  const normalizedTokenOut = buyAsset.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : buyAsset.address;
+
   const fusionOrder = await build1InchFusionOrder({
     quote,
-    tokenIn: sellAsset.address,
-    tokenOut: buyAsset.address,
+    tokenIn: normalizedTokenIn,
+    tokenOut: normalizedTokenOut,
     amount: amountBN.toString(),
     walletAddress: senderAddress,
     chain: chainSymbol,

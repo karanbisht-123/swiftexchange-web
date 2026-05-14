@@ -69,8 +69,8 @@ export function parseSwapError(error: any): string {
     }
   }
 
-  if (!message && typeof error === 'object' && error !== null) {
-    if (error.message) {
+  if (!message && error !== null) {
+    if (typeof error === 'object' && error.message) {
       message = error.message;
       if (message.includes('{"') || message.includes('error=')) {
         try {

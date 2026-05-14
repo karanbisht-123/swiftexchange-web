@@ -9,8 +9,6 @@ export const TransactionMonitor: React.FC = () => {
   const { showToast } = useNotificationStore();
   const monitoredHashes = useRef<Set<string>>(new Set());
 
-  // Monitors local non-backend transactions. Provider orders (Rango, Allbridge, Fusion)
-  // are tracked via the backend proxy, while Uniswap status updates directly from frontend history.
   useEffect(() => {
     const checkPendingTransactions = async () => {
       const pendingTxs = getLocalTransactions().filter(tx => tx.status === 'pending');

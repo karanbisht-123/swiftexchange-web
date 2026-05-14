@@ -29,7 +29,8 @@ import { useSubaccounts } from '../hooks/useSubaccounts';
 import {
   useHasActivePendingDeposit,
   useHasActivePendingWithdraw,
-  useTransactionStore,
+  getCurrentDepositTx,
+  useCurrentDepositTx,
   useTransactionTracker,
 } from '../hooks/useTransactionTracker';
 import { validateDepositAmount } from '../utils/inputValidation';
@@ -154,24 +155,24 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   } = useDydxDeposit();
 
   const evmChainId = (evmWallet?.chainId as number | string ?? 1);
-  const store = useTransactionStore();
+  const currentDepositTx = useCurrentDepositTx();
   const depositIsPending = useHasActivePendingDeposit();
   const withdrawIsPending = useHasActivePendingWithdraw();
   const isDepositLocked = depositIsPending || withdrawIsPending;
 
   const [modalStep, setModalStep] = useState<ModalStep>(() => {
-    const tx = useTransactionStore.getState().depositTx;
+    const tx = getCurrentDepositTx();
     return (tx && !tx.isAcknowledged) ? 'tracker' : 'form';
   });
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [amount, setAmount] = useState('');
 
-  const activeStepLabel = isLoading ? stepLabel : (store.depositTx?.stepLabel ?? '');
-  const activeAmount = isLoading ? amount : (store.depositTx?.amount ?? '');
+  const activeStepLabel = isLoading ? stepLabel : (currentDepositTx?.stepLabel ?? '');
+  const activeAmount = isLoading ? amount : (currentDepositTx?.amount ?? '');
   const activeAssetSymbol = isLoading
     ? selectedAsset?.symbol
-    : (store.depositTx?.assetSymbol ?? '');
+    : (currentDepositTx?.assetSymbol ?? '');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -203,7 +204,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   const autoClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!tracker.isTerminal || !store.depositTx) return;
+    if (!tracker.isTerminal || !getCurrentDepositTx()) return;
 
     autoClearRef.current = setTimeout(() => {
       tracker.acknowledge();
@@ -213,7 +214,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     return () => {
       if (autoClearRef.current) clearTimeout(autoClearRef.current);
     };
-  }, [tracker.isTerminal, store.depositTx]);
+  }, [tracker.isTerminal, currentDepositTx]);
 
   const wasOpenRef = useRef(false);
 
@@ -230,7 +231,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
 
-    const tx = useTransactionStore.getState().depositTx;
+    const tx = getCurrentDepositTx();
     const shouldShowTracker = tx && !tx.isAcknowledged;
     setModalStep(shouldShowTracker ? 'tracker' : 'form');
 
@@ -239,7 +240,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    const tx = useTransactionStore.getState().depositTx;
+    const tx = getCurrentDepositTx();
     const shouldShowTracker = tx && !tx.isAcknowledged;
     if (shouldShowTracker && modalStep === 'form') {
       setModalStep('tracker');
@@ -510,7 +511,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </div>
           )}
 
-          {(isLoading || (store.depositTx && !trackerTxHash)) && (
+          {(isLoading || (currentDepositTx && !trackerTxHash)) && (
             <div className="relative flex gap-5 animate-in fade-in slide-in-from-bottom-2 px-1">
               <div className="absolute left-[13px] top-8 bottom-[-10px] w-[2px] bg-white/5" />
               <div className="flex-shrink-0 mt-0.5 relative z-10">
@@ -531,7 +532,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </div>
           )}
 
-          {!trackerTxHash && !isLoading && !store.depositTx && (
+          {!trackerTxHash && !isLoading && !currentDepositTx && (
             <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center animate-in fade-in zoom-in-95">
               <div className="w-16 h-16 rounded-full bg-secondary border border-color flex items-center justify-center mb-4">
                 <Activity className="w-8 h-8 text-muted/30" />
@@ -566,7 +567,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           {trackerTxHash &&
             !tracker.hasPolledOnce &&
             !tracker.isTerminal &&
-            store.depositTx?.status === 'pending' && (
+            currentDepositTx?.status === 'pending' && (
               <div className="flex items-center gap-3 py-3 px-4 rounded-xl bg-brand/5 border border-brand/20">
                 <Loader2 className="w-4 h-4 text-brand animate-spin flex-shrink-0" />
                 <div className="text-sm text-muted">

@@ -246,7 +246,10 @@ const AssetRow = memo(({
       >
         {/* Card */}
         <div
-          className="flex items-center gap-3 h-full bg-secondary rounded-xl px-3"
+          onClick={() => {
+            if (window.innerWidth < 1024) setSheetOpen(true);
+          }}
+          className="flex items-center gap-3 h-full bg-secondary rounded-xl px-3 cursor-pointer lg:cursor-default active:scale-[0.98] lg:active:scale-100 transition-transform"
           style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.05)' }}
         >
           {/* Token icon */}
@@ -314,14 +317,6 @@ const AssetRow = memo(({
             </button>
             <AssetMoreActions onSend={() => onSend(asset)} onReceive={() => onReceive(asset)} />
           </div>
-
-          {/* Mobile: single tap target */}
-          <button
-            className="lg:hidden shrink-0 p-1.5 -mr-1 rounded-lg text-muted active:bg-hover transition-colors"
-            onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
-          >
-            <MoreHorizontal size={20} />
-          </button>
         </div>
       </div>
 

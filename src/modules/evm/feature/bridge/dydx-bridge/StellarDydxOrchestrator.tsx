@@ -40,7 +40,7 @@ import * as StellarSDK from '@stellar/stellar-sdk';
 import { addLocalTransaction } from '../../../../evm/service/localTransactionService';
 import { storeSwapOrder, getTransactionStatus } from '../../../../evm/service/evmTransactionStatusService';
 import { useNotificationStore } from '../../../../../store/notificationStore';
-import { useTransactionTracker, useTransactionStore } from '../../../../dydx/hooks/useTransactionTracker';
+import { useTransactionTracker, useTransactionStore, useHasActivePendingDeposit, getCurrentDepositTx, isTxOwnedByCurrentUser } from '../../../../dydx/hooks/useTransactionTracker';
 import { ActionGuard } from '../../../../commonfeature/components/ActionGuard';
 
 // ---------------------------------------------------------------------------
@@ -234,6 +234,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const dydxTracker = useTransactionTracker('deposit');
   const setDepositTxInStore = useTransactionStore(state => state.setDepositTx);
+  const hasActivePendingDeposit = useHasActivePendingDeposit();
   const isUsdc = inputToken?.symbol?.toUpperCase() === 'USDC';
   const assetMap = useMemo(
     () => Object.fromEntries(stellarAssets.map(a => [a.symbol, a])),
@@ -250,7 +251,17 @@ export const StellarDydxOrchestrator: React.FC = () => {
       if (saved) {
         try {
           const sanitized = saved.trim().replace(/”|“/g, '"');
-          parsed = JSON.parse(sanitized);
+          const rawParsed = JSON.parse(sanitized);
+          const wallets = useWalletStore.getState().connectedWallets;
+          
+          if (Array.isArray(rawParsed)) {
+            parsed = rawParsed.find(p => isTxOwnedByCurrentUser(p, wallets)) || null;
+          } else {
+            // Legacy object migration
+            if (isTxOwnedByCurrentUser(rawParsed, wallets)) {
+              parsed = rawParsed;
+            }
+          }
         } catch (err) {
           console.error('Failed to parse bridge step', err);
         }
@@ -284,15 +295,22 @@ export const StellarDydxOrchestrator: React.FC = () => {
         }
         if (parsed.depositTxHash && parsed.depositStatus === 'PENDING') {
           const targetChainId = String(parsed.destinationChainId || '1');
+          const requiredWallets = parsed.requiredWallets || {
+            evm: evmWallet?.address,
+            dydx: evmWallet?.dydxAddress,
+            stellar: stellarWallet?.address
+          };
+
           setDepositTxInStore({
             txHash: parsed.depositTxHash,
             chainId: targetChainId,
             startedAt: Date.now(),
             status: 'pending',
             stepLabel: 'Resuming settlement...',
+            requiredWallets,
           });
         } else if (!parsed.depositTxHash && (parsed.phase === 'DEPOSIT' || (parsed.bridgeStatus === 'SUCCESS' && parsed.phase === 'BRIDGE'))) {
-          const storeTx = useTransactionStore.getState().depositTx;
+          const storeTx = getCurrentDepositTx();
           if (storeTx && storeTx.txHash) {
             dispatchTx({ type: 'SET_DEPOSIT', hash: storeTx.txHash });
             dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: storeTx.status === 'success' ? 'SUCCESS' : 'PENDING' });
@@ -312,7 +330,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: null });
         }
       } else {
-        const storeTx = useTransactionStore.getState().depositTx;
+        const storeTx = getCurrentDepositTx();
         if (storeTx && storeTx.status === 'pending' && storeTx.txHash) {
           setPhase('DEPOSIT');
           dispatchTx({ type: 'SET_DEPOSIT', hash: storeTx.txHash });
@@ -391,27 +409,59 @@ export const StellarDydxOrchestrator: React.FC = () => {
     }
 
     if (phase === 'DONE') {
-      console.debug('[Bridge] DONE — clearing localStorage');
-      localStorage.removeItem(BRIDGE_STEP_KEY);
+      console.debug('[Bridge] DONE — clearing localStorage for user');
+      try {
+        const saved = localStorage.getItem(BRIDGE_STEP_KEY);
+        if (saved) {
+          const wallets = useWalletStore.getState().connectedWallets;
+          const rawParsed = JSON.parse(saved);
+          const arr = Array.isArray(rawParsed) ? rawParsed : [rawParsed];
+          const filtered = arr.filter(p => !isTxOwnedByCurrentUser(p, wallets));
+          if (filtered.length > 0) {
+            localStorage.setItem(BRIDGE_STEP_KEY, JSON.stringify(filtered));
+          } else {
+            localStorage.removeItem(BRIDGE_STEP_KEY);
+          }
+        }
+      } catch (err) {}
     } else if (phase !== 'SETUP') {
       console.debug('[Bridge] Persisting bridge state', phase, { swapTx, bridgeTx, depositTx });
       try {
-        localStorage.setItem(
-          BRIDGE_STEP_KEY,
-          JSON.stringify({
-            phase,
-            inputAmount,
-            inputTokenSymbol: inputToken?.symbol,
-            destinationChainId: destinationChain?.chainId,
-            swapTxHash: swapTx.hash,
-            swapStatus: swapTx.status,
-            bridgeTxHash: bridgeTx.hash,
-            bridgeStatus: bridgeTx.status,
-            depositTxHash: depositTx.hash,
-            depositStatus: depositTx.status,
-            intermediateAmount,
-          })
-        );
+        const stateToSave = {
+          phase,
+          inputAmount,
+          inputTokenSymbol: inputToken?.symbol,
+          destinationChainId: destinationChain?.chainId,
+          swapTxHash: swapTx.hash,
+          swapStatus: swapTx.status,
+          bridgeTxHash: bridgeTx.hash,
+          bridgeStatus: bridgeTx.status,
+          depositTxHash: depositTx.hash,
+          depositStatus: depositTx.status,
+          intermediateAmount,
+          requiredWallets: {
+            evm: evmWallet?.address,
+            dydx: evmWallet?.dydxAddress,
+            stellar: stellarWallet?.address
+          }
+        };
+
+        const saved = localStorage.getItem(BRIDGE_STEP_KEY);
+        let arr: any[] = [];
+        if (saved) {
+          const rawParsed = JSON.parse(saved);
+          arr = Array.isArray(rawParsed) ? rawParsed : [rawParsed];
+        }
+        
+        const wallets = useWalletStore.getState().connectedWallets;
+        const index = arr.findIndex(p => isTxOwnedByCurrentUser(p, wallets));
+        if (index >= 0) {
+          arr[index] = stateToSave;
+        } else {
+          arr.push(stateToSave);
+        }
+
+        localStorage.setItem(BRIDGE_STEP_KEY, JSON.stringify(arr));
       } catch (err) {
         console.error('[Bridge] Failed to persist state', err);
       }
@@ -654,11 +704,6 @@ export const StellarDydxOrchestrator: React.FC = () => {
           usdcAmountStellar = amount;
         } else if (intermediateAmount) {
           usdcAmountStellar = intermediateAmount;
-        } else if (phase === 'BRIDGE' || phase === 'DEPOSIT') {
-          const usdcAsset = stellarAssets.find(a => a.symbol === 'USDC');
-          if (usdcAsset && parseFloat(usdcAsset.balance) > 0) {
-            usdcAmountStellar = usdcAsset.balance;
-          }
         }
         setSwapQuote(finalSwapQuote);
 
@@ -798,12 +843,15 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
       dispatchTx({ type: 'SET_SWAP', hash });
 
-      //actual confirmed USDC balance after swap
-      await fetchStellarAssets();
-      const freshUsdcBalance = isFetchingAssetsRef.current
-        ? swapQuote.estimatedOutput
-        : (assetMap['USDC']?.balance ?? swapQuote.estimatedOutput);
-      setIntermediateAmount(freshUsdcBalance);
+      // Track only the output amount for the next step, not the full balance
+      const quotedOutput = swapQuote.estimatedOutput;
+      const confirmedUsdcBalance = assetMap['USDC']?.balance ?? '0';
+      
+      // If balance is strictly less than quoted (e.g. 0 prior balance + slippage), we must cap it.
+      // Otherwise, we bridge exactly what was quoted.
+      const actualOutput = Math.min(parseFloat(quotedOutput), parseFloat(confirmedUsdcBalance)).toString();
+      
+      setIntermediateAmount(actualOutput);
 
       dispatchTx({ type: 'SET_SWAP_STATUS', status: 'SUCCESS' });
       showToast({
@@ -835,12 +883,12 @@ export const StellarDydxOrchestrator: React.FC = () => {
       );
       if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found');
 
-      //confirmed on-chain USDC balance as bridge input to account for slippage
-      const confirmedUsdcBalance = assetMap['USDC']?.balance;
-      const bridgeInputAmount =
-        isUsdc
-          ? inputAmount
-          : confirmedUsdcBalance || intermediateAmount || swapQuote?.estimatedOutput || inputAmount;
+      // Get the intended amount to bridge
+      let targetBridgeAmount = isUsdc ? inputAmount : (intermediateAmount || swapQuote?.estimatedOutput || inputAmount);
+      
+      // Safety cap: Never bridge more than the user actually has available in their wallet
+      const confirmedUsdcBalance = assetMap['USDC']?.balance || '0';
+      const bridgeInputAmount = Math.min(parseFloat(targetBridgeAmount), parseFloat(confirmedUsdcBalance)).toString();
 
       const freshBridgeQuote = (await getStellarBridgeQuote({
         amount: sanitizeAmount(bridgeInputAmount),
@@ -1668,6 +1716,51 @@ export const StellarDydxOrchestrator: React.FC = () => {
             <p className="text-[10px] font-black text-muted/40 uppercase tracking-[0.3em]">
               Secure Multi-Chain Settlement
             </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (hasActivePendingDeposit && phase === 'SETUP') {
+    return (
+      <div className="w-full max-w-xl mx-auto lg:px-4 pb-4 animate-fade-in">
+        <div className="bg-tertiary rounded-[2.5rem] border border-divider/50 p-12 text-center shadow-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -mr-16 -mt-16 blur-3xl transition-all group-hover:bg-brand/10" />
+          <div className="absolute bottom-0 left-0 w-32 h-32 bg-brand/5 rounded-full -ml-16 -mb-16 blur-3xl transition-all group-hover:bg-brand/10" />
+
+          <div className="relative mb-8 flex justify-center">
+            <div className="relative">
+              <div className="w-24 h-24 rounded-3xl bg-brand/10 flex items-center justify-center rotate-3 transition-transform duration-500">
+                <AlertCircle className="w-10 h-10 text-brand" />
+              </div>
+            </div>
+          </div>
+
+          <h2 className="text-2xl font-black text-primary mb-3 tracking-tight">
+            Deposit In Progress
+          </h2>
+          <p className="text-muted text-sm max-w-sm mx-auto mb-10 leading-relaxed">
+            You already have an active deposit to dYdX processing. Please wait for it to complete before initiating a new bridge.
+          </p>
+
+          <div className="flex flex-col gap-3">
+            <div className="text-[10px] font-black uppercase tracking-widest text-brand mb-2">
+              Action Required
+            </div>
+            <button
+              onClick={() => {
+                const modalStore = (window as any).useModalStore?.getState?.();
+                if (modalStore) modalStore.openDydxDepositModal();
+              }}
+              className="w-full py-4 px-6 rounded-2xl bg-brand text-primary font-black shadow-[0_0_40px_rgba(var(--brand-rgb),0.2)] hover:shadow-[0_0_60px_rgba(var(--brand-rgb),0.3)] hover:-translate-y-0.5 transition-all duration-300 relative overflow-hidden group"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+              <span className="relative z-10 flex items-center justify-center gap-2">
+                <Clock className="w-5 h-5" />
+                View Pending Deposit
+              </span>
+            </button>
           </div>
         </div>
       </div>

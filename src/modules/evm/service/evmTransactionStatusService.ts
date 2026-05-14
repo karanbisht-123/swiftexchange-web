@@ -70,6 +70,14 @@ export interface SwapOrdersResponse {
   hasPrev: boolean;
 }
 
+const CHAIN_ALIAS_MAP: Record<string, string> = {
+  BNB: "BSC",
+};
+
+function normalizeChain(chain: string): string {
+  return CHAIN_ALIAS_MAP[chain.toUpperCase()] ?? chain;
+}
+
 export async function getTransactionStatus(payload: TransactionStatusRequest): Promise<any> {
   try {
     const res = await fetchApiResponseFromProxy<any>('/swapOrders/bridgeOrderStatus', 'POST', payload);
@@ -82,9 +90,27 @@ export async function getTransactionStatus(payload: TransactionStatusRequest): P
   }
 }
 
+// export async function storeSwapOrder(payload: StoreSwapOrderRequest): Promise<StoreSwapOrderResponse> {
+//   try {
+//     const res = await fetchApiResponseFromProxy<any>('/swapOrders/store', 'POST', payload);
+//     const data = res.data?.data || res.data;
+//     if (!data) throw new Error('Failed to store swap order');
+//     return data;
+//   } catch (error: any) {
+//     const message = parseSwapError(error);
+//     throw new Error(message);
+//   }
+// }
+
 export async function storeSwapOrder(payload: StoreSwapOrderRequest): Promise<StoreSwapOrderResponse> {
   try {
-    const res = await fetchApiResponseFromProxy<any>('/swapOrders/store', 'POST', payload);
+    const normalizedPayload: StoreSwapOrderRequest = {
+      ...payload,
+      fromChain: normalizeChain(payload.fromChain),
+      toChain: normalizeChain(payload.toChain),
+    };
+
+    const res = await fetchApiResponseFromProxy<any>('/swapOrders/store', 'POST', normalizedPayload);
     const data = res.data?.data || res.data;
     if (!data) throw new Error('Failed to store swap order');
     return data;

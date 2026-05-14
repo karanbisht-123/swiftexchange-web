@@ -77,7 +77,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
     const raw = searchParams.get('fromChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
-    
+
     const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
     return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : defaultChainId;
   });
@@ -353,10 +353,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             }
 
             if ((!currentBuyInStellar || finalSellSymbol === buyAssetSymbol) && mapped.length > 1) {
-              const defaultBuy = (finalSellSymbol === 'XLM' ? mapped.find(t => t.symbol === 'USDC') : mapped.find(t => t.symbol === 'XLM'))
-                || mapped.find(t => t.symbol !== finalSellSymbol)
+              const defaultBuy = mapped.find(t => t.symbol !== finalSellSymbol)
                 || mapped[1];
-              
+
               if (defaultBuy) {
                 setBuyAssetSymbol(defaultBuy.symbol);
                 setBuyAssetAddress(defaultBuy.address || "");
@@ -376,44 +375,67 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   useEffect(() => {
     if (swapAssets.length > 0 && !isChainSwitching && !isStellar(fromChainId)) {
       const currentSellInEvm = swapAssets.find(a => a.symbol === sellAssetSymbol || (sellAssetAddress && a.address.toLowerCase() === sellAssetAddress.toLowerCase()));
-      const currentBuyInEvm = swapAssets.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address.toLowerCase() === buyAssetAddress.toLowerCase()));
 
-      if (!currentSellInEvm || !currentBuyInEvm || sellAssetSymbol === buyAssetSymbol) {
+      let finalSell = currentSellInEvm;
+      if (!currentSellInEvm) {
         const nativeAsset = swapAssets.find(a => a.isNative);
-        const usdcAsset = swapAssets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS');
-
-        let finalSell = currentSellInEvm;
-        if (!currentSellInEvm) {
-          finalSell = nativeAsset || swapAssets[0];
+        finalSell = nativeAsset || swapAssets[0];
+        if (finalSell) {
           setSellAssetSymbol(finalSell.symbol);
           setSellAssetAddress(finalSell.address);
         }
+      }
+
+      if (fromChainId === toChainId) {
+        const currentBuyInEvm = swapAssets.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address.toLowerCase() === buyAssetAddress.toLowerCase()));
 
         if (!currentBuyInEvm || (finalSell && finalSell.symbol === buyAssetSymbol)) {
-          const bestBuy = (finalSell?.symbol === nativeAsset?.symbol ? usdcAsset : nativeAsset)
+          const nativeAsset = swapAssets.find(a => a.isNative);
+
+          const bestBuy = (finalSell?.symbol === nativeAsset?.symbol ? swapAssets.find(a => a.symbol !== finalSell?.symbol) : nativeAsset)
             || swapAssets.find(a => a.symbol !== finalSell?.symbol)
             || swapAssets[1]
             || swapAssets[0];
-          
+
+          if (bestBuy) {
+            setBuyAssetSymbol(bestBuy.symbol);
+            setBuyAssetAddress(bestBuy.address);
+          }
+        } else if (sellAssetSymbol && !buyAssetSymbol) {
+          const nativeAsset = swapAssets.find(a => a.isNative && a.symbol !== sellAssetSymbol);
+          const fallback = swapAssets.find(a => a.symbol !== sellAssetSymbol);
+
+          const bestBuy = nativeAsset || fallback || swapAssets[0];
           if (bestBuy) {
             setBuyAssetSymbol(bestBuy.symbol);
             setBuyAssetAddress(bestBuy.address);
           }
         }
-      } else if (sellAssetSymbol && !buyAssetSymbol) {
-        // Sell asset is pre-filled, pick a default buy asset
-        const usdcAsset = swapAssets.find(a => (a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS') && a.symbol !== sellAssetSymbol);
-        const nativeAsset = swapAssets.find(a => a.isNative && a.symbol !== sellAssetSymbol);
-        const fallback = swapAssets.find(a => a.symbol !== sellAssetSymbol);
+      } else {
+        // Cross-chain swap/bridge: validate buy asset against destination chain tokens
+        let destTokens: any[] = [];
+        if (isStellar(toChainId)) {
+          destTokens = stellarAssets;
+        } else {
+          destTokens = getTokensForChain(toChainId);
+        }
 
-        const bestBuy = usdcAsset || nativeAsset || fallback;
-        if (bestBuy) {
-          setBuyAssetSymbol(bestBuy.symbol);
-          setBuyAssetAddress(bestBuy.address);
+        if (destTokens.length > 0) {
+          const currentBuyInDest = destTokens.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address?.toLowerCase() === buyAssetAddress.toLowerCase()));
+          if (!currentBuyInDest) {
+            const nativeAsset = destTokens.find(a => a.isNative);
+            const sameSymbolAsset = destTokens.find(a => a.symbol === finalSell?.symbol);
+
+            const bestBuy = sameSymbolAsset || nativeAsset || destTokens[0];
+            if (bestBuy) {
+              setBuyAssetSymbol(bestBuy.symbol);
+              setBuyAssetAddress(bestBuy.address || '');
+            }
+          }
         }
       }
     }
-  }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching]);
+  }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching, fromChainId, toChainId, stellarAssets]);
 
   const getUsdValue = useCallback((amount: string, asset: any): number | null => {
     if (!amount || !asset) return null;
@@ -1295,7 +1317,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           <div className="flex items-center gap-3 sm:gap-4">
             <button
               onClick={() => openAssetSelector(actionType, {
-                defaultNetwork: toChainId,
+                defaultNetwork: fromChainId,
                 pairedChainId: fromChainId,
                 onSelect: (a: any) => {
                   handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false);
@@ -1605,10 +1627,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         </div>
 
-        <div className="relative group/action mt-4">
-          <div className={`overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isErrorState && !isLoadingExecution ? 'max-h-40 opacity-100 mb-0' : 'max-h-0 opacity-0 mb-[-12px]'}`}>
-            <div className="bg-red-500/10 border-x border-t border-red-500/30 rounded-t-2xl p-4 flex items-center gap-3 relative z-0">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+
+
+        <div className="relative group/action ">
+          <div className={`overflow-hidden transition-all mb-3 mt-3 duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isErrorState && !isLoadingExecution ? 'max-h-40 opacity-100 mb-0' : 'max-h-0 opacity-0 mb-[-12px]'}`}>
+            <div className="bg-red-500/10 border-x border border-red-500/30 rounded-2xl p-4 flex items-center gap-3 relative z-0">
               <p className="text-[10px] sm:text-xs font-bold text-red-500 uppercase tracking-widest leading-relaxed">
                 {errorMessage || 'An error occurred. Please check your inputs.'}
               </p>
@@ -1647,7 +1670,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 isError={!!isErrorState && !isLoadingExecution}
                 onClick={handleUnifiedSwap}
                 icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
-                className={`relative z-10 ${isErrorState && !isLoadingExecution ? '!rounded-t-none border-t-red-500/20' : ''}`}
+                className={`relative z-10 ${isErrorState && !isLoadingExecution ? ' border-t-red-500/20' : ''}`}
               />
             </>
           </ActionGuard>

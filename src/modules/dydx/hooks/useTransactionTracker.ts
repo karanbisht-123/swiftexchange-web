@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
 export type OverallState =
   | 'STATE_UNKNOWN'
@@ -85,50 +86,175 @@ export interface PendingTxInfo {
   stepLabel?: string;
   isPreBridge?: boolean;
   isAcknowledged?: boolean;
+  ownerAddresses?: string[]; // Deprecated, use requiredWallets
+  requiredWallets?: {
+    evm?: string;
+    stellar?: string;
+    cosmos?: string;
+    dydx?: string;
+  };
 }
 
 interface TransactionStore {
-  depositTx: PendingTxInfo | null;
-  withdrawTx: PendingTxInfo | null;
+  depositTxs: PendingTxInfo[];
+  withdrawTxs: PendingTxInfo[];
   setDepositTx: (tx: PendingTxInfo | null) => void;
   setWithdrawTx: (tx: PendingTxInfo | null) => void;
   acknowledgeDeposit: () => void;
   acknowledgeWithdraw: () => void;
   clearDepositTx: () => void;
   clearWithdrawTx: () => void;
+  
+  // Legacy fields for backward compatibility
+  depositTx?: PendingTxInfo | null;
+  withdrawTx?: PendingTxInfo | null;
 }
 
 export const useTransactionStore = create<TransactionStore>()(
   persist(
     set => ({
+      depositTxs: [],
+      withdrawTxs: [],
       depositTx: null,
       withdrawTx: null,
-      setDepositTx: tx => set({ depositTx: tx }),
-      setWithdrawTx: tx => set({ withdrawTx: tx }),
-      acknowledgeDeposit: () => set({ depositTx: null }),
-      acknowledgeWithdraw: () => set({ withdrawTx: null }),
-      clearDepositTx: () => set({ depositTx: null }),
-      clearWithdrawTx: () => set({ withdrawTx: null }),
+      setDepositTx: tx => set(state => {
+        const wallets = useWalletStore.getState().connectedWallets;
+        if (!tx) {
+          return { depositTxs: state.depositTxs.filter(t => !isTxOwnedByCurrentUser(t, wallets)) };
+        }
+        const exists = state.depositTxs.findIndex(t => isTxOwnedByCurrentUser(t, wallets));
+        if (exists >= 0) {
+          const newTxs = [...state.depositTxs];
+          newTxs[exists] = { ...newTxs[exists], ...tx };
+          return { depositTxs: newTxs };
+        }
+        return { depositTxs: [...state.depositTxs, tx] };
+      }),
+      setWithdrawTx: tx => set(state => {
+        const wallets = useWalletStore.getState().connectedWallets;
+        if (!tx) {
+          return { withdrawTxs: state.withdrawTxs.filter(t => !isTxOwnedByCurrentUser(t, wallets)) };
+        }
+        const exists = state.withdrawTxs.findIndex(t => isTxOwnedByCurrentUser(t, wallets));
+        if (exists >= 0) {
+          const newTxs = [...state.withdrawTxs];
+          newTxs[exists] = { ...newTxs[exists], ...tx };
+          return { withdrawTxs: newTxs };
+        }
+        return { withdrawTxs: [...state.withdrawTxs, tx] };
+      }),
+      acknowledgeDeposit: () => set(state => {
+        const wallets = useWalletStore.getState().connectedWallets;
+        return { depositTxs: state.depositTxs.filter(t => !isTxOwnedByCurrentUser(t, wallets)) };
+      }),
+      acknowledgeWithdraw: () => set(state => {
+        const wallets = useWalletStore.getState().connectedWallets;
+        return { withdrawTxs: state.withdrawTxs.filter(t => !isTxOwnedByCurrentUser(t, wallets)) };
+      }),
+      clearDepositTx: () => set(state => {
+        const wallets = useWalletStore.getState().connectedWallets;
+        return { depositTxs: state.depositTxs.filter(t => !isTxOwnedByCurrentUser(t, wallets)) };
+      }),
+      clearWithdrawTx: () => set(state => {
+        const wallets = useWalletStore.getState().connectedWallets;
+        return { withdrawTxs: state.withdrawTxs.filter(t => !isTxOwnedByCurrentUser(t, wallets)) };
+      }),
     }),
-    { name: 'swiftex_pending_skip_txs_v2' }
+    { 
+      name: 'swiftex_pending_skip_txs_v2',
+      onRehydrateStorage: () => (state) => {
+        // Migrate legacy single objects to arrays if needed
+        if (state) {
+          if (state.depositTx && !state.depositTxs?.some(t => t.txHash === state.depositTx!.txHash)) {
+            state.depositTxs = [...(state.depositTxs || []), state.depositTx];
+          }
+          if (state.withdrawTx && !state.withdrawTxs?.some(t => t.txHash === state.withdrawTx!.txHash)) {
+            state.withdrawTxs = [...(state.withdrawTxs || []), state.withdrawTx];
+          }
+        }
+      }
+    }
   )
 );
 
+export function isTxOwnedByCurrentUser(tx: PendingTxInfo | any, wallets: any): boolean {
+  if (!tx) return false;
+  
+  if (tx.requiredWallets) {
+    if (tx.requiredWallets.evm && wallets.evm?.address?.toLowerCase() !== tx.requiredWallets.evm.toLowerCase()) return false;
+    if (tx.requiredWallets.stellar && wallets.stellar?.address?.toLowerCase() !== tx.requiredWallets.stellar.toLowerCase()) return false;
+    if (tx.requiredWallets.cosmos && wallets.cosmos?.address?.toLowerCase() !== tx.requiredWallets.cosmos.toLowerCase()) return false;
+    
+    // Check if dYdX address matches either EVM or Cosmos
+    if (tx.requiredWallets.dydx) {
+      const activeDydx = [wallets.evm?.dydxAddress, wallets.cosmos?.dydxAddress]
+        .filter(Boolean)
+        .map(a => a!.toLowerCase());
+      if (!activeDydx.includes(tx.requiredWallets.dydx.toLowerCase())) return false;
+    }
+    return true;
+  }
+
+  // Fallback for older txs
+  if (!tx.ownerAddresses || tx.ownerAddresses.length === 0) return true;
+  
+  const activeAddresses = [
+    wallets.evm?.address,
+    wallets.evm?.dydxAddress,
+    wallets.stellar?.address,
+    wallets.cosmos?.address,
+    wallets.cosmos?.dydxAddress
+  ].filter(Boolean).map(a => a!.toLowerCase());
+
+  // Require EVERY original owner address to be present
+  return tx.ownerAddresses.every((addr: string) => activeAddresses.includes(addr.toLowerCase()));
+}
+
+export function getCurrentDepositTx(): PendingTxInfo | null {
+  const store = useTransactionStore.getState();
+  const wallets = useWalletStore.getState().connectedWallets;
+  return store.depositTxs?.find(t => isTxOwnedByCurrentUser(t, wallets)) || null;
+}
+
+export function getCurrentWithdrawTx(): PendingTxInfo | null {
+  const store = useTransactionStore.getState();
+  const wallets = useWalletStore.getState().connectedWallets;
+  return store.withdrawTxs?.find(t => isTxOwnedByCurrentUser(t, wallets)) || null;
+}
+
+export function useCurrentDepositTx(): PendingTxInfo | null {
+  const depositTxs = useTransactionStore(s => s.depositTxs);
+  const wallets = useWalletStore(s => s.connectedWallets);
+  return depositTxs?.find(t => isTxOwnedByCurrentUser(t, wallets)) || null;
+}
+
+export function useCurrentWithdrawTx(): PendingTxInfo | null {
+  const withdrawTxs = useTransactionStore(s => s.withdrawTxs);
+  const wallets = useWalletStore(s => s.connectedWallets);
+  return withdrawTxs?.find(t => isTxOwnedByCurrentUser(t, wallets)) || null;
+}
+
 export function useHasActivePendingDeposit(): boolean {
-  return useTransactionStore(s => !!s.depositTx && s.depositTx.status === 'pending');
+  const depositTxs = useTransactionStore(s => s.depositTxs);
+  const wallets = useWalletStore(s => s.connectedWallets);
+  const activeTx = depositTxs?.find(t => isTxOwnedByCurrentUser(t, wallets));
+  return !!activeTx && activeTx.status === 'pending';
 }
 
 export function useHasActivePendingWithdraw(): boolean {
-  return useTransactionStore(s => !!s.withdrawTx && s.withdrawTx.status === 'pending');
+  const withdrawTxs = useTransactionStore(s => s.withdrawTxs);
+  const wallets = useWalletStore(s => s.connectedWallets);
+  const activeTx = withdrawTxs?.find(t => isTxOwnedByCurrentUser(t, wallets));
+  return !!activeTx && activeTx.status === 'pending';
 }
 
 export function getIsDepositPending(): boolean {
-  const tx = useTransactionStore.getState().depositTx;
+  const tx = getCurrentDepositTx();
   return !!tx && tx.status === 'pending';
 }
 
 export function getIsWithdrawPending(): boolean {
-  const tx = useTransactionStore.getState().withdrawTx;
+  const tx = getCurrentWithdrawTx();
   return !!tx && tx.status === 'pending';
 }
 
@@ -224,7 +350,9 @@ const EMPTY_RESULT: Omit<TxTrackerResult, 'refresh' | 'acknowledge'> = {
 
 export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerResult {
   const store = useTransactionStore();
-  const txInfo = type === 'deposit' ? store.depositTx : store.withdrawTx;
+  const wallets = useWalletStore(s => s.connectedWallets);
+  const txs = type === 'deposit' ? store.depositTxs : store.withdrawTxs;
+  const txInfo = txs?.find(t => isTxOwnedByCurrentUser(t, wallets)) || null;
   const txHash = txInfo?.txHash || null;
   const chainId = txInfo?.chainId || null;
 
@@ -257,7 +385,9 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
   const updateStoreStatus = useCallback(
     (status: 'pending' | 'success' | 'failed') => {
       const currentState = useTransactionStore.getState();
-      const currentTxInfo = type === 'deposit' ? currentState.depositTx : currentState.withdrawTx;
+      const wallets = useWalletStore.getState().connectedWallets;
+      const txs = type === 'deposit' ? currentState.depositTxs : currentState.withdrawTxs;
+      const currentTxInfo = txs?.find(t => isTxOwnedByCurrentUser(t, wallets));
       if (!currentTxInfo || currentTxInfo.status === status) return;
       const updated = { ...currentTxInfo, status };
       type === 'deposit' ? currentState.setDepositTx(updated) : currentState.setWithdrawTx(updated);

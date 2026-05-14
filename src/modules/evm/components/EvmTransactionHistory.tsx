@@ -379,6 +379,9 @@ const EvmTransactionHistory: React.FC = () => {
           ? (liveStatusOverrides[order.txHash.toLowerCase()] || (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending'))
           : (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending');
 
+        const isBridge = order.fromChain !== order.toChain;
+        const txType = isBridge ? 'Bridge' : 'Swap';
+
         const normalized: LocalTransactionWithStatus & { 
           provider?: string; 
           isBackendOrder?: boolean;
@@ -390,9 +393,9 @@ const EvmTransactionHistory: React.FC = () => {
         } = {
           hash: order.txHash,
           chainId: chainConfig?.chainId || order.fromChain,
-          type: 'swap',
+          type: isBridge ? 'bridge' : 'swap',
           timestamp: new Date(order.createdAt).getTime(),
-          description: `Swap ${order.fromToken} \u2192 ${order.toToken}`,
+          description: `${txType} ${order.fromToken} \u2192 ${order.toToken}`,
           status: resolvedStatus,
           from: order.walletAddress,
           network: currentNetwork,
@@ -419,7 +422,10 @@ const EvmTransactionHistory: React.FC = () => {
       });
     })();
 
-    if ((localLoading || ordersLoading) && combinedRecent.length === 0) {
+    const isFirstBackendLoad = ordersLoading && !backendOrders?.data;
+    const showFullLoader = isFirstBackendLoad || (localLoading && combinedRecent.length === 0 && !backendOrders?.data);
+
+    if (showFullLoader) {
       return (
         <div className="flex flex-col items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-brand-primary mb-4" />
@@ -438,9 +444,31 @@ const EvmTransactionHistory: React.FC = () => {
       );
     }
 
+    const groups: { title: string; transactions: typeof combinedRecent }[] = [];
+    const groupMap: { [key: string]: number } = {};
+
+    combinedRecent.forEach(tx => {
+      const timestamp = tx.timestamp;
+      let dateString = 'Unknown Date';
+
+      if (timestamp) {
+        const date = new Date(timestamp);
+        const d = date.getDate();
+        const m = date.toLocaleString('default', { month: 'short' }).toUpperCase();
+        const y = date.getFullYear();
+        dateString = `${d} ${m} ${y}`;
+      }
+
+      if (groupMap[dateString] === undefined) {
+        groupMap[dateString] = groups.length;
+        groups.push({ title: dateString, transactions: [] });
+      }
+      groups[groupMap[dateString]].transactions.push(tx);
+    });
+
     return (
-      <div className="space-y-3 overflow-y-auto pr-2 pb-20 lg:pb-0">
-        <div className="flex items-center justify-between mb-4">
+      <div className="space-y-6 overflow-y-auto pb-4 lg:pb-0 custom-scrollbar pr-2">
+        <div className="flex items-center justify-between">
           <p className="text-xs text-muted">
             {hasPendingTransactions
               ? 'Auto-refreshing pending transactions...'
@@ -461,112 +489,116 @@ const EvmTransactionHistory: React.FC = () => {
           </button>
         </div>
 
-        {combinedRecent.map(tx => {
-          const isSelected = selectedLocalTx?.hash === tx.hash;
-          const statusStyle = STATUS_STYLES[tx.status];
-          const rawLabel =
-            tx.description ||
-            `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
+        {groups.map((group, index) => (
+          <div key={index} className="space-y-3">
+            <h4 className="text-xs font-bold text-muted uppercase tracking-wider pl-1 sticky top-0 bg-secondary/90 backdrop-blur z-10 py-1">
+              {group.title}
+            </h4>
+            {group.transactions.map(tx => {
+              const isSelected = selectedLocalTx?.hash === tx.hash;
+              const statusStyle = STATUS_STYLES[tx.status];
+              const rawLabel =
+                tx.description ||
+                `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
 
-          // Clean label: remove "(Step X/Y)" and "for Swap" for approval/setup transactions
-          const cleanLabel = rawLabel
-            .replace(/\s*\(Step \d+\/\d+\)/i, '')
-            .replace(/\s*for Swap/i, '');
+              const cleanLabel = rawLabel
+                .replace(/\s*\(Step \d+\/\d+\)/i, '')
+                .replace(/\s*for Swap/i, '');
 
-          // Extract/format amount and token for the right column view
-          let topAmount = '';
-          let bottomToken = '';
-          if ((tx as any).isBackendOrder) {
-            const num = Number((tx as any).amountIn);
-            topAmount = isNaN(num) 
-              ? ((tx as any).amountIn || '') 
-              : num < 0.000001 
-                ? '< 0.000001' 
-                : num.toFixed(4).replace(/\.?0+$/, '');
-            bottomToken = (tx as any).fromToken || '';
-          } else {
-            // For local transactions, extract amount/symbol from description if available
-            const match = tx.description?.match(/Swap\s+([\d.]+)\s+([A-Za-z0-9]+)/i);
-            if (match) {
-              const num = Number(match[1]);
-              topAmount = isNaN(num) ? match[1] : num.toFixed(4).replace(/\.?0+$/, '');
-              bottomToken = match[2];
-            }
-          }
+              let topAmount = '';
+              let bottomToken = '';
+              if ((tx as any).isBackendOrder) {
+                const num = Number((tx as any).amountIn);
+                topAmount = isNaN(num) 
+                  ? ((tx as any).amountIn || '') 
+                  : num < 0.000001 
+                    ? '< 0.000001' 
+                    : num.toFixed(4).replace(/\.?0+$/, '');
+                bottomToken = (tx as any).fromToken || '';
+              } else {
+                const match = tx.description?.match(/Swap\s+([\d.]+)\s+([A-Za-z0-9]+)/i);
+                if (match) {
+                  const num = Number(match[1]);
+                  topAmount = isNaN(num) ? match[1] : num.toFixed(4).replace(/\.?0+$/, '');
+                  bottomToken = match[2];
+                }
+              }
 
-          return (
-            <div
-              key={tx.hash}
-              className={`w-full p-3 rounded-xl flex items-center justify-between transition-all group border ${isSelected
-                ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
-                : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
-                }`}
-            >
-              <button
-                onClick={() => handleLocalTxClick(tx)}
-                className="flex items-center gap-3 flex-1 min-w-0 text-left"
-              >
+              return (
                 <div
-                  className={`lg:w-12 lg:h-12 h-9 w-9 rounded-full flex items-center justify-center shrink-0 border ${tx.type === 'approval' && tx.status === 'success' ? 'bg-blue-500/10 border-blue-500/20' : statusStyle}`}
+                  key={tx.hash}
+                  className={`w-full p-3 rounded-lg flex items-center justify-between transition-all group text-left ${isSelected
+                    ? 'bg-secondary border border-transparent'
+                    : 'bg-primary hover:bg-tertiary/50 border border-transparent hover:border-color'
+                    }`}
                 >
-                  <StatusIcon status={tx.status} type={tx.type} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-primary lg:text-base text-sm flex items-center gap-2 truncate">
-                    <span className="truncate">{cleanLabel}</span>
-                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
-                      {getChainName(tx.chainId)}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
-                    <span className="opacity-75 shrink-0">{formatRelativeTime(tx.timestamp)}</span>
-                    <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
-                    <span className="truncate max-w-[80px] lg:max-w-[120px]">
-                      {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
-                    </span>
-                    {tx.type === 'bridge' && tx.destinationHash && (
-                      <>
-                        <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
-                        <span className="text-green-500 truncate max-w-[80px]">
-                          Ref: {tx.destinationHash.slice(0, 4)}...{tx.destinationHash.slice(-4)}
+                  <button
+                    onClick={() => handleLocalTxClick(tx)}
+                    className="flex items-center gap-4 flex-1 min-w-0 text-left"
+                  >
+                    <div
+                      className={`lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border ${tx.type === 'approval' && tx.status === 'success' ? 'bg-blue-500/10 border-blue-500/20' : statusStyle}`}
+                    >
+                      <StatusIcon status={tx.status} type={tx.type} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-primary lg:text-md text-sm flex items-center gap-2 truncate">
+                        <span className="truncate">{cleanLabel}</span>
+                        <span className="lg:text-md text-[9px] px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
+                          {getChainName(tx.chainId)}
                         </span>
-                      </>
+                      </div>
+                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
+                        <span className="opacity-75 shrink-0">{formatRelativeTime(tx.timestamp)}</span>
+                        <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                        <span className="truncate max-w-[80px] lg:max-w-[120px]">
+                          {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
+                        </span>
+                        {tx.type === 'bridge' && tx.destinationHash && (
+                          <>
+                            <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                            <span className="text-green-500 truncate max-w-[80px]">
+                              Ref: {tx.destinationHash.slice(0, 4)}...{tx.destinationHash.slice(-4)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                  <div className="flex flex-col items-end justify-center gap-1.5 shrink-0 ml-2">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`text-[8px] lg:text-[9px] font-bold px-1.5 py-0.5 rounded-full capitalize tracking-wider shrink-0 ${statusStyle}`}
+                      >
+                        {tx.status}
+                      </span>
+                      <a
+                        href={getExplorerUrl(tx.chainId, 'tx', tx.hash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                        title="View on Explorer"
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+                    {topAmount && bottomToken && (
+                      <div className="flex items-center gap-1">
+                        <span className="font-bold font-mono text-xs lg:text-sm text-primary">
+                          {topAmount}
+                        </span>
+                        <span className="text-[9px] text-muted font-medium bg-tertiary/50 px-1.5 py-0.5 rounded">
+                          {bottomToken}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
-              </button>
-              <div className="flex items-center gap-2 shrink-0 ml-2">
-                {topAmount && bottomToken && (
-                  <div className="text-right">
-                    <div className="font-bold font-mono text-sm lg:text-base text-primary">
-                      {topAmount}
-                    </div>
-                    <div className="text-[9px] text-muted mt-0.5 font-medium bg-tertiary/50 px-1.5 py-0.5 rounded ml-auto w-fit">
-                      {bottomToken}
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-1">
-                  <span
-                    className={`text-[10px] lg:text-xs font-semibold px-2 py-0.5 rounded-full capitalize shrink-0 ${statusStyle}`}
-                  >
-                    {tx.status}
-                  </span>
-                  <a
-                    href={getExplorerUrl(tx.chainId, 'tx', tx.hash)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={e => e.stopPropagation()}
-                    className="p-1.5 rounded-lg bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
-                    title="View on Explorer"
-                  >
-                    <ExternalLink size={14} />
-                  </a>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        ))}
         {backendOrders?.hasNext && (
           <button
             onClick={loadMoreOrders}
@@ -688,33 +720,45 @@ const EvmTransactionHistory: React.FC = () => {
                     <div className="lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border bg-tertiary border-color text-muted">
                       <Icon size={24} />
                     </div>
-                    <div>
-                      <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-1">
-                        {actionLabel} {formatAssetName(tx)}
-                        <span className="lg:text-md text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-2 truncate">
+                        <span className="truncate">{actionLabel}</span>
+                        <span className="text-[9px] lg:text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
                           {tx.category}
                         </span>
                       </div>
                       {/* Block number display — BigInt-safe via formatBlockNumber */}
-                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
-                        <span className="opacity-75">
+                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
+                        <span className="hidden lg:inline opacity-75 shrink-0">
                           {tx.blockNum
                             ? `Block #${formatBlockNumber(tx.blockNum)}`
                             : 'Pending'}
                         </span>
-                        <span className="w-1 h-1 rounded-full bg-muted/40" />
-                        <span className="truncate max-w-[100px]">
+                        <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                        <span className="truncate max-w-[80px] lg:max-w-[120px]">
                           {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
                         </span>
+                        <a
+                          href={getExplorerUrl(typeof selectedView === 'number' ? selectedView : 1, 'tx', tx.hash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                          title="View on Explorer"
+                        >
+                          <ExternalLink size={10} />
+                        </a>
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-bold font-mono text-base text-primary">
-                      {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
-                    </div>
-                    <div className="text-xs text-muted mt-1 font-medium bg-tertiary/50 px-2 py-0.5 rounded ml-auto w-fit">
-                      {formatAssetName(tx)}
+                  <div className="flex items-center gap-3 shrink-0 ml-2">
+                    <div className="text-right">
+                      <div className="font-bold font-mono text-sm lg:text-base text-primary">
+                        {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
+                      </div>
+                      <div className="text-[9px] lg:text-xs text-muted mt-0.5 font-medium bg-tertiary/50 px-1.5 py-0.5 rounded ml-auto w-fit">
+                        {formatAssetName(tx)}
+                      </div>
                     </div>
                   </div>
                 </button>

@@ -32,9 +32,20 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
     let filteredTransactions = validTransactions;
     if (walletAddresses && walletAddresses.length > 0) {
       const lowerAddresses = walletAddresses.map(addr => addr.toLowerCase());
-      filteredTransactions = filteredTransactions.filter(
-        tx => tx.from && lowerAddresses.includes(tx.from.toLowerCase())
-      );
+      filteredTransactions = filteredTransactions.filter(tx => {
+        // Allow Stellar transactions to pass through since wallet disconnects might hide them
+        const isStellarTx =
+          tx.chainId === 'pubnet' ||
+          tx.chainId === 'testnet' ||
+          tx.chainId === 'stellar' ||
+          (tx.from && tx.from.toUpperCase().startsWith('G') && tx.from.length === 56);
+
+        if (isStellarTx) {
+          return true;
+        }
+
+        return tx.from && lowerAddresses.includes(tx.from.toLowerCase());
+      });
     }
     if (network) {
       filteredTransactions = filteredTransactions.filter(
@@ -55,6 +66,10 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
 
 export const addLocalTransaction = (tx: LocalTransaction): void => {
   try {
+    if (tx.chainId === 'stellar' && tx.type !== 'bridge' && tx.type !== 'crosschain-swap') {
+      return;
+    }
+
     const transactions = getLocalTransactions();
     if (transactions.some(t => t.hash.toLowerCase() === tx.hash.toLowerCase())) {
       return;
