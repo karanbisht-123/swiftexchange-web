@@ -23,6 +23,8 @@ import {
   useHasActivePendingWithdraw,
   useTransactionStore,
   useTransactionTracker,
+  useCurrentWithdrawTx,
+  getCurrentWithdrawTx,
 } from '../hooks/useTransactionTracker';
 import { TransactionTracker } from './TransactionTracker';
 import { SUBACCOUNT_CONSTANTS } from '../types/trading.types';
@@ -124,7 +126,8 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   const trackerTxHash = bridgeTracker.txHash;
   const trackerChainId = bridgeTracker.chainId;
 
-  const persistedTx = store.withdrawTx;
+  const currentWithdrawTx = useCurrentWithdrawTx();
+  const persistedTx = currentWithdrawTx;
 
   const activeStepLabel = isWithdrawing ? stepLabel : (persistedTx?.stepLabel ?? '');
   const activeAmount = isWithdrawing ? amount : (persistedTx?.amount ?? '');
@@ -138,7 +141,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
 
 
   const [showProgress, setShowProgress] = useState<boolean>(() => {
-    const tx = useTransactionStore.getState().withdrawTx;
+    const tx = getCurrentWithdrawTx();
     return !!tx && !tx.isAcknowledged;
   });
 
@@ -146,7 +149,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
 
   const autoClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!bridgeTracker.isTerminal || !store.withdrawTx) return;
+    if (!bridgeTracker.isTerminal || !getCurrentWithdrawTx()) return;
 
     autoClearRef.current = setTimeout(() => {
       bridgeTracker.acknowledge();
@@ -156,13 +159,20 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     return () => {
       if (autoClearRef.current) clearTimeout(autoClearRef.current);
     };
-  }, [bridgeTracker.isTerminal, store.withdrawTx]);
+  }, [bridgeTracker.isTerminal, currentWithdrawTx]);
 
   const amountRef = useRef(amount);
   useEffect(() => { amountRef.current = amount; }, [amount]);
 
   useEffect(() => {
     if (!isWithdrawing) return;
+
+    const currentWallets = useWalletStore.getState().connectedWallets;
+    const requiredWallets = {
+      evm: currentWallets.evm?.address,
+      dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
+      cosmos: currentWallets.cosmos?.address
+    };
 
     store.setWithdrawTx({
       status: 'pending',
@@ -172,14 +182,15 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
       amount: amountRef.current,
       stepLabel,
       isPreBridge: !liveBridgeTxHash,
+      requiredWallets,
     });
   }, [isWithdrawing, step, stepLabel, liveBridgeTxHash, liveBridgeChainId]);
 
 
   useEffect(() => {
-    if (!bridgeTracker.isTerminal || !store.withdrawTx) return;
+    if (!bridgeTracker.isTerminal || !currentWithdrawTx) return;
     store.setWithdrawTx({
-      ...store.withdrawTx,
+      ...currentWithdrawTx,
       status: bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS' ? 'success' : 'failed',
     });
   }, [bridgeTracker.isTerminal, bridgeTracker.overallState]);
@@ -199,7 +210,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
 
-    const tx = useTransactionStore.getState().withdrawTx;
+    const tx = getCurrentWithdrawTx();
     const shouldShowProgress = tx && !tx.isAcknowledged;
     setShowProgress(!!shouldShowProgress);
 
@@ -247,6 +258,13 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     if (!amountValidation.valid) return;
     clearWithdrawError();
     setSuccess(false);
+    const currentWallets = useWalletStore.getState().connectedWallets;
+    const requiredWallets = {
+      evm: currentWallets.evm?.address,
+      dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
+      cosmos: currentWallets.cosmos?.address
+    };
+
     store.setWithdrawTx({
       txHash: null,
       chainId: null,
@@ -254,6 +272,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
       status: 'pending',
       amount: amountValue.toString(),
       isPreBridge: true,
+      requiredWallets,
     });
 
     const result = await withdraw(amountValue.toString(), fromSubaccount, evmAddress);

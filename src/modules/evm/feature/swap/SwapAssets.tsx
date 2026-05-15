@@ -21,7 +21,8 @@ import { useWalletStore } from '../../../walletconnect/store/walletConnectStore'
 import TransactionButton from '../../../commonfeature/components/TransactionButton';
 import { useEvmSwap } from '../../hook/useEvmSwap';
 import { getRangoSlippageWarning } from '../../utils/evmSwapUtils';
-import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata } from '../../utils/Chainregistry';
+import { storeSwapOrder } from '../../service/evmTransactionStatusService';
+import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata, getChainRangoSymbol } from '../../utils/Chainregistry';
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
@@ -76,7 +77,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
     const raw = searchParams.get('fromChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
-    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
+
+    const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
+    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : defaultChainId;
   });
 
   const [toChainId, setToChainId] = useState<number | string>(() => {
@@ -87,7 +90,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
     const raw = searchParams.get('toChainId');
     if (raw === 'stellar') return STELLAR_CHAIN_ID;
-    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : (currentChainId || 1);
+
+    const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
+    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : defaultChainId;
   });
 
   const [sellAssetSymbol, setSellAssetSymbol] = useState<string>(() => {
@@ -240,11 +245,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fromChainId, toChainId, sellAssetSymbol, sellAssetAddress, buyAssetSymbol, buyAssetAddress, setSearchParams]);
 
   useEffect(() => {
-    if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
-      if (!searchParams.get('fromChainId') && !locationState?.selectedAsset) setFromChainId(currentChainId);
-      if (!searchParams.get('toChainId') && !locationState?.selectedAsset) setToChainId(currentChainId);
+    const hasFromParam = !!searchParams.get('fromChainId');
+    const hasToParam = !!searchParams.get('toChainId');
+    const hasLocationAsset = !!locationState?.selectedAsset;
+
+    if (!hasFromParam && !hasToParam && !hasLocationAsset) {
+      if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
+        setFromChainId(currentChainId);
+        setToChainId(currentChainId);
+      } else if (!evmWallet && stellarWallet) {
+        setFromChainId(STELLAR_CHAIN_ID);
+        setToChainId(STELLAR_CHAIN_ID);
+      }
     }
-  }, [currentChainId, searchParams, swapEnabledChains, locationState]);
+  }, [currentChainId, evmWallet, stellarWallet, searchParams, swapEnabledChains, locationState]);
   useEffect(() => {
     if (locationState?.selectedAsset) {
       const asset = locationState.selectedAsset;
@@ -325,15 +339,27 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             };
           });
           setStellarAssets(mapped);
-          if (actionType === 'SWAP') {
-            if (!sellAssetSymbol && mapped.length > 0) {
-              setSellAssetSymbol(mapped[0].symbol);
-              setSellAssetAddress(mapped[0].address || "");
+          if (actionType === 'SWAP' && isStellar(fromChainId)) {
+            const currentSellInStellar = mapped.find(t => t.symbol === sellAssetSymbol);
+            const currentBuyInStellar = mapped.find(t => t.symbol === buyAssetSymbol);
+
+            let finalSellSymbol = sellAssetSymbol;
+
+            if (!currentSellInStellar && mapped.length > 0) {
+              const defaultSell = mapped.find(t => t.symbol === 'XLM') || mapped[0];
+              setSellAssetSymbol(defaultSell.symbol);
+              setSellAssetAddress(defaultSell.address || "");
+              finalSellSymbol = defaultSell.symbol;
             }
-            if (!buyAssetSymbol && mapped.length > 1) {
-              const destToken = mapped.find(t => t.symbol !== sellAssetSymbol) || mapped[1];
-              setBuyAssetSymbol(destToken.symbol);
-              setBuyAssetAddress(destToken.address || "");
+
+            if ((!currentBuyInStellar || finalSellSymbol === buyAssetSymbol) && mapped.length > 1) {
+              const defaultBuy = mapped.find(t => t.symbol !== finalSellSymbol)
+                || mapped[1];
+
+              if (defaultBuy) {
+                setBuyAssetSymbol(defaultBuy.symbol);
+                setBuyAssetAddress(defaultBuy.address || "");
+              }
             }
           }
         } catch (err) {
@@ -347,36 +373,69 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fromChainId, toChainId, stellarAddress, ammService, sellAssetSymbol, actionType]);
 
   useEffect(() => {
-    if (swapAssets.length > 0 && !isChainSwitching) {
-      if (!sellAssetSymbol && !buyAssetSymbol) {
+    if (swapAssets.length > 0 && !isChainSwitching && !isStellar(fromChainId)) {
+      const currentSellInEvm = swapAssets.find(a => a.symbol === sellAssetSymbol || (sellAssetAddress && a.address.toLowerCase() === sellAssetAddress.toLowerCase()));
+
+      let finalSell = currentSellInEvm;
+      if (!currentSellInEvm) {
         const nativeAsset = swapAssets.find(a => a.isNative);
-        const usdcAsset = swapAssets.find(a => a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS');
-
-        if (nativeAsset && usdcAsset) {
-          setSellAssetSymbol(nativeAsset.symbol);
-          setSellAssetAddress(nativeAsset.address);
-          setBuyAssetSymbol(usdcAsset.symbol);
-          setBuyAssetAddress(usdcAsset.address);
-        } else if (swapAssets.length >= 2) {
-          setSellAssetSymbol(swapAssets[0].symbol);
-          setSellAssetAddress(swapAssets[0].address);
-          setBuyAssetSymbol(swapAssets[1].symbol);
-          setBuyAssetAddress(swapAssets[1].address);
+        finalSell = nativeAsset || swapAssets[0];
+        if (finalSell) {
+          setSellAssetSymbol(finalSell.symbol);
+          setSellAssetAddress(finalSell.address);
         }
-      } else if (sellAssetSymbol && !buyAssetSymbol) {
-        // Sell asset is pre-filled, pick a default buy asset
-        const usdcAsset = swapAssets.find(a => (a.symbol === 'USDC' || a.symbol === 'USDT' || a.symbol === 'USDS') && a.symbol !== sellAssetSymbol);
-        const nativeAsset = swapAssets.find(a => a.isNative && a.symbol !== sellAssetSymbol);
-        const fallback = swapAssets.find(a => a.symbol !== sellAssetSymbol);
+      }
 
-        const bestBuy = usdcAsset || nativeAsset || fallback;
-        if (bestBuy) {
-          setBuyAssetSymbol(bestBuy.symbol);
-          setBuyAssetAddress(bestBuy.address);
+      if (fromChainId === toChainId) {
+        const currentBuyInEvm = swapAssets.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address.toLowerCase() === buyAssetAddress.toLowerCase()));
+
+        if (!currentBuyInEvm || (finalSell && finalSell.symbol === buyAssetSymbol)) {
+          const nativeAsset = swapAssets.find(a => a.isNative);
+
+          const bestBuy = (finalSell?.symbol === nativeAsset?.symbol ? swapAssets.find(a => a.symbol !== finalSell?.symbol) : nativeAsset)
+            || swapAssets.find(a => a.symbol !== finalSell?.symbol)
+            || swapAssets[1]
+            || swapAssets[0];
+
+          if (bestBuy) {
+            setBuyAssetSymbol(bestBuy.symbol);
+            setBuyAssetAddress(bestBuy.address);
+          }
+        } else if (sellAssetSymbol && !buyAssetSymbol) {
+          const nativeAsset = swapAssets.find(a => a.isNative && a.symbol !== sellAssetSymbol);
+          const fallback = swapAssets.find(a => a.symbol !== sellAssetSymbol);
+
+          const bestBuy = nativeAsset || fallback || swapAssets[0];
+          if (bestBuy) {
+            setBuyAssetSymbol(bestBuy.symbol);
+            setBuyAssetAddress(bestBuy.address);
+          }
+        }
+      } else {
+        // Cross-chain swap/bridge: validate buy asset against destination chain tokens
+        let destTokens: any[] = [];
+        if (isStellar(toChainId)) {
+          destTokens = stellarAssets;
+        } else {
+          destTokens = getTokensForChain(toChainId);
+        }
+
+        if (destTokens.length > 0) {
+          const currentBuyInDest = destTokens.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address?.toLowerCase() === buyAssetAddress.toLowerCase()));
+          if (!currentBuyInDest) {
+            const nativeAsset = destTokens.find(a => a.isNative);
+            const sameSymbolAsset = destTokens.find(a => a.symbol === finalSell?.symbol);
+
+            const bestBuy = sameSymbolAsset || nativeAsset || destTokens[0];
+            if (bestBuy) {
+              setBuyAssetSymbol(bestBuy.symbol);
+              setBuyAssetAddress(bestBuy.address || '');
+            }
+          }
         }
       }
     }
-  }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching]);
+  }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching, fromChainId, toChainId, stellarAssets]);
 
   const getUsdValue = useCallback((amount: string, asset: any): number | null => {
     if (!amount || !asset) return null;
@@ -882,7 +941,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             {
               setStatus: setBridgeTxStatus,
               setHash: setBridgeTxHash,
-              addTransaction: addLocalTransaction
+              addTransaction: (tx: any) => {
+                if (tx.type === 'swap' || tx.type === 'bridge') {
+                  storeSwapOrder({
+                    txHash: tx.hash,
+                    walletAddress: evmAddress,
+                    provider: 'RANGO',
+                    fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                    fromToken: sellAssetSymbol,
+                    toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                    toToken: buyAssetSymbol,
+                    amountIn: sellAmount,
+                    amountOut: calculatedBuyAmount,
+                    requestId: requestId
+                  } as any).catch(err => console.error('Failed to store Rango bridge order:', err));
+                } else {
+                  addLocalTransaction(tx);
+                }
+              }
             },
             userSlippageTolerance
           );
@@ -935,16 +1011,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             }
             if (tx.type === 'transfer') {
               setBridgeTxHash(hash);
-              addLocalTransaction({
-                hash,
-                chainId: fromChainId,
-                type: 'bridge',
-                timestamp: Date.now(),
-                description: `Bridge ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
-                from: evmAddress,
-                status: 'pending',
-                network: currentNetwork
-              });
+              storeSwapOrder({
+                txHash: hash,
+                walletAddress: evmAddress,
+                provider: 'ALLBRIDGE',
+                fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                fromToken: sellAssetSymbol,
+                toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                toToken: buyAssetSymbol,
+                amountIn: sellAmount,
+                amountOut: calculatedBuyAmount,
+              } as any).catch(err => console.error('Failed to store Allbridge order:', err));
             }
           }
           setBridgeTxStatus('success');
@@ -1117,7 +1194,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   return (
     <PageLayout title="Token Swap" subtitle="Unified Exchange & Bridge" onBack={onClose} showBackButton={!!onClose} maxWidth="lg">
-      <div className="mx-auto  px-2 sm:px-0">
+      <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden">
 
         {/* Settings Header - Only show for Rango/Bridge */}
         {((actionType === 'BRIDGE' && activeQuote.source === 'rango') || (actionType === 'SWAP' && swapQuote?.provider === 'RANGO')) && (
@@ -1133,7 +1210,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         )}
 
         {/* Pay Card */}
-        <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+        <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
           <div className={`absolute left-0 top-0 bottom-0 w-1 bg-brand transition-all duration-300 ${isInputFocused ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-50'}`} />
 
           <div className="flex justify-between items-center mb-4 sm:mb-6">
@@ -1153,7 +1230,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 }
               })}
               className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
-              style={{ width: 'clamp(130px, 35vw, 160px)' }}
+              style={{ width: 'clamp(120px, 32vw, 160px)' }}
             >
               <div className="relative min-w-[36px] sm:min-w-[40px]">
                 <img
@@ -1172,7 +1249,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
             </button>
 
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 w-0 min-w-0">
               <input
                 ref={inputRef}
                 type="text"
@@ -1180,7 +1257,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 placeholder="0.00"
                 onFocus={() => setIsInputFocused(true)}
                 onBlur={() => setIsInputFocused(false)}
-                className="w-full bg-transparent border-none text-right text-3xl sm:text-4xl font-black focus:ring-0 p-0 placeholder:text-muted/10 truncate transition-all outline-none"
+                className="w-full bg-transparent border-none text-right text-3xl sm:text-4xl font-black focus:ring-0 p-0 placeholder:text-muted/10 transition-all outline-none min-w-0 block"
                 value={sellAmount}
                 onChange={(e) => {
                   let val = e.target.value.replace(/[^0-9.]/g, '');
@@ -1232,7 +1309,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         </div>
 
         {/* Receive Card */}
-        <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+        <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
           <div className="flex justify-between items-center mb-4 sm:mb-6">
             <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
           </div>
@@ -1240,7 +1317,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           <div className="flex items-center gap-3 sm:gap-4">
             <button
               onClick={() => openAssetSelector(actionType, {
-                defaultNetwork: toChainId,
+                defaultNetwork: fromChainId,
                 pairedChainId: fromChainId,
                 onSelect: (a: any) => {
                   handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false);
@@ -1249,7 +1326,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 }
               })}
               className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
-              style={{ width: 'clamp(130px, 35vw, 160px)' }}
+              style={{ width: 'clamp(120px, 32vw, 160px)' }}
             >
               <div className="relative min-w-[36px] sm:min-w-[40px]">
                 <img
@@ -1268,17 +1345,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
             </button>
 
-            <div className="flex-1 text-right min-w-0">
-              <div className={`font-black truncate text-primary transition-all duration-300 ${isSameAssetSelected ? 'text-sm sm:text-base opacity-40 tracking-wider' : 'text-3xl sm:text-4xl tabular-nums'}`}>
-                {(activeQuote.loading || swapQuoteLoading) ? (
-                  <div className="flex justify-end gap-1 items-end mt-2">
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md" />
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-75" />
-                    <div className="w-1 h-1 bg-white/5 animate-pulse rounded-full mb-2" />
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
-                    <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
-                  </div>
-                ) : ((swapQuote || activeQuote.data || rangoQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
+            <div className="flex-1 w-0 min-w-0 flex flex-col items-end">
+              <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide">
+                <div className={`font-black text-primary transition-all duration-300 ${isSameAssetSelected ? 'text-sm sm:text-base opacity-40 tracking-wider' : 'text-3xl sm:text-4xl tabular-nums'}`}>
+                  {(activeQuote.loading || swapQuoteLoading) ? (
+                    <div className="flex justify-end gap-1 items-end mt-2">
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md" />
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-75" />
+                      <div className="w-1 h-1 bg-white/5 animate-pulse rounded-full mb-2" />
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
+                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
+                    </div>
+                  ) : ((swapQuote || activeQuote.data || rangoQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
+                </div>
               </div>
               {(swapQuote || activeQuote.data || rangoQuote) && !isSameAssetSelected && (
                 <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
@@ -1347,7 +1426,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {/* Rate row */}
                 <div className="flex items-center justify-between py-2 border-b border-white/5">
                   <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rate</span>
-                  <span className="text-[11px] font-black text-primary">
+                  <span className="text-[11px] font-black text-primary truncate ml-2 flex-1 w-0 text-right min-w-0">
                     1 {sellAssetSymbol} ≈ {actionType === 'SWAP'
                       ? (isGasless && fusionQuote && showFusionScreen
                         ? (Number(fusionQuote.prices.usd.fromToken) / Number(fusionQuote.prices.usd.toToken)).toFixed(6)
@@ -1538,7 +1617,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {/* Min received */}
                 <div className="flex items-center justify-between py-2">
                   <span className="text-[10px] font-black uppercase tracking-widest text-muted">Min. Received</span>
-                  <span className="text-[12px] font-black text-brand">
+                  <span className="text-[12px] font-black text-brand truncate ml-2 flex-1 w-0 text-right min-w-0">
                     {portfolioUtils.formatBalance(minimumReceived)} {buyAssetSymbol}
                   </span>
                 </div>
@@ -1548,10 +1627,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
         </div>
 
-        <div className="relative group/action mt-4">
-          <div className={`overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isErrorState && !isLoadingExecution ? 'max-h-40 opacity-100 mb-0' : 'max-h-0 opacity-0 mb-[-12px]'}`}>
-            <div className="bg-red-500/10 border-x border-t border-red-500/30 rounded-t-2xl p-4 flex items-center gap-3 relative z-0">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+
+
+        <div className="relative group/action ">
+          <div className={`overflow-hidden transition-all mb-3 mt-3 duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isErrorState && !isLoadingExecution ? 'max-h-40 opacity-100 mb-0' : 'max-h-0 opacity-0 mb-[-12px]'}`}>
+            <div className="bg-red-500/10 border-x border border-red-500/30 rounded-2xl p-4 flex items-center gap-3 relative z-0">
               <p className="text-[10px] sm:text-xs font-bold text-red-500 uppercase tracking-widest leading-relaxed">
                 {errorMessage || 'An error occurred. Please check your inputs.'}
               </p>
@@ -1590,7 +1670,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 isError={!!isErrorState && !isLoadingExecution}
                 onClick={handleUnifiedSwap}
                 icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
-                className={`relative z-10 ${isErrorState && !isLoadingExecution ? '!rounded-t-none border-t-red-500/20' : ''}`}
+                className={`relative z-10 ${isErrorState && !isLoadingExecution ? ' border-t-red-500/20' : ''}`}
               />
             </>
           </ActionGuard>

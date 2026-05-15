@@ -783,7 +783,7 @@ class WalletService {
   }
 
   private async clearAppData(): Promise<void> {
-    const PRESERVE_KEYS = ['swiftex_local_transactions', 'theme-storage', 'network'];
+    const PRESERVE_KEYS = ['swiftex_local_transactions', 'theme-storage', 'network', 'swiftex_pending_skip_txs_v2'];
 
     Object.keys(localStorage).forEach(key => {
       if (!PRESERVE_KEYS.includes(key)) {

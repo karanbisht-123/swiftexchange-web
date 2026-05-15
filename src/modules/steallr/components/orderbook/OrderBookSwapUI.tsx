@@ -15,7 +15,7 @@ import { useLargeOrderStore } from '../../store/orderBookSwapStore';
 const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
 import LastTrades from '../tradescreen/LastTrades';
 import OrderBook from './OrderBook';
-import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+// import { addLocalTransaction } from '../../../evm/service/localTransactionService';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import StellarTransactionModal from '../modals/StellarTransactionModal';
 import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
@@ -177,17 +177,6 @@ const OrderBookSwapUI = () => {
       }
 
       const txHash = await executeOrderWithWalletConnect(tx, provider);
-
-      addLocalTransaction({
-        hash: txHash,
-        chainId: 'pubnet',
-        type: 'orderbook',
-        timestamp: Date.now(),
-        description: `Limit Order: ${isBuy ? 'Buy' : 'Sell'} ${amount} ${toToken.code} @ ${price} ${fromToken.code}`,
-        status: 'success',
-        from: stellarAddress,
-        network: currentNetwork,
-      });
 
       setTxModal({
         isOpen: true,

@@ -10,7 +10,7 @@ import { useAmmSwapStore } from '../../store/ammSwapStore';
 const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
 import { SettingsPanel, SwapDetails } from './AmmSwapSubComponents';
 import { XlmReserveButton } from './XlmReserveInfo';
-import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+// import { addLocalTransaction } from '../../../evm/service/localTransactionService';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import StellarTransactionModal from '../modals/StellarTransactionModal';
 import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
@@ -166,16 +166,16 @@ const AmmSwapUI = () => {
 
       const txHash = await executeSwapWithWalletConnect(tx, provider);
 
-      addLocalTransaction({
-        hash: txHash,
-        chainId: 'pubnet',
-        type: 'swap',
-        timestamp: Date.now(),
-        description: `Swap ${fromAmount} ${fromToken.code} for ${toAmount} ${toToken.code}`,
-        status: 'success',
-        from: stellarAddress,
-        network: currentNetwork,
-      });
+      // addLocalTransaction({
+      //   hash: txHash,
+      //   chainId: 'pubnet',
+      //   type: 'swap',
+      //   timestamp: Date.now(),
+      //   description: `Swap ${fromAmount} ${fromToken.code} for ${toAmount} ${toToken.code}`,
+      //   status: 'success',
+      //   from: stellarAddress,
+      //   network: currentNetwork,
+      // });
 
       setTxModal({
         isOpen: true,

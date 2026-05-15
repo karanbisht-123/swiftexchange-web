@@ -1151,9 +1151,12 @@ export async function fetch1InchFusionQuote(
   decimals: number,
 ): Promise<any> {
   try {
+    const normalizedTokenIn = tokenIn.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : tokenIn;
+    const normalizedTokenOut = tokenOut.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : tokenOut;
+
     return await get1InchFusionQuote(chain, {
-      tokenIn,
-      tokenOut,
+      tokenIn: normalizedTokenIn,
+      tokenOut: normalizedTokenOut,
       amount: formatAmount(amount, decimals),
       walletAddress,
     });
@@ -1190,10 +1193,13 @@ export async function execute1InchFusionSwap(
 
   onProgress?.('signing');
 
+  const normalizedTokenIn = sellAsset.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : sellAsset.address;
+  const normalizedTokenOut = buyAsset.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : buyAsset.address;
+
   const fusionOrder = await build1InchFusionOrder({
     quote,
-    tokenIn: sellAsset.address,
-    tokenOut: buyAsset.address,
+    tokenIn: normalizedTokenIn,
+    tokenOut: normalizedTokenOut,
     amount: amountBN.toString(),
     walletAddress: senderAddress,
     chain: chainSymbol,
@@ -1366,7 +1372,7 @@ export function getRangoSlippageWarning(
 
   for (const rec of recs) {
     const val = parseFloat(rec.recommendedSlippage);
-    if (isNaN(val) || val <= userSlippage) continue;
+    if (isNaN(val) || val <= (userSlippage + 1)) continue;
     if (!worst || val > parseFloat(worst.recommendedSlippage)) worst = rec;
   }
 

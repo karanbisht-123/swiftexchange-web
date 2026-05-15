@@ -20,12 +20,12 @@ import {
   dydxToNoble,
   fetchDydxWalletUsdcBalance,
 } from '../utils/skipBridgeUtils';
-import { useTransactionStore } from '../hooks/useTransactionTracker';
+import { useTransactionStore, getCurrentDepositTx } from '../hooks/useTransactionTracker';
 import { type NotificationType } from '../../../components/common/Notification';
 
 export const MIN_DEPOSIT_USDC = 1;
 
-const MIN_SUBACCOUNT_DEPOSIT_UUSDC = 10_000;
+export const MIN_SUBACCOUNT_DEPOSIT_UUSDC = 10_000;
 
 const DYDX_POLL_TIMEOUT_MS = 180_000;
 const DYDX_POLL_INTERVAL_MS = 5_000;
@@ -229,6 +229,13 @@ export const useDydxDeposit = () => {
 
         setStep('signing_evm');
 
+        const currentWallets = useWalletStore.getState().connectedWallets;
+        const requiredWallets = {
+          evm: currentWallets.evm?.address,
+          dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
+          cosmos: currentWallets.cosmos?.address
+        };
+
         useTransactionStore.getState().setDepositTx({
           txHash: null,
           chainId: String(chainId),
@@ -237,6 +244,7 @@ export const useDydxDeposit = () => {
           amount: capturedAmount,
           assetSymbol: capturedAssetSymbol,
           stepLabel: 'Sign in wallet...',
+          requiredWallets,
         });
 
         setStep('signing_evm');
@@ -253,7 +261,7 @@ export const useDydxDeposit = () => {
             setTxHash(hash);
             setStep('pending_bridge');
 
-            const current = useTransactionStore.getState().depositTx;
+            const current = getCurrentDepositTx();
             useTransactionStore.getState().setDepositTx({
               txHash: hash,
               chainId: String(cid),
@@ -278,7 +286,7 @@ export const useDydxDeposit = () => {
         const expectedAmountUusdc = parseInt(rawRoute.amountOut ?? '0', 10);
         const minPollTarget = Math.max(
           preExistingWalletUusdc + Math.floor(expectedAmountUusdc * 0.9),
-          GAS_RESERVE_UUSDC + MIN_SUBACCOUNT_DEPOSIT_UUSDC,
+          GAS_RESERVE_UUSDC,
         );
 
         const walletBalanceAfter = await waitForDydxWalletBalance(dydxAddress, minPollTarget);
@@ -327,7 +335,10 @@ export const useDydxDeposit = () => {
             maximumFractionDigits: 2,
           })} USDC added to your trading account.`,
         });
-        await new Promise(r => setTimeout(r, 2_000));
+        const currentTx = getCurrentDepositTx();
+        if (currentTx && currentTx.status === 'pending') {
+          useTransactionStore.getState().setDepositTx({ ...currentTx, status: 'success' });
+        }
         setStep('success');
 
         return { success: true, txHash: bridgeTxHash };
@@ -369,15 +380,33 @@ export const useDydxDeposit = () => {
           setStep('success');
           setPendingDydxQuantums(null);
           setPendingNobleQuantums(null);
+          setNotification({
+            type: 'success',
+            title: 'Deposit Recovered',
+            message: `${(parseInt(amountQuantums) / 1e6).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })} USDC added to your trading account.`,
+          });
         } else {
           setError(result.error ?? 'Recovery failed');
           setStep('error');
+          setNotification({
+            type: 'error',
+            title: 'Recovery Failed',
+            message: result.error ?? 'Recovery failed',
+          });
         }
         return result;
       } catch (err: any) {
         const message = err.message ?? 'Recovery failed';
         setError(message);
         setStep('error');
+        setNotification({
+          type: 'error',
+          title: 'Recovery Failed',
+          message,
+        });
         return { success: false, error: message };
       }
     },
@@ -464,6 +493,7 @@ export const useDydxDeposit = () => {
     depositedAmount,
     isLoading: step !== 'idle' && step !== 'success' && step !== 'error',
     MIN_DEPOSIT_USDC,
+    MIN_SUBACCOUNT_DEPOSIT_UUSDC,
     NATIVE_WALLET_GAS_RESERVE_USD,
     GAS_RESERVE_UUSDC,
     notification,

@@ -6,10 +6,12 @@ import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
 import useOrderPreviewStore from '../store/orderPreviewStore';
 import { selectPortfolioMetrics, useWebSocketStore } from '../store/websocketStore';
+import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { DydxDepositModal } from './DydxDepositModal';
 import { DydxWithdrawModal } from './DydxWithdrawModal';
 import { SubaccountTransfer } from './SubaccountTransfer';
 import { Tooltip } from '../../../components/common/Tooltip';
+import { Notification } from '../../../components/common/Notification';
 
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -51,8 +53,32 @@ export const DydxWalletConnect: React.FC = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [lastAttemptedQuantums, setLastAttemptedQuantums] = useState<string | null>(null);
 
   const { isConnected, address, balance, dataLoaded, error } = useDydxWallet();
+  const { checkPendingDeposit, pendingDydxQuantums, recoverDeposit, notification, clearNotification, MIN_SUBACCOUNT_DEPOSIT_UUSDC } = useDydxDeposit();
+
+  useEffect(() => {
+    if (isConnected && address) {
+      checkPendingDeposit();
+      const interval = setInterval(checkPendingDeposit, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [isConnected, address, checkPendingDeposit]);
+
+  useEffect(() => {
+    if (pendingDydxQuantums && !isRecovering && pendingDydxQuantums !== lastAttemptedQuantums) {
+      if (parseInt(pendingDydxQuantums) >= MIN_SUBACCOUNT_DEPOSIT_UUSDC) {
+        setIsRecovering(true);
+        setLastAttemptedQuantums(pendingDydxQuantums);
+        recoverDeposit(pendingDydxQuantums).finally(() => {
+          setIsRecovering(false);
+          checkPendingDeposit();
+        });
+      }
+    }
+  }, [pendingDydxQuantums, isRecovering, lastAttemptedQuantums, recoverDeposit, checkPendingDeposit]);
 
   useEffect(() => {
     if (
@@ -504,6 +530,16 @@ export const DydxWalletConnect: React.FC = () => {
       <SubaccountTransfer isOpen={showTransferModal} onClose={() => setShowTransferModal(false)} />
       <DydxWithdrawModal isOpen={showWithdrawModal} onClose={() => setShowWithdrawModal(false)} />
       <DydxDepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
+      {notification && (
+        <Notification
+          type={notification.type}
+          title={notification.title}
+          message={notification.message}
+          onClose={clearNotification}
+          autoClose
+          autoCloseDuration={6000}
+        />
+      )}
     </div>
   );
 };

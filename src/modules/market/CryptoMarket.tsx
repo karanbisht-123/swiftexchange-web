@@ -72,13 +72,19 @@ const CryptoMarket = () => {
   useEffect(() => {
     if (selectedCrypto) {
       requestAnimationFrame(() => setIsSheetOpen(true));
+      document.body.style.overflow = 'hidden';
     } else {
       setIsSheetOpen(false);
+      document.body.style.overflow = '';
     }
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [selectedCrypto]);
 
   const closeSheet = () => {
     setIsSheetOpen(false);
+    document.body.style.overflow = '';
     setTimeout(() => {
       setSelectedCrypto(null);
     }, 300);
@@ -212,9 +218,8 @@ const CryptoMarket = () => {
                   {formatPrice(coin.currentPrice)}
                 </div>
                 <div
-                  className={`text-xs font-semibold mt-0.5 ${
-                    coin.priceChangePercentage24h >= 0 ? 'text-success' : 'text-danger'
-                  }`}
+                  className={`text-xs font-semibold mt-0.5 ${coin.priceChangePercentage24h >= 0 ? 'text-success' : 'text-danger'
+                    }`}
                 >
                   {coin.priceChangePercentage24h >= 0 ? '+' : ''}
                   {coin.priceChangePercentage24h.toFixed(2)}%
@@ -279,9 +284,8 @@ const CryptoMarket = () => {
                 </td>
                 <td className="px-6 py-4 text-right">
                   <span
-                    className={`font-semibold inline-flex items-center gap-0.5 ${
-                      coin.priceChangePercentage24h >= 0 ? 'text-success' : 'text-danger'
-                    }`}
+                    className={`font-semibold inline-flex items-center gap-0.5 ${coin.priceChangePercentage24h >= 0 ? 'text-success' : 'text-danger'
+                      }`}
                   >
                     {coin.priceChangePercentage24h >= 0 ? (
                       <ArrowUp size={12} />
@@ -338,9 +342,8 @@ const CryptoMarket = () => {
           aria-hidden={!isSheetOpen}
         >
           <div
-            className={`fixed inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300 ${
-              isSheetOpen ? 'opacity-100' : 'opacity-0'
-            }`}
+            className={`fixed inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300 ${isSheetOpen ? 'opacity-100' : 'opacity-0'
+              }`}
             onClick={closeSheet}
           />
 
@@ -378,7 +381,10 @@ const CryptoMarket = () => {
               </button>
             </div>
 
-            <div className="overflow-y-auto p-5 md:p-6 space-y-8">
+            <div
+              className="overflow-y-auto p-5 md:p-6 space-y-8"
+              style={{ overscrollBehavior: 'contain' }}
+            >
               <div className="flex flex-col items-center justify-center py-4">
                 <span className="text-sm font-medium text-muted mb-1">Current Price</span>
                 <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-primary mb-2">
@@ -388,11 +394,10 @@ const CryptoMarket = () => {
                   <div
                     className={`
                         flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold
-                        ${
-                          selectedCrypto.priceChangePercentage24h >= 0
-                            ? 'bg-success-bg/50 text-success'
-                            : 'bg-danger-bg/50 text-danger'
-                        }
+                        ${selectedCrypto.priceChangePercentage24h >= 0
+                        ? 'bg-success-bg/50 text-success'
+                        : 'bg-danger-bg/50 text-danger'
+                      }
                      `}
                   >
                     {selectedCrypto.priceChangePercentage24h >= 0 ? (

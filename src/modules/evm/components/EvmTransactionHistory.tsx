@@ -8,6 +8,7 @@ import {
   SearchX,
   ShieldCheck,
   XCircle,
+  ExternalLink,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
@@ -20,12 +21,15 @@ import {
   type LocalTransactionWithStatus,
   useLocalTransactions,
 } from '../hook/useLocalTransactions';
+import { useEvmTransaction } from '../hook/useEvmTransaction';
+import { type SwapOrder } from '../service/evmTransactionStatusService';
 import {
   type TransactionItem,
   getEvmTransactionHistory,
 } from '../service/EvmTransactionService';
 import { formatBlockNumber } from '../utils/blockNumber';
-import { getEvmChainsForNetwork, getChainName } from '../utils/Chainregistry';
+import { getEvmChainsForNetwork, getChainName, findChain, getExplorerUrl } from '../utils/Chainregistry';
+import { rpcManager } from '../utils/rpcProvider';
 import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
@@ -70,7 +74,7 @@ const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: 
 );
 
 const EvmTransactionHistory: React.FC = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const txHashFromUrl = searchParams.get('hash');
 
   const connectedWallets = useWalletStore(state => state.connectedWallets);
@@ -87,8 +91,16 @@ const EvmTransactionHistory: React.FC = () => {
   const availableChains = getEvmChainsForNetwork(currentNetwork);
 
   const defaultView: ViewType = hasEvm ? 'recent' : (hasStellar || hasCosmos) ? 'recent' : 'recent';
+  const tabParam = searchParams.get('tab');
+  const initialView: ViewType = tabParam === 'stellar' 
+    ? 'stellar' 
+    : tabParam === 'recent' 
+      ? 'recent' 
+      : tabParam && !isNaN(Number(tabParam)) 
+        ? Number(tabParam) 
+        : defaultView;
 
-  const [selectedView, setSelectedView] = useState<ViewType>(defaultView);
+  const [selectedView, setSelectedView] = useState<ViewType>(initialView);
   const [historyData, setHistoryData] = useState<TransactionItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +111,9 @@ const EvmTransactionHistory: React.FC = () => {
   const [receivedPageKey, setReceivedPageKey] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [loadingMoreOrders, setLoadingMoreOrders] = useState(false);
+  const [liveStatusOverrides, setLiveStatusOverrides] = useState<Record<string, 'success' | 'failed'>>({});
 
   const {
     transactions: localTransactions,
@@ -108,19 +123,85 @@ const EvmTransactionHistory: React.FC = () => {
     hasPendingTransactions,
   } = useLocalTransactions();
 
+  const {
+    ordersData: backendOrders,
+    loading: ordersLoading,
+    statusData,
+    getTransactionStatus,
+    getSwapOrdersByWallet: refreshOrders
+  } = useEvmTransaction();
+
+  // Actively check on-chain transaction receipt ONLY for pending Uniswap backend orders
+  // Other provider statuses must come exclusively from the backend proxy
+  useEffect(() => {
+    const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) => 
+      order.provider?.toUpperCase() === 'UNISWAP' && order.status === 'pending' && !liveStatusOverrides[order.txHash.toLowerCase()]
+    );
+
+    if (!pendingOrders || pendingOrders.length === 0) return;
+
+    const checkStatuses = async () => {
+      for (const order of pendingOrders) {
+        try {
+          const chainConfig = findChain(order.fromChain, currentNetwork);
+          if (!chainConfig || !chainConfig.rpcUrls?.length) continue;
+
+          const receipt = await rpcManager.fetchWithFallback(
+            chainConfig.chainId, 
+            chainConfig.rpcUrls, 
+            async (provider) => provider.getTransactionReceipt(order.txHash)
+          );
+
+          if (receipt) {
+            const newStatus = receipt.status === 1 ? 'success' : 'failed';
+            setLiveStatusOverrides(prev => ({
+              ...prev,
+              [order.txHash.toLowerCase()]: newStatus
+            }));
+          }
+        } catch (err) {
+          console.error('Failed to verify pending backend order on-chain:', err);
+        }
+      }
+    };
+
+    checkStatuses();
+    const interval = setInterval(checkStatuses, 8000);
+    return () => clearInterval(interval);
+  }, [backendOrders?.data, currentNetwork, liveStatusOverrides]);
+
+  useEffect(() => {
+    if (walletAddress) {
+      setOrdersPage(1);
+      refreshOrders(walletAddress, 1, 10, false);
+    }
+  }, [walletAddress]);
+
   useEffect(() => {
     if (txHashFromUrl && localTransactions.length > 0) {
       const found = localTransactions.find(
         tx => tx.hash.toLowerCase() === txHashFromUrl.toLowerCase()
       );
       if (found) {
-        setSelectedView('recent');
+        setSelectedView(searchParams.get('tab') === 'stellar' ? 'stellar' : 'recent');
         setSelectedLocalTx(found);
         setSelectedTx(null);
         if (window.innerWidth < 1024) setIsSheetOpen(true);
       }
     }
-  }, [txHashFromUrl, localTransactions]);
+  }, [txHashFromUrl, localTransactions, searchParams]);
+
+  useEffect(() => {
+    const currentTab = searchParams.get('tab');
+    const newTabStr = String(selectedView);
+    if (currentTab !== newTabStr) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', newTabStr);
+        return next;
+      }, { replace: true });
+    }
+  }, [selectedView, setSearchParams, searchParams]);
 
   useEffect(() => {
     if (walletAddress && typeof selectedView === 'number') {
@@ -171,17 +252,58 @@ const EvmTransactionHistory: React.FC = () => {
     }
   };
 
+  const loadMoreOrders = async () => {
+    if (!walletAddress || !backendOrders?.hasNext || loadingMoreOrders) return;
+    setLoadingMoreOrders(true);
+    const nextPage = ordersPage + 1;
+    try {
+      await refreshOrders(walletAddress, nextPage, 10, true);
+      setOrdersPage(nextPage);
+    } catch (err) {
+      console.error('Failed to load more backend orders:', err);
+    } finally {
+      setLoadingMoreOrders(false);
+    }
+  };
+
   const handleTxClick = (tx: TransactionItem) => {
     setSelectedTx(tx);
     setSelectedLocalTx(null);
     if (window.innerWidth < 1024) setIsSheetOpen(true);
   };
 
-  const handleLocalTxClick = (tx: LocalTransactionWithStatus) => {
+  const handleLocalTxClick = (tx: LocalTransactionWithStatus & { provider?: string; isBackendOrder?: boolean; fromChainSymbol?: string }) => {
     setSelectedLocalTx(tx);
+    console.log(tx, "----------- i am tx from Evm transction ")
     setSelectedTx(null);
     if (window.innerWidth < 1024) setIsSheetOpen(true);
-    if (tx.status === 'pending' || tx.type === 'bridge') {
+
+    if (tx.isBackendOrder && tx.provider) {
+      if (tx.provider.toUpperCase() === 'UNISWAP') {
+        const chainConfig = findChain(tx.fromChainSymbol || String(tx.chainId), currentNetwork);
+        if (chainConfig && chainConfig.rpcUrls?.length) {
+          rpcManager.fetchWithFallback(
+            chainConfig.chainId,
+            chainConfig.rpcUrls,
+            async (provider) => provider.getTransactionReceipt(tx.hash)
+          ).then(receipt => {
+            if (receipt) {
+              const newStatus = receipt.status === 1 ? 'success' : 'failed';
+              setLiveStatusOverrides(prev => ({
+                ...prev,
+                [tx.hash.toLowerCase()]: newStatus
+              }));
+            }
+          }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
+        }
+      } else {
+        getTransactionStatus({
+          walletType: tx.fromChainSymbol || 'ETH',
+          txHash: tx.hash,
+          provider: tx.provider
+        }).catch((err: any) => console.error('Failed to refresh backend order status:', err));
+      }
+    } else if (tx.status === 'pending' || tx.type === 'bridge') {
       refreshTransaction(tx.hash);
     }
   };
@@ -242,7 +364,68 @@ const EvmTransactionHistory: React.FC = () => {
   );
 
   const renderRecentTransactions = () => {
-    if (localLoading && localTransactions.length === 0) {
+    const combinedRecent = (() => {
+      // Create a map to avoid duplicates (backend orders take precedence if hashes match)
+      const mergedMap = new Map<string, LocalTransactionWithStatus>();
+
+      // 1. Add local transactions
+      localTransactions.forEach(tx => mergedMap.set(tx.hash.toLowerCase(), tx));
+
+      // 2. Add backend orders, mapping them to LocalTransactionWithStatus format
+      backendOrders?.data?.forEach((order: SwapOrder) => {
+        const chainConfig = findChain(order.fromChain, currentNetwork);
+        const isUniswap = order.provider?.toUpperCase() === 'UNISWAP';
+        const resolvedStatus = isUniswap
+          ? (liveStatusOverrides[order.txHash.toLowerCase()] || (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending'))
+          : (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending');
+
+        const isBridge = order.fromChain !== order.toChain;
+        const txType = isBridge ? 'Bridge' : 'Swap';
+
+        const normalized: LocalTransactionWithStatus & { 
+          provider?: string; 
+          isBackendOrder?: boolean;
+          fromChainSymbol?: string;
+          amountIn?: string;
+          amountOut?: string;
+          fromToken?: string;
+          toToken?: string;
+        } = {
+          hash: order.txHash,
+          chainId: chainConfig?.chainId || order.fromChain,
+          type: isBridge ? 'bridge' : 'swap',
+          timestamp: new Date(order.createdAt).getTime(),
+          description: `${txType} ${order.fromToken} \u2192 ${order.toToken}`,
+          status: resolvedStatus,
+          from: order.walletAddress,
+          network: currentNetwork,
+          provider: order.provider,
+          isBackendOrder: true,
+          fromChainSymbol: order.fromChain,
+          amountIn: order.amountIn,
+          amountOut: order.amountOut,
+          fromToken: order.fromToken,
+          toToken: order.toToken,
+        };
+        mergedMap.set(order.txHash.toLowerCase(), normalized);
+      });
+
+      return Array.from(mergedMap.values()).sort((a, b) => {
+        // 1. Pending transactions always on top
+        const aPending = a.status === 'pending' ? 1 : 0;
+        const bPending = b.status === 'pending' ? 1 : 0;
+        if (aPending !== bPending) {
+          return bPending - aPending;
+        }
+        // 2. Secondary sort by timestamp descending
+        return (b.timestamp || 0) - (a.timestamp || 0);
+      });
+    })();
+
+    const isFirstBackendLoad = ordersLoading && !backendOrders?.data;
+    const showFullLoader = isFirstBackendLoad || (localLoading && combinedRecent.length === 0 && !backendOrders?.data);
+
+    if (showFullLoader) {
       return (
         <div className="flex flex-col items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-brand-primary mb-4" />
@@ -251,7 +434,7 @@ const EvmTransactionHistory: React.FC = () => {
       );
     }
 
-    if (localTransactions.length === 0) {
+    if (combinedRecent.length === 0) {
       return (
         <EmptyState
           icon={<Clock size={32} />}
@@ -261,91 +444,177 @@ const EvmTransactionHistory: React.FC = () => {
       );
     }
 
+    const groups: { title: string; transactions: typeof combinedRecent }[] = [];
+    const groupMap: { [key: string]: number } = {};
+
+    combinedRecent.forEach(tx => {
+      const timestamp = tx.timestamp;
+      let dateString = 'Unknown Date';
+
+      if (timestamp) {
+        const date = new Date(timestamp);
+        const d = date.getDate();
+        const m = date.toLocaleString('default', { month: 'short' }).toUpperCase();
+        const y = date.getFullYear();
+        dateString = `${d} ${m} ${y}`;
+      }
+
+      if (groupMap[dateString] === undefined) {
+        groupMap[dateString] = groups.length;
+        groups.push({ title: dateString, transactions: [] });
+      }
+      groups[groupMap[dateString]].transactions.push(tx);
+    });
+
     return (
-      <div className="space-y-3 overflow-y-auto pr-2 pb-20 lg:pb-0">
-        <div className="flex items-center justify-between mb-4">
+      <div className="space-y-6 overflow-y-auto pb-4 lg:pb-0 custom-scrollbar pr-2">
+        <div className="flex items-center justify-between">
           <p className="text-xs text-muted">
             {hasPendingTransactions
               ? 'Auto-refreshing pending transactions...'
-              : `${localTransactions.length} transaction(s)`}
+              : `${combinedRecent.length} transaction(s)`}
           </p>
           <button
-            onClick={refreshLocal}
+            onClick={() => {
+              refreshLocal();
+              if (walletAddress) {
+                setOrdersPage(1);
+                refreshOrders(walletAddress, 1, 10, false);
+              }
+            }}
             className="p-2 rounded-lg bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors"
             title="Refresh All"
           >
-            <RefreshCw size={14} className={localLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={(localLoading || ordersLoading) ? 'animate-spin' : ''} />
           </button>
         </div>
 
-        {localTransactions.map(tx => {
-          const isSelected = selectedLocalTx?.hash === tx.hash;
-          const statusStyle = STATUS_STYLES[tx.status];
-          const label =
-            tx.description ||
-            `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
+        {groups.map((group, index) => (
+          <div key={index} className="space-y-3">
+            <h4 className="text-xs font-bold text-muted uppercase tracking-wider pl-1 sticky top-0 bg-secondary/90 backdrop-blur z-10 py-1">
+              {group.title}
+            </h4>
+            {group.transactions.map(tx => {
+              const isSelected = selectedLocalTx?.hash === tx.hash;
+              const statusStyle = STATUS_STYLES[tx.status];
+              const rawLabel =
+                tx.description ||
+                `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
 
-          return (
-            <div
-              key={tx.hash}
-              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all group border ${isSelected
-                ? 'bg-secondary border-brand-primary/50 shadow-md ring-1 ring-brand-primary/20'
-                : 'bg-secondary hover:bg-tertiary/50 border-transparent hover:border-color'
-                }`}
-            >
-              <button
-                onClick={() => handleLocalTxClick(tx)}
-                className="flex items-center gap-4 flex-1 text-left"
-              >
+              const cleanLabel = rawLabel
+                .replace(/\s*\(Step \d+\/\d+\)/i, '')
+                .replace(/\s*for Swap/i, '');
+
+              let topAmount = '';
+              let bottomToken = '';
+              if ((tx as any).isBackendOrder) {
+                const num = Number((tx as any).amountIn);
+                topAmount = isNaN(num) 
+                  ? ((tx as any).amountIn || '') 
+                  : num < 0.000001 
+                    ? '< 0.000001' 
+                    : num.toFixed(4).replace(/\.?0+$/, '');
+                bottomToken = (tx as any).fromToken || '';
+              } else {
+                const match = tx.description?.match(/Swap\s+([\d.]+)\s+([A-Za-z0-9]+)/i);
+                if (match) {
+                  const num = Number(match[1]);
+                  topAmount = isNaN(num) ? match[1] : num.toFixed(4).replace(/\.?0+$/, '');
+                  bottomToken = match[2];
+                }
+              }
+
+              return (
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border ${tx.type === 'approval' && tx.status === 'success' ? 'bg-blue-500/10 border-blue-500/20' : statusStyle}`}
+                  key={tx.hash}
+                  className={`w-full p-3 rounded-lg flex items-center justify-between transition-all group text-left ${isSelected
+                    ? 'bg-secondary border border-transparent'
+                    : 'bg-primary hover:bg-tertiary/50 border border-transparent hover:border-color'
+                    }`}
                 >
-                  <StatusIcon status={tx.status} type={tx.type} />
-                </div>
-                <div>
-                  <div className="font-bold text-primary text-base flex items-center gap-2">
-                    {label}
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
-                      {getChainName(tx.chainId)}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
-                    <span className="opacity-75">{formatRelativeTime(tx.timestamp)}</span>
-                    <span className="w-1 h-1 rounded-full bg-muted/40" />
-                    <span className="truncate max-w-[100px]">
-                      {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
-                    </span>
-                    {tx.type === 'bridge' && tx.destinationHash && (
-                      <>
-                        <span className="w-1 h-1 rounded-full bg-muted/40" />
-                        <span className="text-green-500 flex items-center gap-1">
-                          Ref: {tx.destinationHash.slice(0, 4)}...{tx.destinationHash.slice(-4)}
+                  <button
+                    onClick={() => handleLocalTxClick(tx)}
+                    className="flex items-center gap-4 flex-1 min-w-0 text-left"
+                  >
+                    <div
+                      className={`lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border ${tx.type === 'approval' && tx.status === 'success' ? 'bg-blue-500/10 border-blue-500/20' : statusStyle}`}
+                    >
+                      <StatusIcon status={tx.status} type={tx.type} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-primary lg:text-md text-sm flex items-center gap-2 truncate">
+                        <span className="truncate">{cleanLabel}</span>
+                        <span className="lg:text-md text-[9px] px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
+                          {getChainName(tx.chainId)}
                         </span>
-                      </>
+                      </div>
+                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
+                        <span className="opacity-75 shrink-0">{formatRelativeTime(tx.timestamp)}</span>
+                        <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                        <span className="truncate max-w-[80px] lg:max-w-[120px]">
+                          {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
+                        </span>
+                        {tx.type === 'bridge' && tx.destinationHash && (
+                          <>
+                            <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                            <span className="text-green-500 truncate max-w-[80px]">
+                              Ref: {tx.destinationHash.slice(0, 4)}...{tx.destinationHash.slice(-4)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                  <div className="flex flex-col items-end justify-center gap-1.5 shrink-0 ml-2">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`text-[8px] lg:text-[9px] font-bold px-1.5 py-0.5 rounded-full capitalize tracking-wider shrink-0 ${statusStyle}`}
+                      >
+                        {tx.status}
+                      </span>
+                      <a
+                        href={getExplorerUrl(tx.chainId, 'tx', tx.hash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                        title="View on Explorer"
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+                    {topAmount && bottomToken && (
+                      <div className="flex items-center gap-1">
+                        <span className="font-bold font-mono text-xs lg:text-sm text-primary">
+                          {topAmount}
+                        </span>
+                        <span className="text-[9px] text-muted font-medium bg-tertiary/50 px-1.5 py-0.5 rounded">
+                          {bottomToken}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
-              </button>
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-xs font-semibold px-2 py-1 rounded-full capitalize ${statusStyle}`}
-                >
-                  {tx.status}
-                </span>
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    refreshTransaction(tx.hash);
-                  }}
-                  className="p-2 rounded-lg bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors"
-                  title="Refresh Transaction"
-                >
-                  <RefreshCw size={14} className={tx.status === 'pending' || (tx.type === 'bridge' && !tx.destinationHash) ? 'animate-spin' : ''} />
-                </button>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        ))}
+        {backendOrders?.hasNext && (
+          <button
+            onClick={loadMoreOrders}
+            disabled={loadingMoreOrders}
+            className="w-full py-3 mt-4 rounded-xl border border-color bg-tertiary hover:bg-tertiary/80 text-primary font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loadingMoreOrders ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Loading...
+              </>
+            ) : (
+              'Load More'
+            )}
+          </button>
+        )}
       </div>
     );
   };
@@ -451,33 +720,45 @@ const EvmTransactionHistory: React.FC = () => {
                     <div className="lg:w-12 lg:h-12 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border bg-tertiary border-color text-muted">
                       <Icon size={24} />
                     </div>
-                    <div>
-                      <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-1">
-                        {actionLabel} {formatAssetName(tx)}
-                        <span className="lg:text-md text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-2 truncate">
+                        <span className="truncate">{actionLabel}</span>
+                        <span className="text-[9px] lg:text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
                           {tx.category}
                         </span>
                       </div>
                       {/* Block number display — BigInt-safe via formatBlockNumber */}
-                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
-                        <span className="opacity-75">
+                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
+                        <span className="hidden lg:inline opacity-75 shrink-0">
                           {tx.blockNum
                             ? `Block #${formatBlockNumber(tx.blockNum)}`
                             : 'Pending'}
                         </span>
-                        <span className="w-1 h-1 rounded-full bg-muted/40" />
-                        <span className="truncate max-w-[100px]">
+                        <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                        <span className="truncate max-w-[80px] lg:max-w-[120px]">
                           {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
                         </span>
+                        <a
+                          href={getExplorerUrl(typeof selectedView === 'number' ? selectedView : 1, 'tx', tx.hash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                          title="View on Explorer"
+                        >
+                          <ExternalLink size={10} />
+                        </a>
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-bold font-mono text-base text-primary">
-                      {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
-                    </div>
-                    <div className="text-xs text-muted mt-1 font-medium bg-tertiary/50 px-2 py-0.5 rounded ml-auto w-fit">
-                      {formatAssetName(tx)}
+                  <div className="flex items-center gap-3 shrink-0 ml-2">
+                    <div className="text-right">
+                      <div className="font-bold font-mono text-sm lg:text-base text-primary">
+                        {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
+                      </div>
+                      <div className="text-[9px] lg:text-xs text-muted mt-0.5 font-medium bg-tertiary/50 px-1.5 py-0.5 rounded ml-auto w-fit">
+                        {formatAssetName(tx)}
+                      </div>
                     </div>
                   </div>
                 </button>
@@ -531,7 +812,37 @@ const EvmTransactionHistory: React.FC = () => {
                 <TransactionDetailsView
                   transaction={selectedLocalTx}
                   chainId={selectedLocalTx.chainId}
-                  onRefresh={() => refreshTransaction(selectedLocalTx.hash)}
+                  onRefresh={() => {
+                    if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
+                      if ((selectedLocalTx as any).provider.toUpperCase() === 'UNISWAP') {
+                        const chainConfig = findChain((selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId), currentNetwork);
+                        if (chainConfig && chainConfig.rpcUrls?.length) {
+                          rpcManager.fetchWithFallback(
+                            chainConfig.chainId,
+                            chainConfig.rpcUrls,
+                            async (provider) => provider.getTransactionReceipt(selectedLocalTx.hash)
+                          ).then(receipt => {
+                            if (receipt) {
+                              const newStatus = receipt.status === 1 ? 'success' : 'failed';
+                              setLiveStatusOverrides(prev => ({
+                                ...prev,
+                                [selectedLocalTx.hash.toLowerCase()]: newStatus
+                              }));
+                            }
+                          }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
+                        }
+                      } else {
+                        getTransactionStatus({
+                          walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
+                          txHash: selectedLocalTx.hash,
+                          provider: (selectedLocalTx as any).provider
+                        });
+                      }
+                    } else {
+                      refreshTransaction(selectedLocalTx.hash);
+                    }
+                  }}
+                  backendStatus={statusData}
                 />
               </div>
             ) : selectedTx ? (
@@ -561,7 +872,37 @@ const EvmTransactionHistory: React.FC = () => {
           chainId={selectedTx?.chainId || selectedLocalTx!.chainId}
           incoming={isTxIncoming}
           isSelf={isTxSelf}
-          onRefresh={selectedLocalTx ? () => refreshTransaction(selectedLocalTx!.hash) : undefined}
+          onRefresh={selectedLocalTx ? () => {
+            if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
+              if ((selectedLocalTx as any).provider.toUpperCase() === 'UNISWAP') {
+                const chainConfig = findChain((selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId), currentNetwork);
+                if (chainConfig && chainConfig.rpcUrls?.length) {
+                  rpcManager.fetchWithFallback(
+                    chainConfig.chainId,
+                    chainConfig.rpcUrls,
+                    async (provider) => provider.getTransactionReceipt(selectedLocalTx.hash)
+                  ).then(receipt => {
+                    if (receipt) {
+                      const newStatus = receipt.status === 1 ? 'success' : 'failed';
+                      setLiveStatusOverrides(prev => ({
+                        ...prev,
+                        [selectedLocalTx.hash.toLowerCase()]: newStatus
+                      }));
+                    }
+                  }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
+                }
+              } else {
+                getTransactionStatus({
+                  walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
+                  txHash: selectedLocalTx.hash,
+                  provider: (selectedLocalTx as any).provider
+                });
+              }
+            } else {
+              refreshTransaction(selectedLocalTx.hash);
+            }
+          } : undefined}
+          backendStatus={statusData}
         />
       )}
     </PageLayout>

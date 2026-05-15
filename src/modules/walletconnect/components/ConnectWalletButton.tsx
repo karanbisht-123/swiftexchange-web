@@ -143,23 +143,23 @@ export const ConnectWalletButton: React.FC = () => {
       {showDropdown && (
         <>
           <div
-            className="fixed inset-0 z-40"
-            style={{ background: 'rgba(0,0,0,0.15)' }}
+            className="fixed inset-0 z-40 bg-black/40 lg:bg-black/5 backdrop-blur-[2px] lg:backdrop-blur-none transition-all duration-300"
             onClick={() => setShowDropdown(false)}
           />
 
           <div
             style={{
               background: 'var(--color-bg-secondary)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '1rem',
-              boxShadow: 'var(--shadow-lg)',
             }}
-            className="absolute right-0 top-full mt-2 w-80 z-50 overflow-hidden"
+            className="fixed lg:absolute bottom-0 lg:bottom-auto lg:top-full left-0 lg:left-auto lg:right-0 w-full lg:w-80 z-50 overflow-hidden border-t lg:border border-color rounded-t-[2.5rem] lg:rounded-xl shadow-premium animate-slide-up lg:animate-fade-in pb-[env(safe-area-inset-bottom)] lg:pb-0"
           >
+            <div className="lg:hidden flex justify-center pt-4 pb-1">
+              <div className="w-12 h-1.5 rounded-full bg-divider/20" />
+            </div>
+
             <div
               style={{ borderBottom: '1px solid var(--color-border)' }}
-              className="flex items-center justify-between px-4 py-3"
+              className="flex items-center justify-between px-6 py-4"
             >
               <span
                 style={{ color: 'var(--color-text-primary)' }}
@@ -185,7 +185,7 @@ export const ConnectWalletButton: React.FC = () => {
                   <div
                     key={type}
                     style={{ borderBottom: '1px solid var(--color-border)' }}
-                    className="flex items-center gap-3 px-4 py-3 last:border-b-0 hover:bg-[var(--color-bg-hover)] transition-colors"
+                    className="flex items-center gap-4 px-6 py-4 last:border-b-0 hover:bg-[var(--color-bg-hover)] transition-colors"
                   >
                     <div
                       style={{ background: 'var(--color-bg-tertiary)', flexShrink: 0 }}

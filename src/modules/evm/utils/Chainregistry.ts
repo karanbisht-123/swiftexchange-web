@@ -144,7 +144,10 @@ function setCachedTokenList(chainId: number | string, assets: ChainAsset[]) {
 }
 
 export function getChainById(chainId: number | string): ChainConfig | undefined {
-    return BY_CHAIN_ID.get(chainId);
+    if (BY_CHAIN_ID.has(chainId)) return BY_CHAIN_ID.get(chainId);
+    const numericId = Number(chainId);
+    if (!isNaN(numericId) && BY_CHAIN_ID.has(numericId)) return BY_CHAIN_ID.get(numericId);
+    return CHAIN_REGISTRY.find(c => String(c.chainId) === String(chainId));
 }
 
 export function getChainBySlug(slug: string, networkType: NetworkType): ChainConfig | undefined {

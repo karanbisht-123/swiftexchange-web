@@ -28,6 +28,7 @@ interface NotificationState {
   activeToasts: ToastNotification[];
   enabledTypes: Record<NotificationType, boolean>;
   isGlobalPanelOpen: boolean;
+  permission: NotificationPermission | 'default';
   addNotification: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
   removeNotification: (id: string) => void;
   clearAll: () => void;
@@ -38,6 +39,8 @@ interface NotificationState {
   disablePushNotifications: () => void;
   removeToast: (id: string) => void;
   showToast: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
+  requestPermission: () => Promise<NotificationPermission | undefined>;
+  showBrowserNotification: (title: string, options?: NotificationOptions) => Promise<void>;
 }
 
 export const useNotificationStore = create<NotificationState>()(
@@ -55,6 +58,43 @@ export const useNotificationStore = create<NotificationState>()(
         SYSTEM: true,
       },
       isGlobalPanelOpen: false,
+      permission: typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default',
+
+      requestPermission: async () => {
+        if (typeof window === 'undefined' || !('Notification' in window)) {
+          return;
+        }
+        try {
+          const result = await Notification.requestPermission();
+          set({ permission: result });
+          return result;
+        } catch (err) {
+          console.error(err);
+        }
+      },
+
+      showBrowserNotification: async (title, options = {}) => {
+        if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+        let currentPerm = get().permission;
+        if (currentPerm !== 'granted') {
+          const requested = await get().requestPermission();
+          if (requested) currentPerm = requested;
+        }
+
+        if (Notification.permission === 'granted') {
+          try {
+            new Notification(title, {
+              body: options.body,
+              icon: options.icon || '/favicon.ico',
+              tag: options.tag || '',
+              ...options,
+            });
+          } catch (err) {
+            console.error(err);
+          }
+        }
+      },
 
       addNotification: notif => {
         const state = get();
@@ -70,6 +110,16 @@ export const useNotificationStore = create<NotificationState>()(
         set(state => ({
           notifications: [newNotif, ...state.notifications],
         }));
+
+        const bodyText = typeof notif.message === 'string' 
+          ? notif.message 
+          : 'Update regarding your wallet transfer/swap status.';
+        
+        get().showBrowserNotification(notif.title, {
+          body: bodyText,
+          icon: '/favicon.ico',
+          tag: notif.type,
+        }).catch(() => {});
       },
 
       removeNotification: id =>
@@ -125,6 +175,16 @@ export const useNotificationStore = create<NotificationState>()(
           notifications: [newNotif, ...state.notifications],
           activeToasts: [...state.activeToasts, newNotif],
         }));
+
+        const bodyText = typeof notif.message === 'string' 
+          ? notif.message 
+          : 'Update regarding your wallet transfer/swap status.';
+        
+        get().showBrowserNotification(notif.title, {
+          body: bodyText,
+          icon: '/favicon.ico',
+          tag: notif.type,
+        }).catch(() => {});
 
         setTimeout(() => {
           get().removeToast(newNotif.id);

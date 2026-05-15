@@ -119,47 +119,34 @@ const AssetSelectorModal: FC = () => {
           });
         }
       }
-    } else if (effectiveActionType === 'SWAP') {
-      const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
-      if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) {
-        result = [];
-      } else if (activeChainId === DYDX_CHAIN_ID && !isDydxConnected) {
-        result = [];
-      } else {
+    } else if (effectiveActionType === 'SWAP' || effectiveActionType === 'BRIDGE') {
+      const targetChains = selectedNetwork === 'all' 
+        ? [
+            ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
+            ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
+            ...(isDydxConnected ? [DYDX_CHAIN_ID] : [])
+          ]
+        : [selectedNetwork];
+
+      targetChains.forEach(activeChainId => {
+        if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) return;
+        if (activeChainId === DYDX_CHAIN_ID && !isDydxConnected) return;
+
         const registryTokens = getTokensForChain(activeChainId);
-        result = registryTokens.map(t => ({
-          id: `swap-${activeChainId}-${t.symbol}`, symbol: t.symbol, name: t.name, image: t.logoURI, chainId: activeChainId, address: t.address, decimals: t.decimals, isNative: t.isNative, balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
-        }));
-      }
-    } else if (effectiveActionType === 'BRIDGE') {
-      const activeChainId = selectedNetwork === 'all' ? 1 : selectedNetwork;
-      const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
-      const isDydxInvolved = activeChainId === DYDX_CHAIN_ID || pairedChainId === DYDX_CHAIN_ID;
-      if (isStellarInvolved && !isStellarConnected) {
-        result = [];
-      } else if (isDydxInvolved && !isDydxConnected) {
-        result = [];
-      } else {
-        const registryTokens = getTokensForChain(activeChainId);
-        if (isStellarInvolved && !showAllStellarAssets) {
-          const chainConfig = getChainById(activeChainId);
-          const supportedSymbols = chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
-          result = registryTokens
-            .filter(t => supportedSymbols.includes(t.symbol.toUpperCase()))
-            .map(t => ({
-              id: `bridge-${activeChainId}-${t.symbol}`,
-              symbol: t.symbol,
-              name: t.name,
-              image: t.logoURI,
-              chainId: activeChainId,
-              address: t.address,
-              decimals: t.decimals,
-              isNative: t.isNative,
-              balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
-            }));
-        } else {
-          result = registryTokens.map(t => ({
-            id: `bridge-${activeChainId}-${t.symbol}`,
+        let validTokens = registryTokens;
+
+        if (effectiveActionType === 'BRIDGE') {
+          const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
+          if (isStellarInvolved && !showAllStellarAssets) {
+            const chainConfig = getChainById(activeChainId);
+            const supportedSymbols = chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
+            validTokens = registryTokens.filter(t => supportedSymbols.includes(t.symbol.toUpperCase()));
+          }
+        }
+
+        validTokens.forEach(t => {
+          result.push({
+            id: `${effectiveActionType.toLowerCase()}-${activeChainId}-${t.symbol}`,
             symbol: t.symbol,
             name: t.name,
             image: t.logoURI,
@@ -168,9 +155,9 @@ const AssetSelectorModal: FC = () => {
             decimals: t.decimals,
             isNative: t.isNative,
             balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
-          }));
-        }
-      }
+          });
+        });
+      });
     }
 
     if (selectedNetwork !== 'all') {
@@ -179,7 +166,11 @@ const AssetSelectorModal: FC = () => {
 
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
-      result = result.filter(a => a.symbol.toLowerCase().includes(q) || a.name?.toLowerCase().includes(q));
+      result = result.filter(a => 
+        a.symbol.toLowerCase().includes(q) || 
+        a.name?.toLowerCase().includes(q) ||
+        (a.address && a.address.toLowerCase().includes(q))
+      );
     }
 
     return result.sort((a, b) => {
@@ -261,7 +252,9 @@ const AssetSelectorModal: FC = () => {
           {showBalance && (
             <div className="text-right ml-4">
               <div className="text-[14px] font-bold text-text-primary">
-                {portfolioUtils.formatBalance(asset.balance || 0)}
+                {asset.chainId === STELLAR_CHAIN_ID
+                  ? parseFloat(parseFloat(asset.balance || 0).toFixed(7)).toString()
+                  : portfolioUtils.formatBalance(asset.balance || 0)}
               </div>
             </div>
           )}

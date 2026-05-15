@@ -27,7 +27,7 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
 
   const handleGoToHistory = () => {
     if (hash) {
-      navigate(`${ROUTES.TRANSACTIONS}?hash=${hash}`);
+      navigate(`${ROUTES.TRANSACTIONS}?hash=${hash}&tab=stellar`);
       onClose();
     }
   };

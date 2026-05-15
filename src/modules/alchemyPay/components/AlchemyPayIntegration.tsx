@@ -6,8 +6,10 @@ import AlchemyCryptoSell from './AlchemyCryptoSell';
 
 const AlchemyPayIntegration = () => {
   const [activeTab, setActiveTab] = useState('buy');
+  const [isTransactionActive, setIsTransactionActive] = useState(false);
 
   const onClose = () => {
+    if (isTransactionActive) return;
     console.log('Back button clicked');
   };
 
@@ -28,24 +30,16 @@ const AlchemyPayIntegration = () => {
   );
 
   const tabs = [
-    {
-      id: 'buy',
-      label: 'Buy Crypto',
-      icon: '↙',
-    },
-    {
-      id: 'sell',
-      label: 'Sell Crypto',
-      icon: '↗',
-    },
+    { id: 'buy', label: 'Buy Crypto', icon: '↙' },
+    { id: 'sell', label: 'Sell Crypto', icon: '↗' },
   ];
 
   return (
     <PageLayout
       title="Buy & Sell Crypto"
       subtitle="Securely buy and sell crypto"
-      onBack={onClose}
-      showBackButton={!onClose}
+      onBack={isTransactionActive ? undefined : onClose}
+      showBackButton={!onClose && !isTransactionActive}
       maxWidth="lg"
       hasFooter
       footerContent={footerContent}
@@ -58,13 +52,14 @@ const AlchemyPayIntegration = () => {
               return (
                 <button
                   key={tab.id}
+                  disabled={isTransactionActive && !isActive}
                   onClick={() => setActiveTab(tab.id)}
                   className={`relative py-1 lg:py-2 px-2 text-sm font-semibold rounded-lg transition-all duration-200 ${isActive
                       ? tab.id === 'buy'
                         ? 'bg-green-500 text-white shadow-md'
                         : 'bg-red-500 text-white shadow-md'
                       : 'bg-transparent text-secondary hover:bg-hover'
-                    }`}
+                    } ${isTransactionActive && !isActive ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span className="flex items-center justify-center gap-2">
                     <span className="text-lg">{tab.icon}</span>
@@ -76,9 +71,19 @@ const AlchemyPayIntegration = () => {
           </div>
         </div>
 
-        <div className="">
-          {activeTab === 'buy' && <AlchemyCryptoBuy />}
-          {activeTab === 'sell' && <AlchemyCryptoSell />}
+        <div className="relative">
+          {isTransactionActive && (
+            <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-brand-primary/10 text-brand-primary rounded-full text-xs font-bold animate-pulse">
+              <div className="w-2 h-2 rounded-full bg-brand-primary" />
+              Transaction in Progress
+            </div>
+          )}
+          <div className={activeTab === 'buy' ? 'block' : 'hidden'}>
+            <AlchemyCryptoBuy onOrderStateChange={setIsTransactionActive} />
+          </div>
+          <div className={activeTab === 'sell' ? 'block' : 'hidden'}>
+            <AlchemyCryptoSell onOrderStateChange={setIsTransactionActive} />
+          </div>
         </div>
       </div>
     </PageLayout>
