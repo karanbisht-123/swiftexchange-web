@@ -265,9 +265,9 @@ export default function DyDxTradingChart() {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: isMobile ? 5 : 10,
-        barSpacing: isMobile ? 12 : 18,
-        minBarSpacing: isMobile ? 6 : 8,
+        rightOffset: isMobile ? 12 : 20,
+        barSpacing: isMobile ? 6 : 8,
+        minBarSpacing: isMobile ? 2 : 4,
       },
       handleScroll: {
         mouseWheel: true,
@@ -483,14 +483,14 @@ export default function DyDxTradingChart() {
   ];
 
   const TimeframeSelector = () => (
-    <div className="absolute top-2 left-2 z-10 flex items-center gap-0.5 bg-secondary/90 backdrop-blur-sm rounded-lg p-1 border border-color shadow-lg">
+    <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar px-1 flex-1">
       {timeframes.map(tf => (
         <button
           key={tf.value}
           onClick={() => setTimeframe(tf.value)}
-          className={`px-2 py-1 text-[10px] sm:text-xs font-medium rounded transition-all min-w-[28px] sm:min-w-[32px] ${timeframe === tf.value
+          className={`px-2 py-1 text-[11px] font-medium rounded transition-all whitespace-nowrap ${timeframe === tf.value
             ? 'bg-brand text-white'
-            : 'text-gray-400 hover:text-white hover:bg-white/10'
+            : 'text-muted hover:text-primary hover:bg-hover'
             }`}
         >
           {tf.label}
@@ -631,13 +631,13 @@ export default function DyDxTradingChart() {
       className={`${isFullscreen && !isMobile ? 'fixed inset-0 z-50' : 'h-full'} bg-primary flex flex-col`}
     >
       <div className="bg-secondary border-b border-color flex-shrink-0">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center">
+        <div className="flex items-center justify-between px-1 py-1">
+          <TimeframeSelector />
+
+          <div className="flex items-center gap-1 px-1 shrink-0">
+            <div className="w-px h-4 bg-color mx-2 hidden sm:block" />
             <ChartTypeDropdown />
             <SettingsDropdown />
-          </div>
-
-          <div className="flex items-center gap-1 px-1">
             <button
               onClick={downloadChart}
               className="p-2 hover:bg-hover rounded-md transition-colors hidden sm:flex items-center justify-center min-w-[40px] min-h-[40px]"
@@ -661,8 +661,6 @@ export default function DyDxTradingChart() {
       </div>
 
       <div className="flex-1 bg-secondary relative overflow-hidden">
-        <TimeframeSelector />
-
         <HistoryLoadingOverlay />
 
         {error && (
@@ -684,39 +682,28 @@ export default function DyDxTradingChart() {
   const renderMobileChart = () => (
     <div className={`${isFullscreen ? 'fixed inset-0 z-50 animate-fade-in' : 'h-full'} bg-primary flex flex-col`}>
       <div className={`bg-secondary border-b border-color flex-shrink-0 ${isFullscreen ? 'safe-area-top' : ''}`}>
-        <div className={`flex items-center px-2 py-1 ${isFullscreen ? 'justify-between' : 'justify-end'}`}>
-          {isFullscreen ? (
-            <>
-              <div className="flex items-center gap-0.5">
-                <ChartTypeDropdown />
-                <SettingsDropdown />
-              </div>
-              <button
-                onClick={toggleFullscreen}
-                className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-              >
-                <X className="w-5 h-5 text-gray-400" />
-              </button>
-            </>
-          ) : (
-            <div className="flex items-center gap-0.5">
-              <ChartTypeDropdown />
-              <SettingsDropdown />
-              <button
-                onClick={toggleFullscreen}
-                className="p-2 hover:bg-hover rounded-md transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                title="Expand Chart"
-              >
+        <div className="flex items-center justify-between px-1 py-1">
+          <TimeframeSelector />
+          
+          <div className="flex items-center gap-0.5 shrink-0">
+            <ChartTypeDropdown />
+            <SettingsDropdown />
+            <button
+              onClick={toggleFullscreen}
+              className="p-1.5 hover:bg-hover rounded-md transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Expand Chart'}
+            >
+              {isFullscreen ? (
+                <X className="w-4 h-4 text-gray-400" />
+              ) : (
                 <Maximize2 className="w-4 h-4 text-gray-400" />
-              </button>
-            </div>
-          )}
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]">
-        <TimeframeSelector />
-
         <HistoryLoadingOverlay />
 
         {error && (

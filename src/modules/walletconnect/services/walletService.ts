@@ -803,7 +803,7 @@ class WalletService {
     } catch (error) {
       console.error('[WalletService] Failed to clear IndexedDB:', error);
     }
-    
+
     // Also clear session vault and dydx keys
     await purge();
     sessionVault.clear();
@@ -811,7 +811,7 @@ class WalletService {
 
   async disconnectAll(): Promise<void> {
     console.log('[WalletService] Disconnecting all wallets...');
-    
+
     // Disconnect each provider properly
     const providers = new Set(this.providers.values());
     for (const provider of providers) {
@@ -833,7 +833,7 @@ class WalletService {
     this.lastPingAt.clear();
     this.disconnecting.clear();
     this.registeredProviders.clear();
-    
+
     await this.clearAppData();
     this.saveSession();
   }

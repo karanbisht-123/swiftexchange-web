@@ -5,35 +5,44 @@ import {
   CandlestickChart,
   LineChart,
   Wallet,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { useMarkets } from '../../hooks/useMarkets';
 import DydxTopBar from '../../layout/DydxTopBar';
 import useMarketStore from '../../store/marketStore';
-import DepthChart from '../DepthChart';
-import DyDxTradingChart from '../DyDxTradingChart';
 import { DydxWalletConnect } from '../DydxWalletConnect';
 import MarketsDisplay from '../MarketsDisplay';
-import { DydxTradingForm } from '../form/DydxTradingForm';
 import MarketSwitcher from '../market/MarketSwitcher';
 import { MarketStats } from '../market/MarketSwitcher';
-import OrderAndTrades from '../order&trade/OrderAndTrades';
-import Orderbook from '../order&trade/Orderbook';
-import FillsPanel from '../orderHistory/FillsPanel';
-import FundingPaymentsPanel from '../orderHistory/FundingPaymentsPanel';
-import OpenOrdersPanel from '../orderHistory/OpenOrdersPanel';
-import OrderHistoryPanel from '../orderHistory/OrderHistoryPanel';
-import PositionsPanel from '../orderHistory/PositionsPanel';
-import TransferHistoryPanel from '../orderHistory/TransferHistoryPanel';
-import FundingChart from './FundingChart';
 import ResizablePanel from './ResizablePanel';
 import ResizablePanelHorizontal from './ResizablePanelHorizontal';
 import SubscriptionKeepAlive from './SubscriptionKeepAlive';
 import { GeolocationGuard } from '../../../commonfeature/components/GeolocationGuard';
 import { RESTRICTED_TRADING_LOCATIONS } from '../../../commonfeature/constants/compliance';
+
+const DepthChart = lazy(() => import('../DepthChart'));
+const DyDxTradingChart = lazy(() => import('../DyDxTradingChart'));
+const FundingChart = lazy(() => import('./FundingChart'));
+const OrderAndTrades = lazy(() => import('../order&trade/OrderAndTrades'));
+const Orderbook = lazy(() => import('../order&trade/Orderbook'));
+const DydxTradingForm = lazy(() => import('../form/DydxTradingForm').then(m => ({ default: m.DydxTradingForm })));
+const FillsPanel = lazy(() => import('../orderHistory/FillsPanel'));
+const FundingPaymentsPanel = lazy(() => import('../orderHistory/FundingPaymentsPanel'));
+const OpenOrdersPanel = lazy(() => import('../orderHistory/OpenOrdersPanel'));
+const OrderHistoryPanel = lazy(() => import('../orderHistory/OrderHistoryPanel'));
+const PositionsPanel = lazy(() => import('../orderHistory/PositionsPanel'));
+const TransferHistoryPanel = lazy(() => import('../orderHistory/TransferHistoryPanel'));
+
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center w-full h-full p-4 min-h-[100px]">
+    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
@@ -51,7 +60,7 @@ const TradingintrFace = () => {
 
         {view === 'trade' && (
           <div className="flex flex-col flex-1 overflow-hidden">
-          <div className="hidden md:grid md:grid-cols-[1fr_auto] flex-1 overflow-hidden">
+          <div className="hidden lg:grid lg:grid-cols-[1fr_auto] flex-1 overflow-hidden">
             <div className="flex flex-col overflow-hidden min-w-0">
               <div className="flex overflow-hidden flex-1">
                 <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
@@ -80,21 +89,23 @@ const TradingintrFace = () => {
                   </div>
 
                   <div className="flex-1 relative">
-                    {activeChartTab === 'price' && (
-                      <div className="absolute inset-0">
-                        <DyDxTradingChart />
-                      </div>
-                    )}
-                    {activeChartTab === 'depth' && (
-                      <div className="absolute inset-0">
-                        <DepthChart />
-                      </div>
-                    )}
-                    {activeChartTab === 'funding' && selectedMarket && (
-                      <div className="absolute inset-0">
-                        <FundingChart market={selectedMarket} />
-                      </div>
-                    )}
+                    <Suspense fallback={<LoadingFallback />}>
+                      {activeChartTab === 'price' && (
+                        <div className="absolute inset-0">
+                          <DyDxTradingChart />
+                        </div>
+                      )}
+                      {activeChartTab === 'depth' && (
+                        <div className="absolute inset-0">
+                          <DepthChart />
+                        </div>
+                      )}
+                      {activeChartTab === 'funding' && selectedMarket && (
+                        <div className="absolute inset-0">
+                          <FundingChart market={selectedMarket} />
+                        </div>
+                      )}
+                    </Suspense>
                   </div>
                 </div>
                 <ResizablePanelHorizontal
@@ -104,7 +115,9 @@ const TradingintrFace = () => {
                   position="left"
                   className="bg-secondary shrink-0 z-10"
                 >
-                  <OrderAndTrades />
+                  <Suspense fallback={<LoadingFallback />}>
+                    <OrderAndTrades />
+                  </Suspense>
                 </ResizablePanelHorizontal>
               </div>
 
@@ -117,7 +130,9 @@ const TradingintrFace = () => {
             </div>
 
             <div className="bg-secondary flex-shrink-0">
-              <DydxTradingForm />
+              <Suspense fallback={<LoadingFallback />}>
+                <DydxTradingForm />
+              </Suspense>
             </div>
           </div>
 
@@ -241,18 +256,20 @@ const PortfolioView = ({
         })}
       </div>
 
-      <div className="flex-1 overflow-auto">
-        {activeTab === 'wallet' && (
-          <div className="p-4">
-            <DydxWalletConnect />
-          </div>
-        )}
-        {activeTab === 'positions' && <PositionsPanel />}
-        {activeTab === 'orders' && <OpenOrdersPanel />}
-        {activeTab === 'fills' && <FillsPanel />}
-        {activeTab === 'history' && <OrderHistoryPanel />}
-        {activeTab === 'funding' && <FundingPaymentsPanel />}
-        {activeTab === 'transfers' && <TransferHistoryPanel />}
+      <div className="flex-1 overflow-auto relative">
+        <Suspense fallback={<LoadingFallback />}>
+          {activeTab === 'wallet' && (
+            <div className="p-4">
+              <DydxWalletConnect />
+            </div>
+          )}
+          {activeTab === 'positions' && <PositionsPanel />}
+          {activeTab === 'orders' && <OpenOrdersPanel />}
+          {activeTab === 'fills' && <FillsPanel />}
+          {activeTab === 'history' && <OrderHistoryPanel />}
+          {activeTab === 'funding' && <FundingPaymentsPanel />}
+          {activeTab === 'transfers' && <TransferHistoryPanel />}
+        </Suspense>
       </div>
     </div>
   );
@@ -260,6 +277,7 @@ const PortfolioView = ({
 
 const MobileLayout = () => {
   const [activeTab, setActiveTab] = useState('price');
+  const [tradeView, setTradeView] = useState<'split' | 'orderbook' | 'form'>('split');
   const { getMarket } = useMarkets();
   const { selectedMarket } = useMarketStore();
 
@@ -275,47 +293,95 @@ const MobileLayout = () => {
   ];
 
   return (
-    <div className="md:hidden flex flex-col max-w-lvw flex h-[calc(100svh-60px)] overflow-hidden">
-      <div className="max-w-lvw shrink-0">
+    <div className="lg:hidden flex flex-col flex-1 h-full max-w-[100vw] overflow-hidden">
+      <div className="max-w-[100vw] shrink-0">
         <MarketSwitcher />
       </div>
       <div className="flex-1 overflow-hidden bg-secondary flex flex-col">
-        <div className="flex-1 overflow-hidden">
-          {activeTab === 'price' && (
-            <div className="h-full">
-              <DyDxTradingChart />
-            </div>
-          )}
-          {activeTab === 'depth' && (
-            <div className="h-full">
-              <DepthChart />
-            </div>
-          )}
-          {activeTab === 'funding' && (
-            <div className="h-full">
-              <FundingChart market={selectedMarket} />
-            </div>
-          )}
-          {activeTab === 'orderbook' && (
-            <div className="h-full overflow-auto">
-              <OrderAndTrades />
-            </div>
-          )}
-          {activeTab === 'trade' && (
-            <div className="h-full overflow-hidden flex">
-              <div className="w-2/4 overflow-auto border-r border-color">
-                <Orderbook />
+        <div className="flex-1 overflow-hidden relative">
+          <Suspense fallback={<LoadingFallback />}>
+            {activeTab === 'price' && (
+              <div className="h-full">
+                <DyDxTradingChart />
               </div>
-              <div className="flex-1 overflow-auto">
-                <DydxTradingForm />
+            )}
+            {activeTab === 'depth' && (
+              <div className="h-full">
+                <DepthChart />
               </div>
-            </div>
-          )}
-          {activeTab === 'portfolio' && (
-            <div className="h-full overflow-auto">
-              <MobilePortfolio />
-            </div>
-          )}
+            )}
+            {activeTab === 'funding' && (
+              <div className="h-full">
+                <FundingChart market={selectedMarket} />
+              </div>
+            )}
+            {activeTab === 'orderbook' && (
+              <div className="h-full overflow-hidden">
+                <OrderAndTrades />
+              </div>
+            )}
+            {activeTab === 'trade' && (
+              <div className="h-full overflow-hidden flex relative">
+                <div
+                  className={`transition-all duration-300 ease-in-out border-r border-color overflow-hidden flex flex-col ${
+                    tradeView === 'split' ? 'w-1/2' : tradeView === 'orderbook' ? 'w-full' : 'w-0'
+                  }`}
+                >
+                  <div className="flex-1 relative overflow-hidden group">
+                    <Orderbook />
+                    {tradeView === 'split' ? (
+                      <button
+                        onClick={() => setTradeView('orderbook')}
+                        className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                        title="Expand Orderbook"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : tradeView === 'orderbook' ? (
+                      <button
+                        onClick={() => setTradeView('split')}
+                        className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                        title="Split View"
+                      >
+                        <Minimize2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div
+                  className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
+                    tradeView === 'split' ? 'w-1/2' : tradeView === 'form' ? 'w-full' : 'w-0'
+                  }`}
+                >
+                  <div className="flex-1 relative overflow-hidden group">
+                    <DydxTradingForm />
+                    {tradeView === 'split' ? (
+                      <button
+                        onClick={() => setTradeView('form')}
+                        className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                        title="Expand Form"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : tradeView === 'form' ? (
+                      <button
+                        onClick={() => setTradeView('split')}
+                        className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                        title="Split View"
+                      >
+                        <Minimize2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
+            {activeTab === 'portfolio' && (
+              <div className="h-full overflow-auto">
+                <MobilePortfolio />
+              </div>
+            )}
+          </Suspense>
         </div>
         <div className="flex items-center justify-center gap-2 px-4 py-3 bg-secondary border-t border-color shrink-0">
           {tabs.map(tab => {
@@ -440,17 +506,19 @@ const MobilePortfolio = () => {
         })}
       </div>
 
-      <div className="flex-1 overflow-auto">
-        {activeTab === 'wallet' && (
-          <div className="p-4">
-            <DydxWalletConnect />
-          </div>
-        )}
-        {activeTab === 'positions' && <PositionsPanel />}
-        {activeTab === 'orders' && <OpenOrdersPanel />}
-        {activeTab === 'fills' && <FillsPanel />}
-        {activeTab === 'history' && <OrderHistoryPanel />}
-        {activeTab === 'funding' && <FundingPaymentsPanel />}
+      <div className="flex-1 overflow-auto relative">
+        <Suspense fallback={<LoadingFallback />}>
+          {activeTab === 'wallet' && (
+            <div className="p-4">
+              <DydxWalletConnect />
+            </div>
+          )}
+          {activeTab === 'positions' && <PositionsPanel />}
+          {activeTab === 'orders' && <OpenOrdersPanel />}
+          {activeTab === 'fills' && <FillsPanel />}
+          {activeTab === 'history' && <OrderHistoryPanel />}
+          {activeTab === 'funding' && <FundingPaymentsPanel />}
+        </Suspense>
       </div>
     </div>
   );
@@ -556,12 +624,14 @@ const BottomTabsSection = ({
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0 pb-6 relative">
-        {activeBottomTab === 'positions' && <PositionsPanel />}
-        {activeBottomTab === 'orders' && <OpenOrdersPanel />}
-        {activeBottomTab === 'fills' && <FillsPanel />}
-        {activeBottomTab === 'history' && <OrderHistoryPanel />}
-        {activeBottomTab === 'funding' && <FundingPaymentsPanel />}
-        {activeBottomTab === 'transfer' && <TransferHistoryPanel />}
+        <Suspense fallback={<LoadingFallback />}>
+          {activeBottomTab === 'positions' && <PositionsPanel />}
+          {activeBottomTab === 'orders' && <OpenOrdersPanel />}
+          {activeBottomTab === 'fills' && <FillsPanel />}
+          {activeBottomTab === 'history' && <OrderHistoryPanel />}
+          {activeBottomTab === 'funding' && <FundingPaymentsPanel />}
+          {activeBottomTab === 'transfer' && <TransferHistoryPanel />}
+        </Suspense>
       </div>
     </>
   );

@@ -12,7 +12,6 @@ import {
   Info,
   RefreshCw,
   Wallet,
-  ShieldCheck,
   ExternalLink,
   ArrowLeft
 } from 'lucide-react';
@@ -253,7 +252,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           const sanitized = saved.trim().replace(/”|“/g, '"');
           const rawParsed = JSON.parse(sanitized);
           const wallets = useWalletStore.getState().connectedWallets;
-          
+
           if (Array.isArray(rawParsed)) {
             parsed = rawParsed.find(p => isTxOwnedByCurrentUser(p, wallets)) || null;
           } else {
@@ -423,7 +422,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
             localStorage.removeItem(BRIDGE_STEP_KEY);
           }
         }
-      } catch (err) {}
+      } catch (err) { }
     } else if (phase !== 'SETUP') {
       console.debug('[Bridge] Persisting bridge state', phase, { swapTx, bridgeTx, depositTx });
       try {
@@ -452,7 +451,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           const rawParsed = JSON.parse(saved);
           arr = Array.isArray(rawParsed) ? rawParsed : [rawParsed];
         }
-        
+
         const wallets = useWalletStore.getState().connectedWallets;
         const index = arr.findIndex(p => isTxOwnedByCurrentUser(p, wallets));
         if (index >= 0) {
@@ -846,11 +845,11 @@ export const StellarDydxOrchestrator: React.FC = () => {
       // Track only the output amount for the next step, not the full balance
       const quotedOutput = swapQuote.estimatedOutput;
       const confirmedUsdcBalance = assetMap['USDC']?.balance ?? '0';
-      
+
       // If balance is strictly less than quoted (e.g. 0 prior balance + slippage), we must cap it.
       // Otherwise, we bridge exactly what was quoted.
       const actualOutput = Math.min(parseFloat(quotedOutput), parseFloat(confirmedUsdcBalance)).toString();
-      
+
       setIntermediateAmount(actualOutput);
 
       dispatchTx({ type: 'SET_SWAP_STATUS', status: 'SUCCESS' });
@@ -885,7 +884,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
       // Get the intended amount to bridge
       let targetBridgeAmount = isUsdc ? inputAmount : (intermediateAmount || swapQuote?.estimatedOutput || inputAmount);
-      
+
       // Safety cap: Never bridge more than the user actually has available in their wallet
       const confirmedUsdcBalance = assetMap['USDC']?.balance || '0';
       const bridgeInputAmount = Math.min(parseFloat(targetBridgeAmount), parseFloat(confirmedUsdcBalance)).toString();
@@ -1676,7 +1675,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   if (!isBothConnected && phase === 'SETUP') {
     return (
       <div className="w-full max-w-xl mx-auto lg:px-4 pb-4 animate-fade-in">
-        <div className="bg-tertiary rounded-[2.5rem] border border-divider/50 p-12 text-center shadow-2xl relative overflow-hidden group">
+        <div className="bg-tertiary rounded-[2.5rem] border border-divider/50 p-12 text-center  relative overflow-hidden group">
           {/* Background decorative elements */}
           <div className="absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -mr-16 -mt-16 blur-3xl transition-all group-hover:bg-brand/10" />
           <div className="absolute bottom-0 left-0 w-32 h-32 bg-brand/5 rounded-full -ml-16 -mb-16 blur-3xl transition-all group-hover:bg-brand/10" />
@@ -1685,9 +1684,6 @@ export const StellarDydxOrchestrator: React.FC = () => {
             <div className="relative">
               <div className="w-24 h-24 rounded-3xl bg-brand/10 flex items-center justify-center rotate-3 group-hover:rotate-6 transition-transform duration-500">
                 <Layers className="w-12 h-12 text-brand" />
-              </div>
-              <div className="absolute -bottom-2 -right-2 w-10 h-10 rounded-full bg-secondary border-4 border-bg-primary flex items-center justify-center shadow-xl">
-                <ShieldCheck className="w-5 h-5 text-brand" />
               </div>
             </div>
           </div>
@@ -1707,7 +1703,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           <div className="space-y-3">
             <button
               onClick={() => openModal()}
-              className="w-full bg-brand text-white font-black py-5 rounded-2xl tracking-[0.2em] hover:brightness-110 active:scale-[0.98] transition-all uppercase shadow-lg shadow-brand/20 flex items-center justify-center gap-3"
+              className="w-full btn btn-primary text font-black py-5 rounded-2xl tracking-[0.2em] hover:brightness-110 active:scale-[0.98] transition-all uppercase shadow-lg shadow-brand/20 flex items-center justify-center gap-3"
             >
               <Wallet size={20} />
               Connect Wallets

@@ -557,7 +557,7 @@ export const DydxTradingForm: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col max-w-lvw lg:max-w-[300px] h-[100svh] border-l border-color bg-secondary">
+    <div className="flex flex-col max-w-[100vw] lg:max-w-[300px] h-full border-l border-color bg-secondary">
       {notifications.map(notif => (
         <Notification
           key={notif.id}

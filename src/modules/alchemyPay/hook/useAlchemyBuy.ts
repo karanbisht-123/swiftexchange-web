@@ -110,6 +110,18 @@ export const useAlchemyBuy = () => {
   }, [country, isLoadingCountry, hasAutoSelectedCountry]);
 
   useEffect(() => {
+    if (!fiatAmount) return;
+    const currency = selectedPaymentOption?.currency;
+    const isIntegerOnly = currency && ['INR', 'JPY', 'KRW', 'IDR', 'VND', 'HUF'].includes(currency);
+    if (isIntegerOnly && fiatAmount.includes('.')) {
+      setFiatAmount(prev => {
+        const parts = prev.split('.');
+        return parts[0] || '';
+      });
+    }
+  }, [selectedPaymentOption, fiatAmount]);
+
+  useEffect(() => {
     const fetchQuote = async () => {
       setQuoteError('');
       setOrderError('');

@@ -169,9 +169,13 @@ const MobileActionSheet = ({
 };
 
 // Desktop dropdown 
-const AssetMoreActions = ({ onSend, onReceive }: { onSend: () => void; onReceive: () => void }) => {
+const AssetMoreActions = ({ onSend, onReceive, onOpenChange }: { onSend: () => void; onReceive: () => void; onOpenChange?: (open: boolean) => void }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   useEffect(() => {
     const cb = (e: MouseEvent) => {
@@ -226,6 +230,7 @@ const AssetRow = memo(({
   style?: React.CSSProperties;
 }) => {
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const isPriceLoading = asset.current_price === 0 && (asset.balance || 0) > 0;
   const isBalanceLoading = asset.balance === null;
   const usdValue = (asset.balance || 0) * (asset.current_price || 0);
@@ -242,6 +247,7 @@ const AssetRow = memo(({
           paddingTop: 4,
           paddingBottom: 4,
           boxSizing: 'border-box',
+          zIndex: menuOpen ? 50 : 'auto',
         }}
       >
         {/* Card */}
@@ -315,7 +321,7 @@ const AssetRow = memo(({
             <button onClick={() => onPerp(asset)} className="btn btn-primary btn-sm rounded-md px-3">
               Perp
             </button>
-            <AssetMoreActions onSend={() => onSend(asset)} onReceive={() => onReceive(asset)} />
+            <AssetMoreActions onSend={() => onSend(asset)} onReceive={() => onReceive(asset)} onOpenChange={setMenuOpen} />
           </div>
         </div>
       </div>

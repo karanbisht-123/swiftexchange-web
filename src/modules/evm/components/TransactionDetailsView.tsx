@@ -39,9 +39,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   const status = rawStatus === 'completed' ? 'success' : rawStatus;
   const type = isLocal ? (transaction as LocalTransactionWithStatus).type : 'transaction';
   const description = isLocal ? (transaction as LocalTransactionWithStatus).description : null;
-  const timestamp = isLocal 
-    ? (transaction as LocalTransactionWithStatus).timestamp 
-    : (transaction as TransactionItem).metadata?.blockTimestamp 
+  const timestamp = isLocal
+    ? (transaction as LocalTransactionWithStatus).timestamp
+    : (transaction as TransactionItem).metadata?.blockTimestamp
       ? new Date((transaction as TransactionItem).metadata.blockTimestamp).getTime()
       : null;
   const destinationHash = backendStatus?.destinationHash || (isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null);
@@ -52,7 +52,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     if (tx.asset) assetLogo = getGlobalAssetMetadata(tx.asset)?.logoURI;
     if (!assetLogo && tx.rawContract?.address) assetLogo = getAssetByAddress(chainId, tx.rawContract.address)?.logoURI;
   }
-  
+
   const displayIcon = assetLogo || logoUrl;
 
   const getStatusDisplay = () => {
