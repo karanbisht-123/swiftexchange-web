@@ -125,7 +125,12 @@ export async function estimateEVMFees(
 
     // 2. Fetch Fee Data from Wallet API or RPC
     const prefix = getNetworkPrefix(networkKey);
-    const walletInfo = await getWalletGasInfo(prefix, from);
+    let walletInfo: any = null;
+    try {
+      walletInfo = await getWalletGasInfo(prefix, from);
+    } catch (e) {
+      console.warn(`[estimateEVMFees] Backend proxy failed, falling back to RPC:`, e);
+    }
 
     let feeData: any;
     if (walletInfo?.gasFeeData) {
@@ -227,22 +232,6 @@ export async function simulateEVMTransaction(
   const { rpcUrls, nativeCurrency } = getEVMNetworkConfig(networkKey) as any;
   const amountInWei = typeof value === 'string' ? BigInt(value) : value;
 
-  const { estimate, rpcFeeData, balance } = await rpcManager.fetchWithFallback(
-    networkKey,
-    rpcUrls,
-    async (p) => {
-      const est = await p.estimateGas({
-        from,
-        to,
-        value: amountInWei,
-        data,
-      });
-      const fd = await p.getFeeData();
-      const bal = await p.getBalance(from);
-      return { estimate: BigInt(est), rpcFeeData: fd, balance: bal };
-    }
-  );
-
   const prefix = getNetworkPrefix(networkKey);
   const walletInfo = await getWalletGasInfo(prefix, from);
 
@@ -253,7 +242,25 @@ export async function simulateEVMTransaction(
       maxFeePerGas: walletInfo.gasFeeData.maxFeePerGas ? BigInt(walletInfo.gasFeeData.maxFeePerGas) : undefined,
       maxPriorityFeePerGas: walletInfo.gasFeeData.maxPriorityFeePerGas ? BigInt(walletInfo.gasFeeData.maxPriorityFeePerGas) : undefined,
     };
-  } else {
+  }
+
+  const { estimate, rpcFeeData, balance } = await rpcManager.fetchWithFallback(
+    networkKey,
+    rpcUrls,
+    async (p) => {
+      const est = await p.estimateGas({
+        from,
+        to,
+        value: amountInWei,
+        data,
+      });
+      const bal = await p.getBalance(from);
+      const fd = !feeData ? await p.getFeeData() : null;
+      return { estimate: BigInt(est), rpcFeeData: fd, balance: bal };
+    }
+  );
+
+  if (!feeData && rpcFeeData) {
     feeData = rpcFeeData;
   }
 

@@ -40,6 +40,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     handleReviewTransaction,
     handleConfirmTransaction,
     handleBackToForm,
+    handleDone,
     handleRetryTransaction,
     copyToClipboard,
     formError,
@@ -132,7 +133,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     if (!currentAsset || !recipientAddress || !amount) return null;
 
     return (
-      <div className="space-y-4 w-[95vw] overflow-hidden">
+      <div className="space-y-4 w-full overflow-hidden">
         <div className="bg-brand-primary/5 rounded-xl border border-brand-primary/10 p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center">
@@ -303,7 +304,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           <EvmTransactionSuccessModal
             txHash={txHash || ''}
             explorerUrl={explorerUrl}
-            onDone={onBack || handleBackToForm}
+            onDone={handleDone}
             networkName={currentAsset.network}
           />
         );
@@ -314,7 +315,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           status="success"
           type="Send"
           hash={txHash || ''}
-          onClose={onBack || handleBackToForm}
+          onClose={handleDone}
         />
       );
     }

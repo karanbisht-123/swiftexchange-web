@@ -885,16 +885,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           if (result.success && result.hash) {
             setBridgeTxHash(result.hash);
             setBridgeTxStatus('success');
-            addLocalTransaction({
-              hash: result.hash,
-              chainId: fromChainId,
-              type: 'bridge',
-              timestamp: Date.now(),
-              description: `Bridge ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
-              from: stellarAddress,
-              status: 'pending',
-              network: currentNetwork
-            });
+            storeSwapOrder({
+              txHash: result.hash,
+              walletAddress: stellarAddress,
+              provider: 'ALLBRIDGE',
+              fromChain: ChainSymbol.SRB,
+              fromToken: sellAssetSymbol,
+              toChain: getChainById(toChainId)?.symbol || String(toChainId),
+              toToken: buyAssetSymbol,
+              amountIn: sellAmount,
+              amountOut: calculatedBuyAmount,
+              txType: 'Bridge'
+            } as any).catch((err: any) => console.error('Failed to store Stellar→EVM bridge order:', err));
             showToast({
               type: 'BRIDGE',
               title: 'Bridge Initiated',
@@ -942,21 +944,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               setStatus: setBridgeTxStatus,
               setHash: setBridgeTxHash,
               addTransaction: (tx: any) => {
-                if (tx.type === 'swap' || tx.type === 'bridge') {
+                if (tx.type === 'swap' || tx.type === 'bridge' || tx.type === 'approval') {
                   storeSwapOrder({
                     txHash: tx.hash,
                     walletAddress: evmAddress,
-                    provider: 'RANGO',
+                    provider: tx.type === 'approval' ? 'EVMTX' : 'RANGO',
                     fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
                     fromToken: sellAssetSymbol,
                     toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
                     toToken: buyAssetSymbol,
                     amountIn: sellAmount,
                     amountOut: calculatedBuyAmount,
-                    requestId: requestId
-                  } as any).catch(err => console.error('Failed to store Rango bridge order:', err));
-                } else {
-                  addLocalTransaction(tx);
+                    requestId: requestId,
+                    txType: tx.type === 'approval' ? 'Token Approval' : (fromChainId === toChainId ? 'Swap' : 'Contract Call')
+                  } as any).catch(err => console.error('Failed to store Rango order:', err));
                 }
               }
             },
@@ -998,16 +999,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               }]
             });
             if (tx.type === 'approve') {
-              addLocalTransaction({
-                hash,
-                chainId: fromChainId,
-                type: 'approval',
-                timestamp: Date.now(),
-                description: `Approve ${sellAssetSymbol} for Bridge`,
-                from: evmAddress,
-                status: 'success',
-                network: currentNetwork
-              });
+              storeSwapOrder({
+                txHash: hash,
+                walletAddress: evmAddress,
+                provider: 'EVMTX',
+                fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                fromToken: sellAssetSymbol,
+                toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                toToken: buyAssetSymbol,
+                amountIn: sellAmount,
+                amountOut: calculatedBuyAmount,
+                txType: 'Token Approval'
+              } as any).catch(err => console.error('Failed to store Allbridge approval order:', err));
             }
             if (tx.type === 'transfer') {
               setBridgeTxHash(hash);
@@ -1021,6 +1024,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 toToken: buyAssetSymbol,
                 amountIn: sellAmount,
                 amountOut: calculatedBuyAmount,
+                txType: 'Bridge'
               } as any).catch(err => console.error('Failed to store Allbridge order:', err));
             }
           }

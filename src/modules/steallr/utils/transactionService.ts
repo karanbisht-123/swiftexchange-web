@@ -146,7 +146,6 @@ export const signAndSubmitTransaction = async (
       }
     }
 
-    // 3. Fallback for other providers that might have a simple request method
     if (typeof provider?.request === 'function') {
       console.log('[StellarTransactionService] Using generic provider.request');
       const result = await provider.request({

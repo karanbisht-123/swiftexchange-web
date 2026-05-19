@@ -53,7 +53,7 @@ async function fetchWithRetry(
 
 export async function fetchApiResponseFromProxy<T>(
   endpoint: string,
-  method: 'GET' | 'POST' = 'POST',
+  method: 'GET' | 'POST' | 'PUT' = 'POST',
   body?: unknown,
   retries?: number
 ): Promise<ApiResponse<T>> {
@@ -187,7 +187,7 @@ export async function getWalletGasInfo(
 
   try {
     const endpoint = `/eth/wallet-address/${address}/info`;
-    const response = await fetchApiResponseFromServer<WalletGasInfo>(endpoint, 'GET');
+    const response = await fetchApiResponseFromProxy<WalletGasInfo>(endpoint, 'GET');
 
     if (response.data) {
 

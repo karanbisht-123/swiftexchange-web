@@ -315,12 +315,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
             dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: storeTx.status === 'success' ? 'SUCCESS' : 'PENDING' });
           }
         }
-
-        // QA Fix-up: If a previous step was successful but the phase wasn't advanced, advance it now
         if (parsed.swapStatus === 'SUCCESS' && parsed.phase === 'SWAP') setPhase('BRIDGE');
         if (parsed.bridgeStatus === 'SUCCESS' && parsed.phase === 'BRIDGE') setPhase('DEPOSIT');
 
-        // QA Safety: Clear future step statuses if we are in an earlier phase
         if (parsed.phase === 'SWAP') {
           dispatchTx({ type: 'SET_BRIDGE_STATUS', status: null });
           dispatchTx({ type: 'SET_DEPOSIT_STATUS', status: null });

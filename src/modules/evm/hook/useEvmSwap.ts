@@ -294,7 +294,16 @@ export const useEvmSwap = ({
           slippage: state.userSlippageTolerance.toString(),
         };
 
-        const quoteResponse = await fetchEvmQuote(chainId, adjustedRequest, sellAsset, buyAsset);
+        let quoteResponse = await fetchEvmQuote(chainId, adjustedRequest, sellAsset, buyAsset);
+        // If the backend routed to Rango, we re-fetch the quote with an additional +1 slippage buffer
+        if (quoteResponse.provider === 'RANGO') {
+          const rangoRequest: SwapQuoteRequest = {
+            ...adjustedRequest,
+            slippage: (state.userSlippageTolerance + 1).toString(),
+          };
+          quoteResponse = await fetchEvmQuote(chainId, rangoRequest, sellAsset, buyAsset);
+        }
+
         if (requestId !== latestQuoteRequestId.current) {
           return Promise.reject(new Error('Quote request superseded'));
         }
@@ -383,13 +392,25 @@ export const useEvmSwap = ({
           senderAddress,
           sellAmount,
           slippageTolerance,
-          getProvider
+          getProvider,
+          (approvalHash) => {
+            storeSwapOrder({
+              txHash: approvalHash,
+              walletAddress: senderAddress,
+              provider: 'EVMTX',
+              fromChain: getChainById(chainId)?.symbol || '',
+              fromToken: sellAsset.symbol,
+              toChain: getChainById(buyAsset.chainId || chainId)?.symbol || '',
+              toToken: buyAsset.symbol,
+              amountIn: sellAmount,
+              amountOut: quote.outputAmount,
+              txType: 'Token Approval',
+            } as any).catch(err => console.error('Failed to store swap approval order on backend:', err));
+          }
         );
 
         const currentNetwork = useWalletStore.getState().network;
 
-        console.log(quote, "----------------- 987654321")
-        // Save to backend if it's a supported provider, otherwise save to local storage
         if (quote.provider === 'RANGO' || quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP' || quote.provider === 'ALLBRIDGE') {
           try {
             await storeSwapOrder({
@@ -402,7 +423,7 @@ export const useEvmSwap = ({
               toToken: buyAsset.symbol,
               amountIn: sellAmount,
               amountOut: quote.outputAmount,
-              // requestId is only for Rango
+              txType: quote.provider === 'ALLBRIDGE' ? 'Bridge' : quote.provider === 'RANGO' ? 'Contract Call' : 'Swap',
               ...(quote.provider === 'RANGO' ? { requestId: (quote as any).requestId || (quote.rawQuote as any)?.requestId } : {})
             } as any);
           } catch (err) {
@@ -470,7 +491,21 @@ export const useEvmSwap = ({
           buyAsset,
           sellAmount,
           getProvider,
-          onProgress
+          onProgress,
+          (approvalHash) => {
+            storeSwapOrder({
+              txHash: approvalHash,
+              walletAddress: senderAddress,
+              provider: 'EVMTX',
+              fromChain: getChainById(chainId)?.symbol,
+              fromToken: sellAsset.symbol,
+              toChain: getChainById(buyAsset.chainId || chainId)?.symbol,
+              toToken: buyAsset.symbol,
+              amountIn: sellAmount,
+              amountOut: state.fusionQuote?.toTokenAmount ? ethers.formatUnits(state.fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+              txType: 'Token Approval',
+            } as any).catch(backendErr => console.error('Failed to store fusion swap approval order on backend:', backendErr));
+          }
         );
 
         // 1Inch Fusion swaps always go to backend
@@ -485,6 +520,7 @@ export const useEvmSwap = ({
             toToken: buyAsset.symbol,
             amountIn: sellAmount,
             amountOut: state.fusionQuote.toTokenAmount ? ethers.formatUnits(state.fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+            txType: 'Swap',
           } as any);
         } catch (backendErr) {
           console.error('Failed to store fusion swap order on backend:', backendErr);

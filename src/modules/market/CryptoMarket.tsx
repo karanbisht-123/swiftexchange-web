@@ -191,7 +191,7 @@ const CryptoMarket = () => {
               <div className="text-right shrink-0">
                 <div className="text-primary font-semibold text-sm">{formatPrice(coin.currentPrice)}</div>
                 <div className={`text-xs font-medium mt-0.5 ${coin.priceChangePercentage24h >= 0 ? 'text-success' : 'text-danger'}`}>
-                  {coin.priceChangePercentage24h >= 0 ? '+' : ''}{coin.priceChangePercentage24h.toFixed(2)}%
+                  {coin.priceChangePercentage24h >= 0 ? '+' : ''}{coin?.priceChangePercentage24h?.toFixed(2)}%
                 </div>
               </div>
             </div>
@@ -247,7 +247,7 @@ const CryptoMarket = () => {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <span className={`text-xs font-medium ${coin.priceChangePercentage24h >= 0 ? 'text-success' : 'text-danger'}`}>
-                    {coin.priceChangePercentage24h >= 0 ? '+' : ''}{coin.priceChangePercentage24h.toFixed(2)}%
+                    {coin.priceChangePercentage24h >= 0 ? '+' : ''}{coin?.priceChangePercentage24h?.toFixed(2)}%
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right text-xs text-muted hidden md:table-cell">
@@ -361,7 +361,7 @@ const CryptoMarket = () => {
                         : 'bg-danger/10 text-danger'}`}
                   >
                     <TrendingUp size={12} className={c.priceChangePercentage24h < 0 ? 'rotate-180' : ''} />
-                    {Math.abs(c.priceChangePercentage24h).toFixed(2)}%
+                    {Math.abs(c.priceChangePercentage24h)?.toFixed(2)}%
                   </span>
                   {c.priceChange24h !== undefined && (
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-tertiary text-muted">
@@ -397,7 +397,7 @@ const CryptoMarket = () => {
                       <span className="text-sm font-medium text-primary">{formatLargeNumber(c.marketCap)}</span>
                       {c.marketCapChangePercentage_24h !== undefined && (
                         <p className={`text-xs mt-0.5 ${c.marketCapChangePercentage_24h >= 0 ? 'text-success' : 'text-danger'}`}>
-                          {c.marketCapChangePercentage_24h >= 0 ? '+' : ''}{c.marketCapChangePercentage_24h.toFixed(2)}%
+                          {c.marketCapChangePercentage_24h >= 0 ? '+' : ''}{c.marketCapChangePercentage_24h?.toFixed(2)}%
                         </p>
                       )}
                     </div>
@@ -438,7 +438,7 @@ const CryptoMarket = () => {
                         ROI
                       </span>
                       <span className={`text-sm font-medium ${c.roi.percentage >= 0 ? 'text-success' : 'text-danger'}`}>
-                        {c.roi.percentage.toFixed(2)}%
+                        {c.roi.percentage?.toFixed(2)}%
                         <span className="text-xs text-muted font-normal ml-1">({c.roi.currency})</span>
                       </span>
                     </div>
@@ -451,7 +451,7 @@ const CryptoMarket = () => {
                 <div className="px-5 py-4 border-r border-color/30">
                   <p className="text-xs text-muted uppercase tracking-wider mb-2">All-time high</p>
                   <p className="text-sm font-medium text-primary">{formatPrice(c.ath)}</p>
-                  <p className="text-xs text-danger mt-1">{c.athChangePercentage.toFixed(2)}%</p>
+                  <p className="text-xs text-danger mt-1">{c.athChangePercentage?.toFixed(2)}%</p>
                   <p className="text-xs text-muted mt-1">{formatDate(c.athDate)}</p>
                 </div>
                 {c.atl && (

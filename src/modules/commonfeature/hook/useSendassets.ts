@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
 import { SendErcAbi } from '../../../abi/SendErcAbi';
 import { validateAddress } from '../../../validator/AddressValidator';
-import { estimateEVMFees } from '../../evm/service/evmService';
-import { addLocalTransaction } from '../../evm/service/localTransactionService';
+import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
 import { checkTrustlineExists, estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
 import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
+import { getChainById } from '../../evm/utils/Chainregistry';
 import type { StellarSendTransaction } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
@@ -57,6 +58,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const currentNetwork = useWalletStore(state => state.network);
   const storeAssets = usePortfolioStore(state => state.assets);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [recipientAddress, setRecipientAddress] = useState('');
   const [amount, setAmount] = useState('');
@@ -69,6 +71,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const [hasTrustline, setHasTrustline] = useState<boolean | null>(null);
   const [recipientHasTrustline, setRecipientHasTrustline] = useState<boolean | null>(null);
   const [isFetchingRecipientTrust, setIsFetchingRecipientTrust] = useState(false);
+  const isConfirmingRef = useRef(false);
 
   const allAssets: EnhancedSendAsset[] = useMemo(() => {
     return storeAssets
@@ -221,12 +224,11 @@ export const useSendAsset = (onBack?: () => void) => {
       return;
     }
 
-    console.log('[useSendAsset] handleConfirmTransaction initiated', {
-      asset: currentAsset.symbol,
-      network: currentAsset.network,
-      recipient: recipientAddress,
-      amount: amount
-    });
+    if (isConfirmingRef.current) {
+      console.warn('[useSendAsset] Transaction confirmation already in progress. Blocking concurrent request.');
+      return;
+    }
+    isConfirmingRef.current = true;
 
     try {
       setTransactionState(p => ({ ...p, step: 'signing', error: null }));
@@ -245,20 +247,48 @@ export const useSendAsset = (onBack?: () => void) => {
           sendAmt = '0';
         }
 
-        req = { type: 'evm', network: currentAsset.network, networkKey: Number(currentAsset.networkKey), from: senderAddress, to, amount: sendAmt, data };
+        let unsignedTx: string | undefined;
+
+        console.log('[useSendAsset] Preparing EVM transaction via backend API...');
+        try {
+          const prepRes = await sendCryptoEVMPrepare(
+            Number(currentAsset.networkKey),
+            senderAddress,
+            to,
+            sendAmt,
+            { data }
+          );
+          unsignedTx = prepRes.unsignedTx;
+        } catch (apiError) {
+          console.warn('[useSendAsset] Backend transaction preparation failed. Falling back to client-side simulation:', apiError);
+        }
+
+        req = { 
+          type: 'evm', 
+          network: currentAsset.network, 
+          networkKey: Number(currentAsset.networkKey), 
+          from: senderAddress, 
+          to, 
+          amount: sendAmt, 
+          data,
+          unsignedTx
+        };
         console.log('[useSendAsset] Sending transaction request to router:', req);
         const res = await sendTransaction(req);
-        //  persist evm tx to localStorage so history shows up
-        addLocalTransaction({
-          hash: res.hash || 'unknown',
-          chainId: currentAsset.chainId,
-          type: 'send',
-          timestamp: Date.now(),
-          status: 'success',
-          from: senderAddress,
-          network: currentNetwork,
-          description: `Send ${amount} ${currentAsset.symbol} on ${currentAsset.network}`
-        });
+        const chainSymbol = currentAsset.type === 'evm' ? (getChainById(Number(currentAsset.networkKey))?.symbol || currentAsset.network) : currentAsset.network;
+          
+          await storeSwapOrder({
+            txHash: res.hash || 'unknown',
+            walletAddress: senderAddress,
+            provider: "EVMTX",
+            fromChain: chainSymbol,
+            toChain: chainSymbol,
+            fromToken: currentAsset.symbol,
+            toToken: currentAsset.symbol,
+          amountIn: amount,
+          amountOut: amount,
+          txType: currentAsset.isNative ? 'Native Transfer' : 'Token Transfer'
+        }).catch(err => console.error('Failed to store transfer to backend:', err));
 
         setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
       } else if (currentAsset.type === 'stellar') {
@@ -318,23 +348,14 @@ export const useSendAsset = (onBack?: () => void) => {
 
         if (!result.success) throw new Error(result.error || 'Transaction failed');
 
-        addLocalTransaction({
-          hash: result.transactionHash || 'unknown',
-          chainId: currentAsset.chainId,
-          type: 'send',
-          timestamp: Date.now(),
-          status: 'success',
-          from: senderAddress,
-          network: currentNetwork,
-          description: `Send ${amount} ${currentAsset.symbol} (dYdX)`
-        });
-
         setTransactionState(p => ({ ...p, txHash: result.transactionHash || 'unknown', step: 'success' }));
         setTimeout(() => { setRecipientAddress(''); setAmount(''); setMemo(''); setTransactionState({ txHash: null, step: 'form', error: null }); }, 3000);
       }
     } catch (e: any) {
       console.error('[useSendAsset] Transaction exception caught:', e);
       setTransactionState(p => ({ ...p, step: 'error', error: formatErrorMessage(e, 'Tx') }));
+    } finally {
+      isConfirmingRef.current = false;
     }
   };
 
@@ -367,6 +388,18 @@ export const useSendAsset = (onBack?: () => void) => {
     try { await navigator.clipboard.writeText(text); } catch (e) { console.error('Copy error', e); }
   };
 
+  const handleDone = useCallback(() => {
+    if (currentAsset?.type === 'evm') {
+      navigate('/transactions?tab=recent');
+    } else if (currentAsset?.type === 'stellar') {
+      navigate('/transactions?tab=stellar');
+    } else if (onBack) {
+      onBack();
+    } else {
+      setTransactionState({ txHash: null, step: 'form', error: null });
+    }
+  }, [currentAsset, navigate, onBack]);
+
   return {
     recipientAddress, setRecipientAddress, amount, setAmount, memo, setMemo,
     balance, isFetchingBalance,
@@ -377,6 +410,7 @@ export const useSendAsset = (onBack?: () => void) => {
     handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
     handleConfirmTransaction,
     handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
+    handleDone,
     handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
     formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (recipientAddress && !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (amount && amount !== '.' && new BigNumber(amount).isGreaterThan(balance) && hasTrustline) ? 'Insufficient funds' : null,
