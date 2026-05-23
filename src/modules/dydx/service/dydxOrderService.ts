@@ -335,10 +335,11 @@ class DydxDataService {
   async getHistoricalPnl(
     effectiveBeforeOrAt?: string,
     effectiveAtOrAfter?: string,
-    limit = 10,
-    useCache = true
+    limit = 100,
+    useCache = true,
+    daily = false
   ): Promise<HistoricalPnl[]> {
-    const cacheKey = `pnl_${effectiveBeforeOrAt || 'all'}_${effectiveAtOrAfter || 'all'}_${limit}`;
+    const cacheKey = `pnl_v2_${effectiveBeforeOrAt || 'all'}_${effectiveAtOrAfter || 'all'}_${limit}_${daily}`;
 
     if (useCache) {
       const cached = this.getCached<HistoricalPnl[]>(cacheKey);
@@ -349,21 +350,41 @@ class DydxDataService {
     const { indexer, address } = this.getContext();
 
     try {
-      const response = await indexer.account.getParentSubaccountNumberHistoricalPNLs(
+      const response: any = await indexer.account.getParentSubaccountNumberHistoricalPNLsV2(
         address,
         0,
+        daily,
         undefined,
         effectiveBeforeOrAt,
         undefined,
-        effectiveAtOrAfter,
-        limit
+        effectiveAtOrAfter
       );
 
-      const historicalPnls = response.historicalPnl || [];
-      this.setCache(cacheKey, historicalPnls);
-      return historicalPnls;
+      const items = (response.pnl || []).map((item: any) => ({
+        id: item.createdAt,
+        equity: item.equity,
+        totalPnl: item.totalPnl,
+        netTransfers: item.netTransfers,
+        createdAt: item.createdAt,
+        blockHeight: item.createdAtHeight,
+        blockTime: item.createdAt
+      })) as HistoricalPnl[];
+
+      // Deduplicate by createdAt
+      const uniqueResults: HistoricalPnl[] = [];
+      const seenIds = new Set();
+      for (const item of items) {
+        const uniqueKey = item.createdAt;
+        if (!seenIds.has(uniqueKey)) {
+          seenIds.add(uniqueKey);
+          uniqueResults.push(item);
+        }
+      }
+
+      this.setCache(cacheKey, uniqueResults);
+      return uniqueResults;
     } catch (err) {
-      console.error('[DydxDataService] getHistoricalPnl failed:', err);
+      console.error('[DydxDataService] getHistoricalPnl V2 failed:', err);
       return [];
     }
   }
@@ -458,22 +479,141 @@ class DydxDataService {
     }
   }
 
+  async getFillsByDateRange(fromDate: string, toDate: string): Promise<Fill[]> {
+    const cacheKey = `fills_range_${fromDate}_${toDate}`;
+    const cached = this.getCached<Fill[]>(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const from = new Date(fromDate).getTime();
+      const toISO = new Date(toDate);
+      toISO.setHours(23, 59, 59, 999);
+      const to = toISO.getTime();
+
+      const allFills = await this.getFills(undefined, undefined, false);
+      const filtered = allFills.filter(f => {
+        const t = new Date(f.createdAt).getTime();
+        return t >= from && t <= to;
+      });
+
+      filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      this.setCache(cacheKey, filtered);
+      return filtered;
+    } catch (err) {
+      console.error('[DydxDataService] getFillsByDateRange failed:', err);
+      return [];
+    }
+  }
+
+
+  async getOrdersByDateRange(fromDate: string, toDate: string): Promise<Order[]> {
+    const cacheKey = `orders_range_${fromDate}_${toDate}`;
+    const cached = this.getCached<Order[]>(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const allOrders = await this.getOrders(undefined, undefined, true, false);
+      const from = new Date(fromDate).getTime();
+      const toISO = new Date(toDate);
+      toISO.setHours(23, 59, 59, 999);
+      const to = toISO.getTime();
+
+      const filtered = allOrders.filter(o => {
+        const t = o.updatedAt ? new Date(o.updatedAt).getTime() : 0;
+        return t >= from && t <= to;
+      });
+
+      this.setCache(cacheKey, filtered);
+      return filtered;
+    } catch (err) {
+      console.error('[DydxDataService] getOrdersByDateRange failed:', err);
+      return [];
+    }
+  }
+
+  async getTransfersByDateRange(fromDate: string, toDate: string): Promise<Transfer[]> {
+    const cacheKey = `transfers_range_${fromDate}_${toDate}`;
+    const cached = this.getCached<Transfer[]>(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const response = await this.getTransfers(100);
+      const from = new Date(fromDate).getTime();
+      const toISO = new Date(toDate);
+      toISO.setHours(23, 59, 59, 999);
+      const to = toISO.getTime();
+
+      const filtered = response.transfers.filter(tx => {
+        const t = new Date(tx.createdAt).getTime();
+        return t >= from && t <= to;
+      });
+
+      this.setCache(cacheKey, filtered);
+      return filtered;
+    } catch (err) {
+      console.error('[DydxDataService] getTransfersByDateRange failed:', err);
+      return [];
+    }
+  }
+
+  async getPnlByDateRange(fromDate: string, toDate: string): Promise<HistoricalPnl[]> {
+    const toISO = new Date(toDate);
+    toISO.setHours(23, 59, 59, 999);
+    return this.getHistoricalPnl(
+      toISO.toISOString(),
+      new Date(fromDate).toISOString(),
+      100,
+      true,
+      true
+    );
+  }
+
   async getTransfers(limit: number = 100, createdBeforeOrAt?: any): Promise<TransfersResponse> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
 
     try {
-      const response: any = await indexer.account.getParentSubaccountNumberTransfers(
-        address,
-        0,
-        limit,
-        createdBeforeOrAt
-      );
+      let allTransfers: Transfer[] = [];
+      let currentBefore = createdBeforeOrAt;
+      let hasMore = true;
+      const MAX_PAGES = 10;
+      let pageCount = 0;
+
+      while (hasMore && pageCount < MAX_PAGES) {
+        pageCount++;
+        const response: any = await indexer.account.getParentSubaccountNumberTransfers(
+          address,
+          0,
+          limit,
+          currentBefore
+        );
+
+        const items = (response.transfers || []) as Transfer[];
+        allTransfers = allTransfers.concat(items);
+
+        if (items.length < limit) {
+          hasMore = false;
+        } else {
+          const lastItem = items[items.length - 1];
+          currentBefore = lastItem.createdAt;
+        }
+      }
+
+      // Deduplicate by id or createdAt
+      const uniqueTransfers: Transfer[] = [];
+      const seenIds = new Set();
+      for (const item of allTransfers) {
+        const uniqueKey = item.id || item.createdAt;
+        if (!seenIds.has(uniqueKey)) {
+          seenIds.add(uniqueKey);
+          uniqueTransfers.push(item);
+        }
+      }
 
       return {
-        transfers: (response.transfers || []) as Transfer[],
+        transfers: uniqueTransfers,
         limit: limit,
-        latestCreatedAt: response.latestCreatedAt || '',
+        latestCreatedAt: uniqueTransfers.length > 0 ? uniqueTransfers[0].createdAt : '',
       };
     } catch (err) {
       console.error('[DydxDataService] getTransfers failed:', err);

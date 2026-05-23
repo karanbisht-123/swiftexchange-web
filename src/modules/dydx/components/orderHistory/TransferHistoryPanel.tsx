@@ -8,6 +8,7 @@ import { LoadingState } from '../shared/LoadingState';
 import { Pagination } from '../shared/Pagination';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
+
 const ITEMS_PER_PAGE = 10;
 
 const TransferHistoryPanel: React.FC = () => {
@@ -17,6 +18,7 @@ const TransferHistoryPanel: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [localPage, setLocalPage] = useState(1);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
 
   const loadData = useCallback(async () => {
     if (!isConnected) return;
@@ -31,6 +33,7 @@ const TransferHistoryPanel: React.FC = () => {
       setLoading(false);
     }
   }, [isConnected]);
+
 
   useEffect(() => {
     if (isConnected) {
@@ -91,6 +94,7 @@ const TransferHistoryPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-primary">
       <div className="hidden md:block flex-1 overflow-auto">
+
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
             <tr className="text-muted text-xs">

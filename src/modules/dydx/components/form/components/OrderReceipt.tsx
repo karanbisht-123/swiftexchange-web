@@ -89,7 +89,11 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
       return parsed > 0 ? parsed : 0;
     })();
 
-    const accountEquity = balance ? parseFloat(balance.totalEquity) : 0;
+    const accountEquity = balance
+      ? marginMode === 'ISOLATED'
+        ? parseFloat(balance.totalEquity)
+        : parseFloat(balance.crossEquity)
+      : 0;
 
     const effectiveLeverage = Math.min(
       leverage > 0 ? leverage : storedLeverage > 0 ? storedLeverage : maxLeverage,

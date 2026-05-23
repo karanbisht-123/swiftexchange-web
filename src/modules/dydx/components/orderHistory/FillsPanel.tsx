@@ -37,42 +37,41 @@ const FillsPanel: React.FC = () => {
       return;
     }
 
-    if (!initialLoadDoneRef.current) {
-      let isMounted = true;
-      const fetchInitial = async () => {
-        setLoadingFills(true);
-        setFillsError(null);
-        try {
-          const initialFills = await dydxDataService.getFills(undefined, undefined, false);
-          if (isMounted) {
-            setAllFills(initialFills);
-            initialLoadDoneRef.current = true;
-          }
-        } catch (err: any) {
-          if (isMounted) setFillsError(err.message || 'Error loading fills');
-        } finally {
-          if (isMounted) setLoadingFills(false);
-        }
-      };
-      fetchInitial();
+    if (initialLoadDoneRef.current) return;
 
-      return () => {
-        isMounted = false;
-      };
-    }
+    let isMounted = true;
+    const fetchInitial = async () => {
+      setLoadingFills(true);
+      setFillsError(null);
+      try {
+        const initialFills = await dydxDataService.getFills(undefined, undefined, false);
+        if (isMounted) {
+          setAllFills(initialFills);
+          initialLoadDoneRef.current = true;
+        }
+      } catch (err: any) {
+        if (isMounted) setFillsError(err.message || 'Error loading fills');
+      } finally {
+        if (isMounted) setLoadingFills(false);
+      }
+    };
+    fetchInitial();
+
+    return () => {
+      isMounted = false;
+    };
   }, [isConnected]);
 
   useEffect(() => {
-    if (storeFills.length > 0) {
-      setAllFills(prevFills => {
-        const fillsMap = new Map<string, Fill>();
-        prevFills.forEach(f => fillsMap.set(f.id, f));
-        storeFills.forEach(f => fillsMap.set(f.id, f));
-        return Array.from(fillsMap.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-      });
-    }
+    if (storeFills.length === 0) return;
+    setAllFills(prevFills => {
+      const fillsMap = new Map<string, Fill>();
+      prevFills.forEach(f => fillsMap.set(f.id, f));
+      storeFills.forEach(f => fillsMap.set(f.id, f));
+      return Array.from(fillsMap.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    });
   }, [storeFills]);
 
   const totalPages = useMemo(() => {

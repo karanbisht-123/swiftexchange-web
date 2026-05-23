@@ -13,6 +13,7 @@ import { useOrderbookClickStore } from '../../store/orderbookClickStore';
 import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
 import {
   getSafeMaxBuyingPower,
+  getMaxBuyingPower,
   getPriceDecimals,
   roundToTickSize,
   validateOrderPrice,
@@ -147,6 +148,7 @@ export const DydxTradingForm: React.FC = () => {
   const [localPercentage, setLocalPercentage] = useState<number>(0);
 
   const shownRejectionsRef = useRef<Set<string>>(new Set());
+  const sizeFromSliderRef = useRef(false);
 
   const isConditional = CONDITIONAL_TYPES.includes(orderType as any);
   const isLimit = orderType === 'LIMIT';
@@ -158,8 +160,11 @@ export const DydxTradingForm: React.FC = () => {
   }, [marketData?.initialMarginFraction]);
 
   const maxBuyingPower = useMemo(() => {
-    // safe buying power (with buffer) for the UI calculations
     return getSafeMaxBuyingPower(balance, marketData, leverage);
+  }, [balance, marketData, leverage]);
+
+  const rawMaxBuyingPower = useMemo(() => {
+    return getMaxBuyingPower(balance, marketData, leverage);
   }, [balance, marketData, leverage]);
 
   const targetSubaccount = useMemo(() => {
@@ -174,24 +179,28 @@ export const DydxTradingForm: React.FC = () => {
   }, [marginMode, targetSubaccount, childSubaccounts]);
 
   const currentPercentage = useMemo(() => {
-    if (!maxBuyingPower || maxBuyingPower <= 0 || !size) return 0;
+    if (!rawMaxBuyingPower || rawMaxBuyingPower <= 0 || !size) return 0;
 
-    const price = parseFloat(marketData?.oraclePrice || '1');
-    if (price <= 0) return 0;
+    const priceVal = parseFloat(marketData?.oraclePrice || '1');
+    if (priceVal <= 0) return 0;
 
     const conversion = currencyService.parseInput(size, currencyMode, marketData!);
     if (!conversion.isValid) return 0;
     const currentUsd = conversion.usdAmount;
-    const pct = (currentUsd / maxBuyingPower) * 100;
-    return Math.min(Math.max(Math.floor(pct + 0.0001), 0), 100);
-  }, [maxBuyingPower, size, currencyMode, marketData]);
+    const pct = (currentUsd / rawMaxBuyingPower) * 100;
+    return Math.min(Math.max(Math.round(pct), 0), 100);
+  }, [rawMaxBuyingPower, size, currencyMode, marketData]);
 
   useEffect(() => {
+    if (sizeFromSliderRef.current) {
+      sizeFromSliderRef.current = false;
+      return;
+    }
     setLocalPercentage(currentPercentage);
   }, [currentPercentage]);
 
   const handlePercentageChange = (pct: number | string) => {
-    if (!maxBuyingPower || maxBuyingPower <= 0 || !marketData) return;
+    if (!rawMaxBuyingPower || rawMaxBuyingPower <= 0 || !marketData) return;
 
     const pctNum = typeof pct === 'string' ? parseFloat(pct) : pct;
     if (isNaN(pctNum) || pctNum <= 0) {
@@ -202,10 +211,11 @@ export const DydxTradingForm: React.FC = () => {
 
     const validPct = Math.min(Math.max(pctNum, 0), 100);
     setLocalPercentage(validPct);
+    sizeFromSliderRef.current = true;
 
     const price = parseFloat(marketData.oraclePrice || '1');
     if (price <= 0) return;
-    const targetUsd = (validPct / 100) * maxBuyingPower;
+    const targetUsd = (validPct / 100) * rawMaxBuyingPower;
 
     let baseAmount = targetUsd / price;
 
@@ -557,7 +567,7 @@ export const DydxTradingForm: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col max-w-[100vw] lg:max-w-[300px] h-full border-l border-color bg-secondary">
+    <div className="flex flex-col max-w-[100vw] lg:max-w-[300px] h-full border-l border-color bg-secondary overflow-hidden">
       {notifications.map(notif => (
         <Notification
           key={notif.id}
@@ -638,7 +648,7 @@ export const DydxTradingForm: React.FC = () => {
         <OrderTypeSelector selected={orderType} onChange={setOrderType} />
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+      <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
         <div className="space-y-4">
           <OrderFormInputs
             orderType={orderType}

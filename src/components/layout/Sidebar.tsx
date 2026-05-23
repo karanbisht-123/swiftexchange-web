@@ -10,7 +10,8 @@ import {
   Repeat2,
   SendHorizontal,
   X,
-  ArrowRightLeft
+  ArrowRightLeft,
+  User
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
@@ -125,6 +126,11 @@ const Sidebar: FC = () => {
       icon: <InfinityIcon className="w-5 h-5" />,
       queryParam: '?view=trade',
       isRestricted: isDydxRestricted,
+    },
+    {
+      href: ROUTES.PROFILE,
+      label: 'Profile',
+      icon: <User className="w-5 h-5" />,
     },
   ];
 

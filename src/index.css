@@ -48,6 +48,7 @@
   --color-border: #e4e8f0;
   --color-border-light: #dce3ed;
   --color-border-dark: #c8d1de;
+  --calendar-icon-filter: none;
 
   /* Status Colors */
   --color-success: #10b981;
@@ -77,7 +78,7 @@
 
 /* -------------------------
    DARK THEME
--------------------------- */
+   -------------------------- */
 .dark {
   /* Brand Colors - Adjusted for dark mode */
   --color-brand-primary: #4d5cdb;
@@ -101,6 +102,7 @@
   --color-border: #1e2840;
   --color-border-light: #161d30;
   --color-border-dark: #2a3550;
+  --calendar-icon-filter: invert(1) brightness(1.5);
 
   /* Status Colors */
   --color-success: #10b981;
@@ -120,7 +122,7 @@
 
 /* -------------------------
    BASE STYLES
--------------------------- */
+   -------------------------- */
 @layer base {
   body {
     font-family: var(--font-body);
@@ -136,6 +138,26 @@
 
   html {
     scroll-behavior: smooth;
+  }
+
+  /* Date inputs premium styling */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: var(--calendar-icon-filter, none);
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+
+  input[type="date"] {
+    position: relative;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+    padding: 0;
   }
 }
 

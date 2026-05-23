@@ -463,6 +463,7 @@ function computePositionMetrics(
       sub => sub.subaccountNumber === position.subaccountNumber
     );
     const crossEquity = parseFloat(subaccount?.equity || '0');
+
     const otherPositionsMMR = positions
       .filter(
         p => p.subaccountNumber === position.subaccountNumber && p.market !== position.market
@@ -475,6 +476,8 @@ function computePositionMetrics(
           : 0.03;
         return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
       }, 0);
+
+
 
     liquidationPrice = calculateCrossLiquidationPrice(
       absSize,
@@ -521,7 +524,7 @@ const PositionsPanel: React.FC = () => {
 
   const updateTrigger = useWebSocketStore(s => s.updateTrigger);
 
-  const marketsMap = useWebSocketStore(s => s.marketsSnapshot ?? s.markets);
+
 
   const parentData = useWebSocketStore(
     useCallback(
@@ -533,29 +536,12 @@ const PositionsPanel: React.FC = () => {
   const childSubaccounts = parentData?.childSubaccounts ?? [];
   const isolatedEquityBySubaccount = useMemo((): Map<number, number> => {
     const map = new Map<number, number>();
-
     childSubaccounts.forEach(child => {
       if (child.subaccountNumber < ISOLATED_SUBACCOUNT_START) return;
-      let childEquity = 0;
-
-      Object.values(child.assetPositions || {}).forEach((asset: any) => {
-        const size = parseFloat(asset.size || '0');
-        childEquity += asset.side === 'SHORT' ? -size : size;
-      });
-
-      Object.values(child.openPerpetualPositions || {}).forEach((pos: any) => {
-        const mktData = marketsMap.get(pos.market);
-        if (!mktData) return;
-        const size = parseFloat(pos.size || '0');
-        const oraclePrice = parseFloat(mktData.oraclePrice || '0');
-        childEquity += size * oraclePrice;
-      });
-
-      map.set(child.subaccountNumber, childEquity);
+      map.set(child.subaccountNumber, parseFloat(child.equity || '0'));
     });
-
     return map;
-  }, [childSubaccounts, marketsMap, updateTrigger]);
+  }, [childSubaccounts, updateTrigger]);
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);

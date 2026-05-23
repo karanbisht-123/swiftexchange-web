@@ -204,37 +204,38 @@ function shouldKeepGracePeriod(order: TrackedOrder): boolean {
 
 
 function recomputeChildEquity(child: ChildSubaccount): void {
-  const usdcSize = parseFloat(child.assetPositions['USDC']?.size ?? '0');
+  let childEquity = 0;
+
+  // 1. Calculate net collateral from asset positions (normally just USDC)
+  Object.values(child.assetPositions || {}).forEach(asset => {
+    const size = parseFloat(asset.size || '0');
+    const isShort = asset.side === 'SHORT';
+    childEquity += isShort ? -size : size;
+  });
+
   const openPerps = Object.values(child.openPerpetualPositions);
 
-
-  if (openPerps.length === 0 && usdcSize === 0) {
-    child.equity = '0.000000';
-    child.freeCollateral = '0.000000';
-    return;
-  }
-
   if (openPerps.length === 0) {
-    // No open positions: equity = freeCollateral = USDC balance
-    const newEquity = Math.max(0, usdcSize).toFixed(6);
+    // No open positions: equity = freeCollateral = net USDC balance
+    const newEquity = Math.max(0, childEquity).toFixed(6);
     child.equity = newEquity;
     child.freeCollateral = newEquity;
     return;
   }
 
-  // equity = USDC_collateral + unrealizedPnl + netFunding
-  // We update equity only; freeCollateral is computed by selectPortfolioMetrics
-  // using live oracle + real market IMF or leverage settings.
-  const totalUnrealized = openPerps.reduce(
-    (sum, pos) => sum + parseFloat(pos.unrealizedPnl ?? '0'),
-    0
-  );
-  const totalFunding = openPerps.reduce(
-    (sum, pos) => sum + parseFloat(pos.netFunding ?? '0'),
-    0
-  );
-  const equity = Math.max(0, usdcSize + totalUnrealized + totalFunding);
-  child.equity = equity.toFixed(6);
+  // 2. Add perp position value (notional value) to calculate total subaccount equity
+  // This matches the indexer/onchain definition: Equity = Signed Collateral + Σ (Size × Price)
+  const state = useWebSocketStore.getState();
+  const markets = state.markets;
+
+  openPerps.forEach(pos => {
+    const mktData = markets.get(pos.market);
+    const size = parseFloat(pos.size || '0');
+    const price = mktData ? parseFloat(mktData.oraclePrice) : parseFloat(pos.entryPrice || '0');
+    childEquity += size * price;
+  });
+
+  child.equity = Math.max(0, childEquity).toFixed(6);
 }
 
 interface WebSocketState {

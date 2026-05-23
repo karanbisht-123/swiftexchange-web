@@ -185,7 +185,7 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
             onClick={handleBackdropClick}
         >
             <div
-                className="relative w-full max-w-sm mx-4 bg-[#1f2128] border border-[#2a2d36] rounded-2xl shadow-2xl overflow-hidden"
+                className="relative w-full max-w-sm mx-4 bg-secondary border border-[#2a2d36] rounded-2xl shadow-2xl overflow-hidden"
                 onKeyDown={handleKeyDown}
             >
                 <div className="absolute inset-0 pointer-events-none">

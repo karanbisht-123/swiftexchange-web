@@ -340,10 +340,8 @@ export function calculateLiquidationPrice(
   mmf: number,
   side: 'BUY' | 'SELL'
 ): number {
-  // p' = (e_0 - s * p_0) / (s * (MMF - 1))  for Buy
-  // p' = (e_0 + s * p_0) / (s * (1 + MMF))  for Sell
   const s = side === 'BUY' ? size : -size;
-  const denominator = s * (mmf - (side === 'BUY' ? 1 : -1));
+  const denominator = size * mmf - s;
 
   if (Math.abs(denominator) < 1e-12) return 0;
 

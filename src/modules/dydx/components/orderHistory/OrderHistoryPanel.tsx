@@ -14,7 +14,6 @@ import { SideBadge, StatusIndicator } from '../shared/SideBadge';
 import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
-
 type AnyOrder = Order & Partial<TrackedOrder>;
 
 const ITEMS_PER_PAGE = 10;
@@ -74,13 +73,11 @@ const OrderHistoryPanel: React.FC = () => {
 
     setAllOrders(prev => {
       const map = new Map<string, AnyOrder>();
-
       prev.forEach(o => map.set(o.id, o));
       storeOrders.forEach(o => map.set(o.id, o as AnyOrder));
       return Array.from(map.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
     });
   }, [storeOrders]);
-
 
   const totalPages = useMemo(() => {
     const pages = Math.ceil(allOrders.length / ITEMS_PER_PAGE);
@@ -147,7 +144,6 @@ const OrderHistoryPanel: React.FC = () => {
     setShowDetail(false);
     setTimeout(() => setSelectedOrder(null), 300);
   }, []);
-
 
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view your order history" />;

@@ -129,7 +129,7 @@ const TradingintrFace = () => {
               </ResizablePanel>
             </div>
 
-            <div className="bg-secondary flex-shrink-0">
+            <div className="bg-secondary flex-shrink-0 h-full overflow-hidden">
               <Suspense fallback={<LoadingFallback />}>
                 <DydxTradingForm />
               </Suspense>
