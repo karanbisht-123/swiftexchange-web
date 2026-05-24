@@ -74,7 +74,7 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
             marketCache
         );
 
-        return [
+        const list = [
             {
                 value: 0,
                 label: 'Cross Account',
@@ -82,7 +82,8 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                 equity: parseFloat(balance?.crossEquity ?? '0')
             },
             ...sources
-        ].filter((s: { value: number; label: string; available: number; equity: number }) => s.available > 0 || s.value === 0);
+        ];
+        return list.filter((s: { value: number; label: string; available: number; equity: number }) => s.value !== subaccountNumber && (s.available > 0 || s.value === 0));
     }, [subaccountNumber, childSubaccounts, positions, marketCache, crossFreeCollateral, balance?.crossEquity]);
 
     useEffect(() => {
@@ -173,9 +174,9 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
         if (e.target === e.currentTarget && !loading) onClose();
     };
 
-    if (!isOpen || !isIsolated) return null;
+    if (!isOpen) return null;
 
-    const positionMargin = isolatedEquity;
+    const positionMargin = isIsolated ? isolatedEquity : parseFloat(balance?.crossEquity ?? '0');
     const positionLeverage = position.leverage || '0.00';
     const liquidationPrice = position.liquidationPrice ? parseFloat(position.liquidationPrice) : 0;
 
@@ -185,7 +186,7 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
             onClick={handleBackdropClick}
         >
             <div
-                className="relative w-full max-w-sm mx-4 bg-secondary border border-[#2a2d36] rounded-2xl shadow-2xl overflow-hidden"
+                className="relative w-full max-w-sm mx-4 bg-secondary border border-(--color-border) rounded-2xl shadow-2xl overflow-hidden"
                 onKeyDown={handleKeyDown}
             >
                 <div className="absolute inset-0 pointer-events-none">
@@ -199,32 +200,36 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                                 {marketIcon}
                             </div>
                         )}
-                        <h2 className="text-base font-semibold text-white">Adjust Isolated Margin</h2>
+                        <h2 className="text-base font-semibold text-(--color-text-primary)">
+                            {isIsolated ? 'Adjust Isolated Margin' : 'Add Cross Margin'}
+                        </h2>
                     </div>
                     <button
                         onClick={onClose}
                         disabled={loading}
-                        className="flex items-center justify-center p-1 rounded-lg text-[#6b7280] hover:text-white transition-all disabled:opacity-40"
+                        className="flex items-center justify-center p-1 rounded-lg text-(--color-text-secondary) hover:text-(--color-text-primary) transition-all disabled:opacity-40"
                     >
                         <X size={20} />
                     </button>
                 </div>
 
                 <div className="px-5 pb-5 space-y-4 relative">
-                    <div className="flex p-1 bg-[#15171b] rounded-full border border-[#2a2d36]">
-                        <button
-                            onClick={() => { setActiveTab('add'); setAmount(''); setError(null); }}
-                            className={`flex-1 py-1.5 text-[13px] font-medium rounded-full transition-all ${activeTab === 'add' ? 'bg-[#2a2d36] text-white' : 'text-[#8b94a5] hover:text-white'}`}
-                        >
-                            Add Margin
-                        </button>
-                        <button
-                            onClick={() => { setActiveTab('remove'); setAmount(''); setError(null); }}
-                            className={`flex-1 py-1.5 text-[13px] font-medium rounded-full transition-all ${activeTab === 'remove' ? 'bg-[#2a2d36] text-white' : 'text-[#8b94a5] hover:text-white'}`}
-                        >
-                            Remove Margin
-                        </button>
-                    </div>
+                    {isIsolated && (
+                        <div className="flex p-1 bg-(--color-bg-tertiary) rounded-full border border-(--color-border)">
+                            <button
+                                onClick={() => { setActiveTab('add'); setAmount(''); setError(null); }}
+                                className={`flex-1 py-1.5 text-[13px] font-medium rounded-full transition-all ${activeTab === 'add' ? 'bg-(--color-bg-hover) text-(--color-text-primary)' : 'text-(--color-text-muted) hover:text-(--color-text-primary)'}`}
+                            >
+                                Add Margin
+                            </button>
+                            <button
+                                onClick={() => { setActiveTab('remove'); setAmount(''); setError(null); }}
+                                className={`flex-1 py-1.5 text-[13px] font-medium rounded-full transition-all ${activeTab === 'remove' ? 'bg-(--color-bg-hover) text-(--color-text-primary)' : 'text-(--color-text-muted) hover:text-(--color-text-primary)'}`}
+                            >
+                                Remove Margin
+                            </button>
+                        </div>
+                    )}
 
                     <div className="flex gap-1.5">
                         {QUICK_PERCENTAGES.map(val => {
@@ -235,8 +240,8 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                                     onClick={() => handlePercentage(val)}
                                     disabled={disabled}
                                     className={`flex-1 py-1.5 text-xs font-medium rounded border transition-all ${disabled
-                                        ? 'border-[#2a2d36] text-[#4b5563] cursor-not-allowed bg-[#15171b]'
-                                        : 'border-[#2a2d36] text-[#8b94a5] bg-[#15171b] hover:bg-[#2a2d36] hover:text-white'
+                                        ? 'border-(--color-border) text-(--color-text-muted) opacity-40 cursor-not-allowed bg-(--color-bg-tertiary)'
+                                        : 'border-(--color-border) text-(--color-text-secondary) bg-(--color-bg-tertiary) hover:bg-(--color-bg-hover) hover:text-(--color-text-primary)'
                                         }`}
                                 >
                                     {val}%
@@ -246,14 +251,18 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                     </div>
 
                     {activeTab === 'add' && (
-                        <div className="bg-[#15171b] border border-[#2a2d36] rounded-xl overflow-hidden p-3.5">
-                            <label className="block text-[11px] text-[#8b94a5] font-medium mb-1.5">
+                        <div className="bg-(--color-bg-tertiary) border border-(--color-border) rounded-xl overflow-hidden p-3.5">
+                            <label className="block text-[11px] text-(--color-text-secondary) font-medium mb-1.5">
                                 Source Account
                             </label>
-                            {eligibleSources.length === 1 && eligibleSources[0].value === 0 ? (
-                                <div className="text-sm font-medium text-white flex justify-between items-center">
+                            {eligibleSources.length === 0 ? (
+                                <div className="text-xs text-(--color-warning) font-medium leading-relaxed">
+                                    No other subaccounts have available margin to transfer. Please deposit USDC directly to your Cross account.
+                                </div>
+                            ) : eligibleSources.length === 1 && eligibleSources[0].value === 0 ? (
+                                <div className="text-sm font-medium text-(--color-text-primary) flex justify-between items-center">
                                     <span>Cross Account</span>
-                                    <span className="text-[#8b94a5] text-xs">No other positions have margin.</span>
+                                    <span className="text-(--color-text-muted) text-xs">No other positions have margin.</span>
                                 </div>
                             ) : (
                                 <select
@@ -263,10 +272,10 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                                         setAmount('');
                                     }}
                                     disabled={loading || modalState === 'success'}
-                                    className="w-full bg-transparent text-sm font-medium text-white outline-none cursor-pointer"
+                                    className="w-full bg-transparent text-sm font-medium text-(--color-text-primary) outline-none cursor-pointer"
                                 >
                                     {eligibleSources.map((s: { value: number; label: string; available: number; equity: number }) => (
-                                        <option key={s.value} value={s.value} className="bg-[#1f2128]">
+                                        <option key={s.value} value={s.value} className="bg-secondary text-primary">
                                             {s.label}
                                         </option>
                                     ))}
@@ -275,14 +284,14 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                         </div>
                     )}
 
-                    <div className="bg-[#15171b] border border-[#2a2d36] rounded-xl overflow-hidden">
+                    <div className="bg-(--color-bg-tertiary) border border-(--color-border) rounded-xl overflow-hidden">
                         <div className="px-3.5 pt-2.5 pb-1">
-                            <label className="text-[11px] text-[#8b94a5] font-medium">
+                            <label className="text-[11px] text-(--color-text-muted) font-medium">
                                 {activeTab === 'add' ? 'Amount to Add' : 'Amount to Remove'}
                             </label>
                         </div>
-                        <div className={`flex items-center gap-2 px-3.5 pb-2.5 transition-all ${amountError ? 'text-red-400' : ''}`}>
-                            <span className="text-xl text-[#8b94a5] font-medium">$</span>
+                        <div className={`flex items-center gap-2 px-3.5 pb-2.5 transition-all ${amountError ? 'text-(--color-danger)' : ''}`}>
+                            <span className="text-xl text-(--color-text-muted) font-medium">$</span>
                             <input
                                 ref={inputRef}
                                 type="text"
@@ -291,12 +300,12 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                                 onChange={e => handleAmountChange(e.target.value)}
                                 disabled={loading || modalState === 'success'}
                                 placeholder="0.00"
-                                className={`flex-1 bg-transparent text-xl font-medium text-white placeholder-[#4b5563] outline-none disabled:opacity-50`}
+                                className={`flex-1 bg-transparent text-xl font-medium text-(--color-text-primary) placeholder-(--color-text-muted) outline-none disabled:opacity-50`}
                             />
                         </div>
                     </div>
 
-                    <div className="flex justify-between items-center px-1 text-[11px] text-[#8b94a5]">
+                    <div className="flex justify-between items-center px-1 text-[11px] text-(--color-text-muted)">
                         <span>Available to transfer: ${available.toFixed(2)}</span>
                         {activeTab === 'add' && selectedSource !== 0 && selectedSourceData && (
                             <span>Minimum retained in source: ${(
@@ -306,7 +315,7 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                     </div>
 
                     {amountError && (
-                        <div className="flex items-center gap-1.5 text-xs text-red-500">
+                        <div className="flex items-center gap-1.5 text-xs text-(--color-danger)">
                             <AlertTriangle size={12} />
                             <span>{amountError}</span>
                         </div>
@@ -315,14 +324,14 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                     {activeTab === 'add' && selectedSource !== 0 && selectedSourceData ? (
                         <div className="space-y-2 py-1">
                             <div className="flex justify-between items-center text-[13px]">
-                                <span className="text-[#8b94a5]">Source Bal. after transfer</span>
-                                <span className="text-white font-medium">
+                                <span className="text-(--color-text-secondary)">Source Bal. after transfer</span>
+                                <span className="text-(--color-text-primary) font-medium">
                                     ${Math.max(0, selectedSourceData.equity - numericAmount).toFixed(2)}
                                 </span>
                             </div>
                             <div className="flex justify-between items-center text-[13px]">
-                                <span className="text-[#8b94a5]">Dest Bal. after transfer</span>
-                                <span className="text-white font-medium">
+                                <span className="text-(--color-text-secondary)">Dest Bal. after transfer</span>
+                                <span className="text-(--color-text-primary) font-medium">
                                     ${(isolatedEquity + numericAmount).toFixed(2)}
                                 </span>
                             </div>
@@ -330,57 +339,61 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
                     ) : (
                         <div className="space-y-2 py-1">
                             <div className="flex justify-between items-center text-[13px]">
-                                <span className="text-[#8b94a5]">Cross Free Collateral</span>
-                                <span className="text-white font-medium">${crossFreeCollateral.toFixed(2)}</span>
+                                <span className="text-(--color-text-secondary)">Cross Free Collateral</span>
+                                <span className="text-(--color-text-primary) font-medium">${crossFreeCollateral.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center text-[13px]">
-                                <span className="text-[#8b94a5]">Cross Margin Usage</span>
-                                <span className="text-white font-medium">{crossMarginUsage.toFixed(2)}%</span>
+                                <span className="text-(--color-text-secondary)">Cross Margin Usage</span>
+                                <span className="text-(--color-text-primary) font-medium">{crossMarginUsage.toFixed(2)}%</span>
                             </div>
                         </div>
                     )}
 
-                    <div className="bg-[#2a2d36]/30 rounded-xl p-3 border border-[#2a2d36]">
+                    <div className="bg-(--color-bg-tertiary) rounded-xl p-3 border border-(--color-border)">
                         <div className="flex justify-between items-start text-[13px]">
-                            <div className="flex flex-col text-[#8b94a5]">
+                            <div className="flex flex-col text-(--color-text-secondary)">
                                 <span>Estimated</span>
                                 <span>Liquidation Price</span>
                             </div>
-                            <span className="text-white font-medium">${liquidationPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                            <span className="text-(--color-text-primary) font-medium">${liquidationPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
                         </div>
                     </div>
 
                     <div className="space-y-2 py-1">
                         <div className="flex justify-between items-center text-[13px]">
-                            <span className="text-[#8b94a5]">Position Margin</span>
-                            <span className="text-white font-medium">${positionMargin.toFixed(2)}</span>
+                            <span className="text-(--color-text-secondary)">Position Margin</span>
+                            <span className="text-(--color-text-primary) font-medium">${positionMargin.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between items-center text-[13px]">
-                            <span className="text-[#8b94a5]">Position Leverage</span>
-                            <span className="text-white font-medium">{parseFloat(positionLeverage).toFixed(2)}×</span>
+                            <span className="text-(--color-text-secondary)">Position Leverage</span>
+                            <span className="text-(--color-text-primary) font-medium">{parseFloat(positionLeverage).toFixed(2)}×</span>
                         </div>
                     </div>
 
                     {error && modalState === 'error' && (
-                        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-red-500/10 border border-red-500/20 rounded-xl">
-                            <AlertTriangle size={14} className="text-red-400 mt-0.5 shrink-0" />
-                            <p className="text-xs text-red-300 leading-relaxed">{error}</p>
+                        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-(--color-danger-bg) border border-(--color-danger)/20 rounded-xl">
+                            <AlertTriangle size={14} className="text-(--color-danger) mt-0.5 shrink-0" />
+                            <p className="text-xs text-(--color-danger) leading-relaxed">{error}</p>
                         </div>
                     )}
 
                     {modalState === 'success' && (
-                        <div className="flex items-center gap-2.5 px-3 py-2.5 bg-green-500/10 border border-green-500/20 rounded-xl">
-                            <CheckCircle2 size={14} className="text-green-400 shrink-0" />
-                            <p className="text-xs text-green-300">Margin {activeTab === 'add' ? 'added' : 'removed'} successfully</p>
+                        <div className="flex items-center gap-2.5 px-3 py-2.5 bg-(--color-success-bg) border border-(--color-success)/20 rounded-xl">
+                            <CheckCircle2 size={14} className="text-(--color-success) shrink-0" />
+                            <p className="text-xs text-(--color-success)">Margin {activeTab === 'add' ? 'added' : 'removed'} successfully</p>
                         </div>
                     )}
 
                     <button
                         onClick={handleSubmit}
                         disabled={!canSubmit && amount === '' ? false : !canSubmit}
-                        className={`w-full py-3 text-[13px] font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${modalState === 'success' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                            !canSubmit || amount === '' ? 'bg-transparent border border-[#ebb339]/30 text-[#ebb339] opacity-60' : 'bg-transparent border border-[#ebb339]/50 hover:bg-[#ebb339]/10 text-[#ebb339]'
-                            }`}
+                        className={`w-full py-3 text-[13px] font-semibold rounded-lg transition-all flex items-center justify-center gap-2 border ${
+                            modalState === 'success'
+                                ? 'bg-(--color-success-bg) text-(--color-success) border-(--color-success)/30'
+                                : !canSubmit || amount === ''
+                                ? 'bg-(--color-bg-tertiary) text-(--color-text-muted) border-(--color-border) opacity-50 cursor-not-allowed'
+                                : 'bg-(--color-brand-primary) text-(--color-text-inverse) border-transparent hover:bg-(--color-brand-primary-hover)'
+                        }`}
                     >
                         {loading && <Loader2 size={14} className="animate-spin" />}
                         {modalState === 'success' && <CheckCircle2 size={14} />}

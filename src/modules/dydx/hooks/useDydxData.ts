@@ -289,8 +289,12 @@ export const useDydxData = (): UseDydxDataReturn => {
       isFirstMountRef.current = false;
       subscribeToParentSubaccount(dydxAddress, subaccountNumber);
       hasInitializedRef.current = true;
+      refreshOrders().catch(e => console.warn('[useDydxData] Initial orders fetch failed:', e));
+      refreshFills().catch(e => console.warn('[useDydxData] Initial fills fetch failed:', e));
     } else if (wsJustReconnected) {
       hasInitializedRef.current = true;
+      refreshOrders().catch(e => console.warn('[useDydxData] Reconnection orders fetch failed:', e));
+      refreshFills().catch(e => console.warn('[useDydxData] Reconnection fills fetch failed:', e));
     }
 
     return () => {
@@ -298,7 +302,7 @@ export const useDydxData = (): UseDydxDataReturn => {
       isFirstMountRef.current = true;
       prevWsConnectedRef.current = false;
     };
-  }, [dydxAddress, subaccountNumber, isConnected, subscribeToParentSubaccount, unsubscribeFromParentSubaccount]);
+  }, [dydxAddress, subaccountNumber, isConnected, subscribeToParentSubaccount, unsubscribeFromParentSubaccount, refreshOrders, refreshFills]);
 
   useEffect(() => {
     const unsubscribe = dydxWalletService.onStatusChange(status => {

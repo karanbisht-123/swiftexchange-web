@@ -23,6 +23,11 @@
 
   --color-border-color: var(--color-border);
   --color-divider: var(--color-border-light);
+
+  --color-success-bg: var(--color-success-bg);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-danger-bg: var(--color-danger-bg);
+  --color-info-bg: var(--color-info-bg);
 }
 
 :root {
