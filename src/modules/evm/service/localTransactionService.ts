@@ -50,7 +50,8 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
           (tx.from && tx.from.toUpperCase().startsWith('G') && tx.from.length === 56);
 
         if (isStellarTx) {
-          return true;
+          if (!tx.from) return true;
+          return lowerAddresses.includes(tx.from.toLowerCase());
         }
 
         return tx.from && lowerAddresses.includes(tx.from.toLowerCase());

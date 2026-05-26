@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type TrackedOrder } from '../../store/websocketStore';
-import { type Order, dydxDataService } from '../../service/dydxOrderService';
+import { type Order, dydxDataService, normalizeOrder } from '../../service/dydxOrderService';
 import { getTimeAgo } from '../../utils/timeUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { LoadingState } from '../shared/LoadingState';
@@ -33,8 +33,10 @@ const OrderHistoryPanel: React.FC = () => {
 
   const initialLoadDoneRef = useRef(false);
 
-  const getOrderTime = (order: AnyOrder): number =>
-    order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
+  const getOrderTime = (order: AnyOrder): number => {
+    const timeStr = order.updatedAt || order.goodTilBlockTime;
+    return timeStr ? new Date(timeStr).getTime() : ((order as any)._firstSeenAt || 0);
+  };
 
   useEffect(() => {
     if (!isConnected) {
@@ -54,7 +56,7 @@ const OrderHistoryPanel: React.FC = () => {
       try {
         const initialOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
         if (isMounted) {
-          setAllOrders(initialOrders as AnyOrder[]);
+          setAllOrders(initialOrders.map(normalizeOrder) as AnyOrder[]);
           initialLoadDoneRef.current = true;
         }
       } catch (err: any) {
@@ -73,8 +75,8 @@ const OrderHistoryPanel: React.FC = () => {
 
     setAllOrders(prev => {
       const map = new Map<string, AnyOrder>();
-      prev.forEach(o => map.set(o.id, o));
-      storeOrders.forEach(o => map.set(o.id, o as AnyOrder));
+      prev.forEach(o => map.set(o.id, normalizeOrder(o) as AnyOrder));
+      storeOrders.forEach(o => map.set(o.id, normalizeOrder(o) as AnyOrder));
       return Array.from(map.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
     });
   }, [storeOrders]);
@@ -101,10 +103,11 @@ const OrderHistoryPanel: React.FC = () => {
         return;
       }
 
+      const normalizedMore = moreOrders.map(normalizeOrder);
       const oldestTime = allOrders.length
         ? getOrderTime(allOrders[allOrders.length - 1])
         : Date.now();
-      const olderOrders = moreOrders.filter(o => getOrderTime(o as AnyOrder) < oldestTime);
+      const olderOrders = normalizedMore.filter(o => getOrderTime(o as AnyOrder) < oldestTime);
 
       if (olderOrders.length === 0) {
         setHasMoreData(false);
@@ -112,7 +115,7 @@ const OrderHistoryPanel: React.FC = () => {
       }
 
       setAllOrders(prev => {
-        const map = new Map<string, AnyOrder>(prev.map(o => [o.id, o]));
+        const map = new Map<string, AnyOrder>(prev.map(o => [o.id, normalizeOrder(o) as AnyOrder]));
         olderOrders.forEach(o => map.set(o.id, o as AnyOrder));
         return Array.from(map.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
       });

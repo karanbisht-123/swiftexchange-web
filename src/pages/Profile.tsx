@@ -25,7 +25,7 @@ import { getChainLogoUrl } from '../modules/evm/utils/Chainregistry';
 import { type Asset } from '../modules/walletconnect/store/portfolioStore';
 import { useDydxData } from '../modules/dydx/hooks/useDydxData';
 import { useDydxAutoConnect } from '../modules/dydx/hooks/useDydxAutoConnect';
-import { dydxDataService, type HistoricalPnl, type Fill, type Order } from '../modules/dydx/service/dydxOrderService';
+import { dydxDataService, type HistoricalPnl, type Fill, type Order, normalizeFill, normalizeOrder } from '../modules/dydx/service/dydxOrderService';
 import { dydxWalletService } from '../modules/dydx/service/dydxWalletService';
 import { selectPortfolioMetrics, useWebSocketStore } from '../modules/dydx/store/websocketStore';
 import { useDateRangeStore } from '../modules/dydx/store/dateRangeStore';
@@ -63,7 +63,6 @@ const Profile: React.FC = () => {
   const {
     positions: dydxPositions,
     openOrderCount,
-    fillCount,
     orders: dydxOrders,
     fills: dydxFills,
     refreshPositions,
@@ -160,13 +159,27 @@ const Profile: React.FC = () => {
 
   const filteredFills = useMemo(() => {
     if (isDateRangeActive) {
-      return dateRangeFills;
+      return dateRangeFills.map(normalizeFill);
     }
     const daysMap = { '1d': 1, '7d': 7, '30d': 30, '90d': 90 };
     const days = daysMap[timeframe] ?? 7;
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return (dydxFills || []).filter(f => new Date(f.createdAt).getTime() >= cutoff);
+    return (dydxFills || []).map(normalizeFill).filter(f => new Date(f.createdAt).getTime() >= cutoff);
   }, [isDateRangeActive, dateRangeFills, dydxFills, timeframe]);
+
+  const filteredOrders = useMemo(() => {
+    if (isDateRangeActive) {
+      return dateRangeOrders.map(normalizeOrder);
+    }
+    const daysMap = { '1d': 1, '7d': 7, '30d': 30, '90d': 90 };
+    const days = daysMap[timeframe] ?? 7;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return (dydxOrders || []).map(normalizeOrder).filter(o => {
+      const timeStr = o.updatedAt || o.goodTilBlockTime;
+      const orderTime = timeStr ? new Date(timeStr).getTime() : ((o as any)._firstSeenAt || 0);
+      return orderTime >= cutoff;
+    });
+  }, [isDateRangeActive, dateRangeOrders, dydxOrders, timeframe]);
 
   const filteredTransfers = useMemo(() => {
     if (isDateRangeActive) {
@@ -727,8 +740,8 @@ const getCardDetails = (tab: PortfolioTab) => {
   }
 };
 
-const displayedFillCount = isDateRangeActive ? dateRangeFillCount : (fillCount || 0);
-const displayedOrderCount = isDateRangeActive ? dateRangeOrders.length : (dydxOrders?.length || 0);
+const displayedFillCount = isDateRangeActive ? dateRangeFillCount : (filteredFills.length || 0);
+const displayedOrderCount = isDateRangeActive ? dateRangeOrders.length : (filteredOrders.length || 0);
 
 const getPeriodLabel = (): string => {
   if (isDateRangeActive && fromDate && toDate) return `${fromDate} to ${toDate}`;

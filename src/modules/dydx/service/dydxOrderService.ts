@@ -133,6 +133,55 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
+export function normalizeFill(f: any): Fill {
+  if (!f) return f;
+  return {
+    id: f.id,
+    side: f.side,
+    liquidity: f.liquidity,
+    type: f.type,
+    market: f.market || f.ticker,
+    marketType: f.marketType || f.market_type,
+    price: f.price,
+    size: f.size,
+    fee: f.fee,
+    createdAt: f.createdAt || f.created_at,
+    createdAtHeight: f.createdAtHeight || f.created_at_height,
+    orderId: f.orderId || f.order_id,
+    clientMetadata: f.clientMetadata || f.client_metadata,
+    positionSizeBefore: f.positionSizeBefore || f.position_size_before,
+    entryPriceBefore: f.entryPriceBefore || f.entry_price_before,
+    positionSideBefore: f.positionSideBefore || f.position_side_before,
+  };
+}
+
+export function normalizeOrder(o: any): Order {
+  if (!o) return o;
+  return {
+    id: o.id,
+    subaccountId: o.subaccountId || o.subaccount_id,
+    clientId: o.clientId || o.client_id,
+    clobPairId: o.clobPairId || o.clob_pair_id,
+    side: o.side,
+    size: o.size,
+    totalFilled: o.totalFilled || o.total_filled,
+    price: o.price,
+    type: o.type,
+    status: o.status,
+    timeInForce: o.timeInForce || o.time_in_force,
+    postOnly: o.postOnly !== undefined ? o.postOnly : o.post_only,
+    reduceOnly: o.reduceOnly !== undefined ? o.reduceOnly : o.reduce_only,
+    orderFlags: o.orderFlags || o.order_flags,
+    goodTilBlock: o.goodTilBlock || o.good_til_block,
+    goodTilBlockTime: o.goodTilBlockTime || o.good_til_block_time,
+    ticker: o.ticker || o.clobPairId || o.clob_pair_id || '',
+    createdAtHeight: o.createdAtHeight || o.created_at_height,
+    updatedAt: o.updatedAt || o.updated_at,
+    updatedAtHeight: o.updatedAtHeight || o.updated_at_height,
+    clientMetadata: o.clientMetadata || o.client_metadata,
+  };
+}
+
 class DydxDataService {
   private cache = new Map<string, CacheEntry<any>>();
   private readonly CACHE_TTL = 5000;
@@ -280,7 +329,7 @@ class DydxDataService {
         returnLatestOrders
       );
 
-      const orders = (response || []) as Order[];
+      const orders = ((response || []) as any[]).map(normalizeOrder);
 
       const sorted = orders.sort((a, b) => {
         const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
@@ -318,10 +367,12 @@ class DydxDataService {
         undefined
       );
 
-      const fills = (response?.fills || []) as Fill[];
+      const fills = ((response?.fills || []) as any[]).map(normalizeFill);
 
       const sorted = fills.sort((a, b) => {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
       });
 
       this.setCache(cacheKey, sorted);

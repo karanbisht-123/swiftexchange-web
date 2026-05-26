@@ -2,7 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
-import { type Fill, dydxDataService } from '../../service/dydxOrderService';
+import { type Fill, dydxDataService, normalizeFill } from '../../service/dydxOrderService';
 import { getTimeAgo } from '../../utils/timeUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { FillDetailPanel } from '../shared/FillDetailPanel';
@@ -46,7 +46,7 @@ const FillsPanel: React.FC = () => {
       try {
         const initialFills = await dydxDataService.getFills(undefined, undefined, false);
         if (isMounted) {
-          setAllFills(initialFills);
+          setAllFills(initialFills.map(normalizeFill));
           initialLoadDoneRef.current = true;
         }
       } catch (err: any) {
@@ -66,8 +66,8 @@ const FillsPanel: React.FC = () => {
     if (storeFills.length === 0) return;
     setAllFills(prevFills => {
       const fillsMap = new Map<string, Fill>();
-      prevFills.forEach(f => fillsMap.set(f.id, f));
-      storeFills.forEach(f => fillsMap.set(f.id, f));
+      prevFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
+      storeFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
       return Array.from(fillsMap.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -103,8 +103,8 @@ const FillsPanel: React.FC = () => {
       }
       setAllFills(prev => {
         const fillsMap = new Map<string, Fill>();
-        prev.forEach(f => fillsMap.set(f.id, f));
-        moreFills.forEach(f => fillsMap.set(f.id, f));
+        prev.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
+        moreFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
 
         return Array.from(fillsMap.values()).sort(
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

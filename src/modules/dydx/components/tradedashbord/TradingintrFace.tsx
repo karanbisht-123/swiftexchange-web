@@ -163,7 +163,7 @@ const PortfolioView = ({
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }) => {
-  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills } =
+  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills, lastUpdateTime } =
     useDydxData();
 
   const tabs = ['wallet', 'positions', 'orders', 'fills', 'history', 'funding', 'transfers'];
@@ -179,8 +179,25 @@ const PortfolioView = ({
 
   const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
   const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
+  const hasInitializedRef = useRef(false);
 
   useEffect(() => {
+    if (lastUpdateTime === null) {
+      hasInitializedRef.current = false;
+      setNewCounts({ positions: 0, orders: 0, fills: 0 });
+      return;
+    }
+
+    if (!hasInitializedRef.current) {
+      prevCountsRef.current = {
+        positions: positions.length,
+        orders: openOrderCount,
+        fills: fillCount,
+      };
+      hasInitializedRef.current = true;
+      return;
+    }
+
     const currentCounts = {
       positions: positions.length,
       orders: openOrderCount,
@@ -211,7 +228,7 @@ const PortfolioView = ({
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, openOrderCount, fillCount]);
+  }, [positions.length, openOrderCount, fillCount, lastUpdateTime]);
 
   return (
     <div className="h-full flex flex-col max-w-full">
@@ -414,7 +431,7 @@ const MobileLayout = () => {
 const MobilePortfolio = () => {
   const [activeTab, setActiveTab] = useState('wallet');
 
-  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills } =
+  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills, lastUpdateTime } =
     useDydxData();
 
   const tabs = ['wallet', 'positions', 'orders', 'fills', 'history', 'funding'];
@@ -429,8 +446,25 @@ const MobilePortfolio = () => {
 
   const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
   const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
+  const hasInitializedRef = useRef(false);
 
   useEffect(() => {
+    if (lastUpdateTime === null) {
+      hasInitializedRef.current = false;
+      setNewCounts({ positions: 0, orders: 0, fills: 0 });
+      return;
+    }
+
+    if (!hasInitializedRef.current) {
+      prevCountsRef.current = {
+        positions: positions.length,
+        orders: openOrderCount,
+        fills: fillCount,
+      };
+      hasInitializedRef.current = true;
+      return;
+    }
+
     const currentCounts = {
       positions: positions.length,
       orders: openOrderCount,
@@ -461,7 +495,7 @@ const MobilePortfolio = () => {
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, openOrderCount, fillCount]);
+  }, [positions.length, openOrderCount, fillCount, lastUpdateTime]);
 
   return (
     <div className="h-full flex flex-col">
@@ -531,7 +565,7 @@ const BottomTabsSection = ({
   activeBottomTab: string;
   setActiveBottomTab: (tab: string) => void;
 }) => {
-  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills } =
+  const { positions, openOrderCount, fillCount, loadingPositions, loadingOrders, loadingFills, lastUpdateTime } =
     useDydxData();
 
   const tabs = ['positions', 'orders', 'fills', 'history', 'funding', 'transfer'];
@@ -546,8 +580,25 @@ const BottomTabsSection = ({
 
   const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
   const [newCounts, setNewCounts] = useState({ positions: 0, orders: 0, fills: 0 });
+  const hasInitializedRef = useRef(false);
 
   useEffect(() => {
+    if (lastUpdateTime === null) {
+      hasInitializedRef.current = false;
+      setNewCounts({ positions: 0, orders: 0, fills: 0 });
+      return;
+    }
+
+    if (!hasInitializedRef.current) {
+      prevCountsRef.current = {
+        positions: positions.length,
+        orders: openOrderCount,
+        fills: fillCount,
+      };
+      hasInitializedRef.current = true;
+      return;
+    }
+
     const currentCounts = {
       positions: positions.length,
       orders: openOrderCount,
@@ -578,7 +629,7 @@ const BottomTabsSection = ({
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, openOrderCount, fillCount]);
+  }, [positions.length, openOrderCount, fillCount, lastUpdateTime]);
 
   return (
     <>

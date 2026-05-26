@@ -170,9 +170,9 @@ export const useStellarDydxOrchestrator = () => {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(BRIDGE_STEP_KEY);
-      if (saved) {
+      const wallets = connectedWallets;
+      if (saved && Object.keys(wallets).length > 0) {
         const parsed = JSON.parse(saved.trim().replace(/”|“/g, '"'));
-        const wallets = useWalletStore.getState().connectedWallets;
         if (Array.isArray(parsed)) {
           // Keep only current user's sessions that have at least one transaction hash
           const userSessions = (parsed.filter(p => isTxOwnedByCurrentUser(p, wallets) && (p.swapTx?.hash || p.bridgeTx?.hash || p.depositTx?.hash || p.swapTxHash || p.bridgeTxHash || p.depositTxHash)) as any[]).map(p => ({
@@ -200,15 +200,22 @@ export const useStellarDydxOrchestrator = () => {
             dydxOverallState: p.dydxOverallState || '',
           })) as BridgeSession[];
           setSessions(userSessions);
-          // If there is exactly one active in-progress session, set it active automatically only if a transaction is pending on-chain
-          const inProgress = userSessions.filter(s => s.phase !== 'DONE' && !(s.phase === 'SETUP'));
-          if (inProgress.length === 1) {
-            const session = inProgress[0];
-            const isPendingOnChain = session.swapTx?.status === 'PENDING' || session.bridgeTx?.status === 'PENDING' || session.depositTx?.status === 'PENDING';
-            if (isPendingOnChain) {
-              setActiveSessionId(session.id);
+          
+          setActiveSessionId(prev => {
+            if (prev && userSessions.some(s => s.id === prev)) {
+              return prev;
             }
-          }
+            // If there is exactly one active in-progress session, set it active automatically only if a transaction is pending on-chain
+            const inProgress = userSessions.filter(s => s.phase !== 'DONE' && !(s.phase === 'SETUP'));
+            if (inProgress.length === 1) {
+              const session = inProgress[0];
+              const isPendingOnChain = session.swapTx?.status === 'PENDING' || session.bridgeTx?.status === 'PENDING' || session.depositTx?.status === 'PENDING';
+              if (isPendingOnChain) {
+                return session.id;
+              }
+            }
+            return null;
+          });
         } else if (parsed && typeof parsed === 'object') {
           // Migrating legacy single session format if it has at least one transaction hash
           if (isTxOwnedByCurrentUser(parsed, wallets) && (parsed.swapTxHash || parsed.bridgeTxHash || parsed.depositTxHash || parsed.swapTx?.hash || parsed.bridgeTx?.hash || parsed.depositTx?.hash)) {
@@ -233,19 +240,34 @@ export const useStellarDydxOrchestrator = () => {
               loadingStep: false,
             };
             setSessions([legacySession]);
-            const isLegacyPendingOnChain = legacySession.swapTx?.status === 'PENDING' || legacySession.bridgeTx?.status === 'PENDING' || legacySession.depositTx?.status === 'PENDING';
-            if (legacySession.phase !== 'DONE' && isLegacyPendingOnChain) {
-              setActiveSessionId(legacySession.id);
-            }
+            setActiveSessionId(prev => {
+              if (prev === legacySession.id) return prev;
+              const isLegacyPendingOnChain = legacySession.swapTx?.status === 'PENDING' || legacySession.bridgeTx?.status === 'PENDING' || legacySession.depositTx?.status === 'PENDING';
+              if (legacySession.phase !== 'DONE' && isLegacyPendingOnChain) {
+                return legacySession.id;
+              }
+              return null;
+            });
+          } else {
+            setSessions([]);
+            setActiveSessionId(null);
           }
+        } else {
+          setSessions([]);
+          setActiveSessionId(null);
         }
+      } else {
+        setSessions([]);
+        setActiveSessionId(null);
       }
     } catch (err) {
       console.error('Failed to restore bridge sessions', err);
+      setSessions([]);
+      setActiveSessionId(null);
     } finally {
       setIsRestored(true);
     }
-  }, []);
+  }, [connectedWallets, currentNetwork]);
 
   const saveSessions = useCallback((updated: BridgeSession[]) => {
     try {
