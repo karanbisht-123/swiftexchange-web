@@ -41,13 +41,13 @@ interface RangoCallbacks {
   onSlippageWarning?: (warning: RangoSlippageWarning) => void;
 }
 
-//Safely converts a raw string to BigInt, returns 0n on failure.
+// Safely converts a raw string to BigInt, returns 0n on failure.
 function safeValue(raw: string | undefined | null): bigint {
   if (!raw) return 0n;
   try { return BigInt(raw); } catch { return 0n; }
 }
 
-// Returns a valid gasLimit bigint from tx fields, or undefined if missing/invalid. 
+// Returns a valid gasLimit bigint from tx fields, or undefined if missing/invalid.
 function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefined {
   const raw = tx.gasLimit ?? tx.gas;
   if (!raw) return undefined;
@@ -57,7 +57,7 @@ function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefin
   } catch { return undefined; }
 }
 
-// Estimates gas for a tx with 20% buffer. Returns undefined if estimation fails. 
+// Estimates gas for a tx with 20% buffer. Returns undefined if estimation fails.
 async function estimateGasWithBuffer(
   provider: ethers.BrowserProvider,
   txParams: ethers.TransactionRequest,
@@ -105,7 +105,16 @@ async function pollForReceipt(
 
 /**
  * Converts a Rango tx object into eth_sendTransaction-compatible hex params.
- * Handles both EIP-1559 and legacy gas fields.
+ *
+ * NOTE: EIP-1559 (type 2) fields are commented out below.
+ * Many wallets (especially on Polygon) reject type 2 txns with:
+ * "unsupported transaction type: 0x2"
+ * We use legacy gasPrice instead for universal wallet compatibility.
+ *
+ * TO RE-ENABLE EIP-1559 in future:
+ *   1. Uncomment the maxFeePerGas / maxPriorityFeePerGas lines below
+ *   2. Remove the legacy gasPrice fallback line
+ *   3. Add chain detection if you want EIP-1559 only on supported chains
  */
 function buildRangoTxParams(tx: any, fallbackFrom: string): Record<string, string> {
   const params: Record<string, string> = {
@@ -114,10 +123,22 @@ function buildRangoTxParams(tx: any, fallbackFrom: string): Record<string, strin
     data: tx.data || '0x',
     value: tx.value ? '0x' + BigInt(tx.value).toString(16) : '0x0',
   };
+
   if (tx.gasLimit) params.gas = '0x' + BigInt(tx.gasLimit).toString(16);
-  if (tx.maxFeePerGas) params.maxFeePerGas = '0x' + BigInt(tx.maxFeePerGas).toString(16);
-  if (tx.maxPriorityFeePerGas) params.maxPriorityFeePerGas = '0x' + BigInt(tx.maxPriorityFeePerGas).toString(16);
-  if (!tx.maxFeePerGas && tx.gasPrice) params.gasPrice = '0x' + BigInt(tx.gasPrice).toString(16);
+
+  // -- EIP-1559 (type 2) gas fields — commented out for wallet compatibility --
+  // Wallets like MetaMask Mobile / Trust Wallet reject type 2 on Polygon (chainId 137).
+  // Uncomment below to re-enable EIP-1559 support when wallet compatibility improves:
+  //
+  // if (tx.maxFeePerGas) params.maxFeePerGas = '0x' + BigInt(tx.maxFeePerGas).toString(16);
+  // if (tx.maxPriorityFeePerGas) params.maxPriorityFeePerGas = '0x' + BigInt(tx.maxPriorityFeePerGas).toString(16);
+  // if (!tx.maxFeePerGas && tx.gasPrice) params.gasPrice = '0x' + BigInt(tx.gasPrice).toString(16);
+  // -------------------------------------------------------------------------
+
+  // Legacy gasPrice fallback — works on ALL wallets and chains
+  const rawGasPrice = tx.gasPrice ?? tx.maxFeePerGas;
+  if (rawGasPrice) params.gasPrice = '0x' + BigInt(rawGasPrice).toString(16);
+
   return params;
 }
 
@@ -134,7 +155,7 @@ async function readAllowance(
   chainId: number | string,
   provider: any,
 ): Promise<bigint> {
-  // public RPC 
+  // public RPC
   try {
     const rpcUrls = getEVMNetworkConfig(chainId).rpcUrls;
     if (rpcUrls.length > 0) {
@@ -163,8 +184,13 @@ async function readAllowance(
 
 /**
  * Sends an ERC-20 approve(spender, MaxUint256) transaction using the injected wallet.
- * Handles EIP-1559 and legacy gas, with 20% buffers on all fee estimates.
- * Returns the confirmed tx hash.
+ *
+ * NOTE: EIP-1559 (type 2) gas params are commented out below.
+ * Using legacy gasPrice for universal wallet compatibility (especially Polygon).
+ *
+ * TO RE-ENABLE EIP-1559 in future:
+ *   1. Uncomment the type 2 gasParams block below
+ *   2. Remove the legacy gasParams block
  */
 async function sendApprovalTx(
   tokenAddress: string,
@@ -197,20 +223,31 @@ async function sendApprovalTx(
   const feeData = await ethersProvider.getFeeData();
   let gasParams: Partial<ethers.TransactionRequest>;
 
-  if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-    gasParams = {
-      type: 2,
-      maxFeePerGas: (feeData.maxFeePerGas * 120n) / 100n,
-      maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas * 120n) / 100n,
-    };
-  } else if (feeData.gasPrice) {
-    gasParams = {
-      type: 0,
-      gasPrice: (feeData.gasPrice * 120n) / 100n,
-    };
-  } else {
-    throw new Error('Could not determine gas price for approval');
-  }
+  // -- EIP-1559 (type 2) gas params — commented out for wallet compatibility --
+  // Uncomment below to re-enable EIP-1559 support:
+  //
+  // if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+  //   gasParams = {
+  //     type: 2,
+  //     maxFeePerGas: (feeData.maxFeePerGas * 120n) / 100n,
+  //     maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas * 120n) / 100n,
+  //   };
+  // } else if (feeData.gasPrice) {
+  //   gasParams = {
+  //     type: 0,
+  //     gasPrice: (feeData.gasPrice * 120n) / 100n,
+  //   };
+  // } else {
+  //   throw new Error('Could not determine gas price for approval');
+  // }
+  // -------------------------------------------------------------------------
+
+  // Legacy gasPrice — works on ALL wallets and chains (Polygon, BSC, Ethereum, etc.)
+  const rawGasPrice = feeData.gasPrice ?? feeData.maxFeePerGas;
+  if (!rawGasPrice) throw new Error('Could not determine gas price for approval');
+  gasParams = {
+    gasPrice: (rawGasPrice * 120n) / 100n,
+  };
 
   const tx = await signer.sendTransaction({
     from: walletAddress,
@@ -230,10 +267,9 @@ async function sendApprovalTx(
 
 // 1inch Fusion allowance
 
-
 /**
  * Ensures LIMIT_ORDER_PROTOCOL has enough allowance to spend the sell token.
- * Skips native tokens. Checks on-chain first sends approval only when needed.
+ * Skips native tokens. Checks on-chain first, sends approval only when needed.
  */
 export async function ensureFusionAllowance(
   tokenAddress: string,
@@ -243,7 +279,7 @@ export async function ensureFusionAllowance(
   chainId: number | string,
 ): Promise<{ approvalTxHash?: string }> {
   if (!tokenAddress || tokenAddress.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) {
-    return {}; // nativeno approval needed
+    return {}; // native — no approval needed
   }
 
   const allowance = await readAllowance(tokenAddress, walletAddress, LIMIT_ORDER_PROTOCOL, chainId, provider);
@@ -258,8 +294,6 @@ export async function ensureFusionAllowance(
   const approvalTxHash = await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider);
   return { approvalTxHash };
 }
-
-
 
 /** Safely parses a human-readable decimal amount string into raw token units (string). */
 export function formatAmount(amount: string, decimals: number): string {
@@ -276,15 +310,23 @@ export function formatAmount(amount: string, decimals: number): string {
   }
 }
 
-
 // Quote fetching
-//Fetches a swap quote from the aggregator, normalizing native token addresses.
+// Fetches a swap quote from the aggregator, normalizing native token addresses.
 export async function fetchEvmQuote(
   chainId: number | string,
   request: SwapQuoteRequest,
   selectedSellAsset: TokenInfo,
   selectedBuyAsset: TokenInfo,
 ): Promise<SwapQuote> {
+  try {
+    const config = getEVMNetworkConfig(chainId);
+    if (config?.rpcUrls) {
+      rpcManager.resetChain(chainId, config.rpcUrls);
+    }
+  } catch (err) {
+    console.warn('[fetchEvmQuote] Failed to reset chain status:', err);
+  }
+
   try {
     const normalizedSellAddress =
       request.tokenIn?.address?.toLowerCase() === NATIVE_ADDRESS.toLowerCase()
@@ -334,6 +376,15 @@ export async function fetchEvmQuote(
   }
 }
 
+/**
+ * NOTE: EIP-1559 (type 2) is commented out in txParams below.
+ * Using legacy gasPrice for universal wallet compatibility.
+ *
+ * TO RE-ENABLE EIP-1559 in future:
+ *   1. Uncomment `type: tx.type === 2 ? 2 : undefined` line
+ *   2. Uncomment maxFeePerGas / maxPriorityFeePerGas lines
+ *   3. Remove the legacy gasPrice line
+ */
 export async function executeSwap(
   chainId: number | string,
   quote: SwapQuote,
@@ -347,6 +398,15 @@ export async function executeSwap(
 ): Promise<string> {
   const provider = getProvider(WalletType.EVM);
   if (!provider) throw new Error('EVM wallet not connected');
+
+  try {
+    const config = getEVMNetworkConfig(chainId);
+    if (config?.rpcUrls) {
+      rpcManager.resetChain(chainId, config.rpcUrls);
+    }
+  } catch (err) {
+    console.warn('[executeSwap] Failed to reset chain status:', err);
+  }
 
   const transactions = await prepareSwapTransaction({
     chainId,
@@ -371,11 +431,23 @@ export async function executeSwap(
         to: tx.to,
         data: tx.data,
         value: safeValue(tx.value),
-        type: tx.type === 2 ? 2 : undefined,
+
+        // -- EIP-1559 type field — commented out for wallet compatibility --
+        // Uncomment to re-enable EIP-1559:
+        // type: tx.type === 2 ? 2 : undefined,
+        // -------------------------------------------------------------------
       };
 
-      if (tx.maxFeePerGas) txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
-      if (tx.maxPriorityFeePerGas) txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
+      // -- EIP-1559 gas fields — commented out for wallet compatibility --
+      // Uncomment to re-enable EIP-1559:
+      // if (tx.maxFeePerGas) txParams.maxFeePerGas = BigInt(tx.maxFeePerGas);
+      // if (tx.maxPriorityFeePerGas) txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
+      // -------------------------------------------------------------------
+
+      // Legacy gasPrice — works on ALL wallets and chains
+      const rawGasPrice = tx.gasPrice ?? tx.maxFeePerGas;
+      if (rawGasPrice) txParams.gasPrice = BigInt(rawGasPrice);
+
       if (tx.nonce != null) txParams.nonce = Number(tx.nonce);
 
       try {
@@ -405,7 +477,7 @@ export async function executeSwap(
 
   for (let i = 0; i < txParamsList.length; i++) {
     const tx = txParamsList[i];
-    
+
     // Pre-transaction Simulation Layer
     const simResult = await simulateSwapTransaction({
       networkKey: chainId,
@@ -415,7 +487,6 @@ export async function executeSwap(
       value: tx.value?.toString()
     });
 
-    // If it's a subsequent tx in a batch (e.g., swap after approval), ignore allowance errors
     if (!simResult.canProceed) {
       const hasAllowanceError = simResult.errors.some(e => e.toLowerCase().includes('allowance') || e.toLowerCase().includes('approval'));
       if (!(i > 0 && hasAllowanceError)) {
@@ -437,16 +508,11 @@ export async function executeSwap(
         120_000,
         () => console.warn('[executeSwap] Final tx taking longer than expected:', lastTxHash),
       );
-      if (!receipt) {
-        throw new Error(`Swap transaction timed out. Hash: ${lastTxHash}`);
-      }
-      if (receipt.status === 0) {
+      if (receipt && receipt.status === 0) {
         throw new Error(`Swap transaction reverted on-chain. Hash: ${lastTxHash}`);
       }
     } else {
       if (onApprovalTxHash) onApprovalTxHash(txResponse.hash);
-      // For intermediate transactions (like approvals), we fire-and-forget the receipt polling
-      // to avoid blocking the user from signing the next transaction in the sequence.
       pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
         if (!receipt || receipt.status === 0) {
           console.error(`[executeSwap] Intermediate transaction ${i + 1} failed:`, txResponse.hash);
@@ -457,6 +523,7 @@ export async function executeSwap(
 
   return lastTxHash;
 }
+
 export async function fetch1InchFusionQuote(
   chain: number | string,
   tokenIn: string,
@@ -513,7 +580,7 @@ export async function execute1InchFusionSwap(
 
   // Pre-transaction Simulation Layer
   if (onProgress) onProgress('signing');
-  
+
   const simResult = await simulateSwapTransaction({
     networkKey: chainId,
     from: senderAddress,
@@ -572,7 +639,6 @@ export async function execute1InchFusionSwap(
     permit: '',
   };
 
-
   const MAX_RETRIES = 4;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -589,7 +655,7 @@ export async function execute1InchFusionSwap(
         await new Promise(r => setTimeout(r, 4_000));
         continue;
       }
-      console.log(err, "fustion errr ")
+      console.log(err, 'fustion errr ');
       throw new Error(parseSwapError(err));
     }
   }
@@ -597,7 +663,7 @@ export async function execute1InchFusionSwap(
   return orderHash;
 }
 
-//Confirms a Rango cross-chain route before execution. 
+// Confirms a Rango cross-chain route before execution.
 export async function fetchRangoConfirmRoute(
   requestId: string,
   fromChainId: number | string,
@@ -618,7 +684,7 @@ export async function fetchRangoConfirmRoute(
   }
 }
 
-//Polls Rango to check if an approval tx has been indexed and accepted.
+// Polls Rango to check if an approval tx has been indexed and accepted.
 export async function fetchRangoCheckApproval(requestId: string, txId = ''): Promise<any> {
   try {
     return await checkRangoApproval({ requestId, txId });
@@ -627,7 +693,7 @@ export async function fetchRangoCheckApproval(requestId: string, txId = ''): Pro
   }
 }
 
-// Fetches a prepared Rango tx for a given step index. 
+// Fetches a prepared Rango tx for a given step index.
 export async function fetchRangoPrepareTx(requestId: string, swapsIndex = 1): Promise<any> {
   try {
     return await prepareRangoTx({ requestId, swaps: swapsIndex });
@@ -697,7 +763,7 @@ export function extractRangoSlippageRecommendations(
   return results;
 }
 
-//Returns the highest-severity slippage warning across all steps, or null if user's setting is fine. 
+// Returns the highest-severity slippage warning across all steps, or null if user's setting is fine.
 export function getRangoSlippageWarning(
   rangoQuoteResult: any,
   userSlippage: number,
@@ -731,7 +797,7 @@ async function pollRangoApprovalStatus(
       const status = await checkRangoApproval({ requestId, txId });
       if (status?.isApproved) return true;
     } catch {
-      // Rango API flaky keep polling
+      // Rango API flaky — keep polling
     }
   }
   return false;
@@ -764,6 +830,10 @@ async function waitForApprovalConfirmation(
 
 let _rangoExecutionLock = false;
 
+/** Call this in the swap component's useEffect cleanup to prevent a stuck lock after navigation. */
+export function resetRangoExecutionLock(): void {
+  _rangoExecutionLock = false;
+}
 
 export async function executeRangoSwap(
   requestId: string,
@@ -809,7 +879,7 @@ async function _runRangoSteps(
 
   callbacks.setStatus('preparing');
 
-  // Fetch step 1 to discover total step count 
+  // Fetch step 1 to discover total step count
   const firstRaw = await fetchRangoPrepareTx(requestId, 1);
   const firstItems: any[] = Array.isArray(firstRaw) ? firstRaw : [firstRaw];
 
@@ -825,7 +895,7 @@ async function _runRangoSteps(
 
   console.log(`[executeRangoSwap] Route has ${stepCount} step(s)`);
 
-  //Process each step
+  // Process each step
   for (let step = 1; step <= stepCount; step++) {
     callbacks.setStatus('preparing');
 
@@ -840,7 +910,7 @@ async function _runRangoSteps(
 
     const stepTx = stepResult.transaction;
 
-    //Per-step slippage warning
+    // Per-step slippage warning
     const routeSwap = swapsFromRoute[step - 1];
     if (routeSwap?.recommendedSlippage?.slippage != null && !routeSwap.recommendedSlippage.error) {
       const recommended = parseFloat(routeSwap.recommendedSlippage.slippage);
@@ -855,13 +925,12 @@ async function _runRangoSteps(
     }
 
     // isApprovalTx check
-
     if (stepTx.isApprovalTx) {
       console.log(`[executeRangoSwap] Step ${step}: approval tx required`);
       callbacks.setStatus('signing');
 
       const approvalTxParams = buildRangoTxParams(stepTx, evmAddress);
-      
+
       const approvalSimResult = await simulateSwapTransaction({
         networkKey: fromChainId,
         from: approvalTxParams.from,
@@ -983,6 +1052,7 @@ async function _runRangoSteps(
         status: 'pending',
         network: currentNetwork,
       });
+
       // For multi-step routes: confirm this step before proceeding to the next.
       // The next step's contract needs the output tokens from this step.
       if (step < stepCount) {

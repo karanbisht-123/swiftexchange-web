@@ -59,6 +59,7 @@ interface SwapTransactionRequest {
 }
 
 export interface SwapTransactionData {
+  gasPrice: string | undefined;
   to: string;
   from: string;
   data: string;

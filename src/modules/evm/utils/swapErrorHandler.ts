@@ -1,19 +1,37 @@
 const NOISE_STRINGS = ['payload=', 'jsonrpc', 'UNKNOWN_ERROR', 'version='];
-const HEX_PATTERN = /\b0x[0-9a-fA-F]{6,}\b/;
 
-function isNoisy(str: string): boolean {
-  return NOISE_STRINGS.some((n) => str.includes(n)) || HEX_PATTERN.test(str);
-}
+export function extractCleanMessage(rawMsg: string): string {
+  if (!rawMsg) return '';
 
+  // 1. Try to check if it's a WalletConnect/Ethers "processing response error" string
+  // which contains body="{\"jsonrpc\":\"2.0\",...,\"error\":{\"code\":...,\"message\":\"...\"}}"
+  if (rawMsg.includes('body="') || rawMsg.includes('body=\\"')) {
+    const bodyMatch = rawMsg.match(/body=["']?\\?(\{.*?\})\\?["']/);
+    if (bodyMatch?.[1]) {
+      try {
+        const unescaped = bodyMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        const parsed = JSON.parse(unescaped);
+        const innerMsg = parsed?.error?.message || parsed?.message;
+        if (innerMsg) return innerMsg;
+      } catch (e) {
+        // Fallback to regex on body if parse fails
+      }
+    }
+  }
 
-export function parseWalletError(error: unknown): string {
-  console.error('[parseWalletError]', error);
+  // 2. Try to match any "message":"..." or similar in the raw message
+  const messagePatterns = [
+    /["']message["']\s*:\s*["']([^"']+)["']/i,
+    /\\?["']message\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i
+  ];
+  for (const pattern of messagePatterns) {
+    const match = rawMsg.match(pattern);
+    if (match?.[1]) {
+      return match[1].replace(/\\"/g, '"').trim();
+    }
+  }
 
-  const rawMsg: string =
-    (error as any)?.message ||
-    (error as any)?.originalError?.message ||
-    String(error);
-
+  // 3. Fallback: standard `error=\s*(\{[^}]+\})` parsing
   try {
     const match = rawMsg.match(/error=\s*(\{[^}]+\})/);
     if (match?.[1]) {
@@ -23,10 +41,176 @@ export function parseWalletError(error: unknown): string {
       }
     }
   } catch (error) {
-    console.error("Error parsing wallet error:", error);
+    // ignore
   }
-  if (rawMsg.length > 0 && rawMsg !== '[object Object]' && !isNoisy(rawMsg)) {
-    return rawMsg;
+
+  return rawMsg;
+}
+
+function isNoisy(str: string): boolean {
+  // If it's a huge hex string (bytecode/signature), it's noise
+  const LONG_HEX_PATTERN = /\b0x[0-9a-fA-F]{65,}\b/;
+  if (LONG_HEX_PATTERN.test(str)) return true;
+
+  return NOISE_STRINGS.some((n) => str.includes(n));
+}
+
+
+export function translateErrorMessage(message: string): string {
+  let processedMessage = message
+    .replace(/^could not coalesce error/i, '')
+    .replace(/^\s*\(/, '')
+    .replace(/\)\s*$/, '')
+    .replace(/^API error: Bad Request - /i, '')
+    .replace(/^API error: /i, '')
+    .replace(/^Error: /i, '')
+    .replace(/^Token approval failed: /i, '')
+    .replace(/^ethers-user-denied: /i, '')
+    .replace(' [object Object]', '')
+    .replace(/^"|"$/g, '')
+    .trim();
+
+  if (isNoisy(processedMessage)) {
+    return '';
+  }
+
+  const lower = processedMessage.toLowerCase();
+
+  if (lower.includes('balance is empty') || lower.includes('insufficient')) {
+    if (lower.includes('fee')) {
+      if (lower.includes('required') || lower.includes('current') || lower.includes('need') || lower.includes('have')) {
+        return processedMessage;
+      }
+      return 'Insufficient native tokens for gas fees.';
+    }
+    return processedMessage;
+  }
+
+  if (
+    lower.includes('insufficient funds') ||
+    lower.includes('insufficient eth balance') ||
+    lower.includes('insufficient eth for gas fees') ||
+    lower.includes('insufficient balance')
+  ) {
+    if (lower.includes('need') || lower.includes('have') || lower.includes('required')) {
+      return processedMessage;
+    }
+    return 'Insufficient native tokens to cover network gas fees.';
+  }
+
+  if (
+    lower.includes('cannot estimate gas') ||
+    lower.includes('gas estimation failed') ||
+    lower.includes('unpredictable_gas_limit')
+  ) {
+    if (lower.includes('gas required exceeds allowance')) {
+      return 'The transaction is likely to fail. This often happens if you have insufficient token balance for the transfer or the contract execution reverted.';
+    }
+    return 'Transaction gas estimation failed. This usually happens if the transaction will fail on-chain. Please check your balance or parameters.';
+  }
+
+  if (lower.includes('execution reverted')) {
+    const revertMatch = processedMessage.match(/execution reverted:?\s*([^"(]+)/i);
+    if (revertMatch?.[1]?.trim()) {
+      return `Transaction failed: ${revertMatch[1].trim()}`;
+    }
+  }
+
+  if (lower.includes('gas price below minimum') || lower.includes('intrinsic gas') || lower.includes('max fee') || lower.includes('tip cap') || lower.includes('below minimum')) {
+    return processedMessage;
+  }
+
+  if (lower.includes('nonce too low') || lower.includes('nonce')) {
+    return 'Transaction failed: Account nonce is out of sync. Please try again.';
+  }
+  if (lower.includes('replacement transaction underpriced') || lower.includes('underpriced')) {
+    return 'Transaction failed: A pending transaction exists with the same nonce, but has lower fee parameters. Please try again.';
+  }
+
+  if (processedMessage.includes('http://') || processedMessage.includes('https://') || lower.includes('rpc error')) {
+    const revertMatch = processedMessage.match(/execution reverted:?\s*([^"(]+)/i);
+    if (revertMatch?.[1]?.trim()) {
+      return `Transaction failed: ${revertMatch[1].trim()}`;
+    }
+    return 'Transaction failed due to a network provider error. Please try again.';
+  }
+
+  if (lower.includes('tx_bad_seq') || lower.includes('sequence_mismatch') || lower.includes('bad sequence')) {
+    return 'Transaction sequence number mismatch. This can happen if another transaction was recently submitted. Please try again.';
+  }
+
+  // Stellar / Soroban Specifics
+  if (lower.includes('resulting balance is not within the allowed range')) {
+    return 'Insufficient XLM balance. You need more XLM to cover the network reserve and transaction fees.';
+  }
+
+  if (lower.includes('error(contract, #10)') || lower.includes('error(contract,#10)')) {
+    if (lower.includes('transfer')) {
+      return 'Transfer failed: The contract could not complete the transfer. This is usually due to insufficient balance or trustline issues.';
+    }
+    return 'Contract execution failed. Please ensure you have enough XLM for fees and the minimum reserve.';
+  }
+
+  if (lower.includes('tx_insufficient_balance') || lower.includes('op_underfunded')) {
+    return 'Insufficient balance to cover transaction fees and minimum reserve.';
+  }
+
+  if (lower.includes('tx_bad_auth') || lower.includes('op_bad_auth')) {
+    return 'Transaction signing failed. Please verify your wallet connection and try again.';
+  }
+
+  if (lower.includes('tx_insufficient_fee')) {
+    return 'Network fee is too low. Please try again or increase the fee in your wallet.';
+  }
+
+  if (lower.includes('op_no_trust')) {
+    return 'Asset trustline missing. You must enable this asset in your wallet before you can receive it.';
+  }
+
+  if (lower.includes('op_src_not_found')) {
+    return 'Stellar account not activated. Send at least 1 XLM to this address to activate it.';
+  }
+
+  if (lower.includes('op_limit_exceeded')) {
+    return 'The amount exceeds your trustline limit. Increase the limit in your wallet.';
+  }
+
+  if (lower.includes('simulation failed')) {
+    if (lower.includes('hosterror')) {
+      return 'Transaction simulation failed. This is typically caused by insufficient XLM for fees or missing account reserves.';
+    }
+    return 'Bridge simulation failed. Please check your Stellar account balance and try again.';
+  }
+
+  if (lower.includes('user declined') || lower.includes('user rejected') || lower.includes('dismissed')) {
+    return 'Transaction was cancelled by the user.';
+  }
+
+  if (processedMessage.length > 150) {
+    if (lower.includes('balance') || lower.includes('underfunded')) {
+      return 'Transaction failed due to insufficient balance or reserve requirements.';
+    }
+    return 'The transaction failed. Please ensure your wallet is funded and try again.';
+  }
+
+  return processedMessage;
+}
+
+export function parseWalletError(error: unknown): string {
+  console.error('[parseWalletError]', error);
+
+  const rawMsg: string =
+    (error as any)?.message ||
+    (error as any)?.originalError?.message ||
+    String(error);
+
+  let message = extractCleanMessage(rawMsg);
+
+  if (message.length > 0 && message !== '[object Object]') {
+    const translated = translateErrorMessage(message);
+    if (translated) {
+      return translated;
+    }
   }
 
   return 'Something went wrong. Please try again.';
@@ -35,7 +219,14 @@ export function parseWalletError(error: unknown): string {
 export function parseSwapError(error: any): string {
   console.error('[SwapError]', error);
   const rawMsg: string = error?.message || error?.originalError?.message || '';
-  if (rawMsg && (rawMsg.includes('error=') || rawMsg.includes('UNKNOWN_ERROR') || rawMsg.includes('payload='))) {
+  if (
+    rawMsg &&
+    (rawMsg.includes('error=') ||
+      rawMsg.includes('UNKNOWN_ERROR') ||
+      rawMsg.includes('payload=') ||
+      rawMsg.includes('jsonrpc') ||
+      rawMsg.includes('processing response error'))
+  ) {
     return parseWalletError(error);
   }
 
@@ -119,124 +310,10 @@ export function parseSwapError(error: any): string {
     message = error ? String(error) : 'Swap failed. Please try again.';
   }
 
-  let processedMessage = message
-    .replace(/^could not coalesce error/i, '')
-    .replace(/^\s*\(/, '')
-    .replace(/\)\s*$/, '')
-    .replace(/^API error: Bad Request - /i, '')
-    .replace(/^API error: /i, '')
-    .replace(/^Error: /i, '')
-    .replace(/^Token approval failed: /i, '')
-    .replace(/^ethers-user-denied: /i, '')
-    .replace(' [object Object]', '')
-    .replace(/^"|"$/g, '')
-    .trim();
-  if (isNoisy(processedMessage)) {
-    return parseWalletError(error);
-  }
+  message = extractCleanMessage(message);
 
-  const lower = processedMessage.toLowerCase();
-
-  if (lower.includes('balance is empty') || lower.includes('insufficient')) {
-    if (lower.includes('fee')) {
-      if (lower.includes('required') || lower.includes('current') || lower.includes('need') || lower.includes('have')) {
-        return processedMessage;
-      }
-      return 'Insufficient native tokens for gas fees.';
-    }
-    return processedMessage;
-  }
-
-  if (
-    lower.includes('insufficient funds') ||
-    lower.includes('insufficient eth balance') ||
-    lower.includes('insufficient eth for gas fees') ||
-    lower.includes('insufficient balance')
-  ) {
-    if (lower.includes('need') || lower.includes('have') || lower.includes('required')) {
-      return processedMessage;
-    }
-    return 'Insufficient native tokens to cover network gas fees.';
-  }
-
-  if (
-    lower.includes('cannot estimate gas') ||
-    lower.includes('gas estimation failed') ||
-    lower.includes('unpredictable_gas_limit')
-  ) {
-    if (lower.includes('gas required exceeds allowance')) {
-      return 'The transaction is likely to fail. This often happens if you have insufficient token balance for the transfer or the contract execution reverted.';
-    }
-    return 'Transaction gas estimation failed. This usually happens if the transaction will fail on-chain. Please check your balance or parameters.';
-  }
-
-  if (processedMessage.includes('http://') || processedMessage.includes('https://') || lower.includes('rpc error')) {
-    const revertMatch = processedMessage.match(/execution reverted:?\s*([^"(]+)/i);
-    if (revertMatch?.[1]?.trim()) {
-      return `Transaction failed: ${revertMatch[1].trim()}`;
-    }
-    return 'Transaction failed due to a network provider error. Please try again.';
-  }
-
-  if (lower.includes('tx_bad_seq') || lower.includes('sequence_mismatch') || lower.includes('bad sequence')) {
-    return 'Transaction sequence number mismatch. This can happen if another transaction was recently submitted. Please try again.';
-  }
-
-  // Stellar / Soroban Specifics
-  if (lower.includes('resulting balance is not within the allowed range')) {
-    return 'Insufficient XLM balance. You need more XLM to cover the network reserve and transaction fees.';
-  }
-
-  if (lower.includes('error(contract, #10)')) {
-    if (lower.includes('transfer')) {
-      return 'Transfer failed: The contract could not complete the transfer. This is usually due to insufficient balance or trustline issues.';
-    }
-    return 'Contract execution failed. Please ensure you have enough XLM for fees and the minimum reserve.';
-  }
-
-  if (lower.includes('tx_insufficient_balance') || lower.includes('op_underfunded')) {
-    return 'Insufficient balance to cover transaction fees and minimum reserve.';
-  }
-
-  if (lower.includes('tx_bad_auth') || lower.includes('op_bad_auth')) {
-    return 'Transaction signing failed. Please verify your wallet connection and try again.';
-  }
-
-  if (lower.includes('tx_insufficient_fee')) {
-    return 'Network fee is too low. Please try again or increase the fee in your wallet.';
-  }
-
-  if (lower.includes('op_no_trust')) {
-    return 'Asset trustline missing. You must enable this asset in your wallet before you can receive it.';
-  }
-
-  if (lower.includes('op_src_not_found')) {
-    return 'Stellar account not activated. Send at least 1 XLM to this address to activate it.';
-  }
-
-  if (lower.includes('op_limit_exceeded')) {
-    return 'The amount exceeds your trustline limit. Increase the limit in your wallet.';
-  }
-
-  if (lower.includes('simulation failed')) {
-    if (lower.includes('hosterror')) {
-      return 'Transaction simulation failed. This is typically caused by insufficient XLM for fees or missing account reserves.';
-    }
-    return 'Bridge simulation failed. Please check your Stellar account balance and try again.';
-  }
-
-  if (lower.includes('user declined') || lower.includes('user rejected') || lower.includes('dismissed')) {
-    return 'Transaction was cancelled by the user.';
-  }
-
-  if (processedMessage.length > 150) {
-    if (lower.includes('balance') || lower.includes('underfunded')) {
-      return 'Transaction failed due to insufficient balance or reserve requirements.';
-    }
-    return 'The transaction failed. Please ensure your wallet is funded and try again.';
-  }
-
-  return processedMessage || 'Swap failed. Please try again.';
+  const translated = translateErrorMessage(message);
+  return translated || 'Swap failed. Please try again.';
 }
 export interface RangoDisplayError {
   type: 'no_route' | 'amount' | 'balance' | 'fee' | 'expired' | 'server' | 'warning';

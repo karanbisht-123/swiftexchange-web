@@ -75,6 +75,7 @@ export const useReceiveAssets = () => {
 
   const assetParam = searchParams.get('asset');
   const chainIdParam = searchParams.get('chainId');
+  const addressParam = searchParams.get('address');
 
   const currentAsset = useMemo(() => {
     if (assetParam && chainIdParam) {
@@ -84,11 +85,21 @@ export const useReceiveAssets = () => {
       return assets.find(a => {
         const aChainIdStr = String(a.chainId);
         const paramIdStr = normalizedParam === 'stellar' ? 'pubnet' : normalizedParam;
-        return a.symbol === assetParam && aChainIdStr === paramIdStr;
+        if (a.symbol !== assetParam || aChainIdStr !== paramIdStr) return false;
+
+        if (addressParam) {
+          const aIsNative = !!a.isNative || !a.tokenAddress || a.tokenAddress.toLowerCase() === '0x0000000000000000000000000000000000000000' || a.tokenAddress.toLowerCase() === 'native';
+          const paramIsNative = addressParam.toLowerCase() === 'native' || addressParam.toLowerCase() === '0x0000000000000000000000000000000000000000';
+          if (aIsNative !== paramIsNative) return false;
+          if (!aIsNative && !paramIsNative) {
+            return a.tokenAddress?.toLowerCase() === addressParam.toLowerCase();
+          }
+        }
+        return true;
       });
     }
     return undefined;
-  }, [assets, assetParam, chainIdParam]);
+  }, [assets, assetParam, chainIdParam, addressParam]);
 
   useEffect(() => {
     if (assets.length === 0) return;

@@ -1,6 +1,8 @@
 import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet, RefreshCw } from 'lucide-react';
 import React, { useCallback, useMemo, useRef } from 'react';
 import PageLayout from '../../../components/layout/PageLayout';
+import { Tooltip } from '../../../components/common/Tooltip';
+import { toPlainString } from '../../evm/hook/useEvmSwap';
 import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
 import StellarTransactionModal from '../../steallr/components/modals/StellarTransactionModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
@@ -407,7 +409,12 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   {isFetchingBalance ? (
                     <span className="inline-block w-14 h-3.5 bg-brand-primary/30 animate-pulse rounded-full align-middle" />
                   ) : (
-                    `${portfolioUtils.formatBalance(balance)} ${currentAsset?.symbol || ""}`
+                    <Tooltip
+                      content={`${toPlainString(balance)} ${currentAsset?.symbol || ""}`}
+                      unstyled
+                    >
+                      {portfolioUtils.formatBalance(balance)} {currentAsset?.symbol || ""}
+                    </Tooltip>
                   )}
                 </div>
               </div>

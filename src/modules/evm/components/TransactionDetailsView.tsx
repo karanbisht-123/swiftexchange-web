@@ -1,4 +1,4 @@
-import { ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import React, { useState } from 'react';
 
 import { type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
@@ -13,6 +13,7 @@ interface TransactionDetailsViewProps {
   isSelf?: boolean;
   onRefresh?: () => void;
   backendStatus?: any;
+  onClose?: () => void;
 }
 
 const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
@@ -22,6 +23,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   isSelf = false,
   onRefresh,
   backendStatus,
+  onClose,
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -83,14 +85,27 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   return (
     <div className="flex flex-col h-full bg-secondary rounded-2xl overflow-hidden border border-color shadow-sm">
       <div className="bg-tertiary/30 p-8 flex flex-col items-center justify-center border-b border-color relative">
-        {isLocal && (
-          <button
-            onClick={onRefresh}
-            className="absolute top-6 right-6 p-2.5 rounded-xl bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-all active:scale-95 shadow-sm"
-            title="Refresh Status"
-          >
-            <RefreshCw size={18} className={status === 'pending' ? 'animate-spin' : ''} />
-          </button>
+        {(isLocal || onClose) && (
+          <div className="absolute top-6 right-6 flex items-center gap-2">
+            {isLocal && (
+              <button
+                onClick={onRefresh}
+                className="p-2.5 rounded-xl bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-all active:scale-95 shadow-sm"
+                title="Refresh Status"
+              >
+                <RefreshCw size={18} className={status === 'pending' ? 'animate-spin' : ''} />
+              </button>
+            )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="p-2.5 rounded-xl bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-all active:scale-95 shadow-sm"
+                title="Close Details"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
         )}
         <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-inner border border-color overflow-hidden ${type === 'approval' ? 'bg-blue-500/10 border-blue-500/20' : 'bg-tertiary'}`}>
           {type === 'approval' ? (

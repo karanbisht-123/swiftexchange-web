@@ -1,4 +1,6 @@
+import * as StellarSDK from '@stellar/stellar-sdk';
 import { getStellarConfig } from '../../walletconnect/config/chains';
+import { StellarSequenceTracker } from './StellarSequenceTracker';
 
 export interface SignAndSubmitParams {
   xdr: string;
@@ -51,16 +53,61 @@ async function submitToHorizon(
 export const signAndSubmitTransaction = async (
   params: SignAndSubmitParams
 ): Promise<SignAndSubmitResult> => {
-  const { xdr, network, networkPassphrase, provider } = params;
+  const { network, networkPassphrase, provider } = params;
+  let finalXdr = params.xdr;
+
+  let sourceAddress: string | undefined;
+  let txSeq: string | undefined;
 
   try {
-    // 1. Handle Freighter Extension
+    const tx = new StellarSDK.Transaction(finalXdr, networkPassphrase);
+    sourceAddress = tx.source;
+    txSeq = tx.sequence;
+
+    if (sourceAddress && txSeq) {
+      try {
+        const config = getStellarConfig(network.toLowerCase() as any);
+        const horizonServer = new StellarSDK.Horizon.Server(config.horizonUrl);
+        const accountResponse = await horizonServer.loadAccount(sourceAddress);
+        const networkSeqStr = accountResponse.sequenceNumber();
+        const networkSeq = BigInt(networkSeqStr);
+        const isKnown = StellarSequenceTracker.isKnownSequence(sourceAddress, txSeq);
+
+        if (isKnown || BigInt(txSeq) > networkSeq + 1n) {
+          const baseSeqUsed = BigInt(txSeq) - 1n;
+          StellarSequenceTracker.syncSequence(sourceAddress, baseSeqUsed.toString());
+          if (isKnown) {
+            StellarSequenceTracker.removeKnownSequence(sourceAddress, txSeq);
+          }
+          console.log(`[StellarTransactionService] Tracker synchronized to sequence ${baseSeqUsed} for ${sourceAddress}`);
+        } else {
+          const baseSeq = StellarSequenceTracker.getAndIncrementSequence(sourceAddress, networkSeqStr);
+          const expectedTxSeq = (BigInt(baseSeq) + 1n).toString();
+
+          if (expectedTxSeq !== txSeq) {
+            console.log(`[StellarTransactionService] Mutating XDR sequence from ${txSeq} to ${expectedTxSeq} for ${sourceAddress}`);
+            (tx as any).tx._attributes.seqNum = (StellarSDK as any).xdr.SequenceNumber.fromString(expectedTxSeq);
+            (tx as any)._envelope = undefined;
+            finalXdr = tx.toXDR();
+            txSeq = expectedTxSeq;
+          }
+          StellarSequenceTracker.removeKnownSequence(sourceAddress, expectedTxSeq);
+        }
+      } catch (seqError) {
+        console.warn('[StellarTransactionService] Failed to check/correct sequence number:', seqError);
+      }
+    }
+  } catch (parseErr) {
+    console.warn('[StellarTransactionService] Failed to parse transaction XDR:', parseErr);
+  }
+
+  try {
     const win = window as any;
     if (provider?.isFreighter || (win.freighter && provider === win.freighter)) {
       console.log('[StellarTransactionService] Using Freighter');
       const freighter = win.freighterApi || win.freighter;
 
-      const signResult = await freighter.signTransaction(xdr, {
+      const signResult = await freighter.signTransaction(finalXdr, {
         network,
         networkPassphrase
       });
@@ -70,35 +117,31 @@ export const signAndSubmitTransaction = async (
       if (!signedXdr) {
         throw new Error('Freighter failed to sign the transaction');
       }
-
-      // Submit signed XDR to Horizon
       const config = getStellarConfig(network.toLowerCase() as any);
       const hash = await submitToHorizon(signedXdr, config.horizonUrl);
 
       return { success: true, hash };
     }
 
-    // 2. Handle WalletConnect
     if (provider?.client && provider?.session) {
       console.log('[StellarTransactionService] Using WalletConnect');
 
       console.log("-----------")
       const config = getStellarConfig(network.toLowerCase() as any);
-      const stellarNetwork = config.chainId; // 'pubnet' or 'testnet'
+      const stellarNetwork = config.chainId;
 
       const topic = provider.session.topic;
       const chainId = `stellar:${stellarNetwork}`;
 
       const signParams = {
-        xdr,
-        network: stellarNetwork.toUpperCase(), // 'PUBNET' or 'TESTNET'
+        xdr: finalXdr,
+        network: stellarNetwork.toUpperCase(),
         networkPassphrase,
       };
 
       console.log('[StellarTransactionService] signParams:', signParams);
 
       try {
-        // Try signAndSubmitXDR first
         const result = await provider.client.request({
           topic,
           chainId,
@@ -123,8 +166,6 @@ export const signAndSubmitTransaction = async (
         }
       } catch (wcError: any) {
         console.warn('[StellarTransactionService] stellar_signAndSubmitXDR failed, trying fallback...', wcError);
-
-        // Fallback: Try stellar_signTransaction if signAndSubmit is not supported
         const signResult = await provider.client.request({
           topic,
           chainId,
@@ -151,7 +192,7 @@ export const signAndSubmitTransaction = async (
       const result = await provider.request({
         method: 'stellar_signAndSubmitXDR',
         params: {
-          xdr,
+          xdr: finalXdr,
           network: network.toUpperCase(),
           networkPassphrase,
         },
@@ -161,16 +202,26 @@ export const signAndSubmitTransaction = async (
         return { success: true, hash: result.hash };
       }
 
-      return { success: false, error: 'Transaction failed' };
+      throw new Error('Transaction failed');
     }
 
     throw new Error('No compatible Stellar wallet provider found');
 
   } catch (error: any) {
     console.error('[StellarTransactionService] Error:', error);
+    const errStr = error?.message || String(error);
+
+    if (sourceAddress && txSeq) {
+      const baseSeqUsed = (BigInt(txSeq) - 1n).toString();
+      StellarSequenceTracker.rollbackSequence(sourceAddress, baseSeqUsed);
+      if (errStr.includes('tx_bad_seq') || errStr.includes('sequence_mismatch') || errStr.includes('bad sequence')) {
+        StellarSequenceTracker.reset(sourceAddress);
+      }
+    }
+
     return {
       success: false,
-      error: error?.message || 'Failed to sign and submit transaction',
+      error: errStr,
     };
   }
 };

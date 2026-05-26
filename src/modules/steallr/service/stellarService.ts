@@ -1,4 +1,12 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
+import { generateTransactionId } from '../../../utils/transactionUtils';
+import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import {
+  type StellarSendTransaction,
+  type StellarTransactionOptions,
+} from '../types/stellarTransaction.types';
+import { StellarSequenceTracker } from '../utils/StellarSequenceTracker';
 
 export function ensureTrustlineOp(
   txBuilder: StellarSDK.TransactionBuilder,
@@ -22,14 +30,6 @@ export function ensureTrustlineOp(
     );
   }
 }
-
-import { generateTransactionId } from '../../../utils/transactionUtils';
-import { getStellarConfig } from '../../walletconnect/config/chains';
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import {
-  type StellarSendTransaction,
-  type StellarTransactionOptions,
-} from '../types/stellarTransaction.types';
 
 const getByteLength = (str: string): number => new TextEncoder().encode(str).length;
 
@@ -131,7 +131,9 @@ export async function sendCryptoStellarBuild(
     memo = StellarSDK.Memo.text(memoText);
   }
 
-  const sourceAccount = await server.loadAccount(from);
+  const accountResponse = await server.loadAccount(from);
+  const baseSeq = StellarSequenceTracker.getAndIncrementSequence(from, accountResponse.sequenceNumber());
+  const sourceAccount = new StellarSDK.Account(from, baseSeq);
   const stellarAmount = parseFloat(amount).toFixed(7);
 
   const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
@@ -147,7 +149,7 @@ export async function sendCryptoStellarBuild(
   }
 
   // 1. Ensure sender has trustline
-  ensureTrustlineOp(txBuilder, sourceAccount, stellarAsset);
+  ensureTrustlineOp(txBuilder, accountResponse, stellarAsset);
 
   // 2. Check if recipient has trustline (for non-native assets)
   let useClaimableBalance = false;
@@ -207,7 +209,7 @@ export async function sendCryptoStellarBuild(
     asset: asset.code,
     network: config.network,
     chainId: `stellar:${config.chainId}`,
-    sequence: sourceAccount.sequenceNumber(),
+    sequence: baseSeq,
     operations: [
       {
         type: useClaimableBalance ? 'create_claimable_balance' : 'payment',
@@ -315,8 +317,24 @@ export async function sendCryptoStellarBroadcast(signedXDR: string): Promise<str
     config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
 
   const tx = new StellarSDK.Transaction(signedXDR, networkPassphrase);
-  const response = await server.submitTransaction(tx);
-  return response.hash || 'unknown';
+  
+  try {
+    const response = await server.submitTransaction(tx);
+    return response.hash || 'unknown';
+  } catch (error: any) {
+    const sourceAddress = tx.source;
+    const txSeq = tx.sequence;
+    if (sourceAddress && txSeq) {
+      const baseSeqUsed = (BigInt(txSeq) - 1n).toString();
+      StellarSequenceTracker.rollbackSequence(sourceAddress, baseSeqUsed);
+      
+      const errStr = String(error?.message || error);
+      if (errStr.includes('tx_bad_seq') || errStr.includes('sequence_mismatch') || errStr.includes('bad sequence')) {
+        StellarSequenceTracker.reset(sourceAddress);
+      }
+    }
+    throw error;
+  }
 }
 export async function checkTrustlineExists(
   address: string,
@@ -349,7 +367,9 @@ export async function buildAddTrustlineTransaction(
   const networkPassphrase =
     config.network === 'PUBLIC' ? StellarSDK.Networks.PUBLIC : StellarSDK.Networks.TESTNET;
 
-  const account = await server.loadAccount(address);
+  const accountResponse = await server.loadAccount(address);
+  const baseSeq = StellarSequenceTracker.getAndIncrementSequence(address, accountResponse.sequenceNumber());
+  const account = new StellarSDK.Account(address, baseSeq);
   const asset = new StellarSDK.Asset(assetCode, assetIssuer);
 
   const tx = new StellarSDK.TransactionBuilder(account, {

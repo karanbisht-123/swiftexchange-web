@@ -35,6 +35,36 @@ function extractRevertReason(error: any): string | null {
   return null;
 }
 
+function isNetworkOrRpcError(error: any): boolean {
+  const msg = (error?.message || String(error)).toLowerCase();
+  const code = (error?.code || '').toUpperCase();
+  const status =
+    error?.status ??
+    error?.info?.status ??
+    error?.response?.status ??
+    error?.statusCode;
+
+  if (code === 'TIMEOUT' || code === 'NETWORK_ERROR' || code === 'SERVER_ERROR') return true;
+  if (status === 402 || status === 429 || status === 502 || status === 503 || status === 504) return true;
+
+  const patterns = [
+    'unavailable',
+    'failed to fetch',
+    'load failed',
+    'network request failed',
+    'networkerror',
+    'net::err',
+    'could not detect network',
+    'timeout',
+    'all rpcs failed',
+    'no available rpcs',
+    'cors',
+    'cross-origin',
+    'payment required',
+  ];
+  return patterns.some(p => msg.includes(p));
+}
+
 export async function simulateSwapTransaction(params: SimulationParams): Promise<SimulationResult> {
   const result: SimulationResult = {
     success: false,
@@ -68,6 +98,9 @@ export async function simulateSwapTransaction(params: SimulationParams): Promise
         try {
           await provider.call(tx);
         } catch (callError: any) {
+          if (isNetworkOrRpcError(callError)) {
+            throw callError;
+          }
           result.errors.push('Transaction execution will fail (Revert detected).');
           const reason = extractRevertReason(callError);
           if (reason) {
@@ -98,6 +131,9 @@ export async function simulateSwapTransaction(params: SimulationParams): Promise
                 result.warnings.push('Insufficient native token balance to cover estimated gas fees.');
             }
           } catch (gasError: any) {
+            if (isNetworkOrRpcError(gasError)) {
+              throw gasError;
+            }
             result.warnings.push('Gas estimation failed. The transaction might revert or require a higher gas limit.');
             const reason = extractRevertReason(gasError);
             if (reason && !result.revertReason) {
@@ -118,7 +154,16 @@ export async function simulateSwapTransaction(params: SimulationParams): Promise
 
     return result;
   } catch (error: any) {
-    result.errors.push(`Simulation failed: ${error.message || 'Unknown error'}`);
+    if (isNetworkOrRpcError(error)) {
+      console.warn('[simulateSwapTransaction] Network/RPC error during simulation, allowing transaction to proceed:', error);
+      result.warnings.push(`Simulation could not be completed due to a network provider issue: ${error.message || 'Network error'}`);
+      result.success = false;
+      result.canProceed = true;
+    } else {
+      result.errors.push(`Simulation failed: ${error.message || 'Unknown error'}`);
+      result.success = false;
+      result.canProceed = false;
+    }
     return result;
   }
 }

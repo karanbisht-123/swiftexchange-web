@@ -320,6 +320,35 @@ class TransactionRouter {
         txParams.gasLimit = '0x' + gasLimitBigInt.toString(16);
       }
 
+      // Enforce minGasGwei safety check on txParams
+      try {
+        const { getEVMNetworkConfig } = await import('../../evm/utils/evmUtils');
+        const minGasConfig = getEVMNetworkConfig(chainId);
+        const minGasGwei = (minGasConfig as any).minGasGwei ?? 0;
+        if (minGasGwei > 0) {
+          const minGasPrice = ethers.parseUnits(minGasGwei.toString(), 'gwei');
+          if (txParams.maxPriorityFeePerGas !== undefined && txParams.maxPriorityFeePerGas !== null) {
+            let maxPriorityFee = BigInt(txParams.maxPriorityFeePerGas);
+            if (maxPriorityFee < minGasPrice) {
+              const diff = minGasPrice - maxPriorityFee;
+              maxPriorityFee = minGasPrice;
+              txParams.maxPriorityFeePerGas = '0x' + maxPriorityFee.toString(16);
+              if (txParams.maxFeePerGas !== undefined && txParams.maxFeePerGas !== null) {
+                txParams.maxFeePerGas = '0x' + (BigInt(txParams.maxFeePerGas) + diff).toString(16);
+              }
+            }
+          }
+          if (txParams.gasPrice !== undefined && txParams.gasPrice !== null) {
+            let gasPrice = BigInt(txParams.gasPrice);
+            if (gasPrice < minGasPrice) {
+              txParams.gasPrice = '0x' + minGasPrice.toString(16);
+            }
+          }
+        }
+      } catch (minGasError) {
+        console.warn('[Router] Failed to enforce minGasGwei check:', minGasError);
+      }
+
       let lastTxHash: string;
 
       if (isMainnet()) {

@@ -52,7 +52,7 @@ export class StellarPortfolioProvider implements IPortfolioProvider {
       return assets;
     } catch (error) {
       console.error('[StellarPortfolioProvider] Failed to fetch Stellar portfolio:', error);
-      return [];
+      throw error;
     }
   }
 }

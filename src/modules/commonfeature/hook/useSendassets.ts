@@ -6,6 +6,7 @@ import { validateAddress } from '../../../validator/AddressValidator';
 import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
 import { checkTrustlineExists, estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
 import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
+import { toPlainString } from '../../evm/hook/useEvmSwap';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
 import { getChainById } from '../../evm/utils/Chainregistry';
@@ -92,17 +93,28 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const assetParam = searchParams.get('asset');
   const chainIdParam = searchParams.get('chainId');
+  const addressParam = searchParams.get('address');
 
   const currentAsset = useMemo(() => {
     if (assetParam && chainIdParam) {
       return allAssets.find(a => {
         const aChainIdStr = String(a.chainId);
         const paramIdStr = chainIdParam === 'stellar' ? 'pubnet' : chainIdParam;
-        return a.symbol === assetParam && aChainIdStr === paramIdStr;
+        if (a.symbol !== assetParam || aChainIdStr !== paramIdStr) return false;
+
+        if (addressParam) {
+          const aIsNative = !!a.isNative || !a.tokenAddress || a.tokenAddress.toLowerCase() === '0x0000000000000000000000000000000000000000' || a.tokenAddress.toLowerCase() === 'native';
+          const paramIsNative = addressParam.toLowerCase() === 'native' || addressParam.toLowerCase() === '0x0000000000000000000000000000000000000000';
+          if (aIsNative !== paramIsNative) return false;
+          if (!aIsNative && !paramIsNative) {
+            return a.tokenAddress?.toLowerCase() === addressParam.toLowerCase();
+          }
+        }
+        return true;
       });
     }
     return undefined;
-  }, [allAssets, assetParam, chainIdParam]);
+  }, [allAssets, assetParam, chainIdParam, addressParam]);
 
   useEffect(() => {
     if (!currentAsset && allAssets.length > 0) {
@@ -122,13 +134,18 @@ export const useSendAsset = (onBack?: () => void) => {
     return connectedWallets[currentAsset.walletType]?.address || null;
   }, [connectedWallets, currentAsset]);
 
-  const fetchBalance = useCallback(async () => {
+  const fetchBalance = useCallback(async (isManual = false) => {
     if (!currentAsset || !senderAddress) return;
 
+    const storeAssets = usePortfolioStore.getState().assets;
     const storeItem = storeAssets.find(a => a.id === currentAsset.value);
-    if (storeItem) setBalance(storeItem.balance?.toString() || '0');
+    if (storeItem) setBalance(toPlainString(storeItem.balance));
 
-    setIsFetchingBalance(true);
+    const shouldShowLoading = isManual || !storeItem;
+    if (shouldShowLoading) {
+      setIsFetchingBalance(true);
+    }
+
     try {
       let balStr: string;
       if (currentAsset.type === 'evm') {
@@ -143,15 +160,17 @@ export const useSendAsset = (onBack?: () => void) => {
         balStr = await getStellarBalance(key, senderAddress);
       } else {
         // dydx balance is already in storeAssets, but we can refresh via service if needed
-        balStr = currentAsset.balance.toString();
+        balStr = toPlainString(currentAsset.balance);
       }
       setBalance(balStr);
     } catch (e) {
       console.error('Balance error:', e);
     } finally {
-      setTimeout(() => setIsFetchingBalance(false), 500);
+      if (shouldShowLoading) {
+        setTimeout(() => setIsFetchingBalance(false), 500);
+      }
     }
-  }, [currentAsset, senderAddress, storeAssets]);
+  }, [currentAsset, senderAddress]);
 
   useEffect(() => {
     fetchBalance();
@@ -370,7 +389,7 @@ export const useSendAsset = (onBack?: () => void) => {
     let maxAmount: BigNumber;
 
     if (currentAsset.isNative) {
-      maxAmount = bnBalance.minus(fee);
+      maxAmount = bnBalance.isGreaterThan(fee) ? bnBalance.minus(fee) : bnBalance;
     } else {
       maxAmount = bnBalance;
     }
@@ -406,7 +425,7 @@ export const useSendAsset = (onBack?: () => void) => {
     transactionState, setTransactionState, isEstimatingFees, estimatedFees,
     currentAsset, senderAddress, isWalletConnected: !!senderAddress,
     handleMaxClick,
-    handleRefreshBalances: fetchBalance,
+    handleRefreshBalances: () => fetchBalance(true),
     handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
     handleConfirmTransaction,
     handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),

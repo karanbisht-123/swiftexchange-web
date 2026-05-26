@@ -19,6 +19,7 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useSearchParams } from 'react-router-dom';
 import {
   type LocalTransactionWithStatus,
+  useLocalTransactions,
 } from '../hook/useLocalTransactions';
 import { useEvmTransaction } from '../hook/useEvmTransaction';
 import { type SwapOrder, updateSwapOrderStatus } from '../service/evmTransactionStatusService';
@@ -125,6 +126,8 @@ const EvmTransactionHistory: React.FC = () => {
     getSwapOrdersByWallet: refreshOrders
   } = useEvmTransaction();
 
+  const { transactions: localTransactions } = useLocalTransactions();
+
   const isCheckingOnChain = useRef<boolean>(false);
   const checkingHashes = useRef<Set<string>>(new Set());
 
@@ -209,8 +212,26 @@ const EvmTransactionHistory: React.FC = () => {
     }
   }, [walletAddress]);
 
+  const clearTxHashFromUrl = () => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('hash');
+      return next;
+    }, { replace: true });
+  };
+
+  const handleCloseDetails = () => {
+    setIsSheetOpen(false);
+    setSelectedTx(null);
+    setSelectedLocalTx(null);
+    clearTxHashFromUrl();
+  };
+
   useEffect(() => {
-    if (txHashFromUrl && backendOrders?.data) {
+    if (!txHashFromUrl) return;
+
+    // 1. Check in backend orders first
+    if (backendOrders?.data) {
       const found = backendOrders.data.find(
         (order: SwapOrder) => order.txHash.toLowerCase() === txHashFromUrl.toLowerCase()
       );
@@ -258,13 +279,30 @@ const EvmTransactionHistory: React.FC = () => {
           fromToken: found.fromToken,
           toToken: found.toToken,
         };
-        setSelectedView(searchParams.get('tab') === 'stellar' ? 'stellar' : 'recent');
+
+        const targetView = searchParams.get('tab') === 'stellar' ? 'stellar' : 'recent';
+        if (selectedView !== targetView) {
+          setSelectedView(targetView);
+        }
         setSelectedLocalTx(normalized);
         setSelectedTx(null);
         if (window.innerWidth < 1024) setIsSheetOpen(true);
+        return;
       }
     }
-  }, [txHashFromUrl, backendOrders?.data, searchParams, currentNetwork]);
+
+    // 2. Check in historyData next
+    if (historyData && historyData.length > 0) {
+      const foundInHistory = historyData.find(
+        (tx: TransactionItem) => tx.hash.toLowerCase() === txHashFromUrl.toLowerCase()
+      );
+      if (foundInHistory) {
+        setSelectedTx(foundInHistory);
+        setSelectedLocalTx(null);
+        if (window.innerWidth < 1024) setIsSheetOpen(true);
+      }
+    }
+  }, [txHashFromUrl, backendOrders?.data, historyData, searchParams, currentNetwork, selectedView]);
 
   useEffect(() => {
     const currentTab = searchParams.get('tab');
@@ -344,6 +382,11 @@ const EvmTransactionHistory: React.FC = () => {
   const handleTxClick = (tx: TransactionItem) => {
     setSelectedTx(tx);
     setSelectedLocalTx(null);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('hash', tx.hash);
+      return next;
+    }, { replace: true });
     if (window.innerWidth < 1024) setIsSheetOpen(true);
   };
 
@@ -351,6 +394,11 @@ const EvmTransactionHistory: React.FC = () => {
     setSelectedLocalTx(tx);
     console.log(tx, "----------- i am tx from Evm transction ")
     setSelectedTx(null);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('hash', tx.hash);
+      return next;
+    }, { replace: true });
     if (window.innerWidth < 1024) setIsSheetOpen(true);
 
     if (tx.isBackendOrder && tx.provider) {
@@ -426,6 +474,7 @@ const EvmTransactionHistory: React.FC = () => {
     setSelectedView(view);
     setSelectedTx(null);
     setSelectedLocalTx(null);
+    clearTxHashFromUrl();
   };
 
   if (!hasEvm && !hasStellar) {
@@ -481,8 +530,40 @@ const EvmTransactionHistory: React.FC = () => {
     const combinedRecent = (() => {
       const mergedMap = new Map<string, LocalTransactionWithStatus>();
 
+      // Add local transactions first
+      localTransactions?.forEach((tx) => {
+        const isStellarTx =
+          tx.chainId === 'pubnet' ||
+          tx.chainId === 'testnet' ||
+          tx.chainId === 'stellar' ||
+          (tx.from && tx.from.toUpperCase().startsWith('G') && tx.from.length === 56);
+        
+        if (isStellarTx) return;
+
+        const normalized: LocalTransactionWithStatus & { 
+          provider?: string; 
+          isBackendOrder?: boolean;
+          fromChainSymbol?: string;
+          amountIn?: string;
+          amountOut?: string;
+          fromToken?: string;
+          toToken?: string;
+        } = {
+          ...tx,
+          isBackendOrder: false,
+          provider: tx.provider,
+        };
+        mergedMap.set(tx.hash.toLowerCase(), normalized);
+      });
+
       // Add backend orders, mapping them to LocalTransactionWithStatus format
       backendOrders?.data?.forEach((order: SwapOrder) => {
+        const isStellarOrder =
+          order.fromChain?.toLowerCase() === 'stellar' ||
+          order.toChain?.toLowerCase() === 'stellar' ||
+          (order.walletAddress && order.walletAddress.toUpperCase().startsWith('G') && order.walletAddress.length === 56);
+
+        if (isStellarOrder) return;
         const chainConfig = findChain(order.fromChain, currentNetwork);
         const isLocalCheckable = order.provider?.toUpperCase() === 'UNISWAP' || order.provider?.toUpperCase() === 'EVMTX';
         const resolvedStatus = isLocalCheckable
@@ -692,7 +773,7 @@ const EvmTransactionHistory: React.FC = () => {
                       <span
                         className={`text-[8px] lg:text-[9px] font-bold px-1.5 py-0.5 rounded-full capitalize tracking-wider shrink-0 ${statusStyle}`}
                       >
-                        {tx.status}
+                        {tx.status === 'pending' && (tx as any).provider?.toUpperCase() === 'SKIP' ? 'Bridging' : tx.status}
                       </span>
                       <a
                         href={getExplorerUrl(tx.chainId, 'tx', tx.hash)}
@@ -934,6 +1015,7 @@ const EvmTransactionHistory: React.FC = () => {
                 <TransactionDetailsView
                   transaction={selectedLocalTx}
                   chainId={selectedLocalTx.chainId}
+                  onClose={handleCloseDetails}
                   onRefresh={() => {
                     if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
                       if ((selectedLocalTx as any).provider.toUpperCase() === 'UNISWAP') {
@@ -971,7 +1053,13 @@ const EvmTransactionHistory: React.FC = () => {
               </div>
             ) : selectedTx ? (
               <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-                <TransactionDetailsView transaction={selectedTx} chainId={selectedTx.chainId} incoming={isTxIncoming} isSelf={isTxSelf} />
+                <TransactionDetailsView
+                  transaction={selectedTx}
+                  chainId={selectedTx.chainId}
+                  incoming={isTxIncoming}
+                  isSelf={isTxSelf}
+                  onClose={handleCloseDetails}
+                />
               </div>
             ) : (
               <div className="h-full bg-secondary/30 border border-dashed border-color rounded-2xl flex flex-col items-center justify-center text-center p-8">
@@ -992,7 +1080,7 @@ const EvmTransactionHistory: React.FC = () => {
         <TransactionDetailsSheet
           transaction={selectedTx || selectedLocalTx!}
           isOpen={isSheetOpen}
-          onClose={() => setIsSheetOpen(false)}
+          onClose={handleCloseDetails}
           chainId={selectedTx?.chainId || selectedLocalTx!.chainId}
           incoming={isTxIncoming}
           isSelf={isTxSelf}

@@ -19,6 +19,7 @@ export interface AppNotification {
   message: React.ReactNode;
   timestamp: number;
   read: boolean;
+  dontSave?: boolean;
 }
 
 export interface ToastNotification extends AppNotification {}
@@ -107,19 +108,21 @@ export const useNotificationStore = create<NotificationState>()(
           read: false,
         };
 
-        set(state => ({
-          notifications: [newNotif, ...state.notifications],
-        }));
+        if (!notif.dontSave) {
+          set(state => ({
+            notifications: [newNotif, ...state.notifications],
+          }));
 
-        const bodyText = typeof notif.message === 'string' 
-          ? notif.message 
-          : 'Update regarding your wallet transfer/swap status.';
-        
-        get().showBrowserNotification(notif.title, {
-          body: bodyText,
-          icon: '/favicon.ico',
-          tag: notif.type,
-        }).catch(() => {});
+          const bodyText = typeof notif.message === 'string' 
+            ? notif.message 
+            : 'Update regarding your wallet transfer/swap status.';
+          
+          get().showBrowserNotification(notif.title, {
+            body: bodyText,
+            icon: '/favicon.ico',
+            tag: notif.type,
+          }).catch(() => {});
+        }
       },
 
       removeNotification: id =>
@@ -171,20 +174,27 @@ export const useNotificationStore = create<NotificationState>()(
           read: false,
         };
 
-        set(state => ({
-          notifications: [newNotif, ...state.notifications],
-          activeToasts: [...state.activeToasts, newNotif],
-        }));
+        set(state => {
+          const updates: Partial<NotificationState> = {
+            activeToasts: [...state.activeToasts, newNotif],
+          };
+          if (!notif.dontSave) {
+            updates.notifications = [newNotif, ...state.notifications];
+          }
+          return updates;
+        });
 
-        const bodyText = typeof notif.message === 'string' 
-          ? notif.message 
-          : 'Update regarding your wallet transfer/swap status.';
-        
-        get().showBrowserNotification(notif.title, {
-          body: bodyText,
-          icon: '/favicon.ico',
-          tag: notif.type,
-        }).catch(() => {});
+        if (!notif.dontSave) {
+          const bodyText = typeof notif.message === 'string' 
+            ? notif.message 
+            : 'Update regarding your wallet transfer/swap status.';
+          
+          get().showBrowserNotification(notif.title, {
+            body: bodyText,
+            icon: '/favicon.ico',
+            tag: notif.type,
+          }).catch(() => {});
+        }
 
         setTimeout(() => {
           get().removeToast(newNotif.id);

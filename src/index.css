@@ -6,6 +6,8 @@
   --color-primary-hover: var(--color-brand-primary-hover);
   --color-primary-light: var(--color-brand-primary-light);
   --color-accent: var(--color-brand-accent);
+  --color-brand: var(--color-brand-primary);
+  --color-brand-hover: var(--color-brand-primary-hover);
 
   --color-success: var(--color-success);
   --color-warning: var(--color-warning);

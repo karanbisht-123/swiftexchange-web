@@ -153,7 +153,8 @@ export const useDydxDeposit = () => {
       slippageTolerancePercent = '1',
       tokenAddress?: string,
       isNative?: boolean,
-      decimals?: number
+      decimals?: number,
+      onTransactionBroadcast?: (hash: string) => void
     ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
       setError(null);
       setErrorRetryable(true);
@@ -271,6 +272,10 @@ export const useDydxDeposit = () => {
               assetSymbol: capturedAssetSymbol,
               stepLabel: 'Bridging funds...',
             });
+
+            if (onTransactionBroadcast) {
+              onTransactionBroadcast(hash);
+            }
           },
         });
 

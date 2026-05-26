@@ -49,7 +49,14 @@ export const TransactionMonitor: React.FC = () => {
       }
     };
 
+    const STELLAR_CHAIN_IDS = new Set(['pubnet', 'testnet']);
+
     const monitorTransaction = async (tx: LocalTransaction) => {
+      // Stellar transactions are handled separately — skip EVM monitoring
+      if (STELLAR_CHAIN_IDS.has(String(tx.chainId).toLowerCase())) {
+        monitoredHashes.current.delete(tx.hash);
+        return;
+      }
       try {
         let isSuccess = false;
         let isConfirmed = false;

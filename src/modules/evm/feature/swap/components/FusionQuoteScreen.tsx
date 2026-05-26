@@ -3,9 +3,11 @@ import { Zap, X, ArrowDown, ShieldCheck, Clock, TrendingDown, Layers, CheckCircl
 import type { FusionQuote } from '../../../../../types/evm/swap.types';
 import TransactionButton from '../../../../commonfeature/components/TransactionButton';
 import { ethers } from 'ethers';
+import { getExplorerUrl } from '../../../../evm/utils/Chainregistry';
 
 interface FusionQuoteScreenProps {
   quote: FusionQuote;
+  chainId?: number | string;
   sellAsset: any;
   buyAsset: any;
   fusionStatus?: 'idle' | 'approving' | 'signing';
@@ -33,6 +35,7 @@ const formatDuration = (seconds: number) =>
 
 const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   quote,
+  chainId,
   sellAsset,
   buyAsset,
   fusionStatus = 'idle',
@@ -236,7 +239,12 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                 </div>
                 <div
                   className="w-full bg-tertiary rounded-2xl p-4 border border-color flex items-center justify-between group cursor-pointer hover:bg-hover transition-colors"
-                  onClick={() => window.open(`https://etherscan.io/tx/${txHash}`, '_blank')}
+                  onClick={() => {
+                    const explorerUrl = chainId
+                      ? getExplorerUrl(String(chainId), 'tx', txHash!)
+                      : `https://etherscan.io/tx/${txHash}`;
+                    window.open(explorerUrl, '_blank');
+                  }}
                 >
                   <div className="flex flex-col items-start min-w-0">
                     <span className="text-[10px] font-black text-muted uppercase tracking-widest mb-1">Order Hash</span>

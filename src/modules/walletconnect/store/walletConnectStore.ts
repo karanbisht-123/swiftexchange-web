@@ -365,16 +365,14 @@ export const initWalletListener = async () => {
               sessionLastPingAt: remainingPings,
             };
           });
-
-          if (type === 'evm') {
-            usePortfolioStore.getState().clearAssetsByType('evm');
-            usePortfolioStore.getState().clearAssetsByType('dydx');
-          } else if (type === 'stellar') {
-            usePortfolioStore.getState().clearAssetsByType('stellar');
-          } else if (type === 'cosmos') {
-            usePortfolioStore.getState().clearAssetsByType('dydx');
-          }
-
+          // if (type === 'evm') {
+          //       usePortfolioStore.getState().clearAssetsByType('evm');
+          //       usePortfolioStore.getState().clearAssetsByType('dydx');
+          //     } else if (type === 'stellar') {
+          //       usePortfolioStore.getState().clearAssetsByType('stellar');
+          //     } else if (type === 'cosmos') {
+          //       usePortfolioStore.getState().clearAssetsByType('dydx');
+          //     }
           return;
         }
 

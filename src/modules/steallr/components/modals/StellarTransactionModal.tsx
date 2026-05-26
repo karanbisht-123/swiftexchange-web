@@ -50,7 +50,7 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div
-        className="relative w-full max-w-sm bg-secondary border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300"
+        className="relative w-full max-w-sm bg-secondary border border-color rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300"
         onClick={e => e.stopPropagation()}
       >
         {status === 'success' && (
@@ -60,7 +60,7 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
         )}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-muted hover:text-primary hover:bg-white/5 rounded-full transition-all"
+          className="absolute top-4 right-4 p-2 text-muted hover:text-primary hover:bg-bg-hover rounded-full transition-all"
         >
           <X size={20} />
         </button>
@@ -98,12 +98,18 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
 
           <div className="w-full space-y-3">
             {status === 'success' && hash && (
+              <div className="p-4 rounded-2xl bg-tertiary border border-color text-xs text-muted text-center font-medium leading-relaxed">
+                Transaction submitted successfully. Hash: <span className="font-mono text-primary font-semibold">{hash.slice(0, 8)}...{hash.slice(-8)}</span>
+              </div>
+            )}
+
+            {status === 'success' && hash && (
               <div className="grid grid-cols-2 gap-3 w-full">
                 <a
                   href={getExplorerUrl(chainId, 'tx', hash)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all group"
+                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-tertiary border border-color hover:bg-bg-hover transition-all group"
                 >
                   <ExternalLink size={20} className="text-blue-500 group-hover:scale-110 transition-transform" />
                   <span className="text-[13px] font-semibold text-primary">Explorer</span>
@@ -111,7 +117,7 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
 
                 <button
                   onClick={handleGoToHistory}
-                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all group"
+                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-tertiary border border-color hover:bg-bg-hover transition-all group"
                 >
                   <History size={20} className="text-purple-500 group-hover:rotate-[-10deg] transition-transform" />
                   <span className="text-[13px] font-semibold text-primary">History</span>
@@ -119,17 +125,23 @@ const StellarTransactionModal: React.FC<StellarTransactionModalProps> = ({
               </div>
             )}
 
+            {status === 'success' && !hash && (
+              <div className="p-4 rounded-2xl bg-tertiary border border-color text-xs text-muted text-center font-medium leading-relaxed">
+                Transaction submitted successfully. Your wallet did not return a tracking hash, but you can check your transaction history or account balance in a few moments.
+              </div>
+            )}
+
             <button
               onClick={onClose}
               className={`w-full h-12 rounded-2xl font-bold transition-all shadow-lg hover:shadow-xl active:scale-95 ${status === 'success'
                   ? 'bg-green-500 hover:bg-green-600 text-white shadow-green-500/20'
-                  : 'bg-white/10 hover:bg-white/15 text-primary border border-white/5'
+                  : 'bg-tertiary hover:bg-bg-hover text-primary border border-color'
                 }`}
             >
               {status === 'success' ? 'Done' : 'Close'}
             </button>
 
-            {status === 'success' && (
+            {status === 'success' && hash && (
               <p className="text-[10px] text-center text-muted animate-pulse pt-2">
                 Redirecting to history in 4s...
               </p>

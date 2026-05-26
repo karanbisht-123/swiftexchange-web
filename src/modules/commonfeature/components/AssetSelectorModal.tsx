@@ -120,12 +120,12 @@ const AssetSelectorModal: FC = () => {
         }
       }
     } else if (effectiveActionType === 'SWAP' || effectiveActionType === 'BRIDGE') {
-      const targetChains = selectedNetwork === 'all' 
+      const targetChains = selectedNetwork === 'all'
         ? [
-            ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
-            ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
-            ...(isDydxConnected ? [DYDX_CHAIN_ID] : [])
-          ]
+          ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
+          ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
+          ...(isDydxConnected ? [DYDX_CHAIN_ID] : [])
+        ]
         : [selectedNetwork];
 
       targetChains.forEach(activeChainId => {
@@ -145,8 +145,9 @@ const AssetSelectorModal: FC = () => {
         }
 
         validTokens.forEach(t => {
+          const isTNative = !!t.isNative || !t.address || t.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || t.address.toLowerCase() === 'native';
           result.push({
-            id: `${effectiveActionType.toLowerCase()}-${activeChainId}-${t.symbol}`,
+            id: `${effectiveActionType.toLowerCase()}-${activeChainId}-${t.symbol}-${isTNative ? 'native' : (t.address || '')}`,
             symbol: t.symbol,
             name: t.name,
             image: t.logoURI,
@@ -154,7 +155,15 @@ const AssetSelectorModal: FC = () => {
             address: t.address,
             decimals: t.decimals,
             isNative: t.isNative,
-            balance: walletAssets.find(w => w.symbol === t.symbol && w.chainId === activeChainId)?.balance || 0
+            balance: walletAssets.find(w => {
+              if (w.chainId !== activeChainId) return false;
+              const wIsNative = !!w.isNative || (w.address && w.address.toLowerCase() === '0x0000000000000000000000000000000000000000');
+              if (wIsNative !== isTNative) return false;
+              if (wIsNative && isTNative) {
+                return w.symbol.toUpperCase() === t.symbol.toUpperCase();
+              }
+              return w.address?.toLowerCase() === t.address?.toLowerCase();
+            })?.balance || 0
           });
         });
       });
@@ -166,8 +175,8 @@ const AssetSelectorModal: FC = () => {
 
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
-      result = result.filter(a => 
-        a.symbol.toLowerCase().includes(q) || 
+      result = result.filter(a =>
+        a.symbol.toLowerCase().includes(q) ||
         a.name?.toLowerCase().includes(q) ||
         (a.address && a.address.toLowerCase().includes(q))
       );
@@ -181,19 +190,22 @@ const AssetSelectorModal: FC = () => {
   }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType, isStellarConnected, isEvmConnected]);
 
   const handleSelect = useCallback((asset: any) => {
+    const isAssetNative = !!asset.isNative || !asset.address || asset.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || asset.address.toLowerCase() === 'native';
+    const addressVal = isAssetNative ? 'native' : asset.address;
+
     if (onSelect) {
       onSelect(asset);
       closeAssetSelector();
       if (actionType === 'SEND' || actionType === 'RECEIVE') {
         const path = actionType === 'SEND' ? '/send' : '/receive';
         const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId === DYDX_CHAIN_ID ? 'dydx' : asset.chainId;
-        navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
+        navigate(`${path}?asset=${asset.symbol}&chainId=${cId}&address=${addressVal}`, { replace: true });
       }
       return;
     }
     const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId === DYDX_CHAIN_ID ? 'dydx' : asset.chainId;
     const path = actionType === 'SEND' ? '/send' : actionType === 'RECEIVE' ? '/receive' : actionType === 'BRIDGE' ? '/bridge' : '/swap';
-    navigate(`${path}?asset=${asset.symbol}&chainId=${cId}`, { replace: true });
+    navigate(`${path}?asset=${asset.symbol}&chainId=${cId}&address=${addressVal}`, { replace: true });
     closeAssetSelector();
   }, [actionType, navigate, closeAssetSelector, onSelect]);
 
@@ -208,11 +220,10 @@ const AssetSelectorModal: FC = () => {
   const AssetRow = useCallback(({ index, style }: any) => {
     const asset = filteredAssets[index];
     const chainConfig = getChainById(asset.chainId || 0);
-    const showBalance = actionType === 'SEND';
+    const showBalance = actionType === 'SEND' || actionType === 'SWAP' || actionType === 'BRIDGE';
 
     return (
       <div style={{ ...style, padding: '0 16px' }}>
-        {/* FIX: Changed outer <button> to <div role="button"> to prevent nested button DOM violation */}
         <div
           role="button"
           tabIndex={0}
@@ -252,9 +263,7 @@ const AssetSelectorModal: FC = () => {
           {showBalance && (
             <div className="text-right ml-4">
               <div className="text-[14px] font-bold text-text-primary">
-                {asset.chainId === STELLAR_CHAIN_ID
-                  ? parseFloat(parseFloat(asset.balance || 0).toFixed(7)).toString()
-                  : portfolioUtils.formatBalance(asset.balance || 0)}
+                {portfolioUtils.formatBalance(asset.balance || 0)}
               </div>
             </div>
           )}

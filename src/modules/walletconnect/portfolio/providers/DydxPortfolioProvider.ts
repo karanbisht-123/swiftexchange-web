@@ -80,7 +80,7 @@ export class DydxPortfolioProvider implements IPortfolioProvider {
       return assets;
     } catch (error) {
       console.error('[DydxPortfolioProvider] Failed to fetch dYdX portfolio:', error);
-      return [];
+      throw error;
     }
   }
 }

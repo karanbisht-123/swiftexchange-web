@@ -6,7 +6,7 @@ import type {
   EVMTransactionOptions,
 } from '../../../types/evm/evmTransaction.types';
 import { generateTransactionId, getNetworkPrefix } from '../../../utils/transactionUtils';
-import { type NetworkKey, getEVMNetworkConfig, isValidEVMNetwork } from '../utils/evmUtils';
+import { type NetworkKey, getEVMNetworkConfig, isValidEVMNetwork, adjustFeeDataForMinGas } from '../utils/evmUtils';
 import { rpcManager } from '../utils/rpcProvider';
 
 export async function sendCryptoEVMPrepare(
@@ -35,6 +35,7 @@ export async function sendCryptoEVMPrepare(
         if (walletInfo.transactionCount !== undefined) {
           nonce = walletInfo.transactionCount;
         }
+        /* Commented out for now to use direct RPC gas instead of wallet gas
         if (walletInfo.gasFeeData) {
           feeData = {
             gasPrice: walletInfo.gasFeeData.gasPrice ? BigInt(walletInfo.gasFeeData.gasPrice) : undefined,
@@ -42,6 +43,7 @@ export async function sendCryptoEVMPrepare(
             maxPriorityFeePerGas: walletInfo.gasFeeData.maxPriorityFeePerGas ? BigInt(walletInfo.gasFeeData.maxPriorityFeePerGas) : undefined,
           };
         }
+        */
       }
     } catch (e) {
       console.warn('Failed to fetch gas info from backend proxy:', e);
@@ -63,6 +65,8 @@ export async function sendCryptoEVMPrepare(
     if (!feeData) {
       throw new Error('Could not fetch fee data from API or RPC');
     }
+
+    feeData = adjustFeeDataForMinGas(feeData, networkKey);
 
     const amountInWei = amount === '0' ? BigInt(0) : ethers.parseEther(amount);
 

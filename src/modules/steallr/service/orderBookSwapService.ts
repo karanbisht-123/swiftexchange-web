@@ -6,6 +6,7 @@ import type {
   LargeOrderTransaction,
 } from '../types/orderBookSwap.types';
 import { signAndSubmitTransaction } from '../utils/transactionService';
+import { StellarSequenceTracker } from '../utils/StellarSequenceTracker';
 
 export class OrderBookSwapService extends StellarBaseService {
   calculateTotal(amount: string, price: string): string {
@@ -52,13 +53,16 @@ export class OrderBookSwapService extends StellarBaseService {
     }
 
     try {
-      const sourceAccount = await this.server.loadAccount(fromAddress);
+      const accountResponse = await this.server.loadAccount(fromAddress);
+      const baseSeq = StellarSequenceTracker.getAndIncrementSequence(fromAddress, accountResponse.sequenceNumber());
+      const sourceAccount = new StellarSDK.Account(fromAddress, baseSeq);
+
       const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
         fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
 
-      this.ensureTrustline(txBuilder, sourceAccount, quote.toAsset);
+      this.ensureTrustline(txBuilder, accountResponse, quote.toAsset);
 
       let operation;
       if (isBuy) {
@@ -94,7 +98,7 @@ export class OrderBookSwapService extends StellarBaseService {
         type: 'large-order',
         from: fromAddress,
         quote,
-        sequence: sourceAccount.sequenceNumber(),
+        sequence: baseSeq,
         fee: options.fee || StellarSDK.BASE_FEE,
         memo: options.memo,
         timestamp: Date.now(),
@@ -122,8 +126,8 @@ export class OrderBookSwapService extends StellarBaseService {
       provider: walletProvider,
     });
 
-    if (result.success && result.hash) {
-      return result.hash;
+    if (result.success) {
+      return result.hash || '';
     }
 
     throw new Error(`Order execution failed: ${result.error || 'Unknown error'}`);

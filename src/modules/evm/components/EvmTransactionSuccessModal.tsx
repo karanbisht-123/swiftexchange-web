@@ -46,14 +46,14 @@ export const EvmTransactionSuccessModal: React.FC<EvmTransactionSuccessModalProp
         onClick={onDone}
       />
 
-      <div className="relative w-full max-w-[380px] bg-white dark:bg-[#1A1B1F] rounded-[28px] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+      <div className="relative w-full max-w-[380px] bg-secondary border border-color rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
         <div className="absolute top-0 left-0 h-1 bg-green-500/30 w-full">
           <div className="h-full bg-green-500 animate-[progress_4s_linear]" style={{ width: '100%' }} />
         </div>
 
         <button
           onClick={onDone}
-          className="absolute right-4 top-4 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/5 transition-colors text-gray-400"
+          className="absolute right-4 top-4 p-2 rounded-full hover:bg-bg-hover transition-colors text-muted hover:text-primary"
         >
           <X className="w-5 h-5" />
         </button>
@@ -66,18 +66,18 @@ export const EvmTransactionSuccessModal: React.FC<EvmTransactionSuccessModalProp
             <div className="absolute -inset-1 border-2 border-green-500/20 rounded-full animate-ping [animation-duration:3s]" />
           </div>
 
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white text-center">
+          <h3 className="text-xl font-bold text-primary text-center">
             {title}
           </h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 text-center">
+          <p className="mt-1 text-sm text-secondary text-center">
             {subtitle} {networkName && <span>on <span className="text-green-500 font-medium">{networkName}</span></span>}
           </p>
         </div>
 
         <div className="px-6 pb-8 space-y-3">
-          <div className="bg-gray-50 dark:bg-white/5 rounded-2xl p-3 border border-gray-100 dark:border-white/10 flex items-center justify-between mb-2">
-            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-tight">Hash</span>
-            <span className="font-mono text-xs text-gray-600 dark:text-gray-300">
+          <div className="bg-tertiary rounded-2xl p-3 border border-color flex items-center justify-between mb-2">
+            <span className="text-[11px] font-medium text-muted uppercase tracking-tight">Hash</span>
+            <span className="font-mono text-xs text-primary">
               {txHash.slice(0, 8)}...{txHash.slice(-8)}
             </span>
           </div>
@@ -87,29 +87,29 @@ export const EvmTransactionSuccessModal: React.FC<EvmTransactionSuccessModalProp
               href={explorerUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/10 transition-all group"
+              className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-tertiary border border-color hover:bg-bg-hover transition-all group"
             >
               <ExternalLink className="w-5 h-5 text-blue-500 group-hover:scale-110 transition-transform" />
-              <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">Explorer</span>
+              <span className="text-[13px] font-semibold text-primary">Explorer</span>
             </a>
 
             <button
               onClick={handleGoToHistory}
-              className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/10 transition-all group"
+              className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-tertiary border border-color hover:bg-bg-hover transition-all group"
             >
               <History className="w-5 h-5 text-purple-500 group-hover:rotate-[-10deg] transition-transform" />
-              <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">History</span>
+              <span className="text-[13px] font-semibold text-primary">History</span>
             </button>
           </div>
 
           <button
             onClick={onDone}
-            className="w-full mt-2 py-4 bg-gray-900 dark:bg-white text-white dark:text-black rounded-2xl font-bold text-sm hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-black/10"
+            className="w-full mt-2 py-4 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-sm hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-green-500/20"
           >
             Done
           </button>
 
-          <p className="text-[10px] text-center text-gray-400 animate-pulse">
+          <p className="text-[10px] text-center text-muted animate-pulse">
             Redirecting to history in 4s...
           </p>
         </div>
