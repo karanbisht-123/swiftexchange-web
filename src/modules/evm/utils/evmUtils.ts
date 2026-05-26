@@ -125,9 +125,15 @@ export async function estimateEVMFees(
 
     // 2. Fetch Fee Data from Wallet API or RPC
     const prefix = getNetworkPrefix(networkKey);
-    const walletInfo = await getWalletGasInfo(prefix, from);
+    let walletInfo: any = null;
+    try {
+      walletInfo = await getWalletGasInfo(prefix, from);
+    } catch (e) {
+      console.warn(`[estimateEVMFees] Backend proxy failed, falling back to RPC:`, e);
+    }
 
     let feeData: any;
+    /* Commented out for now to use direct RPC gas instead of wallet gas
     if (walletInfo?.gasFeeData) {
       feeData = {
         gasPrice: walletInfo.gasFeeData.gasPrice ? BigInt(walletInfo.gasFeeData.gasPrice) : undefined,
@@ -137,6 +143,10 @@ export async function estimateEVMFees(
     } else {
       feeData = await rpcManager.fetchWithFallback(chainId, rpcUrls, p => p.getFeeData());
     }
+    */
+    feeData = await rpcManager.fetchWithFallback(chainId, rpcUrls, p => p.getFeeData());
+
+    feeData = adjustFeeDataForMinGas(feeData, networkKey);
 
     let effectiveGasPrice = feeData?.maxFeePerGas ?? feeData?.gasPrice ?? defaultGasPrice;
 
@@ -217,6 +227,52 @@ export async function signEVMTransaction(
   }
 }
 
+export function adjustFeeDataForMinGas(feeData: any, networkKey: NetworkKey): any {
+  if (!feeData) return feeData;
+
+  try {
+    const config = getEVMNetworkConfig(networkKey);
+    const minGasGwei = (config as any).minGasGwei ?? 0;
+    if (minGasGwei > 0) {
+      const minGasPrice = ethers.parseUnits(minGasGwei.toString(), 'gwei');
+
+      const adjusted = { ...feeData };
+
+      if (adjusted.maxFeePerGas !== undefined && adjusted.maxPriorityFeePerGas !== undefined && adjusted.maxFeePerGas !== null && adjusted.maxPriorityFeePerGas !== null) {
+        let maxPriorityFee = BigInt(adjusted.maxPriorityFeePerGas);
+        let maxFee = BigInt(adjusted.maxFeePerGas);
+
+        if (maxPriorityFee < minGasPrice) {
+          const diff = minGasPrice - maxPriorityFee;
+          maxPriorityFee = minGasPrice;
+          maxFee = maxFee + diff;
+        }
+
+        if (maxFee < maxPriorityFee) {
+          maxFee = maxPriorityFee;
+        }
+
+        adjusted.maxFeePerGas = maxFee;
+        adjusted.maxPriorityFeePerGas = maxPriorityFee;
+      }
+
+      if (adjusted.gasPrice !== undefined && adjusted.gasPrice !== null) {
+        let gasPrice = BigInt(adjusted.gasPrice);
+        if (gasPrice < minGasPrice) {
+          gasPrice = minGasPrice;
+        }
+        adjusted.gasPrice = gasPrice;
+      }
+
+      return adjusted;
+    }
+  } catch (e) {
+    console.warn('[adjustFeeDataForMinGas] Failed to adjust fee data:', e);
+  }
+
+  return feeData;
+}
+
 export async function simulateEVMTransaction(
   networkKey: NetworkKey,
   from: string,
@@ -226,6 +282,20 @@ export async function simulateEVMTransaction(
 ): Promise<{ gasLimit: bigint; feeData: any; totalRequired: bigint }> {
   const { rpcUrls, nativeCurrency } = getEVMNetworkConfig(networkKey) as any;
   const amountInWei = typeof value === 'string' ? BigInt(value) : value;
+
+  // const prefix = getNetworkPrefix(networkKey);
+  // const walletInfo = await getWalletGasInfo(prefix, from);
+
+  let feeData: any;
+  /* Commented out for now to use direct RPC gas instead of wallet gas
+  if (walletInfo?.gasFeeData) {
+    feeData = {
+      gasPrice: walletInfo.gasFeeData.gasPrice ? BigInt(walletInfo.gasFeeData.gasPrice) : undefined,
+      maxFeePerGas: walletInfo.gasFeeData.maxFeePerGas ? BigInt(walletInfo.gasFeeData.maxFeePerGas) : undefined,
+      maxPriorityFeePerGas: walletInfo.gasFeeData.maxPriorityFeePerGas ? BigInt(walletInfo.gasFeeData.maxPriorityFeePerGas) : undefined,
+    };
+  }
+  */
 
   const { estimate, rpcFeeData, balance } = await rpcManager.fetchWithFallback(
     networkKey,
@@ -237,25 +307,17 @@ export async function simulateEVMTransaction(
         value: amountInWei,
         data,
       });
-      const fd = await p.getFeeData();
       const bal = await p.getBalance(from);
+      const fd = !feeData ? await p.getFeeData() : null;
       return { estimate: BigInt(est), rpcFeeData: fd, balance: bal };
     }
   );
 
-  const prefix = getNetworkPrefix(networkKey);
-  const walletInfo = await getWalletGasInfo(prefix, from);
-
-  let feeData: any;
-  if (walletInfo?.gasFeeData) {
-    feeData = {
-      gasPrice: walletInfo.gasFeeData.gasPrice ? BigInt(walletInfo.gasFeeData.gasPrice) : undefined,
-      maxFeePerGas: walletInfo.gasFeeData.maxFeePerGas ? BigInt(walletInfo.gasFeeData.maxFeePerGas) : undefined,
-      maxPriorityFeePerGas: walletInfo.gasFeeData.maxPriorityFeePerGas ? BigInt(walletInfo.gasFeeData.maxPriorityFeePerGas) : undefined,
-    };
-  } else {
+  if (!feeData && rpcFeeData) {
     feeData = rpcFeeData;
   }
+
+  feeData = adjustFeeDataForMinGas(feeData, networkKey);
 
   const gasLimitBigInt = estimate + estimate / BigInt(5); // 20% cushion
 
@@ -272,3 +334,4 @@ export async function simulateEVMTransaction(
 
   return { gasLimit: gasLimitBigInt, feeData, totalRequired };
 }
+

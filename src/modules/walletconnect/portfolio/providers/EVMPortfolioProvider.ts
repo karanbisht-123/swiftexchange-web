@@ -132,7 +132,7 @@ export class EVMPortfolioProvider implements IPortfolioProvider {
 
     } catch (error) {
       console.error('[EVMPortfolioProvider] Failed to fetch EVM portfolio:', error);
-      return [];
+      throw error;
     }
   }
 }

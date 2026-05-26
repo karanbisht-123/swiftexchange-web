@@ -10,7 +10,8 @@ import {
   Repeat2,
   SendHorizontal,
   X,
-  ArrowRightLeft
+  ArrowRightLeft,
+  User
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
@@ -126,6 +127,11 @@ const Sidebar: FC = () => {
       queryParam: '?view=trade',
       isRestricted: isDydxRestricted,
     },
+    {
+      href: ROUTES.PROFILE,
+      label: 'Profile',
+      icon: <User className="w-5 h-5" />,
+    },
   ];
 
   const handleNavClick = (item: NavItem) => {
@@ -141,9 +147,8 @@ const Sidebar: FC = () => {
       <button
         id="hamburger-btn"
         onClick={() => setIsOpen(!isOpen)}
-        className={`lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl transition-all duration-300 shadow-lg ${
-          isOpen ? 'bg-secondary text-primary translate-x-[72px]' : 'bg-brand-primary text-white'
-        }`}
+        className={`lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl transition-all duration-300 shadow-lg ${isOpen ? 'bg-secondary text-primary translate-x-[72px]' : 'bg-secondary text'
+          }`}
       >
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
@@ -157,7 +162,7 @@ const Sidebar: FC = () => {
       <aside
         id="sidebar"
         className={`
-          fixed left-0 top-0 h-screen z-40 
+          fixed left-0 top-0 h-[100dvh] z-40 
           bg-secondary 
           transition-all duration-200 w-20
           flex flex-col
@@ -169,7 +174,7 @@ const Sidebar: FC = () => {
             <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>
         </div>
-        <nav className="flex-1 p-2 overflow-y-auto hide-scrollbar">
+        <nav className="flex-1 p-2 pb-4 overflow-y-auto hide-scrollbar">
           <div className="space-y-1">
             {navItems.map(item => {
               const isActive = activeItem === item.href;

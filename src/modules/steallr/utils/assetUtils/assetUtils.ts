@@ -1,4 +1,5 @@
 import {
+  Account,
   Asset,
   BASE_FEE,
   Horizon,
@@ -8,6 +9,7 @@ import {
 } from '@stellar/stellar-sdk';
 
 import { getStellarConfig } from '../../../walletconnect/config/chains';
+import { StellarSequenceTracker } from '../StellarSequenceTracker';
 
 export interface TrustlineParams {
   server: Horizon.Server;
@@ -26,9 +28,12 @@ export interface TrustlineResult {
 export const buildTrustlineTransaction = async (params: TrustlineParams, limit?: string): Promise<string> => {
   const { server, stellarAddress, assetCode, assetIssuer, currentNetwork } = params;
 
-  const sourceAccount = await server.loadAccount(stellarAddress);
+  const accountResponse = await server.loadAccount(stellarAddress);
   const config = getStellarConfig(currentNetwork);
   const networkPassphrase = config?.networkPassphrase || Networks.TESTNET;
+
+  const baseSeq = StellarSequenceTracker.getAndIncrementSequence(stellarAddress, accountResponse.sequenceNumber());
+  const sourceAccount = new Account(stellarAddress, baseSeq);
 
   const transaction = new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,

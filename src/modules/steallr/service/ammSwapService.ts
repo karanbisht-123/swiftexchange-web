@@ -7,6 +7,7 @@ import type {
   SwapQuote,
 } from '../types/ammSwap.types';
 import { signAndSubmitTransaction } from '../utils/transactionService';
+import { StellarSequenceTracker } from '../utils/StellarSequenceTracker';
 
 export class AmmSwapService extends StellarBaseService {
   async findLiquidityPools(
@@ -205,14 +206,16 @@ export class AmmSwapService extends StellarBaseService {
     }
 
     try {
-      const sourceAccount = await this.server.loadAccount(fromAddress);
+      const accountResponse = await this.server.loadAccount(fromAddress);
+      const baseSeq = StellarSequenceTracker.getAndIncrementSequence(fromAddress, accountResponse.sequenceNumber());
+      const sourceAccount = new StellarSDK.Account(fromAddress, baseSeq);
 
       const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
         fee: options.fee || StellarSDK.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       });
 
-      this.ensureTrustline(txBuilder, sourceAccount, quote.toAsset);
+      this.ensureTrustline(txBuilder, accountResponse, quote.toAsset);
 
       let path: StellarSDK.Asset[] = [];
       if (quote.path.hops > 1) {
@@ -244,7 +247,7 @@ export class AmmSwapService extends StellarBaseService {
         type: 'swap',
         from: fromAddress,
         quote,
-        sequence: sourceAccount.sequence,
+        sequence: baseSeq,
         fee: options.fee || StellarSDK.BASE_FEE,
         memo: options.memo,
         timestamp: Date.now(),
@@ -263,6 +266,7 @@ export class AmmSwapService extends StellarBaseService {
     const network = isMainnet ? 'mainnet' : 'testnet';
 
     console.log(this.networkPassphrase, "--- ammswap service ")
+
     const result = await signAndSubmitTransaction({
       xdr: transaction.xdr,
       network,
@@ -271,9 +275,9 @@ export class AmmSwapService extends StellarBaseService {
     });
 
     if (result.success) {
-      return result.hash || 'Transaction submitted successfully!';
+      return result.hash || '';
     }
-    
+
     throw new Error(result.error || 'Swap execution failed');
   }
 

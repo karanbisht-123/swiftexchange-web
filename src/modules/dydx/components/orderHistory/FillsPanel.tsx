@@ -2,7 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
-import { type Fill, dydxDataService } from '../../service/dydxOrderService';
+import { type Fill, dydxDataService, normalizeFill } from '../../service/dydxOrderService';
 import { getTimeAgo } from '../../utils/timeUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { FillDetailPanel } from '../shared/FillDetailPanel';
@@ -37,42 +37,41 @@ const FillsPanel: React.FC = () => {
       return;
     }
 
-    if (!initialLoadDoneRef.current) {
-      let isMounted = true;
-      const fetchInitial = async () => {
-        setLoadingFills(true);
-        setFillsError(null);
-        try {
-          const initialFills = await dydxDataService.getFills(undefined, undefined, false);
-          if (isMounted) {
-            setAllFills(initialFills);
-            initialLoadDoneRef.current = true;
-          }
-        } catch (err: any) {
-          if (isMounted) setFillsError(err.message || 'Error loading fills');
-        } finally {
-          if (isMounted) setLoadingFills(false);
-        }
-      };
-      fetchInitial();
+    if (initialLoadDoneRef.current) return;
 
-      return () => {
-        isMounted = false;
-      };
-    }
+    let isMounted = true;
+    const fetchInitial = async () => {
+      setLoadingFills(true);
+      setFillsError(null);
+      try {
+        const initialFills = await dydxDataService.getFills(undefined, undefined, false);
+        if (isMounted) {
+          setAllFills(initialFills.map(normalizeFill));
+          initialLoadDoneRef.current = true;
+        }
+      } catch (err: any) {
+        if (isMounted) setFillsError(err.message || 'Error loading fills');
+      } finally {
+        if (isMounted) setLoadingFills(false);
+      }
+    };
+    fetchInitial();
+
+    return () => {
+      isMounted = false;
+    };
   }, [isConnected]);
 
   useEffect(() => {
-    if (storeFills.length > 0) {
-      setAllFills(prevFills => {
-        const fillsMap = new Map<string, Fill>();
-        prevFills.forEach(f => fillsMap.set(f.id, f));
-        storeFills.forEach(f => fillsMap.set(f.id, f));
-        return Array.from(fillsMap.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-      });
-    }
+    if (storeFills.length === 0) return;
+    setAllFills(prevFills => {
+      const fillsMap = new Map<string, Fill>();
+      prevFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
+      storeFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
+      return Array.from(fillsMap.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    });
   }, [storeFills]);
 
   const totalPages = useMemo(() => {
@@ -104,8 +103,8 @@ const FillsPanel: React.FC = () => {
       }
       setAllFills(prev => {
         const fillsMap = new Map<string, Fill>();
-        prev.forEach(f => fillsMap.set(f.id, f));
-        moreFills.forEach(f => fillsMap.set(f.id, f));
+        prev.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
+        moreFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
 
         return Array.from(fillsMap.values()).sort(
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

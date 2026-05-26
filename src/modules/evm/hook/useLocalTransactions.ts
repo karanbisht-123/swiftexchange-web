@@ -72,7 +72,7 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         if (tx.status === 'failed' || tx.hash.startsWith('failed-')) {
           return { ...tx, status: 'failed' };
         }
-        if (tx.status === 'success' && tx.type !== 'bridge') {
+        if (tx.status === 'success' && (tx.type !== 'bridge' || tx.destinationHash)) {
           return { ...tx, status: 'success' };
         }
 
@@ -83,7 +83,8 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         let fromAddress: string | undefined = tx.from;
         let toAddress: string | undefined = tx.to;
 
-        if (tx.chainId === 'pubnet' || tx.chainId === 'testnet') {
+        if (tx.chainId === 'pubnet' || tx.chainId === 'testnet' || tx.chainId === 'stellar') {
+          /* Commented out for now to avoid polling Horizon for Stellar transactions
           try {
             const horizonBase = currentNetwork === 'mainnet'
               ? 'https://horizon.stellar.org'
@@ -101,6 +102,8 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
             console.error('Stellar polling failed:', e);
             newStatus = 'pending';
           }
+          */
+          return { ...tx, status: tx.status || 'success' };
         } else {
 
           const provider = getProvider(WalletType.EVM);
@@ -114,18 +117,47 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
                 blockNumber = receipt.blockNumber;
                 gasUsed = receipt.gasUsed.toString();
                 if (newStatus === 'success' && tx.type === 'bridge') {
-                  try {
-                    const sdk = new AllbridgeCoreSdk(nodeRpcUrlsDefault);
-                    const chainSymbol = getChainSymbol(tx.chainId);
-                    const bridgeStatus = (await sdk.getTransferStatus(chainSymbol, tx.hash)) as any;
-
-                    if (bridgeStatus) {
-                      destinationHash = bridgeStatus.receive?.txId || bridgeStatus.destinationTxId;
-                      fromAddress = bridgeStatus.senderAddress || bridgeStatus.send?.sender;
-                      toAddress = bridgeStatus.recipientAddress || bridgeStatus.receive?.recipient;
+                  if (tx.provider?.toUpperCase() === 'SKIP' || tx.to === 'dydx') {
+                    try {
+                      const url = `https://api.skip.build/v2/tx/status?chain_id=${tx.chainId}&tx_hash=${tx.hash}`;
+                      const skipRes = await fetch(url);
+                      if (skipRes.ok) {
+                        const skipData = await skipRes.json();
+                        if (skipData.state === 'STATE_COMPLETED_SUCCESS') {
+                          newStatus = 'success';
+                          const steps = skipData.transfer_sequence || [];
+                          const lastStep = steps[steps.length - 1];
+                          const lastStepDetails = lastStep 
+                            ? (lastStep[Object.keys(lastStep).find(k => k.endsWith('_transfer')) ?? ''] ?? lastStep) 
+                            : null;
+                          const pkt = lastStepDetails?.packet_txs ?? lastStepDetails?.txs;
+                          destinationHash = pkt?.receive_tx?.tx_hash || pkt?.acknowledge_tx?.tx_hash || pkt?.receive_tx?.txHash || pkt?.acknowledge_tx?.txHash;
+                        } else if (skipData.state === 'STATE_COMPLETED_ERROR' || skipData.state === 'STATE_ABANDONED') {
+                          newStatus = 'failed';
+                        } else {
+                          newStatus = 'pending';
+                        }
+                      } else {
+                        newStatus = 'pending';
+                      }
+                    } catch (skipErr) {
+                      console.warn('Skip-specific detail fetch failed:', skipErr);
+                      newStatus = 'pending';
                     }
-                  } catch (bridgeErr) {
-                    console.warn('Bridge-specific detail fetch failed:', bridgeErr);
+                  } else {
+                    try {
+                      const sdk = new AllbridgeCoreSdk(nodeRpcUrlsDefault);
+                      const chainSymbol = getChainSymbol(tx.chainId);
+                      const bridgeStatus = (await sdk.getTransferStatus(chainSymbol, tx.hash)) as any;
+
+                      if (bridgeStatus) {
+                        destinationHash = bridgeStatus.receive?.txId || bridgeStatus.destinationTxId;
+                        fromAddress = bridgeStatus.senderAddress || bridgeStatus.send?.sender;
+                        toAddress = bridgeStatus.recipientAddress || bridgeStatus.receive?.recipient;
+                      }
+                    } catch (bridgeErr) {
+                      console.warn('Bridge-specific detail fetch failed:', bridgeErr);
+                    }
                   }
                 }
               } else {

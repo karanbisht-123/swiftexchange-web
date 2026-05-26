@@ -15,12 +15,13 @@ import { addLocalTransaction } from '../../service/localTransactionService';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
+import { Tooltip } from '../../../../components/common/Tooltip';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import TransactionButton from '../../../commonfeature/components/TransactionButton';
-import { useEvmSwap } from '../../hook/useEvmSwap';
-import { getRangoSlippageWarning } from '../../utils/evmSwapUtils';
+import { useEvmSwap, toPlainString } from '../../hook/useEvmSwap';
+import { getRangoSlippageWarning, resetRangoExecutionLock } from '../../utils/evmSwapUtils';
 import { storeSwapOrder } from '../../service/evmTransactionStatusService';
 import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata, getChainRangoSymbol } from '../../utils/Chainregistry';
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
@@ -48,6 +49,44 @@ import { getStellarConfig } from '../../../walletconnect/config/chains';
 
 const STELLAR_CHAIN_ID = 'pubnet';
 const isStellar = (id: any) => id === 'stellar' || id === STELLAR_CHAIN_ID || id === 'testnet';
+
+const isSameAsset = (a: any, b: any) => {
+  if (!a || !b) return false;
+  if (a.chainId && b.chainId && String(a.chainId) !== String(b.chainId)) return false;
+  const aIsNative = !!a.isNative || !a.address || a.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || a.address.toLowerCase() === 'native';
+  const bIsNative = !!b.isNative || !b.address || b.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || b.address.toLowerCase() === 'native';
+  if (aIsNative !== bIsNative) return false;
+  if (aIsNative && bIsNative) {
+    return a.symbol?.toUpperCase() === b.symbol?.toUpperCase();
+  }
+  return a.address?.toLowerCase() === b.address?.toLowerCase();
+};
+
+const matchesAddress = (asset: any, queryAddress: string) => {
+  if (!asset) return false;
+  const queryIsNative = !queryAddress || queryAddress.toLowerCase() === 'native' || queryAddress.toLowerCase() === '0x0000000000000000000000000000000000000000';
+  const assetIsNative = !!asset.isNative || !asset.address || asset.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || asset.address.toLowerCase() === 'native';
+  if (queryIsNative && assetIsNative) return true;
+  if (queryIsNative !== assetIsNative) return false;
+  return asset.address?.toLowerCase() === queryAddress.toLowerCase();
+};
+
+function getGasBuffer(chainId: number | string, decimals: number): bigint {
+  const id = String(chainId);
+  let bufferStr = '0.003'; // Default fallback (e.g. Ethereum mainnet)
+
+  if (id === '56') {
+    bufferStr = '0.0005'; // BSC (BNB)
+  } else if (id === '137') {
+    bufferStr = '0.1'; // Polygon (POL/MATIC)
+  } else if (id === '42161' || id === '10' || id === '8453') {
+    bufferStr = '0.0005'; // L2s (Arbitrum, Optimism, Base - ETH)
+  } else if (id === 'stellar' || id === 'pubnet' || id === 'testnet') {
+    bufferStr = '0.01'; // Stellar (XLM)
+  }
+
+  return ethers.parseUnits(bufferStr, decimals);
+}
 
 interface SwapAssetsProps {
   onClose?: () => void;
@@ -186,7 +225,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [isFusionLoading, setIsFusionLoading] = useState(false);
   const [fusionStatus, setFusionStatus] = useState<'idle' | 'approving' | 'signing'>('idle');
   const fusionInputChangeRef = useRef<number>(0);
-
+  // Prevents double-submit if the user taps the swap button twice before the first call locks up.
+  const isSubmittingRef = useRef(false);
+  // Tracks whether a wallet signing prompt is currently open (for the "pending request" banner).
+  const [hasPendingSignRequest, setHasPendingSignRequest] = useState(false);
 
   const fromChainConfig = getChainById(fromChainId);
   const toChainConfig = getChainById(toChainId);
@@ -204,6 +246,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     } else {
       setAmmService(null);
     }
+    return () => {
+      // Reset the module-level Rango lock when leaving the swap screen,
+      // so a navigation-interrupted swap doesn't permanently block future swaps.
+      resetRangoExecutionLock();
+    };
   }, [fromChainId, toChainId, currentNetwork]);
 
   const selectedSellAsset = useMemo(() => {
@@ -211,7 +258,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       return stellarAssets.find(a => a.symbol === sellAssetSymbol);
     }
     if (sellAssetAddress) {
-      return swapAssets.find(a => a.address.toLowerCase() === sellAssetAddress.toLowerCase());
+      return swapAssets.find(a => matchesAddress(a, sellAssetAddress));
     }
     return swapAssets.find(a => a.symbol === sellAssetSymbol);
   }, [swapAssets, sellAssetSymbol, sellAssetAddress, stellarAssets, fromChainId]);
@@ -223,12 +270,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (fromChainId !== toChainId) {
       const destTokens = getTokensForChain(toChainId);
       if (buyAssetAddress) {
-        return destTokens.find(t => t.address.toLowerCase() === buyAssetAddress.toLowerCase());
+        return destTokens.find(t => matchesAddress(t, buyAssetAddress));
       }
       return destTokens.find(t => t.symbol === buyAssetSymbol);
     }
     if (buyAssetAddress) {
-      return swapAssets.find(a => a.address.toLowerCase() === buyAssetAddress.toLowerCase());
+      return swapAssets.find(a => matchesAddress(a, buyAssetAddress));
     }
     return swapAssets.find(a => a.symbol === buyAssetSymbol);
   }, [swapAssets, buyAssetSymbol, buyAssetAddress, stellarAssets, toChainId, fromChainId]);
@@ -280,6 +327,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setActiveQuote({ source: null, data: null, error: null, loading: false });
     setCrossChainWarning(null);
     setBridgeErrorMsg(null);
+    setSellAmount('');
   }, [fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol, resetSwap, actionType]);
 
   useEffect(() => {
@@ -374,7 +422,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   useEffect(() => {
     if (swapAssets.length > 0 && !isChainSwitching && !isStellar(fromChainId)) {
-      const currentSellInEvm = swapAssets.find(a => a.symbol === sellAssetSymbol || (sellAssetAddress && a.address.toLowerCase() === sellAssetAddress.toLowerCase()));
+      const currentSellInEvm = swapAssets.find(a => sellAssetAddress ? matchesAddress(a, sellAssetAddress) : a.symbol === sellAssetSymbol);
 
       let finalSell = currentSellInEvm;
       if (!currentSellInEvm) {
@@ -387,13 +435,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       }
 
       if (fromChainId === toChainId) {
-        const currentBuyInEvm = swapAssets.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address.toLowerCase() === buyAssetAddress.toLowerCase()));
+        const currentBuyInEvm = swapAssets.find(a => buyAssetAddress ? matchesAddress(a, buyAssetAddress) : a.symbol === buyAssetSymbol);
 
-        if (!currentBuyInEvm || (finalSell && finalSell.symbol === buyAssetSymbol)) {
+        if (!currentBuyInEvm || (finalSell && isSameAsset(finalSell, currentBuyInEvm))) {
           const nativeAsset = swapAssets.find(a => a.isNative);
 
-          const bestBuy = (finalSell?.symbol === nativeAsset?.symbol ? swapAssets.find(a => a.symbol !== finalSell?.symbol) : nativeAsset)
-            || swapAssets.find(a => a.symbol !== finalSell?.symbol)
+          const bestBuy = (finalSell && isSameAsset(finalSell, nativeAsset) ? swapAssets.find(a => !isSameAsset(a, finalSell)) : nativeAsset)
+            || swapAssets.find(a => !isSameAsset(a, finalSell))
             || swapAssets[1]
             || swapAssets[0];
 
@@ -402,8 +450,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             setBuyAssetAddress(bestBuy.address);
           }
         } else if (sellAssetSymbol && !buyAssetSymbol) {
-          const nativeAsset = swapAssets.find(a => a.isNative && a.symbol !== sellAssetSymbol);
-          const fallback = swapAssets.find(a => a.symbol !== sellAssetSymbol);
+          const nativeAsset = swapAssets.find(a => a.isNative && !isSameAsset(a, finalSell));
+          const fallback = swapAssets.find(a => !isSameAsset(a, finalSell));
 
           const bestBuy = nativeAsset || fallback || swapAssets[0];
           if (bestBuy) {
@@ -421,7 +469,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         }
 
         if (destTokens.length > 0) {
-          const currentBuyInDest = destTokens.find(a => a.symbol === buyAssetSymbol || (buyAssetAddress && a.address?.toLowerCase() === buyAssetAddress.toLowerCase()));
+          const currentBuyInDest = destTokens.find(a => buyAssetAddress ? matchesAddress(a, buyAssetAddress) : a.symbol === buyAssetSymbol);
           if (!currentBuyInDest) {
             const nativeAsset = destTokens.find(a => a.isNative);
             const sameSymbolAsset = destTokens.find(a => a.symbol === finalSell?.symbol);
@@ -435,7 +483,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         }
       }
     }
-  }, [swapAssets, sellAssetSymbol, buyAssetSymbol, isChainSwitching, fromChainId, toChainId, stellarAssets]);
+  }, [swapAssets, sellAssetSymbol, sellAssetAddress, buyAssetSymbol, buyAssetAddress, isChainSwitching, fromChainId, toChainId, stellarAssets]);
 
   const getUsdValue = useCallback((amount: string, asset: any): number | null => {
     if (!amount || !asset) return null;
@@ -623,8 +671,25 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return parseFloat(sellAmount) > parseFloat((selectedSellAsset as any)?.balance || '0');
   }, [sellAmount, selectedSellAsset]);
 
+  const hasInsufficientStellarGas = useMemo(() => {
+    if (!isStellar(fromChainId)) return false;
+    if (stellarAssets.length === 0) return false;
+    const xlm = stellarAssets.find(a => a.symbol === 'XLM');
+    if (!xlm) return true;
+
+    const xlmBalanceAfterReserve = parseFloat(xlm.balance || '0');
+    const requiredGasFee = actionType === 'BRIDGE' ? 2.0 : 0.1;
+
+    if (sellAssetSymbol === 'XLM') {
+      const sellAmt = parseFloat(sellAmount || '0');
+      return (sellAmt + requiredGasFee) > xlmBalanceAfterReserve;
+    } else {
+      return xlmBalanceAfterReserve < requiredGasFee;
+    }
+  }, [fromChainId, stellarAssets, sellAssetSymbol, sellAmount, actionType]);
+
   const isSameAssetSelected = useMemo(() => {
-    return actionType === 'SWAP' && fromChainId === toChainId && selectedSellAsset?.symbol === selectedBuyAsset?.symbol && !!selectedSellAsset;
+    return actionType === 'SWAP' && fromChainId === toChainId && isSameAsset(selectedSellAsset, selectedBuyAsset) && !!selectedSellAsset;
   }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
 
   const hasActiveCrossChainQuote = useMemo(() => {
@@ -632,19 +697,23 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return activeQuote.source === 'bridge' ? !!activeQuote.data : (!!rangoQuote || !!activeQuote.data);
   }, [actionType, activeQuote.source, activeQuote.data, rangoQuote]);
 
-  const isErrorState = !!(swapError || isInsufficientBalance || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
+  const isErrorState = !!(swapError || isInsufficientBalance || hasInsufficientStellarGas || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
 
   const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
 
   const errorMessage = useMemo(() => {
     if (isInsufficientBalance) return 'Insufficient balance for this transaction';
+    if (hasInsufficientStellarGas) {
+      const requiredGasFee = actionType === 'BRIDGE' ? '2.0' : '0.1';
+      return `Insufficient XLM balance. You need at least ${requiredGasFee} XLM (beyond reserve) for gas fees.`;
+    }
     if (isSameAssetSelected) return 'Please select different assets to swap';
     if (bridgeTxStatus === 'error' || bridgeErrorMsg) return bridgeErrorMsg || 'Transaction failed. Please try again.';
     if (swapError) return swapError;
     if (activeQuote.error) return activeQuote.error;
     if (actionType === 'BRIDGE' && crossChainWarning) return crossChainWarning;
     return null;
-  }, [isInsufficientBalance, isSameAssetSelected, bridgeTxStatus, bridgeErrorMsg, swapError, actionType, crossChainWarning, activeQuote.error]);
+  }, [isInsufficientBalance, hasInsufficientStellarGas, isSameAssetSelected, bridgeTxStatus, bridgeErrorMsg, swapError, actionType, crossChainWarning, activeQuote.error]);
 
   const slippageWarning = useMemo(() => {
     if (actionType !== 'BRIDGE' || activeQuote.source !== 'rango') return null;
@@ -658,6 +727,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
     if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
     if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
+    if (hasInsufficientStellarGas) return 'INSUFFICIENT XLM FOR GAS';
     if ((swapError || activeQuote.error || bridgeErrorMsg) && actionType === 'SWAP') return 'SWAP FAILED';
 
     if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
@@ -668,7 +738,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
     if (activeQuote.source === 'rango' && !isInsufficientBalance && !swapError) return 'SWAP';
     return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
-  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.source, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, slippageWarning]);
+  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.source, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, hasInsufficientStellarGas, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, slippageWarning]);
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
@@ -722,18 +792,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (selectedSellAsset && selectedSellAsset.balance !== undefined) {
       try {
         const decimals = selectedSellAsset.decimals || 18;
-        const balanceBN = ethers.parseUnits(selectedSellAsset.balance, decimals);
-        if (balanceBN === BigInt(0)) { setSellAmount('0'); return; }
+        const plainBalance = toPlainString(selectedSellAsset.balance);
+        const balanceBN = ethers.parseUnits(plainBalance, decimals);
+        if (balanceBN === 0n) { setSellAmount('0'); return; }
         let maxAmountBN = balanceBN;
         if (selectedSellAsset.isNative) {
-          const bufferBN = ethers.parseUnits('0.006', decimals);
+          const bufferBN = getGasBuffer(fromChainId, decimals);
           maxAmountBN = balanceBN > bufferBN ? balanceBN - bufferBN : balanceBN;
         }
         const formatted = ethers.formatUnits(maxAmountBN, decimals);
         setSellAmount(formatted.replace(/\.?0+$/, ''));
-      } catch (err) { setSellAmount(selectedSellAsset.balance); }
+      } catch (err) {
+        setSellAmount(toPlainString(selectedSellAsset.balance));
+      }
     }
-  }, [selectedSellAsset]);
+  }, [selectedSellAsset, fromChainId]);
 
   const handleReset = useCallback(() => {
     resetSwap();
@@ -764,281 +837,305 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleUnifiedSwap = useCallback(async () => {
     if (!sellAmount) return;
+    // Double-click guard: prevent submitting twice before the first call makes the button visually disabled.
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
 
-    setBridgeErrorMsg(null);
-    setBridgeTxStatus('preparing');
-
-    if (actionType === 'SWAP') {
-      if (isGasless && !isStellar(fromChainId)) {
-        if (!selectedSellAsset || !selectedBuyAsset) {
-          setBridgeTxStatus('idle');
+    const executeSwapFlow = async () => {
+      if (actionType === 'SWAP') {
+        if (isGasless && !isStellar(fromChainId)) {
+          if (!selectedSellAsset || !selectedBuyAsset) {
+            setBridgeTxStatus('idle');
+            return;
+          }
+          setIsFusionLoading(true);
+          try {
+            await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+            setShowFusionScreen(true);
+            setBridgeTxStatus('idle');
+          } catch (err) {
+            console.error('Failed to fetch Fusion quote:', err);
+            setBridgeErrorMsg(parseWalletError(err));
+            resetLoadingState();
+          } finally {
+            setIsFusionLoading(false);
+          }
           return;
         }
-        setIsFusionLoading(true);
-        try {
-          await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
-          setShowFusionScreen(true);
-          setBridgeTxStatus('idle');
-        } catch (err) {
-          console.error('Failed to fetch Fusion quote:', err);
-          setBridgeErrorMsg(parseWalletError(err));
-          resetLoadingState();
-        } finally {
-          setIsFusionLoading(false);
-        }
-        return;
-      }
 
-      if (isStellar(fromChainId)) {
-        if (!activeQuote.data || !ammService || !stellarAddress) {
-          setBridgeTxStatus('idle');
-          return;
-        }
-        try {
-          setBridgeTxStatus('preparing');
-          const tx = await ammService.buildSwapTransaction(stellarAddress, activeQuote.data, {
-            slippageTolerance: userSlippageTolerance
-          });
-          setBridgeTxStatus('signing');
-          const provider = getProvider(WalletType.STELLAR) as any;
-          const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
-          setBridgeTxHash(hash);
-          setBridgeTxStatus('success');
-
-          addLocalTransaction({
-            hash,
-            chainId: fromChainId,
-            type: 'swap',
-            timestamp: Date.now(),
-            description: `Swap ${sellAssetSymbol} to ${buyAssetSymbol}`,
-            from: stellarAddress,
-            status: 'pending',
-            network: currentNetwork
-          });
-          showToast({
-            type: 'STELLAR',
-            title: 'Swap Transaction Sent',
-            message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
-          });
-        } catch (err) {
-          console.error('Stellar swap execution failed:', err);
-          const errMsg = parseSwapError(err);
-          setBridgeErrorMsg(errMsg);
-          setBridgeTxStatus('error');
-          showToast({
-            type: 'STELLAR',
-            title: 'Swap Failed',
-            message: errMsg
-          });
-        }
-      } else {
-        if (!swapQuote || !selectedSellAsset || !selectedBuyAsset) {
-          setBridgeTxStatus('idle');
-          return;
-        }
-        try {
-          await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, userSlippageTolerance);
-          setBridgeTxStatus('idle');
-          showToast({
-            type: 'EVM_SWAP',
-            title: 'Swap Transaction Sent',
-            message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
-          });
-        } catch (err) {
-          console.error('Swap execution failed:', err);
-          setBridgeErrorMsg(parseWalletError(err));
-          resetLoadingState();
-          setBridgeTxStatus('error');
-          showToast({ type: 'EVM_SWAP', title: 'Swap Failed', message: parseWalletError(err) });
-        }
-      }
-    } else {
-      if (isStellar(fromChainId) && !stellarAddress) { setBridgeTxStatus('idle'); return; }
-      if (isStellar(toChainId) && !stellarAddress) { setBridgeTxStatus('idle'); return; }
-      if (!isStellar(fromChainId) && !evmAddress) { setBridgeTxStatus('idle'); return; }
-
-      if (!activeQuote.data && !rangoQuote) { setBridgeTxStatus('idle'); return; }
-
-      try {
         if (isStellar(fromChainId)) {
-          if (!stellarAddress || !evmAddress || !activeQuote.data) { setBridgeTxStatus('idle'); return; }
-          const xdr = await prepareStellarToEvmRawTransaction({
-            amount: sellAmount,
-            sourceToken: activeQuote.data.sourceToken,
-            destinationToken: activeQuote.data.destinationToken,
-            fromAccountAddress: stellarAddress,
-            toAccountAddress: evmAddress,
-            network: currentNetwork,
-            feePaymentMethod: feePayType === 'native' ? FeePaymentMethod.WITH_NATIVE_CURRENCY : FeePaymentMethod.WITH_STABLECOIN,
-            messenger: Messenger.ALLBRIDGE,
-            slippageTolerance: userSlippageTolerance
-          });
-          setBridgeTxStatus('signing');
-          const provider = getProvider(WalletType.STELLAR) as any;
-          const result = await signAndSubmitTransaction({
-            xdr,
-            network: currentNetwork,
-            networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
-            provider
-          });
-
-          if (result.success && result.hash) {
-            setBridgeTxHash(result.hash);
+          if (!activeQuote.data || !ammService || !stellarAddress) {
+            setBridgeTxStatus('idle');
+            return;
+          }
+          try {
+            setBridgeTxStatus('preparing');
+            const tx = await ammService.buildSwapTransaction(stellarAddress, activeQuote.data, {
+              slippageTolerance: userSlippageTolerance
+            });
+            setBridgeTxStatus('signing');
+            setHasPendingSignRequest(true);
+            const provider = getProvider(WalletType.STELLAR) as any;
+            const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
+            setHasPendingSignRequest(false);
+            setBridgeTxHash(hash);
             setBridgeTxStatus('success');
+
             addLocalTransaction({
-              hash: result.hash,
+              hash,
               chainId: fromChainId,
-              type: 'bridge',
+              type: 'swap',
               timestamp: Date.now(),
-              description: `Bridge ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
+              description: `Swap ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
               from: stellarAddress,
               status: 'pending',
               network: currentNetwork
             });
             showToast({
+              type: 'STELLAR',
+              title: 'Swap Transaction Sent',
+              message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
+            });
+          } catch (err) {
+            setHasPendingSignRequest(false);
+            console.error('Stellar swap execution failed:', err);
+            const errMsg = parseSwapError(err);
+            setBridgeErrorMsg(errMsg);
+            setBridgeTxStatus('error');
+            showToast({
+              type: 'STELLAR',
+              title: 'Swap Failed',
+              message: errMsg,
+              dontSave: true
+            });
+          }
+        } else {
+          if (!swapQuote || !selectedSellAsset || !selectedBuyAsset) {
+            setBridgeTxStatus('idle');
+            return;
+          }
+          try {
+            setHasPendingSignRequest(true);
+            await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, userSlippageTolerance);
+            setHasPendingSignRequest(false);
+            setBridgeTxStatus('idle');
+            showToast({
+              type: 'EVM_SWAP',
+              title: 'Swap Transaction Sent',
+              message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
+            });
+          } catch (err) {
+            setHasPendingSignRequest(false);
+            console.error('Swap execution failed:', err);
+            setBridgeErrorMsg(parseWalletError(err));
+            resetLoadingState();
+            setBridgeTxStatus('error');
+            showToast({ type: 'EVM_SWAP', title: 'Swap Failed', message: parseWalletError(err), dontSave: true });
+          }
+        }
+      } else {
+        if (isStellar(fromChainId) && !stellarAddress) { setBridgeTxStatus('idle'); return; }
+        if (isStellar(toChainId) && !stellarAddress) { setBridgeTxStatus('idle'); return; }
+        if (!isStellar(fromChainId) && !evmAddress) { setBridgeTxStatus('idle'); return; }
+
+        if (!activeQuote.data && !rangoQuote) { setBridgeTxStatus('idle'); return; }
+
+        try {
+          if (isStellar(fromChainId)) {
+            if (!stellarAddress || !evmAddress || !activeQuote.data) { setBridgeTxStatus('idle'); return; }
+            const xdr = await prepareStellarToEvmRawTransaction({
+              amount: sellAmount,
+              sourceToken: activeQuote.data.sourceToken,
+              destinationToken: activeQuote.data.destinationToken,
+              fromAccountAddress: stellarAddress,
+              toAccountAddress: evmAddress,
+              network: currentNetwork,
+              feePaymentMethod: feePayType === 'native' ? FeePaymentMethod.WITH_NATIVE_CURRENCY : FeePaymentMethod.WITH_STABLECOIN,
+              messenger: Messenger.ALLBRIDGE,
+              slippageTolerance: userSlippageTolerance
+            });
+            setBridgeTxStatus('signing');
+            const provider = getProvider(WalletType.STELLAR) as any;
+            const result = await signAndSubmitTransaction({
+              xdr,
+              network: currentNetwork,
+              networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
+              provider
+            });
+
+            if (result.success) {
+              const txHash = result.hash || undefined;
+              setBridgeTxHash(txHash || '');
+              setBridgeTxStatus('success');
+              if (txHash) {
+                storeSwapOrder({
+                  txHash,
+                  walletAddress: stellarAddress,
+                  provider: 'ALLBRIDGE',
+                  fromChain: ChainSymbol.SRB,
+                  fromToken: sellAssetSymbol,
+                  toChain: getChainById(toChainId)?.symbol || String(toChainId),
+                  toToken: buyAssetSymbol,
+                  amountIn: sellAmount,
+                  amountOut: calculatedBuyAmount,
+                  txType: 'Bridge'
+                } as any).catch((err: any) => console.error('Failed to store Stellar\u2192EVM bridge order:', err));
+              }
+              showToast({
+                type: 'BRIDGE',
+                title: 'Bridge Initiated',
+                message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
+              });
+            } else {
+              throw new Error(result.error || 'Stellar transaction failed');
+            }
+          } else if (activeQuote.source === 'rango' && (rangoQuote || activeQuote.data)) {
+            if (!evmAddress) { setBridgeTxStatus('idle'); return; }
+            const currentRangoQuote = rangoQuote || activeQuote.data;
+            const requestId = currentRangoQuote.requestId || currentRangoQuote.result?.requestId;
+            if (!requestId) throw new Error('No Rango requestId available');
+
+            const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
+            if (!destAddr) throw new Error('Destination address not found');
+
+            const confirmResult = await confirmRangoRoute(
+              requestId,
+              fromChainId,
+              toChainId,
+              evmAddress,
+              destAddr
+            );
+
+            if (!confirmResult?.ok && !confirmResult?.result) {
+              throw new Error(confirmResult?.error || 'Failed to confirm Rango route');
+            }
+
+            const { executeRangoSwap, validateRangoResult } = await import('../../utils/evmSwapUtils');
+
+            if (confirmResult.result) {
+              validateRangoResult(confirmResult.result);
+            }
+
+            await executeRangoSwap(
+              requestId,
+              fromChainId,
+              evmAddress,
+              currentNetwork,
+              sellAssetSymbol,
+              buyAssetSymbol,
+              getProvider,
+              {
+                setStatus: setBridgeTxStatus,
+                setHash: setBridgeTxHash,
+                addTransaction: (tx: any) => {
+                  if (tx.type === 'swap' || tx.type === 'bridge' || tx.type === 'approval') {
+                    storeSwapOrder({
+                      txHash: tx.hash,
+                      walletAddress: evmAddress,
+                      provider: tx.type === 'approval' ? 'EVMTX' : 'RANGO',
+                      fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                      fromToken: sellAssetSymbol,
+                      toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                      toToken: buyAssetSymbol,
+                      amountIn: sellAmount,
+                      amountOut: calculatedBuyAmount,
+                      requestId: requestId,
+                      txType: tx.type === 'approval' ? 'Token Approval' : (fromChainId === toChainId ? 'Swap' : 'Contract Call')
+                    } as any).catch(err => console.error('Failed to store Rango order:', err));
+                  }
+                }
+              },
+              userSlippageTolerance
+            );
+            setBridgeTxStatus('success');
+            showToast({
+              type: 'EVM_SWAP',
+              title: 'Swap Transaction Sent',
+              message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
+            });
+
+          } else if (activeQuote.source === 'bridge' && activeQuote.data) {
+            const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
+            if (!evmAddress || !destAddr) { setBridgeTxStatus('idle'); return; }
+
+            const bridgeResponse = await prepareBridgeTransaction({
+              fromChainId,
+              toChainId,
+              amount: sellAmount,
+              feePayType,
+              fromAddress: evmAddress,
+              destinationAddress: destAddr,
+              sourceToken: sellAssetSymbol,
+              destinationToken: buyAssetSymbol,
+              slippageTolerance: userSlippageTolerance
+            });
+
+            const provider = getProvider(WalletType.EVM) as any;
+            for (const tx of bridgeResponse.transactions) {
+              setBridgeTxStatus(tx.type === 'approve' ? 'preparing' : 'signing');
+              const hash = await provider.request({
+                method: 'eth_sendTransaction',
+                params: [{
+                  from: tx.transaction.from,
+                  to: tx.transaction.to,
+                  value: `0x${BigInt(tx.transaction.value).toString(16)}`,
+                  data: tx.transaction.data,
+                }]
+              });
+              if (tx.type === 'approve') {
+                storeSwapOrder({
+                  txHash: hash,
+                  walletAddress: evmAddress,
+                  provider: 'EVMTX',
+                  fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                  fromToken: sellAssetSymbol,
+                  toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                  toToken: buyAssetSymbol,
+                  amountIn: sellAmount,
+                  amountOut: calculatedBuyAmount,
+                  txType: 'Token Approval'
+                } as any).catch(err => console.error('Failed to store Allbridge approval order:', err));
+              }
+              if (tx.type === 'transfer') {
+                setBridgeTxHash(hash);
+                storeSwapOrder({
+                  txHash: hash,
+                  walletAddress: evmAddress,
+                  provider: 'ALLBRIDGE',
+                  fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                  fromToken: sellAssetSymbol,
+                  toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                  toToken: buyAssetSymbol,
+                  amountIn: sellAmount,
+                  amountOut: calculatedBuyAmount,
+                  txType: 'Bridge'
+                } as any).catch(err => console.error('Failed to store Allbridge order:', err));
+              }
+            }
+            setBridgeTxStatus('success');
+            showToast({
               type: 'BRIDGE',
               title: 'Bridge Initiated',
               message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
             });
-          } else {
-            throw new Error(result.error || 'Stellar transaction failed');
           }
-        } else if (activeQuote.source === 'rango' && (rangoQuote || activeQuote.data)) {
-          if (!evmAddress) { setBridgeTxStatus('idle'); return; }
-          const currentRangoQuote = rangoQuote || activeQuote.data;
-          const requestId = currentRangoQuote.requestId || currentRangoQuote.result?.requestId;
-          if (!requestId) throw new Error('No Rango requestId available');
-
-          const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
-          if (!destAddr) throw new Error('Destination address not found');
-
-          const confirmResult = await confirmRangoRoute(
-            requestId,
-            fromChainId,
-            toChainId,
-            evmAddress,
-            destAddr
-          );
-
-          if (!confirmResult?.ok && !confirmResult?.result) {
-            throw new Error(confirmResult?.error || 'Failed to confirm Rango route');
-          }
-
-          const { executeRangoSwap, validateRangoResult } = await import('../../utils/evmSwapUtils');
-
-          if (confirmResult.result) {
-            validateRangoResult(confirmResult.result);
-          }
-
-          await executeRangoSwap(
-            requestId,
-            fromChainId,
-            evmAddress,
-            currentNetwork,
-            sellAssetSymbol,
-            buyAssetSymbol,
-            getProvider,
-            {
-              setStatus: setBridgeTxStatus,
-              setHash: setBridgeTxHash,
-              addTransaction: (tx: any) => {
-                if (tx.type === 'swap' || tx.type === 'bridge') {
-                  storeSwapOrder({
-                    txHash: tx.hash,
-                    walletAddress: evmAddress,
-                    provider: 'RANGO',
-                    fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
-                    fromToken: sellAssetSymbol,
-                    toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
-                    toToken: buyAssetSymbol,
-                    amountIn: sellAmount,
-                    amountOut: calculatedBuyAmount,
-                    requestId: requestId
-                  } as any).catch(err => console.error('Failed to store Rango bridge order:', err));
-                } else {
-                  addLocalTransaction(tx);
-                }
-              }
-            },
-            userSlippageTolerance
-          );
-          setBridgeTxStatus('success');
-          showToast({
-            type: 'EVM_SWAP',
-            title: 'Swap Transaction Sent',
-            message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
-          });
-
-        } else if (activeQuote.source === 'bridge' && activeQuote.data) {
-          const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
-          if (!evmAddress || !destAddr) { setBridgeTxStatus('idle'); return; }
-
-          const bridgeResponse = await prepareBridgeTransaction({
-            fromChainId,
-            toChainId,
-            amount: sellAmount,
-            feePayType,
-            fromAddress: evmAddress,
-            destinationAddress: destAddr,
-            sourceToken: sellAssetSymbol,
-            destinationToken: buyAssetSymbol,
-            slippageTolerance: userSlippageTolerance
-          });
-
-          const provider = getProvider(WalletType.EVM) as any;
-          for (const tx of bridgeResponse.transactions) {
-            setBridgeTxStatus(tx.type === 'approve' ? 'preparing' : 'signing');
-            const hash = await provider.request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: tx.transaction.from,
-                to: tx.transaction.to,
-                value: `0x${BigInt(tx.transaction.value).toString(16)}`,
-                data: tx.transaction.data,
-              }]
-            });
-            if (tx.type === 'approve') {
-              addLocalTransaction({
-                hash,
-                chainId: fromChainId,
-                type: 'approval',
-                timestamp: Date.now(),
-                description: `Approve ${sellAssetSymbol} for Bridge`,
-                from: evmAddress,
-                status: 'success',
-                network: currentNetwork
-              });
-            }
-            if (tx.type === 'transfer') {
-              setBridgeTxHash(hash);
-              storeSwapOrder({
-                txHash: hash,
-                walletAddress: evmAddress,
-                provider: 'ALLBRIDGE',
-                fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
-                fromToken: sellAssetSymbol,
-                toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
-                toToken: buyAssetSymbol,
-                amountIn: sellAmount,
-                amountOut: calculatedBuyAmount,
-              } as any).catch(err => console.error('Failed to store Allbridge order:', err));
-            }
-          }
-          setBridgeTxStatus('success');
-          showToast({
-            type: 'BRIDGE',
-            title: 'Bridge Initiated',
-            message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
-          });
+        } catch (err: any) {
+          console.error('Bridge failed:', err);
+          const errMsg = parseWalletError(err);
+          setBridgeErrorMsg(errMsg);
+          resetLoadingState();
+          setBridgeTxStatus('error');
+          showToast({ type: 'BRIDGE', title: 'Transaction Failed', message: errMsg, dontSave: true });
         }
-      } catch (err: any) {
-        console.error('Bridge failed:', err);
-        const errMsg = parseWalletError(err);
-        setBridgeErrorMsg(errMsg);
-        resetLoadingState();
-        setBridgeTxStatus('error');
-        showToast({ type: 'BRIDGE', title: 'Transaction Failed', message: errMsg });
       }
+    };
+
+    try {
+      setBridgeErrorMsg(null);
+      setBridgeTxStatus('preparing');
+      await executeSwapFlow();
+    } finally {
+      isSubmittingRef.current = false;
     }
   }, [
     actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, userSlippageTolerance, performSwap, evmAddress,
@@ -1141,6 +1238,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const isSwapDisabled = !sellAmount ||
     parseFloat(sellAmount) <= 0 ||
     isInsufficientBalance ||
+    hasInsufficientStellarGas ||
     isLoadingExecution ||
     (actionType === 'SWAP' && isStellar(fromChainId) && !activeQuote.data) ||
     (actionType === 'SWAP' && !isStellar(fromChainId) && !swapQuote && !isGasless) ||
@@ -1287,7 +1385,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 {((selectedSellAsset as any)?.balance === undefined || isRefreshing) ? (
                   <span className="inline-block w-14 h-3.5 bg-brand/30 animate-pulse rounded-full align-middle ml-1" />
                 ) : (
-                  `${portfolioUtils.formatBalance((selectedSellAsset as any)?.balance || '0')} ${sellAssetSymbol}`
+                  <Tooltip
+                    content={`${toPlainString((selectedSellAsset as any)?.balance)} ${sellAssetSymbol}`}
+                    unstyled
+                  >
+                    {portfolioUtils.formatBalance((selectedSellAsset as any)?.balance || '0')} {sellAssetSymbol}
+                  </Tooltip>
                 )}
               </span>
             </div>
@@ -1369,13 +1472,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               )}
             </div>
           </div>
-
-          {crossChainWarning && actionType === 'BRIDGE' && (
-            <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
-              <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0" />
-              <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest leading-relaxed">{crossChainWarning}</span>
-            </div>
-          )}
 
           {/* Details Section Inside Receive Card */}
           <div className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && (swapQuote || (activeQuote.source === 'stellar' && activeQuote.data))) || (actionType === 'BRIDGE' && hasActiveCrossChainQuote) ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}>
@@ -1638,6 +1734,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             </div>
           </div>
 
+          {/* Pending signing request banner — shown when a wallet prompt is still open */}
+          {hasPendingSignRequest && (
+            <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-300">
+              <span className="text-amber-400 text-base leading-none">⏳</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest">Signing request pending</p>
+                <p className="text-[11px] text-amber-400/70 font-medium mt-0.5">Check your wallet — a transaction is waiting for your approval.</p>
+              </div>
+            </div>
+          )}
+
           <ActionGuard
             title="Connect Wallet"
             requiredWallets={requiredWallets}
@@ -1676,14 +1783,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </ActionGuard>
         </div>
 
-        {(swapTxHash || (isStellar(fromChainId) && bridgeTxHash)) && fromChainConfig && actionType === 'SWAP' && (
+        {(swapTxHash || (isStellar(fromChainId) && bridgeTxStatus === 'success')) && fromChainConfig && actionType === 'SWAP' && (
           isStellar(fromChainId) ? (
             <StellarTransactionModal
-              isOpen={!!(swapTxHash || bridgeTxHash)}
+              isOpen={bridgeTxStatus === 'success'}
               onClose={handleReset}
               status="success"
               type="Swap"
-              hash={(swapTxHash || bridgeTxHash)!}
+              hash={bridgeTxHash || undefined}
             />
           ) : (
             <EvmTransactionSuccessModal
@@ -1695,18 +1802,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           )
         )}
 
-        {bridgeTxHash && fromChainConfig && actionType === 'BRIDGE' && (
+        {bridgeTxStatus === 'success' && fromChainConfig && actionType === 'BRIDGE' && (
           isStellar(fromChainId) ? (
             <StellarTransactionModal
-              isOpen={!!bridgeTxHash}
+              isOpen={true}
               onClose={handleReset}
               status="success"
               type="Bridge"
-              hash={bridgeTxHash}
+              hash={bridgeTxHash || undefined}
             />
           ) : (
             <EvmTransactionSuccessModal
-              txHash={bridgeTxHash}
+              txHash={bridgeTxHash!}
               explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${bridgeTxHash}`}
               onDone={handleReset}
               networkName={fromChainConfig.name}
@@ -1718,6 +1825,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       {showFusionScreen && fusionQuote && (
         <FusionQuoteScreen
           quote={fusionQuote}
+          chainId={fromChainId}
           sellAsset={selectedSellAsset}
           buyAsset={selectedBuyAsset}
           onBack={() => {
@@ -1761,7 +1869,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               setBridgeErrorMsg(parseWalletError(err));
               resetLoadingState();
               setBridgeTxStatus('error');
-              showToast({ type: 'EVM_SWAP', title: 'Swap Failed', message: parseWalletError(err) });
+              showToast({ type: 'EVM_SWAP', title: 'Swap Failed', message: parseWalletError(err), dontSave: true });
             } finally {
               setIsFusionLoading(false);
             }

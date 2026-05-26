@@ -10,7 +10,7 @@ import {
   XCircle,
   ExternalLink,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 
 import PageLayout from '../../../components/layout/PageLayout';
 import AllTransactionsUI from '../../steallr/components/AllTransactionsUI';
@@ -22,7 +22,7 @@ import {
   useLocalTransactions,
 } from '../hook/useLocalTransactions';
 import { useEvmTransaction } from '../hook/useEvmTransaction';
-import { type SwapOrder } from '../service/evmTransactionStatusService';
+import { type SwapOrder, updateSwapOrderStatus } from '../service/evmTransactionStatusService';
 import {
   type TransactionItem,
   getEvmTransactionHistory,
@@ -33,6 +33,7 @@ import { rpcManager } from '../utils/rpcProvider';
 import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
+import { checkTxStatus } from './TransactionMonitor';
 
 type ViewType = 'recent' | 'stellar' | number;
 
@@ -115,13 +116,7 @@ const EvmTransactionHistory: React.FC = () => {
   const [loadingMoreOrders, setLoadingMoreOrders] = useState(false);
   const [liveStatusOverrides, setLiveStatusOverrides] = useState<Record<string, 'success' | 'failed'>>({});
 
-  const {
-    transactions: localTransactions,
-    isLoading: localLoading,
-    refresh: refreshLocal,
-    refreshTransaction,
-    hasPendingTransactions,
-  } = useLocalTransactions();
+
 
   const {
     ordersData: backendOrders,
@@ -131,37 +126,77 @@ const EvmTransactionHistory: React.FC = () => {
     getSwapOrdersByWallet: refreshOrders
   } = useEvmTransaction();
 
+  const { transactions: localTransactions } = useLocalTransactions();
+
+  const isCheckingOnChain = useRef<boolean>(false);
+  const checkingHashes = useRef<Set<string>>(new Set());
+
   // Actively check on-chain transaction receipt ONLY for pending Uniswap backend orders
   // Other provider statuses must come exclusively from the backend proxy
   useEffect(() => {
     const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) => 
-      order.provider?.toUpperCase() === 'UNISWAP' && order.status === 'pending' && !liveStatusOverrides[order.txHash.toLowerCase()]
+      (order.provider?.toUpperCase() === 'UNISWAP' || order.provider?.toUpperCase() === 'EVMTX') && 
+      order.status === 'pending' && 
+      !liveStatusOverrides[order.txHash.toLowerCase()]
     );
 
-    if (!pendingOrders || pendingOrders.length === 0) return;
+    // Limit to the latest 5 pending orders to prevent network/RPC bottleneck
+    const ordersToCheck = pendingOrders?.slice(0, 5);
+
+    if (!ordersToCheck || ordersToCheck.length === 0) return;
 
     const checkStatuses = async () => {
-      for (const order of pendingOrders) {
-        try {
-          const chainConfig = findChain(order.fromChain, currentNetwork);
-          if (!chainConfig || !chainConfig.rpcUrls?.length) continue;
+      if (isCheckingOnChain.current) return;
+      isCheckingOnChain.current = true;
 
-          const receipt = await rpcManager.fetchWithFallback(
-            chainConfig.chainId, 
-            chainConfig.rpcUrls, 
-            async (provider) => provider.getTransactionReceipt(order.txHash)
-          );
+      try {
+        for (const order of ordersToCheck) {
+          try {
+            let isConfirmed = false;
+            let isSuccess = false;
 
-          if (receipt) {
-            const newStatus = receipt.status === 1 ? 'success' : 'failed';
-            setLiveStatusOverrides(prev => ({
-              ...prev,
-              [order.txHash.toLowerCase()]: newStatus
-            }));
+            const chainConfig = findChain(order.fromChain, currentNetwork);
+            const chainSymbol = chainConfig?.symbol === 'BNB' ? 'BSC' : chainConfig?.symbol;
+
+            if (chainSymbol) {
+              const apiResult = await checkTxStatus(order.txHash, chainSymbol);
+              if (apiResult) {
+                isConfirmed = true;
+                isSuccess = apiResult.status;
+              }
+            }
+
+            if (!isConfirmed) {
+              if (!chainConfig || !chainConfig.rpcUrls?.length) continue;
+              const receipt = await rpcManager.fetchWithFallback(
+                chainConfig.chainId, 
+                chainConfig.rpcUrls, 
+                async (provider) => provider.getTransactionReceipt(order.txHash)
+              );
+
+              if (receipt) {
+                isConfirmed = true;
+                isSuccess = receipt.status === 1;
+              }
+            }
+
+            if (isConfirmed) {
+              const newStatus = isSuccess ? 'success' : 'failed';
+              setLiveStatusOverrides(prev => ({
+                ...prev,
+                [order.txHash.toLowerCase()]: newStatus
+              }));
+              await updateSwapOrderStatus({
+                txHash: order.txHash,
+                orderStatus: isSuccess ? 'completed' : 'failed'
+              }).catch(err => console.error('Failed to update status in DB:', err));
+            }
+          } catch (err) {
+            console.error('Failed to verify pending backend order on-chain:', err);
           }
-        } catch (err) {
-          console.error('Failed to verify pending backend order on-chain:', err);
         }
+      } finally {
+        isCheckingOnChain.current = false;
       }
     };
 
@@ -177,19 +212,97 @@ const EvmTransactionHistory: React.FC = () => {
     }
   }, [walletAddress]);
 
+  const clearTxHashFromUrl = () => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('hash');
+      return next;
+    }, { replace: true });
+  };
+
+  const handleCloseDetails = () => {
+    setIsSheetOpen(false);
+    setSelectedTx(null);
+    setSelectedLocalTx(null);
+    clearTxHashFromUrl();
+  };
+
   useEffect(() => {
-    if (txHashFromUrl && localTransactions.length > 0) {
-      const found = localTransactions.find(
-        tx => tx.hash.toLowerCase() === txHashFromUrl.toLowerCase()
+    if (!txHashFromUrl) return;
+
+    // 1. Check in backend orders first
+    if (backendOrders?.data) {
+      const found = backendOrders.data.find(
+        (order: SwapOrder) => order.txHash.toLowerCase() === txHashFromUrl.toLowerCase()
       );
       if (found) {
-        setSelectedView(searchParams.get('tab') === 'stellar' ? 'stellar' : 'recent');
-        setSelectedLocalTx(found);
+        const chainConfig = findChain(found.fromChain, currentNetwork);
+        const isBridge = found.fromChain !== found.toChain;
+        const defaultTxType = isBridge ? 'Bridge' : 'Swap';
+        let description = `${defaultTxType} ${found.fromToken} \u2192 ${found.toToken}`;
+        
+        if (found.txType) {
+          if (found.txType.toLowerCase().includes('approval')) {
+            description = `Approve ${found.fromToken}`;
+          } else if (found.txType.toLowerCase() === 'token transfer' || found.provider?.toUpperCase() === 'EVMTX') {
+            description = `${found.txType} ${found.fromToken}`;
+            if (found.toToken && found.toToken !== found.fromToken) {
+              description += ` \u2192 ${found.toToken}`;
+            }
+          } else {
+            description = `${found.txType} ${found.fromToken} \u2192 ${found.toToken}`;
+          }
+        }
+
+        const normalized: LocalTransactionWithStatus & { 
+          provider?: string; 
+          isBackendOrder?: boolean;
+          fromChainSymbol?: string;
+          amountIn?: string;
+          amountOut?: string;
+          fromToken?: string;
+          toToken?: string;
+        } = {
+          hash: found.txHash,
+          chainId: chainConfig?.chainId || found.fromChain,
+          type: isBridge ? 'bridge' : 'swap',
+          timestamp: new Date(found.createdAt).getTime(),
+          description: description,
+          status: found.status === 'completed' ? 'success' : found.status === 'failed' ? 'failed' : 'pending',
+          from: found.walletAddress,
+          network: currentNetwork,
+          provider: found.provider,
+          isBackendOrder: true,
+          fromChainSymbol: found.fromChain,
+          amountIn: found.amountIn,
+          amountOut: found.amountOut,
+          fromToken: found.fromToken,
+          toToken: found.toToken,
+        };
+
+        const targetView = searchParams.get('tab') === 'stellar' ? 'stellar' : 'recent';
+        if (selectedView !== targetView) {
+          setSelectedView(targetView);
+        }
+        setSelectedLocalTx(normalized);
         setSelectedTx(null);
+        if (window.innerWidth < 1024) setIsSheetOpen(true);
+        return;
+      }
+    }
+
+    // 2. Check in historyData next
+    if (historyData && historyData.length > 0) {
+      const foundInHistory = historyData.find(
+        (tx: TransactionItem) => tx.hash.toLowerCase() === txHashFromUrl.toLowerCase()
+      );
+      if (foundInHistory) {
+        setSelectedTx(foundInHistory);
+        setSelectedLocalTx(null);
         if (window.innerWidth < 1024) setIsSheetOpen(true);
       }
     }
-  }, [txHashFromUrl, localTransactions, searchParams]);
+  }, [txHashFromUrl, backendOrders?.data, historyData, searchParams, currentNetwork, selectedView]);
 
   useEffect(() => {
     const currentTab = searchParams.get('tab');
@@ -269,6 +382,11 @@ const EvmTransactionHistory: React.FC = () => {
   const handleTxClick = (tx: TransactionItem) => {
     setSelectedTx(tx);
     setSelectedLocalTx(null);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('hash', tx.hash);
+      return next;
+    }, { replace: true });
     if (window.innerWidth < 1024) setIsSheetOpen(true);
   };
 
@@ -276,26 +394,72 @@ const EvmTransactionHistory: React.FC = () => {
     setSelectedLocalTx(tx);
     console.log(tx, "----------- i am tx from Evm transction ")
     setSelectedTx(null);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('hash', tx.hash);
+      return next;
+    }, { replace: true });
     if (window.innerWidth < 1024) setIsSheetOpen(true);
 
     if (tx.isBackendOrder && tx.provider) {
-      if (tx.provider.toUpperCase() === 'UNISWAP') {
-        const chainConfig = findChain(tx.fromChainSymbol || String(tx.chainId), currentNetwork);
-        if (chainConfig && chainConfig.rpcUrls?.length) {
-          rpcManager.fetchWithFallback(
-            chainConfig.chainId,
-            chainConfig.rpcUrls,
-            async (provider) => provider.getTransactionReceipt(tx.hash)
-          ).then(receipt => {
-            if (receipt) {
-              const newStatus = receipt.status === 1 ? 'success' : 'failed';
+      if (tx.provider.toUpperCase() === 'UNISWAP' || tx.provider.toUpperCase() === 'EVMTX') {
+        const hashLower = tx.hash.toLowerCase();
+        
+        // Prevent redundant network requests if already checking or if it is no longer pending
+        if (checkingHashes.current.has(hashLower) || liveStatusOverrides[hashLower] || tx.status !== 'pending') {
+            return;
+        }
+
+        checkingHashes.current.add(hashLower);
+
+        const checkLocalStatus = async () => {
+          try {
+            let isConfirmed = false;
+            let isSuccess = false;
+
+            const chainConfig = findChain(tx.fromChainSymbol || String(tx.chainId), currentNetwork);
+            const chainSymbol = chainConfig?.symbol === 'BNB' ? 'BSC' : chainConfig?.symbol;
+
+            if (chainSymbol) {
+              const apiResult = await checkTxStatus(tx.hash, chainSymbol);
+              if (apiResult) {
+                isConfirmed = true;
+                isSuccess = apiResult.status;
+              }
+            }
+
+            if (!isConfirmed) {
+              if (chainConfig && chainConfig.rpcUrls?.length) {
+                const receipt = await rpcManager.fetchWithFallback(
+                  chainConfig.chainId,
+                  chainConfig.rpcUrls,
+                  async (provider) => provider.getTransactionReceipt(tx.hash)
+                );
+                if (receipt) {
+                  isConfirmed = true;
+                  isSuccess = receipt.status === 1;
+                }
+              }
+            }
+
+            if (isConfirmed) {
+              const newStatus = isSuccess ? 'success' : 'failed';
               setLiveStatusOverrides(prev => ({
                 ...prev,
                 [tx.hash.toLowerCase()]: newStatus
               }));
+              await updateSwapOrderStatus({
+                txHash: tx.hash,
+                orderStatus: isSuccess ? 'completed' : 'failed'
+              }).catch(err => console.error('Failed to update status in DB:', err));
             }
-          }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
-        }
+          } catch (err) {
+            console.error('Failed to verify order on-chain:', err);
+          } finally {
+            checkingHashes.current.delete(hashLower);
+          }
+        };
+        checkLocalStatus();
       } else {
         getTransactionStatus({
           walletType: tx.fromChainSymbol || 'ETH',
@@ -303,8 +467,6 @@ const EvmTransactionHistory: React.FC = () => {
           provider: tx.provider
         }).catch((err: any) => console.error('Failed to refresh backend order status:', err));
       }
-    } else if (tx.status === 'pending' || tx.type === 'bridge') {
-      refreshTransaction(tx.hash);
     }
   };
 
@@ -312,6 +474,7 @@ const EvmTransactionHistory: React.FC = () => {
     setSelectedView(view);
     setSelectedTx(null);
     setSelectedLocalTx(null);
+    clearTxHashFromUrl();
   };
 
   if (!hasEvm && !hasStellar) {
@@ -335,7 +498,7 @@ const EvmTransactionHistory: React.FC = () => {
             className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${selectedView === 'recent' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
           >
             Recent
-            {hasPendingTransactions && (
+            {backendOrders?.data?.some(order => order.status === 'pending') && (
               <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
             )}
           </button>
@@ -365,22 +528,64 @@ const EvmTransactionHistory: React.FC = () => {
 
   const renderRecentTransactions = () => {
     const combinedRecent = (() => {
-      // Create a map to avoid duplicates (backend orders take precedence if hashes match)
       const mergedMap = new Map<string, LocalTransactionWithStatus>();
 
-      // 1. Add local transactions
-      localTransactions.forEach(tx => mergedMap.set(tx.hash.toLowerCase(), tx));
+      // Add local transactions first
+      localTransactions?.forEach((tx) => {
+        const isStellarTx =
+          tx.chainId === 'pubnet' ||
+          tx.chainId === 'testnet' ||
+          tx.chainId === 'stellar' ||
+          (tx.from && tx.from.toUpperCase().startsWith('G') && tx.from.length === 56);
+        
+        if (isStellarTx) return;
 
-      // 2. Add backend orders, mapping them to LocalTransactionWithStatus format
+        const normalized: LocalTransactionWithStatus & { 
+          provider?: string; 
+          isBackendOrder?: boolean;
+          fromChainSymbol?: string;
+          amountIn?: string;
+          amountOut?: string;
+          fromToken?: string;
+          toToken?: string;
+        } = {
+          ...tx,
+          isBackendOrder: false,
+          provider: tx.provider,
+        };
+        mergedMap.set(tx.hash.toLowerCase(), normalized);
+      });
+
+      // Add backend orders, mapping them to LocalTransactionWithStatus format
       backendOrders?.data?.forEach((order: SwapOrder) => {
+        const isStellarOrder =
+          order.fromChain?.toLowerCase() === 'stellar' ||
+          order.toChain?.toLowerCase() === 'stellar' ||
+          (order.walletAddress && order.walletAddress.toUpperCase().startsWith('G') && order.walletAddress.length === 56);
+
+        if (isStellarOrder) return;
         const chainConfig = findChain(order.fromChain, currentNetwork);
-        const isUniswap = order.provider?.toUpperCase() === 'UNISWAP';
-        const resolvedStatus = isUniswap
+        const isLocalCheckable = order.provider?.toUpperCase() === 'UNISWAP' || order.provider?.toUpperCase() === 'EVMTX';
+        const resolvedStatus = isLocalCheckable
           ? (liveStatusOverrides[order.txHash.toLowerCase()] || (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending'))
           : (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending');
 
         const isBridge = order.fromChain !== order.toChain;
-        const txType = isBridge ? 'Bridge' : 'Swap';
+        const defaultTxType = isBridge ? 'Bridge' : 'Swap';
+        
+        let description = `${defaultTxType} ${order.fromToken} \u2192 ${order.toToken}`;
+        if (order.txType) {
+          if (order.txType.toLowerCase().includes('approval')) {
+            description = `Approve ${order.fromToken}`;
+          } else if (order.txType.toLowerCase() === 'token transfer' || order.provider?.toUpperCase() === 'EVMTX') {
+            description = `${order.txType} ${order.fromToken}`;
+            if (order.toToken && order.toToken !== order.fromToken) {
+              description += ` \u2192 ${order.toToken}`;
+            }
+          } else {
+            description = `${order.txType} ${order.fromToken} \u2192 ${order.toToken}`;
+          }
+        }
 
         const normalized: LocalTransactionWithStatus & { 
           provider?: string; 
@@ -395,7 +600,7 @@ const EvmTransactionHistory: React.FC = () => {
           chainId: chainConfig?.chainId || order.fromChain,
           type: isBridge ? 'bridge' : 'swap',
           timestamp: new Date(order.createdAt).getTime(),
-          description: `${txType} ${order.fromToken} \u2192 ${order.toToken}`,
+          description: description,
           status: resolvedStatus,
           from: order.walletAddress,
           network: currentNetwork,
@@ -422,8 +627,7 @@ const EvmTransactionHistory: React.FC = () => {
       });
     })();
 
-    const isFirstBackendLoad = ordersLoading && !backendOrders?.data;
-    const showFullLoader = isFirstBackendLoad || (localLoading && combinedRecent.length === 0 && !backendOrders?.data);
+    const showFullLoader = ordersLoading && !backendOrders?.data;
 
     if (showFullLoader) {
       return (
@@ -470,13 +674,12 @@ const EvmTransactionHistory: React.FC = () => {
       <div className="space-y-6 overflow-y-auto pb-4 lg:pb-0 custom-scrollbar pr-2">
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted">
-            {hasPendingTransactions
+            {backendOrders?.data?.some(order => order.status === 'pending')
               ? 'Auto-refreshing pending transactions...'
               : `${combinedRecent.length} transaction(s)`}
           </p>
           <button
             onClick={() => {
-              refreshLocal();
               if (walletAddress) {
                 setOrdersPage(1);
                 refreshOrders(walletAddress, 1, 10, false);
@@ -485,7 +688,7 @@ const EvmTransactionHistory: React.FC = () => {
             className="p-2 rounded-lg bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors"
             title="Refresh All"
           >
-            <RefreshCw size={14} className={(localLoading || ordersLoading) ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={ordersLoading ? 'animate-spin' : ''} />
           </button>
         </div>
 
@@ -570,7 +773,7 @@ const EvmTransactionHistory: React.FC = () => {
                       <span
                         className={`text-[8px] lg:text-[9px] font-bold px-1.5 py-0.5 rounded-full capitalize tracking-wider shrink-0 ${statusStyle}`}
                       >
-                        {tx.status}
+                        {tx.status === 'pending' && (tx as any).provider?.toUpperCase() === 'SKIP' ? 'Bridging' : tx.status}
                       </span>
                       <a
                         href={getExplorerUrl(tx.chainId, 'tx', tx.hash)}
@@ -812,6 +1015,7 @@ const EvmTransactionHistory: React.FC = () => {
                 <TransactionDetailsView
                   transaction={selectedLocalTx}
                   chainId={selectedLocalTx.chainId}
+                  onClose={handleCloseDetails}
                   onRefresh={() => {
                     if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
                       if ((selectedLocalTx as any).provider.toUpperCase() === 'UNISWAP') {
@@ -828,6 +1032,10 @@ const EvmTransactionHistory: React.FC = () => {
                                 ...prev,
                                 [selectedLocalTx.hash.toLowerCase()]: newStatus
                               }));
+                              updateSwapOrderStatus({
+                                txHash: selectedLocalTx.hash,
+                                orderStatus: receipt.status === 1 ? 'completed' : 'failed'
+                              }).catch(err => console.error('Failed to update Uniswap status in DB:', err));
                             }
                           }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
                         }
@@ -838,8 +1046,6 @@ const EvmTransactionHistory: React.FC = () => {
                           provider: (selectedLocalTx as any).provider
                         });
                       }
-                    } else {
-                      refreshTransaction(selectedLocalTx.hash);
                     }
                   }}
                   backendStatus={statusData}
@@ -847,7 +1053,13 @@ const EvmTransactionHistory: React.FC = () => {
               </div>
             ) : selectedTx ? (
               <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-                <TransactionDetailsView transaction={selectedTx} chainId={selectedTx.chainId} incoming={isTxIncoming} isSelf={isTxSelf} />
+                <TransactionDetailsView
+                  transaction={selectedTx}
+                  chainId={selectedTx.chainId}
+                  incoming={isTxIncoming}
+                  isSelf={isTxSelf}
+                  onClose={handleCloseDetails}
+                />
               </div>
             ) : (
               <div className="h-full bg-secondary/30 border border-dashed border-color rounded-2xl flex flex-col items-center justify-center text-center p-8">
@@ -868,7 +1080,7 @@ const EvmTransactionHistory: React.FC = () => {
         <TransactionDetailsSheet
           transaction={selectedTx || selectedLocalTx!}
           isOpen={isSheetOpen}
-          onClose={() => setIsSheetOpen(false)}
+          onClose={handleCloseDetails}
           chainId={selectedTx?.chainId || selectedLocalTx!.chainId}
           incoming={isTxIncoming}
           isSelf={isTxSelf}
@@ -888,6 +1100,10 @@ const EvmTransactionHistory: React.FC = () => {
                         ...prev,
                         [selectedLocalTx.hash.toLowerCase()]: newStatus
                       }));
+                      updateSwapOrderStatus({
+                        txHash: selectedLocalTx.hash,
+                        orderStatus: receipt.status === 1 ? 'completed' : 'failed'
+                      }).catch(err => console.error('Failed to update Uniswap status in DB:', err));
                     }
                   }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
                 }
@@ -898,8 +1114,6 @@ const EvmTransactionHistory: React.FC = () => {
                   provider: (selectedLocalTx as any).provider
                 });
               }
-            } else {
-              refreshTransaction(selectedLocalTx.hash);
             }
           } : undefined}
           backendStatus={statusData}

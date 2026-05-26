@@ -90,6 +90,20 @@ interface UseEvmSwapActions {
   reset: () => void;
 }
 
+export function toPlainString(val: string | number | null | undefined): string {
+  if (val === null || val === undefined) return '0';
+  const num = typeof val === 'number' ? val : parseFloat(val);
+  if (isNaN(num)) return '0';
+  const str = String(val);
+  if (!str.includes('e') && !str.includes('E')) {
+    return str;
+  }
+  const match = str.match(/[eE]([-+]?\d+)/);
+  if (!match) return str;
+  const exp = Math.abs(parseInt(match[1], 10));
+  return num.toFixed(Math.max(20, exp)).replace(/\.?0+$/, '');
+}
+
 export const useEvmSwap = ({
   chainId,
   senderAddress,
@@ -153,7 +167,21 @@ export const useEvmSwap = ({
         });
         return;
       }
-      updateState({ assets: tokens, isFetchingAssets: false });
+
+      const storeAssets = usePortfolioStore.getState().assets;
+      const tokensWithBalances = tokens.map(token => {
+        const storeAsset = storeAssets.find(a =>
+          a.chainId === chainId &&
+          a.symbol === token.symbol &&
+          (token.isNative ? a.isNative : a.address?.toLowerCase() === token.address.toLowerCase())
+        );
+        return {
+          ...token,
+          balance: storeAsset && storeAsset.balance !== null ? toPlainString(storeAsset.balance) : undefined
+        };
+      });
+
+      updateState({ assets: tokensWithBalances, isFetchingAssets: false });
     } catch (err) {
       console.error('Failed to load token list:', err);
       updateState({
@@ -210,7 +238,7 @@ export const useEvmSwap = ({
             );
 
             if (storeAsset && storeAsset.balance !== null) {
-              bal = storeAsset.balance.toString();
+              bal = toPlainString(storeAsset.balance);
               if (bal !== '0') return { address: token.address, balance: bal };
             }
 
@@ -294,7 +322,9 @@ export const useEvmSwap = ({
           slippage: state.userSlippageTolerance.toString(),
         };
 
+        // For Rango routes, add 1% extra slippage buffer directly in the request — no double-fetch needed.
         const quoteResponse = await fetchEvmQuote(chainId, adjustedRequest, sellAsset, buyAsset);
+
         if (requestId !== latestQuoteRequestId.current) {
           return Promise.reject(new Error('Quote request superseded'));
         }
@@ -383,13 +413,25 @@ export const useEvmSwap = ({
           senderAddress,
           sellAmount,
           slippageTolerance,
-          getProvider
+          getProvider,
+          (approvalHash) => {
+            storeSwapOrder({
+              txHash: approvalHash,
+              walletAddress: senderAddress,
+              provider: 'EVMTX',
+              fromChain: getChainById(chainId)?.symbol || '',
+              fromToken: sellAsset.symbol,
+              toChain: getChainById(buyAsset.chainId || chainId)?.symbol || '',
+              toToken: buyAsset.symbol,
+              amountIn: sellAmount,
+              amountOut: quote.outputAmount,
+              txType: 'Token Approval',
+            } as any).catch(err => console.error('Failed to store swap approval order on backend:', err));
+          }
         );
 
         const currentNetwork = useWalletStore.getState().network;
 
-        console.log(quote, "----------------- 987654321")
-        // Save to backend if it's a supported provider, otherwise save to local storage
         if (quote.provider === 'RANGO' || quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP' || quote.provider === 'ALLBRIDGE') {
           try {
             await storeSwapOrder({
@@ -402,7 +444,7 @@ export const useEvmSwap = ({
               toToken: buyAsset.symbol,
               amountIn: sellAmount,
               amountOut: quote.outputAmount,
-              // requestId is only for Rango
+              txType: quote.provider === 'ALLBRIDGE' ? 'Bridge' : quote.provider === 'RANGO' ? 'Contract Call' : 'Swap',
               ...(quote.provider === 'RANGO' ? { requestId: (quote as any).requestId || (quote.rawQuote as any)?.requestId } : {})
             } as any);
           } catch (err) {
@@ -451,26 +493,43 @@ export const useEvmSwap = ({
       buyAsset: TokenInfo,
       sellAmount: string,
       preset?: string,
-      onProgress?: (step: 'approving' | 'signing') => void
+      onProgress?: (step: 'approving' | 'signing') => void,
+      currentFusionQuote?: typeof state.fusionQuote
     ): Promise<string> => {
+      // Use explicitly passed quote (avoids stale closure) or fall back to current state
+      const fusionQuote = currentFusionQuote ?? state.fusionQuote;
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
       updateState({ loading: true, error: null, txHash: null });
 
       try {
-        if (!state.fusionQuote) throw new Error('No fusion quote available');
+        if (!fusionQuote) throw new Error('No fusion quote available');
         if (!senderAddress) throw new Error('No wallet connected');
 
         const hash = await execute1InchFusionSwap(
           chainId,
-          state.fusionQuote,
+          fusionQuote,
           preset || 'fast',
           senderAddress,
           sellAsset,
           buyAsset,
           sellAmount,
           getProvider,
-          onProgress
+          onProgress,
+          (approvalHash) => {
+            storeSwapOrder({
+              txHash: approvalHash,
+              walletAddress: senderAddress,
+              provider: 'EVMTX',
+              fromChain: getChainById(chainId)?.symbol,
+              fromToken: sellAsset.symbol,
+              toChain: getChainById(buyAsset.chainId || chainId)?.symbol,
+              toToken: buyAsset.symbol,
+              amountIn: sellAmount,
+              amountOut: fusionQuote.toTokenAmount ? ethers.formatUnits(fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+              txType: 'Token Approval',
+            } as any).catch(backendErr => console.error('Failed to store fusion swap approval order on backend:', backendErr));
+          }
         );
 
         // 1Inch Fusion swaps always go to backend
@@ -484,7 +543,8 @@ export const useEvmSwap = ({
             toChain: getChainById(buyAsset.chainId || chainId)?.symbol,
             toToken: buyAsset.symbol,
             amountIn: sellAmount,
-            amountOut: state.fusionQuote.toTokenAmount ? ethers.formatUnits(state.fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+            amountOut: fusionQuote.toTokenAmount ? ethers.formatUnits(fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+            txType: 'Swap',
           } as any);
         } catch (backendErr) {
           console.error('Failed to store fusion swap order on backend:', backendErr);

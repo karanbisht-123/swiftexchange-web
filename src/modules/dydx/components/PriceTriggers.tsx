@@ -119,20 +119,20 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
       takeProfit:
         tpPrice && !isNaN(parseFloat(tpPrice))
           ? {
-              enabled: true,
-              price: parseFloat(tpPrice),
-              percentage: parseFloat(tpPercentage || '0'),
-              type: 'MARKET',
-            }
+            enabled: true,
+            price: parseFloat(tpPrice),
+            percentage: parseFloat(tpPercentage || '0'),
+            type: 'MARKET',
+          }
           : undefined,
       stopLoss:
         slPrice && !isNaN(parseFloat(slPrice))
           ? {
-              enabled: true,
-              price: parseFloat(slPrice),
-              percentage: parseFloat(slPercentage || '0'),
-              type: 'MARKET',
-            }
+            enabled: true,
+            price: parseFloat(slPrice),
+            percentage: parseFloat(slPercentage || '0'),
+            type: 'MARKET',
+          }
           : undefined,
     };
     await onSave(config);
@@ -161,20 +161,20 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-[#1c1c1c] rounded-xl max-w-md w-full border border-gray-700 shadow-2xl animate-in fade-in zoom-in duration-200">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
+      <div className="bg-secondary rounded-xl max-w-md w-full border border-color shadow-2xl animate-in fade-in zoom-in duration-200">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-color">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-tertiary flex items-center justify-center">
               <div className="w-4 h-4 rounded-sm bg-linear-to-tr from-purple-500 to-blue-500" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Price triggers</h2>
-              <p className="text-xs text-gray-400">
+              <h2 className="text-base font-semibold text-primary">Price triggers</h2>
+              <p className="text-xs text-muted">
                 {position.market} • {position.side}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-muted hover:text-primary transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -186,16 +186,16 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4 bg-[#141414] p-3 rounded-lg border border-gray-800">
+          <div className="grid grid-cols-2 gap-4 bg-primary p-3 rounded-lg border border-color">
             <div>
-              <span className="text-xs text-gray-500 block mb-1">Avg. Entry Price</span>
-              <span className="text-sm text-white font-mono font-medium">
+              <span className="text-xs text-muted block mb-1">Avg. Entry Price</span>
+              <span className="text-sm text-primary font-mono font-medium">
                 ${entryPrice.toLocaleString()}
               </span>
             </div>
             <div className="text-right">
-              <span className="text-xs text-gray-500 block mb-1">Oracle Price</span>
-              {/* <span className="text-sm text-white font-mono font-medium">
+              <span className="text-xs text-muted block mb-1">Oracle Price</span>
+              {/* <span className="text-sm text-primary font-mono font-medium">
                 ${oraclePrice.toLocaleString()}
               </span> */}
             </div>
@@ -214,7 +214,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
               {(tpPrice || tpPercentage) && (
                 <button
                   onClick={() => handleClear(true)}
-                  className="text-xs text-gray-500 hover:text-white"
+                  className="text-xs text-muted hover:text-primary transition-colors"
                 >
                   Clear
                 </button>
@@ -228,7 +228,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
                   onFocus={() => setTpInputMode('price')}
                   onChange={e => setTpPrice(e.target.value)}
                   placeholder="Price"
-                  className="w-full bg-[#0f0f0f] border border-gray-700 rounded-lg p-2.5 text-white text-sm"
+                  className="w-full bg-primary border border-color rounded-lg p-2.5 text-primary text-sm focus:outline-none focus:border-brand-primary"
                 />
               </div>
               <div className="flex-1">
@@ -238,7 +238,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
                   onFocus={() => setTpInputMode('percentage')}
                   onChange={e => setTpPercentage(e.target.value)}
                   placeholder="ROI %"
-                  className="w-full bg-[#0f0f0f] border border-gray-700 rounded-lg p-2.5 text-white text-sm"
+                  className="w-full bg-primary border border-color rounded-lg p-2.5 text-primary text-sm focus:outline-none focus:border-brand-primary"
                 />
               </div>
             </div>
@@ -257,7 +257,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
               {(slPrice || slPercentage) && (
                 <button
                   onClick={() => handleClear(false)}
-                  className="text-xs text-gray-500 hover:text-white"
+                  className="text-xs text-muted hover:text-primary transition-colors"
                 >
                   Clear
                 </button>
@@ -271,7 +271,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
                   onFocus={() => setSlInputMode('price')}
                   onChange={e => setSlPrice(e.target.value)}
                   placeholder="Price"
-                  className="w-full bg-[#0f0f0f] border border-gray-700 rounded-lg p-2.5 text-white text-sm"
+                  className="w-full bg-primary border border-color rounded-lg p-2.5 text-primary text-sm focus:outline-none focus:border-brand-primary"
                 />
               </div>
               <div className="flex-1">
@@ -281,7 +281,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
                   onFocus={() => setSlInputMode('percentage')}
                   onChange={e => setSlPercentage(e.target.value)}
                   placeholder="Loss %"
-                  className="w-full bg-[#0f0f0f] border border-gray-700 rounded-lg p-2.5 text-white text-sm"
+                  className="w-full bg-primary border border-color rounded-lg p-2.5 text-primary text-sm focus:outline-none focus:border-brand-primary"
                 />
               </div>
             </div>
@@ -295,20 +295,20 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
           </div>
         </div>
 
-        <div className="px-5 py-4 border-t border-gray-700 flex gap-3 bg-[#141414] rounded-b-xl">
+        <div className="px-5 py-4 border-t border-color flex gap-3 bg-primary rounded-b-xl">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 rounded-lg bg-gray-800 text-white text-sm font-medium"
+            className="flex-1 py-2.5 rounded-lg bg-tertiary text-primary text-sm font-medium hover:bg-hover transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={isLoading || (!tpPrice && !slPrice)}
-            className="flex-1 py-2.5 rounded-lg bg-white text-black text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+            className="flex-1 py-2.5 rounded-lg btn btn-primary text text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
           >
             {isLoading ? (
-              <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               'Confirm'
             )}

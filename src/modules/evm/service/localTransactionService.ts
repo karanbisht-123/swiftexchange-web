@@ -17,6 +17,7 @@ export interface LocalTransaction {
   from?: string;
   to?: string;
   network?: string;
+  provider?: string;
 }
 
 export const getLocalTransactions = (walletAddresses?: string[], network?: string): LocalTransaction[] => {
@@ -27,13 +28,21 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
     let transactions: LocalTransaction[] = JSON.parse(stored);
     const now = Date.now();
 
-    const validTransactions = transactions.filter(tx => now - tx.timestamp < MAX_AGE_MS);
+    const validTransactions = transactions.filter(tx => {
+      const isExpired = now - tx.timestamp >= MAX_AGE_MS;
+      if (isExpired) return false;
+
+      const isStellar = tx.chainId === 'stellar' || tx.chainId === 'pubnet' || tx.chainId === 'testnet';
+      if (isStellar && tx.type !== 'bridge' && tx.type !== 'crosschain-swap') {
+        return false;
+      }
+      return true;
+    });
 
     let filteredTransactions = validTransactions;
     if (walletAddresses && walletAddresses.length > 0) {
       const lowerAddresses = walletAddresses.map(addr => addr.toLowerCase());
       filteredTransactions = filteredTransactions.filter(tx => {
-        // Allow Stellar transactions to pass through since wallet disconnects might hide them
         const isStellarTx =
           tx.chainId === 'pubnet' ||
           tx.chainId === 'testnet' ||
@@ -41,7 +50,8 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
           (tx.from && tx.from.toUpperCase().startsWith('G') && tx.from.length === 56);
 
         if (isStellarTx) {
-          return true;
+          if (!tx.from) return true;
+          return lowerAddresses.includes(tx.from.toLowerCase());
         }
 
         return tx.from && lowerAddresses.includes(tx.from.toLowerCase());
@@ -66,7 +76,8 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
 
 export const addLocalTransaction = (tx: LocalTransaction): void => {
   try {
-    if (tx.chainId === 'stellar' && tx.type !== 'bridge' && tx.type !== 'crosschain-swap') {
+    const isStellar = tx.chainId === 'stellar' || tx.chainId === 'pubnet' || tx.chainId === 'testnet';
+    if (isStellar && tx.type !== 'bridge' && tx.type !== 'crosschain-swap') {
       return;
     }
 

@@ -73,8 +73,16 @@ const AlchemyCryptoBuy = ({ onOrderStateChange }: { onOrderStateChange: (active:
         borderRadius: '0.75rem',
         border: `1px solid ${borderColor}`,
         backgroundColor: bgColor,
+        zIndex: 9999,
+      }),
+      menuList: (provided: any) => ({
+        ...provided,
         maxHeight: '200px',
         overflowY: 'auto',
+      }),
+      menuPortal: (provided: any) => ({
+        ...provided,
+        zIndex: 9999,
       }),
       option: (provided: any, state: any) => ({
         ...provided,
@@ -121,11 +129,20 @@ const AlchemyCryptoBuy = ({ onOrderStateChange }: { onOrderStateChange: (active:
         <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
-            inputMode="decimal"
+            inputMode={
+              selectedPaymentOption?.currency &&
+              ['INR', 'JPY', 'KRW', 'IDR', 'VND', 'HUF'].includes(selectedPaymentOption.currency)
+                ? 'numeric'
+                : 'decimal'
+            }
             value={fiatAmount}
             onChange={e => {
               const val = e.target.value;
-              if (val === '' || /^\d*\.?\d*$/.test(val)) {
+              const currency = selectedPaymentOption?.currency;
+              const isIntegerOnly =
+                currency && ['INR', 'JPY', 'KRW', 'IDR', 'VND', 'HUF'].includes(currency);
+              const regex = isIntegerOnly ? /^\d*$/ : /^\d*\.?\d*$/;
+              if (val === '' || regex.test(val)) {
                 setFiatAmount(val);
               }
             }}
@@ -141,6 +158,7 @@ const AlchemyCryptoBuy = ({ onOrderStateChange }: { onOrderStateChange: (active:
               onChange={selected => setSelectedPaymentOption(selected)}
               isSearchable
               styles={getSelectStyles()}
+              menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
               classNamePrefix="select"
               placeholder="Select Currency"
               formatOptionLabel={(option: any) => (
@@ -197,6 +215,7 @@ const AlchemyCryptoBuy = ({ onOrderStateChange }: { onOrderStateChange: (active:
               onChange={selected => setSelectedCryptoOption(selected)}
               isSearchable
               styles={getSelectStyles()}
+              menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
               classNamePrefix="select"
               placeholder="Select Asset"
               formatOptionLabel={(option: any) => (

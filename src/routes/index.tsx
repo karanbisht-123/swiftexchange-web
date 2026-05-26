@@ -17,6 +17,7 @@ import CryptoMarket from '../modules/market/CryptoMarket';
 import StallerTradescreen from '../modules/steallr/components/tradescreen/StallerTradescreen';
 import Dashboard from '../pages/Dashboard';
 import Home from '../pages/Home';
+import Profile from '../pages/Profile';
 import ProtectedRoute from './ProtectedRoute';
 import { GeolocationGuard } from '../modules/commonfeature/components/GeolocationGuard';
 import { RESTRICTED_TRADING_LOCATIONS } from '../modules/commonfeature/constants/compliance';
@@ -113,6 +114,14 @@ const router = createBrowserRouter([
             element: (
               <Layout>
                 <CryptoMarket />
+              </Layout>
+            ),
+          },
+          {
+            path: ROUTES.PROFILE,
+            element: (
+              <Layout>
+                <Profile />
               </Layout>
             ),
           },

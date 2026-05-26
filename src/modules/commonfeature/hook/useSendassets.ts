@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
 import { SendErcAbi } from '../../../abi/SendErcAbi';
 import { validateAddress } from '../../../validator/AddressValidator';
-import { estimateEVMFees } from '../../evm/service/evmService';
-import { addLocalTransaction } from '../../evm/service/localTransactionService';
+import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
 import { checkTrustlineExists, estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
 import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
+import { toPlainString } from '../../evm/hook/useEvmSwap';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
+import { getChainById } from '../../evm/utils/Chainregistry';
 import type { StellarSendTransaction } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
@@ -57,6 +59,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const currentNetwork = useWalletStore(state => state.network);
   const storeAssets = usePortfolioStore(state => state.assets);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [recipientAddress, setRecipientAddress] = useState('');
   const [amount, setAmount] = useState('');
@@ -69,6 +72,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const [hasTrustline, setHasTrustline] = useState<boolean | null>(null);
   const [recipientHasTrustline, setRecipientHasTrustline] = useState<boolean | null>(null);
   const [isFetchingRecipientTrust, setIsFetchingRecipientTrust] = useState(false);
+  const isConfirmingRef = useRef(false);
 
   const allAssets: EnhancedSendAsset[] = useMemo(() => {
     return storeAssets
@@ -89,17 +93,28 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const assetParam = searchParams.get('asset');
   const chainIdParam = searchParams.get('chainId');
+  const addressParam = searchParams.get('address');
 
   const currentAsset = useMemo(() => {
     if (assetParam && chainIdParam) {
       return allAssets.find(a => {
         const aChainIdStr = String(a.chainId);
         const paramIdStr = chainIdParam === 'stellar' ? 'pubnet' : chainIdParam;
-        return a.symbol === assetParam && aChainIdStr === paramIdStr;
+        if (a.symbol !== assetParam || aChainIdStr !== paramIdStr) return false;
+
+        if (addressParam) {
+          const aIsNative = !!a.isNative || !a.tokenAddress || a.tokenAddress.toLowerCase() === '0x0000000000000000000000000000000000000000' || a.tokenAddress.toLowerCase() === 'native';
+          const paramIsNative = addressParam.toLowerCase() === 'native' || addressParam.toLowerCase() === '0x0000000000000000000000000000000000000000';
+          if (aIsNative !== paramIsNative) return false;
+          if (!aIsNative && !paramIsNative) {
+            return a.tokenAddress?.toLowerCase() === addressParam.toLowerCase();
+          }
+        }
+        return true;
       });
     }
     return undefined;
-  }, [allAssets, assetParam, chainIdParam]);
+  }, [allAssets, assetParam, chainIdParam, addressParam]);
 
   useEffect(() => {
     if (!currentAsset && allAssets.length > 0) {
@@ -119,13 +134,18 @@ export const useSendAsset = (onBack?: () => void) => {
     return connectedWallets[currentAsset.walletType]?.address || null;
   }, [connectedWallets, currentAsset]);
 
-  const fetchBalance = useCallback(async () => {
+  const fetchBalance = useCallback(async (isManual = false) => {
     if (!currentAsset || !senderAddress) return;
 
+    const storeAssets = usePortfolioStore.getState().assets;
     const storeItem = storeAssets.find(a => a.id === currentAsset.value);
-    if (storeItem) setBalance(storeItem.balance?.toString() || '0');
+    if (storeItem) setBalance(toPlainString(storeItem.balance));
 
-    setIsFetchingBalance(true);
+    const shouldShowLoading = isManual || !storeItem;
+    if (shouldShowLoading) {
+      setIsFetchingBalance(true);
+    }
+
     try {
       let balStr: string;
       if (currentAsset.type === 'evm') {
@@ -140,15 +160,17 @@ export const useSendAsset = (onBack?: () => void) => {
         balStr = await getStellarBalance(key, senderAddress);
       } else {
         // dydx balance is already in storeAssets, but we can refresh via service if needed
-        balStr = currentAsset.balance.toString();
+        balStr = toPlainString(currentAsset.balance);
       }
       setBalance(balStr);
     } catch (e) {
       console.error('Balance error:', e);
     } finally {
-      setTimeout(() => setIsFetchingBalance(false), 500);
+      if (shouldShowLoading) {
+        setTimeout(() => setIsFetchingBalance(false), 500);
+      }
     }
-  }, [currentAsset, senderAddress, storeAssets]);
+  }, [currentAsset, senderAddress]);
 
   useEffect(() => {
     fetchBalance();
@@ -221,12 +243,11 @@ export const useSendAsset = (onBack?: () => void) => {
       return;
     }
 
-    console.log('[useSendAsset] handleConfirmTransaction initiated', {
-      asset: currentAsset.symbol,
-      network: currentAsset.network,
-      recipient: recipientAddress,
-      amount: amount
-    });
+    if (isConfirmingRef.current) {
+      console.warn('[useSendAsset] Transaction confirmation already in progress. Blocking concurrent request.');
+      return;
+    }
+    isConfirmingRef.current = true;
 
     try {
       setTransactionState(p => ({ ...p, step: 'signing', error: null }));
@@ -245,20 +266,48 @@ export const useSendAsset = (onBack?: () => void) => {
           sendAmt = '0';
         }
 
-        req = { type: 'evm', network: currentAsset.network, networkKey: Number(currentAsset.networkKey), from: senderAddress, to, amount: sendAmt, data };
+        let unsignedTx: string | undefined;
+
+        console.log('[useSendAsset] Preparing EVM transaction via backend API...');
+        try {
+          const prepRes = await sendCryptoEVMPrepare(
+            Number(currentAsset.networkKey),
+            senderAddress,
+            to,
+            sendAmt,
+            { data }
+          );
+          unsignedTx = prepRes.unsignedTx;
+        } catch (apiError) {
+          console.warn('[useSendAsset] Backend transaction preparation failed. Falling back to client-side simulation:', apiError);
+        }
+
+        req = { 
+          type: 'evm', 
+          network: currentAsset.network, 
+          networkKey: Number(currentAsset.networkKey), 
+          from: senderAddress, 
+          to, 
+          amount: sendAmt, 
+          data,
+          unsignedTx
+        };
         console.log('[useSendAsset] Sending transaction request to router:', req);
         const res = await sendTransaction(req);
-        //  persist evm tx to localStorage so history shows up
-        addLocalTransaction({
-          hash: res.hash || 'unknown',
-          chainId: currentAsset.chainId,
-          type: 'send',
-          timestamp: Date.now(),
-          status: 'success',
-          from: senderAddress,
-          network: currentNetwork,
-          description: `Send ${amount} ${currentAsset.symbol} on ${currentAsset.network}`
-        });
+        const chainSymbol = currentAsset.type === 'evm' ? (getChainById(Number(currentAsset.networkKey))?.symbol || currentAsset.network) : currentAsset.network;
+          
+          await storeSwapOrder({
+            txHash: res.hash || 'unknown',
+            walletAddress: senderAddress,
+            provider: "EVMTX",
+            fromChain: chainSymbol,
+            toChain: chainSymbol,
+            fromToken: currentAsset.symbol,
+            toToken: currentAsset.symbol,
+          amountIn: amount,
+          amountOut: amount,
+          txType: currentAsset.isNative ? 'Native Transfer' : 'Token Transfer'
+        }).catch(err => console.error('Failed to store transfer to backend:', err));
 
         setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
       } else if (currentAsset.type === 'stellar') {
@@ -318,23 +367,14 @@ export const useSendAsset = (onBack?: () => void) => {
 
         if (!result.success) throw new Error(result.error || 'Transaction failed');
 
-        addLocalTransaction({
-          hash: result.transactionHash || 'unknown',
-          chainId: currentAsset.chainId,
-          type: 'send',
-          timestamp: Date.now(),
-          status: 'success',
-          from: senderAddress,
-          network: currentNetwork,
-          description: `Send ${amount} ${currentAsset.symbol} (dYdX)`
-        });
-
         setTransactionState(p => ({ ...p, txHash: result.transactionHash || 'unknown', step: 'success' }));
         setTimeout(() => { setRecipientAddress(''); setAmount(''); setMemo(''); setTransactionState({ txHash: null, step: 'form', error: null }); }, 3000);
       }
     } catch (e: any) {
       console.error('[useSendAsset] Transaction exception caught:', e);
       setTransactionState(p => ({ ...p, step: 'error', error: formatErrorMessage(e, 'Tx') }));
+    } finally {
+      isConfirmingRef.current = false;
     }
   };
 
@@ -349,7 +389,7 @@ export const useSendAsset = (onBack?: () => void) => {
     let maxAmount: BigNumber;
 
     if (currentAsset.isNative) {
-      maxAmount = bnBalance.minus(fee);
+      maxAmount = bnBalance.isGreaterThan(fee) ? bnBalance.minus(fee) : bnBalance;
     } else {
       maxAmount = bnBalance;
     }
@@ -367,16 +407,29 @@ export const useSendAsset = (onBack?: () => void) => {
     try { await navigator.clipboard.writeText(text); } catch (e) { console.error('Copy error', e); }
   };
 
+  const handleDone = useCallback(() => {
+    if (currentAsset?.type === 'evm') {
+      navigate('/transactions?tab=recent');
+    } else if (currentAsset?.type === 'stellar') {
+      navigate('/transactions?tab=stellar');
+    } else if (onBack) {
+      onBack();
+    } else {
+      setTransactionState({ txHash: null, step: 'form', error: null });
+    }
+  }, [currentAsset, navigate, onBack]);
+
   return {
     recipientAddress, setRecipientAddress, amount, setAmount, memo, setMemo,
     balance, isFetchingBalance,
     transactionState, setTransactionState, isEstimatingFees, estimatedFees,
     currentAsset, senderAddress, isWalletConnected: !!senderAddress,
     handleMaxClick,
-    handleRefreshBalances: fetchBalance,
+    handleRefreshBalances: () => fetchBalance(true),
     handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
     handleConfirmTransaction,
     handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
+    handleDone,
     handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
     formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (recipientAddress && !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (amount && amount !== '.' && new BigNumber(amount).isGreaterThan(balance) && hasTrustline) ? 'Insufficient funds' : null,

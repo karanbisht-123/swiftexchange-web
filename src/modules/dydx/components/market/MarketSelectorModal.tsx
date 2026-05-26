@@ -53,7 +53,7 @@ const MarketRow = memo(function MarketRow({
           onSelect(market.ticker, market);
         }
       }}
-      className={`w-full flex items-center gap-3 px-4 sm:px-4 py-4 sm:py-3 hover:bg-[#1e293b]/60 active:bg-[#1e293b]/80 cursor-pointer transition-colors border-b border-[#1e293b]/30 ${
+      className={`w-full flex items-center gap-3 px-4 lg:px-4 py-4 lg:py-3 hover:bg-[#1e293b]/60 active:bg-[#1e293b]/80 cursor-pointer transition-colors border-b border-[#1e293b]/30 ${
         isSelected ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
       }`}
     >
@@ -62,21 +62,21 @@ const MarketRow = memo(function MarketRow({
           e.stopPropagation();
           onToggleFavorite(market.ticker);
         }}
-        className="flex-shrink-0 p-2 sm:p-1 -m-2 sm:-m-1 hover:scale-110 active:scale-95 transition-transform"
+        className="flex-shrink-0 p-2 lg:p-1 -m-2 lg:-m-1 hover:scale-110 active:scale-95 transition-transform"
       >
         <Star
-          className={`w-5 h-5 sm:w-4 sm:h-4 ${
+          className={`w-5 h-5 lg:w-4 lg:h-4 ${
             isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600 hover:text-slate-400'
           }`}
         />
       </button>
 
-      <div className="relative w-10 h-10 sm:w-8 sm:h-8 flex-shrink-0">
+      <div className="relative w-10 h-10 lg:w-8 lg:h-8 flex-shrink-0">
         {market.coinIcon ? (
           <img
             src={market.coinIcon}
             alt={market.ticker}
-            className="w-10 h-10 sm:w-8 sm:h-8 rounded-full"
+            className="w-10 h-10 lg:w-8 lg:h-8 rounded-full"
             onError={e => {
               const img = e.currentTarget;
               img.style.display = 'none';
@@ -86,42 +86,42 @@ const MarketRow = memo(function MarketRow({
           />
         ) : null}
         <div
-          className="w-10 h-10 sm:w-8 sm:h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-xs sm:text-[10px] font-bold absolute top-0 left-0"
+          className="w-10 h-10 lg:w-8 lg:h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-xs lg:text-[10px] font-bold absolute top-0 left-0"
           style={{ display: market.coinIcon ? 'none' : 'flex' }}
         >
           {market.ticker.split('-')[0].slice(0, 2)}
         </div>
       </div>
       <div className="flex-1 min-w-0 text-left">
-        <div className="font-medium text-white text-base sm:text-sm flex items-center gap-1.5">
+        <div className="font-medium text-white text-base lg:text-sm flex items-center gap-1.5">
           <span>{market.ticker.split('-')[0]}</span>
-          <span className="text-slate-500 text-sm sm:text-xs">/USD</span>
+          <span className="text-slate-500 text-sm lg:text-xs">/USD</span>
         </div>
-        <div className="text-xs sm:text-[11px] text-slate-500 truncate">
+        <div className="text-xs lg:text-[11px] text-slate-500 truncate">
           {market.coinName || 'Perpetual'}
         </div>
       </div>
 
       <div className="text-right flex-shrink-0">
-        <div className="text-base sm:text-sm font-medium text-white font-mono">
+        <div className="text-base lg:text-sm font-medium text-white font-mono">
           ${formatPrice(market.oraclePrice)}
         </div>
         <div
-          className={`text-sm sm:text-xs font-medium flex items-center justify-end gap-0.5 ${
+          className={`text-sm lg:text-xs font-medium flex items-center justify-end gap-0.5 ${
             isPositive ? 'text-emerald-400' : 'text-red-400'
           }`}
         >
           {isPositive ? (
-            <TrendingUp className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+            <TrendingUp className="w-3.5 h-3.5 lg:w-3 lg:h-3" />
           ) : (
-            <TrendingDown className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+            <TrendingDown className="w-3.5 h-3.5 lg:w-3 lg:h-3" />
           )}
           {isPositive ? '+' : ''}
           {percentChange}%
         </div>
       </div>
 
-      <div className="text-right flex-shrink-0 hidden sm:block min-w-[70px]">
+      <div className="text-right flex-shrink-0 hidden lg:block min-w-[70px]">
         <div className="text-[10px] text-slate-500">Vol</div>
         <div className="text-xs text-slate-300 font-medium">{formatVolume(market.volume24H)}</div>
       </div>
@@ -154,7 +154,7 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -257,37 +257,37 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
       />
       <div
         ref={panelRef}
-        className={`fixed top-0 left-0 z-50 h-full w-full sm:max-w-sm bg-secondary border-r border-[#334155] shadow-2xl transition-transform duration-300 ease-out ${
+        className={`fixed top-0 left-0 z-50 h-full w-full lg:max-w-sm bg-secondary border-r border-[#334155] shadow-2xl transition-transform duration-300 ease-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between px-4 sm:px-4 py-4 sm:py-3 border-b border-[#334155] pt-safe">
-          <h2 className="text-xl sm:text-lg font-semibold text-white">Markets</h2>
+        <div className="flex items-center justify-between px-4 lg:px-4 py-4 lg:py-3 border-b border-[#334155] pt-safe">
+          <h2 className="text-xl lg:text-lg font-semibold text-white">Markets</h2>
           <button
             onClick={onClose}
-            className="p-2.5 sm:p-2 hover:bg-[#334155] active:bg-[#334155]/80 rounded-lg transition-colors"
+            className="p-2.5 lg:p-2 hover:bg-[#334155] active:bg-[#334155]/80 rounded-lg transition-colors"
           >
-            <X className="w-6 h-6 sm:w-5 sm:h-5 text-slate-400" />
+            <X className="w-6 h-6 lg:w-5 lg:h-5 text-slate-400" />
           </button>
         </div>
 
-        <div className="px-4 py-4 sm:py-3 border-b border-[#334155]/50">
+        <div className="px-4 py-4 lg:py-3 border-b border-[#334155]/50">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-4 sm:h-4 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 lg:w-4 lg:h-4 text-slate-500" />
             <input
               ref={searchInputRef}
               type="text"
               placeholder="Search markets..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="w-full bg-primary border border-[#334155] rounded-lg pl-10 sm:pl-9 pr-10 sm:pr-4 py-3 sm:py-2.5 text-base sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
+              className="w-full bg-primary border border-[#334155] rounded-lg pl-10 lg:pl-9 pr-10 lg:pr-4 py-3 lg:py-2.5 text-base lg:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 active:text-slate-200 p-1"
               >
-                <X className="w-5 h-5 sm:w-4 sm:h-4" />
+                <X className="w-5 h-5 lg:w-4 lg:h-4" />
               </button>
             )}
           </div>
@@ -295,7 +295,7 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
         <div className="flex border-b border-[#334155]/50">
           <button
             onClick={() => setActiveTab('all')}
-            className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors ${
+            className={`flex-1 px-4 py-3.5 lg:py-2.5 text-base lg:text-sm font-medium transition-colors ${
               activeTab === 'all'
                 ? 'text-white border-b-2 border-blue-500'
                 : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
@@ -305,16 +305,16 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
           </button>
           <button
             onClick={() => setActiveTab('favorites')}
-            className={`flex-1 px-4 py-3.5 sm:py-2.5 text-base sm:text-sm font-medium transition-colors flex items-center justify-center gap-2 sm:gap-1.5 ${
+            className={`flex-1 px-4 py-3.5 lg:py-2.5 text-base lg:text-sm font-medium transition-colors flex items-center justify-center gap-2 lg:gap-1.5 ${
               activeTab === 'favorites'
                 ? 'text-white border-b-2 border-blue-500'
                 : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
             }`}
           >
-            <Star className="w-5 h-5 sm:w-4 sm:h-4" />
+            <Star className="w-5 h-5 lg:w-4 lg:h-4" />
             Favorites
             {favorites.size > 0 && (
-              <span className="bg-[#334155] text-xs px-2 py-0.5 sm:px-1.5 rounded-full">
+              <span className="bg-[#334155] text-xs px-2 py-0.5 lg:px-1.5 rounded-full">
                 {favorites.size}
               </span>
             )}
@@ -331,9 +331,9 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
           onScroll={handleScroll}
         >
           {isLoading ? (
-            <div className="py-16 sm:py-12 text-center">
-              <div className="animate-spin rounded-full h-10 w-10 sm:h-8 sm:w-8 border-2 border-slate-700 border-t-blue-500 mx-auto mb-4 sm:mb-3" />
-              <p className="text-base sm:text-sm text-slate-500">Loading markets...</p>
+            <div className="py-16 lg:py-12 text-center">
+              <div className="animate-spin rounded-full h-10 w-10 lg:h-8 lg:w-8 border-2 border-slate-700 border-t-blue-500 mx-auto mb-4 lg:mb-3" />
+              <p className="text-base lg:text-sm text-slate-500">Loading markets...</p>
             </div>
           ) : filteredMarkets.length > 0 ? (
             <div style={{ height: totalHeight, position: 'relative' }}>
@@ -359,23 +359,23 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
               ))}
             </div>
           ) : (
-            <div className="py-16 sm:py-12 text-center px-4">
-              <Search className="w-12 h-12 sm:w-10 sm:h-10 mx-auto mb-4 sm:mb-3 text-slate-700" />
-              <p className="text-base sm:text-sm text-slate-500">
+            <div className="py-16 lg:py-12 text-center px-4">
+              <Search className="w-12 h-12 lg:w-10 lg:h-10 mx-auto mb-4 lg:mb-3 text-slate-700" />
+              <p className="text-base lg:text-sm text-slate-500">
                 {activeTab === 'favorites' && favorites.size === 0
                   ? 'No favorites yet'
                   : 'No markets found'}
               </p>
               {searchTerm && (
-                <p className="text-sm sm:text-xs text-slate-600 mt-2 sm:mt-1">
+                <p className="text-sm lg:text-xs text-slate-600 mt-2 lg:mt-1">
                   Try a different search
                 </p>
               )}
             </div>
           )}
         </div>
-        <div className="absolute bottom-0 left-0 right-0 px-4 py-3 sm:py-2.5 border-t border-[#334155]/50 bg-secondary pb-safe">
-          <p className="text-sm sm:text-xs text-slate-500 text-center">
+        <div className="absolute bottom-0 left-0 right-0 px-4 py-3 lg:py-2.5 border-t border-[#334155]/50 bg-secondary pb-safe">
+          <p className="text-sm lg:text-xs text-slate-500 text-center">
             {filteredMarkets.length} of {marketsList.length} markets
           </p>
         </div>

@@ -6,6 +6,7 @@ interface TooltipProps {
   children: React.ReactNode;
   position?: 'top' | 'bottom' | 'left' | 'right';
   className?: string;
+  unstyled?: boolean;
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({
@@ -13,6 +14,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   children,
   position = 'top',
   className = '',
+  unstyled = false,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -130,7 +132,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       onClick={() => setIsVisible(!isVisible)}
       ref={triggerRef}
     >
-      <div className="cursor-help border-b border-dashed border-muted/70 hover:border-muted transition-colors">
+      <div className={unstyled ? "cursor-pointer" : "cursor-help border-b border-dashed border-muted/70 hover:border-muted transition-colors"}>
         {children}
       </div>
 

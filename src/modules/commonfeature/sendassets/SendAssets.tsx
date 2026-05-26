@@ -1,6 +1,8 @@
 import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet, RefreshCw } from 'lucide-react';
 import React, { useCallback, useMemo, useRef } from 'react';
 import PageLayout from '../../../components/layout/PageLayout';
+import { Tooltip } from '../../../components/common/Tooltip';
+import { toPlainString } from '../../evm/hook/useEvmSwap';
 import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
 import StellarTransactionModal from '../../steallr/components/modals/StellarTransactionModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
@@ -40,6 +42,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     handleReviewTransaction,
     handleConfirmTransaction,
     handleBackToForm,
+    handleDone,
     handleRetryTransaction,
     copyToClipboard,
     formError,
@@ -132,7 +135,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     if (!currentAsset || !recipientAddress || !amount) return null;
 
     return (
-      <div className="space-y-4 w-[95vw] overflow-hidden">
+      <div className="space-y-4 w-full overflow-hidden">
         <div className="bg-brand-primary/5 rounded-xl border border-brand-primary/10 p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center">
@@ -303,7 +306,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           <EvmTransactionSuccessModal
             txHash={txHash || ''}
             explorerUrl={explorerUrl}
-            onDone={onBack || handleBackToForm}
+            onDone={handleDone}
             networkName={currentAsset.network}
           />
         );
@@ -314,7 +317,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           status="success"
           type="Send"
           hash={txHash || ''}
-          onClose={onBack || handleBackToForm}
+          onClose={handleDone}
         />
       );
     }
@@ -406,7 +409,12 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   {isFetchingBalance ? (
                     <span className="inline-block w-14 h-3.5 bg-brand-primary/30 animate-pulse rounded-full align-middle" />
                   ) : (
-                    `${portfolioUtils.formatBalance(balance)} ${currentAsset?.symbol || ""}`
+                    <Tooltip
+                      content={`${toPlainString(balance)} ${currentAsset?.symbol || ""}`}
+                      unstyled
+                    >
+                      {portfolioUtils.formatBalance(balance)} {currentAsset?.symbol || ""}
+                    </Tooltip>
                   )}
                 </div>
               </div>

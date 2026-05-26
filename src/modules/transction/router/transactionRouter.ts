@@ -18,6 +18,7 @@ export interface TransactionRequest {
   amount: string;
   data?: any;
   memo?: string;
+  unsignedTx?: string; // Hex string of the pre-built unsigned transaction
 }
 
 export interface TransactionResponse {
@@ -237,41 +238,116 @@ class TransactionRouter {
           : parseInt(String(session.chainId)) || 1;
       const chainIdCAIP = `eip155:${chainId}`;
 
-      const txParams: any = {
-        from: session.address,
-        to: request.to,
-        value: '0x' + amountInWei.toString(16),
-        data:
-          request.data &&
-            typeof request.data === 'string' &&
-            request.data.startsWith('0x') &&
-            request.data.length > 2
-            ? request.data
-            : '0x',
-        chainId: chainId,
-      };
+      let txParams: any = {};
+      let gasLimitBigInt: bigint = BigInt(21000);
 
-      let gasLimitBigInt = txParams.data === '0x' ? BigInt(21000) : BigInt(100000);
+      if (request.unsignedTx) {
+        // If the backend already built the fully signed transaction, parse and use it!
+        console.log('[Router] Using backend-prepared unsignedTx');
+        const parsedTx = ethers.Transaction.from(request.unsignedTx);
+        txParams = {
+          from: session.address,
+          to: parsedTx.to,
+          value: '0x' + parsedTx.value.toString(16),
+          data: parsedTx.data !== '0x' ? parsedTx.data : '0x',
+          chainId: chainId,
+          nonce: parsedTx.nonce,
+        };
 
-      try {
-        const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
-        const sim = await simulateEVMTransaction(
-          chainId,
-          txParams.from,
-          txParams.to,
-          txParams.value,
-          txParams.data
-        );
-        gasLimitBigInt = sim.gasLimit;
+        if (parsedTx.gasLimit) txParams.gasLimit = '0x' + parsedTx.gasLimit.toString(16);
+        if (parsedTx.maxFeePerGas) txParams.maxFeePerGas = '0x' + parsedTx.maxFeePerGas.toString(16);
+        if (parsedTx.maxPriorityFeePerGas) txParams.maxPriorityFeePerGas = '0x' + parsedTx.maxPriorityFeePerGas.toString(16);
+        if (parsedTx.gasPrice && !parsedTx.maxFeePerGas) txParams.gasPrice = '0x' + parsedTx.gasPrice.toString(16);
+        if (parsedTx.type !== null) txParams.type = parsedTx.type;
 
-        if (sim.feeData.maxFeePerGas) txParams.maxFeePerGas = '0x' + sim.feeData.maxFeePerGas.toString(16);
-        if (sim.feeData.maxPriorityFeePerGas)
-          txParams.maxPriorityFeePerGas = '0x' + sim.feeData.maxPriorityFeePerGas.toString(16);
-      } catch (simError: any) {
-        if (simError.message.includes('Insufficient funds')) throw simError;
+        // Perform strict simulation to check for reverts, gas limits, and balance issues
+        try {
+          const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
+          const sim = await simulateEVMTransaction(
+            chainId,
+            txParams.from,
+            txParams.to,
+            txParams.value,
+            txParams.data
+          );
+          
+          // If simulation estimated a higher gas limit than encoded (e.g. smart contracts), auto-adjust!
+          const simGas = sim.gasLimit;
+          const encodedGas = parsedTx.gasLimit ? BigInt(parsedTx.gasLimit) : BigInt(0);
+          if (simGas > encodedGas) {
+            console.log(`[Router] Simulation estimated higher gas limit: ${simGas.toString()} > ${encodedGas.toString()}. Adjusting gas limit.`);
+            txParams.gasLimit = '0x' + simGas.toString(16);
+          }
+        } catch (simError: any) {
+          throw new Error(`Simulation failed: ${simError.message}`);
+        }
+
+      } else {
+        txParams = {
+          from: session.address,
+          to: request.to,
+          value: '0x' + amountInWei.toString(16),
+          data:
+            request.data &&
+              typeof request.data === 'string' &&
+              request.data.startsWith('0x') &&
+              request.data.length > 2
+              ? request.data
+              : '0x',
+          chainId: chainId,
+        };
+
+        gasLimitBigInt = txParams.data === '0x' ? BigInt(21000) : BigInt(100000);
+
+        try {
+          const { simulateEVMTransaction } = await import('../../evm/utils/evmUtils');
+          const sim = await simulateEVMTransaction(
+            chainId,
+            txParams.from,
+            txParams.to,
+            txParams.value,
+            txParams.data
+          );
+          gasLimitBigInt = sim.gasLimit;
+
+          if (sim.feeData.maxFeePerGas) txParams.maxFeePerGas = '0x' + sim.feeData.maxFeePerGas.toString(16);
+          if (sim.feeData.maxPriorityFeePerGas)
+            txParams.maxPriorityFeePerGas = '0x' + sim.feeData.maxPriorityFeePerGas.toString(16);
+        } catch (simError: any) {
+          if (simError.message.includes('Insufficient funds')) throw simError;
+        }
+
+        txParams.gasLimit = '0x' + gasLimitBigInt.toString(16);
       }
 
-      txParams.gasLimit = '0x' + gasLimitBigInt.toString(16);
+      // Enforce minGasGwei safety check on txParams
+      try {
+        const { getEVMNetworkConfig } = await import('../../evm/utils/evmUtils');
+        const minGasConfig = getEVMNetworkConfig(chainId);
+        const minGasGwei = (minGasConfig as any).minGasGwei ?? 0;
+        if (minGasGwei > 0) {
+          const minGasPrice = ethers.parseUnits(minGasGwei.toString(), 'gwei');
+          if (txParams.maxPriorityFeePerGas !== undefined && txParams.maxPriorityFeePerGas !== null) {
+            let maxPriorityFee = BigInt(txParams.maxPriorityFeePerGas);
+            if (maxPriorityFee < minGasPrice) {
+              const diff = minGasPrice - maxPriorityFee;
+              maxPriorityFee = minGasPrice;
+              txParams.maxPriorityFeePerGas = '0x' + maxPriorityFee.toString(16);
+              if (txParams.maxFeePerGas !== undefined && txParams.maxFeePerGas !== null) {
+                txParams.maxFeePerGas = '0x' + (BigInt(txParams.maxFeePerGas) + diff).toString(16);
+              }
+            }
+          }
+          if (txParams.gasPrice !== undefined && txParams.gasPrice !== null) {
+            let gasPrice = BigInt(txParams.gasPrice);
+            if (gasPrice < minGasPrice) {
+              txParams.gasPrice = '0x' + minGasPrice.toString(16);
+            }
+          }
+        }
+      } catch (minGasError) {
+        console.warn('[Router] Failed to enforce minGasGwei check:', minGasError);
+      }
 
       let lastTxHash: string;
 

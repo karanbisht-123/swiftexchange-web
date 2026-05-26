@@ -13,7 +13,7 @@ const OrderAndTrades = () => {
   return (
     <>
       <div
-        className="hidden md:flex md:flex-col h-full  overflow-hidden border-l border-color"
+        className="hidden lg:flex lg:flex-col h-full  overflow-hidden border-l border-color"
         style={{ borderRadius: 0, padding: 0 }}
       >
         <div className="flex bg-tertiary  flex-shrink-0">
@@ -60,7 +60,7 @@ const OrderAndTrades = () => {
         </div>
       </div>
 
-      <div className="md:hidden bottom-0 left-0 right-0 h-full flex overflow-hidden bg-secondary z-50 shadow-2xl">
+      <div className="lg:hidden bottom-0 left-0 right-0 h-full flex overflow-hidden bg-secondary z-50 shadow-2xl">
         <div
           className={`transition-all duration-300 ease-in-out border-r border-[#232027] overflow-hidden flex flex-col ${
             mobileView === 'split' ? 'w-1/2' : mobileView === 'orderbook' ? 'w-full' : 'w-0'

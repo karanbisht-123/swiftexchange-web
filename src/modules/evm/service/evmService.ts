@@ -6,7 +6,7 @@ import type {
   EVMTransactionOptions,
 } from '../../../types/evm/evmTransaction.types';
 import { generateTransactionId, getNetworkPrefix } from '../../../utils/transactionUtils';
-import { type NetworkKey, getEVMNetworkConfig, isValidEVMNetwork } from '../utils/evmUtils';
+import { type NetworkKey, getEVMNetworkConfig, isValidEVMNetwork, adjustFeeDataForMinGas } from '../utils/evmUtils';
 import { rpcManager } from '../utils/rpcProvider';
 
 export async function sendCryptoEVMPrepare(
@@ -14,7 +14,7 @@ export async function sendCryptoEVMPrepare(
   from: string,
   to: string,
   amount: string,
-  options: EVMTransactionOptions = {}
+  options: EVMTransactionOptions & { data?: string } = {}
 ): Promise<{ unsignedTx: any }> {
   console.log(networkKey, 'key', from, 'from', to, 'to', amount, 'amount');
   if (!isValidEVMNetwork(networkKey)) {
@@ -25,24 +25,50 @@ export async function sendCryptoEVMPrepare(
   const prefix = getNetworkPrefix(networkKey);
 
   try {
-    const { rpcUrls } = config;
-    const rpcData = await rpcManager.fetchWithFallback(config.chainId, rpcUrls, async p => {
-      const fd = await p.getFeeData();
-      const n = await p.getTransactionCount(from);
-      return { feeData: fd, nonce: n };
-    }).catch(() => null);
+    let nonce: number | undefined;
+    let feeData: any;
 
-    // 2. Try to get data from Wallet API (Production flow)
-    const walletInfo = await getWalletGasInfo(prefix, from);
+    // 1. Try to get data from Wallet API first (Backend proxy)
+    try {
+      const walletInfo = await getWalletGasInfo(prefix, from);
+      if (walletInfo) {
+        if (walletInfo.transactionCount !== undefined) {
+          nonce = walletInfo.transactionCount;
+        }
+        /* Commented out for now to use direct RPC gas instead of wallet gas
+        if (walletInfo.gasFeeData) {
+          feeData = {
+            gasPrice: walletInfo.gasFeeData.gasPrice ? BigInt(walletInfo.gasFeeData.gasPrice) : undefined,
+            maxFeePerGas: walletInfo.gasFeeData.maxFeePerGas ? BigInt(walletInfo.gasFeeData.maxFeePerGas) : undefined,
+            maxPriorityFeePerGas: walletInfo.gasFeeData.maxPriorityFeePerGas ? BigInt(walletInfo.gasFeeData.maxPriorityFeePerGas) : undefined,
+          };
+        }
+        */
+      }
+    } catch (e) {
+      console.warn('Failed to fetch gas info from backend proxy:', e);
+    }
 
-    const nonce = walletInfo?.transactionCount ?? rpcData?.nonce ?? 0;
-    const feeData = walletInfo?.gasFeeData || rpcData?.feeData;
+    // 2. Fallback to RPC if any data is missing
+    if (nonce === undefined || !feeData) {
+      const { rpcUrls } = config;
+      const rpcData = await rpcManager.fetchWithFallback(config.chainId, rpcUrls, async p => {
+        const fd = !feeData ? await p.getFeeData() : null;
+        const n = nonce === undefined ? await p.getTransactionCount(from) : null;
+        return { feeData: fd, nonce: n };
+      }).catch(() => null);
+
+      nonce = nonce ?? rpcData?.nonce ?? 0;
+      feeData = feeData ?? rpcData?.feeData;
+    }
 
     if (!feeData) {
       throw new Error('Could not fetch fee data from API or RPC');
     }
 
-    const amountInWei = ethers.parseEther(amount);
+    feeData = adjustFeeDataForMinGas(feeData, networkKey);
+
+    const amountInWei = amount === '0' ? BigInt(0) : ethers.parseEther(amount);
 
     const gasLimitInt = options.gasLimit
       ? BigInt(options.gasLimit)
@@ -54,6 +80,7 @@ export async function sendCryptoEVMPrepare(
       chainId: config.chainId,
       nonce,
       gasLimit: '0x' + gasLimitInt.toString(16),
+      data: options.data || '0x',
     };
 
 
@@ -76,12 +103,20 @@ export async function sendCryptoEVMPrepare(
       }
     );
 
-    const unsignedTx = response.data;
-    if (!unsignedTx) {
+    const prepData = response.data as any;
+    if (!prepData) {
       throw new Error('Empty unsigned transaction received from API');
     }
 
-    return { unsignedTx };
+    const unsignedTxHex = typeof prepData === 'string'
+      ? prepData
+      : prepData.unsignedTx;
+
+    if (!unsignedTxHex) {
+      throw new Error('Could not parse unsigned transaction from API response');
+    }
+
+    return { unsignedTx: unsignedTxHex };
   } catch (error) {
     console.error('Failed to prepare EVM transaction:', error);
     throw new Error(
@@ -149,27 +184,6 @@ export async function sendCryptoEVMBuild(
   }
 
   return tx;
-}
-
-export async function sendCryptoEVMBroadcast(
-  signedTransaction: string,
-  networkKey: any
-): Promise<any> {
-  try {
-    const prefix = getNetworkPrefix(networkKey);
-    console.log(prefix, 'oooooooo');
-    const response = await fetchApiResponseFromProxy<{ txHash: string }>(
-      prefix + '/transaction/broadcast',
-      'POST',
-      { signedTx: signedTransaction }
-    );
-    return response.data.txHash;
-  } catch (error) {
-    console.error('Failed to broadcast EVM transaction via proxy:', error);
-    throw new Error(
-      `Transaction broadcast failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-  }
 }
 
 export { getNativeBalance, estimateEVMFees, signEVMTransaction } from '../utils/evmUtils';

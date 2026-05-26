@@ -104,14 +104,18 @@ export const calculateOrderMarginImpact = (
   currentFree: number,
   orderSize: number,
   orderPrice: number,
-  leverage: number = 10,
-  initialMarginFraction: number = 0.05
+  leverage: number,
+  initialMarginFraction: number,
+  maintenanceMarginFraction?: number
 ): OrderMarginImpact => {
+
   const notionalValue = Math.abs(orderSize * orderPrice);
   const initialMarginRequired = Math.abs(orderSize * orderPrice * initialMarginFraction);
 
-  // MMR is typically 60% of IMR on dYdX (MMF ≈ 0.6 × IMF for major markets)
-  const maintenanceMarginRequired = initialMarginRequired * 0.6;
+  // Use actual maintenance margin fraction if available, otherwise fall back to typical dYdX 60% of IMR
+  const maintenanceMarginRequired = maintenanceMarginFraction !== undefined
+    ? Math.abs(orderSize * orderPrice * maintenanceMarginFraction)
+    : initialMarginRequired * 0.6;
 
   const newAvailableBalance = currentFree - initialMarginRequired;
   const newMarginUsed = currentEquity - Math.max(0, newAvailableBalance);
@@ -153,10 +157,9 @@ export const calculateIsolatedLiquidationPrice = (
   maintenanceMarginFraction: number,
   side: 'BUY' | 'SELL'
 ): number => {
-  // p' = (e_0 - s * p_0) / (s * (MMF - 1))  for Buy
-  // p' = (e_0 + s * p_0) / (s * (1 + MMF))  for Sell
+
   const s = side === 'BUY' ? size : -size;
-  const denominator = s * (maintenanceMarginFraction - (side === 'BUY' ? 1 : -1));
+  const denominator = size * maintenanceMarginFraction - s;
 
   if (Math.abs(denominator) < 1e-12) return 0;
 
@@ -189,8 +192,9 @@ export const calculateCrossLiquidationPrice = (
   otherPositionsMMR: number,
   side: 'BUY' | 'SELL'
 ): number => {
+
   const s = side === 'BUY' ? size : -size;
-  const denominator = s * (maintenanceMarginFraction - (side === 'BUY' ? 1 : -1));
+  const denominator = size * maintenanceMarginFraction - s;
 
   if (Math.abs(denominator) < 1e-12) return 0;
 

@@ -66,7 +66,7 @@ export interface TxTrackerResult {
 }
 
 const SKIP_STATUS_URL = 'https://api.skip.build/v2/tx/status';
-const INITIAL_POLL_DELAY_MS = 10_000;
+const INITIAL_POLL_DELAY_MS = 20_000;
 const MAX_POLL_DELAY_MS = 30_000;
 const POLL_MULTIPLIER = 1.5;
 
@@ -104,7 +104,7 @@ interface TransactionStore {
   acknowledgeWithdraw: () => void;
   clearDepositTx: () => void;
   clearWithdrawTx: () => void;
-  
+
   // Legacy fields for backward compatibility
   depositTx?: PendingTxInfo | null;
   withdrawTx?: PendingTxInfo | null;
@@ -160,7 +160,7 @@ export const useTransactionStore = create<TransactionStore>()(
         return { withdrawTxs: state.withdrawTxs.filter(t => !isTxOwnedByCurrentUser(t, wallets)) };
       }),
     }),
-    { 
+    {
       name: 'swiftex_pending_skip_txs_v2',
       onRehydrateStorage: () => (state) => {
         // Migrate legacy single objects to arrays if needed
@@ -179,12 +179,12 @@ export const useTransactionStore = create<TransactionStore>()(
 
 export function isTxOwnedByCurrentUser(tx: PendingTxInfo | any, wallets: any): boolean {
   if (!tx) return false;
-  
+
   if (tx.requiredWallets) {
     if (tx.requiredWallets.evm && wallets.evm?.address?.toLowerCase() !== tx.requiredWallets.evm.toLowerCase()) return false;
     if (tx.requiredWallets.stellar && wallets.stellar?.address?.toLowerCase() !== tx.requiredWallets.stellar.toLowerCase()) return false;
     if (tx.requiredWallets.cosmos && wallets.cosmos?.address?.toLowerCase() !== tx.requiredWallets.cosmos.toLowerCase()) return false;
-    
+
     // Check if dYdX address matches either EVM or Cosmos
     if (tx.requiredWallets.dydx) {
       const activeDydx = [wallets.evm?.dydxAddress, wallets.cosmos?.dydxAddress]
@@ -197,7 +197,7 @@ export function isTxOwnedByCurrentUser(tx: PendingTxInfo | any, wallets: any): b
 
   // Fallback for older txs
   if (!tx.ownerAddresses || tx.ownerAddresses.length === 0) return true;
-  
+
   const activeAddresses = [
     wallets.evm?.address,
     wallets.evm?.dydxAddress,
@@ -259,11 +259,11 @@ export function getIsWithdrawPending(): boolean {
 }
 
 export const LS_PENDING_TX_KEY = 'swiftex_pending_skip_tx_v2';
-export function savePendingTx(_info: any): void {}
+export function savePendingTx(_info: any): void { }
 export function loadPendingTx(): any | null {
   return null;
 }
-export function clearPendingTx(): void {}
+export function clearPendingTx(): void { }
 
 interface RawPacketTx {
   chain_id?: string;
@@ -300,10 +300,10 @@ function parsePacket(raw?: any | null): Packet | null {
   const toTx = (t?: any): PacketTx | null =>
     t
       ? {
-          chain_id: t.chain_id ?? '',
-          tx_hash: t.tx_hash ?? '',
-          explorer_link: t.explorer_link ?? '',
-        }
+        chain_id: t.chain_id ?? '',
+        tx_hash: t.tx_hash ?? '',
+        explorer_link: t.explorer_link ?? '',
+      }
       : null;
 
   return {
@@ -352,7 +352,25 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
   const store = useTransactionStore();
   const wallets = useWalletStore(s => s.connectedWallets);
   const txs = type === 'deposit' ? store.depositTxs : store.withdrawTxs;
-  const txInfo = txs?.find(t => isTxOwnedByCurrentUser(t, wallets)) || null;
+
+  const lastActiveTxRef = useRef<{ txHash: string | null; chainId: string | null } | null>(null);
+
+  let txInfo = txs?.find(t => isTxOwnedByCurrentUser(t, wallets)) || null;
+
+  // Fallback: If no transaction was found for the current user, but we were already tracking a transaction,
+  if (!txInfo && txs && txs.length > 0 && lastActiveTxRef.current?.txHash) {
+    const matchingTx = txs.find(t => t.txHash === lastActiveTxRef.current?.txHash);
+    if (matchingTx) {
+      const hasConflictingWallet =
+        (matchingTx.requiredWallets?.evm && wallets.evm?.address && wallets.evm.address.toLowerCase() !== matchingTx.requiredWallets.evm.toLowerCase()) ||
+        (matchingTx.requiredWallets?.stellar && wallets.stellar?.address && wallets.stellar.address.toLowerCase() !== matchingTx.requiredWallets.stellar.toLowerCase());
+
+      if (!hasConflictingWallet) {
+        txInfo = matchingTx;
+      }
+    }
+  }
+
   const txHash = txInfo?.txHash || null;
   const chainId = txInfo?.chainId || null;
 
@@ -366,6 +384,15 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
   const currentDelayRef = useRef(INITIAL_POLL_DELAY_MS);
   const abortRef = useRef<AbortController | null>(null);
   const isTerminalRef = useRef(false);
+
+  // Sync ref
+  useEffect(() => {
+    if (txHash && chainId) {
+      lastActiveTxRef.current = { txHash, chainId };
+    } else {
+      lastActiveTxRef.current = null;
+    }
+  }, [txHash, chainId]);
 
   useEffect(() => {
     setResult(prev => ({ ...prev, txHash, chainId }));
@@ -428,10 +455,10 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
 
         const assetRelease: AssetRelease | null = releaseRaw
           ? {
-              chain_id: releaseRaw.chain_id ?? '',
-              denom: releaseRaw.denom ?? '',
-              released: releaseRaw.released ?? false,
-            }
+            chain_id: releaseRaw.chain_id ?? '',
+            denom: releaseRaw.denom ?? '',
+            released: releaseRaw.released ?? false,
+          }
           : null;
 
         const isTerminal = TERMINAL_STATES.includes(state);

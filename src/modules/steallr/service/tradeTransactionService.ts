@@ -5,6 +5,7 @@ import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { signAndSubmitTransaction } from '../utils/transactionService';
 import type { ActiveOffer, CompletedTrade } from '../types/tradeTransaction.types';
+import { StellarSequenceTracker } from '../utils/StellarSequenceTracker';
 
 export class TradeTransactionService {
   private server: StellarSDK.Horizon.Server;
@@ -237,14 +238,14 @@ export class TradeTransactionService {
 
       // Sort by time descending
       consolidatedTrades.sort(
-        (a, b) => new Date(b.ledgerCloseTime).getTime() - new Date(a.ledgerCloseTime).getTime()
+          (a, b) => new Date(b.ledgerCloseTime).getTime() - new Date(a.ledgerCloseTime).getTime()
       );
 
       const finalTrades = consolidatedTrades.slice(0, limit);
       const hasMore = response.records.length === fetchLimit;
       const nextCursor = hasMore
-        ? response.records[response.records.length - 1].paging_token
-        : undefined;
+          ? response.records[response.records.length - 1].paging_token
+          : undefined;
 
       return { trades: finalTrades, nextCursor, hasMore };
     } catch (error) {
@@ -274,8 +275,10 @@ export class TradeTransactionService {
     accountId: string,
     operation: StellarSDK.xdr.Operation,
     options: any = {}
-  ): Promise<{ builtTx: StellarSDK.Transaction; sourceAccount: any }> {
-    const sourceAccount = await this.loadAccountWithCache(accountId);
+  ): Promise<{ builtTx: StellarSDK.Transaction; baseSeq: string }> {
+    const accountResponse = await this.loadAccountWithCache(accountId);
+    const baseSeq = StellarSequenceTracker.getAndIncrementSequence(accountId, accountResponse.sequenceNumber());
+    const sourceAccount = new StellarSDK.Account(accountId, baseSeq);
 
     const txBuilder = new StellarSDK.TransactionBuilder(sourceAccount, {
       fee: options.fee || StellarSDK.BASE_FEE,
@@ -290,7 +293,7 @@ export class TradeTransactionService {
 
     txBuilder.setTimeout(options.timeout || 300);
 
-    return { builtTx: txBuilder.build(), sourceAccount };
+    return { builtTx: txBuilder.build(), baseSeq };
   }
 
   async buildCancelOfferTransaction(
@@ -314,7 +317,7 @@ export class TradeTransactionService {
         offerId: offer.id,
       });
 
-      const { builtTx, sourceAccount } = await this.buildTransactionBase(
+      const { builtTx, baseSeq } = await this.buildTransactionBase(
         accountId,
         operation,
         options
@@ -325,7 +328,7 @@ export class TradeTransactionService {
         type: 'cancel-offer',
         from: accountId,
         offer,
-        sequence: sourceAccount.sequence,
+        sequence: baseSeq,
         fee: options.fee || StellarSDK.BASE_FEE,
         memo: options.memo,
         timestamp: Date.now(),
@@ -366,7 +369,7 @@ export class TradeTransactionService {
         offerId: offer.id,
       });
 
-      const { builtTx, sourceAccount } = await this.buildTransactionBase(
+      const { builtTx, baseSeq } = await this.buildTransactionBase(
         accountId,
         operation,
         options
@@ -379,7 +382,7 @@ export class TradeTransactionService {
         offer,
         newAmount,
         newPrice,
-        sequence: sourceAccount.sequence,
+        sequence: baseSeq,
         fee: options.fee || StellarSDK.BASE_FEE,
         memo: options.memo,
         timestamp: Date.now(),
@@ -408,8 +411,8 @@ export class TradeTransactionService {
       provider: walletProvider,
     });
 
-    if (result.success && result.hash) {
-      return result.hash;
+    if (result.success) {
+      return result.hash || '';
     }
 
     throw new Error(`${operationType} failed: ${result.error || 'Unknown error'}`);
@@ -538,7 +541,7 @@ export class TradeTransactionService {
         balanceId: balanceId,
       });
 
-      const { builtTx, sourceAccount } = await this.buildTransactionBase(
+      const { builtTx, baseSeq } = await this.buildTransactionBase(
         accountId,
         operation,
         options
@@ -549,7 +552,7 @@ export class TradeTransactionService {
         type: 'claim-balance',
         from: accountId,
         balanceId,
-        sequence: sourceAccount.sequence,
+        sequence: baseSeq,
         fee: options.fee || StellarSDK.BASE_FEE,
         memo: options.memo,
         timestamp: Date.now(),

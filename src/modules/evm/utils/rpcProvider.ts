@@ -20,7 +20,9 @@ const PERMANENT_ERROR_PATTERNS = [
   'unauthorized',
   'forbidden',
   '401',
+  '402',
   '403',
+  'payment required',
   'invalid api key',
   'authentication',
   'access denied',
@@ -58,7 +60,7 @@ interface UrlStats {
   latencySamples: number[];
 }
 
-function classifyError(error: any): 'permanent' | 'rate_limit' | 'transient' {
+function classifyError(error: any): 'permanent' | 'rate_limit' | 'transient' | 'revert' {
   const msg = (error?.message || String(error)).toLowerCase();
   const code = (error?.code || '').toUpperCase();
   const status =
@@ -66,6 +68,18 @@ function classifyError(error: any): 'permanent' | 'rate_limit' | 'transient' {
     error?.info?.status ??
     error?.response?.status ??
     error?.statusCode;
+
+  // Detect deterministic EVM execution reverts or insufficient funds
+  if (code === 'CALL_EXCEPTION' || code === 'INSUFFICIENT_FUNDS') {
+    return 'revert';
+  }
+  if (
+    msg.includes('execution reverted') ||
+    msg.includes('insufficient funds') ||
+    msg.includes('gas required exceeds allowance')
+  ) {
+    return 'revert';
+  }
 
   if (error?.info?.permanent === true) return 'permanent';
 
@@ -78,14 +92,14 @@ function classifyError(error: any): 'permanent' | 'rate_limit' | 'transient' {
   }
 
   if (code === 'SERVER_ERROR') {
-    if (status === 401 || status === 403) return 'permanent';
+    if (status === 401 || status === 403 || status === 402) return 'permanent';
     if (status === 429) return 'rate_limit';
     return 'transient';
   }
 
   if (code === 'UNSUPPORTED_OPERATION' || code === 'INVALID_ARGUMENT') return 'permanent';
 
-  if (status === 401 || status === 403) return 'permanent';
+  if (status === 401 || status === 403 || status === 402) return 'permanent';
   if (status === 429) return 'rate_limit';
 
   if (PERMANENT_ERROR_PATTERNS.some(p => msg.includes(p))) return 'permanent';
@@ -119,6 +133,7 @@ class RPCManager {
   private roundRobinIndex: Map<number | string, number> = new Map();
   private chainDeadUntil: Map<number | string, number> = new Map();
   private probeInFlight: Set<string> = new Set();
+  private activeUrl: Map<number | string, string> = new Map();
 
   private readonly REQUEST_TIMEOUT_MS = 8_000;
   private readonly CHAIN_DEAD_BACKOFF_MS = 30_000;
@@ -324,7 +339,12 @@ class RPCManager {
       );
     }
 
-    const ordered = this.pickUrls(chainId, urls);
+    let ordered = this.pickUrls(chainId, urls);
+    const active = this.activeUrl.get(chainId);
+    if (active && ordered.includes(active) && this.isUrlAvailable(active)) {
+      ordered = [active, ...ordered.filter(u => u !== active)];
+    }
+
     if (ordered.length === 0) {
       throw new Error(`Chain ${chainId} — no available RPCs after filtering`);
     }
@@ -352,6 +372,7 @@ class RPCManager {
         const result = await Promise.race([action(provider), timeoutPromise]);
 
         this.onSuccess(url, Date.now() - start);
+        this.activeUrl.set(chainId, url);
 
         if (this.chainDeadUntil.has(chainId)) {
           this.chainDeadUntil.delete(chainId);
@@ -361,9 +382,18 @@ class RPCManager {
       } catch (error: any) {
         lastError = error;
         const errorType = classifyError(error);
+
+        if (errorType === 'revert') {
+          throw error;
+        }
+
         this.onFailure(url, errorType);
 
         if (isHalfOpen) this.probeInFlight.delete(url);
+
+        if (this.activeUrl.get(chainId) === url) {
+          this.activeUrl.delete(chainId);
+        }
 
         if (errorType === 'permanent') continue;
         if (errorType === 'rate_limit') continue;
