@@ -31,6 +31,7 @@ import {
   useStellarDydxOrchestrator,
   type StellarToken
 } from './useStellarDydxOrchestrator';
+import { ConfirmationModal } from '../../../../../components/common/ConfirmationModal';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -94,6 +95,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
   const [showNetworkSelector, setShowNetworkSelector] = useState(false);
   const [showFullDetails, setShowFullDetails] = useState(false);
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [sessionToClear, setSessionToClear] = useState<string | null>(null);
+  const [restoreInputsOnClear, setRestoreInputsOnClear] = useState(false);
 
   const evmChains = useMemo(() => getEvmChainsForNetwork(currentNetwork), [currentNetwork]);
   const isBothConnected = !!evmAddress && !!stellarAddress;
@@ -103,12 +107,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   }, [sessions, activeSessionId]);
 
   const hasPendingSession = useMemo(() => {
-    return sessions.some(s =>
-      s.loadingStep ||
-      s.swapTx?.status === 'PENDING' ||
-      s.bridgeTx?.status === 'PENDING' ||
-      s.depositTx?.status === 'PENDING'
-    );
+    return sessions.some(s => s.loadingStep);
   }, [sessions]);
 
 
@@ -830,35 +829,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
     );
   }
 
-  const pendingSession = sessions.find(s => s.phase !== 'DONE');
-  const pendingChain = pendingSession
-    ? evmChains.find(c => c.chainId === pendingSession.destinationChainId)
-    : null;
-
-
   const activeChain = activeSession
     ? evmChains.find(c => c.chainId === activeSession.destinationChainId)
     : destinationChain;
-
-  // Pending session computed values (used in inline card below)
-  const pendingIsPendingOnChain =
-    (pendingSession?.swapTx?.hash && pendingSession?.swapTx?.status === 'PENDING') ||
-    (pendingSession?.bridgeTx?.hash && pendingSession?.bridgeTx?.status === 'PENDING') ||
-    (pendingSession?.depositTx?.hash && pendingSession?.depositTx?.status === 'PENDING');
-  const pendingIsSafeToClear = !pendingIsPendingOnChain;
-  const pendingGetStepLabel = () => {
-    if (!pendingSession) return '';
-    if (pendingSession.phase === 'SWAP') return pendingSession.error ? 'Swap Failed' : 'Swapping';
-    if (pendingSession.phase === 'BRIDGE') {
-      if (pendingSession.error && !pendingSession.bridgeTx?.hash) return 'Bridge Cancelled';
-      return pendingSession.bridgeTx?.status === 'PENDING' ? 'Crossing Bridge' : 'Ready to Bridge';
-    }
-    if (pendingSession.phase === 'DEPOSIT') {
-      if (pendingSession.error && !pendingSession.depositTx?.hash) return 'Deposit Cancelled';
-      return pendingSession.depositTx?.status === 'PENDING' ? 'Settling' : 'Ready to Settle';
-    }
-    return pendingSession.phase;
-  };
 
   return (
     <div className="w-full mx-auto lg:px-4 pb-4 animate-fade-in">
@@ -1516,148 +1489,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           </div>
         )}
 
-        {/* ── Inline Pending Session Banner (shown on setup form when a previous session exists) ── */}
-        {!activeSession && pendingSession && (
-          <div className="rounded-2xl overflow-hidden border animate-fade-in" style={{ borderColor: 'var(--color-border)' }}>
-            {/* Header bar */}
-            <div
-              className="flex items-center justify-between px-4 py-3"
-              style={{ background: 'var(--color-bg-secondary)', borderBottom: '1px solid var(--color-border)' }}
-            >
-              <div className="flex items-center gap-2.5">
-                {pendingIsPendingOnChain ? (
-                  <RefreshCw size={13} className="text-brand animate-spin" style={{ animationDuration: '2s' }} />
-                ) : pendingSession.error ? (
-                  <AlertCircle size={13} style={{ color: 'var(--color-danger)' }} />
-                ) : (
-                  <Clock size={13} className="text-brand" />
-                )}
-                <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--color-text-primary)' }}>
-                  Active Transfer
-                </span>
-              </div>
-              <span
-                className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full"
-                style={{
-                  background: pendingSession.error ? 'var(--color-danger-bg)' : 'color-mix(in srgb, var(--color-brand) 12%, transparent)',
-                  color: pendingSession.error ? 'var(--color-danger)' : 'var(--color-brand)',
-                }}
-              >
-                {pendingGetStepLabel()}
-              </span>
-            </div>
 
-            {/* Body */}
-            <div className="px-4 py-3 space-y-3" style={{ background: 'var(--color-bg-tertiary)' }}>
-              {/* Transfer info row */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="relative flex-shrink-0">
-                    <img src={USDC_LOGO_URL} className="w-7 h-7 rounded-full" alt="USDC" />
-                    {pendingChain?.logoURI && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border flex items-center justify-center p-0.5"
-                        style={{ borderColor: 'var(--color-bg-secondary)', background: 'var(--color-bg-primary)' }}>
-                        <img src={pendingChain.logoURI} className="w-full h-full object-contain rounded-full" alt="" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-col leading-tight min-w-0">
-                    <span className="text-[11px] font-black truncate" style={{ color: 'var(--color-text-primary)' }}>
-                      {pendingSession.inputAmount} {pendingSession.inputTokenSymbol} → {pendingChain?.name || 'EVM'} → dYdX
-                    </span>
-                    <span className="text-[9px] font-bold" style={{ color: 'var(--color-text-muted)' }}>
-                      Started {new Date(pendingSession.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Micro step dots */}
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {pendingSession.inputTokenSymbol !== 'USDC' && (
-                    <>
-                      <div
-                        className="w-1.5 h-1.5 rounded-full transition-colors"
-                        style={{
-                          background: pendingSession.swapTx?.status === 'SUCCESS'
-                            ? 'var(--color-success)'
-                            : pendingSession.phase === 'SWAP'
-                              ? 'var(--color-brand)'
-                              : 'var(--color-text-muted)',
-                          opacity: pendingSession.phase === 'SWAP' ? 1 : 0.4,
-                        }}
-                      />
-                      <div className="w-3 h-0" style={{ borderTop: '1px dashed var(--color-border)' }} />
-                    </>
-                  )}
-                  <div
-                    className="w-1.5 h-1.5 rounded-full transition-colors"
-                    style={{
-                      background: pendingSession.bridgeTx?.status === 'SUCCESS'
-                        ? 'var(--color-success)'
-                        : pendingSession.phase === 'BRIDGE'
-                          ? 'var(--color-brand)'
-                          : 'var(--color-text-muted)',
-                      opacity: pendingSession.phase === 'BRIDGE' ? 1 : (pendingSession.bridgeTx?.status === 'SUCCESS' ? 1 : 0.3),
-                    }}
-                  />
-                  <div className="w-3 h-0" style={{ borderTop: '1px dashed var(--color-border)' }} />
-                  <div
-                    className="w-1.5 h-1.5 rounded-full transition-colors"
-                    style={{
-                      background: pendingSession.depositTx?.status === 'SUCCESS'
-                        ? 'var(--color-success)'
-                        : pendingSession.phase === 'DEPOSIT'
-                          ? 'var(--color-brand)'
-                          : 'var(--color-text-muted)',
-                      opacity: pendingSession.phase === 'DEPOSIT' ? 1 : (pendingSession.depositTx?.status === 'SUCCESS' ? 1 : 0.3),
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Error snippet */}
-              {pendingSession.error && (
-                <p className="text-[9px] font-bold leading-relaxed" style={{ color: 'var(--color-danger)' }}>
-                  ⚠ {pendingSession.error}
-                </p>
-              )}
-
-              {/* Action row */}
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  onClick={() => setActiveSessionId(pendingSession.id)}
-                  className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.98] hover:brightness-110"
-                  style={{
-                    background: 'var(--color-brand)',
-                    color: '#fff',
-                  }}
-                >
-                  Resume
-                </button>
-                <button
-                  onClick={() => { if (pendingIsSafeToClear) dismissSession(pendingSession.id); }}
-                  disabled={!pendingIsSafeToClear}
-                  className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.98]"
-                  style={{
-                    background: 'var(--color-bg-hover)',
-                    color: pendingIsSafeToClear ? 'var(--color-text-secondary)' : 'var(--color-text-muted)',
-                    border: '1px solid var(--color-border)',
-                    cursor: pendingIsSafeToClear ? 'pointer' : 'not-allowed',
-                    opacity: pendingIsSafeToClear ? 1 : 0.5,
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-
-              {!pendingIsSafeToClear && (
-                <p className="text-[8px] font-bold uppercase tracking-wider text-center" style={{ color: 'color-mix(in srgb, var(--color-danger) 70%, transparent)' }}>
-                  ⚠ Tx pending on-chain — cannot clear until confirmed
-                </p>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Action Panel */}
         <div className="pt-2">
@@ -1725,15 +1557,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
                   <button
                     onClick={() => {
                       if (activeSession) {
-                        dismissSession(activeSession.id);
-                        setActiveSessionId(null);
-                        // Restore form inputs so user doesn't lose their setup
-                        setInputAmount(activeSession.inputAmount);
-                        const token = stellarAssets.find(a => a.symbol === activeSession.inputTokenSymbol);
-                        if (token) setInputToken(token);
-                        const chain = evmChains.find(c => c.chainId === activeSession.destinationChainId);
-                        if (chain) setDestinationChain(chain);
-                        setFeePaymentMethod(activeSession.feePaymentMethod);
+                        setRestoreInputsOnClear(true);
+                        setSessionToClear(activeSession.id);
                       } else {
                         // setupError case — just clear the error and return to form
                         clearSetupForm();
@@ -1871,8 +1696,244 @@ export const StellarDydxOrchestrator: React.FC = () => {
               </ActionGuard>
             </div>
           )}
-        </div>
       </div>
+
+      {/* ── Inline Pending Sessions List (shown on setup form when previous sessions exist) ── */}
+      {!activeSession && sessions.filter(s => s.phase !== 'DONE').length > 0 && (
+        <div className="space-y-3 mt-4 border-t border-divider/40 pt-4">
+          {(() => {
+            const pendingSessions = sessions.filter(s => s.phase !== 'DONE');
+            const displayedSessions = showAllSessions ? pendingSessions : pendingSessions.slice(0, 2);
+            
+            return (
+              <>
+                {displayedSessions.map(s => {
+                  const chain = evmChains.find(c => c.chainId === s.destinationChainId);
+                  const isPendingOnChain =
+                    (s.swapTx?.hash && s.swapTx?.status === 'PENDING') ||
+                    (s.bridgeTx?.hash && s.bridgeTx?.status === 'PENDING') ||
+                    (s.depositTx?.hash && s.depositTx?.status === 'PENDING');
+                  const isSafeToClear = !isPendingOnChain;
+                  
+                  const getStepLabel = () => {
+                    if (s.phase === 'SWAP') return 'Swapping';
+                    if (s.phase === 'BRIDGE') {
+                      return s.bridgeTx?.status === 'PENDING' ? 'Crossing Bridge' : 'Ready to Bridge';
+                    }
+                    if (s.phase === 'DEPOSIT') {
+                      return s.depositTx?.status === 'PENDING' ? 'Settling' : 'Ready to Settle';
+                    }
+                    return s.phase;
+                  };
+
+                  return (
+                    <div 
+                      key={s.id}
+                      className="rounded-2xl border animate-fade-in p-3" 
+                      style={{ 
+                        borderColor: 'var(--color-border)', 
+                        background: 'var(--color-bg-tertiary)'
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        {/* Left Column: Title, Transfer Details, Started Time, Micro Step Dots */}
+                        <div className="flex-1 min-w-0 flex flex-col gap-1">
+                          {/* Active Transfer Title */}
+                          <div className="flex items-center gap-1.5">
+                            {isPendingOnChain ? (
+                              <RefreshCw size={11} className="text-brand animate-spin" style={{ animationDuration: '2s' }} />
+                            ) : (
+                              <Clock size={11} className="text-brand" />
+                            )}
+                            <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: 'var(--color-text-primary)' }}>
+                              Active Transfer
+                            </span>
+                          </div>
+
+                          {/* Transfer Description */}
+                          <div className="flex items-center gap-2 min-w-0 mt-0.5">
+                            <div className="relative flex-shrink-0">
+                              <img src={USDC_LOGO_URL} className="w-5 h-5 rounded-full" alt="USDC" />
+                              {chain?.logoURI && (
+                                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border flex items-center justify-center p-0.5"
+                                  style={{ borderColor: 'var(--color-bg-secondary)', background: 'var(--color-bg-primary)' }}>
+                                  <img src={chain.logoURI} className="w-full h-full object-contain rounded-full" alt="" />
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-black truncate" style={{ color: 'var(--color-text-primary)' }}>
+                              {s.inputAmount} {s.inputTokenSymbol} → {chain?.name || 'EVM'} → dYdX
+                            </span>
+                          </div>
+
+                          {/* Started Time and Micro Step Dots */}
+                          <div className="flex items-center gap-2.5 mt-0.5">
+                            <span className="text-[8px] font-bold" style={{ color: 'var(--color-text-muted)' }}>
+                              Started {new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            
+                            {/* Micro step dots */}
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {s.inputTokenSymbol !== 'USDC' && (
+                                <>
+                                  <div
+                                    className="w-1.2 h-1.2 rounded-full transition-colors"
+                                    style={{
+                                      background: s.swapTx?.status === 'SUCCESS'
+                                        ? 'var(--color-success)'
+                                        : s.phase === 'SWAP'
+                                          ? 'var(--color-brand)'
+                                          : 'var(--color-text-muted)',
+                                      opacity: s.phase === 'SWAP' ? 1 : 0.4,
+                                    }}
+                                  />
+                                  <div className="w-2 h-0" style={{ borderTop: '1px dashed var(--color-border)' }} />
+                                </>
+                              )}
+                              <div
+                                className="w-1.2 h-1.2 rounded-full transition-colors"
+                                style={{
+                                  background: s.bridgeTx?.status === 'SUCCESS'
+                                    ? 'var(--color-success)'
+                                    : s.phase === 'BRIDGE'
+                                      ? 'var(--color-brand)'
+                                      : 'var(--color-text-muted)',
+                                  opacity: s.phase === 'BRIDGE' ? 1 : (s.bridgeTx?.status === 'SUCCESS' ? 1 : 0.3),
+                                }}
+                              />
+                              <div className="w-2 h-0" style={{ borderTop: '1px dashed var(--color-border)' }} />
+                              <div
+                                className="w-1.2 h-1.2 rounded-full transition-colors"
+                                style={{
+                                  background: s.depositTx?.status === 'SUCCESS'
+                                    ? 'var(--color-success)'
+                                    : s.phase === 'DEPOSIT'
+                                      ? 'var(--color-brand)'
+                                      : 'var(--color-text-muted)',
+                                  opacity: s.phase === 'DEPOSIT' ? 1 : (s.depositTx?.status === 'SUCCESS' ? 1 : 0.3),
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Status pill, Buttons, and Warning if pending */}
+                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                          {/* Status Pill */}
+                          <span
+                            className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full"
+                            style={{
+                              background: 'color-mix(in srgb, var(--color-brand) 12%, transparent)',
+                              color: 'var(--color-brand)',
+                            }}
+                          >
+                            {getStepLabel()}
+                          </span>
+
+                          {/* Inline Action Buttons */}
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <button
+                              onClick={() => {
+                                if (isSafeToClear) {
+                                  setRestoreInputsOnClear(false);
+                                  setSessionToClear(s.id);
+                                }
+                              }}
+                              disabled={!isSafeToClear}
+                              className="w-[72px] h-[28px] rounded-lg text-[9px] font-black uppercase tracking-widest transition-all active:scale-[0.98]"
+                              style={{
+                                background: 'transparent',
+                                color: isSafeToClear ? 'var(--color-text-secondary)' : 'var(--color-text-muted)',
+                                border: '1px solid var(--color-border)',
+                                cursor: isSafeToClear ? 'pointer' : 'not-allowed',
+                                opacity: isSafeToClear ? 1 : 0.5,
+                              }}
+                            >
+                              Clear
+                            </button>
+                            <button
+                              onClick={() => {
+                                updateSession(s.id, { error: null });
+                                setActiveSessionId(s.id);
+                              }}
+                              className="w-[72px] h-[28px] rounded-lg text-[9px] font-black uppercase tracking-widest transition-all active:scale-[0.98] hover:brightness-110"
+                              style={{
+                                background: 'var(--color-brand)',
+                                color: '#fff',
+                                border: 'none',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Resume
+                            </button>
+                          </div>
+
+                          {!isSafeToClear && (
+                            <span className="text-[7px] font-black uppercase tracking-wider text-right block mt-0.5" style={{ color: 'color-mix(in srgb, var(--color-danger) 70%, transparent)' }}>
+                              ⚠ Pending on-chain
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {pendingSessions.length > 2 && (
+                  <div className="flex justify-center mt-1">
+                    <button
+                      onClick={() => setShowAllSessions(prev => !prev)}
+                      className="text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all active:scale-[0.98] hover:brightness-110 flex items-center justify-center gap-1"
+                      style={{
+                        background: 'transparent',
+                        color: 'var(--color-brand)',
+                        border: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span>{showAllSessions ? 'Show Less' : `See All (${pendingSessions.length})`}</span>
+                      <ChevronDown 
+                        size={12} 
+                        className={`transition-transform duration-200 ${showAllSessions ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+
+      <ConfirmationModal
+        isOpen={sessionToClear !== null}
+        title="Clear Active Transfer"
+        message="Are you sure you want to clear this active transfer? This action cannot be undone."
+        confirmText="Clear"
+        cancelText="Cancel"
+        confirmButtonType="danger"
+        onConfirm={() => {
+          if (sessionToClear) {
+            const targetSession = sessions.find(s => s.id === sessionToClear);
+            if (targetSession && restoreInputsOnClear) {
+              setInputAmount(targetSession.inputAmount);
+              const token = stellarAssets.find(a => a.symbol === targetSession.inputTokenSymbol);
+              if (token) setInputToken(token);
+              const chain = evmChains.find(c => c.chainId === targetSession.destinationChainId);
+              if (chain) setDestinationChain(chain);
+              setFeePaymentMethod(targetSession.feePaymentMethod);
+            }
+            dismissSession(sessionToClear);
+            setSessionToClear(null);
+            setRestoreInputsOnClear(false);
+          }
+        }}
+        onCancel={() => {
+          setSessionToClear(null);
+          setRestoreInputsOnClear(false);
+        }}
+      />
     </div>
   );
 };
