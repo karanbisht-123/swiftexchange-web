@@ -398,3 +398,113 @@ export function exportDydxReport(dydx: DydxExportData): void {
     `dydx_report_${suffix}.xls`
   );
 }
+
+// ─── Stellar Report Export ───────────────────────────────────────────────────
+
+export interface StellarExportData {
+  address: string;
+  period: string;
+  totalPnL: number;
+  totalRealized: number;
+  totalUnrealized: number;
+  usdcSpent: number;
+  usdcReceived: number;
+  netUSDCFlow: number;
+  tradeCount: number;
+  positionCount: number;
+  disposalCount: number;
+  history?: Array<{
+    date: string;
+    realized: number;
+    unrealized: number;
+    pnl: number;
+    balance: number;
+  }>;
+}
+
+function buildStellarSummaryRows(stellar: StellarExportData): string {
+  const isPnlPositive = stellar.totalPnL >= 0;
+  const pnlCardBg = isPnlPositive ? '#ecfdf5' : '#fef2f2';
+  const pnlCardBorder = isPnlPositive ? '#bbf7d0' : '#fecaca';
+  const pnlCardTextColor = isPnlPositive ? '#166534' : '#991b1b';
+  const pnlSign = isPnlPositive ? '+' : '';
+  const pnlValue = `${pnlSign}${usd(stellar.totalPnL)}`;
+
+  const capCardBg = stellar.netUSDCFlow >= 0 ? '#ecfdf5' : '#fffbeb';
+  const capCardBorder = stellar.netUSDCFlow >= 0 ? '#bbf7d0' : '#fde68a';
+  const capCardTextColor = stellar.netUSDCFlow >= 0 ? '#166534' : '#92400e';
+  const capSign = stellar.netUSDCFlow >= 0 ? '+' : '';
+  const capValue = `${capSign}${usd(stellar.netUSDCFlow)}`;
+  const capSub = `${usd(stellar.usdcReceived)} In / ${usd(stellar.usdcSpent)} Out`;
+
+  return `
+    <!-- MAIN TITLE BAR -->
+    <tr>
+      <th colspan="10" style="background:#4c1d95;color:#ffffff;font-size:14px;font-weight:bold;padding:14px 16px;text-align:left;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;letter-spacing:0.5px;">STELLAR WALLET PERFORMANCE REPORT</th>
+    </tr>
+    <tr>
+      <th colspan="10" style="background:#581c87;color:#f3e8ff;font-size:11px;font-weight:normal;padding:8px 16px;text-align:left;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;border-bottom:2px solid #cbd5e1;">Wallet Address: ${esc(stellar.address)} &nbsp;·&nbsp; Reporting Period: ${esc(stellar.period)}</th>
+    </tr>
+    
+    <!-- Visual Spacer -->
+    <tr style="height:12px;border:none;">
+      <td colspan="10" style="border:none;background:transparent;height:12px;"></td>
+    </tr>
+
+    <!-- VISUAL KPI DASHBOARD CARDS ROW -->
+    <tr style="height:90px;">
+      <!-- Net Period PnL Card -->
+      <td colspan="5" style="background:${pnlCardBg};border:2px solid ${pnlCardBorder};padding:22px 14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+        <span style="font-size:10px;color:${pnlCardTextColor};font-weight:bold;text-transform:uppercase;letter-spacing:0.8px;">${isPnlPositive ? '📈 Net Profit' : '📉 Net Loss'}</span>
+        <br /><br />
+        <span style="font-size:22px;color:${pnlCardTextColor};font-weight:bold;font-family:Arial,sans-serif;">${esc(pnlValue)}</span>
+        <br /><br />
+        <span style="font-size:9.5px;color:${pnlCardTextColor};opacity:0.8;font-style:italic;">Stellar wallet net performance</span>
+      </td>
+      <!-- Net Capital Flow Card -->
+      <td colspan="5" style="background:${capCardBg};border:2px solid ${capCardBorder};padding:22px 14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+        <span style="font-size:10px;color:${capCardTextColor};font-weight:bold;text-transform:uppercase;letter-spacing:0.8px;">💰 Net Capital Flow (USDC)</span>
+        <br /><br />
+        <span style="font-size:22px;color:${capCardTextColor};font-weight:bold;font-family:Arial,sans-serif;">${esc(capValue)}</span>
+        <br /><br />
+        <span style="font-size:9.5px;color:${capCardTextColor};opacity:0.8;font-style:italic;">${esc(capSub)}</span>
+      </td>
+    </tr>
+
+    <!-- Visual Spacer -->
+    <tr style="height:16px;border:none;">
+      <td colspan="10" style="border:none;background:transparent;height:16px;"></td>
+    </tr>
+
+    <!-- SUMMARY DETAILS SECTION -->
+    <tr>
+      <td colspan="10" style="background:#f1f5f9;color:#0f172a;font-weight:bold;font-size:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:8px 12px;text-align:left;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #cbd5e1;">Wallet metrics</td>
+    </tr>
+    ${kvRow10('Total Trades Count', stellar.tradeCount, '#0f172a', '#ffffff')}
+    ${kvRow10('Open Positions Count', stellar.positionCount, '#0f172a', '#f8fafc')}
+    ${kvRow10('Disposals Count', stellar.disposalCount, '#0f172a', '#ffffff')}
+    
+    <tr>
+      <td colspan="10" style="background:#f1f5f9;color:#0f172a;font-weight:bold;font-size:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:8px 12px;text-align:left;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #cbd5e1;">Financial Performance</td>
+    </tr>
+    ${kvRow10('Realized PnL', usd(stellar.totalRealized), stellar.totalRealized >= 0 ? C.profit : C.loss, '#ffffff')}
+    ${kvRow10('Unrealized PnL', usd(stellar.totalUnrealized), stellar.totalUnrealized >= 0 ? C.profit : C.loss, '#f8fafc')}
+    ${kvRow10('USDC Spent', usd(stellar.usdcSpent), C.withdrawal, '#ffffff')}
+    ${kvRow10('USDC Received', usd(stellar.usdcReceived), C.deposit, '#f8fafc')}
+    ${kvRow10('Net USDC Flow', usd(stellar.netUSDCFlow), stellar.netUSDCFlow >= 0 ? C.deposit : C.withdrawal, '#ffffff')}
+    ${kvRow10('Net Period Gain/Loss (PnL)', usd(stellar.totalPnL), stellar.totalPnL >= 0 ? C.profit : C.loss, '#f8fafc')}
+  `;
+}
+
+export function exportStellarReport(stellar: StellarExportData): void {
+  const rows = [
+    buildStellarSummaryRows(stellar),
+  ].join('');
+
+  const suffix = stellar.period.replace(/[^a-zA-Z0-9_-]/g, '_');
+  downloadHtml(
+    wrapHtml(`SwiftEx Stellar Trading Report — ${stellar.period}`, rows),
+    `stellar_report_${suffix}.xls`
+  );
+}
+

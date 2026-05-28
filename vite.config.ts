@@ -9,6 +9,19 @@ export default defineConfig({
     global: 'globalThis',
   },
 
+
+  server: {
+    port: 8081,
+    strictPort: true,
+    proxy: {
+      '/pnl': {
+        target: 'https://folioapi.swiftexwallet.com',
+        changeOrigin: true,
+
+      },
+    },
+  },
+
   plugins: [
     react(),
     tailwindcss(),

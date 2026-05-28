@@ -24,7 +24,8 @@ dist-ssr
 *.sw?
 .vercel
 .env
-.env*.local
-.env.development
+.env.local
+.env.*.local
 .env.production
+.env.development
 lint-report.html

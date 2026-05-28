@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { sendEVMTransaction } from '../../../utils/walletConnectUtils';
 
 
 
@@ -18,7 +19,7 @@ export interface TransactionRequest {
   amount: string;
   data?: any;
   memo?: string;
-  unsignedTx?: string; // Hex string of the pre-built unsigned transaction
+  unsignedTx?: string;
 }
 
 export interface TransactionResponse {
@@ -33,6 +34,7 @@ interface WalletSession {
   chainId: string | number;
   walletId: string;
 }
+
 
 class TransactionRouter {
   private sessions = new Map<WalletType, WalletSession>();
@@ -236,7 +238,6 @@ class TransactionRouter {
         typeof request.networkKey === 'number'
           ? request.networkKey
           : parseInt(String(session.chainId)) || 1;
-      const chainIdCAIP = `eip155:${chainId}`;
 
       let txParams: any = {};
       let gasLimitBigInt: bigint = BigInt(21000);
@@ -270,7 +271,7 @@ class TransactionRouter {
             txParams.value,
             txParams.data
           );
-          
+
           // If simulation estimated a higher gas limit than encoded (e.g. smart contracts), auto-adjust!
           const simGas = sim.gasLimit;
           const encodedGas = parsedTx.gasLimit ? BigInt(parsedTx.gasLimit) : BigInt(0);
@@ -352,24 +353,7 @@ class TransactionRouter {
       let lastTxHash: string;
 
       if (isMainnet()) {
-        if (this.isWalletConnectProvider(provider)) {
-          const topic = provider.session?.topic;
-          if (!topic) throw new Error('No WalletConnect session topic found');
-
-          lastTxHash = await provider.client.request({
-            topic,
-            chainId: chainIdCAIP,
-            request: {
-              method: 'eth_sendTransaction',
-              params: [txParams],
-            },
-          });
-        } else {
-          lastTxHash = await provider.request({
-            method: 'eth_sendTransaction',
-            params: [txParams],
-          });
-        }
+        lastTxHash = await sendEVMTransaction(provider, chainId, txParams);
       } else {
         const ethersProvider = new ethers.BrowserProvider(provider);
         const signer = await ethersProvider.getSigner();

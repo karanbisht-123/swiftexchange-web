@@ -18,9 +18,16 @@ import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from './assetmanagement/con
 import { rpcManager } from './rpcProvider';
 import { getEVMNetworkConfig } from './evmUtils';
 import { simulateSwapTransaction } from '../service/evmSimulationService';
+import { sendEVMTransaction } from '../../../utils/walletConnectUtils';
 
 // Constants
 const LIMIT_ORDER_PROTOCOL = '0x111111125421ca6dc452d289314280a0f8842a65';
+
+const isNativeAddress = (address: string | undefined | null): boolean => {
+  if (!address) return true;
+  const lowAddress = address.toLowerCase();
+  return lowAddress === 'native' || lowAddress === NATIVE_ADDRESS.toLowerCase();
+};
 const ERC20_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
   'function approve(address spender, uint256 amount) returns (bool)',
@@ -278,7 +285,7 @@ export async function ensureFusionAllowance(
   provider: any,
   chainId: number | string,
 ): Promise<{ approvalTxHash?: string }> {
-  if (!tokenAddress || tokenAddress.toLowerCase() === NATIVE_ADDRESS.toLowerCase()) {
+  if (!tokenAddress || isNativeAddress(tokenAddress)) {
     return {}; // native — no approval needed
   }
 
@@ -328,18 +335,16 @@ export async function fetchEvmQuote(
   }
 
   try {
-    const normalizedSellAddress =
-      request.tokenIn?.address?.toLowerCase() === NATIVE_ADDRESS.toLowerCase()
-        ? AGGREGATOR_NATIVE_ADDRESS
-        : selectedSellAsset.address;
+    const isNativeSell = !!selectedSellAsset.isNative || isNativeAddress(request.tokenIn?.address) || isNativeAddress(selectedSellAsset.address);
+    const isNativeBuy = !!selectedBuyAsset.isNative || isNativeAddress(request.tokenOut?.address) || isNativeAddress(selectedBuyAsset.address);
 
-    const normalizedBuyAddress =
-      request.tokenOut?.address?.toLowerCase() === NATIVE_ADDRESS.toLowerCase()
-        ? AGGREGATOR_NATIVE_ADDRESS
-        : selectedBuyAsset.address;
+    const normalizedSellAddress = isNativeSell
+      ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+      : selectedSellAsset.address;
 
-    const isNativeSell = selectedSellAsset.isNative || normalizedSellAddress === AGGREGATOR_NATIVE_ADDRESS;
-    const isNativeBuy = selectedBuyAsset.isNative || normalizedBuyAddress === AGGREGATOR_NATIVE_ADDRESS;
+    const normalizedBuyAddress = isNativeBuy
+      ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+      : selectedBuyAsset.address;
 
     if (!isNativeSell && !ethers.isAddress(normalizedSellAddress))
       throw new Error(`Invalid sell token address: ${selectedSellAsset.address}`);
@@ -533,8 +538,8 @@ export async function fetch1InchFusionQuote(
   decimals: number,
 ): Promise<any> {
   try {
-    const normalizedTokenIn = tokenIn.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : tokenIn;
-    const normalizedTokenOut = tokenOut.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : tokenOut;
+    const normalizedTokenIn = isNativeAddress(tokenIn) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : tokenIn;
+    const normalizedTokenOut = isNativeAddress(tokenOut) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : tokenOut;
 
     return await get1InchFusionQuote(chain, {
       tokenIn: normalizedTokenIn,
@@ -595,8 +600,8 @@ export async function execute1InchFusionSwap(
     throw new Error(`Simulation Alert: ${errorDetails}`);
   }
 
-  const normalizedTokenIn = sellAsset.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : sellAsset.address;
-  const normalizedTokenOut = buyAsset.address.toLowerCase() === NATIVE_ADDRESS.toLowerCase() ? AGGREGATOR_NATIVE_ADDRESS : buyAsset.address;
+  const normalizedTokenIn = (sellAsset.isNative || isNativeAddress(sellAsset.address)) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : sellAsset.address;
+  const normalizedTokenOut = (buyAsset.isNative || isNativeAddress(buyAsset.address)) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : buyAsset.address;
 
   const fusionOrder = await build1InchFusionOrder({
     quote,
@@ -610,15 +615,25 @@ export async function execute1InchFusionSwap(
   });
 
   const { typedData, extension, orderHash } = fusionOrder;
+  console.log('[execute1InchFusionSwap] buildFusionOrder response:', {
+    fusionOrder,
+    sellAssetAddress: sellAsset.address,
+    buyAssetAddress: buyAsset.address,
+    normalizedTokenIn,
+    normalizedTokenOut
+  });
+
   if (!typedData) throw new Error('No typed data received for signing');
   if (!extension) throw new Error('No extension data received from build order');
   if (!orderHash) throw new Error('No orderHash received from build order');
 
+  console.log('[execute1InchFusionSwap] Requesting signature for typedData:', typedData);
   const signature: string = await provider.request({
     method: 'eth_signTypedData_v4',
     params: [senderAddress, JSON.stringify(typedData)],
   });
   if (!signature) throw new Error('Signature cancelled or failed');
+  console.log('[execute1InchFusionSwap] Signature generated:', signature);
 
   const orderMessage = typedData.message;
   const submitPayload = {
@@ -638,6 +653,8 @@ export async function execute1InchFusionSwap(
     signature,
     permit: '',
   };
+
+  console.log('[execute1InchFusionSwap] Submitting order payload:', submitPayload);
 
   const MAX_RETRIES = 4;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -944,10 +961,7 @@ async function _runRangoSteps(
       }
 
       // Send approval tx — user signs once in their wallet
-      const approvalTxHash: string = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [approvalTxParams],
-      });
+      const approvalTxHash: string = await sendEVMTransaction(provider, fromChainId, approvalTxParams);
 
       console.log(`[executeRangoSwap] Step ${step}: approval sent`, approvalTxHash);
 
@@ -1034,10 +1048,7 @@ async function _runRangoSteps(
         throw new Error(`Simulation Alert: ${[...swapSimResult.errors, ...swapSimResult.warnings].join(' | ')}`);
       }
 
-      const swapTxHash: string = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [swapTxParams],
-      });
+      const swapTxHash: string = await sendEVMTransaction(provider, fromChainId, swapTxParams);
 
       console.log(`[executeRangoSwap] Step ${step}: swap tx sent`, swapTxHash);
 
@@ -1085,10 +1096,7 @@ async function _runRangoSteps(
         throw new Error(`Simulation Alert: ${[...simResult.errors, ...simResult.warnings].join(' | ')}`);
       }
 
-      const swapTxHash: string = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [txParams],
-      });
+      const swapTxHash: string = await sendEVMTransaction(provider, fromChainId, txParams);
 
       console.log(`[executeRangoSwap] Step ${step}: swap tx sent`, swapTxHash);
 
