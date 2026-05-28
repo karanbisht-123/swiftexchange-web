@@ -31,8 +31,9 @@ import { selectPortfolioMetrics, useWebSocketStore } from '../modules/dydx/store
 import { useDateRangeStore } from '../modules/dydx/store/dateRangeStore';
 import PositionsPanel from '../modules/dydx/components/orderHistory/PositionsPanel';
 import LiquidationRiskBanner from '../modules/dydx/components/LiquidationRiskBanner';
-import { exportDydxReport } from '../utils/exportService';
+import { exportDydxReport, exportStellarReport } from '../utils/exportService';
 import { createChart, ColorType, AreaSeries, type IChartApi, LineType } from 'lightweight-charts';
+import { fetchStellarPnl } from '../service/apiService';
 
 
 
@@ -79,6 +80,12 @@ const Profile: React.FC = () => {
   const [loadingPnl, setLoadingPnl] = useState(false);
   const [timeframe, setTimeframe] = useState<'1d' | '7d' | '30d' | '90d'>('7d');
   const [crosshairData, setCrosshairData] = useState<{ time: number; value: number } | null>(null);
+  
+  // Stellar PNL state variables
+  const [stellarPnlData, setStellarPnlData] = useState<any>(null);
+  const [loadingStellarPnl, setLoadingStellarPnl] = useState(false);
+  const [stellarPnlError, setStellarPnlError] = useState<string | null>(null);
+  const [stellarTimeframe, setStellarTimeframe] = useState<'1w' | '1m' | '2m' | '3m'>('1m');
 
   const [dateRangeOrders, setDateRangeOrders] = useState<any[]>([]);
   const [dateRangeFillCount, setDateRangeFillCount] = useState(0);
@@ -107,6 +114,60 @@ const Profile: React.FC = () => {
         .finally(() => setLoadingPnl(false));
     }
   }, [connectedWallets, timeframe, dydxConnecting, isDateRangeActive, fromDate, toDate]);
+
+  useEffect(() => {
+    if (connectedWallets.stellar?.address && (activeTab === 'stellar' || activeTab === 'total')) {
+      const formatDateToDDMMYY = (date: Date) => {
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const yy = String(date.getFullYear()).slice(-2);
+        return `${dd}/${mm}/${yy}`;
+      };
+
+      let fromStr: string;
+      let toStr: string;
+
+      if (isDateRangeActive && fromDate && toDate) {
+        const parseCalendarDate = (dateStr: string) => {
+          const parts = dateStr.split('-');
+          const year = parts[0].slice(-2);
+          const month = parts[1];
+          const day = parts[2];
+          return `${day}/${month}/${year}`;
+        };
+        fromStr = parseCalendarDate(fromDate);
+        toStr = parseCalendarDate(toDate);
+      } else {
+        const toDateObj = new Date();
+        const fromDateObj = new Date();
+        
+        const daysMap = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
+        const days = daysMap[stellarTimeframe] ?? 30;
+        fromDateObj.setDate(fromDateObj.getDate() - days);
+
+        fromStr = formatDateToDDMMYY(fromDateObj);
+        toStr = formatDateToDDMMYY(toDateObj);
+      }
+
+      setLoadingStellarPnl(true);
+      setStellarPnlError(null);
+
+      console.log(`[Stellar PNL] Fetching PNL for address ${connectedWallets.stellar.address} from ${fromStr} to ${toStr}...`);
+
+      fetchStellarPnl(connectedWallets.stellar.address, fromStr, toStr)
+        .then(data => {
+          console.log('[Stellar PNL] Success response:', data);
+          setStellarPnlData(data || null);
+        })
+        .catch(err => {
+          console.error('[Stellar PNL] Error fetching PNL:', err);
+          setStellarPnlError(err instanceof Error ? err.message : 'Failed to fetch Stellar PNL');
+        })
+        .finally(() => {
+          setLoadingStellarPnl(false);
+        });
+    }
+  }, [connectedWallets.stellar?.address, stellarTimeframe, activeTab, isDateRangeActive, fromDate, toDate]);
 
   useEffect(() => {
     if (!dydxDataService.isReady()) { setTransfers([]); return; }
@@ -466,6 +527,21 @@ const maxToDate = useMemo(() => {
 }, [fromDate, todayStr]);
 
 const displayStats = useMemo(() => {
+  const isStellar = activeTab === 'stellar';
+
+  if (isStellar) {
+    const totalPnL = stellarPnlData?.totalPnL || 0;
+    const startingValue = stellarTotal - totalPnL;
+    const percentChange = startingValue > 0 ? (totalPnL / startingValue) * 100 : 0;
+    
+    return {
+      currentEquity: stellarTotal,
+      change: totalPnL,
+      percentChange,
+      timeLabel: 'Stellar Wallet Valuation'
+    };
+  }
+
   if (chartType === 'equity') {
     if (crosshairData && visiblePnlPoints.length > 0) {
       const firstEquity = parseFloat(visiblePnlPoints[0].equity || '0');
@@ -512,13 +588,14 @@ const displayStats = useMemo(() => {
       timeLabel: 'Cumulative Closed PnL'
     };
   }
-}, [crosshairData, pnlStats, visiblePnlPoints, chartType, tradePnlPoints, periodStats.totalClosedPnl]);
+}, [crosshairData, pnlStats, visiblePnlPoints, chartType, tradePnlPoints, periodStats.totalClosedPnl, activeTab]);
 
 const chartContainerRef = useRef<HTMLDivElement>(null);
 const chartRef = useRef<IChartApi | null>(null);
 const seriesRef = useRef<any>(null);
 
 useEffect(() => {
+  if (activeTab === 'stellar') return;
   if (!chartContainerRef.current) return;
 
   if (chartRef.current) {
@@ -577,9 +654,10 @@ useEffect(() => {
       }))
       : tradePnlPoints;
 
+    const sortedData = [...data].sort((a, b) => a.time - b.time);
     const uniqueData: typeof data = [];
     const seenTimes = new Set<number>();
-    for (const d of data) {
+    for (const d of sortedData) {
       if (!seenTimes.has(d.time)) {
         seenTimes.add(d.time);
         uniqueData.push(d);
@@ -588,7 +666,6 @@ useEffect(() => {
       }
     }
 
-    uniqueData.sort((a, b) => a.time - b.time);
     series.setData(uniqueData);
     chart.timeScale().fitContent();
   }
@@ -634,16 +711,17 @@ useEffect(() => {
       seriesRef.current = null;
     }
   };
-}, [visiblePnlPoints, tradePnlPoints, chartType]);
+}, [visiblePnlPoints, tradePnlPoints, chartType, activeTab]);
 
 useEffect(() => {
+  if (activeTab === 'stellar') return;
   if (!seriesRef.current) return;
   const isGreen = chartType === 'equity' ? pnlStats.change >= 0 : periodStats.totalClosedPnl >= 0;
   seriesRef.current.applyOptions({
     lineColor: isGreen ? '#10b981' : '#ef4444',
     topColor: isGreen ? '#10b98125' : '#ef444425',
   });
-}, [pnlStats.change, periodStats.totalClosedPnl, chartType]);
+}, [pnlStats.change, periodStats.totalClosedPnl, chartType, activeTab]);
 
 const dydxLeverage = useMemo(() => {
   if (dydxPositions.length === 0 || dydxTotal <= 0) return 0;
@@ -809,6 +887,28 @@ const exportDydxOnly = useCallback(async () => {
     period,
   });
 }, [visiblePnlPoints, transfers, isDateRangeActive, fromDate, toDate, timeframe]);
+
+const handleExportStellarReport = () => {
+  if (!stellarPnlData || !connectedWallets.stellar?.address) return;
+
+  const periodLabel = isDateRangeActive && fromDate && toDate
+    ? `${fromDate} to ${toDate}`
+    : (stellarTimeframe === '1w' ? 'Last 1 Week' : stellarTimeframe === '1m' ? 'Last 1 Month' : stellarTimeframe === '2m' ? 'Last 2 Months' : 'Last 3 Months');
+
+  exportStellarReport({
+    address: connectedWallets.stellar.address,
+    period: periodLabel,
+    totalPnL: stellarPnlData.totalPnL || 0,
+    totalRealized: stellarPnlData.totalRealized || 0,
+    totalUnrealized: stellarPnlData.totalUnrealized || 0,
+    usdcSpent: stellarPnlData.usdcSpent || 0,
+    usdcReceived: stellarPnlData.usdcReceived || 0,
+    netUSDCFlow: stellarPnlData.netUSDCFlow || 0,
+    tradeCount: stellarPnlData.tradeCount || 0,
+    positionCount: stellarPnlData.positionCount || 0,
+    disposalCount: stellarPnlData.disposalCount || 0,
+  });
+};
 
 const handleSyncBalances = async () => {
   refetch();
@@ -1033,235 +1133,489 @@ return (
             })}
           </div>
 
-          {(activeTab === 'dydx' || activeTab === 'total') && (dydxTotal > 0 || dydxPositions.length > 0 || visiblePnlPoints.length > 0) && (
+          {(((activeTab === 'dydx' || activeTab === 'total') && (dydxTotal > 0 || dydxPositions.length > 0 || visiblePnlPoints.length > 0)) ||
+            (activeTab === 'stellar' && connectedWallets.stellar?.address)) && (
             <div className="space-y-6 pt-2">
 
-              <div className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md flex flex-col justify-between space-y-4">
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                    <div>
-                      <span className="text-xs font-semibold text-(--color-text-secondary)">{displayStats.timeLabel}</span>
-                      <div className="flex items-baseline gap-2 mt-0.5">
-                        <span className="text-2xl font-black text-(--color-text-primary)">
-                          {portfolioUtils.formatUSD(displayStats.currentEquity)}
-                        </span>
-                        {chartType === 'equity' ? (
-                          displayStats.change !== 0 && (
-                            <span className={`text-xs font-bold flex items-center ${displayStats.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {displayStats.change >= 0 ? '▲' : '▼'} {portfolioUtils.formatUSD(Math.abs(displayStats.change))} ({displayStats.percentChange.toFixed(2)}%)
-                            </span>
-                          )
-                        ) : (
-                          <span className={`text-xs font-bold flex items-center ${periodStats.totalClosedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {periodStats.closedTradesCount > 0 ? `${periodStats.winRate.toFixed(0)}% Profitable Trades (${periodStats.profitableTradesCount} of ${periodStats.closedTradesCount})` : 'No closed trades'}
+              {/* dYdX Performance Container */}
+              {(activeTab === 'dydx' || (activeTab === 'total' && (dydxTotal > 0 || dydxPositions.length > 0 || visiblePnlPoints.length > 0))) && (
+                <div className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md flex flex-col justify-between space-y-4">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-semibold text-(--color-text-secondary)">{chartType === 'equity' ? 'Trading Account Value' : 'Cumulative Closed PnL'}</span>
+                        <div className="flex items-baseline gap-2 mt-0.5">
+                          <span className="text-2xl font-black text-(--color-text-primary)">
+                            {portfolioUtils.formatUSD(displayStats.currentEquity)}
                           </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2 flex-wrap sm:justify-end">
-                        <div className="flex items-center bg-(--color-bg-tertiary) border border-(--color-border) hover:border-brand-primary/40 focus-within:border-brand-primary focus-within:ring-2 focus-within:ring-brand-primary/10 rounded-xl px-3 py-1.5 transition-all duration-200 shadow-sm gap-2">
-                          <Calendar size={13} className="text-(--color-text-secondary) shrink-0" />
-                          <input
-                            type="date"
-                            value={fromDate || ''}
-                            min={minFromDate}
-                            max={maxFromDate}
-                            onKeyDown={e => e.preventDefault()}
-                            onChange={e => setFromDate(e.target.value || null)}
-                            className="bg-transparent text-[11.5px] font-semibold text-(--color-text-primary) outline-none w-[105px] cursor-pointer"
-                            placeholder="From"
-                          />
-                          <span className="text-(--color-text-secondary) text-[10px] font-bold px-0.5 select-none">TO</span>
-                          <input
-                            type="date"
-                            value={toDate || ''}
-                            min={minToDate}
-                            max={maxToDate}
-                            onKeyDown={e => e.preventDefault()}
-                            onChange={e => setToDate(e.target.value || null)}
-                            className="bg-transparent text-[11.5px] font-semibold text-(--color-text-primary) outline-none w-[105px] cursor-pointer"
-                            placeholder="To"
-                          />
+                          {chartType === 'equity' ? (
+                            displayStats.change !== 0 && (
+                              <span className={`text-xs font-bold flex items-center ${displayStats.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {displayStats.change >= 0 ? '▲' : '▼'} {portfolioUtils.formatUSD(Math.abs(displayStats.change))} ({displayStats.percentChange.toFixed(2)}%)
+                              </span>
+                            )
+                          ) : (
+                            <span className={`text-xs font-bold flex items-center ${periodStats.totalClosedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {periodStats.closedTradesCount > 0 ? `${periodStats.winRate.toFixed(0)}% Profitable Trades (${periodStats.profitableTradesCount} of ${periodStats.closedTradesCount})` : 'No closed trades'}
+                            </span>
+                          )}
                         </div>
-                        {isDateRangeActive && (
-                          <button
-                            onClick={clearRange}
-                            className="p-1.5 rounded-lg bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary) hover:text-red-400 transition"
-                            title="Clear date range"
-                          >
-                            <XIcon size={12} />
-                          </button>
-                        )}
-                        <button
-                          onClick={exportDydxOnly}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-brand-primary/10 border border-brand-primary/30 text-brand-primary text-xs font-semibold hover:bg-brand-primary/20 transition"
-                          title={`Download dYdX trading report for ${getPeriodLabel()} (XLS)`}
-                        >
-                          <Download size={12} />
-                          dYdX Report
-                        </button>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto sm:justify-end">
-                        <div className="flex gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border)">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                          <div className="flex items-center bg-(--color-bg-tertiary) border border-(--color-border) hover:border-brand-primary/40 focus-within:border-brand-primary focus-within:ring-2 focus-within:ring-brand-primary/10 rounded-xl px-3 py-1.5 transition-all duration-200 shadow-sm gap-2">
+                            <Calendar size={13} className="text-(--color-text-secondary) shrink-0" />
+                            <input
+                              type="date"
+                              value={fromDate || ''}
+                              min={minFromDate}
+                              max={maxFromDate}
+                              onKeyDown={e => e.preventDefault()}
+                              onChange={e => setFromDate(e.target.value || null)}
+                              className="bg-transparent text-[11.5px] font-semibold text-(--color-text-primary) outline-none w-[105px] cursor-pointer"
+                              placeholder="From"
+                            />
+                            <span className="text-(--color-text-secondary) text-[10px] font-bold px-0.5 select-none">TO</span>
+                            <input
+                              type="date"
+                              value={toDate || ''}
+                              min={minToDate}
+                              max={maxToDate}
+                              onKeyDown={e => e.preventDefault()}
+                              onChange={e => setToDate(e.target.value || null)}
+                              className="bg-transparent text-[11.5px] font-semibold text-(--color-text-primary) outline-none w-[105px] cursor-pointer"
+                              placeholder="To"
+                            />
+                          </div>
+                          {isDateRangeActive && (
+                            <button
+                              onClick={clearRange}
+                              className="p-1.5 rounded-lg bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary) hover:text-red-400 transition"
+                              title="Clear date range"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          )}
                           <button
-                            onClick={() => setChartType('equity')}
-                            className={`px-3 py-1 rounded-lg text-[10.5px] font-bold transition-all ${chartType === 'equity'
-                              ? 'bg-brand-primary text-white shadow-sm'
-                              : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
-                              }`}
+                            onClick={exportDydxOnly}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-brand-primary/10 border border-brand-primary/30 text-brand-primary text-xs font-semibold hover:bg-brand-primary/20 transition"
+                            title={`Download dYdX trading report for ${getPeriodLabel()} (XLS)`}
                           >
-                            Equity Chart
-                          </button>
-                          <button
-                            onClick={() => setChartType('trades')}
-                            className={`px-3 py-1 rounded-lg text-[10.5px] font-bold transition-all ${chartType === 'trades'
-                              ? 'bg-brand-primary text-white shadow-sm'
-                              : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
-                              }`}
-                          >
-                            Trade PnL
+                            <Download size={12} />
+                            dYdX Report
                           </button>
                         </div>
 
-                        {!isDateRangeActive && (
+                        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto sm:justify-end">
                           <div className="flex gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border)">
-                            {(['1d', '7d', '30d', '90d'] as const).map(tf => (
-                              <button
-                                key={tf}
-                                onClick={() => setTimeframe(tf)}
-                                className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all ${timeframe === tf
-                                  ? 'bg-brand-primary text-white shadow-sm'
-                                  : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
-                                  }`}
-                              >
-                                {tf}
-                              </button>
-                            ))}
+                            <button
+                              onClick={() => setChartType('equity')}
+                              className={`px-3 py-1 rounded-lg text-[10.5px] font-bold transition-all ${chartType === 'equity'
+                                ? 'bg-brand-primary text-white shadow-sm'
+                                : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
+                                }`}
+                            >
+                              Equity Chart
+                            </button>
+                            <button
+                              onClick={() => setChartType('trades')}
+                              className={`px-3 py-1 rounded-lg text-[10.5px] font-bold transition-all ${chartType === 'trades'
+                                ? 'bg-brand-primary text-white shadow-sm'
+                                : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
+                                }`}
+                            >
+                              Trade PnL
+                            </button>
                           </div>
-                        )}
-                        {isDateRangeActive && (
-                          <div className="flex items-center gap-1.5 text-[10.5px] text-brand-primary font-semibold">
-                            <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse inline-block" />
-                            Custom range active
-                          </div>
-                        )}
+
+                          {!isDateRangeActive ? (
+                            <div className="flex gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border)">
+                              {(['1d', '7d', '30d', '90d'] as const).map(tf => (
+                                <button
+                                  key={tf}
+                                  onClick={() => setTimeframe(tf)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all ${timeframe === tf
+                                    ? 'bg-brand-primary text-white shadow-sm'
+                                    : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
+                                    }`}
+                                >
+                                  {tf}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-[10.5px] text-brand-primary font-semibold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse inline-block" />
+                              Custom range active
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="h-[240px] w-full relative flex items-center justify-center bg-(--color-bg-secondary) rounded-xl overflow-hidden border border-(--color-border)/50 p-2">
-                  {loadingPnl ? (
-                    <div className="flex flex-col items-center justify-center h-full w-full gap-2 text-xs text-(--color-text-secondary)">
-                      <RefreshCw size={18} className="animate-spin text-brand-primary" />
-                      <span>Loading metrics...</span>
-                    </div>
-                  ) : (chartType === 'equity' ? visiblePnlPoints.length < 2 : tradePnlPoints.length < 1) ? (
-                    <div className="flex flex-col items-center justify-center h-full w-full gap-2 text-xs text-(--color-text-secondary) italic">
-                      <span>
-                        {chartType === 'equity'
-                          ? "Syncing transaction indices for performance history..."
-                          : "No closed trades found for this period."}
+                  <div className="h-[240px] w-full relative flex items-center justify-center bg-(--color-bg-secondary) rounded-xl overflow-hidden border border-(--color-border)/50 p-2">
+                    {loadingPnl ? (
+                      <div className="flex flex-col items-center justify-center h-full w-full gap-2 text-xs text-(--color-text-secondary)">
+                        <RefreshCw size={18} className="animate-spin text-brand-primary" />
+                        <span>Loading metrics...</span>
+                      </div>
+                    ) : (chartType === 'equity' ? visiblePnlPoints.length < 2 : tradePnlPoints.length < 1) ? (
+                      <div className="flex flex-col items-center justify-center h-full w-full gap-2 text-xs text-(--color-text-secondary) italic text-center px-4">
+                        <span>
+                          {chartType === 'equity'
+                            ? "Syncing transaction indices for performance history..."
+                            : "No closed trades found for this period."}
+                        </span>
+                      </div>
+                    ) : (
+                      <div ref={chartContainerRef} className="w-full h-full" />
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-2 border-t border-(--color-border)/60 text-xs">
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Margin Usage</span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {marginMetrics ? `${marginMetrics.marginUsagePercent.toFixed(2)}%` : '0.00%'}
                       </span>
                     </div>
-                  ) : (
-                    <div ref={chartContainerRef} className="w-full h-full" />
-                  )}
-                </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Account Leverage</span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {`${dydxLeverage.toFixed(2)}×`}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Open Orders</span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {openOrderCount || 0}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">
+                        {isDateRangeActive ? 'Fills (range)' : 'Filled Trades'}
+                      </span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {loadingDateRange ? '…' : displayedFillCount}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">
+                        {isDateRangeActive ? 'Orders (range)' : 'Order History'}
+                      </span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {loadingDateRange ? '…' : displayedOrderCount}
+                      </span>
+                    </div>
+                  </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-2 border-t border-(--color-border)/60 text-xs">
-                  <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                    <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Margin Usage</span>
-                    <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                      {marginMetrics ? `${marginMetrics.marginUsagePercent.toFixed(2)}%` : '0.00%'}
-                    </span>
-                  </div>
-                  <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                    <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Account Leverage</span>
-                    <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                      {`${dydxLeverage.toFixed(2)}×`}
-                    </span>
-                  </div>
-                  <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                    <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Open Orders</span>
-                    <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                      {openOrderCount || 0}
-                    </span>
-                  </div>
-                  <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                    <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">
-                      {isDateRangeActive ? 'Fills (range)' : 'Filled Trades'}
-                    </span>
-                    <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                      {loadingDateRange ? '…' : displayedFillCount}
-                    </span>
-                  </div>
-                  <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                    <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">
-                      {isDateRangeActive ? 'Orders (range)' : 'Order History'}
-                    </span>
-                    <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                      {loadingDateRange ? '…' : displayedOrderCount}
-                    </span>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-(--color-bg-tertiary)/20 p-4 rounded-xl border border-(--color-border)/40 mt-1">
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Total Deposited</span>
+                      <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
+                        {portfolioUtils.formatUSD(periodStats.totalDeposits)}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Funds added to account
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Total Withdrawn</span>
+                      <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
+                        {portfolioUtils.formatUSD(periodStats.totalWithdrawals)}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Funds removed from account
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Net Capital Funded</span>
+                      <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
+                        {portfolioUtils.formatUSD(periodStats.netCapitalChange)}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Deposits minus withdrawals
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider font-bold">Net Period PnL</span>
+                      <span className={`font-black text-xs mt-1 block ${periodStats.netTradingGain >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {periodStats.netTradingGain >= 0 ? '+' : ''}{portfolioUtils.formatUSD(periodStats.netTradingGain)}
+                        {(periodStats.startEquity + periodStats.totalDeposits) > 0 && (
+                          <span className="text-[10px] ml-1 font-semibold opacity-90">
+                            ({periodStats.gainPercentage >= 0 ? '+' : ''}{periodStats.gainPercentage.toFixed(2)}%)
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Trading profit or loss
+                      </span>
+                    </div>
                   </div>
                 </div>
+              )}
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-(--color-bg-tertiary)/20 p-4 rounded-xl border border-(--color-border)/40 mt-1">
+              {/* Open Margin Positions panel */}
+              {(activeTab === 'dydx' || activeTab === 'total') && (
+                <div id="open-margin-positions" className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md space-y-4">
                   <div>
-                    <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Total Deposited</span>
-                    <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
-                      {portfolioUtils.formatUSD(periodStats.totalDeposits)}
-                    </span>
-                    <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                      Funds added to account
-                    </span>
+                    <h4 className="text-sm font-bold text">Open Margin Positions</h4>
                   </div>
-                  <div>
-                    <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Total Withdrawn</span>
-                    <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
-                      {portfolioUtils.formatUSD(periodStats.totalWithdrawals)}
-                    </span>
-                    <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                      Funds removed from account
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Net Capital Funded</span>
-                    <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
-                      {portfolioUtils.formatUSD(periodStats.netCapitalChange)}
-                    </span>
-                    <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                      Deposits minus withdrawals
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider font-bold">Net Period PnL</span>
-                    <span className={`font-black text-xs mt-1 block ${periodStats.netTradingGain >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {periodStats.netTradingGain >= 0 ? '+' : ''}{portfolioUtils.formatUSD(periodStats.netTradingGain)}
-                      {(periodStats.startEquity + periodStats.totalDeposits) > 0 && (
-                        <span className="text-[10px] ml-1 font-semibold opacity-90">
-                          ({periodStats.gainPercentage >= 0 ? '+' : ''}{periodStats.gainPercentage.toFixed(2)}%)
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                      Trading profit or loss
-                    </span>
+                  <div className="border border-(--color-border) rounded-xl overflow-hidden min-h-[200px] py-4 bg-primary">
+                    <PositionsPanel />
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div id="open-margin-positions" className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md space-y-4">
-                <div>
-                  <h4 className="text-sm font-bold text">Open Margin Positions</h4>
+              {/* Stellar Performance Container */}
+              {(activeTab === 'stellar' || (activeTab === 'total' && connectedWallets.stellar?.address)) && (
+                <div className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md flex flex-col justify-between space-y-4">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-semibold text-(--color-text-secondary)">Stellar Wallet Valuation</span>
+                        <div className="flex items-baseline gap-2 mt-0.5">
+                          <span className="text-2xl font-black text-(--color-text-primary)">
+                            {portfolioUtils.formatUSD(stellarTotal)}
+                          </span>
+                          {stellarPnlData && stellarPnlData.totalPnL !== 0 && (
+                            <span className={`text-xs font-bold flex items-center ${(stellarPnlData.totalPnL || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {(stellarPnlData.totalPnL || 0) >= 0 ? '▲' : '▼'} {portfolioUtils.formatUSD(Math.abs(stellarPnlData.totalPnL || 0))}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                          <div className="flex items-center bg-(--color-bg-tertiary) border border-(--color-border) hover:border-brand-primary/40 focus-within:border-brand-primary focus-within:ring-2 focus-within:ring-brand-primary/10 rounded-xl px-3 py-1.5 transition-all duration-200 shadow-sm gap-2">
+                            <Calendar size={13} className="text-(--color-text-secondary) shrink-0" />
+                            <input
+                              type="date"
+                              value={fromDate || ''}
+                              min={minFromDate}
+                              max={maxFromDate}
+                              onKeyDown={e => e.preventDefault()}
+                              onChange={e => setFromDate(e.target.value || null)}
+                              className="bg-transparent text-[11.5px] font-semibold text-(--color-text-primary) outline-none w-[105px] cursor-pointer"
+                              placeholder="From"
+                            />
+                            <span className="text-(--color-text-secondary) text-[10px] font-bold px-0.5 select-none">TO</span>
+                            <input
+                              type="date"
+                              value={toDate || ''}
+                              min={minToDate}
+                              max={maxToDate}
+                              onKeyDown={e => e.preventDefault()}
+                              onChange={e => setToDate(e.target.value || null)}
+                              className="bg-transparent text-[11.5px] font-semibold text-(--color-text-primary) outline-none w-[105px] cursor-pointer"
+                              placeholder="To"
+                            />
+                          </div>
+                          {isDateRangeActive && (
+                            <button
+                              onClick={clearRange}
+                              className="p-1.5 rounded-lg bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary) hover:text-red-400 transition"
+                              title="Clear date range"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          )}
+                          <button
+                            onClick={handleExportStellarReport}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-brand-primary/10 border border-brand-primary/30 text-brand-primary text-xs font-semibold hover:bg-brand-primary/20 transition"
+                            title={`Download Stellar trading report (XLS)`}
+                          >
+                            <Download size={12} />
+                            Stellar Report
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto sm:justify-end">
+                          {!isDateRangeActive ? (
+                            <div className="flex gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border)">
+                              {(['1w', '1m', '2m', '3m'] as const).map(tf => (
+                                <button
+                                  key={tf}
+                                  onClick={() => setStellarTimeframe(tf)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all ${stellarTimeframe === tf
+                                    ? 'bg-brand-primary text-white shadow-sm'
+                                    : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
+                                    }`}
+                                >
+                                  {tf}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-[10.5px] text-brand-primary font-semibold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse inline-block" />
+                              Custom range active
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="h-[240px] w-full relative flex flex-col md:flex-row items-center justify-between bg-gradient-to-r from-purple-950/20 to-pink-950/10 border border-purple-500/20 rounded-2xl overflow-hidden p-6 gap-6">
+                    {loadingStellarPnl ? (
+                      <div className="flex flex-col items-center justify-center h-full w-full gap-2 text-xs text-(--color-text-secondary)">
+                        <RefreshCw size={18} className="animate-spin text-brand-primary" />
+                        <span>Loading Stellar metrics...</span>
+                      </div>
+                    ) : stellarPnlError ? (
+                      <div className="flex flex-col items-center justify-center h-full w-full gap-2 text-xs text-red-400 italic text-center px-4">
+                        <span>{stellarPnlError}</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex-1 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 animate-pulse">
+                              <Compass size={20} />
+                            </span>
+                            <div>
+                              <h4 className="text-sm font-bold text-(--color-text-primary)">Stellar Wallet Overview</h4>
+                              <p className="text-[11px] text-(--color-text-secondary)">Valuation & outcomes for this account</p>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-1.5 pt-2">
+                            <span className="text-[10px] uppercase font-bold text-(--color-text-secondary) tracking-wider">Asset Valuation</span>
+                            <div className="text-2xl font-black text-(--color-text-primary)">
+                              {portfolioUtils.formatUSD(stellarTotal)}
+                            </div>
+                            <span className="text-[10.5px] text-(--color-text-secondary) block">
+                              Address: <span className="font-mono text-purple-400 text-[10px]">{connectedWallets.stellar?.address ? `${connectedWallets.stellar.address.slice(0, 16)}...${connectedWallets.stellar.address.slice(-16)}` : 'N/A'}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex-1 w-full md:w-auto h-full flex flex-col justify-center bg-purple-950/10 border border-purple-500/10 rounded-xl p-5 space-y-4">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-(--color-text-secondary) font-semibold">Net Outcomes</span>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              (stellarPnlData?.totalPnL ?? 0) >= 0 
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                            }`}>
+                              {(stellarPnlData?.totalPnL ?? 0) >= 0 ? 'Profit' : 'Loss'}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-(--color-text-secondary) tracking-wider">Trading Net PnL</span>
+                            <div className="flex items-baseline gap-2">
+                              <span className={`text-3xl font-black ${(stellarPnlData?.totalPnL ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {(stellarPnlData?.totalPnL ?? 0) >= 0 ? '+' : ''}{portfolioUtils.formatUSD(stellarPnlData?.totalPnL ?? 0)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="w-full bg-(--color-bg-tertiary) h-1.5 rounded-full overflow-hidden flex">
+                            {stellarPnlData && (stellarPnlData.usdcSpent > 0 || stellarPnlData.usdcReceived > 0) ? (
+                              <>
+                                <div 
+                                  style={{ width: `${(stellarPnlData.usdcReceived / (stellarPnlData.usdcReceived + stellarPnlData.usdcSpent || 1)) * 100}%` }} 
+                                  className="bg-emerald-500 h-full" 
+                                  title={`Received: ${portfolioUtils.formatUSD(stellarPnlData.usdcReceived)}`} 
+                                />
+                                <div 
+                                  style={{ width: `${(stellarPnlData.usdcSpent / (stellarPnlData.usdcReceived + stellarPnlData.usdcSpent || 1)) * 100}%` }} 
+                                  className="bg-rose-500 h-full" 
+                                  title={`Spent: ${portfolioUtils.formatUSD(stellarPnlData.usdcSpent)}`} 
+                                />
+                              </>
+                            ) : (
+                              <div className="bg-slate-600 w-full h-full" />
+                            )}
+                          </div>
+                          <div className="flex justify-between text-[9.5px] text-(--color-text-secondary) font-bold uppercase">
+                            <span className="text-emerald-400">Inbound Flow ({((stellarPnlData?.usdcReceived / (stellarPnlData?.usdcReceived + stellarPnlData?.usdcSpent || 1)) * 100).toFixed(0)}%)</span>
+                            <span className="text-rose-400">Outbound Flow ({((stellarPnlData?.usdcSpent / (stellarPnlData?.usdcReceived + stellarPnlData?.usdcSpent || 1)) * 100).toFixed(0)}%)</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-2 border-t border-(--color-border)/60 text-xs">
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Total Trades</span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {stellarPnlData?.tradeCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Open Positions</span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {stellarPnlData?.positionCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Disposals</span>
+                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
+                        {stellarPnlData?.disposalCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Realized PnL</span>
+                      <span className={`font-black text-sm mt-0.5 block ${(stellarPnlData?.totalRealized ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {portfolioUtils.formatUSD(stellarPnlData?.totalRealized ?? 0)}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
+                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Unrealized PnL</span>
+                      <span className={`font-black text-sm mt-0.5 block ${(stellarPnlData?.totalUnrealized ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {portfolioUtils.formatUSD(stellarPnlData?.totalUnrealized ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-(--color-bg-tertiary)/20 p-4 rounded-xl border border-(--color-border)/40 mt-1">
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">USDC Received</span>
+                      <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
+                        {portfolioUtils.formatUSD(stellarPnlData?.usdcReceived ?? 0)}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Funds received in wallet
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">USDC Spent</span>
+                      <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
+                        {portfolioUtils.formatUSD(stellarPnlData?.usdcSpent ?? 0)}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Funds spent from wallet
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Net USDC Flow</span>
+                      <span className={`font-bold text-xs mt-1 block ${(stellarPnlData?.netUSDCFlow ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {portfolioUtils.formatUSD(stellarPnlData?.netUSDCFlow ?? 0)}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Received minus spent
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider font-bold">Net Period PnL</span>
+                      <span className={`font-black text-xs mt-1 block ${(stellarPnlData?.totalPnL ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {(stellarPnlData?.totalPnL ?? 0) >= 0 ? '+' : ''}{portfolioUtils.formatUSD(stellarPnlData?.totalPnL ?? 0)}
+                      </span>
+                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
+                        Trading profit or loss
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="border border-(--color-border) rounded-xl overflow-hidden min-h-[200px] py-4 bg-primary">
-                  <PositionsPanel />
-                </div>
-              </div>
+              )}
+
             </div>
           )}
 

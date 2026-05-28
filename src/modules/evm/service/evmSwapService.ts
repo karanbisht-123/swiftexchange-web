@@ -14,6 +14,12 @@ import {
   AGGREGATOR_NATIVE_ADDRESS,
 } from '../utils/assetmanagement/constants';
 
+const isNativeAddress = (address: string | undefined | null): boolean => {
+  if (!address) return true;
+  const lowAddress = address.toLowerCase();
+  return lowAddress === 'native' || lowAddress === NATIVE_ADDRESS.toLowerCase();
+};
+
 // Get chain symbol from chain id
 const getChainSymbol = (chainId: number | string) => {
   const chain = getChainById(chainId);
@@ -277,18 +283,14 @@ export async function prepareSwapTransaction(
   } = request;
 
   // Normalize native token address
-  const normalizedTokenInAddress =
-    request.tokenIn.address.toLowerCase() ===
-      NATIVE_ADDRESS.toLowerCase()
-      ? AGGREGATOR_NATIVE_ADDRESS
-      : request.tokenIn.address;
+  const normalizedTokenInAddress = isNativeAddress(request.tokenIn.address)
+    ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+    : request.tokenIn.address;
 
   // Normalize output token address
-  const normalizedTokenOutAddress =
-    request.tokenOut.address.toLowerCase() ===
-      NATIVE_ADDRESS.toLowerCase()
-      ? AGGREGATOR_NATIVE_ADDRESS
-      : request.tokenOut.address;
+  const normalizedTokenOutAddress = isNativeAddress(request.tokenOut.address)
+    ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+    : request.tokenOut.address;
 
   const payload = {
     ...rest,

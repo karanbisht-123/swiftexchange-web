@@ -22,6 +22,7 @@ import { useWalletStore } from '../../../walletconnect/store/walletConnectStore'
 import TransactionButton from '../../../commonfeature/components/TransactionButton';
 import { useEvmSwap, toPlainString } from '../../hook/useEvmSwap';
 import { getRangoSlippageWarning, resetRangoExecutionLock } from '../../utils/evmSwapUtils';
+import { sendEVMTransaction } from '../../../../utils/walletConnectUtils'
 import { storeSwapOrder } from '../../service/evmTransactionStatusService';
 import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata, getChainRangoSymbol } from '../../utils/Chainregistry';
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
@@ -73,7 +74,7 @@ const matchesAddress = (asset: any, queryAddress: string) => {
 
 function getGasBuffer(chainId: number | string, decimals: number): bigint {
   const id = String(chainId);
-  let bufferStr = '0.003'; // Default fallback (e.g. Ethereum mainnet)
+  let bufferStr = '0.003';
 
   if (id === '56') {
     bufferStr = '0.0005'; // BSC (BNB)
@@ -1073,14 +1074,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             const provider = getProvider(WalletType.EVM) as any;
             for (const tx of bridgeResponse.transactions) {
               setBridgeTxStatus(tx.type === 'approve' ? 'preparing' : 'signing');
-              const hash = await provider.request({
-                method: 'eth_sendTransaction',
-                params: [{
-                  from: tx.transaction.from,
-                  to: tx.transaction.to,
-                  value: `0x${BigInt(tx.transaction.value).toString(16)}`,
-                  data: tx.transaction.data,
-                }]
+              const hash = await sendEVMTransaction(provider, fromChainId, {
+                from: tx.transaction.from,
+                to: tx.transaction.to,
+                value: `0x${BigInt(tx.transaction.value).toString(16)}`,
+                data: tx.transaction.data,
               });
               if (tx.type === 'approve') {
                 storeSwapOrder({
@@ -1249,7 +1247,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isChainSwitching ||
     isSameAssetSelected;
 
-  console.log("{{{{{{{{{{{}}", activeQuote, "{{{{{{{{{{{")
+  // console.log("{{{{{{{{{{{}}", activeQuote, "{{{{{{{{{{{")
   const calculatedBuyAmount = useMemo(() => {
     if (isSameAssetSelected) return 'SELECT DIFFERENT PAIR';
 
