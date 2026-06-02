@@ -29,6 +29,7 @@ import { useAssetSelectorModal } from '../../../commonfeature/components/useAsse
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
 import StellarTransactionModal from '../../../steallr/components/modals/StellarTransactionModal';
+import StellarActiveGuard from '../../../walletconnect/components/StellarActiveGuard';
 import { ActionGuard } from '../../../commonfeature/components/ActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
 import FusionQuoteScreen from './components/FusionQuoteScreen';
@@ -280,6 +281,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
     return swapAssets.find(a => a.symbol === buyAssetSymbol);
   }, [swapAssets, buyAssetSymbol, buyAssetAddress, stellarAssets, toChainId, fromChainId]);
+
+  const isStellarActivationRequired = useMemo(() => {
+    if (isStellar(fromChainId)) return true;
+    if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative) return true;
+    return false;
+  }, [fromChainId, toChainId, selectedBuyAsset]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -1289,8 +1296,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   })();
 
   return (
-    <PageLayout title="Token Swap" subtitle="Unified Exchange & Bridge" onBack={onClose} showBackButton={!!onClose} maxWidth="lg">
-      <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden">
+    <PageLayout title="Token Swap" subtitle="Swap & Bridge" onBack={onClose} showBackButton={!!onClose} maxWidth="lg">
+      <StellarActiveGuard bypass={!isStellarActivationRequired} onSkip={onClose}>
+        <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden">
 
         {/* Settings Header - Only show for Rango/Bridge */}
         {((actionType === 'BRIDGE' && activeQuote.source === 'rango') || (actionType === 'SWAP' && swapQuote?.provider === 'RANGO')) && (
@@ -1883,6 +1891,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         setUserSlippageTolerance={setUserSlippageTolerance}
         recommendedSlippage={slippageWarning?.recommendedSlippage}
       />
+      </StellarActiveGuard>
     </PageLayout>
   );
 };

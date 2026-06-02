@@ -413,6 +413,30 @@ export interface StellarExportData {
   tradeCount: number;
   positionCount: number;
   disposalCount: number;
+  winRate?: number;
+  bestTrade?: {
+    date: string;
+    asset: string;
+    pnl: number;
+  };
+  worstTrade?: {
+    date: string;
+    asset: string;
+    pnl: number;
+  };
+  firstTradeDate?: string;
+  lastTradeDate?: string;
+  activeDays?: number;
+  mostTradedAsset?: string;
+  totalPortfolioValue?: number;
+  totalCostBasis?: number;
+  openPnLPct?: number;
+  largestPosition?: {
+    asset: string;
+    issuer: string;
+    remaining: number;
+    currentValue: number;
+  };
   history?: Array<{
     date: string;
     realized: number;
@@ -429,6 +453,12 @@ function buildStellarSummaryRows(stellar: StellarExportData): string {
   const pnlCardTextColor = isPnlPositive ? '#166534' : '#991b1b';
   const pnlSign = isPnlPositive ? '+' : '';
   const pnlValue = `${pnlSign}${usd(stellar.totalPnL)}`;
+
+  const successCardBg = '#f8fafc';
+  const successCardBorder = '#cbd5e1';
+  const successCardTextColor = '#0f172a';
+  const successValue = stellar.winRate !== undefined ? `${stellar.winRate}%` : 'N/A';
+  const successSub = `Win Rate over active days`;
 
   const capCardBg = stellar.netUSDCFlow >= 0 ? '#ecfdf5' : '#fffbeb';
   const capCardBorder = stellar.netUSDCFlow >= 0 ? '#bbf7d0' : '#fde68a';
@@ -454,15 +484,23 @@ function buildStellarSummaryRows(stellar: StellarExportData): string {
     <!-- VISUAL KPI DASHBOARD CARDS ROW -->
     <tr style="height:90px;">
       <!-- Net Period PnL Card -->
-      <td colspan="5" style="background:${pnlCardBg};border:2px solid ${pnlCardBorder};padding:22px 14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+      <td colspan="3" style="background:${pnlCardBg};border:2px solid ${pnlCardBorder};padding:22px 14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
         <span style="font-size:10px;color:${pnlCardTextColor};font-weight:bold;text-transform:uppercase;letter-spacing:0.8px;">${isPnlPositive ? '📈 Net Profit' : '📉 Net Loss'}</span>
         <br /><br />
         <span style="font-size:22px;color:${pnlCardTextColor};font-weight:bold;font-family:Arial,sans-serif;">${esc(pnlValue)}</span>
         <br /><br />
         <span style="font-size:9.5px;color:${pnlCardTextColor};opacity:0.8;font-style:italic;">Stellar wallet net performance</span>
       </td>
+      <!-- Trade Success Rate Card -->
+      <td colspan="4" style="background:${successCardBg};border:2px solid ${successCardBorder};padding:22px 14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+        <span style="font-size:10px;color:${successCardTextColor};font-weight:bold;text-transform:uppercase;letter-spacing:0.8px;">🎯 Win Rate</span>
+        <br /><br />
+        <span style="font-size:22px;color:${successCardTextColor};font-weight:bold;font-family:Arial,sans-serif;">${esc(successValue)}</span>
+        <br /><br />
+        <span style="font-size:9.5px;color:#475569;font-style:italic;">${esc(successSub)}</span>
+      </td>
       <!-- Net Capital Flow Card -->
-      <td colspan="5" style="background:${capCardBg};border:2px solid ${capCardBorder};padding:22px 14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+      <td colspan="3" style="background:${capCardBg};border:2px solid ${capCardBorder};padding:22px 14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
         <span style="font-size:10px;color:${capCardTextColor};font-weight:bold;text-transform:uppercase;letter-spacing:0.8px;">💰 Net Capital Flow (USDC)</span>
         <br /><br />
         <span style="font-size:22px;color:${capCardTextColor};font-weight:bold;font-family:Arial,sans-serif;">${esc(capValue)}</span>
@@ -484,6 +522,24 @@ function buildStellarSummaryRows(stellar: StellarExportData): string {
     ${kvRow10('Open Positions Count', stellar.positionCount, '#0f172a', '#f8fafc')}
     ${kvRow10('Disposals Count', stellar.disposalCount, '#0f172a', '#ffffff')}
     
+    <tr>
+      <td colspan="10" style="background:#f1f5f9;color:#0f172a;font-weight:bold;font-size:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:8px 12px;text-align:left;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #cbd5e1;">Trading History & Highlights</td>
+    </tr>
+    ${kvRow10('First Trade Date', stellar.firstTradeDate || 'N/A', '#0f172a', '#ffffff')}
+    ${kvRow10('Last Trade Date', stellar.lastTradeDate || 'N/A', '#0f172a', '#f8fafc')}
+    ${kvRow10('Active Days Count', stellar.activeDays !== undefined ? stellar.activeDays : 'N/A', '#0f172a', '#ffffff')}
+    ${kvRow10('Most Traded Asset', stellar.mostTradedAsset || 'N/A', '#0f172a', '#f8fafc')}
+    ${kvRow10('Best Trade', stellar.bestTrade ? `${stellar.bestTrade.asset} (${stellar.bestTrade.date}): +${usd(stellar.bestTrade.pnl)}` : 'N/A', stellar.bestTrade && stellar.bestTrade.pnl >= 0 ? C.profit : C.loss, '#ffffff')}
+    ${kvRow10('Worst Trade', stellar.worstTrade ? `${stellar.worstTrade.asset} (${stellar.worstTrade.date}): ${usd(stellar.worstTrade.pnl)}` : 'N/A', stellar.worstTrade && stellar.worstTrade.pnl >= 0 ? C.profit : C.loss, '#f8fafc')}
+
+    <tr>
+      <td colspan="10" style="background:#f1f5f9;color:#0f172a;font-weight:bold;font-size:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:8px 12px;text-align:left;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #cbd5e1;">Valuation & Positions</td>
+    </tr>
+    ${kvRow10('Total Cost Basis', stellar.totalCostBasis !== undefined ? usd(stellar.totalCostBasis) : 'N/A', '#0f172a', '#ffffff')}
+    ${kvRow10('Total Portfolio Value', stellar.totalPortfolioValue !== undefined ? usd(stellar.totalPortfolioValue) : 'N/A', '#0f172a', '#f8fafc')}
+    ${kvRow10('Open PnL %', stellar.openPnLPct !== undefined ? `${stellar.openPnLPct}%` : 'N/A', stellar.openPnLPct !== undefined && stellar.openPnLPct >= 0 ? C.profit : C.loss, '#ffffff')}
+    ${kvRow10('Largest Position', stellar.largestPosition ? `${stellar.largestPosition.asset}: ${stellar.largestPosition.remaining.toFixed(4)} assets (Valued at ${usd(stellar.largestPosition.currentValue)})` : 'N/A', '#0f172a', '#f8fafc')}
+
     <tr>
       <td colspan="10" style="background:#f1f5f9;color:#0f172a;font-weight:bold;font-size:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:8px 12px;text-align:left;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #cbd5e1;">Financial Performance</td>
     </tr>

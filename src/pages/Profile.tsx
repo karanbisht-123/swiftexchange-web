@@ -61,6 +61,17 @@ const Profile: React.FC = () => {
     filteredAssets,
   } = useProfilePortfolio();
 
+  const [isStellarCollapsed, setIsStellarCollapsed] = useState<boolean>(stellarTotal === 0);
+  const [isDydxCollapsed, setIsDydxCollapsed] = useState<boolean>(dydxTotal === 0);
+
+  useEffect(() => {
+    setIsStellarCollapsed(stellarTotal === 0);
+  }, [stellarTotal]);
+
+  useEffect(() => {
+    setIsDydxCollapsed(dydxTotal === 0);
+  }, [dydxTotal]);
+
   const {
     positions: dydxPositions,
     openOrderCount,
@@ -86,6 +97,7 @@ const Profile: React.FC = () => {
   const [loadingStellarPnl, setLoadingStellarPnl] = useState(false);
   const [stellarPnlError, setStellarPnlError] = useState<string | null>(null);
   const [stellarTimeframe, setStellarTimeframe] = useState<'1w' | '1m' | '2m' | '3m'>('1m');
+  const [stellarSubTab, setStellarSubTab] = useState<'overview' | 'highlights' | 'stats'>('overview');
 
   const [dateRangeOrders, setDateRangeOrders] = useState<any[]>([]);
   const [dateRangeFillCount, setDateRangeFillCount] = useState(0);
@@ -404,6 +416,29 @@ const pnlStats = useMemo(() => {
   return { change, percentChange, currentEquity };
 }, [visiblePnlPoints, dydxTotal]);
 
+const cardPnL = useMemo(() => {
+  // Stellar PNL
+  const stellarPnL = stellarPnlData?.totalPnL || 0;
+  const stellarStart = stellarTotal - stellarPnL;
+  const stellarPct = stellarStart > 0 ? (stellarPnL / stellarStart) * 100 : 0;
+
+  // dYdX PNL
+  const dydxPnL = pnlStats.change || 0;
+  const dydxPct = pnlStats.percentChange || 0;
+
+  // Total PNL
+  const totalPnL = stellarPnL + dydxPnL;
+  const totalStart = (stellarTotal + dydxTotal + evmTotal) - totalPnL;
+  const totalPct = totalStart > 0 ? (totalPnL / totalStart) * 100 : 0;
+
+  return {
+    total: { change: totalPnL, percent: totalPct },
+    evm: { change: 0, percent: 0 },
+    stellar: { change: stellarPnL, percent: stellarPct },
+    dydx: { change: dydxPnL, percent: dydxPct },
+  };
+}, [stellarPnlData?.totalPnL, stellarTotal, dydxTotal, evmTotal, pnlStats.change, pnlStats.percentChange]);
+
 const periodStats = useMemo(() => {
   let totalDeposits = 0;
   let totalWithdrawals = 0;
@@ -588,7 +623,7 @@ const displayStats = useMemo(() => {
       timeLabel: 'Cumulative Closed PnL'
     };
   }
-}, [crosshairData, pnlStats, visiblePnlPoints, chartType, tradePnlPoints, periodStats.totalClosedPnl, activeTab]);
+}, [crosshairData, pnlStats, visiblePnlPoints, chartType, tradePnlPoints, periodStats.totalClosedPnl, activeTab, stellarPnlData?.totalPnL, stellarTotal]);
 
 const chartContainerRef = useRef<HTMLDivElement>(null);
 const chartRef = useRef<IChartApi | null>(null);
@@ -907,6 +942,17 @@ const handleExportStellarReport = () => {
     tradeCount: stellarPnlData.tradeCount || 0,
     positionCount: stellarPnlData.positionCount || 0,
     disposalCount: stellarPnlData.disposalCount || 0,
+    winRate: stellarPnlData.winRate,
+    bestTrade: stellarPnlData.bestTrade,
+    worstTrade: stellarPnlData.worstTrade,
+    firstTradeDate: stellarPnlData.firstTradeDate,
+    lastTradeDate: stellarPnlData.lastTradeDate,
+    activeDays: stellarPnlData.activeDays,
+    mostTradedAsset: stellarPnlData.mostTradedAsset,
+    totalPortfolioValue: stellarPnlData.totalPortfolioValue,
+    totalCostBasis: stellarPnlData.totalCostBasis,
+    openPnLPct: stellarPnlData.openPnLPct,
+    largestPosition: stellarPnlData.largestPosition,
   });
 };
 
@@ -1056,14 +1102,15 @@ return (
               const details = getCardDetails(tab);
               const isActive = activeTab === tab;
               const isCopied = copiedStates[tab];
+              const pnl = cardPnL[tab];
 
               return (
                 <div
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group shadow-lg ${isActive
-                    ? `${details.activeBg} shadow-inner`
-                    : 'bg-(--color-bg-secondary) border-(--color-border) hover:border-brand-primary/40 hover:scale-[1.01]'
+                  className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group shadow-md hover:shadow-xl ${isActive
+                    ? `${details.activeBg} border-brand-primary/50 shadow-inner`
+                    : 'bg-(--color-bg-secondary) border-(--color-border) hover:border-brand-primary/30 hover:-translate-y-0.5'
                     }`}
                 >
                   <div className="absolute top-0 right-0 w-24 h-24 bg-brand-primary/5 rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-all duration-500" />
@@ -1091,10 +1138,18 @@ return (
 
                   <div className="mt-6 space-y-1">
                     <span className="text-xs text-(--color-text-secondary)">Total USD Balance</span>
-                    <div className="text-2xl font-black tracking-tight text-(--color-text-primary)">
-                      {portfolioUtils.formatUSD(details.total)}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="text-2xl font-black tracking-tight text-(--color-text-primary)">
+                        {portfolioUtils.formatUSD(details.total)}
+                      </div>
+                      {pnl.change !== 0 && (
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 border ${pnl.change >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                          {pnl.change >= 0 ? '▲' : '▼'} {Math.abs(pnl.percent).toFixed(1)}%
+                        </span>
+                      )}
                     </div>
                   </div>
+
 
                   <div
                     onClick={(e) => e.stopPropagation()}
@@ -1140,7 +1195,23 @@ return (
               {/* dYdX Performance Container */}
               {(activeTab === 'dydx' || (activeTab === 'total' && (dydxTotal > 0 || dydxPositions.length > 0 || visiblePnlPoints.length > 0))) && (
                 <div className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md flex flex-col justify-between space-y-4">
-                  <div className="flex flex-col gap-3">
+                  <div
+                    onClick={() => setIsDydxCollapsed(!isDydxCollapsed)}
+                    className="flex items-center justify-between cursor-pointer py-1 select-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Activity size={18} className="text-emerald-400" />
+                      <h4 className="font-bold text-sm text-(--color-text-primary)">dYdX Performance & Analytics</h4>
+                      {dydxTotal === 0 && (
+                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">Empty Account</span>
+                      )}
+                    </div>
+                    <ChevronRight size={16} className={`text-(--color-text-secondary) transition-transform duration-300 ${!isDydxCollapsed ? 'rotate-90' : ''}`} />
+                  </div>
+
+                  {!isDydxCollapsed && (
+                    <>
+                      <div className="flex flex-col gap-3">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
                         <span className="text-xs font-semibold text-(--color-text-secondary)">{chartType === 'equity' ? 'Trading Account Value' : 'Cumulative Closed PnL'}</span>
@@ -1354,8 +1425,10 @@ return (
                       </span>
                     </div>
                   </div>
-                </div>
+                </>
               )}
+            </div>
+          )}
 
               {/* Open Margin Positions panel */}
               {(activeTab === 'dydx' || activeTab === 'total') && (
@@ -1369,10 +1442,25 @@ return (
                 </div>
               )}
 
-              {/* Stellar Performance Container */}
               {(activeTab === 'stellar' || (activeTab === 'total' && connectedWallets.stellar?.address)) && (
                 <div className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md flex flex-col justify-between space-y-4">
-                  <div className="flex flex-col gap-3">
+                  <div
+                    onClick={() => setIsStellarCollapsed(!isStellarCollapsed)}
+                    className="flex items-center justify-between cursor-pointer py-1 select-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Compass size={18} className="text-purple-400" />
+                      <h4 className="font-bold text-sm text-(--color-text-primary)">Stellar Performance & Analytics</h4>
+                      {stellarTotal === 0 && (
+                        <span className="text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded-full font-semibold">Empty Balance</span>
+                      )}
+                    </div>
+                    <ChevronRight size={16} className={`text-(--color-text-secondary) transition-transform duration-300 ${!isStellarCollapsed ? 'rotate-90' : ''}`} />
+                  </div>
+
+                  {!isStellarCollapsed && (
+                    <>
+                      <div className="flex flex-col gap-3">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
                         <span className="text-xs font-semibold text-(--color-text-secondary)">Stellar Wallet Valuation</span>
@@ -1460,7 +1548,7 @@ return (
                     </div>
                   </div>
 
-                  <div className="h-[240px] w-full relative flex flex-col md:flex-row items-center justify-between bg-gradient-to-r from-purple-950/20 to-pink-950/10 border border-purple-500/20 rounded-2xl overflow-hidden p-6 gap-6">
+                  <div className="min-h-[220px] md:h-[240px] w-full relative flex flex-col md:flex-row items-center justify-between bg-gradient-to-r from-purple-950/20 to-pink-950/10 border border-purple-500/20 rounded-2xl overflow-hidden p-6 gap-6">
                     {loadingStellarPnl ? (
                       <div className="flex flex-col items-center justify-center h-full w-full gap-2 text-xs text-(--color-text-secondary)">
                         <RefreshCw size={18} className="animate-spin text-brand-primary" />
@@ -1542,79 +1630,310 @@ return (
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-2 border-t border-(--color-border)/60 text-xs">
-                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Total Trades</span>
-                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                        {stellarPnlData?.tradeCount ?? 0}
-                      </span>
+                  {/* Stellar Dashboard Sub-navigation Tabs */}
+                  {!loadingStellarPnl && !stellarPnlError && stellarPnlData && (
+                    <div className="flex border-b border-(--color-border)/50 pb-px mt-2 justify-start overflow-x-auto hide-scrollbar select-none gap-4">
+                      {(['overview', 'highlights', 'stats'] as const).map((tab) => {
+                        const label = tab === 'overview' ? 'Overview' : tab === 'highlights' ? 'Trading Highlights' : 'Detailed Metrics';
+                        const isActive = stellarSubTab === tab;
+                        return (
+                          <button
+                            key={tab}
+                            type="button"
+                            onClick={() => setStellarSubTab(tab)}
+                            className={`pb-2 px-1 text-xs font-bold transition-all relative shrink-0 ${
+                              isActive 
+                                ? 'text-purple-400 font-extrabold' 
+                                : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
+                            }`}
+                          >
+                            {label}
+                            {isActive && (
+                              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-400 rounded-full" />
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Open Positions</span>
-                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                        {stellarPnlData?.positionCount ?? 0}
-                      </span>
-                    </div>
-                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Disposals</span>
-                      <span className="font-black text-sm text-(--color-text-primary) mt-0.5 block">
-                        {stellarPnlData?.disposalCount ?? 0}
-                      </span>
-                    </div>
-                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Realized PnL</span>
-                      <span className={`font-black text-sm mt-0.5 block ${(stellarPnlData?.totalRealized ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {portfolioUtils.formatUSD(stellarPnlData?.totalRealized ?? 0)}
-                      </span>
-                    </div>
-                    <div className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl">
-                      <span className="text-(--color-text-secondary) block text-[10px] uppercase font-semibold tracking-wider">Unrealized PnL</span>
-                      <span className={`font-black text-sm mt-0.5 block ${(stellarPnlData?.totalUnrealized ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {portfolioUtils.formatUSD(stellarPnlData?.totalUnrealized ?? 0)}
-                      </span>
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-(--color-bg-tertiary)/20 p-4 rounded-xl border border-(--color-border)/40 mt-1">
-                    <div>
-                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">USDC Received</span>
-                      <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
-                        {portfolioUtils.formatUSD(stellarPnlData?.usdcReceived ?? 0)}
-                      </span>
-                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                        Funds received in wallet
-                      </span>
+                  {/* Cost Basis Warning Notification */}
+                  {stellarPnlData?.costBasisWarning && (
+                    <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
+                      <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/10 text-amber-500 font-bold select-none text-[11px]">!</span>
+                      <div>
+                        <span className="font-bold">Cost Basis Warning:</span> Some asset prices were estimated or missing. Metrics might not be fully accurate.
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">USDC Spent</span>
-                      <span className="font-bold text-xs text-(--color-text-primary) mt-1 block">
-                        {portfolioUtils.formatUSD(stellarPnlData?.usdcSpent ?? 0)}
-                      </span>
-                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                        Funds spent from wallet
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider">Net USDC Flow</span>
-                      <span className={`font-bold text-xs mt-1 block ${(stellarPnlData?.netUSDCFlow ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {portfolioUtils.formatUSD(stellarPnlData?.netUSDCFlow ?? 0)}
-                      </span>
-                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                        Received minus spent
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-semibold tracking-wider font-bold">Net Period PnL</span>
-                      <span className={`font-black text-xs mt-1 block ${(stellarPnlData?.totalPnL ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {(stellarPnlData?.totalPnL ?? 0) >= 0 ? '+' : ''}{portfolioUtils.formatUSD(stellarPnlData?.totalPnL ?? 0)}
-                      </span>
-                      <span className="text-[9.5px] text-(--color-text-secondary) mt-0.5 block leading-normal">
-                        Trading profit or loss
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                  )}
+
+                  {/* Sub-tab Contents */}
+                  {!loadingStellarPnl && !stellarPnlError && stellarPnlData && (
+                    <>
+                      {/* Overview Sub-view */}
+                      {stellarSubTab === 'overview' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                          {/* Left: Win Rate & outcomes circular gauge */}
+                          <div className="p-5 bg-gradient-to-br from-purple-950/5 to-pink-950/5 border border-purple-500/10 rounded-2xl flex flex-col sm:flex-row items-center gap-6">
+                            <div className="relative flex items-center justify-center">
+                              {/* Circle progress gauge */}
+                              <svg className="w-24 h-24 transform -rotate-90 select-none shrink-0" viewBox="0 0 36 36">
+                                <path
+                                  className="text-purple-500/10"
+                                  strokeWidth="3"
+                                  stroke="currentColor"
+                                  fill="none"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                                <path
+                                  className="text-purple-400"
+                                  strokeWidth="3.2"
+                                  strokeDasharray={`${stellarPnlData.winRate ?? 0}, 100`}
+                                  strokeLinecap="round"
+                                  stroke="currentColor"
+                                  fill="none"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                              </svg>
+                              <div className="absolute flex flex-col items-center justify-center">
+                                <span className="text-lg font-black text-(--color-text-primary)">{stellarPnlData.winRate ?? 0}%</span>
+                                <span className="text-[9px] uppercase font-bold text-(--color-text-secondary) tracking-wider">Win Rate</span>
+                              </div>
+                            </div>
+                            <div className="flex-1 text-center sm:text-left space-y-2">
+                              <h5 className="text-xs font-black text-(--color-text-primary) uppercase tracking-wider text-purple-400">Trade Outcome Analysis</h5>
+                              <p className="text-[11.5px] text-(--color-text-secondary) leading-relaxed">
+                                Out of <span className="text-(--color-text-primary) font-bold">{stellarPnlData.tradeCount ?? 0}</span> trades initiated in this period, 
+                                the account closed with a win rate of <span className="text-(--color-text-primary) font-bold">{stellarPnlData.winRate ?? 0}%</span>. 
+                                Disposals accounted for <span className="text-(--color-text-primary) font-bold">{stellarPnlData.disposalCount ?? 0}</span> transactions.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Right: Timeline & Activity highlights */}
+                          <div className="p-5 bg-gradient-to-br from-purple-950/5 to-pink-950/5 border border-purple-500/10 rounded-2xl flex flex-col justify-between">
+                            <div className="space-y-3">
+                              <h5 className="text-xs font-black text-(--color-text-primary) uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+                                <Calendar size={13} />
+                                Trading Period Timeline
+                              </h5>
+                              
+                              <div className="relative pl-6 border-l-2 border-purple-500/10 space-y-4 py-1">
+                                <div className="relative">
+                                  <span className="absolute -left-[30px] top-0.5 w-2 h-2 rounded-full bg-purple-400 border-4 border-secondary box-content" />
+                                  <span className="text-[9.5px] uppercase font-bold text-(--color-text-secondary) block tracking-wider">First Trade Initiated</span>
+                                  <span className="text-xs font-bold text-(--color-text-primary) mt-0.5 block">
+                                    {stellarPnlData.firstTradeDate ? new Date(stellarPnlData.firstTradeDate).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}
+                                  </span>
+                                </div>
+                                <div className="relative">
+                                  <span className="absolute -left-[30px] top-0.5 w-2 h-2 rounded-full bg-pink-400 border-4 border-secondary box-content" />
+                                  <span className="text-[9.5px] uppercase font-bold text-(--color-text-secondary) block tracking-wider">Last Trade Recorded</span>
+                                  <span className="text-xs font-bold text-(--color-text-primary) mt-0.5 block">
+                                    {stellarPnlData.lastTradeDate ? new Date(stellarPnlData.lastTradeDate).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-3 border-t border-(--color-border)/30 text-[11px] text-(--color-text-secondary)">
+                              <span>Active Trading Days: <span className="font-bold text-(--color-text-primary)">{stellarPnlData.activeDays ?? 0}</span></span>
+                              <span>Most Traded: <span className="font-bold text-(--color-text-primary)">{stellarPnlData.mostTradedAsset ?? '—'}</span></span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Trading Highlights Sub-view */}
+                      {stellarSubTab === 'highlights' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-2">
+                          {/* Best Trade Card */}
+                          <div className="p-5 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 border border-emerald-500/10 hover:border-emerald-500/20 rounded-2xl transition duration-300 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none group-hover:bg-emerald-500/10 transition" />
+                            <div className="flex items-center justify-between pb-3 border-b border-emerald-500/10">
+                              <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Best Trade</span>
+                              <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                                <TrendingUp size={14} />
+                              </span>
+                            </div>
+                            <div className="pt-4 space-y-2">
+                              {stellarPnlData.bestTrade ? (
+                                <>
+                                  <div className="text-2xl font-black text-emerald-400">
+                                    +{portfolioUtils.formatUSD(stellarPnlData.bestTrade.pnl ?? 0)}
+                                  </div>
+                                  <div className="space-y-0.5 text-xs">
+                                    <div className="text-(--color-text-secondary)">
+                                      Asset Symbol: <span className="font-bold text-(--color-text-primary)">{stellarPnlData.bestTrade.asset ?? '—'}</span>
+                                    </div>
+                                    <div className="text-(--color-text-secondary)">
+                                      Execution Date: <span className="font-bold text-(--color-text-primary)">{stellarPnlData.bestTrade.date ? new Date(stellarPnlData.bestTrade.date).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}</span>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-(--color-text-secondary) italic pt-2">No trading data available</div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Worst Trade Card */}
+                          <div className="p-5 bg-gradient-to-br from-rose-500/5 to-red-500/5 border border-rose-500/10 hover:border-rose-500/20 rounded-2xl transition duration-300 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none group-hover:bg-rose-500/10 transition" />
+                            <div className="flex items-center justify-between pb-3 border-b border-rose-500/10">
+                              <span className="text-[10px] uppercase font-bold text-rose-400 tracking-wider">Worst Trade</span>
+                              <span className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
+                                <TrendingDown size={14} />
+                              </span>
+                            </div>
+                            <div className="pt-4 space-y-2">
+                              {stellarPnlData.worstTrade ? (
+                                <>
+                                  <div className="text-2xl font-black text-rose-400">
+                                    {portfolioUtils.formatUSD(stellarPnlData.worstTrade.pnl ?? 0)}
+                                  </div>
+                                  <div className="space-y-0.5 text-xs">
+                                    <div className="text-(--color-text-secondary)">
+                                      Asset Symbol: <span className="font-bold text-(--color-text-primary)">{stellarPnlData.worstTrade.asset ?? '—'}</span>
+                                    </div>
+                                    <div className="text-(--color-text-secondary)">
+                                      Execution Date: <span className="font-bold text-(--color-text-primary)">{stellarPnlData.worstTrade.date ? new Date(stellarPnlData.worstTrade.date).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}</span>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-(--color-text-secondary) italic pt-2">No trading data available</div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Largest Position Card */}
+                          <div className="p-5 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 border border-purple-500/10 hover:border-purple-500/20 rounded-2xl transition duration-300 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none group-hover:bg-purple-500/10 transition" />
+                            <div className="flex items-center justify-between pb-3 border-b border-purple-500/10">
+                              <span className="text-[10px] uppercase font-bold text-purple-400 tracking-wider">Largest Position</span>
+                              <span className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
+                                <Sparkles size={14} />
+                              </span>
+                            </div>
+                            <div className="pt-4 space-y-2">
+                              {stellarPnlData.largestPosition ? (
+                                <>
+                                  <div className="text-2xl font-black text-(--color-text-primary)">
+                                    {portfolioUtils.formatUSD(stellarPnlData.largestPosition.currentValue ?? 0)}
+                                  </div>
+                                  <div className="space-y-1.5 text-xs">
+                                    <div className="text-(--color-text-secondary)">
+                                      Holding: <span className="font-bold text-(--color-text-primary)">{(stellarPnlData.largestPosition.remaining ?? 0).toFixed(4)} {stellarPnlData.largestPosition.asset ?? '—'}</span>
+                                    </div>
+                                    
+                                    {/* Progress bar showing share of portfolio */}
+                                    {stellarPnlData.totalPortfolioValue ? (
+                                      <div className="space-y-1 pt-1.5">
+                                        <div className="flex justify-between text-[10px] font-bold text-(--color-text-secondary)">
+                                          <span>PORTFOLIO SHARE</span>
+                                          <span>{((stellarPnlData.largestPosition.currentValue / (stellarPnlData.totalPortfolioValue || 1)) * 100).toFixed(1)}%</span>
+                                        </div>
+                                        <div className="w-full bg-(--color-bg-tertiary) h-1 rounded-full overflow-hidden">
+                                          <div 
+                                            className="bg-purple-400 h-full rounded-full" 
+                                            style={{ width: `${Math.min(100, (stellarPnlData.largestPosition.currentValue / (stellarPnlData.totalPortfolioValue || 1)) * 100)}%` }} 
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-(--color-text-secondary) italic pt-2">No positions open</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Detailed Metrics Sub-view */}
+                      {stellarSubTab === 'stats' && (
+                        <div className="space-y-4 mt-2">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs">
+                            <div className="p-3.5 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl flex flex-col justify-between min-h-[75px]">
+                              <span className="text-(--color-text-secondary) block text-[10px] uppercase font-bold tracking-wider">Total Trades</span>
+                              <span className="font-black text-sm text-(--color-text-primary) mt-1.5 block">
+                                {stellarPnlData.tradeCount ?? 0}
+                              </span>
+                            </div>
+                            <div className="p-3.5 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl flex flex-col justify-between min-h-[75px]">
+                              <span className="text-(--color-text-secondary) block text-[10px] uppercase font-bold tracking-wider">Open Positions</span>
+                              <span className="font-black text-sm text-(--color-text-primary) mt-1.5 block">
+                                {stellarPnlData.positionCount ?? 0}
+                              </span>
+                            </div>
+                            <div className="p-3.5 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl flex flex-col justify-between min-h-[75px]">
+                              <span className="text-(--color-text-secondary) block text-[10px] uppercase font-bold tracking-wider">Disposals</span>
+                              <span className="font-black text-sm text-(--color-text-primary) mt-1.5 block">
+                                {stellarPnlData.disposalCount ?? 0}
+                              </span>
+                            </div>
+                            <div className="p-3.5 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl flex flex-col justify-between min-h-[75px]">
+                              <span className="text-(--color-text-secondary) block text-[10px] uppercase font-bold tracking-wider">Realized PnL</span>
+                              <span className={`font-black text-sm mt-1.5 block ${(stellarPnlData.totalRealized ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {portfolioUtils.formatUSD(stellarPnlData.totalRealized ?? 0)}
+                              </span>
+                            </div>
+                            <div className="p-3.5 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl flex flex-col justify-between min-h-[75px]">
+                              <span className="text-(--color-text-secondary) block text-[10px] uppercase font-bold tracking-wider">Unrealized PnL</span>
+                              <span className={`font-black text-sm mt-1.5 block ${(stellarPnlData.totalUnrealized ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {portfolioUtils.formatUSD(stellarPnlData.totalUnrealized ?? 0)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-(--color-bg-tertiary)/25 p-4 rounded-2xl border border-(--color-border)/40">
+                            <div className="space-y-1">
+                              <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-bold tracking-wider">USDC Received</span>
+                              <span className="font-bold text-xs text-(--color-text-primary) block">
+                                {portfolioUtils.formatUSD(stellarPnlData.usdcReceived ?? 0)}
+                              </span>
+                              <span className="text-[9.5px] text-(--color-text-secondary) block leading-normal pt-0.5">
+                                Funds received in wallet
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-bold tracking-wider">USDC Spent</span>
+                              <span className="font-bold text-xs text-(--color-text-primary) block">
+                                {portfolioUtils.formatUSD(stellarPnlData.usdcSpent ?? 0)}
+                              </span>
+                              <span className="text-[9.5px] text-(--color-text-secondary) block leading-normal pt-0.5">
+                                Funds spent from wallet
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-bold tracking-wider">Net USDC Flow</span>
+                              <span className={`font-bold text-xs block ${(stellarPnlData.netUSDCFlow ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {portfolioUtils.formatUSD(stellarPnlData.netUSDCFlow ?? 0)}
+                              </span>
+                              <span className="text-[9.5px] text-(--color-text-secondary) block leading-normal pt-0.5">
+                                Received minus spent
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-(--color-text-secondary) block text-[9.5px] uppercase font-bold tracking-wider font-bold">Net Period PnL</span>
+                              <span className={`font-black text-xs block ${(stellarPnlData.totalPnL ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {(stellarPnlData.totalPnL ?? 0) >= 0 ? '+' : ''}{portfolioUtils.formatUSD(stellarPnlData.totalPnL ?? 0)}
+                              </span>
+                              <span className="text-[9.5px] text-(--color-text-secondary) block leading-normal pt-0.5">
+                                Trading profit or loss
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
               )}
+            </div>
+          )}
 
             </div>
           )}

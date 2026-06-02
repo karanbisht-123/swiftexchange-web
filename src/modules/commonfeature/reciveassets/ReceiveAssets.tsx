@@ -197,7 +197,7 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
         )}
 
         {currentAsset?.walletType === 'stellar' ? (
-          <StellarActiveGuard onSkip={onClose}>
+          <StellarActiveGuard onSkip={onClose} bypass={currentAsset?.isNative}>
             <div className="space-y-5">
               <div className="space-y-2">
                 <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Receiving Asset</label>
