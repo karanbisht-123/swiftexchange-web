@@ -86,6 +86,7 @@ export default function StellarTradingChart({
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<any>(null);
+  const prevChartTypeRef = useRef<ChartType | null>(null);
 
   const timeRange = {
     startTime:
@@ -145,111 +146,142 @@ export default function StellarTradingChart({
     };
   };
 
+  // 1. Chart Creation and Resize Management Effect
   useEffect(() => {
-    if (!chartContainerRef.current || chartData.length === 0) return;
+    if (!chartContainerRef.current) return;
 
     const colors = getThemeColors();
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.textColor,
+        fontSize: 12,
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      },
+      grid: {
+        vertLines: {
+          color: showGrid ? colors.gridColor : 'transparent',
+          style: LineStyle.Solid,
+          visible: showGrid,
+        },
+        horzLines: {
+          color: showGrid ? colors.gridColor : 'transparent',
+          style: LineStyle.Solid,
+          visible: showGrid,
+        },
+      },
+      crosshair: {
+        mode: showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden,
+        vertLine: {
+          color: colors.crosshairColor,
+          width: 1,
+          style: LineStyle.Dashed,
+          labelBackgroundColor: colors.borderColor,
+        },
+        horzLine: {
+          color: colors.crosshairColor,
+          width: 1,
+          style: LineStyle.Dashed,
+          labelBackgroundColor: colors.borderColor,
+        },
+      },
+      rightPriceScale: {
+        borderColor: colors.borderColor,
+        scaleMargins: {
+          top: 0.1,
+          bottom: showVolume ? 0.2 : 0.1,
+        },
+      },
+      timeScale: {
+        borderColor: colors.borderColor,
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 12,
+        barSpacing: 10,
+        minBarSpacing: 5,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
+    });
 
-    if (!chartRef.current) {
-      const chart = createChart(chartContainerRef.current, {
-        layout: {
-          background: { type: ColorType.Solid, color: colors.background },
-          textColor: colors.textColor,
-          fontSize: 12,
-          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-        },
-        grid: {
-          vertLines: {
-            color: showGrid ? colors.gridColor : 'transparent',
-            style: LineStyle.Solid,
-            visible: showGrid,
-          },
-          horzLines: {
-            color: showGrid ? colors.gridColor : 'transparent',
-            style: LineStyle.Solid,
-            visible: showGrid,
-          },
-        },
-        crosshair: {
-          mode: showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden,
-          vertLine: {
-            color: colors.crosshairColor,
-            width: 1,
-            style: LineStyle.Dashed,
-            labelBackgroundColor: colors.borderColor,
-          },
-          horzLine: {
-            color: colors.crosshairColor,
-            width: 1,
-            style: LineStyle.Dashed,
-            labelBackgroundColor: colors.borderColor,
-          },
-        },
-        rightPriceScale: {
-          borderColor: colors.borderColor,
-          scaleMargins: {
-            top: 0.1,
-            bottom: showVolume ? 0.2 : 0.1,
-          },
-        },
-        timeScale: {
-          borderColor: colors.borderColor,
-          timeVisible: true,
-          secondsVisible: false,
-          rightOffset: 12,
-          barSpacing: 10,
-          minBarSpacing: 5,
-        },
-        handleScroll: {
-          mouseWheel: true,
-          pressedMouseMove: true,
-          horzTouchDrag: true,
-          vertTouchDrag: true,
-        },
-        handleScale: {
-          axisPressedMouseMove: true,
-          mouseWheel: true,
-          pinch: true,
-        },
-      });
+    chartRef.current = chart;
 
-      chartRef.current = chart;
-    } else {
-      chartRef.current.applyOptions({
-        layout: {
-          background: { type: ColorType.Solid, color: colors.background },
-          textColor: colors.textColor,
-        },
-        grid: {
-          vertLines: {
-            color: showGrid ? colors.gridColor : 'transparent',
-            visible: showGrid,
-          },
-          horzLines: {
-            color: showGrid ? colors.gridColor : 'transparent',
-            visible: showGrid,
-          },
-        },
-        crosshair: {
-          mode: showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden,
-        },
-        rightPriceScale: {
-          scaleMargins: {
-            top: 0.1,
-            bottom: showVolume ? 0.2 : 0.1,
-          },
-        },
-      });
-    }
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight,
+        });
+      }
+    };
 
-    if (seriesRef.current) {
-      chartRef.current.removeSeries(seriesRef.current);
-      seriesRef.current = null;
-    }
-    if (volumeSeriesRef.current) {
-      chartRef.current.removeSeries(volumeSeriesRef.current);
-      volumeSeriesRef.current = null;
-    }
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+
+    resizeObserver.observe(chartContainerRef.current);
+    window.addEventListener('resize', handleResize);
+    handleResize();
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        seriesRef.current = null;
+        volumeSeriesRef.current = null;
+        prevChartTypeRef.current = null;
+      }
+    };
+  }, []);
+
+  // 2. Chart Options & Theme Updates Effect
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const colors = getThemeColors();
+
+    chartRef.current.applyOptions({
+      layout: {
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.textColor,
+      },
+      grid: {
+        vertLines: {
+          color: showGrid ? colors.gridColor : 'transparent',
+          visible: showGrid,
+        },
+        horzLines: {
+          color: showGrid ? colors.gridColor : 'transparent',
+          visible: showGrid,
+        },
+      },
+      crosshair: {
+        mode: showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden,
+      },
+      rightPriceScale: {
+        scaleMargins: {
+          top: 0.1,
+          bottom: showVolume ? 0.2 : 0.1,
+        },
+      },
+    });
+  }, [showGrid, showCrosshair, showVolume, isDark]);
+
+  // 3. Data & Series Management Effect
+  useEffect(() => {
+    if (!chartRef.current || chartData.length === 0) return;
+
+    const colors = getThemeColors();
 
     const candleData = chartData
       .filter(point => {
@@ -274,124 +306,80 @@ export default function StellarTradingChart({
       }))
       .sort((a, b) => a.time - b.time);
 
-    if (chartType === 'candlestick') {
-      const candlestickSeries = chartRef.current.addSeries(CandlestickSeries, {
-        upColor: colors.upColor,
-        downColor: colors.downColor,
-        borderUpColor: colors.upColor,
-        borderDownColor: colors.downColor,
-        wickUpColor: colors.upColor,
-        wickDownColor: colors.downColor,
-      });
-      candlestickSeries.setData(candleData);
-      seriesRef.current = candlestickSeries;
-    } else if (chartType === 'line') {
-      const lineSeries = chartRef.current.addSeries(LineSeries, {
-        color: '#3b82f6',
-        lineWidth: 2,
-        crosshairMarkerVisible: true,
-        crosshairMarkerRadius: 4,
-      });
-      const lineData = candleData.map(c => ({
-        time: c.time,
-        value: c.close,
-      }));
-      lineSeries.setData(lineData);
-      seriesRef.current = lineSeries;
-    } else if (chartType === 'area') {
-      const areaSeries = chartRef.current.addSeries(AreaSeries, {
-        topColor: isDark ? '#3b82f666' : '#3b82f64D',
-        bottomColor: '#3b82f600',
-        lineColor: '#3b82f6',
-        lineWidth: 2,
-      });
-      const areaData = candleData.map(c => ({
-        time: c.time,
-        value: c.close,
-      }));
-      areaSeries.setData(areaData);
-      seriesRef.current = areaSeries;
+    // If chartType has changed, clean up the old series
+    if (seriesRef.current && prevChartTypeRef.current !== chartType) {
+      chartRef.current.removeSeries(seriesRef.current);
+      seriesRef.current = null;
+    }
+    prevChartTypeRef.current = chartType;
+
+    // Create the series if it doesn't exist
+    if (!seriesRef.current) {
+      if (chartType === 'candlestick') {
+        seriesRef.current = chartRef.current.addSeries(CandlestickSeries, {
+          upColor: colors.upColor,
+          downColor: colors.downColor,
+          borderUpColor: colors.upColor,
+          borderDownColor: colors.downColor,
+          wickUpColor: colors.upColor,
+          wickDownColor: colors.downColor,
+        });
+      } else if (chartType === 'line') {
+        seriesRef.current = chartRef.current.addSeries(LineSeries, {
+          color: '#3b82f6',
+          lineWidth: 2,
+          crosshairMarkerVisible: true,
+          crosshairMarkerRadius: 4,
+        });
+      } else if (chartType === 'area') {
+        seriesRef.current = chartRef.current.addSeries(AreaSeries, {
+          topColor: isDark ? '#3b82f666' : '#3b82f64D',
+          bottomColor: '#3b82f600',
+          lineColor: '#3b82f6',
+          lineWidth: 2,
+        });
+      }
     }
 
+    // Set the data on the active series
+    if (chartType === 'candlestick') {
+      seriesRef.current.setData(candleData);
+    } else {
+      const valueData = candleData.map(c => ({
+        time: c.time,
+        value: c.close,
+      }));
+      seriesRef.current.setData(valueData);
+    }
+
+    // Volume series management
     if (showVolume) {
-      const volumeSeries = chartRef.current.addSeries(HistogramSeries, {
-        color: colors.volumeColor,
-        priceFormat: { type: 'volume' },
-        priceScaleId: 'volume',
-        scaleMargins: { top: 0.85, bottom: 0 },
-      });
+      if (!volumeSeriesRef.current) {
+        volumeSeriesRef.current = chartRef.current.addSeries(HistogramSeries, {
+          color: colors.volumeColor,
+          priceFormat: { type: 'volume' },
+          priceScaleId: 'volume',
+          scaleMargins: { top: 0.85, bottom: 0 },
+        });
+      }
       const volumeData = candleData.map(c => ({
         time: c.time,
         value: c.volume,
         color: c.close >= c.open ? colors.upColor + '50' : colors.downColor + '50',
       }));
-      volumeSeries.setData(volumeData);
-      volumeSeriesRef.current = volumeSeries;
-    }
-
-    chartRef.current.timeScale().fitContent();
-
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
-      }
-    };
-
-    const resizeObserver = new ResizeObserver(() => {
-      handleResize();
-    });
-
-    if (chartContainerRef.current) {
-      resizeObserver.observe(chartContainerRef.current);
-    }
-
-    window.addEventListener('resize', handleResize);
-    handleResize();
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      resizeObserver.disconnect();
-    };
-  }, [chartData, chartType, showVolume, showGrid, showCrosshair, isDark]);
-
-  useEffect(() => {
-    if (!seriesRef.current || chartData.length === 0 || !isStreaming) return;
-
-    const latestPoint = chartData[chartData.length - 1];
-    if (latestPoint.close == null || isNaN(parseFloat(latestPoint.close))) {
-      return;
-    }
-
-    const time = Math.floor(latestPoint.timestamp / 1000) as any;
-    const close = parseFloat(latestPoint.close);
-
-    if (chartType === 'candlestick') {
-      const candlePoint = {
-        time,
-        open: parseFloat(latestPoint.open),
-        high: parseFloat(latestPoint.high),
-        low: parseFloat(latestPoint.low),
-        close,
-      };
-      seriesRef.current.update(candlePoint);
+      volumeSeriesRef.current.setData(volumeData);
     } else {
-      seriesRef.current.update({ time, value: close });
+      if (volumeSeriesRef.current) {
+        chartRef.current.removeSeries(volumeSeriesRef.current);
+        volumeSeriesRef.current = null;
+      }
     }
 
-    if (showVolume && volumeSeriesRef.current) {
-      const colors = getThemeColors();
-      const volume = parseFloat(latestPoint.volume);
-      volumeSeriesRef.current.update({
-        time,
-        value: volume,
-        color:
-          close >= parseFloat(latestPoint.open) ? colors.upColor + '40' : colors.downColor + '40',
-      });
+    // Fit content only if this is the first load of data
+    if (chartData.length > 0) {
+      chartRef.current.timeScale().fitContent();
     }
-  }, [chartData, showVolume, isStreaming, chartType]);
+  }, [chartData, chartType, showVolume, isDark]);
 
   useEffect(() => {
     return () => {

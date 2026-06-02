@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import * as StellarSDK from '@stellar/stellar-sdk';
-
-import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { ERROR_MESSAGES } from '../constants/tradeTransactionConstants';
 import { TradeTransactionService } from '../service/tradeTransactionService';
@@ -33,15 +30,13 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isStreaming] = useState(false);
 
 
   const [newOfferIds, setNewOfferIds] = useState<Set<string>>(new Set());
   const [removingOfferIds, setRemovingOfferIds] = useState<Set<string>>(new Set());
 
 
-  const offersStreamRef = useRef<(() => void) | null>(null);
-  const tradesStreamRef = useRef<(() => void) | null>(null);
   const mountedRef = useRef(true);
 
   const fetchActiveOffers = useCallback(
@@ -123,78 +118,6 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
     [userAddress, service]
   );
 
-
-  const startStreaming = useCallback(() => {
-    if (!userAddress || !StellarSDK.StrKey.isValidEd25519PublicKey(userAddress)) return;
-
-    // Cleanup existing streams
-    if (offersStreamRef.current) {
-      offersStreamRef.current();
-      offersStreamRef.current = null;
-    }
-    if (tradesStreamRef.current) {
-      tradesStreamRef.current();
-      tradesStreamRef.current = null;
-    }
-
-    try {
-      const config = getStellarConfig(currentNetwork);
-      const serverOptions: any = {};
-      if (config.horizonUrl.startsWith('http://')) serverOptions.allowHttp = true;
-      const server = new StellarSDK.Horizon.Server(config.horizonUrl, serverOptions);
-
-      // Offer stream
-      const closeOffers = server
-        .offers()
-        .forAccount(userAddress)
-        .cursor('now')
-        .stream({
-          onmessage: () => {
-            if (!mountedRef.current) return;
-            fetchActiveOffers();
-          },
-          onerror: () => {
-            if (mountedRef.current) setIsStreaming(false);
-            if (closeOffers) closeOffers();
-          },
-        }) as unknown as () => void;
-      offersStreamRef.current = closeOffers;
-
-      // Trades stream
-      const closeTrades = server
-        .trades()
-        .forAccount(userAddress)
-        .cursor('now')
-        .stream({
-          onmessage: () => {
-            if (!mountedRef.current) return;
-            fetchCompletedTrades();
-          },
-          onerror: () => {
-            if (mountedRef.current) setIsStreaming(false);
-            if (closeTrades) closeTrades();
-          },
-        }) as unknown as () => void;
-      tradesStreamRef.current = closeTrades;
-
-      if (mountedRef.current) setIsStreaming(true);
-    } catch (err) {
-      console.warn('[useTradeTransaction] SSE streaming failed to start:', err);
-      if (mountedRef.current) setIsStreaming(false);
-    }
-  }, [userAddress, currentNetwork, fetchActiveOffers, fetchCompletedTrades]);
-
-
-  useEffect(() => {
-    if (isStreaming || !userAddress) return;
-    const interval = setInterval(() => {
-      fetchActiveOffers();
-      fetchCompletedTrades();
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [isStreaming, userAddress, fetchActiveOffers, fetchCompletedTrades]);
-
-
   useEffect(() => {
     const handler = () => {
       setTimeout(() => {
@@ -206,25 +129,25 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
     return () => window.removeEventListener('stellar:order-placed', handler);
   }, [fetchActiveOffers, fetchCompletedTrades]);
 
-
   useEffect(() => {
     mountedRef.current = true;
     if (userAddress) {
       fetchActiveOffers();
       fetchCompletedTrades();
-      startStreaming();
     }
     return () => {
       mountedRef.current = false;
-      offersStreamRef.current?.();
-      tradesStreamRef.current?.();
     };
-  }, [userAddress]);
-
+  }, [userAddress, fetchActiveOffers, fetchCompletedTrades]);
 
   useEffect(() => {
-    if (userAddress) startStreaming();
-  }, [currentNetwork]);
+    if (!userAddress) return;
+    const interval = setInterval(() => {
+      fetchActiveOffers();
+      fetchCompletedTrades();
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [userAddress, fetchActiveOffers, fetchCompletedTrades]);
 
   const cancelOffer = useCallback(
     async (offer: ActiveOffer, walletProvider: any) => {
