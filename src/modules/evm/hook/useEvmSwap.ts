@@ -535,9 +535,9 @@ export const useEvmSwap = ({
         // 1Inch Fusion swaps always go to backend
         try {
           await storeSwapOrder({
-            txHash: hash, //orderHash for Fusion
+            txHash: hash,
             walletAddress: senderAddress,
-            provider: 'ONEINCH',
+            provider: 'ONEINCH_FUSION',
             fromChain: getChainById(chainId)?.symbol,
             fromToken: sellAsset.symbol,
             toChain: getChainById(buyAsset.chainId || chainId)?.symbol,

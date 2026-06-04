@@ -47,15 +47,31 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
       ? new Date((transaction as TransactionItem).metadata.blockTimestamp).getTime()
       : null;
   const destinationHash = backendStatus?.destinationHash || (isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null);
+  const getTransactionAssetSymbol = (t: any): string => {
+    if (t.isBackendOrder) {
+      return t.fromToken || '';
+    }
+    const desc = t.description || '';
+    const swapMatch = desc.match(/Swap\s+(?:[\d.]+\s+)?([A-Za-z0-9]+)/i);
+    if (swapMatch) return swapMatch[1];
+    const approveMatch = desc.match(/Approve\s+([A-Za-z0-9]+)/i);
+    if (approveMatch) return approveMatch[1];
+    const sendMatch = desc.match(/(?:Send|Transfer|Bridge)\s+(?:[\d.]+\s+)?([A-Za-z0-9]+)/i);
+    if (sendMatch) return sendMatch[1];
+    return '';
+  };
 
   let assetLogo = undefined;
+  let assetSymbol = '';
   if (!isLocal) {
     const tx = transaction as TransactionItem;
+    assetSymbol = formatAssetName(tx);
     if (tx.asset) assetLogo = getGlobalAssetMetadata(tx.asset)?.logoURI;
     if (!assetLogo && tx.rawContract?.address) assetLogo = getAssetByAddress(chainId, tx.rawContract.address)?.logoURI;
+  } else {
+    assetSymbol = getTransactionAssetSymbol(transaction);
+    if (assetSymbol) assetLogo = getGlobalAssetMetadata(assetSymbol)?.logoURI;
   }
-
-  const displayIcon = assetLogo || logoUrl;
 
   const getStatusDisplay = () => {
     if (status === 'pending') {
@@ -107,15 +123,24 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             )}
           </div>
         )}
-        <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-inner border border-color overflow-hidden ${type === 'approval' ? 'bg-blue-500/10 border-blue-500/20' : 'bg-tertiary'}`}>
-          {type === 'approval' ? (
-            <ShieldCheck className="w-10 h-10 text-blue-500" />
-          ) : displayIcon ? (
-            <img src={displayIcon} alt={chainSymbol} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-12 h-12 rounded-xl bg-brand-primary/10 flex items-center justify-center text-xl font-black text-brand-primary">
-              {chainSymbol.slice(0, 2)}
-            </div>
+        <div className="relative w-20 h-20 mb-6">
+          <div className={`w-full h-full rounded-full flex items-center justify-center shadow-inner border border-color overflow-hidden bg-primary ${type === 'approval' ? 'bg-blue-500/10 border-blue-500/20' : 'bg-tertiary'}`}>
+            {type === 'approval' ? (
+              <ShieldCheck className="w-10 h-10 text-blue-500" />
+            ) : assetLogo ? (
+              <img src={assetLogo} alt={assetSymbol || chainSymbol} className="w-full h-full object-cover rounded-full" />
+            ) : (
+              <div className="text-lg font-black text-primary">
+                {assetSymbol ? assetSymbol.slice(0, 3).toUpperCase() : chainSymbol.slice(0, 2)}
+              </div>
+            )}
+          </div>
+          {logoUrl && (
+            <img 
+              src={logoUrl} 
+              alt={chainSymbol} 
+              className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full border-2 border-secondary object-cover bg-secondary animate-fade-in"
+            />
           )}
         </div>
         {!isLocal ? (

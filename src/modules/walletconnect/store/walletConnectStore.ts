@@ -242,7 +242,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         };
       });
 
-      // Thorough clearing of portfolio data
       const portfolio = usePortfolioStore.getState();
       if (Object.keys(get().connectedWallets).length === 0) {
         portfolio.clearAssets();

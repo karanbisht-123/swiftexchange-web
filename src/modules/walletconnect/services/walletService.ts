@@ -753,8 +753,10 @@ class WalletService {
     }
 
     for (const t of sharedTypes) {
-      if (t === 'evm' || t === 'cosmos') await purge();
-      if (t === 'evm') this.derivationInProgress = false;
+      if (t === 'evm') {
+        await purge();
+        this.derivationInProgress = false;
+      }
 
       this.sessions.delete(t);
       this.lastPingAt.delete(t);
@@ -783,7 +785,7 @@ class WalletService {
   }
 
   private async clearAppData(): Promise<void> {
-    const PRESERVE_KEYS = ['swiftex_local_transactions', 'theme-storage', 'network', 'swiftex_pending_skip_txs_v2'];
+    const PRESERVE_KEYS = ['swiftex_local_transactions', 'theme-storage', 'network', 'swiftex_pending_skip_txs_v2', 'stellar_dydx_bridge_step'];
 
     Object.keys(localStorage).forEach(key => {
       if (!PRESERVE_KEYS.includes(key)) {
@@ -812,7 +814,6 @@ class WalletService {
   async disconnectAll(): Promise<void> {
     console.log('[WalletService] Disconnecting all wallets...');
 
-    // Disconnect each provider properly
     const providers = new Set(this.providers.values());
     for (const provider of providers) {
       if (provider?.session) {
@@ -1143,13 +1144,19 @@ class WalletService {
 
   private clearSessionStorage(): void {
     try {
-      const network = localStorage.getItem('network');
-      const theme = localStorage.getItem('theme-storage');
+      const PRESERVE_KEYS = [
+        'swiftex_local_transactions',
+        'theme-storage',
+        'network',
+        'swiftex_pending_skip_txs_v2',
+        'stellar_dydx_bridge_step'
+      ];
 
-      localStorage.clear();
-
-      if (network) localStorage.setItem('network', network);
-      if (theme) localStorage.setItem('theme-storage', theme);
+      Object.keys(localStorage).forEach(key => {
+        if (!PRESERVE_KEYS.includes(key)) {
+          localStorage.removeItem(key);
+        }
+      });
 
       purge();
     } catch (error) {

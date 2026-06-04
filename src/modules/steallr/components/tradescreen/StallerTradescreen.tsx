@@ -126,15 +126,9 @@ const StellarTradeScreen = () => {
 
         <div className="animate-fade-in">
           <div className="mb-1 lg:mb-4">
-            <div className={activeTab === 'amm' ? 'block' : 'hidden'}>
-              <AmmSwapUI />
-            </div>
-            <div className={activeTab === 'orderbook' ? 'block' : 'hidden'}>
-              <OrderBookSwapUI />
-            </div>
-            <div className={activeTab === 'assets' ? 'block' : 'hidden'}>
-              <AssetManager />
-            </div>
+            {activeTab === 'amm' && <AmmSwapUI />}
+            {activeTab === 'orderbook' && <OrderBookSwapUI />}
+            {activeTab === 'assets' && <AssetManager />}
           </div>
           {activeTab !== 'assets' && <TradeTransactionUI />}
         </div>

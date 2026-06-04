@@ -5,6 +5,12 @@ import * as StellarSDK from '@stellar/stellar-sdk';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { RecentTradesService, type RecentTrade } from '../service/recentTradesService';
+import {
+  BinanceBridgeService,
+  isBinanceSupported,
+  isFlippedPair,
+  getBinanceSymbol,
+} from '../service/binanceBridgeService';
 
 interface UseRecentTradesProps {
   baseAsset?: { code: string; issuer?: string };
@@ -29,6 +35,22 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
 
   const mountedRef = useRef(true);
   const streamCloseRef = useRef<(() => void) | null>(null);
+
+  const [binanceActive, setBinanceActive] = useState(() =>
+    isBinanceSupported(baseAsset?.code || '', counterAsset?.code || '')
+  );
+
+  useEffect(() => {
+    setBinanceActive(isBinanceSupported(baseAsset?.code || '', counterAsset?.code || ''));
+  }, [baseAsset?.code, counterAsset?.code]);
+
+  useEffect(() => {
+    const handleFallback = () => {
+      setBinanceActive(false);
+    };
+    window.addEventListener('binance:connection-failed', handleFallback);
+    return () => window.removeEventListener('binance:connection-failed', handleFallback);
+  }, []);
 
   const serviceRef = useRef<RecentTradesService | null>(null);
   useEffect(() => {
@@ -72,26 +94,44 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
   }, [baseAsset, counterAsset]);
 
   const fetchTrades = useCallback(async () => {
-    if (!baseAsset?.code || !counterAsset?.code || !serviceRef.current) return;
+    if (!baseAsset?.code || !counterAsset?.code) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const base = baseAsset.issuer
-        ? new StellarSDK.Asset(baseAsset.code, baseAsset.issuer)
-        : StellarSDK.Asset.native();
+      const base = baseAsset.code;
+      const counter = counterAsset.code;
 
-      const counter = counterAsset.issuer
-        ? new StellarSDK.Asset(counterAsset.code, counterAsset.issuer)
-        : StellarSDK.Asset.native();
+      const symbol = getBinanceSymbol(base, counter);
 
-      const formattedTrades = await serviceRef.current.getRecentTrades(base, counter, 50);
+      if (binanceActive && symbol) {
+        const isFlipped = isFlippedPair(base, counter);
 
-      if (mountedRef.current) {
-        setTrades(formattedTrades);
-        const key = getCacheKey(baseAsset, counterAsset);
-        if (key) globalTradesCache.set(key, formattedTrades);
+        const formattedTrades = await BinanceBridgeService.fetchRecentTrades(symbol, isFlipped, 50);
+
+        if (mountedRef.current) {
+          setTrades(formattedTrades);
+          const key = getCacheKey(baseAsset, counterAsset);
+          if (key) globalTradesCache.set(key, formattedTrades);
+        }
+      } else {
+        if (!serviceRef.current) return;
+        const stellarBase = baseAsset.issuer
+          ? new StellarSDK.Asset(baseAsset.code, baseAsset.issuer)
+          : StellarSDK.Asset.native();
+
+        const stellarCounter = counterAsset.issuer
+          ? new StellarSDK.Asset(counterAsset.code, counterAsset.issuer)
+          : StellarSDK.Asset.native();
+
+        const formattedTrades = await serviceRef.current.getRecentTrades(stellarBase, stellarCounter, 50);
+
+        if (mountedRef.current) {
+          setTrades(formattedTrades);
+          const key = getCacheKey(baseAsset, counterAsset);
+          if (key) globalTradesCache.set(key, formattedTrades);
+        }
       }
     } catch (err) {
       console.error('[useRecentTrades] Fetch failed:', err);
@@ -104,11 +144,12 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
     baseAsset?.issuer,
     counterAsset?.code,
     counterAsset?.issuer,
-    currentNetwork
+    currentNetwork,
+    binanceActive
   ]);
 
   const startStreaming = useCallback(() => {
-    if (!baseAsset?.code || !counterAsset?.code || !serviceRef.current) return;
+    if (!baseAsset?.code || !counterAsset?.code) return;
 
     if (streamCloseRef.current) {
       streamCloseRef.current();
@@ -116,21 +157,39 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
     }
 
     try {
-      const base = baseAsset.issuer
-        ? new StellarSDK.Asset(baseAsset.code, baseAsset.issuer)
-        : StellarSDK.Asset.native();
+      const base = baseAsset.code;
+      const counter = counterAsset.code;
 
-      const counter = counterAsset.issuer
-        ? new StellarSDK.Asset(counterAsset.code, counterAsset.issuer)
-        : StellarSDK.Asset.native();
+      const symbol = getBinanceSymbol(base, counter);
 
-      streamCloseRef.current = serviceRef.current.streamRecentTrades(
-        base,
-        counter,
-        handleNewTrade,
-        () => { if (mountedRef.current) setIsStreaming(false); }
-      );
-      if (mountedRef.current) setIsStreaming(true);
+      if (binanceActive && symbol) {
+        const isFlipped = isFlippedPair(base, counter);
+
+        streamCloseRef.current = BinanceBridgeService.streamRecentTrades(
+          symbol,
+          isFlipped,
+          handleNewTrade,
+          () => { if (mountedRef.current) setIsStreaming(false); }
+        );
+        if (mountedRef.current) setIsStreaming(true);
+      } else {
+        if (!serviceRef.current) return;
+        const stellarBase = baseAsset.issuer
+          ? new StellarSDK.Asset(baseAsset.code, baseAsset.issuer)
+          : StellarSDK.Asset.native();
+
+        const stellarCounter = counterAsset.issuer
+          ? new StellarSDK.Asset(counterAsset.code, counterAsset.issuer)
+          : StellarSDK.Asset.native();
+
+        streamCloseRef.current = serviceRef.current.streamRecentTrades(
+          stellarBase,
+          stellarCounter,
+          handleNewTrade,
+          () => { if (mountedRef.current) setIsStreaming(false); }
+        );
+        if (mountedRef.current) setIsStreaming(true);
+      }
     } catch (err) {
       console.warn('[useRecentTrades] Stream failed to start', err);
       if (mountedRef.current) setIsStreaming(false);
@@ -141,7 +200,8 @@ export const useRecentTrades = ({ baseAsset, counterAsset }: UseRecentTradesProp
     counterAsset?.code,
     counterAsset?.issuer,
     currentNetwork,
-    handleNewTrade
+    handleNewTrade,
+    binanceActive
   ]);
 
   useEffect(() => {

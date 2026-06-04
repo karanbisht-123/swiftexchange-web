@@ -4,6 +4,12 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { useAmmSwapStore } from '../store/ammSwapStore';
 import { OrderBookSwapService } from '../service/orderBookSwapService';
+import {
+  BinanceBridgeService,
+  isBinanceSupported,
+  isFlippedPair,
+  getBinanceSymbol,
+} from '../service/binanceBridgeService';
 import type {
   LargeOrderOptions,
   LargeOrderQuote,
@@ -39,6 +45,21 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const cacheKey = getCacheKey(fromToken, toToken, isBuy);
   const [orderBook, setOrderBook] = useState<any>(globalOrderBookCache.get(cacheKey) || null);
   const [subentryCount, setSubentryCount] = useState<number>(0);
+  const [binanceActive, setBinanceActive] = useState(() =>
+    isBinanceSupported(fromToken?.code || '', toToken?.code || '')
+  );
+
+  useEffect(() => {
+    setBinanceActive(isBinanceSupported(fromToken?.code || '', toToken?.code || ''));
+  }, [fromToken?.code, toToken?.code]);
+
+  useEffect(() => {
+    const handleFallback = () => {
+      setBinanceActive(false);
+    };
+    window.addEventListener('binance:connection-failed', handleFallback);
+    return () => window.removeEventListener('binance:connection-failed', handleFallback);
+  }, []);
 
   const network = useWalletStore(state => state.network);
   const currentStellarConfig = getStellarConfig(network);
@@ -147,46 +168,96 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         setIsLoading(true);
       }
       try {
-        const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
-        if (isMounted) {
+        const base = fromToken.code;
+        const counter = toToken.code;
+
+        const symbol = getBinanceSymbol(base, counter);
+
+        if (binanceActive && symbol) {
+          const isFlipped = isFlippedPair(base, counter);
+
+          const book = await BinanceBridgeService.fetchOrderBook(symbol, isFlipped, 20);
+          if (!isMounted) return;
           setOrderBook(book);
           if (key) globalOrderBookCache.set(key, book);
-        }
 
-        if (!price) {
-          const bestPrice = await service.getBestPrice(fromToken.asset, toToken.asset, isBuy);
-          if (bestPrice && isMounted) {
-            setPrice(bestPrice);
-          }
-        }
-
-        closeStream = service.streamOrderBook(
-          fromToken.asset,
-          toToken.asset,
-          (updatedBook: any) => {
-            if (isMounted) {
-              setOrderBook(updatedBook);
-              const k = getCacheKey(fromToken, toToken, isBuy);
-              if (k) globalOrderBookCache.set(k, updatedBook);
-            }
-          },
-          (err: any) => {
-            console.error('[useOrderBookSwap] Stream error, falling back to polling:', err);
-            if (isMounted && !pollingInterval) {
-              pollingInterval = setInterval(() => {
-                service.getOrderBook(fromToken.asset!, toToken.asset!, 20)
-                  .then(book => {
-                    if (isMounted) {
-                      setOrderBook(book);
-                      const k = getCacheKey(fromToken, toToken, isBuy);
-                      if (k) globalOrderBookCache.set(k, book);
-                    }
-                  })
-                  .catch(e => console.error('[useOrderBookSwap] Polling error:', e));
-              }, 8000);
+          if (!price) {
+            const bestPrice = isBuy
+              ? (book.asks.length > 0 ? book.asks[0].price : null)
+              : (book.bids.length > 0 ? book.bids[0].price : null);
+            if (bestPrice && isMounted) {
+              setPrice(bestPrice);
             }
           }
-        );
+
+          const stream = BinanceBridgeService.streamOrderBook(
+            symbol,
+            isFlipped,
+            (updatedBook: any) => {
+              if (isMounted) {
+                setOrderBook(updatedBook);
+                const k = getCacheKey(fromToken, toToken, isBuy);
+                if (k) globalOrderBookCache.set(k, updatedBook);
+              }
+            },
+            (err: any) => {
+              console.error('[useOrderBookSwap] Binance stream error:', err);
+            }
+          );
+
+          if (!isMounted) {
+            stream();
+            return;
+          }
+          closeStream = stream;
+        } else {
+          const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
+          if (!isMounted) return;
+          setOrderBook(book);
+          if (key) globalOrderBookCache.set(key, book);
+
+          if (!price) {
+            const bestPrice = await service.getBestPrice(fromToken.asset, toToken.asset, isBuy);
+            if (bestPrice && isMounted) {
+              setPrice(bestPrice);
+            }
+          }
+
+          if (!isMounted) return;
+          const stream = service.streamOrderBook(
+            fromToken.asset,
+            toToken.asset,
+            (updatedBook: any) => {
+              if (isMounted) {
+                setOrderBook(updatedBook);
+                const k = getCacheKey(fromToken, toToken, isBuy);
+                if (k) globalOrderBookCache.set(k, updatedBook);
+              }
+            },
+            (err: any) => {
+              console.error('[useOrderBookSwap] Stream error, falling back to polling:', err);
+              if (isMounted && !pollingInterval) {
+                pollingInterval = setInterval(() => {
+                  service.getOrderBook(fromToken.asset!, toToken.asset!, 20)
+                    .then(book => {
+                      if (isMounted) {
+                        setOrderBook(book);
+                        const k = getCacheKey(fromToken, toToken, isBuy);
+                        if (k) globalOrderBookCache.set(k, book);
+                      }
+                    })
+                    .catch(e => console.error('[useOrderBookSwap] Polling error:', e));
+                }, 8000);
+              }
+            }
+          );
+
+          if (!isMounted) {
+            stream();
+            return;
+          }
+          closeStream = stream;
+        }
       } catch (err) {
         console.error('Failed to fetch order book:', err);
         if (isMounted) {
@@ -216,7 +287,8 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     toToken?.code,
     toToken?.issuer,
     isBuy,
-    service
+    service,
+    binanceActive
   ]);
 
   // Calculate quote
@@ -371,15 +443,26 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
 
     setIsLoading(true);
     try {
-      const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
-      setOrderBook(book);
+      const base = fromToken.code;
+      const counter = toToken.code;
+
+      const symbol = getBinanceSymbol(base, counter);
+
+      if (binanceActive && symbol) {
+        const isFlipped = isFlippedPair(base, counter);
+        const book = await BinanceBridgeService.fetchOrderBook(symbol, isFlipped, 20);
+        setOrderBook(book);
+      } else {
+        const book = await service.getOrderBook(fromToken.asset, toToken.asset, 20);
+        setOrderBook(book);
+      }
     } catch (err) {
       console.error('Failed to refresh order book:', err);
       setError('Failed to refresh order book');
     } finally {
       setIsLoading(false);
     }
-  }, [service, fromToken, toToken]);
+  }, [service, fromToken, toToken, binanceActive]);
 
   const reset = useCallback(() => {
     setAmount('');

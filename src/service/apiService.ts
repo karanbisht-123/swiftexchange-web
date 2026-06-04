@@ -122,11 +122,11 @@ export async function getWalletGasInfo(
     if (data) { writeLocalCache(key, data); return data; }
     return null;
   } catch {
-    return readStaleCache<WalletGasInfo>(key); // serve stale on failure
+    return readStaleCache<WalletGasInfo>(key);
   }
 }
 
-// ─── Stellar PnL ─────────────────────────────────────────────────────────────
+//Stellar PnL 
 
 export async function fetchStellarPnl(
   address: string,
@@ -139,7 +139,7 @@ export async function fetchStellarPnl(
   const inFlight = getPnlInflight(key); if (inFlight) return inFlight;
 
   const promise = (async () => {
-    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=true`;
+    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=true&excel=true`;
 
     const res = await fetchWithRetry(url, {
       method: 'GET',

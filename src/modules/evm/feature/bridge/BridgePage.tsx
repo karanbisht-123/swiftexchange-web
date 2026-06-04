@@ -6,7 +6,8 @@ const BridgePage: React.FC = () => {
   const navigate = useNavigate();
   return (
     <PageLayout
-      title="Cross-Chain Bridge"
+      title="Bridge to dYdX"
+      subtitle="Fund your dYdX account with Stellar assets"
       maxWidth="lg"
       onBack={() => navigate(-1)}
     >

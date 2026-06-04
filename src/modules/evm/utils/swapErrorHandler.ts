@@ -3,8 +3,21 @@ const NOISE_STRINGS = ['payload=', 'jsonrpc', 'UNKNOWN_ERROR', 'version='];
 export function extractCleanMessage(rawMsg: string): string {
   if (!rawMsg) return '';
 
-  // 1. Try to check if it's a WalletConnect/Ethers "processing response error" string
-  // which contains body="{\"jsonrpc\":\"2.0\",...,\"error\":{\"code\":...,\"message\":\"...\"}}"
+  const nestedBodyMatch = rawMsg.match(/body=\\?"(\{.*?\})"(?:\\|,|\s|$)/s);
+  if (nestedBodyMatch?.[1]) {
+    try {
+
+      const unescaped = nestedBodyMatch[1]
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+      const parsed = JSON.parse(unescaped);
+      const innerMsg = parsed?.error?.message || parsed?.message;
+      if (innerMsg) return innerMsg;
+    } catch (err) {
+      console.log(err)
+    }
+  }
+
   if (rawMsg.includes('body="') || rawMsg.includes('body=\\"')) {
     const bodyMatch = rawMsg.match(/body=["']?\\?(\{.*?\})\\?["']/);
     if (bodyMatch?.[1]) {
@@ -13,13 +26,10 @@ export function extractCleanMessage(rawMsg: string): string {
         const parsed = JSON.parse(unescaped);
         const innerMsg = parsed?.error?.message || parsed?.message;
         if (innerMsg) return innerMsg;
-      } catch (e) {
-        // Fallback to regex on body if parse fails
-      }
+      } catch { }
     }
   }
 
-  // 2. Try to match any "message":"..." or similar in the raw message
   const messagePatterns = [
     /["']message["']\s*:\s*["']([^"']+)["']/i,
     /\\?["']message\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i

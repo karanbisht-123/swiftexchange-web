@@ -219,8 +219,6 @@ export async function getSwapOrdersByWallet(
     const data =
       res.data?.data || res.data;
 
-    console.log(data, '');
-
     if (!data) {
       throw new Error(
         'Failed to fetch swap orders'

@@ -3,6 +3,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { StellarChartService } from '../service/stellarChartService';
+import {
+  BinanceBridgeService,
+  isBinanceSupported,
+  isFlippedPair,
+  getBinanceSymbol,
+  getBinanceInterval,
+} from '../service/binanceBridgeService';
 import type {
   ChartAssetPair,
   ChartDataPoint,
@@ -75,6 +82,24 @@ export function useStellarChart({
   const mountedRef = useRef<boolean>(true);
   const streamingRequestedRef = useRef<boolean>(false);
 
+  const [binanceActive, setBinanceActive] = useState(() =>
+    currentAssetPair ? isBinanceSupported(currentAssetPair.base, currentAssetPair.counter) : false
+  );
+
+  useEffect(() => {
+    setBinanceActive(
+      currentAssetPair ? isBinanceSupported(currentAssetPair.base, currentAssetPair.counter) : false
+    );
+  }, [currentAssetPair?.base, currentAssetPair?.counter]);
+
+  useEffect(() => {
+    const handleFallback = () => {
+      setBinanceActive(false);
+    };
+    window.addEventListener('binance:connection-failed', handleFallback);
+    return () => window.removeEventListener('binance:connection-failed', handleFallback);
+  }, []);
+
   useEffect(() => {
     const config = currentStellarConfig;
     const actualNetwork: NetworkType = config.network === 'PUBLIC' ? 'mainnet' : 'testnet';
@@ -110,7 +135,7 @@ export function useStellarChart({
   }, [currentStellarConfig, assetPair]);
 
   const fetchData = useCallback(async (isBackground = false) => {
-    if (!service || !currentAssetPair?.base || !currentAssetPair?.counter) {
+    if (!currentAssetPair?.base || !currentAssetPair?.counter) {
       setError('Invalid asset pair configuration');
       return;
     }
@@ -119,15 +144,44 @@ export function useStellarChart({
     if (!isBackground) setError(null);
 
     try {
-      const chartData = await service.fetchTradeAggregations(currentAssetPair, currentTimeRange, {
-        resolution: currentResolution,
-      });
+      const base = currentAssetPair.base;
+      const counter = currentAssetPair.counter;
 
-      if (mountedRef.current) {
-        setData(chartData);
-        setLastUpdate(Date.now());
-        const key = getCacheKey(currentAssetPair, currentResolution);
-        if (key) globalChartCache.set(key, chartData);
+      const symbol = getBinanceSymbol(base, counter);
+
+      if (binanceActive && symbol) {
+        const isFlipped = isFlippedPair(base, counter);
+        const binanceInterval = getBinanceInterval(currentResolution);
+
+        const chartData = await BinanceBridgeService.fetchTradeAggregations(
+          symbol,
+          isFlipped,
+          binanceInterval,
+          200
+        );
+
+        if (mountedRef.current) {
+          setData(chartData);
+          setLastUpdate(Date.now());
+          const key = getCacheKey(currentAssetPair, currentResolution);
+          if (key) globalChartCache.set(key, chartData);
+        }
+      } else {
+        if (!service) {
+          setError('Invalid asset pair configuration');
+          return;
+        }
+
+        const chartData = await service.fetchTradeAggregations(currentAssetPair, currentTimeRange, {
+          resolution: currentResolution,
+        });
+
+        if (mountedRef.current) {
+          setData(chartData);
+          setLastUpdate(Date.now());
+          const key = getCacheKey(currentAssetPair, currentResolution);
+          if (key) globalChartCache.set(key, chartData);
+        }
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -140,7 +194,7 @@ export function useStellarChart({
         setIsLoading(false);
       }
     }
-  }, [service, currentAssetPair, currentTimeRange, currentResolution]);
+  }, [service, currentAssetPair, currentTimeRange, currentResolution, binanceActive]);
 
   const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
@@ -178,7 +232,7 @@ export function useStellarChart({
   }, []);
 
   const startStreaming = useCallback(async () => {
-    if (!service || !currentAssetPair?.base || !currentAssetPair?.counter) {
+    if (!currentAssetPair?.base || !currentAssetPair?.counter) {
       setError('Invalid asset pair configuration');
       return;
     }
@@ -187,116 +241,175 @@ export function useStellarChart({
       return;
     }
 
-    // Check for recent trades before streaming
-    try {
-      const recentData = await service.fetchTradeAggregations(
-        currentAssetPair,
-        { startTime: Date.now() - Math.max(3600000, currentResolution * 2), endTime: Date.now() },
-        { resolution: currentResolution, limit: 1 }
-      );
+    const base = currentAssetPair.base;
+    const counter = currentAssetPair.counter;
 
-      if (recentData.length === 0) {
-        setError(
-          `No recent trades for ${currentAssetPair.base}/${currentAssetPair.counter}. Using polling.`
-        );
-        startPolling();
-        return;
-      }
-    } catch (err) {
-      console.error('Failed to check recent trades:', err);
-      setError('Failed to verify trading activity. Using polling.');
-      startPolling();
-      return;
-    }
+    const symbol = getBinanceSymbol(base, counter);
 
-    streamingRequestedRef.current = true;
-    setIsStreaming(true);
-    setError(null);
-    stopPolling();
+    if (binanceActive && typeof symbol === 'string') {
+      streamingRequestedRef.current = true;
+      setIsStreaming(true);
+      setError(null);
+      stopPolling();
 
-    const handleNewData = (newDataPoint: ChartDataPoint) => {
-      if (!mountedRef.current) return;
+      const handleNewData = (newDataPoint: ChartDataPoint) => {
+        if (!mountedRef.current) return;
 
-      setData(prevData => {
-        const exists = prevData.some(d => d.timestamp === newDataPoint.timestamp);
+        setData(prevData => {
+          const exists = prevData.some(d => d.timestamp === newDataPoint.timestamp);
 
-        if (exists) {
-          return prevData.map(d => (d.timestamp === newDataPoint.timestamp ? newDataPoint : d));
-        } else {
-          const updated = [...prevData, newDataPoint].sort((a, b) => a.timestamp - b.timestamp);
-          return updated.length > 500 ? updated.slice(-500) : updated;
-        }
-      });
-      setLastUpdate(Date.now());
-    };
-
-    const handleStreamError = async (err: Error) => {
-      if (!mountedRef.current || !streamingRequestedRef.current || isReconnectingRef.current) {
-        return;
-      }
-
-      console.error('Stream error:', err);
-
-      if (err.message.includes('406') || err.message.includes('No recent trades')) {
-        setError(
-          `Streaming not available for ${currentAssetPair.base}/${currentAssetPair.counter}. Using polling.`
-        );
-        stopStreaming();
-        startPolling();
-        return;
-      }
-
-      if (retryCountRef.current < STREAM_MAX_RETRIES) {
-        retryCountRef.current++;
-        // Exponential backoff delay
-        const delay = STREAM_RECONNECT_DELAY * Math.pow(2, retryCountRef.current - 1);
-        setError(`Connection lost. Retrying (${retryCountRef.current}/${STREAM_MAX_RETRIES})...`);
-
-        isReconnectingRef.current = true;
-
-        if (streamCloseRef.current) {
-          streamCloseRef.current();
-          streamCloseRef.current = null;
-        }
-
-        retryTimeoutRef.current = setTimeout(() => {
-          if (mountedRef.current && streamingRequestedRef.current) {
-            isReconnectingRef.current = false;
-            startStreamingInternal();
-          }
-        }, delay);
-      } else {
-        setError('Failed to maintain stream. Switching to polling.');
-        stopStreaming();
-        startPolling();
-      }
-    };
-
-    const startStreamingInternal = () => {
-      const options: ChartOptions = { resolution: currentResolution };
-
-      service
-        .streamTradeAggregations(currentAssetPair, options, handleNewData, handleStreamError)
-        .then(closer => {
-          if (mountedRef.current && streamingRequestedRef.current) {
-            streamCloseRef.current = closer;
-            retryCountRef.current = 0;
+          if (exists) {
+            return prevData.map(d => (d.timestamp === newDataPoint.timestamp ? newDataPoint : d));
           } else {
-            closer();
-          }
-        })
-        .catch(err => {
-          console.error('Failed to start stream:', err);
-          if (mountedRef.current) {
-            setError(err instanceof Error ? err.message : 'Failed to start streaming');
-            setIsStreaming(false);
-            startPolling();
+            const updated = [...prevData, newDataPoint].sort((a, b) => a.timestamp - b.timestamp);
+            return updated.length > 500 ? updated.slice(-500) : updated;
           }
         });
-    };
+        setLastUpdate(Date.now());
+      };
 
-    startStreamingInternal();
-  }, [service, currentAssetPair, currentResolution, startPolling, stopPolling, stopStreaming]);
+      const handleStreamError = (err: any) => {
+        console.error('Binance chart stream error:', err);
+      };
+
+      try {
+        const isFlipped = isFlippedPair(base, counter);
+        const binanceInterval = getBinanceInterval(currentResolution);
+
+        const closer = BinanceBridgeService.streamTradeAggregations(
+          symbol,
+          isFlipped,
+          binanceInterval,
+          handleNewData,
+          handleStreamError
+        );
+
+        if (mountedRef.current && streamingRequestedRef.current) {
+          streamCloseRef.current = closer;
+          retryCountRef.current = 0;
+        } else {
+          closer();
+        }
+      } catch (err) {
+        console.error('Failed to start Binance chart stream:', err);
+        if (mountedRef.current) {
+          setError(err instanceof Error ? err.message : 'Failed to start streaming');
+          setIsStreaming(false);
+          startPolling();
+        }
+      }
+    } else {
+      if (!service) return;
+
+      try {
+        const recentData = await service.fetchTradeAggregations(
+          currentAssetPair,
+          { startTime: Date.now() - Math.max(3600000, currentResolution * 2), endTime: Date.now() },
+          { resolution: currentResolution, limit: 1 }
+        );
+
+        if (recentData.length === 0) {
+          setError(
+            `No recent trades for ${currentAssetPair.base}/${currentAssetPair.counter}. Using polling.`
+          );
+          startPolling();
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to check recent trades:', err);
+        setError('Failed to verify trading activity. Using polling.');
+        startPolling();
+        return;
+      }
+
+      streamingRequestedRef.current = true;
+      setIsStreaming(true);
+      setError(null);
+      stopPolling();
+
+      const handleNewData = (newDataPoint: ChartDataPoint) => {
+        if (!mountedRef.current) return;
+
+        setData(prevData => {
+          const exists = prevData.some(d => d.timestamp === newDataPoint.timestamp);
+
+          if (exists) {
+            return prevData.map(d => (d.timestamp === newDataPoint.timestamp ? newDataPoint : d));
+          } else {
+            const updated = [...prevData, newDataPoint].sort((a, b) => a.timestamp - b.timestamp);
+            return updated.length > 500 ? updated.slice(-500) : updated;
+          }
+        });
+        setLastUpdate(Date.now());
+      };
+
+      const handleStreamError = async (err: Error) => {
+        if (!mountedRef.current || !streamingRequestedRef.current || isReconnectingRef.current) {
+          return;
+        }
+
+        console.error('Stream error:', err);
+
+        if (err.message.includes('406') || err.message.includes('No recent trades')) {
+          setError(
+            `Streaming not available for ${currentAssetPair.base}/${currentAssetPair.counter}. Using polling.`
+          );
+          stopStreaming();
+          startPolling();
+          return;
+        }
+
+        if (retryCountRef.current < STREAM_MAX_RETRIES) {
+          retryCountRef.current++;
+          const delay = STREAM_RECONNECT_DELAY * Math.pow(2, retryCountRef.current - 1);
+          setError(`Connection lost. Retrying (${retryCountRef.current}/${STREAM_MAX_RETRIES})...`);
+
+          isReconnectingRef.current = true;
+
+          if (streamCloseRef.current) {
+            streamCloseRef.current();
+            streamCloseRef.current = null;
+          }
+
+          retryTimeoutRef.current = setTimeout(() => {
+            if (mountedRef.current && streamingRequestedRef.current) {
+              isReconnectingRef.current = false;
+              startStreamingInternal();
+            }
+          }, delay);
+        } else {
+          setError('Failed to maintain stream. Switching to polling.');
+          stopStreaming();
+          startPolling();
+        }
+      };
+
+      const startStreamingInternal = () => {
+        const options: ChartOptions = { resolution: currentResolution };
+
+        service
+          .streamTradeAggregations(currentAssetPair, options, handleNewData, handleStreamError)
+          .then(closer => {
+            if (mountedRef.current && streamingRequestedRef.current) {
+              streamCloseRef.current = closer;
+              retryCountRef.current = 0;
+            } else {
+              closer();
+            }
+          })
+          .catch(err => {
+            console.error('Failed to start stream:', err);
+            if (mountedRef.current) {
+              setError(err instanceof Error ? err.message : 'Failed to start streaming');
+              setIsStreaming(false);
+              startPolling();
+            }
+          });
+      };
+
+      startStreamingInternal();
+    }
+  }, [service, currentAssetPair, currentResolution, startPolling, stopPolling, stopStreaming, binanceActive]);
 
   const refreshData = useCallback(async () => {
     await fetchData();
