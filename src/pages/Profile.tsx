@@ -416,17 +416,16 @@ const pnlStats = useMemo(() => {
   return { change, percentChange, currentEquity };
 }, [visiblePnlPoints, dydxTotal]);
 
+// Cost Basis is handled entirely in the exported Excel file — no in-app input needed.
+
 const cardPnL = useMemo(() => {
-  // Stellar PNL
   const stellarPnL = stellarPnlData?.totalPnL || 0;
   const stellarStart = stellarTotal - stellarPnL;
   const stellarPct = stellarStart > 0 ? (stellarPnL / stellarStart) * 100 : 0;
 
-  // dYdX PNL
   const dydxPnL = pnlStats.change || 0;
   const dydxPct = pnlStats.percentChange || 0;
 
-  // Total PNL
   const totalPnL = stellarPnL + dydxPnL;
   const totalStart = (stellarTotal + dydxTotal + evmTotal) - totalPnL;
   const totalPct = totalStart > 0 ? (totalPnL / totalStart) * 100 : 0;
@@ -939,7 +938,11 @@ const handleExportStellarReport = () => {
     usdcSpent: stellarPnlData.usdcSpent || 0,
     usdcReceived: stellarPnlData.usdcReceived || 0,
     netUSDCFlow: stellarPnlData.netUSDCFlow || 0,
-    tradeCount: stellarPnlData.tradeCount || 0,
+    tradeCount: stellarPnlData.rawCount || stellarPnlData.tradeCount || 0,
+    collapsedCount: stellarPnlData.collapsedCount,
+    rawCount: stellarPnlData.rawCount,
+    skippedCount: stellarPnlData.skippedCount,
+    noPriceCount: stellarPnlData.noPriceCount,
     positionCount: stellarPnlData.positionCount || 0,
     disposalCount: stellarPnlData.disposalCount || 0,
     winRate: stellarPnlData.winRate,
@@ -950,9 +953,11 @@ const handleExportStellarReport = () => {
     activeDays: stellarPnlData.activeDays,
     mostTradedAsset: stellarPnlData.mostTradedAsset,
     totalPortfolioValue: stellarPnlData.totalPortfolioValue,
-    totalCostBasis: stellarPnlData.totalCostBasis,
-    openPnLPct: stellarPnlData.openPnLPct,
     largestPosition: stellarPnlData.largestPosition,
+    // Full trade log & positions for Trade Log + Disposals sheets
+    trades: stellarPnlData.trades,
+    positions: stellarPnlData.positions,
+    // Cost basis is filled by the user directly in the exported Excel file
   });
 };
 
@@ -1571,13 +1576,18 @@ return (
                             </div>
                           </div>
                           
-                          <div className="space-y-1.5 pt-2">
-                            <span className="text-[10px] uppercase font-bold text-(--color-text-secondary) tracking-wider">Asset Valuation</span>
-                            <div className="text-2xl font-black text-(--color-text-primary)">
+                          <div className="space-y-2 pt-2">
+                            <span className="text-[10px] uppercase font-bold text-(--color-text-secondary) tracking-wider">Stellar Wallet Balance</span>
+                            <div className="text-3xl font-black text-(--color-text-primary) tracking-tight">
                               {portfolioUtils.formatUSD(stellarTotal)}
                             </div>
-                            <span className="text-[10.5px] text-(--color-text-secondary) block">
-                              Address: <span className="font-mono text-purple-400 text-[10px]">{connectedWallets.stellar?.address ? `${connectedWallets.stellar.address.slice(0, 16)}...${connectedWallets.stellar.address.slice(-16)}` : 'N/A'}</span>
+                            <span className="text-[10.5px] text-(--color-text-secondary) flex items-center gap-1.5">
+                              Address:
+                              <span className="font-mono text-purple-400/90 text-[10px] bg-purple-500/5 px-2 py-0.5 rounded-lg border border-purple-500/10">
+                                {connectedWallets.stellar?.address
+                                  ? `${connectedWallets.stellar.address.slice(0, 8)}...${connectedWallets.stellar.address.slice(-8)}`
+                                  : 'N/A'}
+                              </span>
                             </span>
                           </div>
                         </div>
@@ -1630,26 +1640,28 @@ return (
                     )}
                   </div>
 
-                  {/* Stellar Dashboard Sub-navigation Tabs */}
                   {!loadingStellarPnl && !stellarPnlError && stellarPnlData && (
                     <div className="flex border-b border-(--color-border)/50 pb-px mt-2 justify-start overflow-x-auto hide-scrollbar select-none gap-4">
-                      {(['overview', 'highlights', 'stats'] as const).map((tab) => {
-                        const label = tab === 'overview' ? 'Overview' : tab === 'highlights' ? 'Trading Highlights' : 'Detailed Metrics';
-                        const isActive = stellarSubTab === tab;
+                      {([
+                        { id: 'overview',   label: 'Overview' },
+                        { id: 'highlights', label: 'Trading Highlights' },
+                        { id: 'stats',      label: 'Detailed Metrics' },
+                      ] as const).map(({ id, label }) => {
+                        const isActive = stellarSubTab === id;
                         return (
                           <button
-                            key={tab}
+                            key={id}
                             type="button"
-                            onClick={() => setStellarSubTab(tab)}
+                            onClick={() => setStellarSubTab(id)}
                             className={`pb-2 px-1 text-xs font-bold transition-all relative shrink-0 ${
-                              isActive 
-                                ? 'text-purple-400 font-extrabold' 
+                              isActive
+                                ? 'text-purple-400 font-extrabold'
                                 : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
                             }`}
                           >
                             {label}
                             {isActive && (
-                              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-400 rounded-full" />
+                              <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-purple-400" />
                             )}
                           </button>
                         );
@@ -1657,7 +1669,6 @@ return (
                     </div>
                   )}
 
-                  {/* Cost Basis Warning Notification */}
                   {stellarPnlData?.costBasisWarning && (
                     <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
                       <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/10 text-amber-500 font-bold select-none text-[11px]">!</span>
@@ -1667,12 +1678,38 @@ return (
                     </div>
                   )}
 
-                  {/* Sub-tab Contents */}
                   {!loadingStellarPnl && !stellarPnlError && stellarPnlData && (
                     <>
-                      {/* Overview Sub-view */}
+                      {/* Cost Basis tab removed — users fill cost basis directly in the exported Excel file */}
                       {stellarSubTab === 'overview' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                          {/* Excel download CTA — cost basis is filled directly in the Excel file */}
+                          <div
+                            className="md:col-span-2 flex items-center justify-between gap-4 px-5 py-4 rounded-2xl border cursor-pointer transition-all duration-300 group bg-gradient-to-r from-purple-500/[0.04] to-transparent hover:from-purple-500/[0.08] hover:border-purple-500/30 border-(--color-border)"
+                            onClick={handleExportStellarReport}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={e => e.key === 'Enter' && handleExportStellarReport()}
+                          >
+                            <div className="flex items-center gap-3.5 min-w-0">
+                              <div className="w-1.5 h-9 rounded-full shrink-0 bg-purple-400 shadow-[0_0_8px_rgba(167,139,250,0.4)]" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-(--color-text-primary) tracking-tight flex items-center gap-1.5">
+                                  <Download size={12} className="text-purple-400" />
+                                  Download Full Excel Report
+                                </p>
+                                <p className="text-[11px] text-(--color-text-secondary) mt-0.5 truncate">
+                                  4 sheets: Summary · Cost Basis (editable) · Disposals · Trade Log — formulas auto-update when you fill in Excel
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className="text-[11px] font-bold text-purple-400 border border-purple-500/30 bg-purple-500/5 px-3 py-1.5 rounded-xl group-hover:bg-purple-500/15 group-hover:border-purple-500/50 transition-all duration-300">
+                                .xlsx
+                              </span>
+                              <ChevronRight size={14} className="text-(--color-text-secondary) group-hover:translate-x-0.5 transition-transform" />
+                            </div>
+                          </div>
                           {/* Left: Win Rate & outcomes circular gauge */}
                           <div className="p-5 bg-gradient-to-br from-purple-950/5 to-pink-950/5 border border-purple-500/10 rounded-2xl flex flex-col sm:flex-row items-center gap-6">
                             <div className="relative flex items-center justify-center">

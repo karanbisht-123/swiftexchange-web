@@ -10,6 +10,7 @@ import { Networks, Transaction, rpc } from '@stellar/stellar-sdk';
 
 const SOROBAN_RPC = 'https://rpc.ankr.com/stellar_soroban';
 
+
 export const STELLAR_NETWORK_PASSPHRASE: Record<'mainnet' | 'testnet', string> = {
   mainnet: Networks.PUBLIC,
   testnet: Networks.TESTNET,
@@ -286,7 +287,7 @@ export const prepareStellarToEvmRawTransaction = async ({
     sourceToken,
     destinationToken,
     messenger,
-    feePaymentMethod,
+    gasFeePaymentMethod: feePaymentMethod,
   });
 
   const rawXdr = rawTx as string;

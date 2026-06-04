@@ -124,7 +124,7 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
     const map: Record<string, string> = {
       ibc_transfer: 'IBC Transfer',
       cctp_transfer: 'CCTP Bridge',
-      go_fast_transfer: '⚡ Go Fast',
+      go_fast_transfer: 'Go Fast',
       axelar_transfer: 'Axelar Bridge',
       hyperlane_transfer: 'Hyperlane Bridge',
       evm_swap: 'EVM Swap',
@@ -506,7 +506,8 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
                       : FeePaymentMethod.WITH_STABLECOIN
                   )
                 }
-                className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                disabled={!rawQuotes?.bridge?.feeOptions?.stablecoin}
+                className={`flex items-center gap-1.5 transition-opacity ${!rawQuotes?.bridge?.feeOptions?.stablecoin ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'}`}
               >
                 <div
                   className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border transition-all ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN
@@ -1069,108 +1070,47 @@ export const StellarDydxOrchestrator: React.FC = () => {
   const displayState = useMemo(() => {
     const stellarConfig = getStellarConfig(currentNetwork);
 
+    let title = 'Bridge to dYdX';
+    let finalBottomAmt = depositQuote?.receivedAmount?.toString() || bridgeQuote?.amountToBeReceived || '0.00';
+    let isPending = false;
+
     if (activeSession) {
-      const activeChain = evmChains.find(c => c.chainId === activeSession.destinationChainId);
-      const isSessionUsdc = activeSession.inputTokenSymbol === 'USDC';
-
       if (activeSession.phase === 'SWAP') {
-        return {
-          top: {
-            symbol: activeSession.inputTokenSymbol,
-            network: 'STELLAR',
-            amount: activeSession.inputAmount,
-            logo: stellarAssets.find(a => a.symbol === activeSession.inputTokenSymbol)?.logoURI || ChainUrlHelpers.getTokenIcon(activeSession.inputTokenSymbol, stellarConfig),
-            balance: activeSession.inputAmount,
-          },
-          bottom: {
-            symbol: 'USDC',
-            network: 'STELLAR',
-            amount: activeSession.expectedSwapOutput || '0.00',
-            logo: USDC_LOGO_URL,
-          },
-          title: 'Prepare USDC on Stellar',
-        };
-      }
-
-      if (activeSession.phase === 'BRIDGE') {
-        const bridgeAmt = isSessionUsdc ? activeSession.inputAmount : activeSession.intermediateAmount || activeSession.expectedSwapOutput || '0.00';
-        const isPending = activeSession.bridgeTx.status !== 'SUCCESS';
-        return {
-          top: {
-            symbol: 'USDC',
-            network: 'STELLAR',
-            amount: bridgeAmt,
-            logo: USDC_LOGO_URL,
-            balance: bridgeAmt,
-          },
-          bottom: {
-            symbol: 'USDC',
-            network: activeChain?.name?.toUpperCase() || 'EVM',
-            amount: activeSession.expectedBridgeOutput || bridgeAmt,
-            logo: USDC_LOGO_URL,
-            isPending,
-          },
-          title: isPending ? 'Funds Crossing Bridge...' : `Bridge to ${activeChain?.name || 'EVM'}`,
-        };
-      }
-
-      if (activeSession.phase === 'DEPOSIT' || activeSession.phase === 'DONE') {
-        const depositAmt = activeSession.expectedBridgeOutput || activeSession.intermediateAmount || '0.00';
-        return {
-          top: {
-            symbol: 'USDC',
-            network: activeChain?.name?.toUpperCase() || 'EVM',
-            amount: depositAmt,
-            logo: USDC_LOGO_URL,
-            balance: depositAmt,
-          },
-          bottom: {
-            symbol: 'USDC',
-            network: 'DYDX',
-            amount: depositAmt,
-            logo: USDC_LOGO_URL,
-          },
-          title: activeSession.phase === 'DONE' ? 'Transfer Successful' : 'Settle Funds to dYdX',
-        };
+        title = 'Prepare USDC on Stellar';
+        finalBottomAmt = activeSession.expectedSwapOutput || '0.00';
+      } else if (activeSession.phase === 'BRIDGE') {
+        const activeChain = evmChains.find(c => c.chainId === activeSession.destinationChainId);
+        isPending = activeSession.bridgeTx.status !== 'SUCCESS';
+        title = isPending ? 'Funds Crossing Bridge...' : `Bridge to ${activeChain?.name || 'EVM'}`;
+        finalBottomAmt = activeSession.expectedBridgeOutput || activeSession.intermediateAmount || activeSession.expectedSwapOutput || '0.00';
+      } else if (activeSession.phase === 'DEPOSIT' || activeSession.phase === 'DONE') {
+        title = activeSession.phase === 'DONE' ? 'Transfer Successful' : 'Settle Funds to dYdX';
+        finalBottomAmt = activeSession.expectedBridgeOutput || activeSession.intermediateAmount || '0.00';
       }
     }
 
-    const calculatedBottomAmount = depositQuote?.receivedAmount?.toString() || bridgeQuote?.amountToBeReceived || '0.00';
-
-    if (isUsdc) {
-      return {
-        top: {
-          symbol: 'USDC',
-          network: 'STELLAR',
-          amount: inputAmount,
-          logo: USDC_LOGO_URL,
-          balance: tokenBalance,
-        },
-        bottom: {
-          symbol: 'USDC',
-          network: 'DYDX',
-          amount: calculatedBottomAmount,
-          logo: USDC_LOGO_URL,
-        },
-        title: 'Bridge to dYdX',
-      };
-    }
+    const inputSym = activeSession ? activeSession.inputTokenSymbol : (inputToken?.symbol || 'Select');
+    const inputAmt = activeSession ? activeSession.inputAmount : inputAmount;
+    const topLogo = activeSession
+      ? (stellarAssets.find(a => a.symbol === activeSession.inputTokenSymbol)?.logoURI || ChainUrlHelpers.getTokenIcon(activeSession.inputTokenSymbol, stellarConfig))
+      : (inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol || '', stellarConfig));
 
     return {
       top: {
-        symbol: inputToken?.symbol || 'Select',
+        symbol: inputSym,
         network: 'STELLAR',
-        amount: inputAmount,
-        logo: inputToken?.logoURI || ChainUrlHelpers.getTokenIcon(inputToken?.symbol || '', stellarConfig),
-        balance: tokenBalance,
+        amount: inputAmt,
+        logo: topLogo,
+        balance: activeSession ? activeSession.inputAmount : tokenBalance,
       },
       bottom: {
         symbol: 'USDC',
         network: 'DYDX',
-        amount: calculatedBottomAmount,
+        amount: finalBottomAmt,
         logo: USDC_LOGO_URL,
+        isPending,
       },
-      title: 'Bridge to dYdX',
+      title,
     };
   }, [
     activeSession,
@@ -1217,10 +1157,18 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (setupError) return 'TRY AGAIN';
     if (hasPendingSession) return 'TRANSFER IN PROGRESS...';
     if (!inputAmount || parseFloat(inputAmount) <= 0) return 'ENTER AMOUNT';
-    const isInsufficient = parseFloat(inputAmount) > parseFloat(tokenBalance);
+    
+    let requiredBalance = parseFloat(inputAmount);
+    if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
+      requiredBalance += Number(rawQuotes.bridge.feeOptions.stablecoin.float);
+    }
+    const isInsufficient = requiredBalance > parseFloat(tokenBalance);
     if (isInsufficient) return 'INSUFFICIENT BALANCE';
 
-    const minXlm = feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 5 : 1;
+    let minXlm = feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 5 : 1;
+    if (feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY && rawQuotes?.bridge?.feeOptions?.native) {
+      minXlm += Number(rawQuotes.bridge.feeOptions.native.float);
+    }
     const isInsufficientXlm = parseFloat(nativeBalance) < minXlm;
     if (isInsufficientXlm) return 'INSUFFICIENT XLM FOR GAS';
     if (isQuoting) return 'FETCHING QUOTES...';
@@ -1238,6 +1186,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
     isQuoting,
     evmChains,
     hasPendingSession,
+    isUsdc,
+    rawQuotes,
   ]);
 
   const isButtonDisabled = useMemo(() => {
@@ -1253,8 +1203,17 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     if (hasPendingSession) return true;
     if (parseFloat(inputAmount) <= 0) return true;
-    const isInsufficient = parseFloat(inputAmount) > parseFloat(tokenBalance);
-    const minXlm = feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 5 : 1;
+    
+    let requiredBalance = parseFloat(inputAmount);
+    if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
+      requiredBalance += Number(rawQuotes.bridge.feeOptions.stablecoin.float);
+    }
+    const isInsufficient = requiredBalance > parseFloat(tokenBalance);
+
+    let minXlm = feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 5 : 1;
+    if (feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY && rawQuotes?.bridge?.feeOptions?.native) {
+      minXlm += Number(rawQuotes.bridge.feeOptions.native.float);
+    }
     const isInsufficientXlm = parseFloat(nativeBalance) < minXlm;
 
     if (isInsufficient || isInsufficientXlm) return true;
@@ -1271,6 +1230,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
     feePaymentMethod,
     isQuoting,
     hasPendingSession,
+    isUsdc,
+    rawQuotes,
   ]);
 
   const customButtonClass = useMemo(() => {
@@ -1929,7 +1890,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                               : 'PROCESSING...'
                     }
                     isDisabled={isButtonDisabled}
-                    isError={!!(activeSession?.error || setupError)}
+                    isError={!!(activeSession?.error || setupError || buttonLabel.includes('INSUFFICIENT'))}
                     icon={
                       !activeSession ? (
                         hasPendingSession ? (
@@ -1948,10 +1909,23 @@ export const StellarDydxOrchestrator: React.FC = () => {
           </div>
         </div>
 
-        {!activeSession && sessions.filter(s => s.phase !== 'DONE').length > 0 && (
+        {!activeSession && sessions.filter(s => {
+          if (s.phase === 'DONE') return false;
+          const hasPending = s.swapTx?.status === 'PENDING' || s.bridgeTx?.status === 'PENDING' || s.depositTx?.status === 'PENDING';
+          return hasPending || !!s.error;
+        }).length > 0 && (
           <div className="space-y-3 mt-4 border-t border-divider/40 pt-4">
             {(() => {
-              const pendingSessions = sessions.filter(s => s.phase !== 'DONE');
+              const pendingSessions = sessions.filter(s => {
+                if (s.phase === 'DONE') return false;
+                // Only show sessions with at least one PENDING step or an actionable error
+                // Silently failed sessions (all steps null/FAILED, no user error) are not shown here
+                const hasPending =
+                  s.swapTx?.status === 'PENDING' ||
+                  s.bridgeTx?.status === 'PENDING' ||
+                  s.depositTx?.status === 'PENDING';
+                return hasPending || !!s.error;
+              });
               const displayedSessions = showAllSessions ? pendingSessions : pendingSessions.slice(0, 2);
 
               return (

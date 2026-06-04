@@ -1,13 +1,8 @@
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  CheckCircle,
   Clock,
   Loader2,
   RefreshCw,
   SearchX,
-  ShieldCheck,
-  XCircle,
   ExternalLink,
 } from 'lucide-react';
 import React, { useEffect, useState, useRef } from 'react';
@@ -41,13 +36,6 @@ const STATUS_STYLES: Record<LocalTransactionWithStatus['status'], string> = {
   pending: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500',
   success: 'bg-green-500/10 border-green-500/20 text-green-500',
   failed: 'bg-red-500/10 border-red-500/20 text-red-500',
-};
-
-const StatusIcon: React.FC<{ status: LocalTransactionWithStatus['status']; type: string }> = ({ status, type }) => {
-  if (status === 'pending') return <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />;
-  if (type === 'approval' && status === 'success') return <ShieldCheck className="w-5 h-5 text-blue-500" />;
-  if (status === 'success') return <CheckCircle className="w-5 h-5 text-green-500" />;
-  return <XCircle className="w-5 h-5 text-red-500" />;
 };
 
 const formatRelativeTime = (timestamp: number): string => {
@@ -253,7 +241,18 @@ const EvmTransactionHistory: React.FC = () => {
           const chainId = chainConfig?.chainId ?? order.fromChain;
           const url = `https://api.skip.build/v2/tx/status?chain_id=${chainId}&tx_hash=${order.txHash}`;
           const res = await fetch(url);
-          if (!res.ok) continue;
+          if (!res.ok) {
+            const errorData = await res.text();
+            if (errorData.includes('tx not found')) {
+              const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
+              if (timeElapsed > 60 * 60 * 1000) {
+                setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
+                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
+                  .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+              }
+            }
+            continue;
+          }
           const data = await res.json();
           const state: string = data.state ?? 'STATE_UNKNOWN';
 
@@ -266,8 +265,15 @@ const EvmTransactionHistory: React.FC = () => {
             updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
               .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error('Failed to poll Skip status for dYdX deposit:', err);
+          if (err?.message?.toLowerCase().includes('not found')) {
+             const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
+             if (timeElapsed > 60 * 60 * 1000) {
+                setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
+                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
+             }
+          }
         }
       }
     };
@@ -276,6 +282,49 @@ const EvmTransactionHistory: React.FC = () => {
     const interval = setInterval(pollSkipStatuses, 15000);
     return () => clearInterval(interval);
   }, [backendOrders?.data, currentNetwork, liveStatusOverrides]);
+  useEffect(() => {
+    const pendingSrbOrders = backendOrders?.data?.filter((order: SwapOrder) =>
+      order.provider?.toUpperCase() === 'SRBTODYDX' &&
+      order.status === 'pending' &&
+      !liveStatusOverrides[order.txHash.toLowerCase()]
+    );
+
+    if (!pendingSrbOrders || pendingSrbOrders.length === 0) return;
+
+    const pollSrbStatuses = async () => {
+      for (const order of pendingSrbOrders) {
+        try {
+          const res = await getTransactionStatus({
+            walletType: 'SRB',
+            txHash: order.txHash,
+            provider: 'ALLBRIDGE',
+          });
+
+          if (res.receive && res.receive.txId) {
+            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'success' }));
+            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' }).catch(console.error);
+          } else if (res.isSuspended) {
+            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
+            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
+          }
+        } catch (err: any) {
+          console.error('Failed to poll Allbridge status for SRBTODYDX:', err);
+          if (err?.message?.toLowerCase().includes('not found')) {
+            const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
+            if (timeElapsed > 60 * 60 * 1000) {
+              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
+              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
+            }
+          }
+        }
+      }
+    };
+
+    pollSrbStatuses();
+    const interval = setInterval(pollSrbStatuses, 20000);
+    return () => clearInterval(interval);
+  }, [backendOrders?.data, liveStatusOverrides]);
+
 
   useEffect(() => {
     if (walletAddress) {
@@ -535,7 +584,7 @@ const EvmTransactionHistory: React.FC = () => {
         getTransactionStatus({
           walletType: tx.fromChainSymbol || 'ETH',
           txHash: tx.hash,
-          provider: tx.provider
+          provider: tx.provider === 'SRBTODYDX' ? 'ALLBRIDGE' : tx.provider
         }).catch((err: any) => console.error('Failed to refresh backend order status:', err));
       }
     }
@@ -865,7 +914,7 @@ const EvmTransactionHistory: React.FC = () => {
               <span
                 className={`text-[8px] lg:text-[9px] font-bold px-1.5 py-0.5 rounded-full capitalize tracking-wider shrink-0 ${statusStyle}`}
               >
-                {tx.status === 'pending' && (tx as any).provider?.toUpperCase() === 'SKIP'
+                {tx.status === 'pending' && ((tx as any).provider?.toUpperCase() === 'SKIP' || (tx as any).provider?.toUpperCase() === 'SRBTODYDX')
                   ? 'Bridging'
                   : tx.status === 'pending' && (tx as any).provider?.toUpperCase() === 'DYDX'
                   ? 'Settling'
@@ -1231,7 +1280,7 @@ const EvmTransactionHistory: React.FC = () => {
                         getTransactionStatus({
                           walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
                           txHash: selectedLocalTx.hash,
-                          provider: (selectedLocalTx as any).provider
+                          provider: (selectedLocalTx as any).provider === 'SRBTODYDX' ? 'ALLBRIDGE' : (selectedLocalTx as any).provider
                         });
                       }
                     }
@@ -1299,7 +1348,7 @@ const EvmTransactionHistory: React.FC = () => {
                 getTransactionStatus({
                   walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
                   txHash: selectedLocalTx.hash,
-                  provider: (selectedLocalTx as any).provider
+                  provider: (selectedLocalTx as any).provider === 'SRBTODYDX' ? 'ALLBRIDGE' : (selectedLocalTx as any).provider
                 });
               }
             }

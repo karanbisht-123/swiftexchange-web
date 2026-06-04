@@ -10,14 +10,16 @@ export function readLocalCache<T>(key: string, ttl: number): T | null {
         if (!raw) return null;
         const { timestamp, data } = JSON.parse(raw);
         if (Date.now() - timestamp < ttl) return data as T;
-    } catch { /* ignore */ }
+    } catch (err) { console.log(err) }
     return null;
 }
 
 export function writeLocalCache<T>(key: string, data: T): void {
     try {
         localStorage.setItem(key, JSON.stringify({ timestamp: Date.now(), data }));
-    } catch { /* ignore quota errors */ }
+    } catch (err) {
+        console.log(err)
+    }
 }
 
 export function readStaleCache<T>(key: string): T | null {
@@ -28,7 +30,6 @@ export function readStaleCache<T>(key: string): T | null {
 }
 
 // In-memory cache (Stellar PnL) 
-
 const PNL_TTL = 20_000;
 const pnlCache = new Map<string, { ts: number; data: unknown }>();
 const pnlInFlight = new Map<string, Promise<unknown>>();

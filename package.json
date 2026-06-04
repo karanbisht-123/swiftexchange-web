@@ -23,6 +23,7 @@
     "@walletconnect/utils": "^2.21.6",
     "bignumber.js": "^9.3.1",
     "ethers": "^6.15.0",
+    "fflate": "^0.8.3",
     "lightweight-charts": "^5.0.8",
     "lucide-react": "^0.525.0",
     "qrcode": "^1.5.4",

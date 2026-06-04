@@ -190,7 +190,7 @@ export function isTxOwnedByCurrentUser(tx: PendingTxInfo | any, wallets: any): b
       const activeDydx = [wallets.evm?.dydxAddress, wallets.cosmos?.dydxAddress]
         .filter(Boolean)
         .map(a => a!.toLowerCase());
-      if (!activeDydx.includes(tx.requiredWallets.dydx.toLowerCase())) return false;
+      if (activeDydx.length > 0 && !activeDydx.includes(tx.requiredWallets.dydx.toLowerCase())) return false;
     }
     return true;
   }

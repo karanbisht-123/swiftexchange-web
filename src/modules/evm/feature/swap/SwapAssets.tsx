@@ -582,6 +582,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
           if (src && dst) {
             const sq = await getStellarBridgeQuote({ amount: sellAmount, sourceToken: src, destinationToken: dst, slippageTolerance: userSlippageTolerance });
+            if (!sq.feeOptions?.stablecoin) {
+              setFeePayType('native');
+            }
             setActiveQuote({
               source: 'bridge',
               loading: false,
@@ -621,6 +624,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const bdgQ = await getEvmBridgeQuote(fromChainId, toChainId, sellAmount, sellAssetSymbol, buyAssetSymbol);
           if (!bdgQ || (Array.isArray(bdgQ) && bdgQ.length === 0) || (bdgQ && typeof bdgQ === 'object' && !bdgQ.minimumAmountOut && !bdgQ.quotes)) {
             throw new Error('Bridge quotes empty');
+          }
+          if (bdgQ && bdgQ.fee && !bdgQ.fee.stablecoin) {
+            setFeePayType('native');
           }
           setActiveQuote({ source: 'bridge', data: bdgQ, error: null, loading: false });
         } else {
@@ -676,8 +682,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const isInsufficientBalance = useMemo(() => {
     if (!sellAmount || !selectedSellAsset) return false;
-    return parseFloat(sellAmount) > parseFloat((selectedSellAsset as any)?.balance || '0');
-  }, [sellAmount, selectedSellAsset]);
+    let requiredBalance = parseFloat(sellAmount);
+    
+    if (actionType === 'BRIDGE' && feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) {
+      if (selectedSellAsset.symbol.toUpperCase() === activeQuote.data.fee.stablecoin.symbol.toUpperCase()) {
+         requiredBalance += parseFloat(activeQuote.data.fee.stablecoin.amount);
+      }
+    }
+    
+    return requiredBalance > parseFloat((selectedSellAsset as any)?.balance || '0');
+  }, [sellAmount, selectedSellAsset, feePayType, activeQuote.data?.fee?.stablecoin, actionType]);
 
   const hasInsufficientStellarGas = useMemo(() => {
     if (!isStellar(fromChainId)) return false;
@@ -686,7 +700,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (!xlm) return true;
 
     const xlmBalanceAfterReserve = parseFloat(xlm.balance || '0');
-    const requiredGasFee = actionType === 'BRIDGE' ? 2.0 : 0.1;
+    let requiredGasFee = actionType === 'BRIDGE' ? 2.0 : 0.1;
+    
+    if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuote.data?.fee?.native) {
+        requiredGasFee += parseFloat(activeQuote.data.fee.native.amount);
+    }
 
     if (sellAssetSymbol === 'XLM') {
       const sellAmt = parseFloat(sellAmount || '0');
@@ -694,7 +712,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     } else {
       return xlmBalanceAfterReserve < requiredGasFee;
     }
-  }, [fromChainId, stellarAssets, sellAssetSymbol, sellAmount, actionType]);
+  }, [fromChainId, stellarAssets, sellAssetSymbol, sellAmount, actionType, feePayType, activeQuote.data?.fee?.native]);
 
   const isSameAssetSelected = useMemo(() => {
     return actionType === 'SWAP' && fromChainId === toChainId && isSameAsset(selectedSellAsset, selectedBuyAsset) && !!selectedSellAsset;
@@ -958,7 +976,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               fromAccountAddress: stellarAddress,
               toAccountAddress: evmAddress,
               network: currentNetwork,
-              feePaymentMethod: feePayType === 'native' ? FeePaymentMethod.WITH_NATIVE_CURRENCY : FeePaymentMethod.WITH_STABLECOIN,
+              feePaymentMethod: (feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) ? FeePaymentMethod.WITH_STABLECOIN : FeePaymentMethod.WITH_NATIVE_CURRENCY,
               messenger: Messenger.ALLBRIDGE,
               slippageTolerance: userSlippageTolerance
             });
@@ -1070,7 +1088,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               fromChainId,
               toChainId,
               amount: sellAmount,
-              feePayType,
+              feePayType: (feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) ? 'stablecoin' : 'native',
               fromAddress: evmAddress,
               destinationAddress: destAddr,
               sourceToken: sellAssetSymbol,
