@@ -34,6 +34,8 @@ export interface StellarPositionRow {
   priceSource: string | null;
   unrealized: number | null;
   realizedPnL: number;
+  openingAmount?: number | null;
+  openingCostPerUnit?: number | null;
 }
 
 export interface StellarExportData {
@@ -331,9 +333,11 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
   const cbPositions = d.positions?.length ?? 0;
   const cbDataStart = 5;
   const cbTotalRow = cbDataStart + Math.max(cbPositions, 5);
+  const totalOpeningCostBasis = d.positions?.reduce((sum, pos) => sum + (pos.openingAmount ?? 0) * (pos.openingCostPerUnit ?? 0), 0) ?? 0;
+  const adjustedTotalPnl = d.totalRealized + totalOpeningCostBasis;
   rows += row(9, 22,
     sc(9, 1, 'Adjusted Total P&L (fill Cost Basis sheet to activate)', S.SECTION, sst) +
-    fc(9, 6, `${d.totalRealized}+'Cost Basis'!F${cbTotalRow}`, S.FORMULA_NUM, d.totalRealized)
+    fc(9, 6, `${d.totalRealized}+'Cost Basis'!F${cbTotalRow}`, S.FORMULA_NUM, adjustedTotalPnl)
   );
 
   // R10 — spacer
@@ -456,21 +460,35 @@ function buildCostBasisSheet(d: StellarExportData, sst: SST): string {
   const dataStart = 5;
   const minRows = Math.max(positions.length, 5);
 
+  let totalOpeningCost = 0;
+  let totalUnrealizedCostBasis = 0;
+
   for (let i = 0; i < minRows; i++) {
     const pos = positions[i];
     const r = dataStart + i;
     const numS = i % 2 === 0 ? S.NUM : S.NUM_ALT;
     if (pos) {
+      const openingAmountVal = pos.openingAmount !== undefined && pos.openingAmount !== null ? pos.openingAmount : null;
+      const openingCostVal = pos.openingCostPerUnit !== undefined && pos.openingCostPerUnit !== null ? pos.openingCostPerUnit : null;
+      const openingTotalVal = (openingAmountVal !== null && openingCostVal !== null) ? openingAmountVal * openingCostVal : 0;
+      const currentPriceVal = pos.currentPrice ?? 0;
+
+      totalOpeningCost += openingTotalVal;
+      const cachedUnrealized = openingAmountVal !== null && openingCostVal !== null
+        ? (pos.remaining * currentPriceVal) - openingTotalVal
+        : 0;
+      totalUnrealizedCostBasis += cachedUnrealized;
+
       // Col G: unrealized = current holdings × currentPrice − opening amount × cost per unit
-      const unrealFormula = `IFERROR(C${r}*${(pos.currentPrice ?? 0).toFixed(6)}-D${r}*E${r},"—")`;
+      const unrealFormula = `IFERROR(C${r}*${currentPriceVal.toFixed(6)}-D${r}*E${r},"—")`;
       rows += row(r, 22,
         sc(r, 1, pos.asset, i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
         sc(r, 2, pos.issuer ? `${pos.issuer.slice(0, 10)}...${pos.issuer.slice(-6)}` : 'Native / Stellar', i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
         nc(r, 3, pos.remaining, numS) +            // read-only: current holdings from API
-        nc(r, 4, null, S.EDITABLE) +               // ← user types: opening amount
-        nc(r, 5, null, S.EDITABLE_N) +             // ← user types: cost per unit
-        fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, 0) +
-        fc(r, 7, unrealFormula, S.FORMULA_NUM, 0)
+        nc(r, 4, openingAmountVal, S.EDITABLE) +   // ← user types: opening amount
+        nc(r, 5, openingCostVal, S.EDITABLE_N) +   // ← user types: cost per unit
+        fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, openingTotalVal) +
+        fc(r, 7, unrealFormula, S.FORMULA_NUM, cachedUnrealized)
       );
     } else {
       rows += row(r, 22,
@@ -488,8 +506,8 @@ function buildCostBasisSheet(d: StellarExportData, sst: SST): string {
     sc(totalRow, 1, 'TOTAL', S.TOTAL_LBL, sst) +
     sc(totalRow, 2, '', S.TOTAL_LBL, sst) + sc(totalRow, 3, '', S.TOTAL_LBL, sst) +
     sc(totalRow, 4, '', S.TOTAL_LBL, sst) + sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
-    fc(totalRow, 6, `SUM(F${dataStart}:F${dataEnd})`, S.KPI_BLUE, 0) +
-    fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, 0)
+    fc(totalRow, 6, `SUM(F${dataStart}:F${dataEnd})`, S.KPI_BLUE, totalOpeningCost) +
+    fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, totalUnrealizedCostBasis)
   );
 
   const noteRow = totalRow + 2;
@@ -568,13 +586,14 @@ function buildDisposalsSheet(d: StellarExportData, sst: SST): string {
     const numS = i % 2 === 0 ? numStyle : numAlt;
     const pnlS = apiPnl >= 0 ? S.PNL_GREEN : S.PNL_RED;
 
+    const posObj = d.positions?.find(p => p.asset === assetSymbol);
+    const cpuCached = posObj?.openingCostPerUnit ?? 0;
+    const cbCached = amountSold * cpuCached;
+    const adjCached = proceeds - cbCached;
+
     const cpuFormula = `IFERROR(VLOOKUP(B${r},${cbLookupRange},5,FALSE),0)`;
     const cbFormula = `C${r}*F${r}`;
     const adjFormula = `D${r}-G${r}`;
-
-    const cpuCached = 0;
-    const cbCached = amountSold * cpuCached;
-    const adjCached = proceeds - cbCached;
 
     rows += row(r, 20,
       sc(r, 1, t.date, useStyle, sst) +
@@ -596,6 +615,21 @@ function buildDisposalsSheet(d: StellarExportData, sst: SST): string {
   // Total row
   const dataEnd = dataStart + Math.max(disposals.length, 1) - 1;
   const totalRow = dataEnd + 1;
+
+  let totalDisposalsCostBasis = 0;
+  let totalAdjustedPnl = 0;
+  disposals.forEach(t => {
+    const assetMatch = t.amount.match(/^[\d.]+\s+(\S+)/);
+    const assetSymbol = assetMatch ? assetMatch[1] : '';
+    const proceeds = parseFloat(t.usdc.replace(/[^0-9.-]/g, '')) || 0;
+    const amountSold = parseFloat(t.amount) || 0;
+    const posObj = d.positions?.find(p => p.asset === assetSymbol);
+    const cpu = posObj?.openingCostPerUnit ?? 0;
+    const cb = amountSold * cpu;
+    totalDisposalsCostBasis += cb;
+    totalAdjustedPnl += (proceeds - cb);
+  });
+
   rows += row(totalRow, 22,
     sc(totalRow, 1, 'TOTAL', S.TOTAL_LBL, sst) +
     sc(totalRow, 2, '', S.TOTAL_LBL, sst) +
@@ -606,8 +640,8 @@ function buildDisposalsSheet(d: StellarExportData, sst: SST): string {
     fc(totalRow, 5, `SUM(E${dataStart}:E${dataEnd})`, S.KPI_BLUE,
       disposals.reduce((s, t) => s + (t.pnlNum ?? 0), 0)) +
     sc(totalRow, 6, '', S.TOTAL_LBL, sst) +
-    fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, 0) +
-    fc(totalRow, 8, `SUM(H${dataStart}:H${dataEnd})`, S.KPI_BLUE, 0)
+    fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, totalDisposalsCostBasis) +
+    fc(totalRow, 8, `SUM(H${dataStart}:H${dataEnd})`, S.KPI_BLUE, totalAdjustedPnl)
   );
 
   const cols = [

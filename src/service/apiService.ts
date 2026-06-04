@@ -131,15 +131,17 @@ export async function getWalletGasInfo(
 export async function fetchStellarPnl(
   address: string,
   from: string,
-  to: string
+  to: string,
+  includeExcel: boolean = false
 ): Promise<unknown> {
-  const key = `${address}_${from}_${to}`;
+  const key = `${address}_${from}_${to}_${includeExcel}`;
 
   const cached = getPnlCache(key); if (cached) return cached;
   const inFlight = getPnlInflight(key); if (inFlight) return inFlight;
 
   const promise = (async () => {
-    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=true&excel=true`;
+    const summary = !includeExcel;
+    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=${summary}&excel=${includeExcel}`;
 
     const res = await fetchWithRetry(url, {
       method: 'GET',

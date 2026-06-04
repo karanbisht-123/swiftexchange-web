@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, memo } from 'react';
 
 import { useMarkets } from '../../hooks/useMarkets';
 import { useOrderbook } from '../../hooks/useOrderbook';
@@ -24,6 +24,94 @@ const SkeletonRow = ({ isAsk = false }: { isAsk?: boolean }) => (
     <div className="skeleton-shimmer rounded h-[13px] w-[44%] bg-primary/8 ml-auto" />
   </div>
 );
+
+interface OrderbookRowProps {
+  price: number;
+  size: number;
+  usdSize: number;
+  total: number;
+  usdTotal: number;
+  maxTotal: number;
+  displayMode: 'base' | 'usd';
+  isAsk: boolean;
+  onPriceClick: (price: string) => void;
+  getDecimals: (val: number) => number;
+}
+
+const OrderbookRowComponent = memo(function OrderbookRowComponent({
+  price,
+  size,
+  usdSize,
+  total,
+  usdTotal,
+  maxTotal,
+  displayMode,
+  isAsk,
+  onPriceClick,
+  getDecimals,
+}: OrderbookRowProps) {
+  const prevSizeRef = useRef(size);
+  const [flashClass, setFlashClass] = useState('');
+
+  useEffect(() => {
+    if (prevSizeRef.current !== size) {
+      const isIncrease = size > prevSizeRef.current;
+      setFlashClass(isIncrease ? 'flash-up-text' : 'flash-down-text');
+      prevSizeRef.current = size;
+      const timer = setTimeout(() => setFlashClass(''), 400);
+      return () => clearTimeout(timer);
+    }
+  }, [size]);
+
+  const depthPct = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
+  const displaySize =
+    displayMode === 'base'
+      ? size.toFixed(4)
+      : usdSize.toLocaleString(undefined, {
+          minimumFractionDigits: getDecimals(usdSize),
+          maximumFractionDigits: getDecimals(usdSize),
+        });
+  const displayTotal =
+    displayMode === 'base'
+      ? total.toFixed(4)
+      : usdTotal.toLocaleString(undefined, {
+          minimumFractionDigits: getDecimals(usdTotal),
+          maximumFractionDigits: getDecimals(usdTotal),
+        });
+
+  return (
+    <div
+      onClick={() => onPriceClick(price.toString())}
+      className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 cursor-pointer"
+    >
+      <div
+        className={`absolute inset-y-0 right-0 origin-right transition-transform duration-500 ease-out ${
+          isAsk ? 'bg-danger/10' : 'bg-success/10'
+        }`}
+        style={{
+          width: '100%',
+          transform: `scaleX(${Math.min(1, depthPct / 100)})`,
+        }}
+      />
+      <div className={`relative font-semibold tabular-nums text-xs lg:text-[13px] ${
+        isAsk ? 'text-danger' : 'text-success'
+      }`}>
+        {price.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}
+      </div>
+      <div className={`relative text-right tabular-nums text-xs lg:text-[13px] transition-colors duration-400 ${
+        flashClass || 'text-primary'
+      }`}>
+        {displaySize}
+      </div>
+      <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px]">
+        {displayTotal}
+      </div>
+    </div>
+  );
+});
 
 
 const Orderbook = () => {
@@ -238,55 +326,21 @@ const Orderbook = () => {
 
       {/* ── ASKS ─────────────────────────────────────────────────────────────── */}
       <div className="relative flex-1 overflow-auto hide-scrollbar flex flex-col justify-end">
-        {asks.map(ask => {
-          const priceKey = ask.price.toString();
-          const depthPct =
-            displayMode === 'base'
-              ? (ask.total / maxBaseTotal) * 100
-              : (ask.usdTotal / maxUsdTotal) * 100;
-          const displaySize =
-            displayMode === 'base'
-              ? ask.size.toFixed(4)
-              : ask.usdSize.toLocaleString(undefined, {
-                minimumFractionDigits: getDecimals(ask.usdSize),
-                maximumFractionDigits: getDecimals(ask.usdSize),
-              });
-          const displayTotal =
-            displayMode === 'base'
-              ? ask.total.toFixed(4)
-              : ask.usdTotal.toLocaleString(undefined, {
-                minimumFractionDigits: getDecimals(ask.usdTotal),
-                maximumFractionDigits: getDecimals(ask.usdTotal),
-              });
-
-          return (
-            <div
-              key={`ask-${priceKey}`}
-              onClick={() => handlePriceClick(ask.price.toString())}
-              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 cursor-pointer"
-            >
-              <div
-                className="absolute inset-y-0 right-0 bg-danger/10 origin-right will-change-transform transition-transform duration-500 ease-out"
-                style={{
-                  width: '100%',
-                  transform: `scaleX(${Math.min(1, depthPct / 100)})`,
-                }}
-              />
-              <div className="relative text-danger font-semibold tabular-nums text-xs lg:text-[13px]">
-                {ask.price.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-              <div className="relative text-right text-primary tabular-nums text-xs lg:text-[13px]">
-                {displaySize}
-              </div>
-              <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px]">
-                {displayTotal}
-              </div>
-            </div>
-          );
-        })}
+        {asks.map(ask => (
+          <OrderbookRowComponent
+            key={`ask-${ask.price}`}
+            price={ask.price}
+            size={ask.size}
+            usdSize={ask.usdSize}
+            total={ask.total}
+            usdTotal={ask.usdTotal}
+            maxTotal={displayMode === 'base' ? maxBaseTotal : maxUsdTotal}
+            displayMode={displayMode}
+            isAsk={true}
+            onPriceClick={handlePriceClick}
+            getDecimals={getDecimals}
+          />
+        ))}
 
         {/* Skeleton rows shown while loading with no real data yet */}
         {isLoading && asks.length === 0 &&
@@ -311,55 +365,21 @@ const Orderbook = () => {
 
       {/* ── BIDS ─────────────────────────────────────────────────────────────── */}
       <div className="relative flex-1 overflow-auto hide-scrollbar">
-        {bids.map(bid => {
-          const priceKey = bid.price.toString();
-          const depthPct =
-            displayMode === 'base'
-              ? (bid.total / maxBaseTotal) * 100
-              : (bid.usdTotal / maxUsdTotal) * 100;
-          const displaySize =
-            displayMode === 'base'
-              ? bid.size.toFixed(4)
-              : bid.usdSize.toLocaleString(undefined, {
-                minimumFractionDigits: getDecimals(bid.usdSize),
-                maximumFractionDigits: getDecimals(bid.usdSize),
-              });
-          const displayTotal =
-            displayMode === 'base'
-              ? bid.total.toFixed(4)
-              : bid.usdTotal.toLocaleString(undefined, {
-                minimumFractionDigits: getDecimals(bid.usdTotal),
-                maximumFractionDigits: getDecimals(bid.usdTotal),
-              });
-
-          return (
-            <div
-              key={`bid-${priceKey}`}
-              onClick={() => handlePriceClick(bid.price.toString())}
-              className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 cursor-pointer"
-            >
-              <div
-                className="absolute inset-y-0 right-0 bg-success/10 origin-right will-change-transform transition-transform duration-500 ease-out"
-                style={{
-                  width: '100%',
-                  transform: `scaleX(${Math.min(1, depthPct / 100)})`,
-                }}
-              />
-              <div className="relative text-success font-semibold tabular-nums text-xs lg:text-[13px]">
-                {bid.price.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-              <div className="relative text-right text-primary tabular-nums text-xs lg:text-[13px]">
-                {displaySize}
-              </div>
-              <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px]">
-                {displayTotal}
-              </div>
-            </div>
-          );
-        })}
+        {bids.map(bid => (
+          <OrderbookRowComponent
+            key={`bid-${bid.price}`}
+            price={bid.price}
+            size={bid.size}
+            usdSize={bid.usdSize}
+            total={bid.total}
+            usdTotal={bid.usdTotal}
+            maxTotal={displayMode === 'base' ? maxBaseTotal : maxUsdTotal}
+            displayMode={displayMode}
+            isAsk={false}
+            onPriceClick={handlePriceClick}
+            getDecimals={getDecimals}
+          />
+        ))}
 
         {isLoading && bids.length === 0 &&
           Array.from({ length: maxRows }).map((_, i) => (
@@ -379,6 +399,15 @@ const Orderbook = () => {
         }
         .skeleton-shimmer {
           animation: shimmer 1.4s ease-in-out infinite;
+        }
+
+        .flash-up-text {
+          color: #0ecb81 !important;
+          font-weight: 700;
+        }
+        .flash-down-text {
+          color: #ff4d4d !important;
+          font-weight: 700;
         }
       `}</style>
     </div>

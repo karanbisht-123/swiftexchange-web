@@ -150,6 +150,7 @@ const EvmTransactionHistory: React.FC = () => {
 
   const isCheckingOnChain = useRef<boolean>(false);
   const checkingHashes = useRef<Set<string>>(new Set());
+  const processedHashRef = useRef<string | null>(null);
 
   // Actively check on-chain transaction receipt ONLY for pending Uniswap backend orders
   // Other provider statuses must come exclusively from the backend proxy
@@ -349,7 +350,10 @@ const EvmTransactionHistory: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!txHashFromUrl) return;
+    if (!txHashFromUrl) {
+      processedHashRef.current = null;
+      return;
+    }
 
     // 1. Check in backend orders first
     if (backendOrders?.data) {
@@ -403,10 +407,17 @@ const EvmTransactionHistory: React.FC = () => {
 
         const targetView = searchParams.get('tab') === 'stellar' ? 'stellar' : 'recent';
         if (selectedView !== targetView) {
-          setSelectedView(targetView);
+          if (processedHashRef.current !== txHashFromUrl) {
+            setSelectedView(targetView);
+          } else {
+            // The user changed selectedView manually away from targetView, so ignore/return
+            // and do not reset the view or transaction state.
+            return;
+          }
         }
         setSelectedLocalTx(normalized);
         setSelectedTx(null);
+        processedHashRef.current = txHashFromUrl;
         if (window.innerWidth < 1024) setIsSheetOpen(true);
         return;
       }
@@ -418,8 +429,12 @@ const EvmTransactionHistory: React.FC = () => {
         (tx: TransactionItem) => tx.hash.toLowerCase() === txHashFromUrl.toLowerCase()
       );
       if (foundInHistory) {
+        if (processedHashRef.current === txHashFromUrl && selectedView !== foundInHistory.chainId) {
+          return;
+        }
         setSelectedTx(foundInHistory);
         setSelectedLocalTx(null);
+        processedHashRef.current = txHashFromUrl;
         if (window.innerWidth < 1024) setIsSheetOpen(true);
       }
     }
@@ -594,7 +609,12 @@ const EvmTransactionHistory: React.FC = () => {
     setSelectedView(view);
     setSelectedTx(null);
     setSelectedLocalTx(null);
-    clearTxHashFromUrl();
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('hash');
+      next.set('tab', String(view));
+      return next;
+    }, { replace: true });
   };
 
   if (!hasEvm && !hasStellar) {

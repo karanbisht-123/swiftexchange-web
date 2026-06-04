@@ -101,6 +101,21 @@ export default function DyDxTradingChart() {
 
   const lastDatasetIdRef = useRef('');
   const lastBarTimeRef = useRef<number>(0);
+  const prevMarketRef = useRef<string>('');
+  const prevTimeframeRef = useRef<CandleResolution | null>(null);
+
+  const setVisibleRange = useCallback((chart: IChartApi, dataLength: number) => {
+    if (dataLength === 0) return;
+    const visibleBars = isMobile ? 45 : 80;
+    if (dataLength > visibleBars) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: dataLength - visibleBars,
+        to: dataLength + 3,
+      });
+    } else {
+      chart.timeScale().fitContent();
+    }
+  }, [isMobile]);
 
   const getThemeColors = useCallback(() => {
     if (isDark) {
@@ -109,8 +124,8 @@ export default function DyDxTradingChart() {
         textColor: '#e8edf8',
         gridColor: '#1e28405d',
         borderColor: '#1e2840',
-        upColor: '#10b981',
-        downColor: '#ef4444',
+        upColor: '#0ecb81',
+        downColor: '#ff4d4d',
         volumeColor: 'rgba(128, 128, 128, 0.2)',
         crosshairColor: '#4a5680',
       };
@@ -120,8 +135,8 @@ export default function DyDxTradingChart() {
       textColor: '#0f1729',
       gridColor: '#dce3ed',
       borderColor: '#e4e8f0',
-      upColor: '#10b981',
-      downColor: '#ef4444',
+      upColor: '#00b074',
+      downColor: '#ff3b30',
       volumeColor: 'rgba(107, 114, 128, 0.2)',
       crosshairColor: '#8896b3',
     };
@@ -192,9 +207,14 @@ export default function DyDxTradingChart() {
           );
         }
 
-        // ONLY fitContent on initial load (when length is small or the market just changed)
-        if (lastDatasetIdRef.current.split('-')[0] !== selectedMarket || candles.length <= 1000) {
-          chartRef.current?.timeScale().fitContent();
+        const prevMarket = prevMarketRef.current;
+        const prevTimeframe = prevTimeframeRef.current;
+        const marketOrTimeframeChanged = prevMarket !== selectedMarket || prevTimeframe !== timeframe;
+
+        if (marketOrTimeframeChanged && chartRef.current) {
+          setVisibleRange(chartRef.current, candleData.length);
+          prevMarketRef.current = selectedMarket;
+          prevTimeframeRef.current = timeframe;
         }
 
         lastDatasetIdRef.current = currentDatasetId;
@@ -257,7 +277,7 @@ export default function DyDxTradingChart() {
         borderColor: colors.borderColor,
         scaleMargins: {
           top: 0.08,
-          bottom: showVolume ? 0.18 : 0.08,
+          bottom: showVolume ? 0.22 : 0.08,
         },
         minimumWidth: isMobile ? 50 : 65,
       },
@@ -266,8 +286,8 @@ export default function DyDxTradingChart() {
         timeVisible: true,
         secondsVisible: false,
         rightOffset: isMobile ? 12 : 20,
-        barSpacing: isMobile ? 6 : 8,
-        minBarSpacing: isMobile ? 2 : 4,
+        barSpacing: isMobile ? 8 : 12,
+        minBarSpacing: isMobile ? 3 : 5,
       },
       handleScroll: {
         mouseWheel: true,
@@ -327,6 +347,13 @@ export default function DyDxTradingChart() {
         priceScaleId: 'volume',
       });
       volumeSeriesRef.current = volumeSeries;
+
+      chart.priceScale('volume').applyOptions({
+        scaleMargins: {
+          top: 0.8,
+          bottom: 0,
+        },
+      });
     }
     const currentCandles = candlesRef.current;
     if (currentCandles.length > 0) {
@@ -361,7 +388,7 @@ export default function DyDxTradingChart() {
             }))
           );
         }
-        chart.timeScale().fitContent();
+        setVisibleRange(chart, candleData.length);
       }
     }
   }, [chartType, showVolume, showGrid, showCrosshair, isDark, isMobile, getThemeColors]);

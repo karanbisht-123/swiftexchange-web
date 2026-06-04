@@ -262,11 +262,13 @@ export function useMarkets(): UseMarketsReturn {
   }, [subscribeToAllMarkets, unsubscribeFromAllMarkets]);
 
   const marketsList = useMemo(() => {
-    return Object.values(markets).sort((a, b) => {
-      const volA = parseFloat(a.volume24H) || 0;
-      const volB = parseFloat(b.volume24H) || 0;
-      return volB - volA;
-    });
+    return Object.values(markets)
+      .filter(m => m.status === 'ACTIVE')
+      .sort((a, b) => {
+        const volA = parseFloat(a.volume24H) || 0;
+        const volB = parseFloat(b.volume24H) || 0;
+        return volB - volA;
+      });
   }, [markets]);
 
   const getMarket = useCallback((ticker: string) => markets[ticker], [markets]);
