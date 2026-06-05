@@ -817,6 +817,11 @@ const EvmTransactionHistory: React.FC = () => {
       const isSelected = selectedLocalTx?.hash === tx.hash;
       const isPending = tx.status === 'pending';
       const statusStyle = STATUS_STYLES[tx.status];
+
+      const txProvider = ((tx as any).provider || '').toUpperCase();
+      const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
+      const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+
       const rawLabel =
         tx.description ||
         `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
@@ -934,22 +939,28 @@ const EvmTransactionHistory: React.FC = () => {
               <span
                 className={`text-[8px] lg:text-[9px] font-bold px-1.5 py-0.5 rounded-full capitalize tracking-wider shrink-0 ${statusStyle}`}
               >
-                {tx.status === 'pending' && ((tx as any).provider?.toUpperCase() === 'SKIP' || (tx as any).provider?.toUpperCase() === 'SRBTODYDX')
+                {tx.status === 'pending' && (txProvider === 'SKIP' || txProvider === 'SRBTODYDX')
                   ? 'Bridging'
-                  : tx.status === 'pending' && (tx as any).provider?.toUpperCase() === 'DYDX'
+                  : tx.status === 'pending' && txProvider === 'DYDX'
                   ? 'Settling'
                   : tx.status}
               </span>
-              <a
-                href={getExplorerUrl(tx.chainId, 'tx', tx.hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()}
-                className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
-                title="View on Explorer"
-              >
-                <ExternalLink size={12} />
-              </a>
+              {!isFusion && (
+                <a
+                  href={
+                    isAllbridge
+                      ? `http://core.allbridge.io/explorer/transfer/${tx.hash}`
+                      : getExplorerUrl(tx.chainId, 'tx', tx.hash)
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                  title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
+                >
+                  <ExternalLink size={10} />
+                </a>
+              )}
             </div>
             {topAmount && bottomToken && (
               <div className="flex items-center gap-1">

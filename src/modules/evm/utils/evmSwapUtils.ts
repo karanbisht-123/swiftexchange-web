@@ -399,7 +399,8 @@ export async function executeSwap(
   sellAmount: string,
   slippageTolerance: number,
   getProvider: (type: WalletType) => any,
-  onApprovalTxHash?: (hash: string) => void
+  onApprovalTxHash?: (hash: string) => void,
+  onSwapTxHash?: (hash: string) => void
 ): Promise<string> {
   const provider = getProvider(WalletType.EVM);
   if (!provider) throw new Error('EVM wallet not connected');
@@ -505,6 +506,10 @@ export async function executeSwap(
     const isLast = i === txParamsList.length - 1;
     console.log(`[executeSwap] tx ${i + 1}/${txParamsList.length} broadcast:`, lastTxHash);
 
+    if (isLast && onSwapTxHash) {
+      onSwapTxHash(lastTxHash);
+    }
+
     if (isLast) {
       const receipt = await pollForReceipt(
         ethersProvider,
@@ -536,6 +541,7 @@ export async function fetch1InchFusionQuote(
   amount: string,
   walletAddress: string,
   decimals: number,
+  toChain?: number | string
 ): Promise<any> {
   try {
     const normalizedTokenIn = isNativeAddress(tokenIn) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : tokenIn;
@@ -546,7 +552,7 @@ export async function fetch1InchFusionQuote(
       tokenOut: normalizedTokenOut,
       amount: formatAmount(amount, decimals),
       walletAddress,
-    });
+    }, toChain);
   } catch (error: any) {
     throw new Error(parseSwapError(error));
   }
@@ -571,6 +577,9 @@ export async function execute1InchFusionSwap(
   if (quote.deadline && Math.floor(Date.now() / 1000) > Number(quote.deadline)) {
     throw new Error('Fusion quote has expired — please refresh and try again');
   }
+
+  const toChainId = buyAsset.chainId || chainId;
+  const isCrossChain = String(chainId) !== String(toChainId);
 
   const chainConfig = getChainById(chainId);
   const chainSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
@@ -603,6 +612,8 @@ export async function execute1InchFusionSwap(
   const normalizedTokenIn = (sellAsset.isNative || isNativeAddress(sellAsset.address)) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : sellAsset.address;
   const normalizedTokenOut = (buyAsset.isNative || isNativeAddress(buyAsset.address)) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : buyAsset.address;
 
+  const secretCount = quote.presets?.[preset]?.secretsCount || quote.presets?.[preset]?.secretCount || 1;
+
   const fusionOrder = await build1InchFusionOrder({
     quote,
     tokenIn: normalizedTokenIn,
@@ -612,6 +623,8 @@ export async function execute1InchFusionSwap(
     chain: chainSymbol,
     preset,
     permit: '',
+    toChain: isCrossChain ? (getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH') : undefined,
+    secretCount: isCrossChain ? secretCount : undefined
   });
 
   const { typedData, extension, orderHash } = fusionOrder;
@@ -636,7 +649,7 @@ export async function execute1InchFusionSwap(
   console.log('[execute1InchFusionSwap] Signature generated:', signature);
 
   const orderMessage = typedData.message;
-  const submitPayload = {
+  let submitPayload: any = {
     chain: chainSymbol,
     order: {
       maker: orderMessage.maker,
@@ -652,14 +665,36 @@ export async function execute1InchFusionSwap(
     extension,
     signature,
     permit: '',
+    orderHash
   };
+
+  if (isCrossChain) {
+    submitPayload = {
+      chain: chainSymbol,
+      toChain: getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH',
+      order: {
+        maker: orderMessage.maker,
+        makerAsset: orderMessage.makerAsset,
+        takerAsset: orderMessage.takerAsset,
+        makerTraits: orderMessage.makerTraits,
+        salt: orderMessage.salt,
+        makingAmount: orderMessage.makingAmount,
+        takingAmount: orderMessage.takingAmount,
+        receiver: orderMessage.receiver || senderAddress,
+      },
+      signature,
+      extension,
+      quoteId: quote.quoteId,
+      orderHash
+    };
+  }
 
   console.log('[execute1InchFusionSwap] Submitting order payload:', submitPayload);
 
   const MAX_RETRIES = 4;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await submit1InchFusionOrder(submitPayload);
+      await submit1InchFusionOrder(submitPayload, isCrossChain);
       break;
     } catch (err: any) {
       const msg = err.message?.toLowerCase() ?? '';

@@ -681,6 +681,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setIsFusionLoading(false);
     setFusionStatus('idle');
     setActiveQuote(prev => ({ ...prev, loading: false }));
+    setShowFusionScreen(false);
   }, []);
 
   const isInsufficientBalance = useMemo(() => {
@@ -871,26 +872,27 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isSubmittingRef.current = true;
 
     const executeSwapFlow = async () => {
-      if (actionType === 'SWAP') {
-        if (isGasless && !isStellar(fromChainId)) {
-          if (!selectedSellAsset || !selectedBuyAsset) {
-            setBridgeTxStatus('idle');
-            return;
-          }
-          setIsFusionLoading(true);
-          try {
-            await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
-            setShowFusionScreen(true);
-            setBridgeTxStatus('idle');
-          } catch (err) {
-            console.error('Failed to fetch Fusion quote:', err);
-            setBridgeErrorMsg(parseWalletError(err));
-            resetLoadingState();
-          } finally {
-            setIsFusionLoading(false);
-          }
+      if (isGasless && !isStellar(fromChainId) && !isStellar(toChainId)) {
+        if (!selectedSellAsset || !selectedBuyAsset) {
+          setBridgeTxStatus('idle');
           return;
         }
+        setIsFusionLoading(true);
+        try {
+          await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+          setShowFusionScreen(true);
+          setBridgeTxStatus('idle');
+        } catch (err) {
+          console.error('Failed to fetch Fusion quote:', err);
+          setBridgeErrorMsg(parseWalletError(err));
+          resetLoadingState();
+        } finally {
+          setIsFusionLoading(false);
+        }
+        return;
+      }
+
+      if (actionType === 'SWAP') {
 
         if (isStellar(fromChainId)) {
           if (!activeQuote.data || !ammService || !stellarAddress) {
@@ -1649,25 +1651,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         </div>
                       )}
 
-                      {/* Gasless toggle row */}
-                      {!isStellar(fromChainId) && (
-                        <div className="flex items-center justify-between py-2 border-b border-white/5">
-                          <div className="flex items-center gap-1.5">
-                            <Zap size={10} className={isGasless ? 'fill-green-500 text-green-500' : 'text-muted'} />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Gasless</span>
-                          </div>
-                          <label className="relative w-9 h-5 cursor-pointer flex-shrink-0">
-                            <input
-                              type="checkbox"
-                              className="sr-only peer"
-                              checked={isGasless}
-                              onChange={() => setGasless(!isGasless)}
-                            />
-                            <div className="absolute inset-0 rounded-full bg-white/10 border border-white/10 peer-checked:bg-green-500 peer-checked:border-green-500 transition-all duration-200" />
-                            <div className="absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white transition-all duration-200 peer-checked:translate-x-4" />
-                          </label>
-                        </div>
-                      )}
+
                     </>
                   )}
 
@@ -1776,6 +1760,25 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       )}
                     </>
                   )}
+                  {/* Gasless toggle row */}
+                  {(!isStellar(fromChainId) && !isStellar(toChainId)) && (
+                    <div className="flex items-center justify-between py-2 border-b border-white/5">
+                      <div className="flex items-center gap-1.5">
+                        <Zap size={10} className={isGasless ? 'fill-green-500 text-green-500' : 'text-muted'} />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">Gasless</span>
+                      </div>
+                      <label className="relative w-9 h-5 cursor-pointer flex-shrink-0">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={isGasless}
+                          onChange={() => setGasless(!isGasless)}
+                        />
+                        <div className="absolute inset-0 rounded-full bg-white/10 border border-white/10 peer-checked:bg-green-500 peer-checked:border-green-500 transition-all duration-200" />
+                        <div className="absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white transition-all duration-200 peer-checked:translate-x-4" />
+                      </label>
+                    </div>
+                  )}
                   {/* Min received */}
                   <div className="flex items-center justify-between py-2">
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted">Min. Received</span>
@@ -1864,15 +1867,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             fusionStatus={fusionStatus}
             error={swapError || bridgeErrorMsg}
             txHash={swapTxHash}
-            onRefreshQuote={(!isFusionLoading && !swapTxHash && selectedSellAsset && selectedBuyAsset && sellAmount) ? () => {
-              if (!isFusionLoading && selectedSellAsset && selectedBuyAsset && sellAmount) {
+            onRefreshQuote={(!isFusionLoading && !swapTxHash && selectedSellAsset && selectedBuyAsset && sellAmount) ? async () => {
+              try {
                 setIsFusionLoading(true);
-                fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount)
-                  .catch((err) => {
-                    console.error('[FusionRefresh] Auto-refresh failed:', err);
-                    setBridgeErrorMsg(parseWalletError(err));
-                  })
-                  .finally(() => setIsFusionLoading(false));
+                await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+              } catch (err) {
+                console.error('Refresh quote failed:', err);
+                setShowFusionScreen(false);
+                setBridgeErrorMsg(parseWalletError(err));
+              } finally {
+                setIsFusionLoading(false);
               }
             } : undefined}
             onConfirm={async (preset) => {

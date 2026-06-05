@@ -84,7 +84,7 @@ export interface SwapTransactionData {
 
 export interface SubmitFusionOrderRequest {
   chain: string;
-
+  toChain?: string;
   order: {
     maker: string;
     makerAsset: string;
@@ -95,10 +95,10 @@ export interface SubmitFusionOrderRequest {
     takingAmount: string;
     receiver: string;
   };
-
   quoteId: string;
   extension: string;
   signature: string;
+  orderHash?: string;
 }
 
 export interface RangoConfirmRouteRequest {
@@ -477,22 +477,34 @@ export async function get1InchFusionQuote(
     amount: string;
     walletAddress: string;
     decimals?: number;
-  }
+  },
+  toChainId?: number | string
 ): Promise<any> {
-  const payload = {
-    ...request,
+  const isCrossChain = toChainId && String(chainId) !== String(toChainId);
+  const endpoint = isCrossChain ? `/swap/1inch/fusion-plus/getSwapQuote` : `/swap/1inch/getSwapQuote`;
 
-    chain: getChainSymbol(chainId),
-
-    amount: request.amount,
-
-    walletAddress:
-      request.walletAddress,
-  };
+  let payload: any;
+  if (isCrossChain) {
+    payload = {
+      srcChain: getChainSymbol(chainId),
+      dstChain: getChainSymbol(toChainId),
+      srcTokenAddress: request.tokenIn,
+      dstTokenAddress: request.tokenOut,
+      walletAddress: request.walletAddress,
+      amount: request.amount,
+    };
+  } else {
+    payload = {
+      ...request,
+      chain: getChainSymbol(chainId),
+      amount: request.amount,
+      walletAddress: request.walletAddress,
+    };
+  }
 
   const res =
     await fetchApiResponseFromProxy<any>(
-      `/swap/1inch/getSwapQuote`,
+      endpoint,
       'POST',
       payload
     );
@@ -513,11 +525,23 @@ export async function get1InchFusionQuote(
 export async function build1InchFusionOrder(
   request: BuildFusionOrderRequest
 ): Promise<FusionOrder> {
+  const isCrossChain = !!request.toChain;
+  const endpoint = isCrossChain ? `/swap/1inch/buildFusionPlusOrder` : `/swap/1inch/buildFusionOrder`;
+
+  let payload: any = request;
+  if (isCrossChain) {
+    payload = {
+      quoteId: request.quote.quoteId,
+      walletAddress: request.walletAddress,
+      secretCount: request.secretCount,
+    };
+  }
+
   const res =
     await fetchApiResponseFromProxy<any>(
-      `/swap/1inch/buildFusionOrder`,
+      endpoint,
       'POST',
-      request
+      payload
     );
 
   const data =
@@ -534,11 +558,14 @@ export async function build1InchFusionOrder(
 
 // Submit fusion order
 export async function submit1InchFusionOrder(
-  request: SubmitFusionOrderRequest
+  request: SubmitFusionOrderRequest,
+  isCrossChain?: boolean
 ): Promise<any> {
+  const endpoint = isCrossChain ? `/swap/1inch/submitFusionPlusOrder` : `/swap/1inch/submitOrder`;
+
   const res =
     await fetchApiResponseFromProxy<any>(
-      `/swap/1inch/submitOrder`,
+      endpoint,
       'POST',
       request
     );
