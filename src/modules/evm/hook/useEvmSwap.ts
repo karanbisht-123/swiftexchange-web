@@ -192,6 +192,20 @@ export const useEvmSwap = ({
     }
   }, [chainId, updateState]);
 
+  useEffect(() => {
+    const handleAssetsRegistered = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && String(detail.chainId) === String(chainId)) {
+        fetchTokenList();
+      }
+    };
+
+    window.addEventListener('dynamic_assets_registered', handleAssetsRegistered);
+    return () => {
+      window.removeEventListener('dynamic_assets_registered', handleAssetsRegistered);
+    };
+  }, [chainId, fetchTokenList]);
+
   const updateTokenBalances = useCallback(
     async (sellToken?: TokenInfo) => {
       if (!senderAddress || !chainId) return;

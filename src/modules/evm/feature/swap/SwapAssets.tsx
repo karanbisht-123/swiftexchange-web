@@ -11,7 +11,6 @@ import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react'
 import { ethers } from 'ethers';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { useNotificationStore } from '../../../../store/notificationStore';
-import { addLocalTransaction } from '../../service/localTransactionService';
 
 import PageLayout from '../../../../components/layout/PageLayout';
 import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
@@ -27,8 +26,7 @@ import { storeSwapOrder } from '../../service/evmTransactionStatusService';
 import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata, getChainRangoSymbol } from '../../utils/Chainregistry';
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
-import { EvmTransactionSuccessModal } from '../../components/EvmTransactionSuccessModal';
-import StellarTransactionModal from '../../../steallr/components/modals/StellarTransactionModal';
+import { useTransactionModalStore } from '../../../../store/transactionModalStore';
 import StellarActiveGuard from '../../../walletconnect/components/StellarActiveGuard';
 import { ActionGuard } from '../../../commonfeature/components/ActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
@@ -166,7 +164,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const [feePayType, setFeePayType] = useState<'native' | 'stablecoin'>('stablecoin');
   const [bridgeTxStatus, setBridgeTxStatus] = useState<'idle' | 'preparing' | 'signing' | 'success' | 'error'>('idle');
-  const [bridgeTxHash, setBridgeTxHash] = useState<string | null>(null);
+  const [, setBridgeTxHash] = useState<string | null>(null);
   const [bridgeErrorMsg, setBridgeErrorMsg] = useState<string | null>(null);
   const [crossChainWarning, setCrossChainWarning] = useState<string | null>(null);
 
@@ -430,6 +428,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   useEffect(() => {
     if (swapAssets.length > 0 && !isChainSwitching && !isStellar(fromChainId)) {
+      const assetsChainId = swapAssets[0]?.chainId;
+      if (assetsChainId && String(assetsChainId) !== String(fromChainId)) {
+        return;
+      }
+
       const currentSellInEvm = swapAssets.find(a => sellAssetAddress ? matchesAddress(a, sellAssetAddress) : a.symbol === sellAssetSymbol);
 
       let finalSell = currentSellInEvm;
@@ -683,13 +686,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const isInsufficientBalance = useMemo(() => {
     if (!sellAmount || !selectedSellAsset) return false;
     let requiredBalance = parseFloat(sellAmount);
-    
+
     if (actionType === 'BRIDGE' && feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) {
       if (selectedSellAsset.symbol.toUpperCase() === activeQuote.data.fee.stablecoin.symbol.toUpperCase()) {
-         requiredBalance += parseFloat(activeQuote.data.fee.stablecoin.amount);
+        requiredBalance += parseFloat(activeQuote.data.fee.stablecoin.amount);
       }
     }
-    
+
     return requiredBalance > parseFloat((selectedSellAsset as any)?.balance || '0');
   }, [sellAmount, selectedSellAsset, feePayType, activeQuote.data?.fee?.stablecoin, actionType]);
 
@@ -701,9 +704,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
     const xlmBalanceAfterReserve = parseFloat(xlm.balance || '0');
     let requiredGasFee = actionType === 'BRIDGE' ? 2.0 : 0.1;
-    
+
     if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuote.data?.fee?.native) {
-        requiredGasFee += parseFloat(activeQuote.data.fee.native.amount);
+      requiredGasFee += parseFloat(activeQuote.data.fee.native.amount);
     }
 
     if (sellAssetSymbol === 'XLM') {
@@ -904,24 +907,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             const provider = getProvider(WalletType.STELLAR) as any;
             const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
             setHasPendingSignRequest(false);
-            setBridgeTxHash(hash);
-            setBridgeTxStatus('success');
-
-            addLocalTransaction({
-              hash,
-              chainId: fromChainId,
-              type: 'swap',
-              timestamp: Date.now(),
-              description: `Swap ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
-              from: stellarAddress,
-              status: 'pending',
-              network: currentNetwork
-            });
+            handleReset();
             showToast({
               type: 'STELLAR',
               title: 'Swap Transaction Sent',
               message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
             });
+            if (hash) {
+              useTransactionModalStore.getState().openModal({
+                status: 'success',
+                type: 'Swap',
+                hash,
+                isStellar: true,
+              });
+            }
           } catch (err) {
             setHasPendingSignRequest(false);
             console.error('Stellar swap execution failed:', err);
@@ -942,14 +941,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }
           try {
             setHasPendingSignRequest(true);
-            await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, userSlippageTolerance);
+            const hash = await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, userSlippageTolerance);
             setHasPendingSignRequest(false);
-            setBridgeTxStatus('idle');
+            handleReset();
             showToast({
               type: 'EVM_SWAP',
               title: 'Swap Transaction Sent',
               message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
             });
+            if (hash) {
+              useTransactionModalStore.getState().openModal({
+                status: 'success',
+                type: 'Swap',
+                hash,
+                explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}` : undefined,
+                networkName: fromChainConfig?.name,
+                isStellar: false,
+              });
+            }
           } catch (err) {
             setHasPendingSignRequest(false);
             console.error('Swap execution failed:', err);
@@ -991,8 +1000,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
             if (result.success) {
               const txHash = result.hash || undefined;
-              setBridgeTxHash(txHash || '');
-              setBridgeTxStatus('success');
+              handleReset();
               if (txHash) {
                 storeSwapOrder({
                   txHash,
@@ -1012,6 +1020,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 title: 'Bridge Initiated',
                 message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
               });
+              if (txHash) {
+                useTransactionModalStore.getState().openModal({
+                  status: 'success',
+                  type: 'Bridge',
+                  hash: txHash,
+                  isStellar: true,
+                });
+              }
             } else {
               throw new Error(result.error || 'Stellar transaction failed');
             }
@@ -1042,6 +1058,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               validateRangoResult(confirmResult.result);
             }
 
+            let finalRangoHash: string | undefined = undefined;
             await executeRangoSwap(
               requestId,
               fromChainId,
@@ -1052,7 +1069,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               getProvider,
               {
                 setStatus: setBridgeTxStatus,
-                setHash: setBridgeTxHash,
+                setHash: (hash) => {
+                  setBridgeTxHash(hash);
+                  finalRangoHash = hash;
+                },
                 addTransaction: (tx: any) => {
                   if (tx.type === 'swap' || tx.type === 'bridge' || tx.type === 'approval') {
                     storeSwapOrder({
@@ -1073,12 +1093,22 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               },
               userSlippageTolerance
             );
-            setBridgeTxStatus('success');
+            handleReset();
             showToast({
               type: 'EVM_SWAP',
               title: 'Swap Transaction Sent',
               message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
             });
+            if (finalRangoHash) {
+              useTransactionModalStore.getState().openModal({
+                status: 'success',
+                type: 'Swap',
+                hash: finalRangoHash,
+                explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${finalRangoHash}` : undefined,
+                networkName: fromChainConfig?.name,
+                isStellar: false,
+              });
+            }
 
           } else if (activeQuote.source === 'bridge' && activeQuote.data) {
             const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
@@ -1097,6 +1127,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             });
 
             const provider = getProvider(WalletType.EVM) as any;
+            let transferHash: string | undefined = undefined;
             for (const tx of bridgeResponse.transactions) {
               setBridgeTxStatus(tx.type === 'approve' ? 'preparing' : 'signing');
               const hash = await sendEVMTransaction(provider, fromChainId, {
@@ -1120,6 +1151,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 } as any).catch(err => console.error('Failed to store Allbridge approval order:', err));
               }
               if (tx.type === 'transfer') {
+                transferHash = hash;
                 setBridgeTxHash(hash);
                 storeSwapOrder({
                   txHash: hash,
@@ -1135,12 +1167,22 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 } as any).catch(err => console.error('Failed to store Allbridge order:', err));
               }
             }
-            setBridgeTxStatus('success');
+            handleReset();
             showToast({
               type: 'BRIDGE',
               title: 'Bridge Initiated',
               message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
             });
+            if (transferHash) {
+              useTransactionModalStore.getState().openModal({
+                status: 'success',
+                type: 'Bridge',
+                hash: transferHash,
+                explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${transferHash}` : undefined,
+                networkName: fromChainConfig?.name,
+                isStellar: false,
+              });
+            }
           }
         } catch (err: any) {
           console.error('Bridge failed:', err);
@@ -1318,597 +1360,569 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       <StellarActiveGuard bypass={!isStellarActivationRequired} onSkip={onClose}>
         <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden">
 
-        {/* Settings Header - Only show for Rango/Bridge */}
-        {((actionType === 'BRIDGE' && activeQuote.source === 'rango') || (actionType === 'SWAP' && swapQuote?.provider === 'RANGO')) && (
-          <div className="flex justify-end mb-1 relative z-10">
-            <button
-              onClick={() => setIsSlippageSettingsOpen(true)}
-              className="p-2 rounded-full bg-tertiary text-muted hover:text-primary hover:bg-white/5 transition-all"
-              title="Slippage Settings"
-            >
-              <Settings size={16} />
-            </button>
-          </div>
-        )}
-
-        {/* Pay Card */}
-        <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
-          <div className={`absolute left-0 top-0 bottom-0 w-1 bg-brand transition-all duration-300 ${isInputFocused ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-50'}`} />
-
-          <div className="flex justify-between items-center mb-4 sm:mb-6">
-            <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Pay</label>
-            <button onClick={handleMaxAmount} className="text-[10px] font-black text-brand hover:scale-110 active:scale-95 transition-all px-3 py-1 bg-brand/10 border border-brand/20 rounded-full">MAX</button>
-          </div>
-
-          <div className="flex items-center gap-3 sm:gap-4">
-            <button
-              onClick={() => openAssetSelector(actionType, {
-                defaultNetwork: fromChainId,
-                pairedChainId: toChainId,
-                onSelect: (a: any) => {
-                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), true);
-                  setSellAssetSymbol(a.symbol);
-                  setSellAssetAddress(a.address || "");
-                }
-              })}
-              className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
-              style={{ width: 'clamp(120px, 32vw, 160px)' }}
-            >
-              <div className="relative min-w-[36px] sm:min-w-[40px]">
-                <img
-                  src={(selectedSellAsset as any)?.logoURI || `https://ui-avatars.com/api/?name=${sellAssetSymbol}&background=random`}
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-tertiary object-cover shadow-sm" alt=""
-                />
-                <img
-                  src={fromChainConfig?.nativeCurrency.logoURI}
-                  className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full border-2 border-secondary bg-secondary" alt=""
-                />
-              </div>
-              <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden">
-                <span className="font-bold text-[13px] sm:text-[15px] leading-tight truncate w-full">{sellAssetSymbol || 'Select'}</span>
-                <span className="text-[8px] sm:text-[9px] text-muted font-bold tracking-tight truncate w-full uppercase">{fromChainConfig?.name}</span>
-              </div>
-              <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
-            </button>
-
-            <div className="flex-1 w-0 min-w-0">
-              <input
-                ref={inputRef}
-                type="text"
-                inputMode="decimal"
-                placeholder="0.00"
-                onFocus={() => setIsInputFocused(true)}
-                onBlur={() => setIsInputFocused(false)}
-                className="w-full bg-transparent border-none text-right text-3xl sm:text-4xl font-black focus:ring-0 p-0 placeholder:text-muted/10 transition-all outline-none min-w-0 block"
-                value={sellAmount}
-                onChange={(e) => {
-                  let val = e.target.value.replace(/[^0-9.]/g, '');
-                  const parts = val.split('.');
-                  if (parts.length > 2) {
-                    val = parts[0] + '.' + parts.slice(1).join('');
-                  }
-                  if (parts.length === 2 && selectedSellAsset) {
-                    const decimals = selectedSellAsset.decimals || 18;
-                    if (parts[1].length > decimals) {
-                      val = parts[0] + '.' + parts[1].slice(0, decimals);
-                    }
-                  }
-                  setSellAmount(val);
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 sm:mt-6 flex flex-wrap justify-between items-center gap-2 text-[10px] sm:text-[11px] font-bold">
-            <div className="flex items-center gap-1.5 sm:gap-2 text-muted">
-              <button onClick={handleRefreshBalances} disabled={isRefreshing} className={`p-1 sm:p-1.5 hover:bg-white/5 rounded-full transition-all ${isRefreshing ? 'animate-spin text-brand' : ''}`}>
-                <RefreshCw size={12} />
+          {/* Settings Header - Only show for Rango/Bridge */}
+          {((actionType === 'BRIDGE' && activeQuote.source === 'rango') || (actionType === 'SWAP' && swapQuote?.provider === 'RANGO')) && (
+            <div className="flex justify-end mb-1 relative z-10">
+              <button
+                onClick={() => setIsSlippageSettingsOpen(true)}
+                className="p-2 rounded-full bg-tertiary text-muted hover:text-primary hover:bg-white/5 transition-all"
+                title="Slippage Settings"
+              >
+                <Settings size={16} />
               </button>
-              <span>Balance:</span>
-              <span className="text-primary font-black">
-                {((selectedSellAsset as any)?.balance === undefined || isRefreshing) ? (
-                  <span className="inline-block w-14 h-3.5 bg-brand/30 animate-pulse rounded-full align-middle ml-1" />
-                ) : (
-                  <Tooltip
-                    content={`${toPlainString((selectedSellAsset as any)?.balance)} ${sellAssetSymbol}`}
-                    unstyled
-                  >
-                    {portfolioUtils.formatBalance((selectedSellAsset as any)?.balance || '0')} {sellAssetSymbol}
-                  </Tooltip>
-                )}
-              </span>
-            </div>
-            {isInsufficientBalance && (
-              <span className="text-red-500 bg-red-500/10 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full font-black flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[11px] transition-all">
-                <span className="filter drop-shadow-[0_0_2px_rgba(239,68,68,0.5)]">☹️</span>
-                <span className="hidden xs:inline">Insufficient Balance</span>
-                <span className="xs:hidden">Insufficient</span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Swap Middle Button */}
-        <div className="flex justify-center -my-4 lg:-my-5  relative  z-10">
-          <button onClick={handleAssetSwap} className="w-10 h-10 md:w-12  md:h-12 rounded-xl bg-secondary flex items-center justify-center shadow-lg hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md">
-            <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500" />
-          </button>
-        </div>
-
-        {/* Receive Card */}
-        <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
-          <div className="flex justify-between items-center mb-4 sm:mb-6">
-            <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
-          </div>
-
-          <div className="flex items-center gap-3 sm:gap-4">
-            <button
-              onClick={() => openAssetSelector(actionType, {
-                defaultNetwork: fromChainId,
-                pairedChainId: fromChainId,
-                onSelect: (a: any) => {
-                  handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false);
-                  setBuyAssetSymbol(a.symbol);
-                  setBuyAssetAddress(a.address || "");
-                }
-              })}
-              className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
-              style={{ width: 'clamp(120px, 32vw, 160px)' }}
-            >
-              <div className="relative min-w-[36px] sm:min-w-[40px]">
-                <img
-                  src={(selectedBuyAsset as any)?.logoURI || `https://ui-avatars.com/api/?name=${buyAssetSymbol}&background=random`}
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-tertiary object-cover shadow-sm" alt=""
-                />
-                <img
-                  src={toChainConfig?.nativeCurrency.logoURI}
-                  className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full border-2 border-secondary bg-secondary" alt=""
-                />
-              </div>
-              <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden">
-                <span className="font-bold text-[13px] sm:text-[15px] leading-tight truncate w-full">{buyAssetSymbol || 'Select'}</span>
-                <span className="text-[8px] sm:text-[9px] text-muted font-bold tracking-tight truncate w-full uppercase">{toChainConfig?.name?.split(' ')[0]}</span>
-              </div>
-              <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
-            </button>
-
-            <div className="flex-1 w-0 min-w-0 flex flex-col items-end">
-              <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide">
-                <div className={`font-black text-primary transition-all duration-300 ${isSameAssetSelected ? 'text-sm sm:text-base opacity-40 tracking-wider' : 'text-3xl sm:text-4xl tabular-nums'}`}>
-                  {(activeQuote.loading || swapQuoteLoading) ? (
-                    <div className="flex justify-end gap-1 items-end mt-2">
-                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md" />
-                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-75" />
-                      <div className="w-1 h-1 bg-white/5 animate-pulse rounded-full mb-2" />
-                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
-                      <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
-                    </div>
-                  ) : ((swapQuote || activeQuote.data || rangoQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
-                </div>
-              </div>
-              {(swapQuote || activeQuote.data || rangoQuote) && !isSameAssetSelected && (
-                <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full border border-green-500/30 flex items-center justify-center">
-                    <div className="w-0.5 h-0.5 rounded-full bg-green-500" />
-                  </div>
-                  {`Refreshing in ${timeLeft}s`}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Details Section Inside Receive Card */}
-          <div className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && (swapQuote || (activeQuote.source === 'stellar' && activeQuote.data))) || (actionType === 'BRIDGE' && hasActiveCrossChainQuote) ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}>
-            <div className="overflow-hidden">
-              <div className="pt-5 sm:pt-6 border-t border-dotted border-white/10 space-y-1">
-
-                {/* Provider row */}
-                {(swapQuote?.provider || activeQuote.data?.provider || activeQuote.source) && (
-                  <div className="flex items-center justify-between py-2 border-b border-white/5">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted">
-                      Provider
-                    </span>
-
-                    <div className="flex items-center gap-1.5">
-                      {/* Rango */}
-                      {(swapQuote?.provider === 'RANGO' ||
-                        activeQuote.data?.provider === 'RANGO' ||
-                        activeQuote.source === 'rango') && (
-                          <img
-                            src="https://raw.githubusercontent.com/rango-exchange/assets/main/swappers/Across/icon.svg"
-                            className="w-4 h-4 rounded-full"
-                            alt="Rango"
-                          />
-                        )}
-
-                      {/* Uniswap */}
-                      {(swapQuote?.provider === 'UNISWAP' ||
-                        activeQuote.data?.provider === 'UNISWAP'
-                      ) && (
-                          <img
-                            src="https://cryptologos.cc/logos/uniswap-uni-logo.png"
-                            className="w-4 h-4 rounded-full"
-                            alt="Uniswap"
-                          />
-                        )}
-
-                      <span className="text-[11px] font-black text-brand uppercase tracking-wider">
-                        {swapQuote?.provider ||
-                          activeQuote.data?.provider ||
-                          activeQuote.source?.toUpperCase() ||
-                          'UNISWAP'}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-
-                {/* Rate row */}
-                <div className="flex items-center justify-between py-2 border-b border-white/5">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rate</span>
-                  <span className="text-[11px] font-black text-primary truncate ml-2 flex-1 w-0 text-right min-w-0">
-                    1 {sellAssetSymbol} ≈ {actionType === 'SWAP'
-                      ? (isGasless && fusionQuote && showFusionScreen
-                        ? (Number(fusionQuote.prices.usd.fromToken) / Number(fusionQuote.prices.usd.toToken)).toFixed(6)
-                        : isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data
-                          ? (Number(activeQuote.data.estimatedOutput) / Number(activeQuote.data.inputAmount)).toFixed(6)
-                          : portfolioUtils.formatBalance(swapQuote?.pricePerToken || '0'))
-                      : activeQuote.source === 'rango'
-                        ? portfolioUtils.formatBalance((rangoQuote || activeQuote.data)?.result?.outputAmount || '0')
-                        : portfolioUtils.formatBalance(activeQuote.data?.conversionRate || '0')} {buyAssetSymbol}
-                  </span>
-                </div>
-
-
-                {/* SWAP specific rows */}
-                {actionType === 'SWAP' && (
-                  <>
-                    <div className="flex items-center justify-between py-2 border-b border-white/5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
-                      {swapQuote?.provider === 'RANGO' ? (
-                        <button
-                          onClick={() => setIsSlippageSettingsOpen(true)}
-                          className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
-                        >
-                          {userSlippageTolerance}%
-                        </button>
-                      ) : (
-                        <span className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}>
-                          {isGasless && showFusionScreen ? 'None' : `${userSlippageTolerance}%`}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between py-2 border-b border-white/5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-muted">Network Fee</span>
-                      {isGasless && showFusionScreen ? (
-                        <span className="text-[11px] font-black text-green-500 line-through opacity-60">
-                          ~0.0021 {fromChainConfig?.nativeCurrency.symbol}
-                        </span>
-                      ) : isStellar(fromChainId) ? (
-                        <span className="text-[11px] font-black text-primary">
-                          ~0.00001 XLM
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-black text-primary">
-                          {swapQuote?.networkFee && swapQuote.networkFee > 0
-                            ? `~${swapQuote.networkFee.toFixed(6)} ${fromChainConfig?.nativeCurrency.symbol}`
-                            : '—'}
-                        </span>
-                      )}
-                    </div>
-
-                    {isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data && (
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
-                        <span className={`text-[11px] font-black ${activeQuote.data.priceImpact > 2 ? 'text-red-500' : 'text-green-500'}`}>
-                          {activeQuote.data.priceImpact.toFixed(2)}%
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Gasless toggle row */}
-                    {!isStellar(fromChainId) && (
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                        <div className="flex items-center gap-1.5">
-                          <Zap size={10} className={isGasless ? 'fill-green-500 text-green-500' : 'text-muted'} />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-muted">Gasless</span>
-                        </div>
-                        <label className="relative w-9 h-5 cursor-pointer flex-shrink-0">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={isGasless}
-                            onChange={() => setGasless(!isGasless)}
-                          />
-                          <div className="absolute inset-0 rounded-full bg-white/10 border border-white/10 peer-checked:bg-green-500 peer-checked:border-green-500 transition-all duration-200" />
-                          <div className="absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white transition-all duration-200 peer-checked:translate-x-4" />
-                        </label>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* BRIDGE specific rows */}
-                {actionType === 'BRIDGE' && (
-                  <>
-                    {activeQuote.source === 'rango' && (rangoQuote || activeQuote.data)?.result?.swaps?.[0] ? (() => {
-                      const swap = (rangoQuote || activeQuote.data).result.swaps[0];
-                      const networkFee = swap.fee?.find((f: any) => f.name === 'Network Fee');
-                      const rangoFee = swap.fee?.find((f: any) => f.name === 'Rango Fee');
-                      const estimatedSecs = swap.estimatedTimeInSeconds;
-                      return (
-                        <>
-                          <div className="flex items-center justify-between py-2 border-b border-white/5">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Protocol</span>
-                            <div className="flex items-center gap-1.5">
-                              {swap.swapperLogo && <img src={swap.swapperLogo} className="w-4 h-4 rounded-full" alt="" />}
-                              <span className="text-[11px] font-black text-primary">{swap.swapperId}</span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between py-2 border-b border-white/5">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
-                            <button
-                              onClick={() => setIsSlippageSettingsOpen(true)}
-                              className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
-                            >
-                              {userSlippageTolerance}%
-                            </button>
-                          </div>
-
-                          {networkFee && (
-                            <div className="flex items-center justify-between py-2 border-b border-white/5">
-                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Network Fee</span>
-                              <span className="text-[11px] font-black text-primary">
-                                ~{Number(networkFee.amount).toFixed(6)} {networkFee.asset.symbol}
-                              </span>
-                            </div>
-                          )}
-
-                          {rangoFee && (
-                            <div className="flex items-center justify-between py-2 border-b border-white/5">
-                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rango Fee</span>
-                              <span className="text-[11px] font-black text-primary">
-                                {Number(rangoFee.amount).toFixed(4)} {rangoFee.asset.symbol}
-                              </span>
-                            </div>
-                          )}
-
-                          {estimatedSecs && (
-                            <div className="flex items-center justify-between py-2 border-b border-white/5">
-                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
-                              <span className="text-[11px] font-black text-primary">
-                                ~{Math.ceil(estimatedSecs / 60)} min
-                              </span>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })() : (
-                      <>
-                        {activeQuote.data?.fee && (activeQuote.data.fee.native || activeQuote.data.fee.stablecoin) && (
-                          <div className="flex items-center justify-between py-2 border-b border-white/5">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Bridge Fee</span>
-                            <div className="flex items-center gap-1.5">
-                              {(() => {
-                                const currentFee = activeQuote.data.fee[feePayType] || activeQuote.data.fee.stablecoin || activeQuote.data.fee.native;
-                                return (
-                                  <>
-                                    <span className="text-[11px] font-black text-primary">
-                                      {Number(currentFee.amount).toFixed(4)}
-                                    </span>
-                                    <span className="text-[9px] font-black text-muted">{currentFee.symbol}</span>
-                                  </>
-                                );
-                              })()}
-                              {activeQuote.data.fee.native && activeQuote.data.fee.stablecoin && (
-                                <div className="flex items-center gap-1 bg-secondary/50 rounded-full p-0.5 ml-1">
-                                  <button
-                                    onClick={() => setFeePayType('native')}
-                                    className={`p-0.5 rounded-full transition-all flex items-center justify-center ${feePayType === 'native' ? 'bg-primary/20 ring-1 ring-primary/50' : 'opacity-40 hover:opacity-100'}`}
-                                    title={`Pay with ${activeQuote.data.fee.native.symbol}`}
-                                  >
-                                    <img src={fromChainConfig?.nativeCurrency.logoURI || `https://ui-avatars.com/api/?name=${activeQuote.data.fee.native.symbol}&background=random`} className="w-4 h-4 rounded-full object-cover" alt="Native" />
-                                  </button>
-                                  <button
-                                    onClick={() => setFeePayType('stablecoin')}
-                                    className={`p-0.5 rounded-full transition-all flex items-center justify-center ${feePayType === 'stablecoin' ? 'bg-primary/20 ring-1 ring-primary/50' : 'opacity-40 hover:opacity-100'}`}
-                                    title={`Pay with ${activeQuote.data.fee.stablecoin.symbol}`}
-                                  >
-                                    <img src={swapAssets.find(a => a.symbol.toUpperCase() === activeQuote.data.fee.stablecoin.symbol.toUpperCase())?.logoURI || `https://ui-avatars.com/api/?name=${activeQuote.data.fee.stablecoin.symbol}&background=random`} className="w-4 h-4 rounded-full object-cover" alt="Stable" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between py-2 border-b border-white/5">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
-                          <span className="text-[11px] font-black text-primary">
-                            ~{activeQuote.data?.completionTime ? Math.max(1, Math.round(activeQuote.data.completionTime / 60000)) : 5} min
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </>
-                )}
-                {/* Min received */}
-                <div className="flex items-center justify-between py-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-muted">Min. Received</span>
-                  <span className="text-[12px] font-black text-brand truncate ml-2 flex-1 w-0 text-right min-w-0">
-                    {portfolioUtils.formatBalance(minimumReceived)} {buyAssetSymbol}
-                  </span>
-                </div>
-
-              </div>
-            </div>
-          </div>
-        </div>
-
-
-
-        <div className="relative group/action ">
-          <div className={`overflow-hidden transition-all mb-3 mt-3 duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isErrorState && !isLoadingExecution ? 'max-h-40 opacity-100 mb-0' : 'max-h-0 opacity-0 mb-[-12px]'}`}>
-            <div className="bg-red-500/10 border-x border border-red-500/30 rounded-2xl p-4 flex items-center gap-3 relative z-0">
-              <p className="text-[10px] sm:text-xs font-bold text-red-500 uppercase tracking-widest leading-relaxed">
-                {errorMessage || 'An error occurred. Please check your inputs.'}
-              </p>
-            </div>
-          </div>
-
-          {/* Pending signing request banner — shown when a wallet prompt is still open */}
-          {hasPendingSignRequest && (
-            <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-300">
-              <span className="text-amber-400 text-base leading-none">⏳</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest">Signing request pending</p>
-                <p className="text-[11px] text-amber-400/70 font-medium mt-0.5">Check your wallet — a transaction is waiting for your approval.</p>
-              </div>
             </div>
           )}
 
-          <ActionGuard
-            title="Connect Wallet"
-            requiredWallets={requiredWallets}
-            disabled={isLoadingExecution}
-          >
-            <>
-              {slippageWarning && (
-                <div className="mb-3 bg-primary border border-blue-500/20 rounded-lg p-3 flex flex-col gap-1.5 relative z-10 shadow-inner-blue-400">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold  uppercase tracking-widest flex items-center gap-1">
-                      High Slippage Risk
-                    </span>
-                    <button
-                      onClick={() => setIsSlippageSettingsOpen(true)}
-                      className="text-[10px] font-black  bg-secondary rounded-md px-4 py-2 hover:opacity-80 transition-all uppercase tracking-widest"
-                    >
-                      Edit
-                    </button>
-                  </div>
-                  <span className="text-[11px] text-muted leading-relaxed">
-                    Provider requires <strong>{slippageWarning.recommendedSlippage}%</strong> slippage. Your current setting (<strong>{slippageWarning.userSlippage}%</strong>) may cause the transaction to fail.
-                  </span>
-                </div>
-              )}
+          {/* Pay Card */}
+          <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
+            <div className={`absolute left-0 top-0 bottom-0 w-1 bg-brand transition-all duration-300 ${isInputFocused ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-50'}`} />
 
-              <TransactionButton
-                label={buttonLabel}
-                isLoading={isLoadingExecution}
-                isDisabled={isSwapDisabled}
-                isError={!!isErrorState && !isLoadingExecution}
-                onClick={handleUnifiedSwap}
-                icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
-                className={`relative z-10 ${isErrorState && !isLoadingExecution ? ' border-t-red-500/20' : ''}`}
-              />
-            </>
-          </ActionGuard>
+            <div className="flex justify-between items-center mb-4 sm:mb-6">
+              <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Pay</label>
+              <button onClick={handleMaxAmount} className="text-[10px] font-black text-brand hover:scale-110 active:scale-95 transition-all px-3 py-1 bg-brand/10 border border-brand/20 rounded-full">MAX</button>
+            </div>
+
+            <div className="flex items-center gap-3 sm:gap-4">
+              <button
+                onClick={() => openAssetSelector(actionType, {
+                  defaultNetwork: fromChainId,
+                  pairedChainId: toChainId,
+                  onSelect: (a: any) => {
+                    handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), true);
+                    setSellAssetSymbol(a.symbol);
+                    setSellAssetAddress(a.address || "");
+                  }
+                })}
+                className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
+                style={{ width: 'clamp(120px, 32vw, 160px)' }}
+              >
+                <div className="relative min-w-[36px] sm:min-w-[40px]">
+                  <img
+                    src={(selectedSellAsset as any)?.logoURI || `https://ui-avatars.com/api/?name=${sellAssetSymbol}&background=random`}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-tertiary object-cover shadow-sm" alt=""
+                  />
+                  <img
+                    src={fromChainConfig?.nativeCurrency.logoURI}
+                    className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full border-2 border-secondary bg-secondary" alt=""
+                  />
+                </div>
+                <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden">
+                  <span className="font-bold text-[13px] sm:text-[15px] leading-tight truncate w-full">{sellAssetSymbol || 'Select'}</span>
+                  <span className="text-[8px] sm:text-[9px] text-muted font-bold tracking-tight truncate w-full uppercase">{fromChainConfig?.name}</span>
+                </div>
+                <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
+              </button>
+
+              <div className="flex-1 w-0 min-w-0">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  onFocus={() => setIsInputFocused(true)}
+                  onBlur={() => setIsInputFocused(false)}
+                  className="w-full bg-transparent border-none text-right text-3xl sm:text-4xl font-black focus:ring-0 p-0 placeholder:text-muted/10 transition-all outline-none min-w-0 block"
+                  value={sellAmount}
+                  onChange={(e) => {
+                    let val = e.target.value.replace(/[^0-9.]/g, '');
+                    const parts = val.split('.');
+                    if (parts.length > 2) {
+                      val = parts[0] + '.' + parts.slice(1).join('');
+                    }
+                    if (parts.length === 2 && selectedSellAsset) {
+                      const decimals = selectedSellAsset.decimals || 18;
+                      if (parts[1].length > decimals) {
+                        val = parts[0] + '.' + parts[1].slice(0, decimals);
+                      }
+                    }
+                    setSellAmount(val);
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 sm:mt-6 flex flex-wrap justify-between items-center gap-2 text-[10px] sm:text-[11px] font-bold">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-muted">
+                <button onClick={handleRefreshBalances} disabled={isRefreshing} className={`p-1 sm:p-1.5 hover:bg-white/5 rounded-full transition-all ${isRefreshing ? 'animate-spin text-brand' : ''}`}>
+                  <RefreshCw size={12} />
+                </button>
+                <span>Balance:</span>
+                <span className="text-primary font-black">
+                  {((selectedSellAsset as any)?.balance === undefined || isRefreshing) ? (
+                    <span className="inline-block w-14 h-3.5 bg-brand/30 animate-pulse rounded-full align-middle ml-1" />
+                  ) : (
+                    <Tooltip
+                      content={`${toPlainString((selectedSellAsset as any)?.balance)} ${sellAssetSymbol}`}
+                      unstyled
+                    >
+                      {portfolioUtils.formatBalance((selectedSellAsset as any)?.balance || '0')} {sellAssetSymbol}
+                    </Tooltip>
+                  )}
+                </span>
+              </div>
+              {isInsufficientBalance && (
+                <span className="text-red-500 bg-red-500/10 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full font-black flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[11px] transition-all">
+                  <span className="filter drop-shadow-[0_0_2px_rgba(239,68,68,0.5)]">☹️</span>
+                  <span className="hidden xs:inline">Insufficient Balance</span>
+                  <span className="xs:hidden">Insufficient</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Swap Middle Button */}
+          <div className="flex justify-center -my-4 lg:-my-5  relative  z-10">
+            <button onClick={handleAssetSwap} className="w-10 h-10 md:w-12  md:h-12 rounded-xl bg-secondary flex items-center justify-center shadow-lg hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md">
+              <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500" />
+            </button>
+          </div>
+
+          {/* Receive Card */}
+          <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
+            <div className="flex justify-between items-center mb-4 sm:mb-6">
+              <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
+            </div>
+
+            <div className="flex items-center gap-3 sm:gap-4">
+              <button
+                onClick={() => openAssetSelector(actionType, {
+                  defaultNetwork: fromChainId,
+                  pairedChainId: fromChainId,
+                  onSelect: (a: any) => {
+                    handleChainSelectInModal(isStellar(a.chainId) ? STELLAR_CHAIN_ID : Number(a.chainId), false);
+                    setBuyAssetSymbol(a.symbol);
+                    setBuyAssetAddress(a.address || "");
+                  }
+                })}
+                className="flex items-center gap-2 bg-secondary rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-hover active:scale-[0.98] transition-all relative group flex-[0_0_auto] min-w-0"
+                style={{ width: 'clamp(120px, 32vw, 160px)' }}
+              >
+                <div className="relative min-w-[36px] sm:min-w-[40px]">
+                  <img
+                    src={(selectedBuyAsset as any)?.logoURI || `https://ui-avatars.com/api/?name=${buyAssetSymbol}&background=random`}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-tertiary object-cover shadow-sm" alt=""
+                  />
+                  <img
+                    src={toChainConfig?.nativeCurrency.logoURI}
+                    className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full border-2 border-secondary bg-secondary" alt=""
+                  />
+                </div>
+                <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden">
+                  <span className="font-bold text-[13px] sm:text-[15px] leading-tight truncate w-full">{buyAssetSymbol || 'Select'}</span>
+                  <span className="text-[8px] sm:text-[9px] text-muted font-bold tracking-tight truncate w-full uppercase">{toChainConfig?.name?.split(' ')[0]}</span>
+                </div>
+                <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
+              </button>
+
+              <div className="flex-1 w-0 min-w-0 flex flex-col items-end">
+                <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide">
+                  <div className={`font-black text-primary transition-all duration-300 ${isSameAssetSelected ? 'text-sm sm:text-base opacity-40 tracking-wider' : 'text-3xl sm:text-4xl tabular-nums'}`}>
+                    {(activeQuote.loading || swapQuoteLoading) ? (
+                      <div className="flex justify-end gap-1 items-end mt-2">
+                        <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md" />
+                        <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-75" />
+                        <div className="w-1 h-1 bg-white/5 animate-pulse rounded-full mb-2" />
+                        <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
+                        <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
+                      </div>
+                    ) : ((swapQuote || activeQuote.data || rangoQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
+                  </div>
+                </div>
+                {(swapQuote || activeQuote.data || rangoQuote) && !isSameAssetSelected && (
+                  <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full border border-green-500/30 flex items-center justify-center">
+                      <div className="w-0.5 h-0.5 rounded-full bg-green-500" />
+                    </div>
+                    {`Refreshing in ${timeLeft}s`}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Details Section Inside Receive Card */}
+            <div className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && (swapQuote || (activeQuote.source === 'stellar' && activeQuote.data))) || (actionType === 'BRIDGE' && hasActiveCrossChainQuote) ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}>
+              <div className="overflow-hidden">
+                <div className="pt-5 sm:pt-6 border-t border-dotted border-white/10 space-y-1">
+
+                  {/* Provider row */}
+                  {(swapQuote?.provider || activeQuote.data?.provider || activeQuote.source) && (
+                    <div className="flex items-center justify-between py-2 border-b border-white/5">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted">
+                        Provider
+                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        {/* Rango */}
+                        {(swapQuote?.provider === 'RANGO' ||
+                          activeQuote.data?.provider === 'RANGO' ||
+                          activeQuote.source === 'rango') && (
+                            <img
+                              src="https://raw.githubusercontent.com/rango-exchange/assets/main/swappers/Across/icon.svg"
+                              className="w-4 h-4 rounded-full"
+                              alt="Rango"
+                            />
+                          )}
+
+                        {/* Uniswap */}
+                        {(swapQuote?.provider === 'UNISWAP' ||
+                          activeQuote.data?.provider === 'UNISWAP'
+                        ) && (
+                            <img
+                              src="https://cryptologos.cc/logos/uniswap-uni-logo.png"
+                              className="w-4 h-4 rounded-full"
+                              alt="Uniswap"
+                            />
+                          )}
+
+                        <span className="text-[11px] font-black text-brand uppercase tracking-wider">
+                          {swapQuote?.provider ||
+                            activeQuote.data?.provider ||
+                            activeQuote.source?.toUpperCase() ||
+                            'UNISWAP'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+
+                  {/* Rate row */}
+                  <div className="flex items-center justify-between py-2 border-b border-white/5">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rate</span>
+                    <span className="text-[11px] font-black text-primary truncate ml-2 flex-1 w-0 text-right min-w-0">
+                      1 {sellAssetSymbol} ≈ {actionType === 'SWAP'
+                        ? (isGasless && fusionQuote && showFusionScreen
+                          ? (Number(fusionQuote.prices.usd.fromToken) / Number(fusionQuote.prices.usd.toToken)).toFixed(6)
+                          : isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data
+                            ? (Number(activeQuote.data.estimatedOutput) / Number(activeQuote.data.inputAmount)).toFixed(6)
+                            : portfolioUtils.formatBalance(swapQuote?.pricePerToken || '0'))
+                        : activeQuote.source === 'rango'
+                          ? portfolioUtils.formatBalance((rangoQuote || activeQuote.data)?.result?.outputAmount || '0')
+                          : portfolioUtils.formatBalance(activeQuote.data?.conversionRate || '0')} {buyAssetSymbol}
+                    </span>
+                  </div>
+
+
+                  {/* SWAP specific rows */}
+                  {actionType === 'SWAP' && (
+                    <>
+                      <div className="flex items-center justify-between py-2 border-b border-white/5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
+                        {swapQuote?.provider === 'RANGO' ? (
+                          <button
+                            onClick={() => setIsSlippageSettingsOpen(true)}
+                            className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
+                          >
+                            {userSlippageTolerance}%
+                          </button>
+                        ) : (
+                          <span className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}>
+                            {isGasless && showFusionScreen ? 'None' : `${userSlippageTolerance}%`}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between py-2 border-b border-white/5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">Network Fee</span>
+                        {isGasless && showFusionScreen ? (
+                          <span className="text-[11px] font-black text-green-500 line-through opacity-60">
+                            ~0.0021 {fromChainConfig?.nativeCurrency.symbol}
+                          </span>
+                        ) : isStellar(fromChainId) ? (
+                          <span className="text-[11px] font-black text-primary">
+                            ~0.00001 XLM
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-black text-primary">
+                            {swapQuote?.networkFee && swapQuote.networkFee > 0
+                              ? `~${swapQuote.networkFee.toFixed(6)} ${fromChainConfig?.nativeCurrency.symbol}`
+                              : '—'}
+                          </span>
+                        )}
+                      </div>
+
+                      {isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data && (
+                        <div className="flex items-center justify-between py-2 border-b border-white/5">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
+                          <span className={`text-[11px] font-black ${activeQuote.data.priceImpact > 2 ? 'text-red-500' : 'text-green-500'}`}>
+                            {activeQuote.data.priceImpact.toFixed(2)}%
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Gasless toggle row */}
+                      {!isStellar(fromChainId) && (
+                        <div className="flex items-center justify-between py-2 border-b border-white/5">
+                          <div className="flex items-center gap-1.5">
+                            <Zap size={10} className={isGasless ? 'fill-green-500 text-green-500' : 'text-muted'} />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Gasless</span>
+                          </div>
+                          <label className="relative w-9 h-5 cursor-pointer flex-shrink-0">
+                            <input
+                              type="checkbox"
+                              className="sr-only peer"
+                              checked={isGasless}
+                              onChange={() => setGasless(!isGasless)}
+                            />
+                            <div className="absolute inset-0 rounded-full bg-white/10 border border-white/10 peer-checked:bg-green-500 peer-checked:border-green-500 transition-all duration-200" />
+                            <div className="absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white transition-all duration-200 peer-checked:translate-x-4" />
+                          </label>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* BRIDGE specific rows */}
+                  {actionType === 'BRIDGE' && (
+                    <>
+                      {activeQuote.source === 'rango' && (rangoQuote || activeQuote.data)?.result?.swaps?.[0] ? (() => {
+                        const swap = (rangoQuote || activeQuote.data).result.swaps[0];
+                        const networkFee = swap.fee?.find((f: any) => f.name === 'Network Fee');
+                        const rangoFee = swap.fee?.find((f: any) => f.name === 'Rango Fee');
+                        const estimatedSecs = swap.estimatedTimeInSeconds;
+                        return (
+                          <>
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Protocol</span>
+                              <div className="flex items-center gap-1.5">
+                                {swap.swapperLogo && <img src={swap.swapperLogo} className="w-4 h-4 rounded-full" alt="" />}
+                                <span className="text-[11px] font-black text-primary">{swap.swapperId}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
+                              <button
+                                onClick={() => setIsSlippageSettingsOpen(true)}
+                                className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
+                              >
+                                {userSlippageTolerance}%
+                              </button>
+                            </div>
+
+                            {networkFee && (
+                              <div className="flex items-center justify-between py-2 border-b border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">Network Fee</span>
+                                <span className="text-[11px] font-black text-primary">
+                                  ~{Number(networkFee.amount).toFixed(6)} {networkFee.asset.symbol}
+                                </span>
+                              </div>
+                            )}
+
+                            {rangoFee && (
+                              <div className="flex items-center justify-between py-2 border-b border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rango Fee</span>
+                                <span className="text-[11px] font-black text-primary">
+                                  {Number(rangoFee.amount).toFixed(4)} {rangoFee.asset.symbol}
+                                </span>
+                              </div>
+                            )}
+
+                            {estimatedSecs && (
+                              <div className="flex items-center justify-between py-2 border-b border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
+                                <span className="text-[11px] font-black text-primary">
+                                  ~{Math.ceil(estimatedSecs / 60)} min
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })() : (
+                        <>
+                          {activeQuote.data?.fee && (activeQuote.data.fee.native || activeQuote.data.fee.stablecoin) && (
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Bridge Fee</span>
+                              <div className="flex items-center gap-1.5">
+                                {(() => {
+                                  const currentFee = activeQuote.data.fee[feePayType] || activeQuote.data.fee.stablecoin || activeQuote.data.fee.native;
+                                  return (
+                                    <>
+                                      <span className="text-[11px] font-black text-primary">
+                                        {Number(currentFee.amount).toFixed(4)}
+                                      </span>
+                                      <span className="text-[9px] font-black text-muted">{currentFee.symbol}</span>
+                                    </>
+                                  );
+                                })()}
+                                {activeQuote.data.fee.native && activeQuote.data.fee.stablecoin && (
+                                  <div className="flex items-center gap-1 bg-secondary/50 rounded-full p-0.5 ml-1">
+                                    <button
+                                      onClick={() => setFeePayType('native')}
+                                      className={`p-0.5 rounded-full transition-all flex items-center justify-center ${feePayType === 'native' ? 'bg-primary/20 ring-1 ring-primary/50' : 'opacity-40 hover:opacity-100'}`}
+                                      title={`Pay with ${activeQuote.data.fee.native.symbol}`}
+                                    >
+                                      <img src={fromChainConfig?.nativeCurrency.logoURI || `https://ui-avatars.com/api/?name=${activeQuote.data.fee.native.symbol}&background=random`} className="w-4 h-4 rounded-full object-cover" alt="Native" />
+                                    </button>
+                                    <button
+                                      onClick={() => setFeePayType('stablecoin')}
+                                      className={`p-0.5 rounded-full transition-all flex items-center justify-center ${feePayType === 'stablecoin' ? 'bg-primary/20 ring-1 ring-primary/50' : 'opacity-40 hover:opacity-100'}`}
+                                      title={`Pay with ${activeQuote.data.fee.stablecoin.symbol}`}
+                                    >
+                                      <img src={swapAssets.find(a => a.symbol.toUpperCase() === activeQuote.data.fee.stablecoin.symbol.toUpperCase())?.logoURI || `https://ui-avatars.com/api/?name=${activeQuote.data.fee.stablecoin.symbol}&background=random`} className="w-4 h-4 rounded-full object-cover" alt="Stable" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between py-2 border-b border-white/5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
+                            <span className="text-[11px] font-black text-primary">
+                              ~{activeQuote.data?.completionTime ? Math.max(1, Math.round(activeQuote.data.completionTime / 60000)) : 5} min
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                  {/* Min received */}
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted">Min. Received</span>
+                    <span className="text-[12px] font-black text-brand truncate ml-2 flex-1 w-0 text-right min-w-0">
+                      {portfolioUtils.formatBalance(minimumReceived)} {buyAssetSymbol}
+                    </span>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+
+          <div className="relative group/action ">
+            <div className={`overflow-hidden transition-all mb-3 mt-3 duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isErrorState && !isLoadingExecution ? 'max-h-40 opacity-100 mb-0' : 'max-h-0 opacity-0 mb-[-12px]'}`}>
+              <div className="bg-red-500/10 border-x border border-red-500/30 rounded-2xl p-4 flex items-center gap-3 relative z-0">
+                <p className="text-[10px] sm:text-xs font-bold text-red-500 uppercase tracking-widest leading-relaxed">
+                  {errorMessage || 'An error occurred. Please check your inputs.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Pending signing request banner — shown when a wallet prompt is still open */}
+            {hasPendingSignRequest && (
+              <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                <span className="text-amber-400 text-base leading-none">⏳</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest">Signing request pending</p>
+                  <p className="text-[11px] text-amber-400/70 font-medium mt-0.5">Check your wallet — a transaction is waiting for your approval.</p>
+                </div>
+              </div>
+            )}
+
+            <ActionGuard
+              title="Connect Wallet"
+              requiredWallets={requiredWallets}
+              disabled={isLoadingExecution}
+            >
+              <>
+                {slippageWarning && (
+                  <div className="mb-3 bg-primary border border-blue-500/20 rounded-lg p-3 flex flex-col gap-1.5 relative z-10 shadow-inner-blue-400">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold  uppercase tracking-widest flex items-center gap-1">
+                        High Slippage Risk
+                      </span>
+                      <button
+                        onClick={() => setIsSlippageSettingsOpen(true)}
+                        className="text-[10px] font-black  bg-secondary rounded-md px-4 py-2 hover:opacity-80 transition-all uppercase tracking-widest"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                    <span className="text-[11px] text-muted leading-relaxed">
+                      Provider requires <strong>{slippageWarning.recommendedSlippage}%</strong> slippage. Your current setting (<strong>{slippageWarning.userSlippage}%</strong>) may cause the transaction to fail.
+                    </span>
+                  </div>
+                )}
+
+                <TransactionButton
+                  label={buttonLabel}
+                  isLoading={isLoadingExecution}
+                  isDisabled={isSwapDisabled}
+                  isError={!!isErrorState && !isLoadingExecution}
+                  onClick={handleUnifiedSwap}
+                  icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
+                  className={`relative z-10 ${isErrorState && !isLoadingExecution ? ' border-t-red-500/20' : ''}`}
+                />
+              </>
+            </ActionGuard>
+          </div>
+
         </div>
 
-        {(swapTxHash || (isStellar(fromChainId) && bridgeTxStatus === 'success')) && fromChainConfig && actionType === 'SWAP' && (
-          isStellar(fromChainId) ? (
-            <StellarTransactionModal
-              isOpen={bridgeTxStatus === 'success'}
-              onClose={handleReset}
-              status="success"
-              type="Swap"
-              hash={bridgeTxHash || undefined}
-            />
-          ) : (
-            <EvmTransactionSuccessModal
-              txHash={swapTxHash!}
-              explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${swapTxHash}`}
-              onDone={handleReset}
-              networkName={fromChainConfig.name}
-            />
-          )
-        )}
-
-        {bridgeTxStatus === 'success' && fromChainConfig && actionType === 'BRIDGE' && (
-          isStellar(fromChainId) ? (
-            <StellarTransactionModal
-              isOpen={true}
-              onClose={handleReset}
-              status="success"
-              type="Bridge"
-              hash={bridgeTxHash || undefined}
-            />
-          ) : (
-            <EvmTransactionSuccessModal
-              txHash={bridgeTxHash!}
-              explorerUrl={`${fromChainConfig.blockExplorerUrl}/tx/${bridgeTxHash}`}
-              onDone={handleReset}
-              networkName={fromChainConfig.name}
-            />
-          )
-        )}
-      </div>
-
-      {showFusionScreen && fusionQuote && (
-        <FusionQuoteScreen
-          quote={fusionQuote}
-          chainId={fromChainId}
-          sellAsset={selectedSellAsset}
-          buyAsset={selectedBuyAsset}
-          onBack={() => {
-            setShowFusionScreen(false);
-          }}
-          loading={isFusionLoading}
-          fusionStatus={fusionStatus}
-          error={swapError || bridgeErrorMsg}
-          txHash={swapTxHash}
-          onRefreshQuote={(!isFusionLoading && !swapTxHash && selectedSellAsset && selectedBuyAsset && sellAmount) ? () => {
-            if (!isFusionLoading && selectedSellAsset && selectedBuyAsset && sellAmount) {
+        {showFusionScreen && fusionQuote && (
+          <FusionQuoteScreen
+            quote={fusionQuote}
+            chainId={fromChainId}
+            sellAsset={selectedSellAsset}
+            buyAsset={selectedBuyAsset}
+            onBack={() => {
+              setShowFusionScreen(false);
+            }}
+            loading={isFusionLoading}
+            fusionStatus={fusionStatus}
+            error={swapError || bridgeErrorMsg}
+            txHash={swapTxHash}
+            onRefreshQuote={(!isFusionLoading && !swapTxHash && selectedSellAsset && selectedBuyAsset && sellAmount) ? () => {
+              if (!isFusionLoading && selectedSellAsset && selectedBuyAsset && sellAmount) {
+                setIsFusionLoading(true);
+                fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount)
+                  .catch((err) => {
+                    console.error('[FusionRefresh] Auto-refresh failed:', err);
+                    setBridgeErrorMsg(parseWalletError(err));
+                  })
+                  .finally(() => setIsFusionLoading(false));
+              }
+            } : undefined}
+            onConfirm={async (preset) => {
               setIsFusionLoading(true);
-              fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount)
-                .catch((err) => {
-                  console.error('[FusionRefresh] Auto-refresh failed:', err);
-                  setBridgeErrorMsg(parseWalletError(err));
-                })
-                .finally(() => setIsFusionLoading(false));
-            }
-          } : undefined}
-          onConfirm={async (preset) => {
-            setIsFusionLoading(true);
-            setFusionStatus('idle');
-            try {
-              const hash = await performFusionSwap(
-                selectedSellAsset as any,
-                selectedBuyAsset as any,
-                sellAmount,
-                preset,
-                (status) => setBridgeTxStatus(status as any)
-              );
-              setBridgeTxHash(hash);
-              setBridgeTxStatus('success');
-              showToast({
-                type: 'EVM_SWAP',
-                title: 'Order Submitted',
-                message: `Gasless order for ${sellAmount} ${sellAssetSymbol} submitted successfully.`
-              });
-            } catch (err) {
-              console.error('Fusion swap failed:', err);
-              setBridgeErrorMsg(parseWalletError(err));
-              resetLoadingState();
-              setBridgeTxStatus('error');
-              showToast({ type: 'EVM_SWAP', title: 'Swap Failed', message: parseWalletError(err), dontSave: true });
-            } finally {
-              setIsFusionLoading(false);
-            }
+              setFusionStatus('idle');
+              try {
+                const hash = await performFusionSwap(
+                  selectedSellAsset as any,
+                  selectedBuyAsset as any,
+                  sellAmount,
+                  preset,
+                  (status) => setBridgeTxStatus(status as any)
+                );
+                handleReset();
+                showToast({
+                  type: 'EVM_SWAP',
+                  title: 'Order Submitted',
+                  message: `Gasless order for ${sellAmount} ${sellAssetSymbol} submitted successfully.`
+                });
+                if (hash) {
+                  useTransactionModalStore.getState().openModal({
+                    status: 'success',
+                    type: 'Swap',
+                    hash,
+                    explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}` : undefined,
+                    networkName: fromChainConfig?.name,
+                    isStellar: false,
+                  });
+                }
+              } catch (err) {
+                console.error('Fusion swap failed:', err);
+                setBridgeErrorMsg(parseWalletError(err));
+                resetLoadingState();
+                setBridgeTxStatus('error');
+                showToast({ type: 'EVM_SWAP', title: 'Swap Failed', message: parseWalletError(err), dontSave: true });
+              } finally {
+                setIsFusionLoading(false);
+              }
 
-          }}
+            }}
+          />
+        )}
+
+        <SlippageSettingsModal
+          isOpen={isSlippageSettingsOpen}
+          onClose={() => setIsSlippageSettingsOpen(false)}
+          userSlippageTolerance={userSlippageTolerance}
+          setUserSlippageTolerance={setUserSlippageTolerance}
+          recommendedSlippage={slippageWarning?.recommendedSlippage}
         />
-      )}
-
-      <SlippageSettingsModal
-        isOpen={isSlippageSettingsOpen}
-        onClose={() => setIsSlippageSettingsOpen(false)}
-        userSlippageTolerance={userSlippageTolerance}
-        setUserSlippageTolerance={setUserSlippageTolerance}
-        recommendedSlippage={slippageWarning?.recommendedSlippage}
-      />
       </StellarActiveGuard>
     </PageLayout>
   );

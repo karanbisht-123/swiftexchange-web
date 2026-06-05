@@ -1157,7 +1157,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (setupError) return 'TRY AGAIN';
     if (hasPendingSession) return 'TRANSFER IN PROGRESS...';
     if (!inputAmount || parseFloat(inputAmount) <= 0) return 'ENTER AMOUNT';
-    
+
     let requiredBalance = parseFloat(inputAmount);
     if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
       requiredBalance += Number(rawQuotes.bridge.feeOptions.stablecoin.float);
@@ -1203,7 +1203,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     if (hasPendingSession) return true;
     if (parseFloat(inputAmount) <= 0) return true;
-    
+
     let requiredBalance = parseFloat(inputAmount);
     if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
       requiredBalance += Number(rawQuotes.bridge.feeOptions.stablecoin.float);
@@ -1909,64 +1909,66 @@ export const StellarDydxOrchestrator: React.FC = () => {
           </div>
         </div>
 
-        {!activeSession && sessions.filter(s => {
+        {sessions.filter(s => {
+          if (s.id === activeSessionId) return false;
           if (s.phase === 'DONE') return false;
           const hasPending = s.swapTx?.status === 'PENDING' || s.bridgeTx?.status === 'PENDING' || s.depositTx?.status === 'PENDING';
-          return hasPending || !!s.error;
+          const needsAction = s.phase === 'DEPOSIT' && !s.depositTx?.hash;
+          return hasPending || needsAction || !!s.error;
         }).length > 0 && (
-          <div className="space-y-3 mt-4 border-t border-divider/40 pt-4">
-            {(() => {
-              const pendingSessions = sessions.filter(s => {
-                if (s.phase === 'DONE') return false;
-                // Only show sessions with at least one PENDING step or an actionable error
-                // Silently failed sessions (all steps null/FAILED, no user error) are not shown here
-                const hasPending =
-                  s.swapTx?.status === 'PENDING' ||
-                  s.bridgeTx?.status === 'PENDING' ||
-                  s.depositTx?.status === 'PENDING';
-                return hasPending || !!s.error;
-              });
-              const displayedSessions = showAllSessions ? pendingSessions : pendingSessions.slice(0, 2);
+            <div className="space-y-3 mt-4 border-t border-divider/40 pt-4">
+              {(() => {
+                const otherSessions = sessions.filter(s => {
+                  if (s.id === activeSessionId) return false;
+                  if (s.phase === 'DONE') return false;
+                  const hasPending =
+                    s.swapTx?.status === 'PENDING' ||
+                    s.bridgeTx?.status === 'PENDING' ||
+                    s.depositTx?.status === 'PENDING';
+                  const needsAction = s.phase === 'DEPOSIT' && !s.depositTx?.hash;
+                  return hasPending || needsAction || !!s.error;
+                });
+                const displayedSessions = showAllSessions ? otherSessions : otherSessions.slice(0, 2);
 
-              return (
-                <>
-                  {displayedSessions.map(s => (
-                    <PendingSessionCard
-                      key={s.id}
-                      session={s}
-                      evmChains={evmChains}
-                      updateSession={updateSession}
-                      setActiveSessionId={setActiveSessionId}
-                      setRestoreInputsOnClear={setRestoreInputsOnClear}
-                      setSessionToClear={setSessionToClear}
-                    />
-                  ))}
+                return (
+                  <>
+                    {displayedSessions.map(s => (
+                      <PendingSessionCard
+                        key={s.id}
+                        session={s}
+                        evmChains={evmChains}
+                        updateSession={updateSession}
+                        setActiveSessionId={setActiveSessionId}
+                        setRestoreInputsOnClear={setRestoreInputsOnClear}
+                        setSessionToClear={setSessionToClear}
+                      />
+                    ))}
 
-                  {pendingSessions.length > 2 && (
-                    <div className="flex justify-center mt-1">
-                      <button
-                        onClick={() => setShowAllSessions(prev => !prev)}
-                        className="text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all active:scale-[0.98] hover:brightness-110 flex items-center justify-center gap-1"
-                        style={{
-                          background: 'transparent',
-                          color: 'var(--color-brand)',
-                          border: 'none',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <span>{showAllSessions ? 'Show Less' : `See All (${pendingSessions.length})`}</span>
-                        <ChevronDown
-                          size={12}
-                          className={`transition-transform duration-200 ${showAllSessions ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        )}
+                    {otherSessions.length > 2 && (
+                      <div className="flex justify-center mt-1">
+                        <button
+                          onClick={() => setShowAllSessions(prev => !prev)}
+                          className="text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all active:scale-[0.98] hover:brightness-110 flex items-center justify-center gap-1"
+                          style={{
+                            background: 'transparent',
+                            color: 'var(--color-brand)',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <span>{showAllSessions ? 'Show Less' : `See All (${otherSessions.length})`}</span>
+                          <ChevronDown
+                            size={12}
+                            className={`transition-transform duration-200 ${showAllSessions ? 'rotate-180' : ''}`}
+                          />
+                        </button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
 
         <ConfirmationModal
           isOpen={sessionToClear !== null}

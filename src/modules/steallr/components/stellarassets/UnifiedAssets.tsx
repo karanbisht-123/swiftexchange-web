@@ -17,7 +17,7 @@ import {
   truncateAddress,
 } from '../../utils/assetUtils/assetUtils';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
-import StellarTransactionModal from '../modals/StellarTransactionModal';
+import { useTransactionModalStore } from '../../../../store/transactionModalStore';
 
 interface UnifiedAssetsProps {
   userAddress?: string;
@@ -151,12 +151,6 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
   const { balances, loading, server, refetch } = useStellarBalances(stellarAddress);
   const [searchTerm, setSearchTerm] = useState('');
   const [trustlineProcessing, setTrustlineProcessing] = useState<string | null>(null);
-  const [txModal, setTxModal] = useState<{
-    isOpen: boolean;
-    status: 'success' | 'error';
-    hash?: string;
-    error?: string;
-  }>({ isOpen: false, status: 'success' });
 
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -248,10 +242,11 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
           network: currentNetwork,
         });
 
-        setTxModal({
-          isOpen: true,
+        useTransactionModalStore.getState().openModal({
           status: 'success',
-          hash: result.transactionHash,
+          type: 'Trustline',
+          hash: result.transactionHash || undefined,
+          isStellar: true,
         });
 
         refetch();
@@ -260,10 +255,11 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       }
     } catch (err: any) {
       console.error('Trustline error:', err);
-      setTxModal({
-        isOpen: true,
+      useTransactionModalStore.getState().openModal({
         status: 'error',
+        type: 'Trustline',
         error: err?.message || 'Failed to add trustline. Please try again.',
+        isStellar: true,
       });
     } finally {
       setTrustlineProcessing(null);
@@ -301,10 +297,11 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
           network: currentNetwork,
         });
 
-        setTxModal({
-          isOpen: true,
+        useTransactionModalStore.getState().openModal({
           status: 'success',
-          hash: result.transactionHash,
+          type: 'Trustline',
+          hash: result.transactionHash || undefined,
+          isStellar: true,
         });
 
         refetch();
@@ -313,10 +310,11 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       }
     } catch (err: any) {
       console.error('Trustline removal error:', err);
-      setTxModal({
-        isOpen: true,
+      useTransactionModalStore.getState().openModal({
         status: 'error',
+        type: 'Trustline',
         error: err?.message || 'Failed to remove trustline. Please try again.',
+        isStellar: true,
       });
     } finally {
       setTrustlineProcessing(null);
@@ -443,20 +441,6 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
           </p>
         </div>
       )}
-
-      <StellarTransactionModal
-        isOpen={txModal.isOpen}
-        onClose={() => {
-          setTxModal(prev => ({ ...prev, isOpen: false }));
-          if (txModal.status === 'success') {
-            // Success-specific follow-up could go here if needed 
-          }
-        }}
-        status={txModal.status}
-        type="Swap"
-        hash={txModal.hash}
-        error={txModal.error}
-      />
 
       <ConfirmationModal
         isOpen={confirmModal.isOpen}

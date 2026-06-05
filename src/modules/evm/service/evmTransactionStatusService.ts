@@ -22,6 +22,9 @@ export interface StoreSwapOrderRequest {
   amountIn: string;
   amountOut: string;
 
+  /** Shared group key linking the bridge order and its deposit order. */
+  requestId?: string;
+
   txType?:
   | 'Native Transfer'
   | 'Token Transfer'

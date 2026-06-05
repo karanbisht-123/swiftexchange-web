@@ -17,7 +17,7 @@ import LastTrades from '../tradescreen/LastTrades';
 import OrderBook from './OrderBook';
 // import { addLocalTransaction } from '../../../evm/service/localTransactionService';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
-import StellarTransactionModal from '../modals/StellarTransactionModal';
+import { useTransactionModalStore } from '../../../../store/transactionModalStore';
 import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
 
 import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
@@ -34,12 +34,6 @@ interface Toast {
 const OrderBookSwapUI = () => {
   const [orderStatus, setOrderStatus] = useState<'pending' | 'success' | 'error' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [txModal, setTxModal] = useState<{
-    isOpen: boolean;
-    status: 'success' | 'error';
-    hash?: string;
-    error?: string;
-  }>({ isOpen: false, status: 'success' });
   const [activeTab, setActiveTab] = useState<'overview' | 'orderBook' | 'trades'>('overview');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -178,10 +172,11 @@ const OrderBookSwapUI = () => {
 
       const txHash = await executeOrderWithWalletConnect(tx, provider);
 
-      setTxModal({
-        isOpen: true,
+      useTransactionModalStore.getState().openModal({
         status: 'success',
+        type: 'Order',
         hash: txHash,
+        isStellar: true,
       });
 
       setOrderStatus('success');
@@ -196,10 +191,11 @@ const OrderBookSwapUI = () => {
       setOrderStatus('error');
       const message = err?.message || ERROR_MESSAGES.ORDER_FAILED;
       setErrorMessage(message);
-      setTxModal({
-        isOpen: true,
+      useTransactionModalStore.getState().openModal({
         status: 'error',
+        type: 'Order',
         error: message,
+        isStellar: true,
       });
       console.error('Order failed:', message);
     }
@@ -569,15 +565,6 @@ const OrderBookSwapUI = () => {
           </div>
         </div>
       </div>
-
-      <StellarTransactionModal
-        isOpen={txModal.isOpen}
-        onClose={() => setTxModal(prev => ({ ...prev, isOpen: false }))}
-        status={txModal.status}
-        type="Order"
-        hash={txModal.hash}
-        error={txModal.error}
-      />
 
       <StellarAssetSelectorModal
         isOpen={selectingAssetFor !== null}

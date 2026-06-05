@@ -107,8 +107,13 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
   );
 
   useEffect(() => {
+    if (bypass) return;
     checkAccountActivation(false);
-  }, [checkAccountActivation]);
+  }, [checkAccountActivation, bypass]);
+
+  if (bypass) {
+    return <>{children}</>;
+  }
 
   if (!isStellarConnected) {
     return (
@@ -150,7 +155,7 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({ children, onSki
     );
   }
 
-  if (bypass || accountActive === true) {
+  if (accountActive === true) {
     return <>{children}</>;
   }
 

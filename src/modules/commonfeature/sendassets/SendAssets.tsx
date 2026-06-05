@@ -3,8 +3,6 @@ import React, { useCallback, useMemo, useRef } from 'react';
 import PageLayout from '../../../components/layout/PageLayout';
 import { Tooltip } from '../../../components/common/Tooltip';
 import { toPlainString } from '../../evm/hook/useEvmSwap';
-import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
-import StellarTransactionModal from '../../steallr/components/modals/StellarTransactionModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { useSendAsset } from '../hook/useSendassets';
@@ -42,7 +40,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     handleReviewTransaction,
     handleConfirmTransaction,
     handleBackToForm,
-    handleDone,
     handleRetryTransaction,
     copyToClipboard,
     formError,
@@ -283,7 +280,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   ]);
 
   const TransactionStatusComponent = useMemo(() => {
-    const { step, error, txHash } = transactionState;
+    const { step } = transactionState;
 
     if (step === 'signing') {
       return (
@@ -300,76 +297,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       );
     }
 
-    if (step === 'success') {
-      if (currentAsset?.type === 'evm') {
-        return (
-          <EvmTransactionSuccessModal
-            txHash={txHash || ''}
-            explorerUrl={explorerUrl}
-            onDone={handleDone}
-            networkName={currentAsset.network}
-          />
-        );
-      }
-      return (
-        <StellarTransactionModal
-          isOpen={true}
-          status="success"
-          type="Send"
-          hash={txHash || ''}
-          onClose={handleDone}
-        />
-      );
-    }
-
-    if (step === 'error' && error) {
-      if (currentAsset?.type === 'stellar') {
-        return (
-          <StellarTransactionModal
-            isOpen={true}
-            status="error"
-            type="Send"
-            error={error}
-            onClose={handleBackToForm}
-          />
-        );
-      }
-      return (
-        <div className="bg-bg-secondary border border-divider rounded-xl text-center py-12 px-6 max-w-sm mx-auto shadow-sm">
-          <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mb-6 mx-auto">
-            <AlertCircle className="w-8 h-8 text-danger" />
-          </div>
-          <h3 className="text-xl font-black text-text-primary mb-2">Transaction Error</h3>
-          <div className="bg-danger/5 border border-danger/10 rounded-lg p-3 mb-6">
-            <p className="text-xs text-danger font-bold leading-relaxed">{error}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={handleRetryTransaction}
-              className="btn-primary py-3 rounded-lg font-bold text-sm"
-            >
-              Retry
-            </button>
-            <button
-              onClick={handleBackToForm}
-              className="btn-secondary py-3 rounded-lg font-bold text-sm"
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      );
-    }
-
     return null;
   }, [
     transactionState,
-    explorerUrl,
-    currentAsset,
-    handleCopyTxHash,
-    onBack,
-    handleBackToForm,
-    handleRetryTransaction,
   ]);
 
   const renderForm = () => {
