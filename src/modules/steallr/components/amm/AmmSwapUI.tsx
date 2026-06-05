@@ -12,7 +12,7 @@ import { SettingsPanel, SwapDetails } from './AmmSwapSubComponents';
 import { XlmReserveButton } from './XlmReserveInfo';
 // import { addLocalTransaction } from '../../../evm/service/localTransactionService';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
-import StellarTransactionModal from '../modals/StellarTransactionModal';
+import { useTransactionModalStore } from '../../../../store/transactionModalStore';
 import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
 import { getChainById } from '../../../evm/utils/Chainregistry';
 import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
@@ -21,12 +21,6 @@ import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 const AmmSwapUI = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [swapStatus, setSwapStatus] = useState<'pending' | 'success' | null>(null);
-  const [txModal, setTxModal] = useState<{
-    isOpen: boolean;
-    status: 'success' | 'error';
-    hash?: string;
-    error?: string;
-  }>({ isOpen: false, status: 'success' });
   const [selectingAssetFor, setSelectingAssetFor] = useState<'from' | 'to' | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -166,21 +160,11 @@ const AmmSwapUI = () => {
 
       const txHash = await executeSwapWithWalletConnect(tx, provider);
 
-      // addLocalTransaction({
-      //   hash: txHash,
-      //   chainId: 'pubnet',
-      //   type: 'swap',
-      //   timestamp: Date.now(),
-      //   description: `Swap ${fromAmount} ${fromToken.code} for ${toAmount} ${toToken.code}`,
-      //   status: 'success',
-      //   from: stellarAddress,
-      //   network: currentNetwork,
-      // });
-
-      setTxModal({
-        isOpen: true,
+      useTransactionModalStore.getState().openModal({
         status: 'success',
+        type: 'Swap',
         hash: txHash,
+        isStellar: true,
       });
 
       setSwapStatus('success');
@@ -191,10 +175,11 @@ const AmmSwapUI = () => {
       }, 3000);
     } catch (err: any) {
       setSwapStatus(null);
-      setTxModal({
-        isOpen: true,
+      useTransactionModalStore.getState().openModal({
         status: 'error',
+        type: 'Swap',
         error: err?.message || 'Transaction failed',
+        isStellar: true,
       });
       console.error('Swap failed:', err);
     }
@@ -470,15 +455,6 @@ const AmmSwapUI = () => {
       <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0">
         {renderSwapForm()}
       </div>
-
-      <StellarTransactionModal
-        isOpen={txModal.isOpen}
-        onClose={() => setTxModal(prev => ({ ...prev, isOpen: false }))}
-        status={txModal.status}
-        type="Swap"
-        hash={txModal.hash}
-        error={txModal.error}
-      />
 
       <StellarAssetSelectorModal
         isOpen={selectingAssetFor !== null}

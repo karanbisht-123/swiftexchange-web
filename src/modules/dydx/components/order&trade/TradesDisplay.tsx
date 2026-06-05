@@ -21,7 +21,9 @@ interface TradeRowProps {
 const TradeRow = memo(function TradeRow({ trade, depthPct, formatPrice, formatSize, formatTime }: TradeRowProps) {
   const isBuy = trade.side === 'BUY';
   return (
-    <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-hover relative overflow-hidden transition-colors duration-150">
+    <div className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 ${
+      isBuy ? 'animate-trade-enter-buy' : 'animate-trade-enter-sell'
+    }`}>
       <div
         className={`absolute inset-y-0 right-0 origin-right transition-transform duration-200 ease-out ${isBuy ? 'bg-success/10' : 'bg-danger/10'}`}
         style={{ width: '100%', transform: `scaleX(${depthPct})` }}
@@ -85,7 +87,31 @@ export default function TradesDisplay() {
         </div>
       )}
 
-      <style>{`.hide-scrollbar::-webkit-scrollbar { display: none; } .hide-scrollbar { scrollbar-width: none; }`}</style>
+      <style>{`
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { scrollbar-width: none; }
+
+        @keyframes trade-enter {
+          from {
+            opacity: 0;
+            transform: translateY(-4px);
+            background-color: var(--flash-color);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+            background-color: transparent;
+          }
+        }
+        .animate-trade-enter-buy {
+          animation: trade-enter 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          --flash-color: rgba(14, 203, 129, 0.15);
+        }
+        .animate-trade-enter-sell {
+          animation: trade-enter 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          --flash-color: rgba(255, 77, 77, 0.15);
+        }
+      `}</style>
     </div>
   );
 }

@@ -192,6 +192,20 @@ export const useEvmSwap = ({
     }
   }, [chainId, updateState]);
 
+  useEffect(() => {
+    const handleAssetsRegistered = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && String(detail.chainId) === String(chainId)) {
+        fetchTokenList();
+      }
+    };
+
+    window.addEventListener('dynamic_assets_registered', handleAssetsRegistered);
+    return () => {
+      window.removeEventListener('dynamic_assets_registered', handleAssetsRegistered);
+    };
+  }, [chainId, fetchTokenList]);
+
   const updateTokenBalances = useCallback(
     async (sellToken?: TokenInfo) => {
       if (!senderAddress || !chainId) return;
@@ -374,14 +388,15 @@ export const useEvmSwap = ({
           buyAsset.address,
           amount,
           senderAddress,
-          sellAsset.decimals
+          sellAsset.decimals,
+          buyAsset.chainId
         );
 
         updateState({ fusionQuote: fusionQuoteData, quoteLoading: false, error: null });
         return fusionQuoteData;
       } catch (err: any) {
         const errorMsg = parseSwapError(err);
-        updateState({ error: errorMsg, quoteLoading: false });
+        updateState({ error: errorMsg, quoteLoading: false, fusionQuote: null });
         throw new Error(errorMsg);
       }
     },
@@ -427,41 +442,36 @@ export const useEvmSwap = ({
               amountOut: quote.outputAmount,
               txType: 'Token Approval',
             } as any).catch(err => console.error('Failed to store swap approval order on backend:', err));
+          },
+          (swapHash) => {
+            if (quote.provider === 'RANGO' || quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP' || quote.provider === 'ALLBRIDGE') {
+              storeSwapOrder({
+                txHash: swapHash,
+                walletAddress: senderAddress,
+                provider: quote.provider,
+                fromChain: getChainById(chainId)?.symbol || '',
+                fromToken: sellAsset.symbol,
+                toChain: getChainById(buyAsset.chainId || chainId)?.symbol || '',
+                toToken: buyAsset.symbol,
+                amountIn: sellAmount,
+                amountOut: quote.outputAmount,
+                txType: quote.provider === 'ALLBRIDGE' ? 'Bridge' : quote.provider === 'RANGO' ? 'Contract Call' : 'Swap',
+                ...(quote.provider === 'RANGO' ? { requestId: (quote as any).requestId || (quote.rawQuote as any)?.requestId } : {})
+              } as any).catch(err => console.error('Failed to store swap order on backend:', err));
+            } else if (chainId !== 'pubnet' && chainId !== 'testnet' && chainId !== 'stellar') {
+              addLocalTransaction({
+                hash: swapHash,
+                chainId,
+                type: 'swap',
+                timestamp: Date.now(),
+                description: `Swap ${sellAsset.symbol} → ${buyAsset.symbol}`,
+                status: 'pending',
+                from: senderAddress,
+                network: useWalletStore.getState().network,
+              });
+            }
           }
         );
-
-        const currentNetwork = useWalletStore.getState().network;
-
-        if (quote.provider === 'RANGO' || quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP' || quote.provider === 'ALLBRIDGE') {
-          try {
-            await storeSwapOrder({
-              txHash: hash,
-              walletAddress: senderAddress,
-              provider: quote.provider,
-              fromChain: getChainById(chainId)?.symbol || '',
-              fromToken: sellAsset.symbol,
-              toChain: getChainById(buyAsset.chainId || chainId)?.symbol || '',
-              toToken: buyAsset.symbol,
-              amountIn: sellAmount,
-              amountOut: quote.outputAmount,
-              txType: quote.provider === 'ALLBRIDGE' ? 'Bridge' : quote.provider === 'RANGO' ? 'Contract Call' : 'Swap',
-              ...(quote.provider === 'RANGO' ? { requestId: (quote as any).requestId || (quote.rawQuote as any)?.requestId } : {})
-            } as any);
-          } catch (err) {
-            console.error('Failed to store swap order on backend:', err);
-          }
-        } else if (chainId !== 'pubnet' && chainId !== 'testnet' && chainId !== 'stellar') {
-          addLocalTransaction({
-            hash,
-            chainId,
-            type: 'swap',
-            timestamp: Date.now(),
-            description: `Swap ${sellAsset.symbol} \u2192 ${buyAsset.symbol}`,
-            status: 'pending',
-            from: senderAddress,
-            network: currentNetwork,
-          });
-        }
 
         if (activeSwapId.current === swapId) {
           activeSwapId.current = null;
@@ -525,25 +535,28 @@ export const useEvmSwap = ({
               fromToken: sellAsset.symbol,
               toChain: getChainById(buyAsset.chainId || chainId)?.symbol,
               toToken: buyAsset.symbol,
+              quoteId: fusionQuote.quoteId,
               amountIn: sellAmount,
-              amountOut: fusionQuote.toTokenAmount ? ethers.formatUnits(fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+              amountOut: (fusionQuote.toTokenAmount || fusionQuote.dstTokenAmount) ? ethers.formatUnits(fusionQuote.toTokenAmount || fusionQuote.dstTokenAmount || '0', buyAsset.decimals || 18) : '0',
               txType: 'Token Approval',
             } as any).catch(backendErr => console.error('Failed to store fusion swap approval order on backend:', backendErr));
           }
         );
 
         // 1Inch Fusion swaps always go to backend
+        const isCrossChain = String(chainId) !== String(buyAsset.chainId || chainId);
         try {
           await storeSwapOrder({
             txHash: hash,
             walletAddress: senderAddress,
-            provider: 'ONEINCH_FUSION',
+            provider: isCrossChain ? 'ONEINCH_FUSION_PLUS' : 'ONEINCH_FUSION',
             fromChain: getChainById(chainId)?.symbol,
             fromToken: sellAsset.symbol,
             toChain: getChainById(buyAsset.chainId || chainId)?.symbol,
             toToken: buyAsset.symbol,
+            quoteId: fusionQuote.quoteId,
             amountIn: sellAmount,
-            amountOut: fusionQuote.toTokenAmount ? ethers.formatUnits(fusionQuote.toTokenAmount, buyAsset.decimals || 18) : '0',
+            amountOut: (fusionQuote.toTokenAmount || fusionQuote.dstTokenAmount) ? ethers.formatUnits(fusionQuote.toTokenAmount || fusionQuote.dstTokenAmount || '0', buyAsset.decimals || 18) : '0',
             txType: 'Swap',
           } as any);
         } catch (backendErr) {

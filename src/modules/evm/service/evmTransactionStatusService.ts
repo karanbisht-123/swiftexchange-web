@@ -22,6 +22,11 @@ export interface StoreSwapOrderRequest {
   amountIn: string;
   amountOut: string;
 
+  /** Shared group key linking the bridge order and its deposit order. */
+  requestId?: string;
+
+  quoteId?: string;
+
   txType?:
   | 'Native Transfer'
   | 'Token Transfer'
@@ -37,6 +42,8 @@ export interface StoreSwapOrderResponse {
 
   txHash: string;
   provider: string;
+
+  quoteId?: string;
 
   walletAddress: string;
 
@@ -69,6 +76,7 @@ export interface SwapOrder {
   _id: string;
 
   requestId?: string;
+  quoteId?: string;
 
   txHash: string;
   provider: string;
@@ -182,7 +190,9 @@ export async function storeSwapOrder(
       await fetchApiResponseFromProxy<any>(
         '/swapOrders/store',
         'POST',
-        normalizedPayload
+        normalizedPayload,
+        1, // retries
+        true // keepalive
       );
 
     const data =
@@ -265,6 +275,45 @@ export async function updateSwapOrderStatus(
     const message =
       parseSwapError(error);
 
+    throw new Error(message);
+  }
+}
+
+export interface FusionOrderFill {
+  txHash: string;
+  filledMakerAmount: string;
+  filledAuctionTakerAmount: string;
+  takerFeeAmount: string;
+  status: string;
+}
+
+export interface FusionOrderStatusResponse {
+  status: string;
+  makingAmount?: string;
+  takingAmount?: string;
+  auctionStartDate?: number;
+  auctionDuration?: number;
+  fills?: FusionOrderFill[];
+}
+
+// Get 1inch Fusion Order Status
+export async function getFusionOrderStatus(
+  chain: string,
+  orderHash: string,
+  swapProvider: string
+): Promise<FusionOrderStatusResponse> {
+  try {
+    const res = await fetchApiResponseFromProxy<any>(
+      `/swap/1inch/orderStatus?chain=${chain}&orderHash=${orderHash}&swapProvider=${swapProvider}`,
+      'GET'
+    );
+
+    const data = res.data?.data || res.data;
+    if (!data) throw new Error('Failed to fetch Fusion order status');
+
+    return data as FusionOrderStatusResponse;
+  } catch (error: any) {
+    const message = parseSwapError(error);
     throw new Error(message);
   }
 }

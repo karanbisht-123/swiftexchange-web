@@ -338,7 +338,8 @@ interface MarketOrderbookState {
   asksMap: Map<number, number>;
   listeners: Set<(data: OrderbookData) => void>;
   unsubscribe: (() => void) | null;
-  rafId: number | undefined;
+  timeoutId: any | null;
+  lastUpdateTs: number;
   isSubscribed: boolean;
 }
 
@@ -351,7 +352,8 @@ function getOrCreateState(market: string): MarketOrderbookState {
       asksMap: new Map(),
       listeners: new Set(),
       unsubscribe: null,
-      rafId: undefined,
+      timeoutId: null,
+      lastUpdateTs: 0,
       isSubscribed: false,
     });
   }
@@ -360,10 +362,15 @@ function getOrCreateState(market: string): MarketOrderbookState {
 
 function scheduleUpdate(market: string): void {
   const state = getOrCreateState(market);
-  if (state.rafId !== undefined) return;
+  if (state.timeoutId !== null) return;
 
-  state.rafId = requestAnimationFrame(() => {
-    state.rafId = undefined;
+  const now = Date.now();
+  const timeSinceLastUpdate = now - state.lastUpdateTs;
+  const throttleDelay = 200; // Update at most once every 200ms
+
+  const runUpdate = () => {
+    state.timeoutId = null;
+    state.lastUpdateTs = Date.now();
 
     const sortedBids = Array.from(state.bidsMap.entries())
       .sort(([a], [b]) => b - a)
@@ -386,7 +393,13 @@ function scheduleUpdate(market: string): void {
     };
 
     state.listeners.forEach(listener => listener(data));
-  });
+  };
+
+  if (timeSinceLastUpdate >= throttleDelay) {
+    runUpdate();
+  } else {
+    state.timeoutId = setTimeout(runUpdate, throttleDelay - timeSinceLastUpdate);
+  }
 }
 
 function handleOrderbookUpdate(market: string, data: any): void {
@@ -479,10 +492,11 @@ function resetSubscription(market: string, clearData = false): void {
     state.asksMap.clear();
   }
 
-  if (state.rafId !== undefined) {
-    cancelAnimationFrame(state.rafId);
-    state.rafId = undefined;
+  if (state.timeoutId !== null) {
+    clearTimeout(state.timeoutId);
+    state.timeoutId = null;
   }
+  state.lastUpdateTs = 0;
 }
 
 function unsubscribeFromMarket(market: string): void {
@@ -499,10 +513,11 @@ function unsubscribeFromMarket(market: string): void {
   }
   state.isSubscribed = false;
 
-  if (state.rafId !== undefined) {
-    cancelAnimationFrame(state.rafId);
-    state.rafId = undefined;
+  if (state.timeoutId !== null) {
+    clearTimeout(state.timeoutId);
+    state.timeoutId = null;
   }
+  state.lastUpdateTs = 0;
 
   state.bidsMap.clear();
   state.asksMap.clear();

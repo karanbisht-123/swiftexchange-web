@@ -9,7 +9,9 @@ import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
 import { toPlainString } from '../../evm/hook/useEvmSwap';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
-import { getChainById } from '../../evm/utils/Chainregistry';
+import { getChainById, getExplorerUrl } from '../../evm/utils/Chainregistry';
+import { useTransactionModalStore } from '../../../store/transactionModalStore';
+import { useNotificationStore } from '../../../store/notificationStore';
 import type { StellarSendTransaction } from '../../steallr/types/stellarTransaction.types';
 import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
 import type { TransactionRequest } from '../../transction/router/transactionRouter';
@@ -309,7 +311,21 @@ export const useSendAsset = (onBack?: () => void) => {
           txType: currentAsset.isNative ? 'Native Transfer' : 'Token Transfer'
         }).catch(err => console.error('Failed to store transfer to backend:', err));
 
-        setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
+        setRecipientAddress('');
+        setAmount('');
+        setMemo('');
+        setTransactionState({ txHash: null, step: 'form', error: null });
+
+        if (res.hash) {
+          useTransactionModalStore.getState().openModal({
+            status: 'success',
+            type: 'Send',
+            hash: res.hash,
+            explorerUrl: getExplorerUrl(currentAsset.chainId, 'tx', res.hash),
+            networkName: currentAsset.network,
+            isStellar: false,
+          });
+        }
       } else if (currentAsset.type === 'stellar') {
         console.log('[useSendAsset] Building Stellar transaction request');
 
@@ -351,7 +367,17 @@ export const useSendAsset = (onBack?: () => void) => {
 
         if (res.status !== 'success') throw new Error(res.error || 'Failed');
 
-        setTransactionState(p => ({ ...p, txHash: res.hash || null, step: 'success' }));
+        setRecipientAddress('');
+        setAmount('');
+        setMemo('');
+        setTransactionState({ txHash: null, step: 'form', error: null });
+
+        useTransactionModalStore.getState().openModal({
+          status: 'success',
+          type: 'Send',
+          hash: res.hash || undefined,
+          isStellar: true,
+        });
       } else {
         // dYdX direct handling via service
         console.log('[useSendAsset] Handling dYdX transaction via service');
@@ -367,12 +393,39 @@ export const useSendAsset = (onBack?: () => void) => {
 
         if (!result.success) throw new Error(result.error || 'Transaction failed');
 
-        setTransactionState(p => ({ ...p, txHash: result.transactionHash || 'unknown', step: 'success' }));
-        setTimeout(() => { setRecipientAddress(''); setAmount(''); setMemo(''); setTransactionState({ txHash: null, step: 'form', error: null }); }, 3000);
+        setRecipientAddress('');
+        setAmount('');
+        setMemo('');
+        setTransactionState({ txHash: null, step: 'form', error: null });
+
+        useTransactionModalStore.getState().openModal({
+          status: 'success',
+          type: 'Send',
+          hash: result.transactionHash || undefined,
+          isStellar: true,
+        });
       }
     } catch (e: any) {
       console.error('[useSendAsset] Transaction exception caught:', e);
-      setTransactionState(p => ({ ...p, step: 'error', error: formatErrorMessage(e, 'Tx') }));
+      const errMsg = formatErrorMessage(e, 'Tx');
+      setRecipientAddress('');
+      setAmount('');
+      setMemo('');
+      setTransactionState({ txHash: null, step: 'form', error: null });
+
+      useNotificationStore.getState().showToast({
+        type: currentAsset?.type === 'evm' ? 'EVM_SWAP' : 'STELLAR',
+        title: 'Transaction Failed',
+        message: errMsg,
+        dontSave: true,
+      });
+
+      useTransactionModalStore.getState().openModal({
+        status: 'error',
+        type: 'Send',
+        error: errMsg,
+        isStellar: currentAsset?.type === 'stellar' || currentAsset?.type === 'dydx',
+      });
     } finally {
       isConfirmingRef.current = false;
     }

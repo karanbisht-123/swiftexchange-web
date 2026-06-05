@@ -58,7 +58,14 @@ function makeHeaders(extra?: Record<string, string>): Record<string, string> {
 
 async function parseBody<T>(res: Response): Promise<T> {
   const text = await res.text();
-  return (text ? JSON.parse(text) : {}) as T;
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch (err) {
+    // If the server returns a 200 OK but the body is plaintext (e.g. an upstream error message),
+    // throw it so that parseSwapError can format it nicely instead of crashing the app.
+    throw new Error(text);
+  }
 }
 
 // Public API 
@@ -67,11 +74,12 @@ export async function fetchApiResponseFromProxy<T>(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' = 'POST',
   body?: unknown,
-  retries?: number
+  retries?: number,
+  keepalive: boolean = false
 ): Promise<ApiResponse<T>> {
   const res = await fetchWithRetry(
     `${API_CONFIG.proxyUrl}${endpoint}`,
-    { method, headers: makeHeaders(), body: body ? JSON.stringify(body) : undefined },
+    { method, headers: makeHeaders(), body: body ? JSON.stringify(body) : undefined, keepalive },
     retries
   );
   if (!res.ok) throw new Error(`API error: ${await parseError(res)}`);
@@ -131,15 +139,17 @@ export async function getWalletGasInfo(
 export async function fetchStellarPnl(
   address: string,
   from: string,
-  to: string
+  to: string,
+  includeExcel: boolean = false
 ): Promise<unknown> {
-  const key = `${address}_${from}_${to}`;
+  const key = `${address}_${from}_${to}_${includeExcel}`;
 
   const cached = getPnlCache(key); if (cached) return cached;
   const inFlight = getPnlInflight(key); if (inFlight) return inFlight;
 
   const promise = (async () => {
-    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=true&excel=true`;
+    const summary = !includeExcel;
+    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=${summary}&excel=${includeExcel}`;
 
     const res = await fetchWithRetry(url, {
       method: 'GET',

@@ -102,12 +102,15 @@ export interface FusionPreset {
     coefficient: number;
   }>;
   startAmount: string;
+  secretsCount?: number;
 }
 
 export interface FusionQuote {
   quoteId: string;
   fromTokenAmount: string;
   toTokenAmount: string;
+  srcTokenAmount?: string;
+  dstTokenAmount?: string;
   feeToken: string;
   presets: {
     fast: FusionPreset;
@@ -143,6 +146,8 @@ export interface BuildFusionOrderRequest {
   chain: string;
   preset: string;
   permit?: string;
+  toChain?: string;
+  secretCount?: number;
 }
 
 export interface FusionOrder {

@@ -1,5 +1,6 @@
 import { ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getFusionOrderStatus, type FusionOrderStatusResponse } from '../service/evmTransactionStatusService';
 
 import { type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
 import { type TransactionItem } from '../service/EvmTransactionService';
@@ -26,6 +27,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   onClose,
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [fusionDetails, setFusionDetails] = useState<FusionOrderStatusResponse | null>(null);
 
   const chainSymbol = getChainName(chainId);
   const logoUrl = getChainLogoUrl(chainId);
@@ -36,11 +38,39 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const txProvider = (transaction as any).provider;
+  const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
+  const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+
   const isLocal = 'type' in transaction;
   const rawStatus = backendStatus?.status || (isLocal ? (transaction as LocalTransactionWithStatus).status : 'success');
   const status = rawStatus === 'completed' ? 'success' : rawStatus;
   const type = isLocal ? (transaction as LocalTransactionWithStatus).type : 'transaction';
   const description = isLocal ? (transaction as LocalTransactionWithStatus).description : null;
+
+  useEffect(() => {
+    if (isFusion && transaction.hash) {
+      const chain = (transaction as any).fromChainSymbol || getChainName(chainId) || 'ETH';
+      getFusionOrderStatus(chain, transaction.hash, txProvider)
+        .then(res => setFusionDetails(res))
+        .catch(err => console.error('Failed to load Fusion order details:', err));
+    }
+  }, [isFusion, transaction.hash, chainId, txProvider]);
+
+  let displayHash = transaction.hash;
+  let showExplorerLink = true;
+
+  if (isFusion) {
+    if (fusionDetails?.fills && fusionDetails.fills.length > 0) {
+      displayHash = fusionDetails.fills[0].txHash;
+    } else {
+      showExplorerLink = false;
+    }
+  }
+
+  const explorerLinkUrl = isAllbridge 
+    ? `http://core.allbridge.io/explorer/transfer/${transaction.hash}` 
+    : getExplorerUrl(chainId, 'tx', displayHash);
   const timestamp = isLocal
     ? (transaction as LocalTransactionWithStatus).timestamp
     : (transaction as TransactionItem).metadata?.blockTimestamp
@@ -170,12 +200,12 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
               <div className="flex items-center gap-2">
                 <span
                   className="text-sm font-mono text-primary truncate max-w-[120px] md:max-w-[200px]"
-                  title={transaction.hash}
+                  title={displayHash}
                 >
-                  {transaction.hash.slice(0, 6)}...{transaction.hash.slice(-4)}
+                  {displayHash.slice(0, 6)}...{displayHash.slice(-4)}
                 </span>
                 <button
-                  onClick={() => handleCopy(transaction.hash, 'hash')}
+                  onClick={() => handleCopy(displayHash, 'hash')}
                   className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors"
                 >
                   {copiedField === 'hash' ? (
@@ -184,14 +214,17 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                     <Copy size={14} />
                   )}
                 </button>
-                <a
-                  href={getExplorerUrl(chainId, 'tx', transaction.hash)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors"
-                >
-                  <ExternalLink size={14} />
-                </a>
+                {showExplorerLink && (
+                  <a
+                    href={explorerLinkUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors"
+                    title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                )}
               </div>
             </div>
 

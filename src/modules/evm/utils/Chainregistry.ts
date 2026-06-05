@@ -302,6 +302,10 @@ export function registerDynamicAssets(
         CHAIN_REGISTRY[index] = updatedChain;
     }
 
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('dynamic_assets_registered', { detail: { chainId } }));
+    }
+
     return updatedChain;
 }
 

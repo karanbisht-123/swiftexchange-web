@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { AssetSelectorProvider } from '../../modules/commonfeature/components/useAssetSelectorModal';
 import AssetSelectorModal from '../../modules/commonfeature/components/AssetSelectorModal';
+import { GlobalNotifications } from '../GlobalNotifications';
 
 // Force HMR refresh for the renamed useAssetSelectorModal.tsx
 
@@ -13,6 +14,7 @@ const RootLayout = () => {
         </main>
       </div>
       <AssetSelectorModal />
+      <GlobalNotifications />
     </AssetSelectorProvider>
   );
 };

@@ -86,6 +86,8 @@ export interface BridgeSessionError {
 
 export interface BridgeSession {
   id: string;
+  /** Unique group key linking the SRBTODYDX and DYDX backend orders. */
+  groupId: string;
   createdAt: number;
   phase: Phase;
   inputAmount: string;
@@ -188,6 +190,7 @@ export const useStellarDydxOrchestrator = () => {
         .filter(s => s.swapTx?.hash || s.bridgeTx?.hash || s.depositTx?.hash)
         .map(s => ({
           id: s.id,
+          groupId: s.groupId,
           createdAt: s.createdAt,
           phase: s.phase,
           inputAmount: s.inputAmount,
@@ -493,7 +496,7 @@ export const useStellarDydxOrchestrator = () => {
 
         storeSwapOrder({
           txHash: result.hash,
-          walletAddress: evmAddress!,
+          walletAddress: stellarAddress!,
           provider: 'SRBTODYDX',
           fromChain: 'SRB',
           fromToken: 'USDC',
@@ -501,6 +504,8 @@ export const useStellarDydxOrchestrator = () => {
           toToken: 'USDC',
           amountIn: bridgeInputAmount,
           amountOut: freshBridgeQuote.amountToBeReceived,
+          requestId: session.groupId,
+          txType: 'Bridge',
         }).catch(err => console.error('Failed to store Allbridge order:', err));
 
         showToast({
@@ -575,6 +580,8 @@ export const useStellarDydxOrchestrator = () => {
             toToken: 'USDC',
             amountIn: confirmedReceiveAmount.toString(),
             amountOut: confirmedReceiveAmount.toString(),
+            requestId: session.groupId,
+            txType: 'Bridge',
           }).catch(err => console.error('Failed to store dYdX deposit order:', err));
 
           updateSession(session.id, {
@@ -635,9 +642,14 @@ export const useStellarDydxOrchestrator = () => {
 
     const wallets = useWalletStore.getState().connectedWallets;
     const sessionId = `bridge-${Date.now()}`;
+    // Generate a unique group key that will link the SRBTODYDX and DYDX backend orders.
+    const groupId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `grp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
     const newSession: BridgeSession = {
       id: sessionId,
+      groupId,
       createdAt: Date.now(),
       phase: inputToken.symbol === 'USDC' ? 'BRIDGE' : 'SWAP',
       inputAmount,
@@ -759,6 +771,8 @@ export const useStellarDydxOrchestrator = () => {
         if (Array.isArray(parsed)) {
           const userSessions = (parsed.filter(p => isTxOwnedByCurrentUser(p, wallets) && (p.swapTx?.hash || p.bridgeTx?.hash || p.depositTx?.hash || p.swapTxHash || p.bridgeTxHash || p.depositTxHash)) as SDKAny[]).map(p => ({
             id: p.id || `session-${Date.now()}`,
+            // Restore groupId; fall back to a legacy sentinel so reconcile uses fuzzy matching for old sessions.
+            groupId: p.groupId || `legacy-${p.id || Date.now()}`,
             createdAt: p.createdAt || Date.now(),
             phase: p.phase || 'SETUP',
             inputAmount: p.inputAmount || '',
@@ -789,21 +803,25 @@ export const useStellarDydxOrchestrator = () => {
 
           setActiveSessionId(prev => {
             if (prev && userSessions.some(s => s.id === prev)) return prev;
-            const inProgress = userSessions.filter(s => s.phase !== 'DONE' && s.phase !== 'SETUP');
-            if (inProgress.length === 1) {
-              const session = inProgress[0];
-              const isPendingOnChain =
-                session.swapTx?.status === 'PENDING' ||
-                session.bridgeTx?.status === 'PENDING' ||
-                session.depositTx?.status === 'PENDING';
-              if (isPendingOnChain) return session.id;
-            }
-            return null;
+            // Auto-activate the most recent in-progress session that is actively pending on-chain.
+            // This ensures returning users always see their bridge card, not "ENTER AMOUNT".
+            const pendingOnChain = userSessions
+              .filter(s => s.phase !== 'DONE' && s.phase !== 'SETUP')
+              .filter(s =>
+                s.swapTx?.status === 'PENDING' ||
+                s.bridgeTx?.status === 'PENDING' ||
+                s.depositTx?.status === 'PENDING' ||
+                s.phase === 'DEPOSIT'  // DEPOSIT phase = bridge done, awaiting user action
+              )
+              .sort((a, b) => b.createdAt - a.createdAt); // most recent first
+            return pendingOnChain.length > 0 ? pendingOnChain[0].id : null;
           });
         } else if (parsed && typeof parsed === 'object') {
           if (isTxOwnedByCurrentUser(parsed, wallets) && (parsed.swapTxHash || parsed.bridgeTxHash || parsed.depositTxHash || parsed.swapTx?.hash || parsed.bridgeTx?.hash || parsed.depositTx?.hash)) {
+            const legacyId = parsed.id || `legacy-${Date.now()}`;
             const legacySession: BridgeSession = {
-              id: parsed.id || `legacy-${Date.now()}`,
+              id: legacyId,
+              groupId: parsed.groupId || `legacy-${legacyId}`,
               createdAt: parsed.createdAt || Date.now(),
               phase: parsed.phase || 'SETUP',
               inputAmount: parsed.inputAmount || '',
@@ -978,21 +996,20 @@ export const useStellarDydxOrchestrator = () => {
             if (isTerminalSuccess) {
               updateSwapOrderStatus({ txHash: session.depositTx.hash!, orderStatus: 'completed' }).catch(console.error);
 
-              if (session.id.startsWith('session-reconstructed-') || session.id.startsWith('session-dydx-')) {
-                dismissSession(session.id);
-              } else {
-                updateSession(session.id, {
-                  depositTx: { ...session.depositTx, status: 'SUCCESS' },
-                  phase: 'DONE',
-                  dydxSteps: parsedSteps,
-                  dydxOverallState: state,
-                });
-                showToast({
-                  type: 'DYDX',
-                  title: 'Deposit Completed',
-                  message: 'Funds are fully deposited into your dYdX subaccount.',
-                });
-              }
+              // Always show success toast then auto-dismiss — session is fully complete.
+              updateSession(session.id, {
+                depositTx: { ...session.depositTx, status: 'SUCCESS' },
+                phase: 'DONE',
+                dydxSteps: parsedSteps,
+                dydxOverallState: state,
+              });
+              showToast({
+                type: 'DYDX',
+                title: 'Deposit Completed',
+                message: 'Funds are fully deposited into your dYdX subaccount.',
+              });
+              // Auto-dismiss the card after a short delay so the user can see the success state.
+              setTimeout(() => dismissSession(session.id), 4000);
             } else if (isTerminalError) {
               updateSession(session.id, {
                 depositTx: { ...session.depositTx, status: 'FAILED' },
@@ -1007,16 +1024,16 @@ export const useStellarDydxOrchestrator = () => {
               });
             }
           } else {
-             const errorData = await skipRes.text();
-             if (errorData.includes('tx not found')) {
-                 const timeElapsed = Date.now() - (session.bridgeStartedAt || session.createdAt);
-                 if (timeElapsed > 60 * 60 * 1000) {
-                     updateSession(session.id, {
-                       depositTx: { ...session.depositTx, status: 'FAILED' },
-                     });
-                     updateSwapOrderStatus({ txHash: session.depositTx.hash!, orderStatus: 'failed' }).catch(console.error);
-                 }
-             }
+            const errorData = await skipRes.text();
+            if (errorData.includes('tx not found')) {
+              const timeElapsed = Date.now() - (session.bridgeStartedAt || session.createdAt);
+              if (timeElapsed > 60 * 60 * 1000) {
+                updateSession(session.id, {
+                  depositTx: { ...session.depositTx, status: 'FAILED' },
+                });
+                updateSwapOrderStatus({ txHash: session.depositTx.hash!, orderStatus: 'failed' }).catch(console.error);
+              }
+            }
           }
         } catch (err: any) {
           console.error('Skip status poll error:', err);
@@ -1042,10 +1059,42 @@ export const useStellarDydxOrchestrator = () => {
   useEffect(() => {
     if (!evmAddress || !isRestored) return;
 
+    // Backend max is 10 per page. Fetch pages 1 & 2 in parallel = up to 20 orders per wallet.
+    // Bridge sessions are always recent so this covers all real-world cases.
+    const fetchBridgeOrders = async (address: string): Promise<SDKAny[]> => {
+      const [page1, page2] = await Promise.allSettled([
+        getSwapOrdersByWallet(address, 1, 10),
+        getSwapOrdersByWallet(address, 2, 10),
+      ]);
+      const orders: SDKAny[] = [];
+      if (page1.status === 'fulfilled' && Array.isArray(page1.value?.data)) orders.push(...page1.value.data);
+      if (page2.status === 'fulfilled' && Array.isArray(page2.value?.data)) orders.push(...page2.value.data);
+      return orders;
+    };
+
     const reconcileSessionsWithBackend = async () => {
       try {
-        const ordersRes = await getSwapOrdersByWallet(evmAddress, 1, 10);
-        if (!ordersRes || !Array.isArray(ordersRes.data)) return;
+        const [evmOrders, stellarOrders] = await Promise.all([
+          fetchBridgeOrders(evmAddress),
+          stellarAddress ? fetchBridgeOrders(stellarAddress) : Promise.resolve([] as SDKAny[]),
+        ]);
+
+        const existingHashes = new Set(evmOrders.map((o: SDKAny) => o?.txHash?.toLowerCase()).filter(Boolean));
+        const mergedOrders: SDKAny[] = [...evmOrders];
+        stellarOrders.forEach((o: SDKAny) => {
+          if (o && o.txHash && !existingHashes.has(o.txHash.toLowerCase())) {
+            mergedOrders.push(o);
+          }
+        });
+
+        // Index orders by requestId for O(1) exact lookup
+        const ordersByGroupId = new Map<string, SDKAny[]>();
+        for (const o of mergedOrders) {
+          if (o?.requestId) {
+            if (!ordersByGroupId.has(o.requestId)) ordersByGroupId.set(o.requestId, []);
+            ordersByGroupId.get(o.requestId)!.push(o);
+          }
+        }
 
         setSessions(prev => {
           let updated = [...prev];
@@ -1063,17 +1112,22 @@ export const useStellarDydxOrchestrator = () => {
             if (!session) return session;
             let sessionUpdates: Partial<BridgeSession> = {};
 
-            // Reconcile BRIDGE phase
-            if (session.phase === 'BRIDGE' && session.bridgeTx?.hash) {
-              const matchedOrder = ordersRes.data.find(
-                o => o && o.txHash && typeof o.txHash === 'string' &&
-                  o.txHash.trim().toLowerCase() === session.bridgeTx.hash?.trim().toLowerCase() &&
-                  (o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE')
+            const isLegacy = session.groupId?.startsWith('legacy-');
+            const sessionGroupOrders = !isLegacy && session.groupId
+              ? (ordersByGroupId.get(session.groupId) ?? [])
+              : [];
+
+            // ── EXACT match (new sessions with groupId) ──────────────────────
+            if (!isLegacy && sessionGroupOrders.length > 0) {
+              const srbOrder = sessionGroupOrders.find(
+                o => o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE'
               );
-              if (matchedOrder) {
-                const newStatus: TxStatus = matchedOrder.status === 'completed'
+              const dydxOrder = sessionGroupOrders.find(o => o.provider === 'DYDX');
+
+              if (srbOrder && session.phase === 'BRIDGE' && session.bridgeTx?.hash) {
+                const newStatus: TxStatus = srbOrder.status === 'completed'
                   ? 'SUCCESS'
-                  : matchedOrder.status === 'failed'
+                  : srbOrder.status === 'failed'
                     ? 'FAILED'
                     : 'PENDING';
 
@@ -1081,123 +1135,147 @@ export const useStellarDydxOrchestrator = () => {
                   sessionUpdates.bridgeTx = { ...session.bridgeTx, status: newStatus };
                   if (newStatus === 'SUCCESS') {
                     sessionUpdates.phase = 'DEPOSIT';
-                    if (matchedOrder.amountOut) {
-                      sessionUpdates.intermediateAmount = String(matchedOrder.amountOut);
-                    }
+                    if (srbOrder.amountOut) sessionUpdates.intermediateAmount = String(srbOrder.amountOut);
                   }
                   changed = true;
                 }
               }
 
-              // Check if a matching unclaimed dYdX deposit order exists on the backend
-              const matchedDydxOrder = ordersRes.data.find(
-                o => {
-                  if (!o || o.provider !== 'DYDX') return false;
-                  const txHashMatch = o.txHash && typeof o.txHash === 'string';
-                  const notClaimed = txHashMatch && !claimedHashes.includes(o.txHash.trim().toLowerCase());
-                  const timeBaseline = matchedOrder && matchedOrder.createdAt ? new Date(matchedOrder.createdAt).getTime() - 2 * 60 * 1000 : session.createdAt - 10 * 60 * 1000;
-                  const timeMatch = o.createdAt && !isNaN(new Date(o.createdAt).getTime()) && new Date(o.createdAt).getTime() > timeBaseline;
-                  const expectedAmtStr = sessionUpdates.intermediateAmount || session.intermediateAmount || session.expectedBridgeOutput || session.inputAmount || '0';
-                  const amountMatch = o.amountIn && !isNaN(parseFloat(o.amountIn)) && !isNaN(parseFloat(expectedAmtStr)) && Math.abs(parseFloat(o.amountIn) - parseFloat(expectedAmtStr)) < 1.0;
-
-                  return txHashMatch && notClaimed && timeMatch && amountMatch;
-                }
-              );
-
-              if (matchedDydxOrder) {
-                const newDydxStatus: TxStatus = matchedDydxOrder.status === 'completed'
+              if (dydxOrder) {
+                const newDydxStatus: TxStatus = dydxOrder.status === 'completed'
                   ? 'SUCCESS'
-                  : matchedDydxOrder.status === 'failed'
+                  : dydxOrder.status === 'failed'
                     ? 'FAILED'
                     : 'PENDING';
 
-                const targetPhase: Phase = newDydxStatus === 'SUCCESS' ? 'DONE' : 'DEPOSIT';
-
+                const existingDepositHash = sessionUpdates.depositTx?.hash || session.depositTx?.hash;
                 if (
-                  (sessionUpdates.bridgeTx?.status || session.bridgeTx.status) !== 'SUCCESS' ||
-                  (sessionUpdates.phase || session.phase) !== targetPhase ||
-                  (sessionUpdates.depositTx?.hash || session.depositTx?.hash) !== matchedDydxOrder.txHash?.trim() ||
+                  existingDepositHash !== dydxOrder.txHash?.trim() ||
                   (sessionUpdates.depositTx?.status || session.depositTx?.status) !== newDydxStatus
                 ) {
-                  sessionUpdates.bridgeTx = { ...session.bridgeTx, status: 'SUCCESS' };
-                  sessionUpdates.phase = targetPhase;
-                  sessionUpdates.depositTx = {
-                    hash: (matchedDydxOrder.txHash && typeof matchedDydxOrder.txHash === 'string')
-                      ? matchedDydxOrder.txHash.trim()
-                      : (sessionUpdates.depositTx?.hash || session.depositTx?.hash || null),
-                    status: newDydxStatus
-                  };
-                  if (matchedDydxOrder.amountIn) {
-                    sessionUpdates.intermediateAmount = String(matchedDydxOrder.amountIn);
+                  if (srbOrder) {
+                    sessionUpdates.bridgeTx = { ...session.bridgeTx, status: 'SUCCESS' };
+                    if (srbOrder.amountOut) sessionUpdates.intermediateAmount = String(srbOrder.amountOut);
                   }
+                  sessionUpdates.phase = newDydxStatus === 'SUCCESS' ? 'DONE' : 'DEPOSIT';
+                  sessionUpdates.depositTx = {
+                    hash: dydxOrder.txHash?.trim() ?? existingDepositHash ?? null,
+                    status: newDydxStatus,
+                  };
+                  if (dydxOrder.amountIn) sessionUpdates.intermediateAmount = String(dydxOrder.amountIn);
+                  if (dydxOrder.txHash) claimedHashes.push(dydxOrder.txHash.trim().toLowerCase());
+                  changed = true;
+                }
+              }
+            } else {
+              // ── LEGACY fallback: fuzzy time + amount matching ─────────────
+              if (session.phase === 'BRIDGE' && session.bridgeTx?.hash) {
+                const matchedOrder = mergedOrders.find(
+                  o => o && o.txHash && typeof o.txHash === 'string' &&
+                    o.txHash.trim().toLowerCase() === session.bridgeTx.hash?.trim().toLowerCase() &&
+                    (o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE')
+                );
+                if (matchedOrder) {
+                  const newStatus: TxStatus = matchedOrder.status === 'completed'
+                    ? 'SUCCESS'
+                    : matchedOrder.status === 'failed'
+                      ? 'FAILED'
+                      : 'PENDING';
+
+                  if (session.bridgeTx.status !== newStatus) {
+                    sessionUpdates.bridgeTx = { ...session.bridgeTx, status: newStatus };
+                    if (newStatus === 'SUCCESS') {
+                      sessionUpdates.phase = 'DEPOSIT';
+                      if (matchedOrder.amountOut) sessionUpdates.intermediateAmount = String(matchedOrder.amountOut);
+                    }
+                    changed = true;
+                  }
+                }
+
+                const matchedDydxOrder = mergedOrders.find(o => {
+                  if (!o || o.provider !== 'DYDX') return false;
+                  const txHashMatch = o.txHash && typeof o.txHash === 'string';
+                  const notClaimed = txHashMatch && !claimedHashes.includes(o.txHash.trim().toLowerCase());
+                  const timeBaseline = matchedOrder?.createdAt
+                    ? new Date(matchedOrder.createdAt).getTime() - 2 * 60 * 1000
+                    : session.createdAt - 10 * 60 * 1000;
+                  const timeMatch = o.createdAt && !isNaN(new Date(o.createdAt).getTime()) &&
+                    new Date(o.createdAt).getTime() > timeBaseline;
+                  const expectedAmtStr = sessionUpdates.intermediateAmount || session.intermediateAmount ||
+                    session.expectedBridgeOutput || session.inputAmount || '0';
+                  const amountMatch = o.amountIn && !isNaN(parseFloat(o.amountIn)) &&
+                    !isNaN(parseFloat(expectedAmtStr)) &&
+                    Math.abs(parseFloat(o.amountIn) - parseFloat(expectedAmtStr)) < 1.0;
+                  return txHashMatch && notClaimed && timeMatch && amountMatch;
+                });
+
+                if (matchedDydxOrder) {
+                  const newDydxStatus: TxStatus = matchedDydxOrder.status === 'completed'
+                    ? 'SUCCESS' : matchedDydxOrder.status === 'failed' ? 'FAILED' : 'PENDING';
+                  sessionUpdates.bridgeTx = { ...session.bridgeTx, status: 'SUCCESS' };
+                  sessionUpdates.phase = newDydxStatus === 'SUCCESS' ? 'DONE' : 'DEPOSIT';
+                  sessionUpdates.depositTx = {
+                    hash: matchedDydxOrder.txHash?.trim() ?? session.depositTx?.hash ?? null,
+                    status: newDydxStatus,
+                  };
+                  if (matchedDydxOrder.amountIn) sessionUpdates.intermediateAmount = String(matchedDydxOrder.amountIn);
                   claimedHashes.push(matchedDydxOrder.txHash.trim().toLowerCase());
                   changed = true;
                 }
               }
-            }
 
+              if (session.phase === 'DEPOSIT') {
+                let matchedOrder = session.depositTx?.hash
+                  ? mergedOrders.find(
+                    o => o && o.txHash && typeof o.txHash === 'string' &&
+                      o.txHash.trim().toLowerCase() === session.depositTx.hash?.trim().toLowerCase() &&
+                      o.provider === 'DYDX'
+                  )
+                  : undefined;
 
-            if (session.phase === 'DEPOSIT') {
-              // Try to find the deposit order by transaction hash
-              let matchedOrder = session.depositTx?.hash
-                ? ordersRes.data.find(
-                  o => o && o.txHash && typeof o.txHash === 'string' &&
-                    o.txHash.trim().toLowerCase() === session.depositTx.hash?.trim().toLowerCase() &&
-                    o.provider === 'DYDX'
-                )
-                : undefined;
-
-              // If no hash was saved locally yet, check if there's a DYDX order created recently
-              if (!matchedOrder && !session.depositTx?.hash) {
-                const srbOrder = ordersRes.data.find(
-                  o => o && o.txHash && typeof o.txHash === 'string' &&
-                    session.bridgeTx?.hash &&
-                    o.txHash.trim().toLowerCase() === session.bridgeTx.hash.trim().toLowerCase() &&
-                    (o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE')
-                );
-
-                matchedOrder = ordersRes.data.find(
-                  o => {
+                if (!matchedOrder && !session.depositTx?.hash) {
+                  const srbOrder = mergedOrders.find(
+                    o => o && o.txHash && typeof o.txHash === 'string' &&
+                      session.bridgeTx?.hash &&
+                      o.txHash.trim().toLowerCase() === session.bridgeTx.hash.trim().toLowerCase() &&
+                      (o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE')
+                  );
+                  matchedOrder = mergedOrders.find(o => {
                     if (!o || o.provider !== 'DYDX') return false;
                     const txHashMatch = o.txHash && typeof o.txHash === 'string';
                     const notClaimed = txHashMatch && !claimedHashes.includes(o.txHash.trim().toLowerCase());
-                    const timeBaseline = srbOrder && srbOrder.createdAt ? new Date(srbOrder.createdAt).getTime() - 2 * 60 * 1000 : session.createdAt - 10 * 60 * 1000;
-                    const timeMatch = o.createdAt && !isNaN(new Date(o.createdAt).getTime()) && new Date(o.createdAt).getTime() > timeBaseline;
+                    const timeBaseline = srbOrder?.createdAt
+                      ? new Date(srbOrder.createdAt).getTime() - 2 * 60 * 1000
+                      : session.createdAt - 10 * 60 * 1000;
+                    const timeMatch = o.createdAt && !isNaN(new Date(o.createdAt).getTime()) &&
+                      new Date(o.createdAt).getTime() > timeBaseline;
                     const expectedAmtStr = session.intermediateAmount || session.inputAmount || '0';
-                    const amountMatch = o.amountIn && !isNaN(parseFloat(o.amountIn)) && !isNaN(parseFloat(expectedAmtStr)) && Math.abs(parseFloat(o.amountIn) - parseFloat(expectedAmtStr)) < 1.0;
-
+                    const amountMatch = o.amountIn && !isNaN(parseFloat(o.amountIn)) &&
+                      !isNaN(parseFloat(expectedAmtStr)) &&
+                      Math.abs(parseFloat(o.amountIn) - parseFloat(expectedAmtStr)) < 1.0;
                     return txHashMatch && notClaimed && timeMatch && amountMatch;
+                  });
+                  if (matchedOrder?.txHash && typeof matchedOrder.txHash === 'string') {
+                    sessionUpdates.depositTx = { hash: matchedOrder.txHash.trim(), status: 'PENDING' };
+                    claimedHashes.push(matchedOrder.txHash.trim().toLowerCase());
+                    changed = true;
                   }
-                );
+                }
 
-                if (matchedOrder && matchedOrder.txHash && typeof matchedOrder.txHash === 'string') {
-                  sessionUpdates.depositTx = { hash: matchedOrder.txHash.trim(), status: 'PENDING' };
-                  claimedHashes.push(matchedOrder.txHash.trim().toLowerCase());
-                  changed = true;
+                if (matchedOrder) {
+                  const newStatus: TxStatus = matchedOrder.status === 'completed'
+                    ? 'SUCCESS' : matchedOrder.status === 'failed' ? 'FAILED' : 'PENDING';
+                  if (session.depositTx?.status !== newStatus) {
+                    sessionUpdates.depositTx = {
+                      hash: matchedOrder.txHash?.trim() ?? session.depositTx?.hash ?? null,
+                      status: newStatus,
+                    };
+                    if (newStatus === 'SUCCESS') sessionUpdates.phase = 'DONE';
+                    changed = true;
+                  }
                 }
               }
-
-              if (matchedOrder) {
-                const newStatus: TxStatus = matchedOrder.status === 'completed'
-                  ? 'SUCCESS'
-                  : matchedOrder.status === 'failed'
-                    ? 'FAILED'
-                    : 'PENDING';
-
-                if (session.depositTx?.status !== newStatus) {
-                  sessionUpdates.depositTx = {
-                    hash: (matchedOrder.txHash && typeof matchedOrder.txHash === 'string')
-                      ? matchedOrder.txHash.trim()
-                      : (session.depositTx?.hash || null),
-                    status: newStatus
-                  };
-                  if (newStatus === 'SUCCESS') {
-                    sessionUpdates.phase = 'DONE';
-                  }
-                  changed = true;
-                }
-              }
-            }
+            } // end legacy fallback
 
             if (Object.keys(sessionUpdates).length > 0) {
               return { ...session, ...sessionUpdates };
@@ -1205,98 +1283,221 @@ export const useStellarDydxOrchestrator = () => {
             return session;
           });
 
-          // 2. Reconstruct any missing sessions from backend orders (e.g. if localStorage is cleared or on new device)
-          const srbOrders = ordersRes.data.filter(
+          // ── Reconstruct missing sessions from backend ────────────────────
+          //
+          // New sessions: group by requestId; skip pairs where BOTH are completed
+          // (bridge fully done — no card needed).
+          const handledGroupIds = new Set<string>(
+            updated
+              .filter(s => s?.groupId && !s.groupId.startsWith('legacy-'))
+              .map(s => s.groupId)
+          );
+
+          for (const [groupId, groupOrders] of ordersByGroupId.entries()) {
+            if (handledGroupIds.has(groupId)) continue;
+
+            const srbOrder = groupOrders.find(
+              o => o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE'
+            );
+            const dydxOrder = groupOrders.find(o => o.provider === 'DYDX');
+
+            // Both completed → fully done, never show a card
+            if (
+              srbOrder?.status === 'completed' && dydxOrder?.status === 'completed'
+            ) continue;
+
+            if (srbOrder && !dydxOrder) {
+              // Only bridge started — reconstruct at BRIDGE phase (pending bridge confirmation)
+              if (!srbOrder.txHash || typeof srbOrder.txHash !== 'string') continue;
+              const hasLocal = updated.some(
+                s => s?.bridgeTx?.hash?.trim().toLowerCase() === srbOrder.txHash!.trim().toLowerCase()
+              );
+              if (hasLocal) continue;
+
+              const dstSymbol = srbOrder.fromChain === 'SRB' ? srbOrder.toChain : srbOrder.fromChain;
+              const dstChain = dstSymbol ? findChain(dstSymbol, currentNetwork) : undefined;
+
+              updated.push({
+                id: `session-reconstructed-${srbOrder.txHash.trim()}`,
+                groupId,
+                createdAt: new Date(srbOrder.createdAt!).getTime(),
+                phase: srbOrder.status === 'completed' ? 'DEPOSIT' : 'BRIDGE',
+                inputAmount: srbOrder.amountIn || '0',
+                inputTokenSymbol: 'USDC',
+                destinationChainId: dstChain ? Number(dstChain.chainId) : 42161,
+                swapTx: { hash: null, status: null },
+                bridgeTx: {
+                  hash: srbOrder.txHash.trim(),
+                  status: srbOrder.status === 'completed'
+                    ? 'SUCCESS'
+                    : srbOrder.status === 'failed'
+                      ? 'FAILED'
+                      : 'PENDING',
+                },
+                depositTx: { hash: null, status: null },
+                intermediateAmount: srbOrder.amountOut || srbOrder.amountIn || '0',
+                feePaymentMethod: FeePaymentMethod.WITH_STABLECOIN,
+                requiredWallets: { evm: evmAddress, stellar: stellarAddress },
+                error: null,
+                loadingStep: false,
+                expectedSwapOutput: null,
+                expectedBridgeOutput: srbOrder.amountOut || null,
+                bridgeStartedAt: new Date(srbOrder.createdAt!).getTime(),
+                expectedBridgeTimeMs: null,
+              });
+              changed = true;
+            } else if (dydxOrder && !srbOrder) {
+              // Only deposit started — reconstruct at DEPOSIT phase
+              if (!dydxOrder.txHash || typeof dydxOrder.txHash !== 'string') continue;
+              const hasLocal = updated.some(
+                s => s?.depositTx?.hash?.trim().toLowerCase() === dydxOrder.txHash!.trim().toLowerCase()
+              );
+              if (hasLocal) continue;
+
+              const dstChain = dydxOrder.fromChain ? findChain(dydxOrder.fromChain, currentNetwork) : undefined;
+              const dydxCreatedAt = new Date(dydxOrder.createdAt!).getTime();
+
+              updated.push({
+                id: `session-dydx-${dydxOrder.txHash.trim()}`,
+                groupId,
+                createdAt: dydxCreatedAt,
+                phase: 'DEPOSIT',
+                inputAmount: dydxOrder.amountIn || '0',
+                inputTokenSymbol: 'USDC',
+                destinationChainId: dstChain ? Number(dstChain.chainId) : 42161,
+                swapTx: { hash: null, status: null },
+                bridgeTx: { hash: null, status: 'SUCCESS' },
+                depositTx: {
+                  hash: dydxOrder.txHash.trim(),
+                  status: dydxOrder.status === 'failed' ? 'FAILED' : 'PENDING',
+                },
+                intermediateAmount: dydxOrder.amountIn || '0',
+                feePaymentMethod: FeePaymentMethod.WITH_STABLECOIN,
+                requiredWallets: { evm: evmAddress, stellar: stellarAddress },
+                error: null,
+                loadingStep: false,
+                expectedSwapOutput: null,
+                expectedBridgeOutput: dydxOrder.amountIn || null,
+                bridgeStartedAt: dydxCreatedAt,
+                expectedBridgeTimeMs: null,
+              });
+              claimedHashes.push(dydxOrder.txHash.trim().toLowerCase());
+              changed = true;
+            } else if (srbOrder && dydxOrder) {
+              // Both orders exist but deposit is not yet complete
+              if (!dydxOrder.txHash || typeof dydxOrder.txHash !== 'string') continue;
+              const hasLocal = updated.some(
+                s => s?.depositTx?.hash?.trim().toLowerCase() === dydxOrder.txHash!.trim().toLowerCase()
+              );
+              if (hasLocal) continue;
+
+              const dstSymbol = srbOrder.fromChain === 'SRB' ? srbOrder.toChain : srbOrder.fromChain;
+              const dstChain = dstSymbol ? findChain(dstSymbol, currentNetwork) : undefined;
+              const dydxCreatedAt = new Date(dydxOrder.createdAt!).getTime();
+
+              updated.push({
+                id: `session-dydx-${dydxOrder.txHash.trim()}`,
+                groupId,
+                createdAt: dydxCreatedAt,
+                phase: 'DEPOSIT',
+                inputAmount: srbOrder.amountIn || '0',
+                inputTokenSymbol: 'USDC',
+                destinationChainId: dstChain ? Number(dstChain.chainId) : 42161,
+                swapTx: { hash: null, status: null },
+                bridgeTx: { hash: srbOrder.txHash?.trim() ?? null, status: 'SUCCESS' },
+                depositTx: {
+                  hash: dydxOrder.txHash.trim(),
+                  status: dydxOrder.status === 'failed' ? 'FAILED' : 'PENDING',
+                },
+                intermediateAmount: dydxOrder.amountIn || srbOrder.amountOut || '0',
+                feePaymentMethod: FeePaymentMethod.WITH_STABLECOIN,
+                requiredWallets: { evm: evmAddress, stellar: stellarAddress },
+                error: null,
+                loadingStep: false,
+                expectedSwapOutput: null,
+                expectedBridgeOutput: srbOrder.amountOut || null,
+                bridgeStartedAt: dydxCreatedAt,
+                expectedBridgeTimeMs: null,
+              });
+              claimedHashes.push(dydxOrder.txHash.trim().toLowerCase());
+              changed = true;
+            }
+          }
+
+          // ── Legacy reconstruction (no requestId): old fuzzy logic ────────
+          const srbOrders = mergedOrders.filter(
             o => o && o.provider === 'SRBTODYDX' &&
               o.txHash &&
               o.createdAt &&
               !isNaN(new Date(o.createdAt).getTime()) &&
+              !o.requestId &&   // only legacy orders without a groupId
               o.status !== 'completed' && o.status !== 'success'
           );
 
-          // Track SRB bridge hashes we reconstruct so DYDX reconstruction can skip ones already covered
           const reconstructedSrbBridgeHashes: string[] = [];
 
           for (const srbOrder of srbOrders) {
             if (!srbOrder.txHash || typeof srbOrder.txHash !== 'string') continue;
-
-            // Check if any local session already has this bridge hash
             const hasLocalSession = updated.some(
               s => s && s.bridgeTx?.hash && typeof s.bridgeTx.hash === 'string' &&
                 s.bridgeTx.hash.trim().toLowerCase() === srbOrder.txHash!.trim().toLowerCase()
             );
-
             if (hasLocalSession) continue;
 
             const dstChainSymbol = srbOrder.fromChain === 'SRB' ? srbOrder.toChain : srbOrder.fromChain;
             const dstChainConfig = dstChainSymbol ? findChain(dstChainSymbol, currentNetwork) : undefined;
             const destinationChainId = dstChainConfig ? Number(dstChainConfig.chainId) : 42161;
-
             const isSrbFailed = srbOrder.status === 'failed';
 
-            // Bridge is pending (not completed, not failed)
-            const phase: Phase = 'BRIDGE';
-
-            const reconstructedSession: BridgeSession = {
+            updated.push({
               id: `session-reconstructed-${srbOrder.txHash.trim()}`,
+              groupId: `legacy-${srbOrder.txHash.trim()}`,
               createdAt: new Date(srbOrder.createdAt!).getTime(),
-              phase,
+              phase: 'BRIDGE',
               inputAmount: srbOrder.amountIn || '0',
               inputTokenSymbol: 'USDC',
               destinationChainId,
               swapTx: { hash: null, status: null },
-              bridgeTx: {
-                hash: srbOrder.txHash.trim(),
-                status: isSrbFailed ? 'FAILED' : 'PENDING'
-              },
+              bridgeTx: { hash: srbOrder.txHash.trim(), status: isSrbFailed ? 'FAILED' : 'PENDING' },
               depositTx: { hash: null, status: null },
               intermediateAmount: srbOrder.amountOut || srbOrder.amountIn || '0',
               feePaymentMethod: FeePaymentMethod.WITH_STABLECOIN,
-              requiredWallets: {
-                evm: evmAddress,
-                stellar: stellarAddress
-              },
+              requiredWallets: { evm: evmAddress, stellar: stellarAddress },
               error: null,
               loadingStep: false,
               expectedSwapOutput: null,
               expectedBridgeOutput: srbOrder.amountOut || null,
               bridgeStartedAt: new Date(srbOrder.createdAt!).getTime(),
               expectedBridgeTimeMs: null,
-            };
-
+            });
             reconstructedSrbBridgeHashes.push(srbOrder.txHash.trim().toLowerCase());
-            updated.push(reconstructedSession);
             changed = true;
           }
 
-          // 3. Reconstruct standalone DYDX orders (if any are missing)
-          const dydxOrders = ordersRes.data.filter(
+          const dydxOrders = mergedOrders.filter(
             o => o && o.provider === 'DYDX' &&
               o.txHash &&
               o.createdAt &&
               !isNaN(new Date(o.createdAt).getTime()) &&
+              !o.requestId &&   // only legacy orders
               !claimedHashes.includes(o.txHash.trim().toLowerCase()) &&
               o.status !== 'completed' && o.status !== 'success'
           );
 
           for (const dydxOrder of dydxOrders) {
             if (!dydxOrder.txHash || typeof dydxOrder.txHash !== 'string') continue;
-
-            // Skip if any existing session already tracks this deposit hash
             const hasLocalSession = updated.some(
               s => s && s.depositTx?.hash && typeof s.depositTx.hash === 'string' &&
                 s.depositTx.hash.trim().toLowerCase() === dydxOrder.txHash!.trim().toLowerCase()
             );
             if (hasLocalSession) continue;
 
-            // Skip if we just reconstructed an SRB session for the same bridge tx
-            // (the reconcile loop will link them properly once the bridge resolves)
             const isLinkedToReconstructedSrb = reconstructedSrbBridgeHashes.some(bridgeHash => {
-              const srbBackendOrder = ordersRes.data.find(
+              const srbBackendOrder = mergedOrders.find(
                 o => o && o.txHash && o.txHash.trim().toLowerCase() === bridgeHash &&
                   (o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE')
               );
-              if (!srbBackendOrder || !srbBackendOrder.amountOut) return false;
+              if (!srbBackendOrder?.amountOut) return false;
               const expectedAmt = parseFloat(srbBackendOrder.amountOut);
               const dydxAmt = parseFloat(dydxOrder.amountIn || '0');
               return !isNaN(expectedAmt) && !isNaN(dydxAmt) && Math.abs(expectedAmt - dydxAmt) < 1.0;
@@ -1308,8 +1509,9 @@ export const useStellarDydxOrchestrator = () => {
             const dstChainConfig = dydxOrder.fromChain ? findChain(dydxOrder.fromChain, currentNetwork) : undefined;
             const destinationChainId = dstChainConfig ? Number(dstChainConfig.chainId) : 42161;
 
-            const reconstructedSession: BridgeSession = {
+            updated.push({
               id: `session-dydx-${dydxOrder.txHash.trim()}`,
+              groupId: `legacy-${dydxOrder.txHash.trim()}`,
               createdAt: dydxCreatedAt,
               phase: 'DEPOSIT',
               inputAmount: dydxOrder.amountIn || '0',
@@ -1317,26 +1519,18 @@ export const useStellarDydxOrchestrator = () => {
               destinationChainId,
               swapTx: { hash: null, status: null },
               bridgeTx: { hash: null, status: 'SUCCESS' },
-              depositTx: {
-                hash: dydxOrder.txHash.trim(),
-                status: isFailed ? 'FAILED' : 'PENDING'
-              },
+              depositTx: { hash: dydxOrder.txHash.trim(), status: isFailed ? 'FAILED' : 'PENDING' },
               intermediateAmount: dydxOrder.amountIn || '0',
               feePaymentMethod: FeePaymentMethod.WITH_STABLECOIN,
-              requiredWallets: {
-                evm: evmAddress,
-                stellar: stellarAddress
-              },
+              requiredWallets: { evm: evmAddress, stellar: stellarAddress },
               error: null,
               loadingStep: false,
               expectedSwapOutput: null,
               expectedBridgeOutput: dydxOrder.amountIn || null,
               bridgeStartedAt: dydxCreatedAt,
               expectedBridgeTimeMs: null,
-            };
-
+            });
             claimedHashes.push(dydxOrder.txHash.trim().toLowerCase());
-            updated.push(reconstructedSession);
             changed = true;
           }
 
@@ -1354,7 +1548,7 @@ export const useStellarDydxOrchestrator = () => {
     reconcileSessionsWithBackend();
     const interval = setInterval(reconcileSessionsWithBackend, 20000);
     return () => clearInterval(interval);
-  }, [evmAddress, stellarAddress, isRestored, currentNetwork, saveSessions]);
+  }, [evmAddress, stellarAddress, isRestored, currentNetwork, saveSessions, dismissSession]);
 
   return {
     inputAmount,

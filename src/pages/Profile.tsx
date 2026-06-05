@@ -16,7 +16,8 @@ import {
   Sparkles,
   Calendar,
   Download,
-  X as XIcon
+  X as XIcon,
+  Sliders
 } from 'lucide-react';
 import { useWalletConnect, useWalletNetwork } from '../modules/walletconnect/hooks/useWalletConnect';
 import { useProfilePortfolio, type PortfolioTab } from '../modules/walletconnect/hooks/useProfilePortfolio';
@@ -34,6 +35,7 @@ import LiquidationRiskBanner from '../modules/dydx/components/LiquidationRiskBan
 import { exportDydxReport, exportStellarReport } from '../utils/exportService';
 import { createChart, ColorType, AreaSeries, type IChartApi, LineType } from 'lightweight-charts';
 import { fetchStellarPnl } from '../service/apiService';
+import { StellarCostBasisModal } from '../components/StellarCostBasisModal';
 
 
 
@@ -99,6 +101,143 @@ const Profile: React.FC = () => {
   const [stellarTimeframe, setStellarTimeframe] = useState<'1w' | '1m' | '2m' | '3m'>('1m');
   const [stellarSubTab, setStellarSubTab] = useState<'overview' | 'highlights' | 'stats'>('overview');
 
+  const [isExportingStellar, setIsExportingStellar] = useState(false);
+  const [isCostBasisModalOpen, setIsCostBasisModalOpen] = useState(false);
+  const [loadingCostBasisDetails, setLoadingCostBasisDetails] = useState(false);
+  const [stellarDetailedData, setStellarDetailedData] = useState<any>(null);
+
+  const getStellarDateRange = useCallback(() => {
+    const formatDateToDDMMYY = (date: Date) => {
+      const dd = String(date.getDate()).padStart(2, '0');
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const yy = String(date.getFullYear()).slice(-2);
+      return `${dd}/${mm}/${yy}`;
+    };
+
+    let fromStr: string;
+    let toStr: string;
+
+    if (isDateRangeActive && fromDate && toDate) {
+      const parseCalendarDate = (dateStr: string) => {
+        const parts = dateStr.split('-');
+        const year = parts[0].slice(-2);
+        const month = parts[1];
+        const day = parts[2];
+        return `${day}/${month}/${year}`;
+      };
+      fromStr = parseCalendarDate(fromDate);
+      toStr = parseCalendarDate(toDate);
+    } else {
+      const toDateObj = new Date();
+      const fromDateObj = new Date();
+      
+      const daysMap = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
+      const days = daysMap[stellarTimeframe] ?? 30;
+      fromDateObj.setDate(fromDateObj.getDate() - days);
+
+      fromStr = formatDateToDDMMYY(fromDateObj);
+      toStr = formatDateToDDMMYY(toDateObj);
+    }
+
+    return { fromStr, toStr };
+  }, [isDateRangeActive, fromDate, toDate, stellarTimeframe]);
+
+  // Stellar Cost Basis State
+  const [stellarCostBasis, setStellarCostBasis] = useState<Record<string, { openingAmount: string; costPerUnit: string }>>({});
+
+  useEffect(() => {
+    const addr = connectedWallets.stellar?.address;
+    if (addr) {
+      const stored = localStorage.getItem(`swiftex_stellar_cost_basis_${addr}`);
+      if (stored) {
+        try {
+          setStellarCostBasis(JSON.parse(stored));
+        } catch (e) {
+          console.warn('[Profile] Failed to parse local cost basis:', e);
+          setStellarCostBasis({});
+        }
+      } else {
+        setStellarCostBasis({});
+      }
+    } else {
+      setStellarCostBasis({});
+    }
+  }, [connectedWallets.stellar?.address]);
+
+  const handleCostBasisChange = (asset: string, field: 'openingAmount' | 'costPerUnit', value: string) => {
+    if (value !== '' && !/^\d*\.?\d*$/.test(value)) return;
+    
+    const addr = connectedWallets.stellar?.address;
+    if (!addr) return;
+
+    setStellarCostBasis(prev => {
+      const current = prev[asset] || { openingAmount: '', costPerUnit: '' };
+      const updated = {
+        ...prev,
+        [asset]: {
+          ...current,
+          [field]: value
+        }
+      };
+      localStorage.setItem(`swiftex_stellar_cost_basis_${addr}`, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleClearAllCostBasis = () => {
+    const addr = connectedWallets.stellar?.address;
+    if (!addr) return;
+    if (window.confirm('Are you sure you want to clear all custom cost basis entries?')) {
+      setStellarCostBasis({});
+      localStorage.removeItem(`swiftex_stellar_cost_basis_${addr}`);
+    }
+  };
+
+  const handleOpenCostBasis = async () => {
+    if (!connectedWallets.stellar?.address || loadingCostBasisDetails) return;
+
+    if (stellarDetailedData?.positions && stellarDetailedData.positions.length > 0) {
+      setIsCostBasisModalOpen(true);
+      return;
+    }
+
+    setLoadingCostBasisDetails(true);
+    try {
+      const { fromStr, toStr } = getStellarDateRange();
+      console.log(`[Stellar Cost Basis] Fetching detailed positions for address ${connectedWallets.stellar.address} from ${fromStr} to ${toStr}...`);
+      const fullData: any = await fetchStellarPnl(connectedWallets.stellar.address, fromStr, toStr, true);
+      if (fullData) {
+        setStellarDetailedData(fullData);
+        setIsCostBasisModalOpen(true);
+      } else {
+        throw new Error('No position data returned from server');
+      }
+    } catch (err) {
+      console.error('[Stellar Cost Basis] Failed to fetch positions:', err);
+      alert(err instanceof Error ? err.message : 'Failed to fetch position data for cost basis adjustment');
+    } finally {
+      setLoadingCostBasisDetails(false);
+    }
+  };
+
+  const totalOpeningCostBasis = useMemo(() => {
+    let sum = 0;
+    if (!stellarDetailedData?.positions) return 0;
+    stellarDetailedData.positions.forEach((pos: any) => {
+      const config = stellarCostBasis[pos.asset];
+      if (config) {
+        const amt = parseFloat(config.openingAmount) || 0;
+        const cpu = parseFloat(config.costPerUnit) || 0;
+        sum += amt * cpu;
+      }
+    });
+    return sum;
+  }, [stellarDetailedData?.positions, stellarCostBasis]);
+
+  const adjustedStellarPnl = useMemo(() => {
+    return (stellarPnlData?.totalPnL || 0) + totalOpeningCostBasis;
+  }, [stellarPnlData?.totalPnL, totalOpeningCostBasis]);
+
   const [dateRangeOrders, setDateRangeOrders] = useState<any[]>([]);
   const [dateRangeFillCount, setDateRangeFillCount] = useState(0);
   const [dateRangeFills, setDateRangeFills] = useState<Fill[]>([]);
@@ -128,58 +267,41 @@ const Profile: React.FC = () => {
   }, [connectedWallets, timeframe, dydxConnecting, isDateRangeActive, fromDate, toDate]);
 
   useEffect(() => {
+    let isMounted = true;
+    
+    // Invalidate cached detailed positions since period or wallet changed
+    setStellarDetailedData(null);
+
     if (connectedWallets.stellar?.address && (activeTab === 'stellar' || activeTab === 'total')) {
-      const formatDateToDDMMYY = (date: Date) => {
-        const dd = String(date.getDate()).padStart(2, '0');
-        const mm = String(date.getMonth() + 1).padStart(2, '0');
-        const yy = String(date.getFullYear()).slice(-2);
-        return `${dd}/${mm}/${yy}`;
-      };
-
-      let fromStr: string;
-      let toStr: string;
-
-      if (isDateRangeActive && fromDate && toDate) {
-        const parseCalendarDate = (dateStr: string) => {
-          const parts = dateStr.split('-');
-          const year = parts[0].slice(-2);
-          const month = parts[1];
-          const day = parts[2];
-          return `${day}/${month}/${year}`;
-        };
-        fromStr = parseCalendarDate(fromDate);
-        toStr = parseCalendarDate(toDate);
-      } else {
-        const toDateObj = new Date();
-        const fromDateObj = new Date();
-        
-        const daysMap = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
-        const days = daysMap[stellarTimeframe] ?? 30;
-        fromDateObj.setDate(fromDateObj.getDate() - days);
-
-        fromStr = formatDateToDDMMYY(fromDateObj);
-        toStr = formatDateToDDMMYY(toDateObj);
-      }
+      const { fromStr, toStr } = getStellarDateRange();
 
       setLoadingStellarPnl(true);
       setStellarPnlError(null);
 
       console.log(`[Stellar PNL] Fetching PNL for address ${connectedWallets.stellar.address} from ${fromStr} to ${toStr}...`);
 
-      fetchStellarPnl(connectedWallets.stellar.address, fromStr, toStr)
+      fetchStellarPnl(connectedWallets.stellar.address, fromStr, toStr, false)
         .then(data => {
-          console.log('[Stellar PNL] Success response:', data);
+          if (!isMounted) return;
+          console.log('[Stellar PNL] Success response (light summary):', data);
           setStellarPnlData(data || null);
         })
         .catch(err => {
+          if (!isMounted) return;
           console.error('[Stellar PNL] Error fetching PNL:', err);
           setStellarPnlError(err instanceof Error ? err.message : 'Failed to fetch Stellar PNL');
         })
         .finally(() => {
-          setLoadingStellarPnl(false);
+          if (isMounted) {
+            setLoadingStellarPnl(false);
+          }
         });
     }
-  }, [connectedWallets.stellar?.address, stellarTimeframe, activeTab, isDateRangeActive, fromDate, toDate]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [connectedWallets.stellar?.address, stellarTimeframe, activeTab, getStellarDateRange]);
 
   useEffect(() => {
     if (!dydxDataService.isReady()) { setTransfers([]); return; }
@@ -642,7 +764,13 @@ useEffect(() => {
   const isDark = document.documentElement.classList.contains('dark');
   const isGreen = chartType === 'equity' ? pnlStats.change >= 0 : periodStats.totalClosedPnl >= 0;
 
+  // Initialize with container size (fallback to default height)
+  const initialWidth = container.clientWidth || 300;
+  const initialHeight = container.clientHeight || 240;
+
   const chart = createChart(container, {
+    width: initialWidth,
+    height: initialHeight,
     layout: {
       background: { type: ColorType.Solid, color: 'transparent' },
       textColor: isDark ? '#e8edf8' : '#0f1729',
@@ -727,25 +855,31 @@ useEffect(() => {
 
   chartRef.current = chart;
 
-  const handleResize = () => {
-    if (chartContainerRef.current && chartRef.current) {
-      chartRef.current.applyOptions({
-        width: chartContainerRef.current.clientWidth,
-      });
+  // Use ResizeObserver for responsive container sizing
+  const resizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && chartRef.current) {
+        chartRef.current.applyOptions({
+          width,
+          height: height || 240
+        });
+        chartRef.current.timeScale().fitContent();
+      }
     }
-  };
-
-  window.addEventListener('resize', handleResize);
+  });
+  
+  resizeObserver.observe(container);
 
   return () => {
-    window.removeEventListener('resize', handleResize);
+    resizeObserver.disconnect();
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
       seriesRef.current = null;
     }
   };
-}, [visiblePnlPoints, tradePnlPoints, chartType, activeTab]);
+}, [visiblePnlPoints, tradePnlPoints, chartType, activeTab, loadingPnl]);
 
 useEffect(() => {
   if (activeTab === 'stellar') return;
@@ -922,43 +1056,71 @@ const exportDydxOnly = useCallback(async () => {
   });
 }, [visiblePnlPoints, transfers, isDateRangeActive, fromDate, toDate, timeframe]);
 
-const handleExportStellarReport = () => {
-  if (!stellarPnlData || !connectedWallets.stellar?.address) return;
+const handleExportStellarReport = async () => {
+  if (!connectedWallets.stellar?.address || isExportingStellar) return;
 
-  const periodLabel = isDateRangeActive && fromDate && toDate
-    ? `${fromDate} to ${toDate}`
-    : (stellarTimeframe === '1w' ? 'Last 1 Week' : stellarTimeframe === '1m' ? 'Last 1 Month' : stellarTimeframe === '2m' ? 'Last 2 Months' : 'Last 3 Months');
+  setIsExportingStellar(true);
+  try {
+    const { fromStr, toStr } = getStellarDateRange();
+    console.log(`[Stellar Export] Fetching full excel report for address ${connectedWallets.stellar.address} from ${fromStr} to ${toStr}...`);
 
-  exportStellarReport({
-    address: connectedWallets.stellar.address,
-    period: periodLabel,
-    totalPnL: stellarPnlData.totalPnL || 0,
-    totalRealized: stellarPnlData.totalRealized || 0,
-    totalUnrealized: stellarPnlData.totalUnrealized || 0,
-    usdcSpent: stellarPnlData.usdcSpent || 0,
-    usdcReceived: stellarPnlData.usdcReceived || 0,
-    netUSDCFlow: stellarPnlData.netUSDCFlow || 0,
-    tradeCount: stellarPnlData.rawCount || stellarPnlData.tradeCount || 0,
-    collapsedCount: stellarPnlData.collapsedCount,
-    rawCount: stellarPnlData.rawCount,
-    skippedCount: stellarPnlData.skippedCount,
-    noPriceCount: stellarPnlData.noPriceCount,
-    positionCount: stellarPnlData.positionCount || 0,
-    disposalCount: stellarPnlData.disposalCount || 0,
-    winRate: stellarPnlData.winRate,
-    bestTrade: stellarPnlData.bestTrade,
-    worstTrade: stellarPnlData.worstTrade,
-    firstTradeDate: stellarPnlData.firstTradeDate,
-    lastTradeDate: stellarPnlData.lastTradeDate,
-    activeDays: stellarPnlData.activeDays,
-    mostTradedAsset: stellarPnlData.mostTradedAsset,
-    totalPortfolioValue: stellarPnlData.totalPortfolioValue,
-    largestPosition: stellarPnlData.largestPosition,
-    // Full trade log & positions for Trade Log + Disposals sheets
-    trades: stellarPnlData.trades,
-    positions: stellarPnlData.positions,
-    // Cost basis is filled by the user directly in the exported Excel file
-  });
+    let fullData = stellarDetailedData;
+    if (!fullData || !fullData.positions) {
+      fullData = await fetchStellarPnl(connectedWallets.stellar.address, fromStr, toStr, true);
+      if (fullData) {
+        setStellarDetailedData(fullData);
+      }
+    }
+
+    if (!fullData) {
+      throw new Error('No report data returned from server');
+    }
+
+    const periodLabel = isDateRangeActive && fromDate && toDate
+      ? `${fromDate} to ${toDate}`
+      : (stellarTimeframe === '1w' ? 'Last 1 Week' : stellarTimeframe === '1m' ? 'Last 1 Month' : stellarTimeframe === '2m' ? 'Last 2 Months' : 'Last 3 Months');
+
+    exportStellarReport({
+      address: connectedWallets.stellar.address,
+      period: periodLabel,
+      totalPnL: fullData.totalPnL || 0,
+      totalRealized: fullData.totalRealized || 0,
+      totalUnrealized: fullData.totalUnrealized || 0,
+      usdcSpent: fullData.usdcSpent || 0,
+      usdcReceived: fullData.usdcReceived || 0,
+      netUSDCFlow: fullData.netUSDCFlow || 0,
+      tradeCount: fullData.rawCount || fullData.tradeCount || 0,
+      collapsedCount: fullData.collapsedCount,
+      rawCount: fullData.rawCount,
+      skippedCount: fullData.skippedCount,
+      noPriceCount: fullData.noPriceCount,
+      positionCount: fullData.positionCount || 0,
+      disposalCount: fullData.disposalCount || 0,
+      winRate: fullData.winRate,
+      bestTrade: fullData.bestTrade,
+      worstTrade: fullData.worstTrade,
+      firstTradeDate: fullData.firstTradeDate,
+      lastTradeDate: fullData.lastTradeDate,
+      activeDays: fullData.activeDays,
+      mostTradedAsset: fullData.mostTradedAsset,
+      totalPortfolioValue: fullData.totalPortfolioValue,
+      largestPosition: fullData.largestPosition,
+      trades: fullData.trades,
+      positions: fullData.positions?.map((pos: any) => {
+        const config = stellarCostBasis[pos.asset];
+        return {
+          ...pos,
+          openingAmount: config?.openingAmount ? parseFloat(config.openingAmount) : null,
+          openingCostPerUnit: config?.costPerUnit ? parseFloat(config.costPerUnit) : null
+        };
+      }),
+    });
+  } catch (err) {
+    console.error('[Stellar Export] Failed to export report:', err);
+    alert(err instanceof Error ? err.message : 'Failed to export report');
+  } finally {
+    setIsExportingStellar(false);
+  }
 };
 
 const handleSyncBalances = async () => {
@@ -969,6 +1131,109 @@ const handleSyncBalances = async () => {
     refreshFills().catch(() => { });
   }
 };
+
+if (loading && grandTotal === 0) {
+  return (
+    <div className="bg-secondary p-4 md:p-6 lg:rounded-xl lg:max-w-7xl w-full max-w-[100vw] mx-auto space-y-8 my-4 animate-pulse">
+      {/* Header Member Card Skeleton */}
+      <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-6 relative overflow-hidden shadow-md">
+        <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+          <div className="w-24 h-24 rounded-full bg-(--color-bg-tertiary)" />
+          <div className="flex-1 space-y-3 text-center md:text-left py-2">
+            <div className="h-6 w-48 bg-(--color-bg-tertiary) rounded mx-auto md:mx-0" />
+            <div className="h-4 w-96 bg-(--color-bg-tertiary) rounded max-w-full mx-auto md:mx-0" />
+            <div className="flex flex-wrap justify-center md:justify-start gap-3 pt-2">
+              <div className="h-6 w-32 bg-(--color-bg-tertiary) rounded-lg" />
+              <div className="h-6 w-40 bg-(--color-bg-tertiary) rounded-lg" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Portfolio Cards Grid Skeleton */}
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div className="h-6 w-32 bg-(--color-bg-tertiary) rounded" />
+          <div className="h-8 w-28 bg-(--color-bg-tertiary) rounded-lg" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="p-5 rounded-2xl border border-(--color-border) bg-(--color-bg-secondary) space-y-4 shadow-md">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-(--color-bg-tertiary)" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-4 w-24 bg-(--color-bg-tertiary) rounded" />
+                  <div className="h-3 w-16 bg-(--color-bg-tertiary) rounded" />
+                </div>
+              </div>
+              <div className="space-y-1 mt-6">
+                <div className="h-3 w-28 bg-(--color-bg-tertiary) rounded" />
+                <div className="h-6 w-36 bg-(--color-bg-tertiary) rounded-lg" />
+              </div>
+              <div className="border-t border-(--color-border) pt-4 flex justify-between">
+                <div className="h-3.5 w-32 bg-(--color-bg-tertiary) rounded" />
+                <div className="h-3.5 w-6 bg-(--color-bg-tertiary) rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Performance & Analytics Container Skeleton */}
+        <div className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-5 shadow-md space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded bg-(--color-bg-tertiary)" />
+              <div className="h-4 w-48 bg-(--color-bg-tertiary) rounded" />
+            </div>
+            <div className="h-4 w-4 bg-(--color-bg-tertiary) rounded" />
+          </div>
+          <div className="h-[240px] w-full bg-(--color-bg-tertiary)/40 border border-(--color-border)/50 rounded-xl flex items-center justify-center">
+            <RefreshCw size={24} className="animate-spin text-(--color-text-muted) opacity-30" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="p-3 bg-(--color-bg-tertiary)/50 border border-(--color-border)/40 rounded-xl space-y-2">
+                <div className="h-3 w-16 bg-(--color-bg-tertiary) rounded" />
+                <div className="h-5 w-12 bg-(--color-bg-tertiary) rounded" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Assets Table Container Skeleton */}
+        <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl overflow-hidden shadow-md">
+          <div className="p-4 border-b border-(--color-border) flex items-center justify-between gap-4">
+            <div className="h-9 w-64 bg-(--color-bg-tertiary) rounded-xl" />
+            <div className="h-6 w-32 bg-(--color-bg-tertiary) rounded" />
+          </div>
+          <div className="hidden md:grid grid-cols-4 px-6 py-3.5 bg-(--color-bg-tertiary)/50 border-b border-(--color-border)">
+            <div className="h-3 w-16 bg-(--color-bg-tertiary) rounded" />
+            <div className="h-3 w-16 bg-(--color-bg-tertiary) rounded ml-auto" />
+            <div className="h-3 w-16 bg-(--color-bg-tertiary) rounded ml-auto" />
+            <div className="h-3 w-16 bg-(--color-bg-tertiary) rounded ml-auto" />
+          </div>
+          <div className="divide-y divide-(--color-border)/50 p-1">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="p-5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-(--color-bg-tertiary)" />
+                  <div className="space-y-2">
+                    <div className="h-4 w-20 bg-(--color-bg-tertiary) rounded" />
+                    <div className="h-3 w-16 bg-(--color-bg-tertiary) rounded" />
+                  </div>
+                </div>
+                <div className="space-y-2 text-right">
+                  <div className="h-4 w-16 bg-(--color-bg-tertiary) rounded ml-auto" />
+                  <div className="h-3 w-12 bg-(--color-bg-tertiary) rounded ml-auto" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 return (
   <div className="bg-secondary p-4 md:p-6 lg:rounded-xl lg:max-w-7xl w-full max-w-[100vw] mx-auto space-y-8 my-4">
@@ -1275,10 +1540,10 @@ return (
                           )}
                           <button
                             onClick={exportDydxOnly}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-brand-primary/10 border border-brand-primary/30 text-brand-primary text-xs font-semibold hover:bg-brand-primary/20 transition"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 shadow-sm border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 cursor-pointer"
                             title={`Download dYdX trading report for ${getPeriodLabel()} (XLS)`}
                           >
-                            <Download size={12} />
+                            <Download size={13} className="shrink-0 animate-pulse-subtle" />
                             dYdX Report
                           </button>
                         </div>
@@ -1517,12 +1782,30 @@ return (
                             </button>
                           )}
                           <button
-                            onClick={handleExportStellarReport}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-brand-primary/10 border border-brand-primary/30 text-brand-primary text-xs font-semibold hover:bg-brand-primary/20 transition"
-                            title={`Download Stellar trading report (XLS)`}
+                            onClick={handleOpenCostBasis}
+                            disabled={loadingCostBasisDetails}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 shadow-sm border border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                            title="Adjust Stellar asset cost basis"
                           >
-                            <Download size={12} />
-                            Stellar Report
+                            {loadingCostBasisDetails ? (
+                              <RefreshCw size={13} className="animate-spin shrink-0" />
+                            ) : (
+                              <Sliders size={13} className="shrink-0" />
+                            )}
+                            {loadingCostBasisDetails ? 'Loading...' : 'Adjust Cost Basis'}
+                          </button>
+                          <button
+                            onClick={handleExportStellarReport}
+                            disabled={isExportingStellar}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 shadow-sm border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                            title="Download Stellar trading report (XLS)"
+                          >
+                            {isExportingStellar ? (
+                              <RefreshCw size={13} className="animate-spin shrink-0" />
+                            ) : (
+                              <Download size={13} className="shrink-0 animate-pulse-subtle" />
+                            )}
+                            {isExportingStellar ? 'Generating...' : 'Stellar Report'}
                           </button>
                         </div>
 
@@ -1605,11 +1888,21 @@ return (
                           </div>
 
                           <div className="space-y-1">
-                            <span className="text-[10px] uppercase font-bold text-(--color-text-secondary) tracking-wider">Trading Net PnL</span>
-                            <div className="flex items-baseline gap-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] uppercase font-bold text-(--color-text-secondary) tracking-wider">Trading Net PnL</span>
+                              {totalOpeningCostBasis > 0 && (
+                                <span className="text-[9px] uppercase font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30 px-1.5 py-0.5 rounded">Adjusted</span>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-1 mt-0.5">
                               <span className={`text-3xl font-black ${(stellarPnlData?.totalPnL ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                 {(stellarPnlData?.totalPnL ?? 0) >= 0 ? '+' : ''}{portfolioUtils.formatUSD(stellarPnlData?.totalPnL ?? 0)}
                               </span>
+                              {totalOpeningCostBasis > 0 && (
+                                <span className={`text-sm font-bold opacity-90 ${adjustedStellarPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {adjustedStellarPnl >= 0 ? '+' : ''}{portfolioUtils.formatUSD(adjustedStellarPnl)} <span className="text-[10px] text-(--color-text-secondary) font-normal">(Adjusted)</span>
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1683,33 +1976,6 @@ return (
                       {/* Cost Basis tab removed — users fill cost basis directly in the exported Excel file */}
                       {stellarSubTab === 'overview' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                          {/* Excel download CTA — cost basis is filled directly in the Excel file */}
-                          <div
-                            className="md:col-span-2 flex items-center justify-between gap-4 px-5 py-4 rounded-2xl border cursor-pointer transition-all duration-300 group bg-gradient-to-r from-purple-500/[0.04] to-transparent hover:from-purple-500/[0.08] hover:border-purple-500/30 border-(--color-border)"
-                            onClick={handleExportStellarReport}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={e => e.key === 'Enter' && handleExportStellarReport()}
-                          >
-                            <div className="flex items-center gap-3.5 min-w-0">
-                              <div className="w-1.5 h-9 rounded-full shrink-0 bg-purple-400 shadow-[0_0_8px_rgba(167,139,250,0.4)]" />
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-(--color-text-primary) tracking-tight flex items-center gap-1.5">
-                                  <Download size={12} className="text-purple-400" />
-                                  Download Full Excel Report
-                                </p>
-                                <p className="text-[11px] text-(--color-text-secondary) mt-0.5 truncate">
-                                  4 sheets: Summary · Cost Basis (editable) · Disposals · Trade Log — formulas auto-update when you fill in Excel
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3 shrink-0">
-                              <span className="text-[11px] font-bold text-purple-400 border border-purple-500/30 bg-purple-500/5 px-3 py-1.5 rounded-xl group-hover:bg-purple-500/15 group-hover:border-purple-500/50 transition-all duration-300">
-                                .xlsx
-                              </span>
-                              <ChevronRight size={14} className="text-(--color-text-secondary) group-hover:translate-x-0.5 transition-transform" />
-                            </div>
-                          </div>
                           {/* Left: Win Rate & outcomes circular gauge */}
                           <div className="p-5 bg-gradient-to-br from-purple-950/5 to-pink-950/5 border border-purple-500/10 rounded-2xl flex flex-col sm:flex-row items-center gap-6">
                             <div className="relative flex items-center justify-center">
@@ -2169,6 +2435,17 @@ return (
           </div>
         </div>
       )}
+
+      <StellarCostBasisModal
+        isOpen={isCostBasisModalOpen}
+        onClose={() => setIsCostBasisModalOpen(false)}
+        stellarCostBasis={stellarCostBasis}
+        stellarPnlData={stellarDetailedData}
+        handleCostBasisChange={handleCostBasisChange}
+        handleClearAllCostBasis={handleClearAllCostBasis}
+        handleExportReport={handleExportStellarReport}
+        isExporting={isExportingStellar}
+      />
     </div>
   </div>
 );

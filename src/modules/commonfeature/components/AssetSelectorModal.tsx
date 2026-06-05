@@ -39,6 +39,13 @@ const AssetSelectorModal: FC = () => {
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [registryVersion, setRegistryVersion] = useState(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRegistryVersion(v => v + 1);
+    window.addEventListener('dynamic_assets_registered', handleUpdate);
+    return () => window.removeEventListener('dynamic_assets_registered', handleUpdate);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -187,7 +194,7 @@ const AssetSelectorModal: FC = () => {
       if (!a.isNative && b.isNative) return 1;
       return a.symbol.toLowerCase().localeCompare(b.symbol.toLowerCase());
     });
-  }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType, isStellarConnected, isEvmConnected]);
+  }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType, isStellarConnected, isEvmConnected, registryVersion]);
 
   const handleSelect = useCallback((asset: any) => {
     const isAssetNative = !!asset.isNative || !asset.address || asset.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || asset.address.toLowerCase() === 'native';

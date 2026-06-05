@@ -100,7 +100,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   const buyDecimals = buyAsset?.decimals ?? 6;
 
 
-  const sellAmount = formatTokenAmount(quote.fromTokenAmount, sellDecimals);
+  const sellAmount = formatTokenAmount(quote.fromTokenAmount || quote.srcTokenAmount || '0', sellDecimals);
 
 
   const receiveAmount = formatTokenAmount(presetData.auctionStartAmount, buyDecimals);

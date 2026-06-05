@@ -3,15 +3,13 @@ import React, { useCallback, useMemo, useRef } from 'react';
 import PageLayout from '../../../components/layout/PageLayout';
 import { Tooltip } from '../../../components/common/Tooltip';
 import { toPlainString } from '../../evm/hook/useEvmSwap';
-import { EvmTransactionSuccessModal } from '../../evm/components/EvmTransactionSuccessModal';
-import StellarTransactionModal from '../../steallr/components/modals/StellarTransactionModal';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { useSendAsset } from '../hook/useSendassets';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 import TransactionButton from '../components/TransactionButton';
-import { getChainLogoUrl, getExplorerUrl } from '../../evm/utils/Chainregistry';
+import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 import BigNumber from 'bignumber.js';
 
 interface SendCryptoProps {
@@ -42,8 +40,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     handleReviewTransaction,
     handleConfirmTransaction,
     handleBackToForm,
-    handleDone,
-    handleRetryTransaction,
     copyToClipboard,
     formError,
     buttonLabel,
@@ -88,12 +84,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     copyToClipboard(senderAddress || '', 'Sender address');
   }, [senderAddress, copyToClipboard]);
 
-  const handleCopyTxHash = useCallback(
-    (hash: string) => {
-      copyToClipboard(hash, 'Transaction hash');
-    },
-    [copyToClipboard]
-  );
+
 
   const totalAmount = useMemo(() => {
     if (!currentAsset) return new BigNumber(0);
@@ -117,10 +108,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
     );
   }, [formError, senderAddress, isEstimatingFees, amount, isFetchingBalance, recipientAddress]);
 
-  const explorerUrl = useMemo(() => {
-    if (!currentAsset || !transactionState.txHash) return '';
-    return getExplorerUrl(currentAsset.chainId, 'tx', transactionState.txHash);
-  }, [currentAsset, transactionState.txHash]);
+
 
   const currentChainLogo = useMemo(() => {
     if (!currentAsset) return null;
@@ -182,29 +170,53 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 pt-2">
-              <div className="bg-bg-secondary/50 p-3.5 rounded-lg">
-                <label className="block text-[10px] font-bold text-text-muted uppercase mb-1">Amount</label>
-                <div className="text-lg font-black text-text-primary">
-                  {amount} {currentAsset.symbol}
-                </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between border-t border-divider/5 pt-4">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Transaction Details</span>
               </div>
 
-              <div className="bg-bg-secondary/50 p-3.5 rounded-lg">
-                <label className="block text-[10px] font-bold text-text-muted uppercase mb-1">Network</label>
-                <div className="flex items-center gap-2">
-                  {currentChainLogo && <img src={currentChainLogo} alt="" className="w-4 h-4 rounded-full" />}
-                  <div className="text-sm text-text-primary font-bold">{currentAsset.network}</div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 bg-bg-secondary/50 p-3 rounded-lg">
+                  <div className="w-8 h-8 rounded-full bg-brand-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-[10px] font-black text-brand-primary">
+                      {currentAsset.symbol.slice(0, 2).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-bold text-text-muted leading-none mb-1">Amount</div>
+                    <div className="text-sm font-black text-text-primary truncate" title={`${amount} ${currentAsset.symbol}`}>
+                      {amount} {currentAsset.symbol}
+                    </div>
+                  </div>
                 </div>
+
+                <div className="flex items-center gap-3 bg-bg-secondary/50 p-3 rounded-lg">
+                  <div className="w-8 h-8 rounded-full bg-bg-primary flex items-center justify-center shrink-0 overflow-hidden">
+                    {currentChainLogo ? (
+                      <img src={currentChainLogo} alt="" className="w-4 h-4 rounded-full" />
+                    ) : (
+                      <Wallet size={14} className="text-text-muted" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-bold text-text-muted leading-none mb-1">Network</div>
+                    <div className="text-xs text-text-primary font-bold truncate">{currentAsset.network}</div>
+                  </div>
+                </div>
+
+                {memo && currentAsset.type === 'stellar' && (
+                  <div className="flex items-center gap-3 bg-bg-secondary/50 p-3 rounded-lg">
+                    <div className="w-8 h-8 rounded-full bg-bg-primary flex items-center justify-center shrink-0">
+                      <Info size={14} className="text-text-muted" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-bold text-text-muted leading-none mb-1">Memo</div>
+                      <div className="text-xs text-text-primary font-medium break-all">{memo}</div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-
-            {memo && currentAsset.type === 'stellar' && (
-              <div className="bg-bg-secondary/50 p-3.5 rounded-lg">
-                <label className="block text-[10px] font-bold text-text-muted uppercase mb-1">Memo</label>
-                <div className="text-sm text-text-primary font-medium break-all">{memo}</div>
-              </div>
-            )}
 
             {recipientNeedsTrustline && currentAsset.type === 'stellar' && (
               <div className="bg-brand-primary/5 border border-brand-primary/20 rounded-xl p-3.5 flex gap-3 items-center">
@@ -236,15 +248,24 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
 
             <div className="pt-2">
               <div className="bg-bg-primary/50 rounded-xl p-4">
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-text-secondary font-medium">Estimated Fee</span>
-                    <span className="font-bold text-text-primary">{estimatedFees?.totalCost || currentAsset.baseFee} {currentAsset.symbol}</span>
+                <div className="space-y-2 mb-2">
+                  <div className="flex justify-between items-center gap-4 min-w-0 text-xs">
+                    <span className="text-text-secondary font-medium shrink-0">Estimated Fee</span>
+                    <span 
+                      className="font-bold text-text-primary truncate text-right flex-1"
+                      title={`${estimatedFees?.totalCost || currentAsset.baseFee} ${currentAsset.symbol}`}
+                    >
+                      {estimatedFees?.totalCost || currentAsset.baseFee} {currentAsset.symbol}
+                    </span>
                   </div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-text-primary">Total {currentAsset.isNative ? 'Cost' : 'to Send'}</span>
-                  <span className="text-xl font-black text-brand-primary">
+                <div className="h-px bg-divider/10 my-3" />
+                <div className="flex justify-between items-center gap-4 min-w-0">
+                  <span className="text-sm font-bold text-text-primary shrink-0">Total {currentAsset.isNative ? 'Cost' : 'to Send'}</span>
+                  <span 
+                    className="text-xl font-black text-brand-primary truncate text-right flex-1"
+                    title={`${totalAmount.toFixed(currentAsset.decimals)} ${currentAsset.symbol}`}
+                  >
                     {totalAmount.toFixed(currentAsset.decimals > 10 ? 8 : currentAsset.decimals).replace(/(\.[0-9]*[1-9])0+$/, "$1").replace(/\.0+$/, "")}{' '}
                     {currentAsset.symbol}
                   </span>
@@ -283,7 +304,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   ]);
 
   const TransactionStatusComponent = useMemo(() => {
-    const { step, error, txHash } = transactionState;
+    const { step } = transactionState;
 
     if (step === 'signing') {
       return (
@@ -300,76 +321,9 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       );
     }
 
-    if (step === 'success') {
-      if (currentAsset?.type === 'evm') {
-        return (
-          <EvmTransactionSuccessModal
-            txHash={txHash || ''}
-            explorerUrl={explorerUrl}
-            onDone={handleDone}
-            networkName={currentAsset.network}
-          />
-        );
-      }
-      return (
-        <StellarTransactionModal
-          isOpen={true}
-          status="success"
-          type="Send"
-          hash={txHash || ''}
-          onClose={handleDone}
-        />
-      );
-    }
-
-    if (step === 'error' && error) {
-      if (currentAsset?.type === 'stellar') {
-        return (
-          <StellarTransactionModal
-            isOpen={true}
-            status="error"
-            type="Send"
-            error={error}
-            onClose={handleBackToForm}
-          />
-        );
-      }
-      return (
-        <div className="bg-bg-secondary border border-divider rounded-xl text-center py-12 px-6 max-w-sm mx-auto shadow-sm">
-          <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mb-6 mx-auto">
-            <AlertCircle className="w-8 h-8 text-danger" />
-          </div>
-          <h3 className="text-xl font-black text-text-primary mb-2">Transaction Error</h3>
-          <div className="bg-danger/5 border border-danger/10 rounded-lg p-3 mb-6">
-            <p className="text-xs text-danger font-bold leading-relaxed">{error}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={handleRetryTransaction}
-              className="btn-primary py-3 rounded-lg font-bold text-sm"
-            >
-              Retry
-            </button>
-            <button
-              onClick={handleBackToForm}
-              className="btn-secondary py-3 rounded-lg font-bold text-sm"
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      );
-    }
-
     return null;
   }, [
     transactionState,
-    explorerUrl,
-    currentAsset,
-    handleCopyTxHash,
-    onBack,
-    handleBackToForm,
-    handleRetryTransaction,
   ]);
 
   const renderForm = () => {
