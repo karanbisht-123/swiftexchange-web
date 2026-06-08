@@ -3,15 +3,25 @@ const NOISE_STRINGS = ['payload=', 'jsonrpc', 'UNKNOWN_ERROR', 'version='];
 export function extractCleanMessage(rawMsg: string): string {
   if (!rawMsg) return '';
 
+  let trimmed = rawMsg.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const innerMsg = parsed?.message || parsed?.error?.message || parsed?.error || parsed?.reason || parsed?.details || parsed?.description;
+      if (innerMsg && typeof innerMsg === 'string') {
+        return extractCleanMessage(innerMsg);
+      }
+    } catch { }
+  }
+
   const nestedBodyMatch = rawMsg.match(/body=\\?"(\{.*?\})"(?:\\|,|\s|$)/s);
   if (nestedBodyMatch?.[1]) {
     try {
-
       const unescaped = nestedBodyMatch[1]
         .replace(/\\"/g, '"')
         .replace(/\\\\/g, '\\');
       const parsed = JSON.parse(unescaped);
-      const innerMsg = parsed?.error?.message || parsed?.message;
+      const innerMsg = parsed?.error?.message || parsed?.message || parsed?.reason || parsed?.details;
       if (innerMsg) return innerMsg;
     } catch (err) {
       console.log(err)
@@ -24,7 +34,7 @@ export function extractCleanMessage(rawMsg: string): string {
       try {
         const unescaped = bodyMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
         const parsed = JSON.parse(unescaped);
-        const innerMsg = parsed?.error?.message || parsed?.message;
+        const innerMsg = parsed?.error?.message || parsed?.message || parsed?.reason || parsed?.details;
         if (innerMsg) return innerMsg;
       } catch { }
     }
@@ -32,7 +42,11 @@ export function extractCleanMessage(rawMsg: string): string {
 
   const messagePatterns = [
     /["']message["']\s*:\s*["']([^"']+)["']/i,
-    /\\?["']message\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i
+    /\\?["']message\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i,
+    /["']reason["']\s*:\s*["']([^"']+)["']/i,
+    /\\?["']reason\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i,
+    /["']details["']\s*:\s*["']([^"']+)["']/i,
+    /\\?["']details\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i
   ];
   for (const pattern of messagePatterns) {
     const match = rawMsg.match(pattern);
@@ -46,8 +60,9 @@ export function extractCleanMessage(rawMsg: string): string {
     const match = rawMsg.match(/error=\s*(\{[^}]+\})/);
     if (match?.[1]) {
       const parsed = JSON.parse(match[1]);
-      if (parsed?.message && typeof parsed.message === 'string') {
-        return parsed.message;
+      const inner = parsed?.message || parsed?.error?.message || parsed?.reason;
+      if (inner && typeof inner === 'string') {
+        return inner;
       }
     }
   } catch (error) {
@@ -131,10 +146,10 @@ export function translateErrorMessage(message: string): string {
   }
 
   if (lower.includes('nonce too low') || lower.includes('nonce')) {
-    return 'Transaction failed: Account nonce is out of sync. Please try again.';
+    return 'Account nonce out of sync. Please retry';
   }
   if (lower.includes('replacement transaction underpriced') || lower.includes('underpriced')) {
-    return 'Transaction failed: A pending transaction exists with the same nonce, but has lower fee parameters. Please try again.';
+    return 'Pending tx with lower fee. Please retry';
   }
 
   if (processedMessage.includes('http://') || processedMessage.includes('https://') || lower.includes('rpc error')) {
@@ -142,11 +157,11 @@ export function translateErrorMessage(message: string): string {
     if (revertMatch?.[1]?.trim()) {
       return `Transaction failed: ${revertMatch[1].trim()}`;
     }
-    return 'Transaction failed due to a network provider error. Please try again.';
+    return 'Network provider error. Please retry';
   }
 
   if (lower.includes('tx_bad_seq') || lower.includes('sequence_mismatch') || lower.includes('bad sequence')) {
-    return 'Transaction sequence number mismatch. This can happen if another transaction was recently submitted. Please try again.';
+    return 'Tx sequence mismatch. Please retry';
   }
 
   // Stellar / Soroban Specifics
@@ -166,11 +181,11 @@ export function translateErrorMessage(message: string): string {
   }
 
   if (lower.includes('tx_bad_auth') || lower.includes('op_bad_auth')) {
-    return 'Transaction signing failed. Please verify your wallet connection and try again.';
+    return 'Tx signing failed. Please check wallet';
   }
 
-  if (lower.includes('tx_insufficient_fee')) {
-    return 'Network fee is too low. Please try again or increase the fee in your wallet.';
+  if (lower.includes('tx_insufficient_fee') || lower.includes('insufficient funds for gas')) {
+    return 'Insufficient native token balance to cover gas fees.';
   }
 
   if (lower.includes('op_no_trust')) {
@@ -193,7 +208,7 @@ export function translateErrorMessage(message: string): string {
   }
 
   if (lower.includes('user declined') || lower.includes('user rejected') || lower.includes('dismissed')) {
-    return 'Transaction was cancelled by the user.';
+    return 'User cancelled the transaction';
   }
 
   if (processedMessage.length > 150) {
@@ -209,17 +224,58 @@ export function translateErrorMessage(message: string): string {
 export function parseWalletError(error: unknown): string {
   console.error('[parseWalletError]', error);
 
-  const rawMsg: string =
-    (error as any)?.message ||
-    (error as any)?.originalError?.message ||
-    String(error);
+  if (!error) return 'Something went wrong. Please try again.';
+
+  let rawMsg = '';
+  let errCode: any = null;
+
+  if (typeof error === 'string') {
+    rawMsg = error;
+  } else if (typeof error === 'object') {
+    const errObj = error as any;
+    errCode = errObj.code || errObj.error?.code || errObj.info?.error?.code || errObj.originalError?.code;
+    rawMsg =
+      errObj.message ||
+      errObj.originalError?.message ||
+      errObj.reason ||
+      errObj.error?.message ||
+      errObj.data?.message ||
+      errObj.details ||
+      errObj.description ||
+      (errObj.error && typeof errObj.error === 'string' ? errObj.error : '') ||
+      String(error);
+  } else {
+    rawMsg = String(error);
+  }
+
+  // Handle user rejection explicitly first
+  if (
+    errCode === 4001 ||
+    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected/i.test(rawMsg)
+  ) {
+    return 'User cancelled the transaction';
+  }
 
   let message = extractCleanMessage(rawMsg);
 
   if (message.length > 0 && message !== '[object Object]') {
+    // If the message is specifically about WalletConnect, let's ensure it's clean and return it
+    if (/walletconnect|wallet-connect|connector/i.test(message)) {
+      const cleanWc = message
+        .replace(/^walletconnect:?/i, '')
+        .replace(/^connector:?/i, '')
+        .trim();
+      if (cleanWc) return cleanWc;
+    }
+
     const translated = translateErrorMessage(message);
     if (translated) {
       return translated;
+    }
+
+    // If no translation found but we have a clean, non-noisy message, return it!
+    if (!isNoisy(message)) {
+      return message;
     }
   }
 
@@ -229,13 +285,22 @@ export function parseWalletError(error: unknown): string {
 export function parseSwapError(error: any): string {
   console.error('[SwapError]', error);
   const rawMsg: string = error?.message || error?.originalError?.message || '';
+  const errCode = error?.code || error?.error?.code || error?.info?.error?.code || error?.originalError?.code;
+
+  const isWalletOrConnectError = 
+    errCode === 4001 || 
+    errCode === -32603 || 
+    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected|walletconnect|wallet-connect|connector/i.test(rawMsg) ||
+    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected|walletconnect|wallet-connect|connector/i.test(String(error));
+
   if (
-    rawMsg &&
-    (rawMsg.includes('error=') ||
-      rawMsg.includes('UNKNOWN_ERROR') ||
-      rawMsg.includes('payload=') ||
-      rawMsg.includes('jsonrpc') ||
-      rawMsg.includes('processing response error'))
+    isWalletOrConnectError ||
+    (rawMsg &&
+      (rawMsg.includes('error=') ||
+        rawMsg.includes('UNKNOWN_ERROR') ||
+        rawMsg.includes('payload=') ||
+        rawMsg.includes('jsonrpc') ||
+        rawMsg.includes('processing response error')))
   ) {
     return parseWalletError(error);
   }
@@ -325,155 +390,4 @@ export function parseSwapError(error: any): string {
   const translated = translateErrorMessage(message);
   return translated || 'Swap failed. Please try again.';
 }
-export interface RangoDisplayError {
-  type: 'no_route' | 'amount' | 'balance' | 'fee' | 'expired' | 'server' | 'warning';
-  title: string;
-  message: string;
-  canRetry: boolean;
-}
 
-export function parseRangoQuoteResponse(data: any): RangoDisplayError | null {
-  if (!data) return null;
-
-  // 1. Hard error from API
-  if (data.error) {
-    const errorMap: Record<number, RangoDisplayError> = {
-      1101: { type: 'server', title: 'Server Error', message: 'Rango internal error. Try again shortly.', canRetry: true },
-      1202: { type: 'amount', title: 'Amount Issue', message: 'Amount is below minimum or above maximum for this route.', canRetry: false },
-      1203: { type: 'balance', title: 'Balance Error', message: 'Could not fetch your wallet balance. Check RPC.', canRetry: true },
-      1204: { type: 'fee', title: 'Approval Error', message: 'Invalid approval transaction. Please try again.', canRetry: true },
-      1302: { type: 'expired', title: 'Price Changed', message: 'Price moved too much. Please refresh the quote.', canRetry: true },
-      1303: { type: 'expired', title: 'Route Expired', message: 'This route has expired. Please get a new quote.', canRetry: true },
-    };
-
-    if (data.errorCode && errorMap[data.errorCode]) {
-      return errorMap[data.errorCode];
-    }
-
-    return {
-      type: 'server',
-      title: 'Swap Error',
-      message: data.error || 'An unknown error occurred.',
-      canRetry: true,
-    };
-  }
-
-  if (!data.result) {
-    const diagnosis = data.diagnosisMessages?.[0] || null;
-
-    const diagnosisMap: Record<string, RangoDisplayError> = {
-      'too low': {
-        type: 'amount',
-        title: 'Amount Too Low',
-        message: 'Your input amount is too low for this route. Try increasing it.',
-        canRetry: false,
-      },
-      'too high': {
-        type: 'amount',
-        title: 'Amount Too High',
-        message: 'Your input amount exceeds the maximum limit for this route.',
-        canRetry: false,
-      },
-      'no route': {
-        type: 'no_route',
-        title: 'No Route Found',
-        message: 'No swap route available for this token pair.',
-        canRetry: false,
-      },
-      'liquidity': {
-        type: 'no_route',
-        title: 'Insufficient Liquidity',
-        message: 'Not enough liquidity available for this swap.',
-        canRetry: false,
-      },
-    };
-
-    if (diagnosis) {
-      const lowerDiag = diagnosis.toLowerCase();
-      for (const [key, val] of Object.entries(diagnosisMap)) {
-        if (lowerDiag.includes(key)) return val;
-      }
-      return {
-        type: 'no_route',
-        title: 'Route Unavailable',
-        message: diagnosis,
-        canRetry: false,
-      };
-    }
-
-    return {
-      type: 'no_route',
-      title: 'No Route Found',
-      message: 'No route available for this swap. Try a different amount or pair.',
-      canRetry: false,
-    };
-  }
-
-  if (data.validationStatus && Array.isArray(data.validationStatus)) {
-    for (const chainStatus of data.validationStatus) {
-      for (const wallet of chainStatus.wallets || []) {
-        for (const asset of wallet.requiredAssets || []) {
-          if (!asset.ok) {
-            const symbol = asset.asset?.symbol || 'token';
-            const chain = chainStatus.blockchain || '';
-
-            if (asset.reason === 'FEE') {
-              return {
-                type: 'fee',
-                title: 'Insufficient Gas',
-                message: `Not enough ${symbol} for gas fees on ${chain}.`,
-                canRetry: false,
-              };
-            }
-            if (asset.reason === 'INPUT_ASSET') {
-              return {
-                type: 'balance',
-                title: 'Insufficient Balance',
-                message: `Not enough ${symbol} balance to complete this swap.`,
-                canRetry: false,
-              };
-            }
-            if (asset.reason === 'FEE_AND_INPUT_ASSET') {
-              return {
-                type: 'balance',
-                title: 'Insufficient Balance & Gas',
-                message: `Not enough ${symbol} for both the swap and gas fees on ${chain}.`,
-                canRetry: false,
-              };
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 4. Result OK but has warnings (high price impact etc)
-  if (data.result?.resultType && data.result.resultType !== 'OK') {
-    const resultTypeMap: Record<string, RangoDisplayError> = {
-      HIGH_IMPACT: {
-        type: 'warning',
-        title: 'High Price Impact',
-        message: 'This swap has a high price impact. You may receive significantly less than expected.',
-        canRetry: false,
-      },
-      INPUT_LIMIT_ISSUE: {
-        type: 'amount',
-        title: 'Amount Out of Range',
-        message: 'The amount is outside the allowed range for this route. Adjust and try again.',
-        canRetry: false,
-      },
-      NO_ROUTE: {
-        type: 'no_route',
-        title: 'No Route Found',
-        message: 'No swap route available for this token pair.',
-        canRetry: false,
-      },
-    };
-
-    if (resultTypeMap[data.result.resultType]) {
-      return resultTypeMap[data.result.resultType];
-    }
-  }
-
-  return null;
-}

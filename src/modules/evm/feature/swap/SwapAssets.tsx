@@ -3,7 +3,6 @@ import {
   ChevronDown,
   RefreshCw,
   Zap,
-  Settings
 } from 'lucide-react';
 
 
@@ -13,17 +12,17 @@ import { useSearchParams, useLocation } from 'react-router-dom';
 import { useNotificationStore } from '../../../../store/notificationStore';
 
 import PageLayout from '../../../../components/layout/PageLayout';
-import type { SwapQuoteRequest } from '../../../../types/evm/swap.types';
+import type { SwapQuoteRequest, FusionQuote } from '../../../../types/evm/swap.types';
 import { Tooltip } from '../../../../components/common/Tooltip';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import TransactionButton from '../../../commonfeature/components/TransactionButton';
 import { useEvmSwap, toPlainString } from '../../hook/useEvmSwap';
-import { getRangoSlippageWarning, resetRangoExecutionLock } from '../../utils/evmSwapUtils';
+import { useSwapStore } from '../../../../store/swapStore';
 import { sendEVMTransaction } from '../../../../utils/walletConnectUtils'
 import { storeSwapOrder } from '../../service/evmTransactionStatusService';
-import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata, getChainRangoSymbol } from '../../utils/Chainregistry';
+import { getEvmSwapEnabledChains, getChainById, isEvmChain, getGlobalAssetMetadata } from '../../utils/Chainregistry';
 import { useAssetSelectorModal } from '../../../commonfeature/components/useAssetSelectorModal';
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { useTransactionModalStore } from '../../../../store/transactionModalStore';
@@ -31,7 +30,7 @@ import StellarActiveGuard from '../../../walletconnect/components/StellarActiveG
 import { ActionGuard } from '../../../commonfeature/components/ActionGuard';
 import { switchOrAddChain } from '../../utils/evmChainUtils';
 import FusionQuoteScreen from './components/FusionQuoteScreen';
-import SlippageSettingsModal from './components/SlippageSettingsModal';
+
 import { parseSwapError, parseWalletError } from '../../utils/swapErrorHandler';
 import { getTokensForChain } from '../../service/tokenListService';
 
@@ -49,6 +48,8 @@ import { getStellarConfig } from '../../../walletconnect/config/chains';
 
 const STELLAR_CHAIN_ID = 'pubnet';
 const isStellar = (id: any) => id === 'stellar' || id === STELLAR_CHAIN_ID || id === 'testnet';
+const STELLAR_SWAP_GAS_BUFFER = 0.1;
+const STELLAR_BRIDGE_GAS_BUFFER = 2.0;
 
 const isSameAsset = (a: any, b: any) => {
   if (!a || !b) return false;
@@ -108,61 +109,33 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const currentNetwork = useWalletStore((state: any) => state.network) as 'mainnet' | 'testnet';
   const swapEnabledChains = getEvmSwapEnabledChains(currentNetwork);
 
-  const [fromChainId, setFromChainId] = useState<number | string>(() => {
-    if (locationState?.selectedAsset) {
-      return locationState.selectedAsset.chainType === 'stellar'
-        ? STELLAR_CHAIN_ID
-        : (locationState.selectedAsset.chainId || 1);
-    }
-    const raw = searchParams.get('fromChainId');
-    if (raw === 'stellar') return STELLAR_CHAIN_ID;
-
-    const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
-    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : defaultChainId;
-  });
-
-  const [toChainId, setToChainId] = useState<number | string>(() => {
-    if (locationState?.selectedAsset) {
-      return locationState.selectedAsset.chainType === 'stellar'
-        ? STELLAR_CHAIN_ID
-        : (locationState.selectedAsset.chainId || 1);
-    }
-    const raw = searchParams.get('toChainId');
-    if (raw === 'stellar') return STELLAR_CHAIN_ID;
-
-    const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
-    return raw ? (isNaN(Number(raw)) ? raw : Number(raw)) : defaultChainId;
-  });
-
-  const [sellAssetSymbol, setSellAssetSymbol] = useState<string>(() => {
-    if (locationState?.selectedAsset) return locationState.selectedAsset.symbol;
-    return searchParams.get('sellAsset') || '';
-  });
-
-  const [sellAssetAddress, setSellAssetAddress] = useState<string>(() => {
-    if (locationState?.selectedAsset) return locationState.selectedAsset.address || '';
-    return searchParams.get('sellAddress') || '';
-  });
-
-  const [buyAssetSymbol, setBuyAssetSymbol] = useState<string>(searchParams.get('buyAsset') || '');
-  const [buyAssetAddress, setBuyAssetAddress] = useState<string>(searchParams.get('buyAddress') || '');
-  const [sellAmount, setSellAmount] = useState<string>('');
-  const [isSlippageSettingsOpen, setIsSlippageSettingsOpen] = useState(false);
-
+  const {
+    fromChainId, setFromChainId,
+    toChainId, setToChainId,
+    sellAssetSymbol, setSellAssetSymbol,
+    sellAssetAddress, setSellAssetAddress,
+    buyAssetSymbol, setBuyAssetSymbol,
+    buyAssetAddress, setBuyAssetAddress,
+    sellAmount, setSellAmount,
+    isGasless, setIsGasless,
+    userSlippageTolerance,
+    feePayType, setFeePayType,
+    resetInputs,
+  } = useSwapStore();
 
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [timeLeft, setTimeToNextRefresh] = useState(30);
+  const hasInitializedDefaults = useRef(false);
 
   const [activeQuote, setActiveQuote] = useState<{
-    source: 'swap' | 'bridge' | 'rango' | 'stellar' | null;
+    source: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
     data: any;
     error: string | null;
     loading: boolean;
   }>({ source: null, data: null, error: null, loading: false });
 
-  const [feePayType, setFeePayType] = useState<'native' | 'stablecoin'>('stablecoin');
   const [bridgeTxStatus, setBridgeTxStatus] = useState<'idle' | 'preparing' | 'signing' | 'success' | 'error'>('idle');
   const [, setBridgeTxHash] = useState<string | null>(null);
   const [bridgeErrorMsg, setBridgeErrorMsg] = useState<string | null>(null);
@@ -203,21 +176,77 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     fetchFusionQuote,
     performSwap,
     performFusionSwap,
-    isGasless,
-    setGasless,
     fusionQuote,
-    rangoQuote,
-
-
-    confirmRangoRoute,
+    setGasless: hookSetGasless,
     reset: resetSwap,
-    userSlippageTolerance,
-    setUserSlippageTolerance,
+    setUserSlippageTolerance: hookSetUserSlippageTolerance,
   } = useEvmSwap({
     chainId: fromChainId,
     senderAddress: evmAddress,
     getProvider,
   });
+
+  useEffect(() => {
+    // Determine initial chain/asset from URL or location state
+    let initialFromChainId: number | string | null = null;
+    let initialToChainId: number | string | null = null;
+    let initialSellSymbol = '';
+    let initialSellAddr = '';
+    let initialBuySymbol = '';
+    let initialBuyAddr = '';
+
+    if (locationState?.selectedAsset) {
+      const asset = locationState.selectedAsset;
+      initialFromChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : (asset.chainId || 1);
+      initialSellSymbol = asset.symbol;
+      initialSellAddr = asset.address || '';
+      if (locationState.isPerp) {
+        initialToChainId = initialFromChainId;
+      }
+    } else {
+      const fromParam = searchParams.get('fromChainId');
+      const toParam = searchParams.get('toChainId');
+      const sellAssetParam = searchParams.get('sellAsset');
+      const sellAddressParam = searchParams.get('sellAddress');
+      const buyAssetParam = searchParams.get('buyAsset');
+      const buyAddressParam = searchParams.get('buyAddress');
+
+      if (fromParam) {
+        initialFromChainId = fromParam === 'stellar' ? STELLAR_CHAIN_ID : (isNaN(Number(fromParam)) ? fromParam : Number(fromParam));
+      }
+      if (toParam) {
+        initialToChainId = toParam === 'stellar' ? STELLAR_CHAIN_ID : (isNaN(Number(toParam)) ? toParam : Number(toParam));
+      }
+      if (sellAssetParam) initialSellSymbol = sellAssetParam;
+      if (sellAddressParam) initialSellAddr = sellAddressParam;
+      if (buyAssetParam) initialBuySymbol = buyAssetParam;
+      if (buyAddressParam) initialBuyAddr = buyAddressParam;
+    }
+
+    const storeFromChain = useSwapStore.getState().fromChainId;
+    if (!initialFromChainId) {
+      const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
+      if (storeFromChain === 1 && defaultChainId !== 1) {
+        initialFromChainId = defaultChainId;
+      }
+    }
+
+    if (initialFromChainId !== null) setFromChainId(initialFromChainId);
+    if (initialToChainId !== null) setToChainId(initialToChainId);
+    if (initialSellSymbol) setSellAssetSymbol(initialSellSymbol);
+    if (initialSellAddr) setSellAssetAddress(initialSellAddr);
+    if (initialBuySymbol) setBuyAssetSymbol(initialBuySymbol);
+    if (initialBuyAddr) setBuyAssetAddress(initialBuyAddr);
+  }, []);
+
+  // Sync Zustand store settings to hook state on change
+  useEffect(() => {
+    hookSetUserSlippageTolerance(userSlippageTolerance);
+  }, [userSlippageTolerance, hookSetUserSlippageTolerance]);
+
+  useEffect(() => {
+    hookSetGasless(isGasless);
+  }, [isGasless, hookSetGasless]);
 
 
 
@@ -225,9 +254,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [isFusionLoading, setIsFusionLoading] = useState(false);
   const [fusionStatus, setFusionStatus] = useState<'idle' | 'approving' | 'signing'>('idle');
   const fusionInputChangeRef = useRef<number>(0);
-  // Prevents double-submit if the user taps the swap button twice before the first call locks up.
   const isSubmittingRef = useRef(false);
-  // Tracks whether a wallet signing prompt is currently open (for the "pending request" banner).
   const [hasPendingSignRequest, setHasPendingSignRequest] = useState(false);
 
   const fromChainConfig = getChainById(fromChainId);
@@ -246,11 +273,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     } else {
       setAmmService(null);
     }
-    return () => {
-      // Reset the module-level Rango lock when leaving the swap screen,
-      // so a navigation-interrupted swap doesn't permanently block future swaps.
-      resetRangoExecutionLock();
-    };
   }, [fromChainId, toChainId, currentNetwork]);
 
   const selectedSellAsset = useMemo(() => {
@@ -298,6 +320,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [fromChainId, toChainId, sellAssetSymbol, sellAssetAddress, buyAssetSymbol, buyAssetAddress, setSearchParams]);
 
   useEffect(() => {
+    if (hasInitializedDefaults.current) return;
     const hasFromParam = !!searchParams.get('fromChainId');
     const hasToParam = !!searchParams.get('toChainId');
     const hasLocationAsset = !!locationState?.selectedAsset;
@@ -306,12 +329,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
         setFromChainId(currentChainId);
         setToChainId(currentChainId);
+        hasInitializedDefaults.current = true;
       } else if (!evmWallet && stellarWallet) {
         setFromChainId(STELLAR_CHAIN_ID);
         setToChainId(STELLAR_CHAIN_ID);
+        hasInitializedDefaults.current = true;
       }
+    } else {
+      hasInitializedDefaults.current = true;
     }
   }, [currentChainId, evmWallet, stellarWallet, searchParams, swapEnabledChains, locationState]);
+
+  const prevChainIds = useRef({ from: fromChainId, to: toChainId });
+  useEffect(() => {
+    if (prevChainIds.current.from !== fromChainId || prevChainIds.current.to !== toChainId) {
+      resetInputs();
+      prevChainIds.current = { from: fromChainId, to: toChainId };
+    }
+  }, [fromChainId, toChainId, resetInputs]);
   useEffect(() => {
     if (locationState?.selectedAsset) {
       const asset = locationState.selectedAsset;
@@ -433,42 +468,44 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         return;
       }
 
-      const currentSellInEvm = swapAssets.find(a => sellAssetAddress ? matchesAddress(a, sellAssetAddress) : a.symbol === sellAssetSymbol);
+      let currentSellInEvm = swapAssets.find(a => sellAssetAddress ? matchesAddress(a, sellAssetAddress) : a.symbol === sellAssetSymbol);
+
+      if (!currentSellInEvm) {
+        currentSellInEvm = swapAssets.find(a => a.symbol === sellAssetSymbol);
+      }
 
       let finalSell = currentSellInEvm;
-      if (!currentSellInEvm) {
+      if (!finalSell) {
         const nativeAsset = swapAssets.find(a => a.isNative);
         finalSell = nativeAsset || swapAssets[0];
-        if (finalSell) {
-          setSellAssetSymbol(finalSell.symbol);
-          setSellAssetAddress(finalSell.address);
-        }
+      }
+
+      if (finalSell) {
+        if (finalSell.symbol !== sellAssetSymbol) setSellAssetSymbol(finalSell.symbol);
+        if (finalSell.address !== sellAssetAddress) setSellAssetAddress(finalSell.address || '');
       }
 
       if (fromChainId === toChainId) {
-        const currentBuyInEvm = swapAssets.find(a => buyAssetAddress ? matchesAddress(a, buyAssetAddress) : a.symbol === buyAssetSymbol);
+        let currentBuyInEvm = swapAssets.find(a => buyAssetAddress ? matchesAddress(a, buyAssetAddress) : a.symbol === buyAssetSymbol);
 
-        if (!currentBuyInEvm || (finalSell && isSameAsset(finalSell, currentBuyInEvm))) {
+        if (!currentBuyInEvm) {
+          currentBuyInEvm = swapAssets.find(a => a.symbol === buyAssetSymbol);
+        }
+
+        let bestBuy = currentBuyInEvm;
+
+        if (!bestBuy || (finalSell && isSameAsset(finalSell, bestBuy))) {
           const nativeAsset = swapAssets.find(a => a.isNative);
 
-          const bestBuy = (finalSell && isSameAsset(finalSell, nativeAsset) ? swapAssets.find(a => !isSameAsset(a, finalSell)) : nativeAsset)
+          bestBuy = (finalSell && isSameAsset(finalSell, nativeAsset) ? swapAssets.find(a => !isSameAsset(a, finalSell)) : nativeAsset)
             || swapAssets.find(a => !isSameAsset(a, finalSell))
             || swapAssets[1]
             || swapAssets[0];
+        }
 
-          if (bestBuy) {
-            setBuyAssetSymbol(bestBuy.symbol);
-            setBuyAssetAddress(bestBuy.address);
-          }
-        } else if (sellAssetSymbol && !buyAssetSymbol) {
-          const nativeAsset = swapAssets.find(a => a.isNative && !isSameAsset(a, finalSell));
-          const fallback = swapAssets.find(a => !isSameAsset(a, finalSell));
-
-          const bestBuy = nativeAsset || fallback || swapAssets[0];
-          if (bestBuy) {
-            setBuyAssetSymbol(bestBuy.symbol);
-            setBuyAssetAddress(bestBuy.address);
-          }
+        if (bestBuy) {
+          if (bestBuy.symbol !== buyAssetSymbol) setBuyAssetSymbol(bestBuy.symbol);
+          if (bestBuy.address !== buyAssetAddress) setBuyAssetAddress(bestBuy.address || '');
         }
       } else {
         // Cross-chain swap/bridge: validate buy asset against destination chain tokens
@@ -539,7 +576,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       } else {
         if (!selectedSellAsset || !selectedBuyAsset || selectedSellAsset.address?.toLowerCase() === selectedBuyAsset.address?.toLowerCase()) return;
         try {
-          // Always fetch normal quote for UI even if gasless is toggled
           const quoteRequest: SwapQuoteRequest = {
             tokenIn: {
               symbol: selectedSellAsset.symbol,
@@ -619,7 +655,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       const isBelow2Usd = usdValue !== null && usdValue < 2;
       const shouldUseBridge = isToStellar || (bothBridgeSupported && isBelow2Usd);
 
-      setActiveQuote({ source: shouldUseBridge ? 'bridge' : 'rango', data: null, error: null, loading: true });
+      setActiveQuote({ source: shouldUseBridge ? 'bridge' : 'fusion_plus', data: null, error: null, loading: true });
       setCrossChainWarning(null);
 
       try {
@@ -633,39 +669,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }
           setActiveQuote({ source: 'bridge', data: bdgQ, error: null, loading: false });
         } else {
-          const quoteRequest: SwapQuoteRequest = {
-            tokenIn: {
-              symbol: selectedSellAsset.symbol,
-              name: selectedSellAsset.symbol,
-              decimals: (selectedSellAsset as any).decimals || 18,
-              address: selectedSellAsset.address || '',
-              balance: (selectedSellAsset as any).balance || '0',
-              logoUri: null,
-              chainId: fromChainId,
-            },
-            tokenOut: {
-              symbol: selectedBuyAsset.symbol,
-              name: selectedBuyAsset.symbol,
-              decimals: (selectedBuyAsset as any).decimals || 18,
-              address: selectedBuyAsset.address || '',
-              balance: (selectedBuyAsset as any).balance || '0',
-              logoUri: null,
-              chainId: toChainId,
-            },
-            amount: sellAmount,
-          };
-
-          await fetchSwapQuoteInternal(quoteRequest, selectedSellAsset as any, selectedBuyAsset as any);
-          setActiveQuote({ source: 'rango', data: null, error: null, loading: false });
+          // EVM to EVM Cross chain: Use Fusion Plus directly
+          const fq = await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+          setActiveQuote({ source: 'fusion_plus', data: fq, error: null, loading: false });
         }
       } catch (err: any) {
         if (err?.message === 'Quote request cancelled' || err?.message === 'Quote request superseded') return;
         console.error('Cross-chain quote error:', err);
         setCrossChainWarning(parseSwapError(err));
-        setActiveQuote({ source: shouldUseBridge ? 'bridge' : 'rango', data: null, error: parseSwapError(err), loading: false });
+        setActiveQuote({ source: shouldUseBridge ? 'bridge' : 'fusion_plus', data: null, error: parseSwapError(err), loading: false });
       }
     }
-  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, userSlippageTolerance, showFusionScreen, isBridgeSupported, getUsdValue, ammService]);
+  }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset, sellAmount, sellAssetSymbol, buyAssetSymbol, fetchSwapQuoteInternal, isChainSwitching, fromChainConfig, toChainConfig, userSlippageTolerance, showFusionScreen, isBridgeSupported, getUsdValue, ammService, fetchFusionQuote]);
 
 
   const resetQuotes = useCallback(() => {
@@ -704,7 +719,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (!xlm) return true;
 
     const xlmBalanceAfterReserve = parseFloat(xlm.balance || '0');
-    let requiredGasFee = actionType === 'BRIDGE' ? 2.0 : 0.1;
+    let requiredGasFee = actionType === 'BRIDGE' ? STELLAR_BRIDGE_GAS_BUFFER : STELLAR_SWAP_GAS_BUFFER;
 
     if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuote.data?.fee?.native) {
       requiredGasFee += parseFloat(activeQuote.data.fee.native.amount);
@@ -724,51 +739,48 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const hasActiveCrossChainQuote = useMemo(() => {
     if (actionType !== 'BRIDGE') return false;
-    return activeQuote.source === 'bridge' ? !!activeQuote.data : (!!rangoQuote || !!activeQuote.data);
-  }, [actionType, activeQuote.source, activeQuote.data, rangoQuote]);
+    return !!activeQuote.data;
+  }, [actionType, activeQuote.data]);
 
   const isErrorState = !!(swapError || isInsufficientBalance || hasInsufficientStellarGas || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
 
   const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
 
   const errorMessage = useMemo(() => {
-    if (isInsufficientBalance) return 'Insufficient balance for this transaction';
-    if (hasInsufficientStellarGas) {
-      const requiredGasFee = actionType === 'BRIDGE' ? '2.0' : '0.1';
-      return `Insufficient XLM balance. You need at least ${requiredGasFee} XLM (beyond reserve) for gas fees.`;
-    }
-    if (isSameAssetSelected) return 'Please select different assets to swap';
     if (bridgeTxStatus === 'error' || bridgeErrorMsg) return bridgeErrorMsg || 'Transaction failed. Please try again.';
     if (swapError) return swapError;
     if (activeQuote.error) return activeQuote.error;
+    if (isInsufficientBalance) return 'Insufficient balance for this transaction';
+    if (hasInsufficientStellarGas) {
+      const requiredGasFee = actionType === 'BRIDGE' ? STELLAR_BRIDGE_GAS_BUFFER.toFixed(1) : STELLAR_SWAP_GAS_BUFFER.toFixed(1);
+      return `Insufficient XLM balance. You need at least ${requiredGasFee} XLM (beyond reserve) for gas fees.`;
+    }
+    if (isSameAssetSelected) return 'Please select different assets to swap';
     if (actionType === 'BRIDGE' && crossChainWarning) return crossChainWarning;
     return null;
   }, [isInsufficientBalance, hasInsufficientStellarGas, isSameAssetSelected, bridgeTxStatus, bridgeErrorMsg, swapError, actionType, crossChainWarning, activeQuote.error]);
-
-  const slippageWarning = useMemo(() => {
-    if (actionType !== 'BRIDGE' || activeQuote.source !== 'rango') return null;
-    const q = rangoQuote || activeQuote.data;
-    if (!q?.result) return null;
-    return getRangoSlippageWarning(q.result, userSlippageTolerance);
-  }, [actionType, activeQuote.source, rangoQuote, activeQuote.data, userSlippageTolerance]);
 
   const buttonLabel = useMemo(() => {
     if (isFetchingSwapAssets || activeQuote.loading || swapQuoteLoading || isFetchingStellarAssets) return 'FETCHING QUOTES...';
     if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
     if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
-    if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
-    if (hasInsufficientStellarGas) return 'INSUFFICIENT XLM FOR GAS';
-    if ((swapError || activeQuote.error || bridgeErrorMsg) && actionType === 'SWAP') return 'SWAP FAILED';
 
-    if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
-      return actionType === 'SWAP' ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE & BRIDGE';
+    if (swapError || activeQuote.error || bridgeErrorMsg || bridgeTxStatus === 'error') {
+      const err = errorMessage;
+      if (err) return err.length > 45 ? 'SWAP FAILED' : err.toUpperCase();
+      return 'SWAP FAILED';
     }
 
-    if (slippageWarning) return 'SWAP ANYWAY';
+    if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
+    if (hasInsufficientStellarGas) return 'INSUFFICIENT XLM FOR GAS';
 
-    if (activeQuote.source === 'rango' && !isInsufficientBalance && !swapError) return 'SWAP';
-    return actionType === 'SWAP' ? 'SWAP' : 'BRIDGE';
-  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.source, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, hasInsufficientStellarGas, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, slippageWarning]);
+    if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
+      return 'ADD TRUSTLINE & SWAP';
+    }
+
+    return 'SWAP';
+  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, hasInsufficientStellarGas, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, swapQuote, activeQuote.data, errorMessage, bridgeTxStatus]);
+
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
@@ -781,6 +793,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setBridgeErrorMsg(null);
     if (bridgeTxStatus === 'error') setBridgeTxStatus('idle');
   }, [fromChainId, toChainId, sellAssetSymbol, buyAssetSymbol]);
+
+  const isQuoteLoading = !!(activeQuote.loading || swapQuoteLoading || isRefreshing);
 
   useEffect(() => {
     setTimeToNextRefresh(30);
@@ -796,7 +810,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   useEffect(() => {
     let timer: NodeJS.Timeout;
 
-    const shouldPauseTimer = isLoadingExecution || isChainSwitching || showFusionScreen || isSameAssetSelected;
+    const shouldPauseTimer = isLoadingExecution || isChainSwitching || showFusionScreen || isSameAssetSelected || isQuoteLoading || !!swapError || !!activeQuote.error || !!bridgeErrorMsg;
 
     if (sellAmount && parseFloat(sellAmount) > 0 && !shouldPauseTimer) {
       timer = setInterval(() => {
@@ -809,14 +823,34 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         });
       }, 1000);
     } else {
-
-      if (!shouldPauseTimer) setTimeToNextRefresh(30);
+      if (isQuoteLoading) {
+        setTimeToNextRefresh(30);
+      } else if (!shouldPauseTimer) {
+        setTimeToNextRefresh(30);
+      }
     }
 
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [sellAmount, isLoadingExecution, isChainSwitching, showFusionScreen, fetchUnifiedQuote, isSameAssetSelected]);
+  }, [sellAmount, isLoadingExecution, isChainSwitching, showFusionScreen, fetchUnifiedQuote, isSameAssetSelected, isQuoteLoading, swapError, activeQuote.error, bridgeErrorMsg]);
+
+  // Auto-clear execution errors after 5 seconds
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    if (swapError || bridgeErrorMsg) {
+      timeoutId = setTimeout(() => {
+        if (swapError) resetSwap();
+        if (bridgeErrorMsg) {
+          setBridgeErrorMsg(null);
+          setBridgeTxStatus('idle');
+        }
+      }, 5000);
+    }
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [swapError, bridgeErrorMsg, resetSwap]);
 
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset && selectedSellAsset.balance !== undefined) {
@@ -867,7 +901,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleUnifiedSwap = useCallback(async () => {
     if (!sellAmount) return;
-    // Double-click guard: prevent submitting twice before the first call makes the button visually disabled.
     if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
@@ -975,7 +1008,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         if (isStellar(toChainId) && !stellarAddress) { setBridgeTxStatus('idle'); return; }
         if (!isStellar(fromChainId) && !evmAddress) { setBridgeTxStatus('idle'); return; }
 
-        if (!activeQuote.data && !rangoQuote) { setBridgeTxStatus('idle'); return; }
+        if (!activeQuote.data) { setBridgeTxStatus('idle'); return; }
 
         try {
           if (isStellar(fromChainId)) {
@@ -1033,85 +1066,44 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             } else {
               throw new Error(result.error || 'Stellar transaction failed');
             }
-          } else if (activeQuote.source === 'rango' && (rangoQuote || activeQuote.data)) {
+          } else if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
             if (!evmAddress) { setBridgeTxStatus('idle'); return; }
-            const currentRangoQuote = rangoQuote || activeQuote.data;
-            const requestId = currentRangoQuote.requestId || currentRangoQuote.result?.requestId;
-            if (!requestId) throw new Error('No Rango requestId available');
-
-            const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
-            if (!destAddr) throw new Error('Destination address not found');
-
-            const confirmResult = await confirmRangoRoute(
-              requestId,
-              fromChainId,
-              toChainId,
-              evmAddress,
-              destAddr
-            );
-
-            if (!confirmResult?.ok && !confirmResult?.result) {
-              throw new Error(confirmResult?.error || 'Failed to confirm Rango route');
-            }
-
-            const { executeRangoSwap, validateRangoResult } = await import('../../utils/evmSwapUtils');
-
-            if (confirmResult.result) {
-              validateRangoResult(confirmResult.result);
-            }
-
-            let finalRangoHash: string | undefined = undefined;
-            await executeRangoSwap(
-              requestId,
-              fromChainId,
-              evmAddress,
-              currentNetwork,
-              sellAssetSymbol,
-              buyAssetSymbol,
-              getProvider,
-              {
-                setStatus: setBridgeTxStatus,
-                setHash: (hash) => {
-                  setBridgeTxHash(hash);
-                  finalRangoHash = hash;
-                },
-                addTransaction: (tx: any) => {
-                  if (tx.type === 'swap' || tx.type === 'bridge' || tx.type === 'approval') {
-                    storeSwapOrder({
-                      txHash: tx.hash,
-                      walletAddress: evmAddress,
-                      provider: tx.type === 'approval' ? 'EVMTX' : 'RANGO',
-                      fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
-                      fromToken: sellAssetSymbol,
-                      toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
-                      toToken: buyAssetSymbol,
-                      amountIn: sellAmount,
-                      amountOut: calculatedBuyAmount,
-                      requestId: requestId,
-                      txType: tx.type === 'approval' ? 'Token Approval' : (fromChainId === toChainId ? 'Swap' : 'Contract Call')
-                    } as any).catch(err => console.error('Failed to store Rango order:', err));
-                  }
-                }
-              },
-              userSlippageTolerance
-            );
-            handleReset();
-            showToast({
-              type: 'EVM_SWAP',
-              title: 'Swap Transaction Sent',
-              message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
-            });
-            if (finalRangoHash) {
-              useTransactionModalStore.getState().openModal({
-                status: 'success',
-                type: 'Swap',
-                hash: finalRangoHash,
-                explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${finalRangoHash}` : undefined,
-                networkName: fromChainConfig?.name,
-                isStellar: false,
+            setBridgeTxStatus('preparing');
+            try {
+              const currentQuote = activeQuote.data;
+              const preset = currentQuote.recommended_preset || 'fast';
+              const hash = await performFusionSwap(
+                selectedSellAsset as any,
+                selectedBuyAsset as any,
+                sellAmount,
+                preset,
+                (status) => setBridgeTxStatus(status as any),
+                currentQuote
+              );
+              handleReset();
+              showToast({
+                type: 'EVM_SWAP',
+                title: 'Bridge Order Submitted',
+                message: `Cross-chain swap for ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol} submitted successfully.`
               });
+              if (hash) {
+                useTransactionModalStore.getState().openModal({
+                  status: 'success',
+                  type: 'Bridge',
+                  hash,
+                  explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}` : undefined,
+                  networkName: fromChainConfig?.name,
+                  isStellar: false,
+                });
+              }
+            } catch (err) {
+              console.error('Fusion Plus cross-chain swap failed:', err);
+              const errMsg = parseWalletError(err);
+              setBridgeErrorMsg(errMsg);
+              resetLoadingState();
+              setBridgeTxStatus('error');
+              showToast({ type: 'EVM_SWAP', title: 'Bridge Failed', message: errMsg, dontSave: true });
             }
-
           } else if (activeQuote.source === 'bridge' && activeQuote.data) {
             const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
             if (!evmAddress || !destAddr) { setBridgeTxStatus('idle'); return; }
@@ -1143,9 +1135,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   txHash: hash,
                   walletAddress: evmAddress,
                   provider: 'EVMTX',
-                  fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                  fromChain: getChainById(fromChainId)?.symbol || String(fromChainId),
                   fromToken: sellAssetSymbol,
-                  toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                  toChain: getChainById(toChainId)?.symbol || String(toChainId),
                   toToken: buyAssetSymbol,
                   amountIn: sellAmount,
                   amountOut: calculatedBuyAmount,
@@ -1159,9 +1151,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   txHash: hash,
                   walletAddress: evmAddress,
                   provider: 'ALLBRIDGE',
-                  fromChain: getChainById(fromChainId)?.symbol || getChainRangoSymbol(fromChainId),
+                  fromChain: getChainById(fromChainId)?.symbol || String(fromChainId),
                   fromToken: sellAssetSymbol,
-                  toChain: getChainById(toChainId)?.symbol || getChainRangoSymbol(toChainId),
+                  toChain: getChainById(toChainId)?.symbol || String(toChainId),
                   toToken: buyAssetSymbol,
                   amountIn: sellAmount,
                   amountOut: calculatedBuyAmount,
@@ -1206,9 +1198,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
   }, [
     actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, userSlippageTolerance, performSwap, evmAddress,
-    stellarAddress, activeQuote, rangoQuote, fromChainId, toChainId, ammService, getProvider,
-    isGasless, fetchFusionQuote, feePayType, sellAssetSymbol, buyAssetSymbol, currentNetwork,
-    confirmRangoRoute, resetLoadingState
+    stellarAddress, activeQuote, fromChainId, toChainId, ammService, getProvider,
+    isGasless, performFusionSwap, feePayType, sellAssetSymbol, buyAssetSymbol, currentNetwork,
+    resetLoadingState
   ]);
   const handleChainSelectInModal = useCallback(async (newChainId: number | string, isSource: boolean) => {
     const finalFromId = isSource ? newChainId : fromChainId;
@@ -1309,14 +1301,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isLoadingExecution ||
     (actionType === 'SWAP' && isStellar(fromChainId) && !activeQuote.data) ||
     (actionType === 'SWAP' && !isStellar(fromChainId) && !swapQuote && !isGasless) ||
-    (actionType === 'BRIDGE' && !activeQuote.data && !rangoQuote && !activeQuote.loading && !isStellar(fromChainId)) ||
+    (actionType === 'BRIDGE' && !activeQuote.data && !activeQuote.loading) ||
     isFetchingSwapAssets ||
     activeQuote.loading ||
     swapQuoteLoading ||
     isChainSwitching ||
     isSameAssetSelected;
 
-  // console.log("{{{{{{{{{{{}}", activeQuote, "{{{{{{{{{{{")
   const calculatedBuyAmount = useMemo(() => {
     if (isSameAssetSelected) return 'SELECT DIFFERENT PAIR';
 
@@ -1331,15 +1322,42 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
     // BRIDGE mode
     if (activeQuote.source === 'bridge') return activeQuote.data?.minimumAmountOut || '0.00';
-    if (activeQuote.source === 'rango') return (rangoQuote || activeQuote.data)?.result?.outputAmount || '0.00';
+    if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
+      const decimals = (selectedBuyAsset as any)?.decimals || 18;
+      const amtRaw = activeQuote.data.toTokenAmount || activeQuote.data.dstTokenAmount || '0';
+      try {
+        return ethers.formatUnits(amtRaw, decimals);
+      } catch (err) {
+        return '0.00';
+      }
+    }
     if (swapQuote) return swapQuote.outputAmount || '0.00';
 
     return '0.00';
-  }, [actionType, swapQuote, fusionQuote, isGasless, showFusionScreen, selectedBuyAsset, activeQuote.data, activeQuote.source, rangoQuote, fromChainId, isSameAssetSelected]);
+  }, [actionType, swapQuote, fusionQuote, isGasless, showFusionScreen, selectedBuyAsset, activeQuote.data, activeQuote.source, fromChainId, isSameAssetSelected]);
+
+  const conversionRate = useMemo(() => {
+    const sellAmt = parseFloat(sellAmount);
+    const buyAmt = parseFloat(calculatedBuyAmount);
+    if (isNaN(sellAmt) || sellAmt <= 0 || isNaN(buyAmt) || buyAmt <= 0) return '0.00';
+    return (buyAmt / sellAmt).toFixed(6);
+  }, [sellAmount, calculatedBuyAmount]);
 
   const minimumReceived = (() => {
     if (actionType === 'BRIDGE') {
-      if (activeQuote.source === 'rango') return (rangoQuote || activeQuote.data)?.result?.outputAmount || '0.00';
+      if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
+        const q = activeQuote.data;
+        const preset = (q.recommended_preset || 'fast') as keyof FusionQuote['presets'];
+        const presetData = q.presets?.[preset];
+        if (presetData) {
+          const decimals = (selectedBuyAsset as any)?.decimals || 18;
+          try {
+            return ethers.formatUnits(presetData.auctionEndAmount, decimals);
+          } catch {
+            return '0.00';
+          }
+        }
+      }
       if (activeQuote.source === 'bridge') return activeQuote.data?.minimumAmountOut || '0.00';
     }
 
@@ -1362,18 +1380,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       <StellarActiveGuard bypass={!isStellarActivationRequired} onSkip={onClose}>
         <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden">
 
-          {/* Settings Header - Only show for Rango/Bridge */}
-          {((actionType === 'BRIDGE' && activeQuote.source === 'rango') || (actionType === 'SWAP' && swapQuote?.provider === 'RANGO')) && (
-            <div className="flex justify-end mb-1 relative z-10">
-              <button
-                onClick={() => setIsSlippageSettingsOpen(true)}
-                className="p-2 rounded-full bg-tertiary text-muted hover:text-primary hover:bg-white/5 transition-all"
-                title="Slippage Settings"
-              >
-                <Settings size={16} />
-              </button>
-            </div>
-          )}
+
 
           {/* Pay Card */}
           <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
@@ -1473,10 +1480,46 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           </div>
 
           {/* Swap Middle Button */}
-          <div className="flex justify-center -my-4 lg:-my-5  relative  z-10">
-            <button onClick={handleAssetSwap} className="w-10 h-10 md:w-12  md:h-12 rounded-xl bg-secondary flex items-center justify-center shadow-lg hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md">
-              <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500" />
-            </button>
+          <div className="flex justify-center -my-4 lg:-my-5 relative z-10">
+            <div className="relative flex items-center justify-center w-12 h-12 md:w-14 md:h-14">
+              {/* Outer Border Countdown / Loading Progress Ring */}
+              <div className={`absolute inset-0 w-full h-full select-none pointer-events-none ${isQuoteLoading ? 'animate-spin' : ''}`}>
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 56 56">
+                  {/* Background Ring */}
+                  <circle
+                    cx="28"
+                    cy="28"
+                    r="24"
+                    className="stroke-white/5"
+                    strokeWidth="2.5"
+                    fill="transparent"
+                  />
+                  {/* Active Progress Ring */}
+                  <circle
+                    cx="28"
+                    cy="28"
+                    r="24"
+                    className="stroke-brand transition-all duration-1000 origin-center"
+                    strokeWidth="2.5"
+                    fill="transparent"
+                    strokeDasharray={`${2 * Math.PI * 24}`}
+                    strokeDashoffset={
+                      isQuoteLoading
+                        ? 2 * Math.PI * 24 * 0.75 // 25% length indicator when loading
+                        : 2 * Math.PI * 24 * (1 - (timeLeft / 30))
+                    }
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+
+              <button
+                onClick={handleAssetSwap}
+                className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-secondary flex items-center justify-center shadow-lg hover:scale-115 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md border border-white/10 hover:border-brand/40 relative z-10"
+              >
+                <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500" />
+              </button>
+            </div>
           </div>
 
           {/* Receive Card */}
@@ -1527,10 +1570,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-150" />
                         <div className="w-4 h-8 sm:w-6 sm:h-10 bg-white/5 animate-pulse rounded-md delay-200" />
                       </div>
-                    ) : ((swapQuote || activeQuote.data || rangoQuote || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
+                    ) : ((swapQuote || activeQuote.data || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
                   </div>
                 </div>
-                {(swapQuote || activeQuote.data || rangoQuote) && !isSameAssetSelected && (
+                {(swapQuote || activeQuote.data) && !isSameAssetSelected && !isErrorState && (
                   <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full border border-green-500/30 flex items-center justify-center">
                       <div className="w-0.5 h-0.5 rounded-full bg-green-500" />
@@ -1554,16 +1597,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       </span>
 
                       <div className="flex items-center gap-1.5">
-                        {/* Rango */}
-                        {(swapQuote?.provider === 'RANGO' ||
-                          activeQuote.data?.provider === 'RANGO' ||
-                          activeQuote.source === 'rango') && (
-                            <img
-                              src="https://raw.githubusercontent.com/rango-exchange/assets/main/swappers/Across/icon.svg"
-                              className="w-4 h-4 rounded-full"
-                              alt="Rango"
-                            />
-                          )}
+                        {/* Fusion Plus (1inch) */}
+                        {activeQuote.source === 'fusion_plus' && (
+                          <img
+                            src="https://raw.githubusercontent.com/1inch/1inch-contract-metadata/master/images/1inch.png"
+                            className="w-4 h-4 rounded-full"
+                            alt="1inch Fusion+"
+                          />
+                        )}
 
                         {/* Uniswap */}
                         {(swapQuote?.provider === 'UNISWAP' ||
@@ -1577,10 +1618,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           )}
 
                         <span className="text-[11px] font-black text-brand uppercase tracking-wider">
-                          {swapQuote?.provider ||
-                            activeQuote.data?.provider ||
-                            activeQuote.source?.toUpperCase() ||
-                            'UNISWAP'}
+                          {activeQuote.source === 'fusion_plus' ? '1inch Fusion+' :
+                            (swapQuote?.provider ||
+                              activeQuote.data?.provider ||
+                              activeQuote.source?.toUpperCase() ||
+                              'UNISWAP')}
                         </span>
                       </div>
                     </div>
@@ -1591,15 +1633,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   <div className="flex items-center justify-between py-2 border-b border-white/5">
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rate</span>
                     <span className="text-[11px] font-black text-primary truncate ml-2 flex-1 w-0 text-right min-w-0">
-                      1 {sellAssetSymbol} ≈ {actionType === 'SWAP'
-                        ? (isGasless && fusionQuote && showFusionScreen
-                          ? (Number(fusionQuote.prices.usd.fromToken) / Number(fusionQuote.prices.usd.toToken)).toFixed(6)
-                          : isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data
-                            ? (Number(activeQuote.data.estimatedOutput) / Number(activeQuote.data.inputAmount)).toFixed(6)
-                            : portfolioUtils.formatBalance(swapQuote?.pricePerToken || '0'))
-                        : activeQuote.source === 'rango'
-                          ? portfolioUtils.formatBalance((rangoQuote || activeQuote.data)?.result?.outputAmount || '0')
-                          : portfolioUtils.formatBalance(activeQuote.data?.conversionRate || '0')} {buyAssetSymbol}
+                      1 {sellAssetSymbol} ≈ {portfolioUtils.formatBalance(conversionRate)} {buyAssetSymbol}
                     </span>
                   </div>
 
@@ -1609,18 +1643,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     <>
                       <div className="flex items-center justify-between py-2 border-b border-white/5">
                         <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
-                        {swapQuote?.provider === 'RANGO' ? (
-                          <button
-                            onClick={() => setIsSlippageSettingsOpen(true)}
-                            className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
-                          >
-                            {userSlippageTolerance}%
-                          </button>
-                        ) : (
-                          <span className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}>
-                            {isGasless && showFusionScreen ? 'None' : `${userSlippageTolerance}%`}
-                          </span>
-                        )}
+                        <span className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}>
+                          {isGasless && showFusionScreen ? 'None' : `${userSlippageTolerance}%`}
+                        </span>
                       </div>
 
                       <div className="flex items-center justify-between py-2 border-b border-white/5">
@@ -1642,6 +1667,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         )}
                       </div>
 
+                      {!isStellar(fromChainId) && (
+                        <div className="flex items-center justify-between py-2 border-b border-white/5">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted">Gasless Swap</span>
+                          <button
+                            onClick={() => setIsGasless(!isGasless)}
+                            className={`relative w-8 h-4 rounded-full transition-colors ${isGasless ? 'bg-green-500' : 'bg-white/10'}`}
+                          >
+                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${isGasless ? 'translate-x-4' : 'translate-x-0'}`} />
+                          </button>
+                        </div>
+                      )}
+
                       {isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data && (
                         <div className="flex items-center justify-between py-2 border-b border-white/5">
                           <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
@@ -1658,62 +1695,36 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   {/* BRIDGE specific rows */}
                   {actionType === 'BRIDGE' && (
                     <>
-                      {activeQuote.source === 'rango' && (rangoQuote || activeQuote.data)?.result?.swaps?.[0] ? (() => {
-                        const swap = (rangoQuote || activeQuote.data).result.swaps[0];
-                        const networkFee = swap.fee?.find((f: any) => f.name === 'Network Fee');
-                        const rangoFee = swap.fee?.find((f: any) => f.name === 'Rango Fee');
-                        const estimatedSecs = swap.estimatedTimeInSeconds;
+                      {activeQuote.source === 'fusion_plus' && activeQuote.data && (() => {
+                        const q = activeQuote.data;
+                        const preset = (q.recommended_preset || 'fast') as keyof FusionQuote['presets'];
+                        const presetData = q.presets?.[preset];
+                        const totalTime = presetData ? (presetData.startAuctionIn + presetData.auctionDuration) : 180;
+                        const formattedTime = totalTime < 60 ? `${totalTime}s` : `${Math.round(totalTime / 60)} min`;
                         return (
                           <>
+
+
                             <div className="flex items-center justify-between py-2 border-b border-white/5">
-                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Protocol</span>
-                              <div className="flex items-center gap-1.5">
-                                {swap.swapperLogo && <img src={swap.swapperLogo} className="w-4 h-4 rounded-full" alt="" />}
-                                <span className="text-[11px] font-black text-primary">{swap.swapperId}</span>
-                              </div>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
+                              <span className={`text-[11px] font-black ${q.priceImpactPercent > 2 ? 'text-orange-500' : 'text-primary'}`}>
+                                {q.priceImpactPercent ? `${q.priceImpactPercent.toFixed(2)}%` : '—'}
+                              </span>
                             </div>
 
                             <div className="flex items-center justify-between py-2 border-b border-white/5">
-                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Max Slippage</span>
-                              <button
-                                onClick={() => setIsSlippageSettingsOpen(true)}
-                                className="text-[11px] font-black text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-80 transition-all"
-                              >
-                                {userSlippageTolerance}%
-                              </button>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
+                              <span className="text-[11px] font-black text-primary">
+                                ~{formattedTime}
+                              </span>
                             </div>
-
-                            {networkFee && (
-                              <div className="flex items-center justify-between py-2 border-b border-white/5">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">Network Fee</span>
-                                <span className="text-[11px] font-black text-primary">
-                                  ~{Number(networkFee.amount).toFixed(6)} {networkFee.asset.symbol}
-                                </span>
-                              </div>
-                            )}
-
-                            {rangoFee && (
-                              <div className="flex items-center justify-between py-2 border-b border-white/5">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">Rango Fee</span>
-                                <span className="text-[11px] font-black text-primary">
-                                  {Number(rangoFee.amount).toFixed(4)} {rangoFee.asset.symbol}
-                                </span>
-                              </div>
-                            )}
-
-                            {estimatedSecs && (
-                              <div className="flex items-center justify-between py-2 border-b border-white/5">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
-                                <span className="text-[11px] font-black text-primary">
-                                  ~{Math.ceil(estimatedSecs / 60)} min
-                                </span>
-                              </div>
-                            )}
                           </>
                         );
-                      })() : (
+                      })()}
+
+                      {activeQuote.source === 'bridge' && activeQuote.data && (
                         <>
-                          {activeQuote.data?.fee && (activeQuote.data.fee.native || activeQuote.data.fee.stablecoin) && (
+                          {activeQuote.data.fee && (activeQuote.data.fee.native || activeQuote.data.fee.stablecoin) && (
                             <div className="flex items-center justify-between py-2 border-b border-white/5">
                               <span className="text-[10px] font-black uppercase tracking-widest text-muted">Bridge Fee</span>
                               <div className="flex items-center gap-1.5">
@@ -1753,31 +1764,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           <div className="flex items-center justify-between py-2 border-b border-white/5">
                             <span className="text-[10px] font-black uppercase tracking-widest text-muted">Est. Time</span>
                             <span className="text-[11px] font-black text-primary">
-                              ~{activeQuote.data?.completionTime ? Math.max(1, Math.round(activeQuote.data.completionTime / 60000)) : 5} min
+                              ~{activeQuote.data.completionTime ? Math.max(1, Math.round(activeQuote.data.completionTime / 60000)) : 5} min
                             </span>
                           </div>
                         </>
                       )}
                     </>
-                  )}
-                  {/* Gasless toggle row */}
-                  {(!isStellar(fromChainId) && !isStellar(toChainId)) && (
-                    <div className="flex items-center justify-between py-2 border-b border-white/5">
-                      <div className="flex items-center gap-1.5">
-                        <Zap size={10} className={isGasless ? 'fill-green-500 text-green-500' : 'text-muted'} />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">Gasless</span>
-                      </div>
-                      <label className="relative w-9 h-5 cursor-pointer flex-shrink-0">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={isGasless}
-                          onChange={() => setGasless(!isGasless)}
-                        />
-                        <div className="absolute inset-0 rounded-full bg-white/10 border border-white/10 peer-checked:bg-green-500 peer-checked:border-green-500 transition-all duration-200" />
-                        <div className="absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white transition-all duration-200 peer-checked:translate-x-4" />
-                      </label>
-                    </div>
                   )}
                   {/* Min received */}
                   <div className="flex items-center justify-between py-2">
@@ -1795,13 +1787,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
 
           <div className="relative group/action ">
-            <div className={`overflow-hidden transition-all mb-3 mt-3 duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isErrorState && !isLoadingExecution ? 'max-h-40 opacity-100 mb-0' : 'max-h-0 opacity-0 mb-[-12px]'}`}>
-              <div className="bg-red-500/10 border-x border border-red-500/30 rounded-2xl p-4 flex items-center gap-3 relative z-0">
-                <p className="text-[10px] sm:text-xs font-bold text-red-500 uppercase tracking-widest leading-relaxed">
-                  {errorMessage || 'An error occurred. Please check your inputs.'}
-                </p>
-              </div>
-            </div>
+
 
             {/* Pending signing request banner — shown when a wallet prompt is still open */}
             {hasPendingSignRequest && (
@@ -1814,41 +1800,31 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             )}
 
+            {/* Price Impact Warning Banner */}
+            {((swapQuote as any)?.priceImpact > 5 || activeQuote.data?.priceImpact > 5 || activeQuote.data?.priceImpactPercent > 5) && !isLoadingExecution && !isErrorState && (
+              <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-2xl px-4 py-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                <span className="text-red-400 text-base leading-none">⚠️</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-black text-red-400 uppercase tracking-widest">High Price Impact</p>
+                  <p className="text-[11px] text-red-400/70 font-medium mt-0.5">This trade has a price impact of &gt; 5%. Proceed with caution.</p>
+                </div>
+              </div>
+            )}
+
             <ActionGuard
               title="Connect Wallet"
               requiredWallets={requiredWallets}
               disabled={isLoadingExecution}
             >
-              <>
-                {slippageWarning && (
-                  <div className="mb-3 bg-primary border border-blue-500/20 rounded-lg p-3 flex flex-col gap-1.5 relative z-10 shadow-inner-blue-400">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold  uppercase tracking-widest flex items-center gap-1">
-                        High Slippage Risk
-                      </span>
-                      <button
-                        onClick={() => setIsSlippageSettingsOpen(true)}
-                        className="text-[10px] font-black  bg-secondary rounded-md px-4 py-2 hover:opacity-80 transition-all uppercase tracking-widest"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    <span className="text-[11px] text-muted leading-relaxed">
-                      Provider requires <strong>{slippageWarning.recommendedSlippage}%</strong> slippage. Your current setting (<strong>{slippageWarning.userSlippage}%</strong>) may cause the transaction to fail.
-                    </span>
-                  </div>
-                )}
-
-                <TransactionButton
-                  label={buttonLabel}
-                  isLoading={isLoadingExecution}
-                  isDisabled={isSwapDisabled}
-                  isError={!!isErrorState && !isLoadingExecution}
-                  onClick={handleUnifiedSwap}
-                  icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
-                  className={`relative z-10 ${isErrorState && !isLoadingExecution ? ' border-t-red-500/20' : ''}`}
-                />
-              </>
+              <TransactionButton
+                label={buttonLabel}
+                isLoading={isLoadingExecution}
+                isDisabled={isSwapDisabled}
+                isError={!!isErrorState && !isLoadingExecution}
+                onClick={handleUnifiedSwap}
+                icon={isGasless && actionType === 'SWAP' ? <Zap size={20} className="fill-white" /> : undefined}
+                className={`relative z-10 ${isErrorState && !isLoadingExecution ? ' border-t-red-500/20' : ''}`}
+              />
             </ActionGuard>
           </div>
 
@@ -1920,13 +1896,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           />
         )}
 
-        <SlippageSettingsModal
-          isOpen={isSlippageSettingsOpen}
-          onClose={() => setIsSlippageSettingsOpen(false)}
-          userSlippageTolerance={userSlippageTolerance}
-          setUserSlippageTolerance={setUserSlippageTolerance}
-          recommendedSlippage={slippageWarning?.recommendedSlippage}
-        />
+
       </StellarActiveGuard>
     </PageLayout>
   );

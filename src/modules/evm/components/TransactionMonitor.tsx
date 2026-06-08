@@ -57,6 +57,21 @@ export const TransactionMonitor: React.FC = () => {
         monitoredHashes.current.delete(tx.hash);
         return;
       }
+
+      // Skip EVM/Uniswap/1inch/Rango monitoring as requested (poll status from backend, keeping code for future use)
+      const providerUpper = tx.provider?.toUpperCase();
+      const isBypassed = !tx.provider || 
+        providerUpper === 'UNISWAP' || 
+        providerUpper === 'EVMTX' || 
+        providerUpper === 'ONEINCH' || 
+        providerUpper === 'ONEINCH_FUSION' || 
+        providerUpper === 'ONEINCH_FUSION_PLUS' || 
+        providerUpper === 'RANGO';
+      if (isBypassed) {
+        monitoredHashes.current.delete(tx.hash);
+        return;
+      }
+
       try {
         let isSuccess = false;
         let isConfirmed = false;

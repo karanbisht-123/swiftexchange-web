@@ -4,7 +4,6 @@ import type {
   SwapQuote,
   SwapQuoteRequest,
   BuildFusionOrderRequest,
-  FusionOrder,
 } from '../../../types/evm/swap.types';
 
 import { getChainById } from '../utils/Chainregistry';
@@ -24,11 +23,14 @@ const isNativeAddress = (address: string | undefined | null): boolean => {
 const getChainSymbol = (chainId: number | string) => {
   const chain = getChainById(chainId);
 
-  return (
+  const symbol = (
     chain?.symbol ||
     chain?.nativeCurrency.symbol ||
-    'ETH'
+    ''
   ).toUpperCase();
+
+  if (symbol === 'BNB') return 'BSC';
+  return symbol;
 };
 
 // Convert chain symbol for bridge api
@@ -101,23 +103,7 @@ export interface SubmitFusionOrderRequest {
   orderHash?: string;
 }
 
-export interface RangoConfirmRouteRequest {
-  requestId: string;
-  sourceChain: string;
-  destinationChain: string;
-  fromAddress: string;
-  toAddress: string;
-}
 
-export interface RangoCheckApprovalRequest {
-  requestId: string;
-  txId: string;
-}
-
-export interface RangoPrepareTxRequest {
-  requestId: string;
-  swaps: number;
-}
 
 // Get swap endpoint
 const getSwapEndpoint = (
@@ -186,51 +172,7 @@ export async function getSwapQuote(
 
   const { provider, data } = res.data;
 
-  // Handle rango response
-  if (provider === 'RANGO') {
-    const { parseRangoQuoteResponse } =
-      await import('../utils/swapErrorHandler');
 
-    const rangoError =
-      parseRangoQuoteResponse(data);
-
-    if (rangoError) {
-      throw new Error(
-        `${rangoError.title}: ${rangoError.message}`
-      );
-    }
-
-    const result = data.result;
-
-    return {
-      inputAmount:
-        data.requestAmount || request.amount,
-
-      inputToken:
-        data.from?.symbol ||
-        request.tokenIn.symbol,
-
-      outputAmount:
-        result?.outputAmount || '0',
-
-      outputToken:
-        data.to?.symbol ||
-        request.tokenOut.symbol,
-
-      pricePerToken: '0',
-      fee: 0,
-      networkFee: 0,
-
-      poolAddress: '',
-
-      priceImpact:
-        result?.priceImpactUsdPercent || '0',
-
-      rawQuote: data,
-
-      provider: 'RANGO',
-    };
-  }
 
   // Handle normal swap response
   return {
@@ -523,18 +465,33 @@ export async function get1InchFusionQuote(
 
 // Build fusion order
 export async function build1InchFusionOrder(
-  request: BuildFusionOrderRequest
-): Promise<FusionOrder> {
+  request: BuildFusionOrderRequest & { isNative?: boolean }
+): Promise<any> {
   const isCrossChain = !!request.toChain;
-  const endpoint = isCrossChain ? `/swap/1inch/buildFusionPlusOrder` : `/swap/1inch/buildFusionOrder`;
+  let endpoint = isCrossChain ? `/swap/1inch/buildFusionPlusOrder` : `/swap/1inch/buildFusionOrder`;
+
+  if (isCrossChain && request.isNative) {
+    endpoint = `/swap/1inch/buildFusionPlusNativeOrder`;
+  }
 
   let payload: any = request;
   if (isCrossChain) {
-    payload = {
-      quoteId: request.quote.quoteId,
-      walletAddress: request.walletAddress,
-      secretCount: request.secretCount,
-    };
+    if (request.isNative) {
+      payload = {
+        srcChain: request.chain,
+        dstChain: request.toChain,
+        amount: request.amount,
+        srcTokenAddress: request.tokenIn,
+        dstTokenAddress: request.tokenOut,
+        walletAddress: request.walletAddress,
+      };
+    } else {
+      payload = {
+        quoteId: request.quote.quoteId,
+        walletAddress: request.walletAddress,
+        secretCount: request.secretCount,
+      };
+    }
   }
 
   const res =
@@ -558,10 +515,15 @@ export async function build1InchFusionOrder(
 
 // Submit fusion order
 export async function submit1InchFusionOrder(
-  request: SubmitFusionOrderRequest,
-  isCrossChain?: boolean
+  request: any,
+  isCrossChain?: boolean,
+  isNative?: boolean
 ): Promise<any> {
-  const endpoint = isCrossChain ? `/swap/1inch/submitFusionPlusOrder` : `/swap/1inch/submitOrder`;
+  let endpoint = isCrossChain ? `/swap/1inch/submitFusionPlusOrder` : `/swap/1inch/submitOrder`;
+
+  if (isCrossChain && isNative) {
+    endpoint = `/swap/1inch/submitFusionPlusNativeOrder`;
+  }
 
   const res =
     await fetchApiResponseFromProxy<any>(
@@ -576,75 +538,6 @@ export async function submit1InchFusionOrder(
   if (!data) {
     throw new Error(
       'Failed to submit 1inch Fusion order'
-    );
-  }
-
-  return data;
-}
-
-// Confirm rango route
-export async function confirmRangoRoute(
-  payload: RangoConfirmRouteRequest
-): Promise<any> {
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      `/swap/rango/confirm/route`,
-      'POST',
-      payload
-    );
-
-  const data =
-    res.data?.data || res.data;
-
-  if (!data) {
-    throw new Error(
-      'Failed to confirm Rango route'
-    );
-  }
-
-  return data;
-}
-
-// Check rango approval
-export async function checkRangoApproval(
-  payload: RangoCheckApprovalRequest
-): Promise<any> {
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      `/swap/rango/tx/approval`,
-      'POST',
-      payload
-    );
-
-  const data =
-    res.data?.data || res.data;
-
-  if (!data) {
-    throw new Error(
-      'Failed to check Rango approval'
-    );
-  }
-
-  return data;
-}
-
-// Prepare rango tx
-export async function prepareRangoTx(
-  payload: RangoPrepareTxRequest
-): Promise<any> {
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      `/swap/rango/prepare/tx`,
-      'POST',
-      payload
-    );
-
-  const data =
-    res.data?.data || res.data;
-
-  if (!data) {
-    throw new Error(
-      'Failed to prepare Rango transaction'
     );
   }
 

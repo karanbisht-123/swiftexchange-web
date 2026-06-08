@@ -12,7 +12,7 @@ import {
 } from '../service/tokenListService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
-import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap, fetchRangoConfirmRoute, fetchRangoCheckApproval, fetchRangoPrepareTx } from '../utils/evmSwapUtils';
+import { executeSwap, fetchEvmQuote, fetch1InchFusionQuote, execute1InchFusionSwap } from '../utils/evmSwapUtils';
 
 import { rpcManager } from '../utils/rpcProvider';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
@@ -36,7 +36,7 @@ interface UseEvmSwapState {
   quoteLoading: boolean;
   isGasless: boolean;
   fusionQuote: FusionQuote | null;
-  rangoQuote: any | null;
+
   userSlippageTolerance: number;
   recommendedSlippage: string | null;
 }
@@ -70,21 +70,14 @@ interface UseEvmSwapActions {
     buyAsset: TokenInfo,
     sellAmount: string,
     preset?: string,
-    onProgress?: (step: 'approving' | 'signing') => void
+    onProgress?: (step: 'approving' | 'signing') => void,
+    currentFusionQuote?: FusionQuote | null
   ) => Promise<string>;
 
   setGasless: (enabled: boolean) => void;
 
 
-  confirmRangoRoute: (
-    requestId: string,
-    fromChainId: number | string,
-    toChainId: number | string,
-    fromAddress: string,
-    toAddress: string
-  ) => Promise<any>;
-  checkRangoApproval: (requestId: string, txId?: string) => Promise<any>;
-  prepareRangoTx: (requestId: string, swapsIndex?: number) => Promise<any>;
+
   setUserSlippageTolerance: (slippage: number) => void;
   setRecommendedSlippage: (slippage: string | null) => void;
   reset: () => void;
@@ -119,7 +112,7 @@ export const useEvmSwap = ({
     quoteLoading: false,
     isGasless: false,
     fusionQuote: null,
-    rangoQuote: null,
+
     userSlippageTolerance: 1.0,
     recommendedSlippage: null,
   });
@@ -336,7 +329,7 @@ export const useEvmSwap = ({
           slippage: state.userSlippageTolerance.toString(),
         };
 
-        // For Rango routes, add 1% extra slippage buffer directly in the request — no double-fetch needed.
+        // For routes, fetch quote directly
         const quoteResponse = await fetchEvmQuote(chainId, adjustedRequest, sellAsset, buyAsset);
 
         if (requestId !== latestQuoteRequestId.current) {
@@ -346,7 +339,6 @@ export const useEvmSwap = ({
         if (!quoteAbortController.current.signal.aborted) {
           updateState({
             quote: quoteResponse,
-            rangoQuote: quoteResponse.provider === 'RANGO' ? quoteResponse.rawQuote : null,
             quoteLoading: false
           });
         }
@@ -444,7 +436,7 @@ export const useEvmSwap = ({
             } as any).catch(err => console.error('Failed to store swap approval order on backend:', err));
           },
           (swapHash) => {
-            if (quote.provider === 'RANGO' || quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP' || quote.provider === 'ALLBRIDGE') {
+            if (quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP' || quote.provider === 'ALLBRIDGE') {
               storeSwapOrder({
                 txHash: swapHash,
                 walletAddress: senderAddress,
@@ -455,8 +447,7 @@ export const useEvmSwap = ({
                 toToken: buyAsset.symbol,
                 amountIn: sellAmount,
                 amountOut: quote.outputAmount,
-                txType: quote.provider === 'ALLBRIDGE' ? 'Bridge' : quote.provider === 'RANGO' ? 'Contract Call' : 'Swap',
-                ...(quote.provider === 'RANGO' ? { requestId: (quote as any).requestId || (quote.rawQuote as any)?.requestId } : {})
+                txType: quote.provider === 'ALLBRIDGE' ? 'Bridge' : 'Swap',
               } as any).catch(err => console.error('Failed to store swap order on backend:', err));
             } else if (chainId !== 'pubnet' && chainId !== 'testnet' && chainId !== 'stellar') {
               addLocalTransaction({
@@ -600,7 +591,7 @@ export const useEvmSwap = ({
       loading: false,
       quoteLoading: false,
       fusionQuote: null,
-      rangoQuote: null,
+
     });
   }, [updateState]);
 
@@ -608,59 +599,7 @@ export const useEvmSwap = ({
 
 
 
-  const confirmRangoRoute = useCallback(
-    async (
-      requestId: string,
-      fromChainId: number | string,
-      toChainId: number | string,
-      fromAddress: string,
-      toAddress: string
-    ): Promise<any> => {
-      updateState({ loading: true, error: null });
 
-      try {
-        const result = await fetchRangoConfirmRoute(
-          requestId,
-          fromChainId,
-          toChainId,
-          fromAddress,
-          toAddress
-        );
-
-        updateState({ loading: false });
-        return result;
-      } catch (err: any) {
-        const errorMsg = parseSwapError(err);
-        updateState({ error: errorMsg, loading: false });
-        throw new Error(errorMsg);
-      }
-    },
-    [updateState]
-  );
-
-  const checkRangoApprovalAction = useCallback(
-    async (requestId: string, txId: string = ""): Promise<any> => {
-      try {
-        return await fetchRangoCheckApproval(requestId, txId);
-      } catch (err: any) {
-        const errorMsg = parseSwapError(err);
-        throw new Error(errorMsg);
-      }
-    },
-    []
-  );
-
-  const prepareRangoTxAction = useCallback(
-    async (requestId: string, swapsIndex: number = 1): Promise<any> => {
-      try {
-        return await fetchRangoPrepareTx(requestId, swapsIndex);
-      } catch (err: any) {
-        const errorMsg = parseSwapError(err);
-        throw new Error(errorMsg);
-      }
-    },
-    []
-  );
 
   const setGasless = useCallback((enabled: boolean) => {
     updateState({ isGasless: enabled });
@@ -683,9 +622,7 @@ export const useEvmSwap = ({
     performSwap,
     performFusionSwap,
 
-    confirmRangoRoute,
-    checkRangoApproval: checkRangoApprovalAction,
-    prepareRangoTx: prepareRangoTxAction,
+
     setGasless,
     setUserSlippageTolerance,
     setRecommendedSlippage,

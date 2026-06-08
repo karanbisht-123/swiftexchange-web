@@ -83,6 +83,14 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         let fromAddress: string | undefined = tx.from;
         let toAddress: string | undefined = tx.to;
 
+        const providerUpper = tx.provider?.toUpperCase();
+        const isBypassed = !tx.provider || 
+          providerUpper === 'UNISWAP' || 
+          providerUpper === 'EVMTX' || 
+          providerUpper === 'ONEINCH' || 
+          providerUpper === 'ONEINCH_FUSION' || 
+          providerUpper === 'ONEINCH_FUSION_PLUS' || 
+          providerUpper === 'RANGO';
         if (tx.chainId === 'pubnet' || tx.chainId === 'testnet' || tx.chainId === 'stellar') {
           /* Commented out for now to avoid polling Horizon for Stellar transactions
           try {
@@ -104,6 +112,10 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
           }
           */
           return { ...tx, status: tx.status || 'success' };
+        } else if (isBypassed) {
+          // Skip polling on-chain for UNISWAP/EVMTX/ONEINCH/RANGO; status updates come from the backend.
+          // Keeping code for future use.
+          return { ...tx, status: tx.status || 'pending' };
         } else {
 
           const provider = getProvider(WalletType.EVM);

@@ -373,12 +373,16 @@ const OrderBookSwapUI = () => {
                     >
                       <div className="relative">
                         {(() => {
-                          const icon = getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
+                          const icon = fromToken?.icon || getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
                           return (
                             <img
+                              key={fromToken?.code ? `${fromToken.code}-${fromToken.issuer || 'native'}` : 'placeholder'}
                               src={icon || `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`}
                               alt={fromToken?.code}
                               className="w-10 h-10 rounded-full"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`;
+                              }}
                             />
                           );
                         })()}
@@ -433,12 +437,16 @@ const OrderBookSwapUI = () => {
                     >
                       <div className="relative">
                         {(() => {
-                          const icon = getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
+                          const icon = toToken?.icon || getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
                           return (
                             <img
+                              key={toToken?.code ? `${toToken.code}-${toToken.issuer || 'native'}` : 'placeholder'}
                               src={icon || `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`}
                               alt={toToken?.code}
                               className="w-10 h-10 rounded-full"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`;
+                              }}
                             />
                           );
                         })()}

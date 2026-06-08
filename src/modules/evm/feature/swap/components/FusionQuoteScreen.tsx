@@ -205,11 +205,14 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {!txHash && onRefreshQuote && !loading && (
-                <span className="text-[9px] font-black text-muted/60 uppercase tracking-widest">
-                  Refresh in {refreshCountdown}s
-                </span>
+                <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full border border-green-500/30 flex items-center justify-center">
+                    <div className="w-0.5 h-0.5 rounded-full bg-green-500" />
+                  </div>
+                  {`Refreshing in ${refreshCountdown}s`}
+                </div>
               )}
               {!txHash && (
                 <button
