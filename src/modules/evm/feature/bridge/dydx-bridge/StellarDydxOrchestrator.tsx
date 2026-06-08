@@ -1127,6 +1127,30 @@ export const StellarDydxOrchestrator: React.FC = () => {
     evmChains,
   ]);
 
+
+  const stablecoinFeeError = useMemo(() => {
+    if (activeSession) return null;
+    if (isQuoting) return null;
+    if (feePaymentMethod !== FeePaymentMethod.WITH_STABLECOIN) return null;
+    if (!rawQuotes?.bridge?.feeOptions?.stablecoin) return null;
+
+    const bridgedUsdcAmount = isUsdc
+      ? parseFloat(inputAmount || '0')
+      : parseFloat(swapQuote?.estimatedOutput || '0');
+
+    if (isNaN(bridgedUsdcAmount) || bridgedUsdcAmount <= 0) return null;
+
+    const stablecoinFee = Number(rawQuotes.bridge.feeOptions.stablecoin.float || 0);
+    if (bridgedUsdcAmount <= stablecoinFee) {
+      const missingAmount = (stablecoinFee - bridgedUsdcAmount).toFixed(6);
+      return {
+        message: `Bridged USDC amount is not enough to cover the stablecoin bridge fee. You need at least ${(stablecoinFee + 0.01).toFixed(2)} USDC (missing ${missingAmount} USDC).`,
+        suggestion: `Please increase the transfer amount or switch the Bridge Fee Currency to XLM below.`,
+      };
+    }
+    return null;
+  }, [activeSession, isQuoting, feePaymentMethod, rawQuotes, inputAmount, swapQuote, isUsdc]);
+
   const buttonLabel = useMemo(() => {
     if (!evmAddress || !stellarAddress) return 'CONNECT WALLETS';
 
@@ -1157,6 +1181,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (setupError) return 'TRY AGAIN';
     if (hasPendingSession) return 'TRANSFER IN PROGRESS...';
     if (!inputAmount || parseFloat(inputAmount) <= 0) return 'ENTER AMOUNT';
+    if (stablecoinFeeError) return 'AMOUNT TOO SMALL TO COVER FEE';
 
     let requiredBalance = parseFloat(inputAmount);
     if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
@@ -1188,6 +1213,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     hasPendingSession,
     isUsdc,
     rawQuotes,
+    stablecoinFeeError,
   ]);
 
   const isButtonDisabled = useMemo(() => {
@@ -1203,6 +1229,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     if (hasPendingSession) return true;
     if (parseFloat(inputAmount) <= 0) return true;
+    if (stablecoinFeeError) return true;
 
     let requiredBalance = parseFloat(inputAmount);
     if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
@@ -1232,6 +1259,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     hasPendingSession,
     isUsdc,
     rawQuotes,
+    stablecoinFeeError,
   ]);
 
   const customButtonClass = useMemo(() => {
@@ -1695,6 +1723,44 @@ export const StellarDydxOrchestrator: React.FC = () => {
           )}
 
           <div className="pt-2">
+            {stablecoinFeeError && (
+              <div
+                className="rounded-2xl p-4 mb-4 animate-fade-in space-y-2"
+                style={{
+                  background: 'color-mix(in srgb, var(--color-warning, #eab308) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--color-warning, #eab308) 35%, transparent)',
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
+                    style={{ background: 'color-mix(in srgb, var(--color-warning, #eab308) 20%, transparent)' }}
+                  >
+                    <Info size={16} className="text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className="text-[10px] font-black uppercase tracking-widest mb-1 text-amber-500"
+                    >
+                      Insufficient Bridge Amount
+                    </p>
+                    <p
+                      className="text-xs font-bold leading-relaxed break-words"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                    >
+                      {stablecoinFeeError.message}
+                    </p>
+                    <p
+                      className="text-[10px] font-bold mt-1 opacity-80"
+                      style={{ color: 'var(--color-text-muted)' }}
+                    >
+                      {stablecoinFeeError.suggestion}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {(awaitingWalletConfirm || activeSession?.loadingStep) && (
               <div className="bg-brand/10 border border-brand/20 rounded-2xl p-4 flex items-center gap-3 mb-4 animate-pulse">
                 <Wallet size={18} className="text-brand flex-shrink-0" />

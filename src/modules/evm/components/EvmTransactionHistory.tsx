@@ -48,6 +48,31 @@ const formatRelativeTime = (timestamp: number): string => {
   return new Date(timestamp).toLocaleDateString();
 };
 
+const resolveOrderStatus = (status: string | undefined): 'success' | 'failed' | 'pending' => {
+  if (!status) return 'pending';
+  const s = status.toLowerCase();
+  if (s === 'completed' || s === 'executed' || s === 'success') {
+    return 'success';
+  }
+  if (s === 'failed' || s === 'cancelled' || s === 'expired' || s === 'invalid' || s === 'refunded') {
+    return 'failed';
+  }
+  return 'pending';
+};
+
+const isBypassedProvider = (provider: string | undefined | null): boolean => {
+  if (!provider) return true;
+  const p = provider.toUpperCase();
+  return (
+    p === 'UNISWAP' ||
+    p === 'EVMTX' ||
+    p === 'ONEINCH' ||
+    p === 'ONEINCH_FUSION' ||
+    p === 'ONEINCH_FUSION_PLUS' ||
+    p === 'RANGO'
+  );
+};
+
 const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: string }> = ({
   icon,
   title,
@@ -131,10 +156,10 @@ const EvmTransactionHistory: React.FC = () => {
         order.toChain?.toLowerCase() === 'stellar' ||
         (order.walletAddress && order.walletAddress.toUpperCase().startsWith('G') && order.walletAddress.length === 56);
       
-      const isLocalCheckable = order.provider?.toUpperCase() === 'UNISWAP' || order.provider?.toUpperCase() === 'EVMTX';
+      const isLocalCheckable = isBypassedProvider(order.provider);
       const resolvedStatus = isLocalCheckable
-        ? (liveStatusOverrides[order.txHash.toLowerCase()] || (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending'))
-        : (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending');
+        ? (liveStatusOverrides[order.txHash.toLowerCase()] || resolveOrderStatus(order.status))
+        : resolveOrderStatus(order.status);
 
       return !isStellarOrder && resolvedStatus === 'pending';
     });
@@ -156,13 +181,15 @@ const EvmTransactionHistory: React.FC = () => {
   // Other provider statuses must come exclusively from the backend proxy
   useEffect(() => {
     const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) => 
-      (order.provider?.toUpperCase() === 'UNISWAP' || order.provider?.toUpperCase() === 'EVMTX') && 
+      isBypassedProvider(order.provider) && 
       order.status === 'pending' && 
       !liveStatusOverrides[order.txHash.toLowerCase()]
     );
 
     // Limit to the latest 5 pending orders to prevent network/RPC bottleneck
-    const ordersToCheck = pendingOrders?.slice(0, 5);
+    // Disabled polling for UNISWAP/EVMTX transactions on-chain - backend will update the status.
+    // Keeping this code block for future reference.
+    const ordersToCheck = [] as typeof pendingOrders; // pendingOrders?.slice(0, 5);
 
     if (!ordersToCheck || ordersToCheck.length === 0) return;
 
@@ -393,7 +420,7 @@ const EvmTransactionHistory: React.FC = () => {
           type: isBridge ? 'bridge' : 'swap',
           timestamp: new Date(found.createdAt).getTime(),
           description: description,
-          status: found.status === 'completed' ? 'success' : found.status === 'failed' ? 'failed' : 'pending',
+          status: resolveOrderStatus(found.status),
           from: found.walletAddress,
           network: currentNetwork,
           provider: found.provider,
@@ -537,7 +564,10 @@ const EvmTransactionHistory: React.FC = () => {
     if (window.innerWidth < 1024) setIsSheetOpen(true);
 
     if (tx.isBackendOrder && tx.provider) {
-      if (tx.provider.toUpperCase() === 'UNISWAP' || tx.provider.toUpperCase() === 'EVMTX') {
+      const isBypassed = isBypassedProvider(tx.provider);
+      const pollOnChain = false; // Disable on-chain check
+
+      if (isBypassed && pollOnChain) {
         const hashLower = tx.hash.toLowerCase();
         
         // Prevent redundant network requests if already checking or if it is no longer pending
@@ -595,6 +625,11 @@ const EvmTransactionHistory: React.FC = () => {
           }
         };
         checkLocalStatus();
+      } else if (isBypassed) {
+        // Disabled: rely on backend status updates, do not poll on click
+        if (walletAddress) {
+          refreshOrders(walletAddress, 1, 10, false);
+        }
       } else {
         getTransactionStatus({
           walletType: tx.fromChainSymbol || 'ETH',
@@ -705,10 +740,10 @@ const EvmTransactionHistory: React.FC = () => {
 
         if (isStellarOrder) return;
         const chainConfig = findChain(order.fromChain, currentNetwork);
-        const isLocalCheckable = order.provider?.toUpperCase() === 'UNISWAP' || order.provider?.toUpperCase() === 'EVMTX';
+        const isLocalCheckable = isBypassedProvider(order.provider);
         const resolvedStatus = isLocalCheckable
-          ? (liveStatusOverrides[order.txHash.toLowerCase()] || (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending'))
-          : (order.status === 'completed' ? 'success' : order.status === 'failed' ? 'failed' : 'pending');
+          ? (liveStatusOverrides[order.txHash.toLowerCase()] || resolveOrderStatus(order.status))
+          : resolveOrderStatus(order.status);
 
         const isBridge = order.fromChain !== order.toChain;
         const defaultTxType = isBridge ? 'Bridge' : 'Swap';
@@ -1286,7 +1321,11 @@ const EvmTransactionHistory: React.FC = () => {
                   onClose={handleCloseDetails}
                   onRefresh={() => {
                     if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
-                      if ((selectedLocalTx as any).provider.toUpperCase() === 'UNISWAP') {
+                      const providerUpper = (selectedLocalTx as any).provider.toUpperCase();
+                      const isBypassed = isBypassedProvider(providerUpper);
+                      const pollOnChain = false; // Disable on-chain check
+
+                      if (isBypassed && pollOnChain) {
                         const chainConfig = findChain((selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId), currentNetwork);
                         if (chainConfig && chainConfig.rpcUrls?.length) {
                           rpcManager.fetchWithFallback(
@@ -1306,6 +1345,11 @@ const EvmTransactionHistory: React.FC = () => {
                               }).catch(err => console.error('Failed to update Uniswap status in DB:', err));
                             }
                           }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
+                        }
+                      } else if (isBypassed) {
+                        // Disabled: rely on backend status updates, do not poll on refresh
+                        if (walletAddress) {
+                          refreshOrders(walletAddress, 1, 10, false);
                         }
                       } else {
                         getTransactionStatus({
@@ -1354,7 +1398,11 @@ const EvmTransactionHistory: React.FC = () => {
           isSelf={isTxSelf}
           onRefresh={selectedLocalTx ? () => {
             if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
-              if ((selectedLocalTx as any).provider.toUpperCase() === 'UNISWAP') {
+              const providerUpper = (selectedLocalTx as any).provider.toUpperCase();
+              const isBypassed = isBypassedProvider(providerUpper);
+              const pollOnChain = false; // Disable on-chain check
+
+              if (isBypassed && pollOnChain) {
                 const chainConfig = findChain((selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId), currentNetwork);
                 if (chainConfig && chainConfig.rpcUrls?.length) {
                   rpcManager.fetchWithFallback(
@@ -1374,6 +1422,11 @@ const EvmTransactionHistory: React.FC = () => {
                       }).catch(err => console.error('Failed to update Uniswap status in DB:', err));
                     }
                   }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
+                }
+              } else if (isBypassed) {
+                // Disabled: rely on backend status updates, do not poll on refresh
+                if (walletAddress) {
+                  refreshOrders(walletAddress, 1, 10, false);
                 }
               } else {
                 getTransactionStatus({

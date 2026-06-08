@@ -7,18 +7,14 @@ import {
   get1InchFusionQuote,
   build1InchFusionOrder,
   submit1InchFusionOrder,
-  confirmRangoRoute,
-  checkRangoApproval,
-  prepareRangoTx,
 } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
-import { getChainById, getChainRangoSymbol } from './Chainregistry';
+import { getChainById } from './Chainregistry';
 import { parseSwapError } from './swapErrorHandler';
 import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from './assetmanagement/constants';
 import { rpcManager } from './rpcProvider';
 import { getEVMNetworkConfig } from './evmUtils';
 import { simulateSwapTransaction } from '../service/evmSimulationService';
-import { sendEVMTransaction } from '../../../utils/walletConnectUtils';
 
 // Constants
 const LIMIT_ORDER_PROTOCOL = '0x111111125421ca6dc452d289314280a0f8842a65';
@@ -33,20 +29,7 @@ const ERC20_ABI = [
   'function approve(address spender, uint256 amount) returns (bool)',
 ];
 
-// Shared Types
-export interface RangoSlippageWarning {
-  stepIndex: number;
-  stepLabel: string;
-  recommendedSlippage: string;
-  userSlippage: string;
-}
 
-interface RangoCallbacks {
-  setStatus: (status: 'idle' | 'preparing' | 'signing' | 'success' | 'error') => void;
-  setHash: (hash: string) => void;
-  addTransaction: (tx: any) => void;
-  onSlippageWarning?: (warning: RangoSlippageWarning) => void;
-}
 
 // Safely converts a raw string to BigInt, returns 0n on failure.
 function safeValue(raw: string | undefined | null): bigint {
@@ -72,7 +55,10 @@ async function estimateGasWithBuffer(
   try {
     const estimated = await provider.estimateGas(txParams);
     return (estimated * 120n) / 100n;
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message?.includes('execution reverted') || err.info?.error?.message?.includes('execution reverted')) {
+      throw new Error(`Transaction will fail: ${err.info?.error?.message || err.message}`);
+    }
     console.warn('[estimateGasWithBuffer] Failed, letting wallet decide:', err);
     return undefined;
   }
@@ -123,31 +109,7 @@ async function pollForReceipt(
  *   2. Remove the legacy gasPrice fallback line
  *   3. Add chain detection if you want EIP-1559 only on supported chains
  */
-function buildRangoTxParams(tx: any, fallbackFrom: string): Record<string, string> {
-  const params: Record<string, string> = {
-    from: tx.from || fallbackFrom,
-    to: tx.to,
-    data: tx.data || '0x',
-    value: tx.value ? '0x' + BigInt(tx.value).toString(16) : '0x0',
-  };
 
-  if (tx.gasLimit) params.gas = '0x' + BigInt(tx.gasLimit).toString(16);
-
-  // -- EIP-1559 (type 2) gas fields — commented out for wallet compatibility --
-  // Wallets like MetaMask Mobile / Trust Wallet reject type 2 on Polygon (chainId 137).
-  // Uncomment below to re-enable EIP-1559 support when wallet compatibility improves:
-  //
-  // if (tx.maxFeePerGas) params.maxFeePerGas = '0x' + BigInt(tx.maxFeePerGas).toString(16);
-  // if (tx.maxPriorityFeePerGas) params.maxPriorityFeePerGas = '0x' + BigInt(tx.maxPriorityFeePerGas).toString(16);
-  // if (!tx.maxFeePerGas && tx.gasPrice) params.gasPrice = '0x' + BigInt(tx.gasPrice).toString(16);
-  // -------------------------------------------------------------------------
-
-  // Legacy gasPrice fallback — works on ALL wallets and chains
-  const rawGasPrice = tx.gasPrice ?? tx.maxFeePerGas;
-  if (rawGasPrice) params.gasPrice = '0x' + BigInt(rawGasPrice).toString(16);
-
-  return params;
-}
 
 // Approval
 /**
@@ -204,12 +166,13 @@ async function sendApprovalTx(
   spender: string,
   walletAddress: string,
   provider: any,
+  amount: bigint = ethers.MaxUint256,
 ): Promise<string> {
   const ethersProvider = new ethers.BrowserProvider(provider);
   const signer = await ethersProvider.getSigner();
 
   const iface = new ethers.Interface(ERC20_ABI);
-  const data = iface.encodeFunctionData('approve', [spender, ethers.MaxUint256]);
+  const data = iface.encodeFunctionData('approve', [spender, amount]);
 
   // Gas estimation with 20% buffer; fallback to 100k on failure
   let gasLimit: bigint;
@@ -298,7 +261,20 @@ export async function ensureFusionAllowance(
 
   if (!provider) throw new Error('No provider available for approval transaction');
 
-  const approvalTxHash = await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider);
+  if (allowance > 0n && allowance < amountBN) {
+    if (tokenAddress.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7') {
+      await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, 0n);
+    }
+  }
+
+  const approvalTxHash = await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, ethers.MaxUint256);
+
+  const ethersProvider = new ethers.BrowserProvider(provider);
+  const receipt = await pollForReceipt(ethersProvider, approvalTxHash, 2000, 120000);
+  if (receipt && receipt.status === 0) {
+    throw new Error('Fusion approval transaction failed on-chain');
+  }
+
   return { approvalTxHash };
 }
 
@@ -450,7 +426,6 @@ export async function executeSwap(
       // if (tx.maxPriorityFeePerGas) txParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
       // -------------------------------------------------------------------
 
-      // Legacy gasPrice — works on ALL wallets and chains
       const rawGasPrice = tx.gasPrice ?? tx.maxFeePerGas;
       if (rawGasPrice) txParams.gasPrice = BigInt(rawGasPrice);
 
@@ -468,7 +443,7 @@ export async function executeSwap(
         txParams.gasLimit = sim.gasLimit;
       } catch (simError: any) {
         if (simError.message?.includes('Insufficient funds') || simError.message?.includes('insufficient funds')) {
-          throw simError;
+          throw new Error('Insufficient native token balance to cover gas fees.');
         }
         console.warn('[executeSwap] Gas sim failed, trying fallback:', simError.message);
         const apiLimit = safeGasLimit(tx);
@@ -483,24 +458,6 @@ export async function executeSwap(
 
   for (let i = 0; i < txParamsList.length; i++) {
     const tx = txParamsList[i];
-
-    // Pre-transaction Simulation Layer
-    const simResult = await simulateSwapTransaction({
-      networkKey: chainId,
-      from: tx.from as string,
-      to: tx.to as string,
-      data: tx.data as string,
-      value: tx.value?.toString()
-    });
-
-    if (!simResult.canProceed) {
-      const hasAllowanceError = simResult.errors.some(e => e.toLowerCase().includes('allowance') || e.toLowerCase().includes('approval'));
-      if (!(i > 0 && hasAllowanceError)) {
-        const errorDetails = [...simResult.errors, ...simResult.warnings].join(' | ');
-        throw new Error(`Simulation Alert: ${errorDetails}`);
-      }
-    }
-
     const txResponse = await signer.sendTransaction(tx);
     lastTxHash = txResponse.hash;
     const isLast = i === txParamsList.length - 1;
@@ -508,26 +465,8 @@ export async function executeSwap(
 
     if (isLast && onSwapTxHash) {
       onSwapTxHash(lastTxHash);
-    }
-
-    if (isLast) {
-      const receipt = await pollForReceipt(
-        ethersProvider,
-        txResponse.hash,
-        2_000,
-        120_000,
-        () => console.warn('[executeSwap] Final tx taking longer than expected:', lastTxHash),
-      );
-      if (receipt && receipt.status === 0) {
-        throw new Error(`Swap transaction reverted on-chain. Hash: ${lastTxHash}`);
-      }
-    } else {
-      if (onApprovalTxHash) onApprovalTxHash(txResponse.hash);
-      pollForReceipt(ethersProvider, txResponse.hash).then(receipt => {
-        if (!receipt || receipt.status === 0) {
-          console.error(`[executeSwap] Intermediate transaction ${i + 1} failed:`, txResponse.hash);
-        }
-      });
+    } else if (!isLast && onApprovalTxHash) {
+      onApprovalTxHash(txResponse.hash);
     }
   }
 
@@ -582,7 +521,8 @@ export async function execute1InchFusionSwap(
   const isCrossChain = String(chainId) !== String(toChainId);
 
   const chainConfig = getChainById(chainId);
-  const chainSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+  const rawSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+  const chainSymbol = rawSymbol === 'BNB' ? 'BSC' : rawSymbol;
   const amountBN = BigInt(formatAmount(sellAmount, sellAsset.decimals));
 
   onProgress?.('approving');
@@ -614,6 +554,8 @@ export async function execute1InchFusionSwap(
 
   const secretCount = quote.presets?.[preset]?.secretsCount || quote.presets?.[preset]?.secretCount || 1;
 
+  const isSourceNative = sellAsset.isNative || isNativeAddress(sellAsset.address);
+
   const fusionOrder = await build1InchFusionOrder({
     quote,
     tokenIn: normalizedTokenIn,
@@ -623,8 +565,12 @@ export async function execute1InchFusionSwap(
     chain: chainSymbol,
     preset,
     permit: '',
-    toChain: isCrossChain ? (getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH') : undefined,
-    secretCount: isCrossChain ? secretCount : undefined
+    toChain: isCrossChain ? (() => {
+      const symbol = getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+      return symbol === 'BNB' ? 'BSC' : symbol;
+    })() : undefined,
+    secretCount: isCrossChain ? secretCount : undefined,
+    isNative: isSourceNative
   });
 
   const { typedData, extension, orderHash } = fusionOrder;
@@ -636,42 +582,45 @@ export async function execute1InchFusionSwap(
     normalizedTokenOut
   });
 
-  if (!typedData) throw new Error('No typed data received for signing');
-  if (!extension) throw new Error('No extension data received from build order');
   if (!orderHash) throw new Error('No orderHash received from build order');
 
-  console.log('[execute1InchFusionSwap] Requesting signature for typedData:', typedData);
-  const signature: string = await provider.request({
-    method: 'eth_signTypedData_v4',
-    params: [senderAddress, JSON.stringify(typedData)],
-  });
-  if (!signature) throw new Error('Signature cancelled or failed');
-  console.log('[execute1InchFusionSwap] Signature generated:', signature);
+  let submitPayload: any;
 
-  const orderMessage = typedData.message;
-  let submitPayload: any = {
-    chain: chainSymbol,
-    order: {
-      maker: orderMessage.maker,
-      makerAsset: orderMessage.makerAsset,
-      takerAsset: orderMessage.takerAsset,
-      makerTraits: orderMessage.makerTraits,
-      salt: orderMessage.salt,
-      makingAmount: orderMessage.makingAmount,
-      takingAmount: orderMessage.takingAmount,
-      receiver: orderMessage.receiver || senderAddress,
-    },
-    quoteId: quote.quoteId,
-    extension,
-    signature,
-    permit: '',
-    orderHash
-  };
+  if (fusionOrder.transaction) {
+    console.log('[execute1InchFusionSwap] Native order returned a transaction. Broadcasting...');
+    const ethersProvider = new ethers.BrowserProvider(provider);
+    const signer = await ethersProvider.getSigner();
 
-  if (isCrossChain) {
+    const txParams = {
+      from: senderAddress,
+      to: fusionOrder.transaction.to,
+      data: fusionOrder.transaction.data,
+      value: BigInt(fusionOrder.transaction.value || 0),
+    };
+
+    const txResponse = await signer.sendTransaction(txParams);
+    console.log('[execute1InchFusionSwap] Native fusion tx broadcast:', txResponse.hash);
+
+    submitPayload = {
+      orderHash: fusionOrder.orderHash,
+      txHash: txResponse.hash,
+      srcChain: chainSymbol
+    };
+  } else {
+    if (!typedData) throw new Error('No typed data received for signing');
+    if (!extension) throw new Error('No extension data received from build order');
+
+    console.log('[execute1InchFusionSwap] Requesting signature for typedData:', typedData);
+    const signature: string = await provider.request({
+      method: 'eth_signTypedData_v4',
+      params: [senderAddress, JSON.stringify(typedData)],
+    });
+    if (!signature) throw new Error('Signature cancelled or failed');
+    console.log('[execute1InchFusionSwap] Signature generated:', signature);
+
+    const orderMessage = typedData.message;
     submitPayload = {
       chain: chainSymbol,
-      toChain: getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH',
       order: {
         maker: orderMessage.maker,
         makerAsset: orderMessage.makerAsset,
@@ -682,11 +631,36 @@ export async function execute1InchFusionSwap(
         takingAmount: orderMessage.takingAmount,
         receiver: orderMessage.receiver || senderAddress,
       },
-      signature,
-      extension,
       quoteId: quote.quoteId,
+      extension,
+      signature,
+      permit: '',
       orderHash
     };
+
+    if (isCrossChain) {
+      submitPayload = {
+        chain: chainSymbol,
+        toChain: (() => {
+          const symbol = getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+          return symbol === 'BNB' ? 'BSC' : symbol;
+        })(),
+        order: {
+          maker: orderMessage.maker,
+          makerAsset: orderMessage.makerAsset,
+          takerAsset: orderMessage.takerAsset,
+          makerTraits: orderMessage.makerTraits,
+          salt: orderMessage.salt,
+          makingAmount: orderMessage.makingAmount,
+          takingAmount: orderMessage.takingAmount,
+          receiver: orderMessage.receiver || senderAddress,
+        },
+        signature,
+        extension,
+        quoteId: quote.quoteId,
+        orderHash
+      };
+    }
   }
 
   console.log('[execute1InchFusionSwap] Submitting order payload:', submitPayload);
@@ -694,7 +668,7 @@ export async function execute1InchFusionSwap(
   const MAX_RETRIES = 4;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await submit1InchFusionOrder(submitPayload, isCrossChain);
+      await submit1InchFusionOrder(submitPayload, isCrossChain, isSourceNative);
       break;
     } catch (err: any) {
       const msg = err.message?.toLowerCase() ?? '';
@@ -713,452 +687,4 @@ export async function execute1InchFusionSwap(
   }
 
   return orderHash;
-}
-
-// Confirms a Rango cross-chain route before execution.
-export async function fetchRangoConfirmRoute(
-  requestId: string,
-  fromChainId: number | string,
-  toChainId: number | string,
-  fromAddress: string,
-  toAddress: string,
-): Promise<any> {
-  try {
-    return await confirmRangoRoute({
-      requestId,
-      sourceChain: getChainRangoSymbol(fromChainId),
-      destinationChain: getChainRangoSymbol(toChainId),
-      fromAddress,
-      toAddress,
-    });
-  } catch (error: any) {
-    throw new Error(parseSwapError(error));
-  }
-}
-
-// Polls Rango to check if an approval tx has been indexed and accepted.
-export async function fetchRangoCheckApproval(requestId: string, txId = ''): Promise<any> {
-  try {
-    return await checkRangoApproval({ requestId, txId });
-  } catch (error: any) {
-    throw new Error(parseSwapError(error));
-  }
-}
-
-// Fetches a prepared Rango tx for a given step index.
-export async function fetchRangoPrepareTx(requestId: string, swapsIndex = 1): Promise<any> {
-  try {
-    return await prepareRangoTx({ requestId, swaps: swapsIndex });
-  } catch (error: any) {
-    throw new Error(parseSwapError(error));
-  }
-}
-
-export function validateRangoResult(result: any): void {
-  if (!Array.isArray(result?.validationStatus)) return;
-
-  for (const chainStatus of result.validationStatus) {
-    for (const wallet of chainStatus.wallets ?? []) {
-      for (const asset of wallet.requiredAssets ?? []) {
-        if (asset.ok) continue;
-
-        const symbol = asset.asset?.symbol ?? 'token';
-        const blockchain = chainStatus.blockchain ?? '';
-        const required = asset.requiredAmount?.amount ?? 'unknown';
-        const current = asset.currentAmount?.amount ?? '0';
-
-        switch (asset.reason) {
-          case 'FEE':
-            throw new Error(`Insufficient native tokens for gas on ${blockchain}. Need: ${required}, have: ${current}`);
-          case 'INPUT_ASSET':
-            throw new Error(`Insufficient ${symbol}. Need: ${required}, have: ${current}`);
-          case 'FEE_AND_INPUT_ASSET':
-            throw new Error(`Insufficient ${symbol} and native tokens for fees on ${blockchain}.`);
-          default:
-            throw new Error(
-              asset.error ??
-              `Rango validation failed: ${asset.reason ?? 'insufficient balance'} for ${symbol} (need: ${required}, have: ${current})`,
-            );
-        }
-      }
-    }
-  }
-}
-
-export function extractRangoSlippageRecommendations(
-  rangoQuoteResult: any,
-): Array<{ stepIndex: number; stepLabel: string; recommendedSlippage: string }> {
-  const results: Array<{ stepIndex: number; stepLabel: string; recommendedSlippage: string }> = [];
-
-  for (const [idx, swap] of (rangoQuoteResult?.swaps ?? []).entries()) {
-    if (swap?.recommendedSlippage?.slippage != null && !swap.recommendedSlippage.error) {
-      results.push({
-        stepIndex: idx,
-        stepLabel: swap.swapperId ?? `Step ${idx + 1}`,
-        recommendedSlippage: String(swap.recommendedSlippage.slippage),
-      });
-    }
-
-    for (const iSwap of swap?.internalSwaps ?? []) {
-      if (iSwap?.recommendedSlippage?.slippage == null || iSwap.recommendedSlippage.error) continue;
-      const val = String(iSwap.recommendedSlippage.slippage);
-      if (!results.some(r => r.stepIndex === idx && r.recommendedSlippage === val)) {
-        results.push({
-          stepIndex: idx,
-          stepLabel: `${swap.swapperId ?? `Step ${idx + 1}`} › ${iSwap.swapperId}`,
-          recommendedSlippage: val,
-        });
-      }
-    }
-  }
-
-  return results;
-}
-
-// Returns the highest-severity slippage warning across all steps, or null if user's setting is fine.
-export function getRangoSlippageWarning(
-  rangoQuoteResult: any,
-  userSlippage: number,
-): RangoSlippageWarning | null {
-  const recs = extractRangoSlippageRecommendations(rangoQuoteResult);
-  let worst: (typeof recs)[0] | null = null;
-
-  for (const rec of recs) {
-    const val = parseFloat(rec.recommendedSlippage);
-    if (isNaN(val) || val <= (userSlippage + 1)) continue;
-    if (!worst || val > parseFloat(worst.recommendedSlippage)) worst = rec;
-  }
-
-  return worst ? { ...worst, userSlippage: String(userSlippage) } : null;
-}
-
-/**
- * Polls Rango's /checkApproval until isApproved=true or timeout.
- * Resolves true on success, never throws — caller races this against on-chain polling.
- */
-async function pollRangoApprovalStatus(
-  requestId: string,
-  txId: string,
-  timeoutMs: number,
-  intervalMs = 3_000,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, intervalMs));
-    try {
-      const status = await checkRangoApproval({ requestId, txId });
-      if (status?.isApproved) return true;
-    } catch {
-      // Rango API flaky — keep polling
-    }
-  }
-  return false;
-}
-
-async function waitForApprovalConfirmation(
-  ethersProvider: ethers.BrowserProvider,
-  requestId: string,
-  approvalTxHash: string,
-  timeoutMs = 90_000,
-): Promise<boolean> {
-  const rangoRace = pollRangoApprovalStatus(requestId, approvalTxHash, timeoutMs);
-
-  const onChainRace = pollForReceipt(ethersProvider, approvalTxHash, 3_000, timeoutMs).then(
-    (receipt) => {
-      if (receipt && receipt.status === 1) return true;
-      if (receipt && receipt.status === 0) throw new Error(`Approval tx reverted: ${approvalTxHash}`);
-      return false;
-    },
-  );
-  try {
-    return await Promise.any([
-      rangoRace.then(v => { if (!v) throw new Error('not yet'); return true; }),
-      onChainRace.then(v => { if (!v) throw new Error('not yet'); return true; }),
-    ]);
-  } catch {
-    return false;
-  }
-}
-
-let _rangoExecutionLock = false;
-
-/** Call this in the swap component's useEffect cleanup to prevent a stuck lock after navigation. */
-export function resetRangoExecutionLock(): void {
-  _rangoExecutionLock = false;
-}
-
-export async function executeRangoSwap(
-  requestId: string,
-  fromChainId: number | string,
-  evmAddress: string,
-  currentNetwork: string,
-  sellAssetSymbol: string,
-  buyAssetSymbol: string,
-  getProvider: (type: WalletType) => any,
-  callbacks: RangoCallbacks,
-  userSlippage = 1,
-): Promise<void> {
-  if (_rangoExecutionLock) {
-    throw new Error('A Rango swap is already in progress. Please wait.');
-  }
-  _rangoExecutionLock = true;
-
-  try {
-    await _runRangoSteps(
-      requestId, fromChainId, evmAddress, currentNetwork,
-      sellAssetSymbol, buyAssetSymbol, getProvider, callbacks, userSlippage,
-    );
-  } finally {
-    _rangoExecutionLock = false;
-  }
-}
-
-async function _runRangoSteps(
-  requestId: string,
-  fromChainId: number | string,
-  evmAddress: string,
-  currentNetwork: string,
-  sellAssetSymbol: string,
-  buyAssetSymbol: string,
-  getProvider: (type: WalletType) => any,
-  callbacks: RangoCallbacks,
-  userSlippage: number,
-): Promise<void> {
-  const provider = getProvider(WalletType.EVM);
-  if (!provider) throw new Error('EVM wallet not connected');
-
-  const ethersProvider = new ethers.BrowserProvider(provider);
-
-  callbacks.setStatus('preparing');
-
-  // Fetch step 1 to discover total step count
-  const firstRaw = await fetchRangoPrepareTx(requestId, 1);
-  const firstItems: any[] = Array.isArray(firstRaw) ? firstRaw : [firstRaw];
-
-  const firstError = firstItems.find((item: any) => item && !item.ok && item.error);
-  if (firstError) throw new Error(firstError.error);
-
-  const firstResult = firstItems.find((item: any) => item?.ok);
-  if (!firstResult) throw new Error('Rango returned no valid transaction for step 1');
-
-  // Derive stepCount
-  const swapsFromRoute: any[] = firstResult.route?.swaps ?? [];
-  const stepCount = Math.max(1, firstResult.stepsCount ?? swapsFromRoute.length);
-
-  console.log(`[executeRangoSwap] Route has ${stepCount} step(s)`);
-
-  // Process each step
-  for (let step = 1; step <= stepCount; step++) {
-    callbacks.setStatus('preparing');
-
-    const stepRaw = step === 1 ? firstRaw : await fetchRangoPrepareTx(requestId, step);
-    const stepItems: any[] = Array.isArray(stepRaw) ? stepRaw : [stepRaw];
-
-    const stepError = stepItems.find((item: any) => item && !item.ok && item.error);
-    if (stepError) throw new Error(stepError.error);
-
-    const stepResult = stepItems.find((item: any) => item?.ok && item?.transaction);
-    if (!stepResult) throw new Error(`Rango returned no transaction for step ${step}/${stepCount}`);
-
-    const stepTx = stepResult.transaction;
-
-    // Per-step slippage warning
-    const routeSwap = swapsFromRoute[step - 1];
-    if (routeSwap?.recommendedSlippage?.slippage != null && !routeSwap.recommendedSlippage.error) {
-      const recommended = parseFloat(routeSwap.recommendedSlippage.slippage);
-      if (!isNaN(recommended) && recommended > userSlippage) {
-        callbacks.onSlippageWarning?.({
-          stepIndex: step - 1,
-          stepLabel: routeSwap.swapperId ?? `Step ${step}`,
-          recommendedSlippage: String(recommended),
-          userSlippage: String(userSlippage),
-        });
-      }
-    }
-
-    // isApprovalTx check
-    if (stepTx.isApprovalTx) {
-      console.log(`[executeRangoSwap] Step ${step}: approval tx required`);
-      callbacks.setStatus('signing');
-
-      const approvalTxParams = buildRangoTxParams(stepTx, evmAddress);
-
-      const approvalSimResult = await simulateSwapTransaction({
-        networkKey: fromChainId,
-        from: approvalTxParams.from,
-        to: approvalTxParams.to,
-        data: approvalTxParams.data,
-        value: approvalTxParams.value,
-      });
-
-      if (!approvalSimResult.canProceed) {
-        throw new Error(`Simulation Alert: ${[...approvalSimResult.errors, ...approvalSimResult.warnings].join(' | ')}`);
-      }
-
-      // Send approval tx — user signs once in their wallet
-      const approvalTxHash: string = await sendEVMTransaction(provider, fromChainId, approvalTxParams);
-
-      console.log(`[executeRangoSwap] Step ${step}: approval sent`, approvalTxHash);
-
-      callbacks.addTransaction({
-        hash: approvalTxHash,
-        chainId: fromChainId,
-        type: 'approval',
-        timestamp: Date.now(),
-        description: `Approve ${sellAssetSymbol} for Swap (Step ${step}/${stepCount})`,
-        from: evmAddress,
-        status: 'pending',
-        network: currentNetwork,
-      });
-
-      callbacks.setStatus('preparing');
-
-      // Wait for approval
-      const approved = await waitForApprovalConfirmation(
-        ethersProvider,
-        requestId,
-        approvalTxHash,
-        90_000,
-      );
-
-      if (!approved) {
-        throw new Error(
-          `Approval not confirmed within 90s (step ${step}/${stepCount}). ` +
-          `Tx: ${approvalTxHash}`,
-        );
-      }
-
-      console.log(`[executeRangoSwap] Step ${step}: approval confirmed`);
-
-      // Re-fetch the swap tx for this step.
-      // Guard: Rango may still return isApprovalTx=true if it hasn't indexed
-      // the approval yet — retry with backoff until we get a real swap tx.
-      const MAX_REFETCH = 3;
-      let swapTx: any = null;
-
-      for (let attempt = 0; attempt < MAX_REFETCH; attempt++) {
-        const refetchRaw = await fetchRangoPrepareTx(requestId, step);
-        const refetchItems: any[] = Array.isArray(refetchRaw) ? refetchRaw : [refetchRaw];
-
-        const refetchError = refetchItems.find((item: any) => item && !item.ok && item.error);
-        if (refetchError) throw new Error(refetchError.error);
-
-        const refetchResult = refetchItems.find((item: any) => item?.ok && item?.transaction);
-        if (!refetchResult) throw new Error(`No tx returned after approval for step ${step}`);
-
-        if (!refetchResult.transaction.isApprovalTx) {
-          swapTx = refetchResult.transaction;
-          break;
-        }
-
-        // Rango still returning approval tx — indexing lag, wait and retry
-        console.warn(
-          `[executeRangoSwap] Step ${step}: Rango still returning approval tx after confirmation, ` +
-          `waiting 4s (attempt ${attempt + 1}/${MAX_REFETCH})`,
-        );
-        await new Promise(r => setTimeout(r, 4_000));
-      }
-
-      if (!swapTx) {
-        throw new Error(
-          `Rango still returning approval tx after ${MAX_REFETCH} re-fetches for step ${step}. ` +
-          `Approval may not be indexed yet — please retry the swap.`,
-        );
-      }
-
-      // Send the actual swap tx
-      callbacks.setStatus('signing');
-
-      const swapTxParams = buildRangoTxParams(swapTx, evmAddress);
-
-      const swapSimResult = await simulateSwapTransaction({
-        networkKey: fromChainId,
-        from: swapTxParams.from,
-        to: swapTxParams.to,
-        data: swapTxParams.data,
-        value: swapTxParams.value,
-      });
-
-      if (!swapSimResult.canProceed && !swapSimResult.errors.some(e => e.includes('execution will fail'))) {
-        throw new Error(`Simulation Alert: ${[...swapSimResult.errors, ...swapSimResult.warnings].join(' | ')}`);
-      }
-
-      const swapTxHash: string = await sendEVMTransaction(provider, fromChainId, swapTxParams);
-
-      console.log(`[executeRangoSwap] Step ${step}: swap tx sent`, swapTxHash);
-
-      callbacks.setHash(swapTxHash);
-      callbacks.addTransaction({
-        hash: swapTxHash,
-        chainId: fromChainId,
-        type: 'swap',
-        timestamp: Date.now(),
-        description: `Rango Swap: ${sellAssetSymbol} → ${buyAssetSymbol} (Step ${step}/${stepCount})`,
-        from: evmAddress,
-        status: 'pending',
-        network: currentNetwork,
-      });
-
-      // For multi-step routes: confirm this step before proceeding to the next.
-      // The next step's contract needs the output tokens from this step.
-      if (step < stepCount) {
-        callbacks.setStatus('preparing');
-        console.log(`[executeRangoSwap] Step ${step}: waiting for swap tx confirmation before step ${step + 1}`);
-        const receipt = await pollForReceipt(ethersProvider, swapTxHash, 3_000, 120_000);
-        if (!receipt || receipt.status === 0) {
-          throw new Error(
-            `Step ${step} swap tx failed or timed out. Tx: ${swapTxHash}`,
-          );
-        }
-      }
-
-    } else {
-      // No approval needed — send swap tx directly
-      console.log(`[executeRangoSwap] Step ${step}: no approval needed, sending swap directly`);
-      callbacks.setStatus('signing');
-
-      const txParams = buildRangoTxParams(stepTx, evmAddress);
-
-      const simResult = await simulateSwapTransaction({
-        networkKey: fromChainId,
-        from: txParams.from,
-        to: txParams.to,
-        data: txParams.data,
-        value: txParams.value,
-      });
-
-      if (!simResult.canProceed && !simResult.errors.some(e => e.includes('execution will fail'))) {
-        throw new Error(`Simulation Alert: ${[...simResult.errors, ...simResult.warnings].join(' | ')}`);
-      }
-
-      const swapTxHash: string = await sendEVMTransaction(provider, fromChainId, txParams);
-
-      console.log(`[executeRangoSwap] Step ${step}: swap tx sent`, swapTxHash);
-
-      callbacks.setHash(swapTxHash);
-      callbacks.addTransaction({
-        hash: swapTxHash,
-        chainId: fromChainId,
-        type: 'swap',
-        timestamp: Date.now(),
-        description: `Rango Swap: ${sellAssetSymbol} → ${buyAssetSymbol} (Step ${step}/${stepCount})`,
-        from: evmAddress,
-        status: 'pending',
-        network: currentNetwork,
-      });
-
-      if (step < stepCount) {
-        callbacks.setStatus('preparing');
-        console.log(`[executeRangoSwap] Step ${step}: waiting for confirmation before step ${step + 1}`);
-        const receipt = await pollForReceipt(ethersProvider, swapTxHash, 3_000, 120_000);
-        if (!receipt || receipt.status === 0) {
-          throw new Error(
-            `Step ${step} tx failed or timed out. Tx: ${swapTxHash}`,
-          );
-        }
-      }
-    }
-  }
-
-  callbacks.setStatus('success');
 }

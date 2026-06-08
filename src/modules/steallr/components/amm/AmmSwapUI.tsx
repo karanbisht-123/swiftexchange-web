@@ -237,12 +237,16 @@ const AmmSwapUI = () => {
           >
             <div className="relative min-w-[36px]">
               {(() => {
-                const icon = getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
+                const icon = fromToken?.icon || getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
                 return (
                   <img
+                    key={fromToken?.code ? `${fromToken.code}-${fromToken.issuer || 'native'}` : 'placeholder'}
                     src={icon || `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`}
                     className="w-9 h-9 rounded-full bg-tertiary object-cover shadow-sm"
                     alt=""
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`;
+                    }}
                   />
                 );
               })()}
@@ -318,12 +322,16 @@ const AmmSwapUI = () => {
           >
             <div className="relative min-w-[36px]">
               {(() => {
-                const icon = getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
+                const icon = toToken?.icon || getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
                 return (
                   <img
+                    key={toToken?.code ? `${toToken.code}-${toToken.issuer || 'native'}` : 'placeholder'}
                     src={icon || `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`}
                     className="w-9 h-9 rounded-full bg-tertiary object-cover shadow-sm"
                     alt=""
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`;
+                    }}
                   />
                 );
               })()}

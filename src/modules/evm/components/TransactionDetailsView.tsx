@@ -44,7 +44,18 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
   const isLocal = 'type' in transaction;
   const rawStatus = backendStatus?.status || (isLocal ? (transaction as LocalTransactionWithStatus).status : 'success');
-  const status = rawStatus === 'completed' ? 'success' : rawStatus;
+  const getStatusType = (s: string | undefined): 'success' | 'failed' | 'pending' => {
+    if (!s) return 'pending';
+    const lower = s.toLowerCase();
+    if (lower === 'completed' || lower === 'executed' || lower === 'success') {
+      return 'success';
+    }
+    if (lower === 'failed' || lower === 'cancelled' || lower === 'expired' || lower === 'invalid' || lower === 'refunded') {
+      return 'failed';
+    }
+    return 'pending'; // created, pending, partially_filled, refunding, etc.
+  };
+  const status = getStatusType(rawStatus);
   const type = isLocal ? (transaction as LocalTransactionWithStatus).type : 'transaction';
   const description = isLocal ? (transaction as LocalTransactionWithStatus).description : null;
 
