@@ -96,7 +96,7 @@ const Sidebar: FC = () => {
     },
     {
       href: ROUTES.BRIDGE,
-      label: 'Bridge',
+      label: 'SDEX Bridge',
       icon: <ArrowRightLeft className="w-5 h-5" />,
     },
     {

@@ -106,12 +106,12 @@ const EvmTransactionHistory: React.FC = () => {
 
   const defaultView: ViewType = hasEvm ? 'recent' : (hasStellar || hasCosmos) ? 'recent' : 'recent';
   const tabParam = searchParams.get('tab');
-  const initialView: ViewType = tabParam === 'stellar' 
-    ? 'stellar' 
-    : tabParam === 'recent' 
-      ? 'recent' 
-      : tabParam && !isNaN(Number(tabParam)) 
-        ? Number(tabParam) 
+  const initialView: ViewType = tabParam === 'stellar'
+    ? 'stellar'
+    : tabParam === 'recent'
+      ? 'recent'
+      : tabParam && !isNaN(Number(tabParam))
+        ? Number(tabParam)
         : defaultView;
 
   const [selectedView, setSelectedView] = useState<ViewType>(initialView);
@@ -155,7 +155,7 @@ const EvmTransactionHistory: React.FC = () => {
         order.fromChain?.toLowerCase() === 'stellar' ||
         order.toChain?.toLowerCase() === 'stellar' ||
         (order.walletAddress && order.walletAddress.toUpperCase().startsWith('G') && order.walletAddress.length === 56);
-      
+
       const isLocalCheckable = isBypassedProvider(order.provider);
       const resolvedStatus = isLocalCheckable
         ? (liveStatusOverrides[order.txHash.toLowerCase()] || resolveOrderStatus(order.status))
@@ -180,9 +180,9 @@ const EvmTransactionHistory: React.FC = () => {
   // Actively check on-chain transaction receipt ONLY for pending Uniswap backend orders
   // Other provider statuses must come exclusively from the backend proxy
   useEffect(() => {
-    const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) => 
-      isBypassedProvider(order.provider) && 
-      order.status === 'pending' && 
+    const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) =>
+      isBypassedProvider(order.provider) &&
+      order.status === 'pending' &&
       !liveStatusOverrides[order.txHash.toLowerCase()]
     );
 
@@ -217,8 +217,8 @@ const EvmTransactionHistory: React.FC = () => {
             if (!isConfirmed) {
               if (!chainConfig || !chainConfig.rpcUrls?.length) continue;
               const receipt = await rpcManager.fetchWithFallback(
-                chainConfig.chainId, 
-                chainConfig.rpcUrls, 
+                chainConfig.chainId,
+                chainConfig.rpcUrls,
                 async (provider) => provider.getTransactionReceipt(order.txHash)
               );
 
@@ -296,11 +296,11 @@ const EvmTransactionHistory: React.FC = () => {
         } catch (err: any) {
           console.error('Failed to poll Skip status for dYdX deposit:', err);
           if (err?.message?.toLowerCase().includes('not found')) {
-             const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
-             if (timeElapsed > 60 * 60 * 1000) {
-                setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
-             }
+            const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
+            if (timeElapsed > 60 * 60 * 1000) {
+              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
+              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
+            }
           }
         }
       }
@@ -382,7 +382,6 @@ const EvmTransactionHistory: React.FC = () => {
       return;
     }
 
-    // 1. Check in backend orders first
     if (backendOrders?.data) {
       const found = backendOrders.data.find(
         (order: SwapOrder) => order.txHash.toLowerCase() === txHashFromUrl.toLowerCase()
@@ -392,7 +391,7 @@ const EvmTransactionHistory: React.FC = () => {
         const isBridge = found.fromChain !== found.toChain;
         const defaultTxType = isBridge ? 'Bridge' : 'Swap';
         let description = `${defaultTxType} ${found.fromToken} \u2192 ${found.toToken}`;
-        
+
         if (found.txType) {
           if (found.txType.toLowerCase().includes('approval')) {
             description = `Approve ${found.fromToken}`;
@@ -406,8 +405,8 @@ const EvmTransactionHistory: React.FC = () => {
           }
         }
 
-        const normalized: LocalTransactionWithStatus & { 
-          provider?: string; 
+        const normalized: LocalTransactionWithStatus & {
+          provider?: string;
           isBackendOrder?: boolean;
           fromChainSymbol?: string;
           amountIn?: string;
@@ -437,8 +436,6 @@ const EvmTransactionHistory: React.FC = () => {
           if (processedHashRef.current !== txHashFromUrl) {
             setSelectedView(targetView);
           } else {
-            // The user changed selectedView manually away from targetView, so ignore/return
-            // and do not reset the view or transaction state.
             return;
           }
         }
@@ -569,10 +566,10 @@ const EvmTransactionHistory: React.FC = () => {
 
       if (isBypassed && pollOnChain) {
         const hashLower = tx.hash.toLowerCase();
-        
+
         // Prevent redundant network requests if already checking or if it is no longer pending
         if (checkingHashes.current.has(hashLower) || liveStatusOverrides[hashLower] || tx.status !== 'pending') {
-            return;
+          return;
         }
 
         checkingHashes.current.add(hashLower);
@@ -712,11 +709,11 @@ const EvmTransactionHistory: React.FC = () => {
           tx.chainId === 'testnet' ||
           tx.chainId === 'stellar' ||
           (tx.from && tx.from.toUpperCase().startsWith('G') && tx.from.length === 56);
-        
+
         if (isStellarTx) return;
 
-        const normalized: LocalTransactionWithStatus & { 
-          provider?: string; 
+        const normalized: LocalTransactionWithStatus & {
+          provider?: string;
           isBackendOrder?: boolean;
           fromChainSymbol?: string;
           amountIn?: string;
@@ -747,7 +744,7 @@ const EvmTransactionHistory: React.FC = () => {
 
         const isBridge = order.fromChain !== order.toChain;
         const defaultTxType = isBridge ? 'Bridge' : 'Swap';
-        
+
         let description = `${defaultTxType} ${order.fromToken} \u2192 ${order.toToken}`;
         if (order.txType) {
           if (order.txType.toLowerCase().includes('approval')) {
@@ -762,8 +759,8 @@ const EvmTransactionHistory: React.FC = () => {
           }
         }
 
-        const normalized: LocalTransactionWithStatus & { 
-          provider?: string; 
+        const normalized: LocalTransactionWithStatus & {
+          provider?: string;
           isBackendOrder?: boolean;
           fromChainSymbol?: string;
           amountIn?: string;
@@ -869,10 +866,10 @@ const EvmTransactionHistory: React.FC = () => {
       let bottomToken = '';
       if ((tx as any).isBackendOrder) {
         const num = Number((tx as any).amountIn);
-        topAmount = isNaN(num) 
-          ? ((tx as any).amountIn || '') 
-          : num < 0.000001 
-            ? '< 0.000001' 
+        topAmount = isNaN(num)
+          ? ((tx as any).amountIn || '')
+          : num < 0.000001
+            ? '< 0.000001'
             : num.toFixed(4).replace(/\.?0+$/, '');
         bottomToken = (tx as any).fromToken || '';
       } else {
@@ -906,13 +903,12 @@ const EvmTransactionHistory: React.FC = () => {
       return (
         <div
           key={tx.hash}
-          className={`w-full p-3 rounded-lg flex items-center justify-between transition-all group text-left ${
-            isSelected
+          className={`w-full p-3 rounded-lg flex items-center justify-between transition-all group text-left ${isSelected
               ? 'bg-secondary border border-transparent'
               : isPending
-              ? 'bg-primary hover:bg-tertiary/50 border border-yellow-500/10 hover:border-yellow-500/30'
-              : 'bg-primary hover:bg-tertiary/50 border border-transparent hover:border-color'
-          }`}
+                ? 'bg-primary hover:bg-tertiary/50 border border-yellow-500/10 hover:border-yellow-500/30'
+                : 'bg-primary hover:bg-tertiary/50 border border-transparent hover:border-color'
+            }`}
         >
           <button
             onClick={() => handleLocalTxClick(tx)}
@@ -920,13 +916,12 @@ const EvmTransactionHistory: React.FC = () => {
           >
             <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0">
               <div
-                className={`w-full h-full rounded-full flex items-center justify-center border overflow-hidden bg-primary ${
-                  tx.status === 'pending'
+                className={`w-full h-full rounded-full flex items-center justify-center border overflow-hidden bg-primary ${tx.status === 'pending'
                     ? 'border-yellow-500/40'
                     : tx.status === 'success'
-                    ? 'border-green-500/20'
-                    : 'border-red-500/20'
-                }`}
+                      ? 'border-green-500/20'
+                      : 'border-red-500/20'
+                  }`}
               >
                 {assetLogo ? (
                   <img src={assetLogo} alt={assetSymbol} className="w-full h-full object-cover rounded-full" />
@@ -977,8 +972,8 @@ const EvmTransactionHistory: React.FC = () => {
                 {tx.status === 'pending' && (txProvider === 'SKIP' || txProvider === 'SRBTODYDX')
                   ? 'Bridging'
                   : tx.status === 'pending' && txProvider === 'DYDX'
-                  ? 'Settling'
-                  : tx.status}
+                    ? 'Settling'
+                    : tx.status}
               </span>
               {!isFusion && (
                 <a
@@ -1025,21 +1020,19 @@ const EvmTransactionHistory: React.FC = () => {
               <div className="flex bg-tertiary rounded-lg p-0.5 gap-0.5 border border-color">
                 <button
                   onClick={() => setShowPendingOnly(false)}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${
-                    !showPendingOnly
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${!showPendingOnly
                       ? 'bg-primary text-secondary shadow-sm'
                       : 'text-muted hover:text-primary'
-                  }`}
+                    }`}
                 >
                   All
                 </button>
                 <button
                   onClick={() => setShowPendingOnly(true)}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 ${
-                    showPendingOnly
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 ${showPendingOnly
                       ? 'bg-primary text-yellow-500 shadow-sm border border-yellow-500/10'
                       : 'text-muted hover:text-primary'
-                  }`}
+                    }`}
                 >
                   Pending
                   <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" />

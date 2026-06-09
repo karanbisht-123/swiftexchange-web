@@ -95,6 +95,7 @@ interface SwapAssetsProps {
 
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const { connectedWallets, getProvider } = useWalletConnect();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const locationState = location.state as { selectedAsset?: any; isPerp?: boolean };

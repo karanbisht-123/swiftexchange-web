@@ -137,30 +137,15 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
   const getSubStepStatePill = (state: string) => {
     switch (state) {
       case 'TRANSFER_SUCCESS':
-        return {
-          label: 'Success',
-          className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-        };
+        return { label: 'Success', className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
       case 'TRANSFER_RECEIVED':
-        return {
-          label: 'Finalizing',
-          className: 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse',
-        };
+        return { label: 'Finalizing', className: 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse' };
       case 'TRANSFER_PENDING':
-        return {
-          label: 'Pending',
-          className: 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse',
-        };
+        return { label: 'Pending', className: 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse' };
       case 'TRANSFER_FAILURE':
-        return {
-          label: 'Failed',
-          className: 'bg-rose-500/10 text-rose-500 border-rose-500/20',
-        };
+        return { label: 'Failed', className: 'bg-rose-500/10 text-rose-500 border-rose-500/20' };
       default:
-        return {
-          label: 'Waiting',
-          className: 'bg-white/5 text-muted border-divider',
-        };
+        return { label: 'Waiting', className: 'bg-white/5 text-muted border-divider' };
     }
   };
 
@@ -223,6 +208,21 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
           ? isSessionUsdc ? 1 : 2
           : 3;
 
+  // Helper: get the tx info for a given step id
+  const getStepTx = (stepId: string) => {
+    if (stepId === 'SWAP') return session.swapTx;
+    if (stepId === 'BRIDGE') return session.bridgeTx;
+    return session.depositTx;
+  };
+
+  const getStepExplorerUrl = (stepId: string) => {
+    if (stepId === 'SWAP')
+      return `https://stellar.expert/explorer/${currentNetwork === 'testnet' ? 'testnet' : 'public'}/tx/${session.swapTx.hash}`;
+    if (stepId === 'BRIDGE')
+      return `https://core.allbridge.io/explorer/transfer/${session.bridgeTx.hash}`;
+    return getExplorerUrl(session.destinationChainId, 'tx', session.depositTx.hash || '');
+  };
+
   return (
     <div className="bg-tertiary/90 backdrop-blur-2xl rounded-b-[3rem] mx-1 -mt-10 pt-12 pb-12 px-6 shadow-[0_10px_40px_-15px_rgba(0,0,0,0.4)] animate-slide-up relative z-0 overflow-hidden">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-64 bg-brand/5 blur-[120px] pointer-events-none opacity-60" />
@@ -239,16 +239,14 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
           <div className="absolute top-4 left-[15px] bottom-4 w-0 border-l-2 border-dotted border-divider" />
 
           {steps.map((s, i) => {
-            const stepTxStatus = s.id === 'SWAP'
-              ? session.swapTx.status
-              : s.id === 'BRIDGE'
-                ? session.bridgeTx.status
-                : session.depositTx.status;
+            const stepTx = getStepTx(s.id);
+            const stepTxStatus = stepTx.status;
             const isActive = i === currentStepIndex;
             const isCompleted = stepTxStatus === 'SUCCESS' || i < currentStepIndex;
             const isStepPending = stepTxStatus === 'PENDING';
             const isFailed = stepTxStatus === 'FAILED';
             const isLocked = i > currentStepIndex && !stepTxStatus;
+            const explorerUrl = stepTx.hash ? getStepExplorerUrl(s.id) : null;
 
             return (
               <div
@@ -305,25 +303,19 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
                       )}
                     </div>
 
-                    {((s.id === 'SWAP' && session.swapTx.hash) ||
-                      (s.id === 'BRIDGE' && session.bridgeTx.hash) ||
-                      (s.id === 'DEPOSIT' && session.depositTx.hash)) && (
-                        <a
-                          href={
-                            s.id === 'SWAP'
-                              ? `https://stellar.expert/explorer/${currentNetwork === 'testnet' ? 'testnet' : 'public'}/tx/${session.swapTx.hash}`
-                              : s.id === 'BRIDGE'
-                                ? `https://core.allbridge.io/explorer/transfer/${session.bridgeTx.hash}`
-                                : getExplorerUrl(session.destinationChainId, 'tx', session.depositTx.hash || '')
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[8px] font-black text-brand/60 hover:text-brand flex items-center gap-1 transition-colors uppercase tracking-widest flex-shrink-0"
-                        >
-                          Explorer <ExternalLink size={8} />
-                        </a>
-                      )}
+                    {/* FIX: Single explorer link in header — removed duplicate in body */}
+                    {explorerUrl && (
+                      <a
+                        href={explorerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[8px] font-black text-brand/60 hover:text-brand flex items-center gap-1 transition-colors uppercase tracking-widest flex-shrink-0"
+                      >
+                        Explorer <ExternalLink size={8} />
+                      </a>
+                    )}
                   </div>
+
                   <p className="text-[10px] font-bold text-muted leading-relaxed max-w-[280px]">
                     {s.description}
                   </p>
@@ -371,7 +363,7 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
 
                             return (
                               <div key={idx} className="flex flex-col gap-1.5 animate-fade-in">
-                                <div className="flex items-center justify-between gap-4 group/sub">
+                                <div className="flex items-center justify-between gap-4">
                                   <div className="flex items-center gap-2.5">
                                     <div
                                       className={`w-2 h-2 rounded-full ${isStepSuccess
@@ -404,26 +396,6 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
                           })}
                         </div>
                       )}
-
-                      {((s.id === 'SWAP' && session.swapTx.hash) ||
-                        (s.id === 'BRIDGE' && session.bridgeTx.hash) ||
-                        (s.id === 'DEPOSIT' && session.depositTx.hash)) && (
-                          <a
-                            href={
-                              s.id === 'SWAP'
-                                ? `https://stellar.expert/explorer/${currentNetwork === 'testnet' ? 'testnet' : 'public'}/tx/${session.swapTx.hash}`
-                                : s.id === 'BRIDGE'
-                                  ? `https://core.allbridge.io/explorer/transfer/${session.bridgeTx.hash}`
-                                  : getExplorerUrl(session.destinationChainId, 'tx', session.depositTx.hash || '')
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-[8px] font-black text-brand/60 hover:text-brand transition-colors uppercase tracking-widest mt-2"
-                          >
-                            <ExternalLink size={10} />
-                            <span>View on {s.id === 'DEPOSIT' ? 'EVM ' : ''}Explorer</span>
-                          </a>
-                        )}
                     </div>
                   )}
                 </div>
@@ -814,11 +786,19 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
   setSessionToClear,
 }) => {
   const chain = evmChains.find(c => c.chainId === session.destinationChainId);
-  const isPendingOnChain =
-    (session.swapTx?.hash && session.swapTx?.status === 'PENDING') ||
-    (session.bridgeTx?.hash && session.bridgeTx?.status === 'PENDING') ||
-    (session.depositTx?.hash && session.depositTx?.status === 'PENDING');
-  const isSafeToClear = !isPendingOnChain;
+
+  // FIX: A session is only safe to clear when there are no on-chain pending txs
+  // AND it's not in a state where action is required but a tx is already in-flight.
+  // Previously: DEPOSIT phase with bridgeTx=SUCCESS but no depositTx hash was
+  // incorrectly considered "safe to clear" since no hash = no pending check.
+  const hasPendingOnChain =
+    session.bridgeTx?.status === 'PENDING' ||
+    session.depositTx?.status === 'PENDING';
+
+  const hasUnrecoverableFunds =
+    (session.phase === 'DEPOSIT' && session.bridgeTx?.status === 'SUCCESS' && !session.depositTx?.hash);
+
+  const isSafeToClear = !hasPendingOnChain && !hasUnrecoverableFunds;
 
   const getStepLabel = () => {
     if (session.phase === 'SWAP') return 'Swapping';
@@ -842,7 +822,7 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0 flex flex-col gap-1">
           <div className="flex items-center gap-1.5">
-            {isPendingOnChain ? (
+            {hasPendingOnChain ? (
               <RefreshCw size={11} className="text-brand animate-spin" style={{ animationDuration: '2s' }} />
             ) : (
               <Clock size={11} className="text-brand" />
@@ -876,21 +856,21 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
               {session.inputTokenSymbol !== 'USDC' && (
                 <>
                   <div
-                    className="w-1.2 h-1.2 rounded-full transition-colors"
+                    className="w-1.5 h-1.5 rounded-full transition-colors"
                     style={{
                       background: session.swapTx?.status === 'SUCCESS'
                         ? 'var(--color-success)'
                         : session.phase === 'SWAP'
                           ? 'var(--color-brand)'
                           : 'var(--color-text-muted)',
-                      opacity: session.phase === 'SWAP' ? 1 : 0.4,
+                      opacity: session.phase === 'SWAP' ? 1 : (session.swapTx?.status === 'SUCCESS' ? 1 : 0.3),
                     }}
                   />
                   <div className="w-2 h-0" style={{ borderTop: '1px dashed var(--color-border)' }} />
                 </>
               )}
               <div
-                className="w-1.2 h-1.2 rounded-full transition-colors"
+                className="w-1.5 h-1.5 rounded-full transition-colors"
                 style={{
                   background: session.bridgeTx?.status === 'SUCCESS'
                     ? 'var(--color-success)'
@@ -902,7 +882,7 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
               />
               <div className="w-2 h-0" style={{ borderTop: '1px dashed var(--color-border)' }} />
               <div
-                className="w-1.2 h-1.2 rounded-full transition-colors"
+                className="w-1.5 h-1.5 rounded-full transition-colors"
                 style={{
                   background: session.depositTx?.status === 'SUCCESS'
                     ? 'var(--color-success)'
@@ -966,7 +946,7 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
 
           {!isSafeToClear && (
             <span className="text-[7px] font-black uppercase tracking-wider text-right block mt-0.5" style={{ color: 'color-mix(in srgb, var(--color-danger) 70%, transparent)' }}>
-              ⚠ Pending on-chain
+              {hasUnrecoverableFunds ? '⚠ Funds need deposit' : '⚠ Pending on-chain'}
             </span>
           )}
         </div>
@@ -1127,7 +1107,6 @@ export const StellarDydxOrchestrator: React.FC = () => {
     evmChains,
   ]);
 
-
   const stablecoinFeeError = useMemo(() => {
     if (activeSession) return null;
     if (isQuoting) return null;
@@ -1200,20 +1179,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     return 'START BRIDGE';
   }, [
-    evmAddress,
-    stellarAddress,
-    activeSession,
-    setupError,
-    inputAmount,
-    tokenBalance,
-    nativeBalance,
-    feePaymentMethod,
-    isQuoting,
-    evmChains,
-    hasPendingSession,
-    isUsdc,
-    rawQuotes,
-    stablecoinFeeError,
+    evmAddress, stellarAddress, activeSession, setupError, inputAmount, tokenBalance,
+    nativeBalance, feePaymentMethod, isQuoting, evmChains, hasPendingSession, isUsdc,
+    rawQuotes, stablecoinFeeError,
   ]);
 
   const isButtonDisabled = useMemo(() => {
@@ -1248,18 +1216,9 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     return false;
   }, [
-    evmAddress,
-    stellarAddress,
-    activeSession,
-    inputAmount,
-    tokenBalance,
-    nativeBalance,
-    feePaymentMethod,
-    isQuoting,
-    hasPendingSession,
-    isUsdc,
-    rawQuotes,
-    stablecoinFeeError,
+    evmAddress, stellarAddress, activeSession, inputAmount, tokenBalance,
+    nativeBalance, feePaymentMethod, isQuoting, hasPendingSession, isUsdc,
+    rawQuotes, stablecoinFeeError,
   ]);
 
   const customButtonClass = useMemo(() => {
@@ -1310,13 +1269,11 @@ export const StellarDydxOrchestrator: React.FC = () => {
         dismissSession(activeSession.id);
       }
       setActiveSessionId(null);
-      return;
     }
   };
 
   const routeBreakdown = useMemo(() => {
     if (activeSession) return null;
-
     if (!bridgeQuote && !depositQuote && !swapQuote) return null;
     const stellarConfig = getStellarConfig(currentNetwork);
 
@@ -1357,9 +1314,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
         label: 'Bridge',
         value: `Stellar → ${destinationChain?.name}`,
         fee: `${bridgeFee} ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? 'USDC' : 'XLM'}`,
-        amount: bridgeQuote.amountToBeReceived
-          ? portfolioUtils.formatBalance(bridgeQuote.amountToBeReceived)
-          : '',
+        amount: bridgeQuote.amountToBeReceived ? portfolioUtils.formatBalance(bridgeQuote.amountToBeReceived) : '',
         time: `${bridgeTime}m`,
         icon: USDC_LOGO_URL,
         chainIcon: stellarConfig.logoUrl,
@@ -1373,9 +1328,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
         label: 'Bridge',
         value: `${destinationChain?.name} → dYdX`,
         fee: `$${rawFee.toFixed(4)}`,
-        amount: depositQuote.receivedAmount
-          ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString())
-          : '',
+        amount: depositQuote.receivedAmount ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString()) : '',
         time: `${depositTime}m`,
         icon: USDC_LOGO_URL,
         chainIcon: destinationChain?.logoURI,
@@ -1385,9 +1338,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
         label: 'Settled',
         value: 'dYdX Account',
         fee: '---',
-        amount: depositQuote.receivedAmount
-          ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString())
-          : '',
+        amount: depositQuote.receivedAmount ? portfolioUtils.formatBalance(depositQuote.receivedAmount.toString()) : '',
         icon: USDC_LOGO_URL,
         chainIcon: DYDX_LOGO_URL,
         status: 'pending',
@@ -1396,15 +1347,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     return { items, totalTime: bridgeTime + depositTime };
   }, [
-    activeSession,
-    bridgeQuote,
-    depositQuote,
-    swapQuote,
-    inputToken,
-    destinationChain,
-    currentNetwork,
-    stellarAssets,
-    feePaymentMethod,
+    activeSession, bridgeQuote, depositQuote, swapQuote, inputToken, destinationChain,
+    currentNetwork, stellarAssets, feePaymentMethod,
   ]);
 
   const activeChain = activeSession
@@ -1624,21 +1568,15 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-secondary bg-bg-primary flex items-center justify-center p-0.5 shadow-sm">
                       {displayState.bottom.network === 'DYDX' ? (
                         <div className="w-full h-full bg-black rounded-full flex items-center justify-center p-1">
-                          <img
-                            src={DYDX_LOGO_URL}
-                            className="w-full h-full object-contain"
-                            alt=""
-                          />
+                          <img src={DYDX_LOGO_URL} className="w-full h-full object-contain" alt="" />
                         </div>
                       ) : (
                         <img
-                          src={
-                            getChainById(
-                              displayState.bottom.network === 'STELLAR'
-                                ? STELLAR_CHAIN_ID
-                                : activeChain?.chainId || 42161
-                            )?.logoURI
-                          }
+                          src={getChainById(
+                            displayState.bottom.network === 'STELLAR'
+                              ? STELLAR_CHAIN_ID
+                              : activeChain?.chainId || 42161
+                          )?.logoURI}
                           className="w-full h-full object-contain"
                           alt=""
                         />
@@ -1690,10 +1628,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           )}
 
           {activeSession && (
-            <SessionRoadmap
-              session={activeSession}
-              evmChains={evmChains}
-            />
+            <SessionRoadmap session={activeSession} evmChains={evmChains} />
           )}
 
           {!activeSession && routeBreakdown && (
@@ -1739,21 +1674,13 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     <Info size={16} className="text-amber-500" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p
-                      className="text-[10px] font-black uppercase tracking-widest mb-1 text-amber-500"
-                    >
+                    <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-amber-500">
                       Insufficient Bridge Amount
                     </p>
-                    <p
-                      className="text-xs font-bold leading-relaxed break-words"
-                      style={{ color: 'var(--color-text-secondary)' }}
-                    >
+                    <p className="text-xs font-bold leading-relaxed break-words" style={{ color: 'var(--color-text-secondary)' }}>
                       {stablecoinFeeError.message}
                     </p>
-                    <p
-                      className="text-[10px] font-bold mt-1 opacity-80"
-                      style={{ color: 'var(--color-text-muted)' }}
-                    >
+                    <p className="text-[10px] font-bold mt-1 opacity-80" style={{ color: 'var(--color-text-muted)' }}>
                       {stablecoinFeeError.suggestion}
                     </p>
                   </div>
@@ -1923,7 +1850,6 @@ export const StellarDydxOrchestrator: React.FC = () => {
                       Your USDC is being transferred to {activeChain?.name}. The deposit step will unlock automatically when funds arrive — you can safely close this tab and return later.
                     </p>
                     {activeSession.bridgeTx.hash && (
-
                       <a
                         href={`https://core.allbridge.io/explorer/transfer/${activeSession.bridgeTx.hash}`}
                         target="_blank"
@@ -1979,7 +1905,10 @@ export const StellarDydxOrchestrator: React.FC = () => {
           if (s.id === activeSessionId) return false;
           if (s.phase === 'DONE') return false;
           const hasPending = s.swapTx?.status === 'PENDING' || s.bridgeTx?.status === 'PENDING' || s.depositTx?.status === 'PENDING';
-          const needsAction = s.phase === 'DEPOSIT' && !s.depositTx?.hash;
+          const needsAction =
+            (s.phase === 'DEPOSIT' && !s.depositTx?.hash) ||
+            (s.phase === 'BRIDGE' && !s.bridgeTx?.hash) ||
+            (s.phase === 'SWAP' && !s.swapTx?.hash);
           return hasPending || needsAction || !!s.error;
         }).length > 0 && (
             <div className="space-y-3 mt-4 border-t border-divider/40 pt-4">
@@ -1991,7 +1920,10 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     s.swapTx?.status === 'PENDING' ||
                     s.bridgeTx?.status === 'PENDING' ||
                     s.depositTx?.status === 'PENDING';
-                  const needsAction = s.phase === 'DEPOSIT' && !s.depositTx?.hash;
+                  const needsAction =
+                    (s.phase === 'DEPOSIT' && !s.depositTx?.hash) ||
+                    (s.phase === 'BRIDGE' && !s.bridgeTx?.hash) ||
+                    (s.phase === 'SWAP' && !s.swapTx?.hash);
                   return hasPending || needsAction || !!s.error;
                 });
                 const displayedSessions = showAllSessions ? otherSessions : otherSessions.slice(0, 2);

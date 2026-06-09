@@ -24,6 +24,9 @@ export interface ConnectedWallet {
   address: string;
   chainId?: string | number;
   dydxAddress?: string;
+  peerName?: string;
+  peerIcon?: string;
+  peerRedirect?: { native?: string; universal?: string; linkMode?: boolean };
 }
 
 interface WalletConnectionStatus {
@@ -109,6 +112,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
                 ? session.cosmosChainId
                 : session.stellarChainId,
           dydxAddress: session.dydxAddress,
+          peerName: session.peerName,
+          peerIcon: session.peerIcon,
+          peerRedirect: session.peerRedirect,
         };
 
         const keepModalOpen = type === 'evm' && !session.dydxAddress;
@@ -156,6 +162,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             address: result.evm.evmAddress!,
             chainId: result.evm.evmChainId,
             dydxAddress: result.evm.dydxAddress,
+            peerName: result.evm.peerName,
+            peerIcon: result.evm.peerIcon,
+            peerRedirect: result.evm.peerRedirect,
           };
           statusUpdates.evm = { state: 'connected' };
         }
@@ -166,6 +175,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             walletId,
             address: result.stellar.stellarAddress!,
             chainId: result.stellar.stellarChainId,
+            peerName: result.stellar.peerName,
+            peerIcon: result.stellar.peerIcon,
+            peerRedirect: result.stellar.peerRedirect,
           };
           statusUpdates.stellar = { state: 'connected' };
         }
@@ -313,6 +325,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
                   ? s.cosmosChainId
                   : s.stellarChainId,
             dydxAddress: s.dydxAddress,
+            peerName: s.peerName,
+            peerIcon: s.peerIcon,
+            peerRedirect: s.peerRedirect,
           };
           status[s.type] = { state: 'connected' };
         });
@@ -412,6 +427,9 @@ export const initWalletListener = async () => {
                   ? session.cosmosChainId
                   : session.stellarChainId,
             dydxAddress: session.dydxAddress,
+            peerName: session.peerName,
+            peerIcon: session.peerIcon,
+            peerRedirect: session.peerRedirect,
           };
 
           const pingAt = walletService.getLastPingAt(type);

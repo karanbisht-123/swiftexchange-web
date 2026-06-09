@@ -9,7 +9,8 @@ const ALL_WALLETS = [...EVM_WALLETS, ...COSMOS_WALLETS, ...STELLAR_WALLETS];
 const WALLETCONNECT_ICON =
   'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU';
 
-function getWalletIcon(walletId: string, type: string): string {
+function getWalletIcon(walletId: string, type: string, peerIcon?: string): string {
+  if (peerIcon) return peerIcon;
   const match = ALL_WALLETS.find(w => w.id === walletId && w.type === type);
   if (match) return match.icon;
   if (walletId === 'walletconnect') return WALLETCONNECT_ICON;
@@ -89,11 +90,11 @@ export const ConnectWalletButton: React.FC = () => {
                 border: '2px solid var(--color-bg-tertiary)',
               }}
               className="w-7 h-7 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0"
-              title={conn.walletId}
+              title={conn.peerName || conn.walletId}
             >
               <img
-                src={getWalletIcon(conn.walletId, type)}
-                alt={conn.walletId}
+                src={getWalletIcon(conn.walletId, type, conn.peerIcon)}
+                alt={conn.peerName || conn.walletId}
                 className="w-full h-full object-contain rounded-full"
                 onError={e => {
                   e.currentTarget.style.display = 'none';
@@ -178,7 +179,7 @@ export const ConnectWalletButton: React.FC = () => {
 
             <div className="overflow-y-auto max-h-72 scrollbar-thin">
               {validConnectedWallets.map(([type, conn]) => {
-                const icon = getWalletIcon(conn.walletId, type);
+                const icon = getWalletIcon(conn.walletId, type, conn.peerIcon);
                 const typeLabel = type === 'evm' ? 'EVM' : type === 'cosmos' ? 'Cosmos' : 'Stellar';
 
                 return (
@@ -193,7 +194,7 @@ export const ConnectWalletButton: React.FC = () => {
                     >
                       <img
                         src={icon}
-                        alt={conn.walletId}
+                        alt={conn.peerName || conn.walletId}
                         className="w-7 h-7 object-contain rounded-full"
                         onError={e => {
                           e.currentTarget.style.display = 'none';
@@ -220,7 +221,7 @@ export const ConnectWalletButton: React.FC = () => {
                           {typeLabel}
                         </span>
                         <span style={{ color: 'var(--color-text-muted)' }} className="text-xs">
-                          · {conn.walletId}
+                          · {conn.peerName || conn.walletId}
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
