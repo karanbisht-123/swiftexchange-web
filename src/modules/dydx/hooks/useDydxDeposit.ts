@@ -20,6 +20,7 @@ import {
   dydxToNoble,
   fetchDydxWalletUsdcBalance,
 } from '../utils/skipBridgeUtils';
+import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
 import { useTransactionStore, getCurrentDepositTx } from '../hooks/useTransactionTracker';
 import { type NotificationType } from '../../../components/common/Notification';
 
@@ -107,7 +108,6 @@ export const useDydxDeposit = () => {
       isNative?: boolean,
       decimals?: number
     ): Promise<DepositRoute | null> => {
-      // Stellar assets go through the CCTP panel, not Skip route
       const chainId = evmChainId ?? (useWalletStore.getState().connectedWallets.evm?.chainId as number | string ?? 1);
       if (chainId === 'pubnet' || chainId === 'testnet') return null;
 
@@ -180,6 +180,15 @@ export const useDydxDeposit = () => {
         // Stellar assets are handled by the CCTP panel — never send them through Skip
         if (chainId === 'pubnet' || chainId === 'testnet') {
           throw new Error('Stellar deposits must use the CCTP bridge panel.');
+        }
+
+        const evmProvider = walletService.getProvider('evm');
+        if (evmProvider) {
+          try {
+            await switchOrAddChain(evmProvider, chainId);
+          } catch (switchErr: any) {
+            throw new Error(`Failed to switch network: ${switchErr.message}`);
+          }
         }
 
         setStep('routing');

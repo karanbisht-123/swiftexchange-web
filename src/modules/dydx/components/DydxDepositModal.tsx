@@ -249,10 +249,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (initialAsset && initialAsset.chainId !== 'pubnet' && initialAsset.chainId !== 'testnet') {
+    const isDydxChain = (cid: any) => typeof cid === 'string' && cid.startsWith('dydx-');
+    if (initialAsset && initialAsset.chainId !== 'pubnet' && initialAsset.chainId !== 'testnet' && !isDydxChain(initialAsset.chainId)) {
       setSelectedAsset(initialAsset);
     } else if (assets.length > 0 && !selectedAsset) {
-      const evmAssets = assets.filter(a => a.chainId !== 'pubnet' && a.chainId !== 'testnet');
+      const evmAssets = assets.filter(a => a.chainId !== 'pubnet' && a.chainId !== 'testnet' && !isDydxChain(a.chainId));
       const evmBalAssets = evmAssets.filter(a => (a.balance || 0) > 0);
       const candidates = evmBalAssets.length > 0 ? evmBalAssets : evmAssets;
       const usdc = candidates.find(a => a.symbol.toUpperCase() === 'USDC');
@@ -325,6 +326,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const filteredAssets = useMemo(() => {
     let result = assets.filter(a => {
       if (a.chainId === 'pubnet' || a.chainId === 'testnet') return false;
+      if (typeof a.chainId === 'string' && a.chainId.startsWith('dydx-')) return false;
       if (selectedNetwork !== 'all' && a.chainId !== selectedNetwork) return false;
       if ((a.balance || 0) <= 0) return false;
       return true;
@@ -603,6 +605,18 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               className="w-full py-3 btn btn-primary rounded-xl font-semibold text-[15px]"
             >
               {tracker.overallState === 'STATE_COMPLETED_SUCCESS' ? 'Done' : 'Dismiss & Retry'}
+            </button>
+          )}
+
+          {!trackerTxHash && currentDepositTx && (
+            <button
+              onClick={() => {
+                handleDismissTracker();
+                setModalStep('form');
+              }}
+              className="w-full py-3 rounded-xl border border-color text-sm text-danger hover:bg-danger/10 transition-colors font-semibold"
+            >
+              Cancel & Clear Transaction
             </button>
           )}
 

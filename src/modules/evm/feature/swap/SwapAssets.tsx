@@ -95,6 +95,7 @@ interface SwapAssetsProps {
 
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const { connectedWallets, getProvider } = useWalletConnect();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const locationState = location.state as { selectedAsset?: any; isPerp?: boolean };
@@ -136,9 +137,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     loading: boolean;
   }>({ source: null, data: null, error: null, loading: false });
 
-  const [bridgeTxStatus, setBridgeTxStatus] = useState<'idle' | 'preparing' | 'signing' | 'success' | 'error'>('idle');
-  const [, setBridgeTxHash] = useState<string | null>(null);
-  const [bridgeErrorMsg, setBridgeErrorMsg] = useState<string | null>(null);
+  const bridgeTxStatus = useSwapStore((s) => s.pendingTxStatus);
+  const bridgeErrorMsg = useSwapStore((s) => s.pendingTxErrorMsg);
+  const setBridgeTxStatus = useSwapStore((s) => s.setPendingTxStatus);
+  const setBridgeErrorMsg = useSwapStore((s) => s.setPendingTxErrorMsg);
+  const setPendingTxFromChainId = useSwapStore((s) => s.setPendingTxFromChainId);
   const [crossChainWarning, setCrossChainWarning] = useState<string | null>(null);
 
   const [ammService, setAmmService] = useState<AmmSwapService | null>(null);
@@ -187,7 +190,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   });
 
   useEffect(() => {
-    // Determine initial chain/asset from URL or location state
     let initialFromChainId: number | string | null = null;
     let initialToChainId: number | string | null = null;
     let initialSellSymbol = '';
@@ -239,7 +241,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (initialBuyAddr) setBuyAssetAddress(initialBuyAddr);
   }, []);
 
-  // Sync Zustand store settings to hook state on change
   useEffect(() => {
     hookSetUserSlippageTolerance(userSlippageTolerance);
   }, [userSlippageTolerance, hookSetUserSlippageTolerance]);
@@ -255,7 +256,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [fusionStatus, setFusionStatus] = useState<'idle' | 'approving' | 'signing'>('idle');
   const fusionInputChangeRef = useRef<number>(0);
   const isSubmittingRef = useRef(false);
-  const [hasPendingSignRequest, setHasPendingSignRequest] = useState(false);
+  const swapAbortRef = useRef<AbortController | null>(null);
+  const [isWaitingForWallet, setIsWaitingForWallet] = useState(false);
+  const clearPendingTx = useSwapStore((s) => s.clearPendingTx);
+  const [showRecoveryBanner, setShowRecoveryBanner] = useState(() => {
+    return useSwapStore.getState().pendingTxStatus === 'signing';
+  });
+
+  useEffect(() => {
+    return () => { swapAbortRef.current?.abort(); };
+  }, []);
+  useEffect(() => {
+    useSwapStore.getState().clearPendingTx();
+  }, []);
 
   const fromChainConfig = getChainById(fromChainId);
   const toChainConfig = getChainById(toChainId);
@@ -326,6 +339,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     const hasLocationAsset = !!locationState?.selectedAsset;
 
     if (!hasFromParam && !hasToParam && !hasLocationAsset) {
+      const stored = useSwapStore.getState();
+      const storedFrom = stored.fromChainId;
+      const storedTo = stored.toChainId;
+      const hasStoredPair =
+        String(storedFrom) !== '1' ||
+        String(storedTo) !== '1' ||
+        isStellar(storedFrom) ||
+        isStellar(storedTo);
+
+      if (hasStoredPair) {
+        hasInitializedDefaults.current = true;
+        return;
+      }
+
       if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
         setFromChainId(currentChainId);
         setToChainId(currentChainId);
@@ -364,7 +391,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   useEffect(() => {
     resetSwap();
     setBridgeTxStatus('idle');
-    setBridgeTxHash(null);
+    useSwapStore.getState().setPendingTxHash(null);
     setActiveQuote({ source: null, data: null, error: null, loading: false });
     setCrossChainWarning(null);
     setBridgeErrorMsg(null);
@@ -508,7 +535,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           if (bestBuy.address !== buyAssetAddress) setBuyAssetAddress(bestBuy.address || '');
         }
       } else {
-        // Cross-chain swap/bridge: validate buy asset against destination chain tokens
         let destTokens: any[] = [];
         if (isStellar(toChainId)) {
           destTokens = stellarAssets;
@@ -699,6 +725,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setShowFusionScreen(false);
   }, []);
 
+  const setSwapProgressStatus = useCallback((status: 'approving' | 'signing') => {
+    setBridgeTxStatus(status === 'signing' ? 'signing' : 'preparing');
+    setFusionStatus(status);
+  }, [setBridgeTxStatus]);
+
   const isInsufficientBalance = useMemo(() => {
     if (!sellAmount || !selectedSellAsset) return false;
     let requiredBalance = parseFloat(sellAmount);
@@ -743,8 +774,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   }, [actionType, activeQuote.data]);
 
   const isErrorState = !!(swapError || isInsufficientBalance || hasInsufficientStellarGas || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
+  const isLoadingExecution = actionType === 'SWAP'
+    ? (isStellar(fromChainId)
+      ? ['preparing', 'signing'].includes(bridgeTxStatus)
+      : (swapLoading || isFusionLoading || bridgeTxStatus === 'signing'))
+    : ['preparing', 'signing'].includes(bridgeTxStatus);
 
-  const isLoadingExecution = actionType === 'SWAP' ? (isStellar(fromChainId) ? ['preparing', 'signing'].includes(bridgeTxStatus) : (swapLoading || isFusionLoading)) : ['preparing', 'signing'].includes(bridgeTxStatus);
+  const executionLoadingLabel = bridgeTxStatus === 'signing'
+    ? 'CHECK WALLET...'
+    : 'BUILDING ORDER...';
 
   const errorMessage = useMemo(() => {
     if (bridgeTxStatus === 'error' || bridgeErrorMsg) return bridgeErrorMsg || 'Transaction failed. Please try again.';
@@ -874,13 +912,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const handleReset = useCallback(() => {
     resetSwap();
-    setBridgeTxHash(null);
-    setBridgeTxStatus('idle');
+    useSwapStore.getState().clearPendingTx();
     setActiveQuote({ source: null, data: null, error: null, loading: false });
     setCrossChainWarning(null);
-    setBridgeErrorMsg(null);
     setSellAmount('');
     setShowFusionScreen(false);
+    setShowRecoveryBanner(false);
   }, [resetSwap]);
 
   const handleAssetSwap = useCallback(() => {
@@ -903,6 +940,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (!sellAmount) return;
     if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
+    swapAbortRef.current?.abort();
+    const abortCtrl = new AbortController();
+    swapAbortRef.current = abortCtrl;
+    const { signal } = abortCtrl;
+    const checkAborted = () => {
+      if (signal.aborted) throw new DOMException('Swap aborted', 'AbortError');
+    };
 
     const executeSwapFlow = async () => {
       if (isGasless && !isStellar(fromChainId) && !isStellar(toChainId)) {
@@ -937,27 +981,32 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             const tx = await ammService.buildSwapTransaction(stellarAddress, activeQuote.data, {
               slippageTolerance: userSlippageTolerance
             });
+            checkAborted();
             setBridgeTxStatus('signing');
-            setHasPendingSignRequest(true);
+            setPendingTxFromChainId(fromChainId);
             const provider = getProvider(WalletType.STELLAR) as any;
-            const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
-            setHasPendingSignRequest(false);
-            handleReset();
-            showToast({
-              type: 'STELLAR',
-              title: 'Swap Transaction Sent',
-              message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
-            });
-            if (hash) {
-              useTransactionModalStore.getState().openModal({
-                status: 'success',
-                type: 'Swap',
-                hash,
-                isStellar: true,
+            setIsWaitingForWallet(true);
+            try {
+              const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
+              handleReset();
+              showToast({
+                type: 'STELLAR',
+                title: 'Swap Transaction Sent',
+                message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
               });
+              if (hash) {
+                useTransactionModalStore.getState().openModal({
+                  status: 'success',
+                  type: 'Swap',
+                  hash,
+                  isStellar: true,
+                });
+              }
+            } finally {
+              setIsWaitingForWallet(false);
             }
           } catch (err) {
-            setHasPendingSignRequest(false);
+            if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
             console.error('Stellar swap execution failed:', err);
             const errMsg = parseSwapError(err);
             setBridgeErrorMsg(errMsg);
@@ -975,9 +1024,19 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             return;
           }
           try {
-            setHasPendingSignRequest(true);
-            const hash = await performSwap(swapQuote, selectedSellAsset as any, selectedBuyAsset as any, sellAmount, userSlippageTolerance);
-            setHasPendingSignRequest(false);
+            const onBeforeSign = () => {
+              checkAborted();
+              setBridgeTxStatus('signing');
+              setIsWaitingForWallet(true);
+            };
+            const hash = await performSwap(
+              swapQuote,
+              selectedSellAsset as any,
+              selectedBuyAsset as any,
+              sellAmount,
+              userSlippageTolerance,
+              onBeforeSign,
+            );
             handleReset();
             showToast({
               type: 'EVM_SWAP',
@@ -995,12 +1054,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               });
             }
           } catch (err) {
-            setHasPendingSignRequest(false);
+            if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
             console.error('Swap execution failed:', err);
             setBridgeErrorMsg(parseWalletError(err));
             resetLoadingState();
             setBridgeTxStatus('error');
             showToast({ type: 'EVM_SWAP', title: 'Swap Failed', message: parseWalletError(err), dontSave: true });
+          } finally {
+            setIsWaitingForWallet(false);
           }
         }
       } else {
@@ -1024,14 +1085,23 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               messenger: Messenger.ALLBRIDGE,
               slippageTolerance: userSlippageTolerance
             });
+            // Gate: if user navigated away while building the XDR, stop here.
+            checkAborted();
             setBridgeTxStatus('signing');
+            setPendingTxFromChainId(fromChainId);
             const provider = getProvider(WalletType.STELLAR) as any;
-            const result = await signAndSubmitTransaction({
-              xdr,
-              network: currentNetwork,
-              networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
-              provider
-            });
+            setIsWaitingForWallet(true);
+            let result: Awaited<ReturnType<typeof signAndSubmitTransaction>>;
+            try {
+              result = await signAndSubmitTransaction({
+                xdr,
+                network: currentNetwork,
+                networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
+                provider
+              });
+            } finally {
+              setIsWaitingForWallet(false);
+            }
 
             if (result.success) {
               const txHash = result.hash || undefined;
@@ -1077,8 +1147,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 selectedBuyAsset as any,
                 sellAmount,
                 preset,
-                (status) => setBridgeTxStatus(status as any),
-                currentQuote
+                setSwapProgressStatus,
+                currentQuote,
+                () => {
+                  checkAborted()
+                  setBridgeTxStatus('signing');
+                  setIsWaitingForWallet(true);
+                },
               );
               handleReset();
               showToast({
@@ -1097,12 +1172,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 });
               }
             } catch (err) {
+              if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
               console.error('Fusion Plus cross-chain swap failed:', err);
               const errMsg = parseWalletError(err);
               setBridgeErrorMsg(errMsg);
               resetLoadingState();
               setBridgeTxStatus('error');
               showToast({ type: 'EVM_SWAP', title: 'Bridge Failed', message: errMsg, dontSave: true });
+            } finally {
+              setIsWaitingForWallet(false);
             }
           } else if (activeQuote.source === 'bridge' && activeQuote.data) {
             const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
@@ -1119,17 +1197,24 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               destinationToken: buyAssetSymbol,
               slippageTolerance: userSlippageTolerance
             });
-
+            checkAborted();
             const provider = getProvider(WalletType.EVM) as any;
             let transferHash: string | undefined = undefined;
             for (const tx of bridgeResponse.transactions) {
-              setBridgeTxStatus(tx.type === 'approve' ? 'preparing' : 'signing');
-              const hash = await sendEVMTransaction(provider, fromChainId, {
-                from: tx.transaction.from,
-                to: tx.transaction.to,
-                value: `0x${BigInt(tx.transaction.value).toString(16)}`,
-                data: tx.transaction.data,
-              });
+              setBridgeTxStatus('signing');
+              setPendingTxFromChainId(fromChainId);
+              setIsWaitingForWallet(true);
+              let hash: string;
+              try {
+                hash = await sendEVMTransaction(provider, fromChainId, {
+                  from: tx.transaction.from,
+                  to: tx.transaction.to,
+                  value: `0x${BigInt(tx.transaction.value).toString(16)}`,
+                  data: tx.transaction.data,
+                });
+              } finally {
+                setIsWaitingForWallet(false);
+              }
               if (tx.type === 'approve') {
                 storeSwapOrder({
                   txHash: hash,
@@ -1146,7 +1231,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               }
               if (tx.type === 'transfer') {
                 transferHash = hash;
-                setBridgeTxHash(hash);
+                useSwapStore.getState().setPendingTxHash(hash);
                 storeSwapOrder({
                   txHash: hash,
                   walletAddress: evmAddress,
@@ -1179,6 +1264,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             }
           }
         } catch (err: any) {
+          if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
           console.error('Bridge failed:', err);
           const errMsg = parseWalletError(err);
           setBridgeErrorMsg(errMsg);
@@ -1193,6 +1279,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       setBridgeErrorMsg(null);
       setBridgeTxStatus('preparing');
       await executeSwapFlow();
+    } catch (err) {
+      if ((err as any)?.name !== 'AbortError') throw err;
+      resetLoadingState();
     } finally {
       isSubmittingRef.current = false;
     }
@@ -1200,7 +1289,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     actionType, swapQuote, selectedSellAsset, selectedBuyAsset, sellAmount, userSlippageTolerance, performSwap, evmAddress,
     stellarAddress, activeQuote, fromChainId, toChainId, ammService, getProvider,
     isGasless, performFusionSwap, feePayType, sellAssetSymbol, buyAssetSymbol, currentNetwork,
-    resetLoadingState
+    resetLoadingState, setSwapProgressStatus
   ]);
   const handleChainSelectInModal = useCallback(async (newChainId: number | string, isSource: boolean) => {
     const finalFromId = isSource ? newChainId : fromChainId;
@@ -1375,6 +1464,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     } catch (err) { return calculatedBuyAmount; }
   })();
 
+  const signingWallet = isStellar(fromChainId)
+    ? connectedWallets[WalletType.STELLAR]
+    : connectedWallets[WalletType.EVM];
+
   return (
     <PageLayout title="Token Swap" subtitle="Swap & Bridge" onBack={onClose} showBackButton={!!onClose} maxWidth="lg">
       <StellarActiveGuard bypass={!isStellarActivationRequired} onSkip={onClose}>
@@ -1505,7 +1598,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     strokeDasharray={`${2 * Math.PI * 24}`}
                     strokeDashoffset={
                       isQuoteLoading
-                        ? 2 * Math.PI * 24 * 0.75 // 25% length indicator when loading
+                        ? 2 * Math.PI * 24 * 0.75
                         : 2 * Math.PI * 24 * (1 - (timeLeft / 30))
                     }
                     strokeLinecap="round"
@@ -1787,16 +1880,42 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
 
           <div className="relative group/action ">
+            {bridgeTxStatus === 'preparing' && !isWaitingForWallet && !showRecoveryBanner && (
+              <div className="flex items-center gap-2 bg-blue-500/8 border border-blue-500/20 rounded-2xl px-4 py-2.5 mb-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                <span className="text-blue-400 text-sm leading-none animate-spin">⟳</span>
+                <p className="text-[11px] font-semibold text-blue-400/80">
+                  Building your swap order — please wait, do not close this window.
+                </p>
+              </div>
+            )}
 
-
-            {/* Pending signing request banner — shown when a wallet prompt is still open */}
-            {hasPendingSignRequest && (
+            {(isWaitingForWallet || showRecoveryBanner) && (
               <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                <span className="text-amber-400 text-base leading-none">⏳</span>
+                {signingWallet?.peerIcon ? (
+                  <img
+                    src={signingWallet.peerIcon}
+                    alt={signingWallet.peerName || 'Wallet'}
+                    className="w-6 h-6 rounded-full flex-shrink-0"
+                  />
+                ) : (
+                  <span className="text-amber-400 text-base leading-none">⏳</span>
+                )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest">Signing request pending</p>
-                  <p className="text-[11px] text-amber-400/70 font-medium mt-0.5">Check your wallet — a transaction is waiting for your approval.</p>
+                  <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest">
+                    Waiting for signature on {signingWallet?.peerName || signingWallet?.walletId || 'your wallet'}
+                  </p>
+                  <p className="text-[11px] text-amber-400/70 font-medium mt-0.5">
+                    {showRecoveryBanner && !isWaitingForWallet
+                      ? 'You navigated away while signing. Open your wallet app to approve the pending transaction.'
+                      : 'Check your wallet — a transaction is waiting for your approval.'}
+                  </p>
                 </div>
+                <button
+                  onClick={() => { setShowRecoveryBanner(false); clearPendingTx(); resetInputs(); setSellAmount(''); }}
+                  className="flex-shrink-0 text-[10px] font-bold text-amber-400/60 hover:text-amber-300 border border-amber-500/20 hover:border-amber-400/40 rounded-lg px-2 py-1 transition-colors duration-150 whitespace-nowrap"
+                >
+                  Dismiss
+                </button>
               </div>
             )}
 
@@ -1818,6 +1937,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
             >
               <TransactionButton
                 label={buttonLabel}
+                loadingLabel={executionLoadingLabel}
                 isLoading={isLoadingExecution}
                 isDisabled={isSwapDisabled}
                 isError={!!isErrorState && !isLoadingExecution}
@@ -1864,7 +1984,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   selectedBuyAsset as any,
                   sellAmount,
                   preset,
-                  (status) => setBridgeTxStatus(status as any)
+                  setSwapProgressStatus,
+                  undefined,
+                  () => setBridgeTxStatus('signing')
                 );
                 handleReset();
                 showToast({

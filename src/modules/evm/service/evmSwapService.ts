@@ -470,28 +470,26 @@ export async function build1InchFusionOrder(
   const isCrossChain = !!request.toChain;
   let endpoint = isCrossChain ? `/swap/1inch/buildFusionPlusOrder` : `/swap/1inch/buildFusionOrder`;
 
-  if (isCrossChain && request.isNative) {
+  if (request.isNative) {
     endpoint = `/swap/1inch/buildFusionPlusNativeOrder`;
   }
 
   let payload: any = request;
-  if (isCrossChain) {
-    if (request.isNative) {
-      payload = {
-        srcChain: request.chain,
-        dstChain: request.toChain,
-        amount: request.amount,
-        srcTokenAddress: request.tokenIn,
-        dstTokenAddress: request.tokenOut,
-        walletAddress: request.walletAddress,
-      };
-    } else {
-      payload = {
-        quoteId: request.quote.quoteId,
-        walletAddress: request.walletAddress,
-        secretCount: request.secretCount,
-      };
-    }
+  if (request.isNative) {
+    payload = {
+      srcChain: request.chain,
+      dstChain: request.toChain || request.chain,
+      amount: request.amount,
+      srcTokenAddress: request.tokenIn,
+      dstTokenAddress: request.tokenOut,
+      walletAddress: request.walletAddress,
+    };
+  } else if (isCrossChain) {
+    payload = {
+      quoteId: request.quote.quoteId,
+      walletAddress: request.walletAddress,
+      secretCount: request.secretCount,
+    };
   }
 
   const res =
@@ -521,7 +519,7 @@ export async function submit1InchFusionOrder(
 ): Promise<any> {
   let endpoint = isCrossChain ? `/swap/1inch/submitFusionPlusOrder` : `/swap/1inch/submitOrder`;
 
-  if (isCrossChain && isNative) {
+  if (isNative) {
     endpoint = `/swap/1inch/submitFusionPlusNativeOrder`;
   }
 

@@ -83,13 +83,23 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                   <tbody className="divide-y divide-(--color-border)/40">
                     {stellarPnlData.positions.map((pos: any, idx: number) => {
                       const config = stellarCostBasis[pos.asset] || { openingAmount: '', costPerUnit: '' };
-                      const amtVal = parseFloat(config.openingAmount) || 0;
-                      const cpuVal = parseFloat(config.costPerUnit) || 0;
+                      const autoKey = `${pos.asset}::${pos.issuer || 'native'}`;
+                      const autoVal = stellarPnlData?.autoCostBasis?.[autoKey];
+
+                      const amtValText = config.openingAmount !== '' ? config.openingAmount : (autoVal?.amount?.toString() || '');
+                      const cpuValText = config.costPerUnit !== '' ? config.costPerUnit : (autoVal?.price?.toString() || '');
+
+                      const amtVal = parseFloat(amtValText) || 0;
+                      const cpuVal = parseFloat(cpuValText) || 0;
                       const openCost = amtVal * cpuVal;
                       const currentPrice = pos.currentPrice ?? 0;
                       
-                      const hasInputs = config.openingAmount !== '' && config.costPerUnit !== '';
-                      const unrealPnl = hasInputs ? (pos.remaining * currentPrice) - openCost : (pos.unrealized ?? 0);
+                      const unrealPnl = (amtValText !== '' && cpuValText !== '')
+                        ? (pos.remaining * currentPrice) - openCost
+                        : (pos.unrealized ?? 0);
+
+                      const isAutoAmount = config.openingAmount === '' && autoVal?.amount !== undefined;
+                      const isAutoPrice = config.costPerUnit === '' && autoVal?.price !== undefined;
 
                       return (
                         <tr key={pos.asset} className={`${idx % 2 === 0 ? '' : 'bg-(--color-bg-tertiary)/10'} hover:bg-(--color-bg-tertiary)/20 transition-colors`}>
@@ -101,22 +111,36 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                             {portfolioUtils.formatUSD(currentPrice)}
                           </td>
                           <td className="px-5 py-3 text-center">
-                            <input
-                              type="text"
-                              value={config.openingAmount}
-                              onChange={(e) => handleCostBasisChange(pos.asset, 'openingAmount', e.target.value)}
-                              placeholder="0.00"
-                              className="w-full max-w-[120px] text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200"
-                            />
+                            <div className="relative inline-block w-full max-w-[120px]">
+                              <input
+                                type="text"
+                                value={amtValText}
+                                onChange={(e) => handleCostBasisChange(pos.asset, 'openingAmount', e.target.value)}
+                                placeholder="0.00"
+                                className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200 ${
+                                  isAutoAmount 
+                                    ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/10' 
+                                    : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
+                                }`}
+                                title={isAutoAmount ? 'Auto-filled from backend history. Edit to customize.' : 'Custom value'}
+                              />
+                            </div>
                           </td>
                           <td className="px-5 py-3 text-center">
-                            <input
-                              type="text"
-                              value={config.costPerUnit}
-                              onChange={(e) => handleCostBasisChange(pos.asset, 'costPerUnit', e.target.value)}
-                              placeholder="0.00"
-                              className="w-full max-w-[120px] text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200"
-                            />
+                            <div className="relative inline-block w-full max-w-[120px]">
+                              <input
+                                type="text"
+                                value={cpuValText}
+                                onChange={(e) => handleCostBasisChange(pos.asset, 'costPerUnit', e.target.value)}
+                                placeholder="0.00"
+                                className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200 ${
+                                  isAutoPrice 
+                                    ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/10' 
+                                    : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
+                                }`}
+                                title={isAutoPrice ? 'Auto-filled from backend history. Edit to customize.' : 'Custom value'}
+                              />
+                            </div>
                           </td>
                           <td className="px-5 py-4 text-right font-bold text-(--color-text-primary)">
                             {openCost > 0 ? portfolioUtils.formatUSD(openCost) : '—'}
@@ -135,19 +159,34 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
               <div className="grid grid-cols-1 gap-4 md:hidden">
                 {stellarPnlData.positions.map((pos: any) => {
                   const config = stellarCostBasis[pos.asset] || { openingAmount: '', costPerUnit: '' };
-                  const amtVal = parseFloat(config.openingAmount) || 0;
-                  const cpuVal = parseFloat(config.costPerUnit) || 0;
+                  const autoKey = `${pos.asset}::${pos.issuer || 'native'}`;
+                  const autoVal = stellarPnlData?.autoCostBasis?.[autoKey];
+
+                  const amtValText = config.openingAmount !== '' ? config.openingAmount : (autoVal?.amount?.toString() || '');
+                  const cpuValText = config.costPerUnit !== '' ? config.costPerUnit : (autoVal?.price?.toString() || '');
+
+                  const amtVal = parseFloat(amtValText) || 0;
+                  const cpuVal = parseFloat(cpuValText) || 0;
                   const openCost = amtVal * cpuVal;
                   const currentPrice = pos.currentPrice ?? 0;
                   
-                  const hasInputs = config.openingAmount !== '' && config.costPerUnit !== '';
-                  const unrealPnl = hasInputs ? (pos.remaining * currentPrice) - openCost : (pos.unrealized ?? 0);
+                  const unrealPnl = (amtValText !== '' && cpuValText !== '')
+                    ? (pos.remaining * currentPrice) - openCost
+                    : (pos.unrealized ?? 0);
+
+                  const isAutoAmount = config.openingAmount === '' && autoVal?.amount !== undefined;
+                  const isAutoPrice = config.costPerUnit === '' && autoVal?.price !== undefined;
 
                   return (
                     <div key={pos.asset} className="p-4 bg-gradient-to-br from-(--color-bg-secondary) to-(--color-bg-tertiary)/30 border border-(--color-border) rounded-2xl space-y-4 shadow-sm relative overflow-hidden group">
                       <div className="absolute top-0 right-0 w-16 h-16 bg-purple-500/[0.02] rounded-full blur-xl pointer-events-none group-hover:scale-150 transition-all duration-500" />
                       <div className="flex items-center justify-between border-b border-(--color-border)/40 pb-2">
-                        <span className="font-extrabold text-sm text-(--color-text-primary)">{pos.asset}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-sm text-(--color-text-primary)">{pos.asset}</span>
+                          {(isAutoAmount || isAutoPrice) && (
+                            <span className="text-[8px] font-bold uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20 px-1 py-0.2 rounded-full">Auto</span>
+                          )}
+                        </div>
                         <span className="text-[10px] uppercase font-bold text-(--color-text-secondary)">Position Data</span>
                       </div>
 
@@ -171,20 +210,28 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                           <label className="text-[9px] uppercase font-bold text-(--color-text-secondary) tracking-wider block">Opening Amount</label>
                           <input
                             type="text"
-                            value={config.openingAmount}
+                            value={amtValText}
                             onChange={(e) => handleCostBasisChange(pos.asset, 'openingAmount', e.target.value)}
                             placeholder="0.00"
-                            className="w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary outline-none transition-all duration-200"
+                            className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border outline-none transition-all duration-200 ${
+                              isAutoAmount 
+                                ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400' 
+                                : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
+                            }`}
                           />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[9px] uppercase font-bold text-(--color-text-secondary) tracking-wider block">Cost Per Unit ($)</label>
                           <input
                             type="text"
-                            value={config.costPerUnit}
+                            value={cpuValText}
                             onChange={(e) => handleCostBasisChange(pos.asset, 'costPerUnit', e.target.value)}
                             placeholder="0.00"
-                            className="w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary outline-none transition-all duration-200"
+                            className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border outline-none transition-all duration-200 ${
+                              isAutoPrice 
+                                ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400' 
+                                : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
+                            }`}
                           />
                         </div>
                       </div>

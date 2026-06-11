@@ -167,6 +167,7 @@ async function sendApprovalTx(
   walletAddress: string,
   provider: any,
   amount: bigint = ethers.MaxUint256,
+  onBeforeWalletSign?: () => void,
 ): Promise<string> {
   const ethersProvider = new ethers.BrowserProvider(provider);
   const signer = await ethersProvider.getSigner();
@@ -219,6 +220,7 @@ async function sendApprovalTx(
     gasPrice: (rawGasPrice * 120n) / 100n,
   };
 
+  onBeforeWalletSign?.();
   const tx = await signer.sendTransaction({
     from: walletAddress,
     to: tokenAddress,
@@ -247,6 +249,7 @@ export async function ensureFusionAllowance(
   amountBN: bigint,
   provider: any,
   chainId: number | string,
+  onBeforeWalletSign?: () => void,
 ): Promise<{ approvalTxHash?: string }> {
   if (!tokenAddress || isNativeAddress(tokenAddress)) {
     return {}; // native — no approval needed
@@ -263,11 +266,11 @@ export async function ensureFusionAllowance(
 
   if (allowance > 0n && allowance < amountBN) {
     if (tokenAddress.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7') {
-      await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, 0n);
+      await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, 0n, onBeforeWalletSign);
     }
   }
 
-  const approvalTxHash = await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, ethers.MaxUint256);
+  const approvalTxHash = await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, ethers.MaxUint256, onBeforeWalletSign);
 
   const ethersProvider = new ethers.BrowserProvider(provider);
   const receipt = await pollForReceipt(ethersProvider, approvalTxHash, 2000, 120000);
@@ -376,7 +379,8 @@ export async function executeSwap(
   slippageTolerance: number,
   getProvider: (type: WalletType) => any,
   onApprovalTxHash?: (hash: string) => void,
-  onSwapTxHash?: (hash: string) => void
+  onSwapTxHash?: (hash: string) => void,
+  onBeforeWalletSign?: () => void,
 ): Promise<string> {
   const provider = getProvider(WalletType.EVM);
   if (!provider) throw new Error('EVM wallet not connected');
@@ -456,8 +460,12 @@ export async function executeSwap(
 
   let lastTxHash = '';
 
+  let signFired = false;
+  const fireSign = () => { if (!signFired) { signFired = true; onBeforeWalletSign?.(); } };
+
   for (let i = 0; i < txParamsList.length; i++) {
     const tx = txParamsList[i];
+    fireSign(); // fires once — right before the first wallet prompt
     const txResponse = await signer.sendTransaction(tx);
     lastTxHash = txResponse.hash;
     const isLast = i === txParamsList.length - 1;
@@ -507,7 +515,8 @@ export async function execute1InchFusionSwap(
   sellAmount: string,
   getProvider: (type: WalletType) => any,
   onProgress?: (step: 'approving' | 'signing') => void,
-  onApprovalTxHash?: (hash: string) => void
+  onApprovalTxHash?: (hash: string) => void,
+  onBeforeWalletSign?: () => void,
 ): Promise<string> {
   const provider = getProvider(WalletType.EVM);
   if (!provider) throw new Error('EVM wallet not connected');
@@ -526,14 +535,14 @@ export async function execute1InchFusionSwap(
   const amountBN = BigInt(formatAmount(sellAmount, sellAsset.decimals));
 
   onProgress?.('approving');
-  const allowance = await ensureFusionAllowance(sellAsset.address, senderAddress, amountBN, provider, chainId);
+  const allowance = await ensureFusionAllowance(sellAsset.address, senderAddress, amountBN, provider, chainId, onBeforeWalletSign);
   if (allowance.approvalTxHash) {
     if (onProgress) onProgress('approving');
     if (onApprovalTxHash) onApprovalTxHash(allowance.approvalTxHash);
   }
 
   // Pre-transaction Simulation Layer
-  if (onProgress) onProgress('signing');
+  if (onProgress) onProgress('approving');
 
   const simResult = await simulateSwapTransaction({
     networkKey: chainId,
@@ -598,6 +607,7 @@ export async function execute1InchFusionSwap(
       value: BigInt(fusionOrder.transaction.value || 0),
     };
 
+    onBeforeWalletSign?.();
     const txResponse = await signer.sendTransaction(txParams);
     console.log('[execute1InchFusionSwap] Native fusion tx broadcast:', txResponse.hash);
 
@@ -611,6 +621,7 @@ export async function execute1InchFusionSwap(
     if (!extension) throw new Error('No extension data received from build order');
 
     console.log('[execute1InchFusionSwap] Requesting signature for typedData:', typedData);
+    onBeforeWalletSign?.();
     const signature: string = await provider.request({
       method: 'eth_signTypedData_v4',
       params: [senderAddress, JSON.stringify(typedData)],

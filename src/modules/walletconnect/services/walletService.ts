@@ -45,6 +45,57 @@ interface WalletSession {
    * Used during session restore to pick the correct provider key.
    */
   connectionMode?: 'unified' | 'separate';
+  peerName?: string;
+  peerIcon?: string;
+  peerRedirect?: {
+    native?: string;
+    universal?: string;
+    linkMode?: boolean;
+  };
+}
+
+const WALLET_METADATA_MAP: Record<string, { name: string; icon: string }> = {
+  metamask: {
+    name: 'MetaMask',
+    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT3ymr3UNKopfI0NmUY95Dr-0589vG-91KuAA&s',
+  },
+  trust: {
+    name: 'Trust Wallet',
+    icon: 'https://play-lh.googleusercontent.com/cd5BevWohRqLwsI2_i3k4YIVtcO57cIZCs6l20H1Hcdj0P2rFEcX_7QtgKbTM3Sn_A',
+  },
+  rainbow: {
+    name: 'Rainbow',
+    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRDU5aTw2FNop7OonFBOXEeAXb1biSQbBr6Ew&s',
+  },
+  keplr: {
+    name: 'Keplr',
+    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ5rMEIpPYpBjh6xhQtBd7TQDiaUi1H1VX9eA&s',
+  },
+  leap: {
+    name: 'Leap Wallet',
+    icon: 'https://avatars.githubusercontent.com/u/99279452?s=200&v=4',
+  },
+  lobstr: {
+    name: 'LOBSTR',
+    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRr4vU2tmIUuPEaeD2fPRDIgbC4ZcqfNzQR3Q&s',
+  },
+  freighter: {
+    name: 'Freighter',
+    icon: 'https://framerusercontent.com/images/hJLECaObEXnPQkYrO2ZccbSk.png?width=512&height=512',
+  },
+  walletconnect: {
+    name: 'WalletConnect',
+    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU',
+  },
+};
+
+function getSessionMetadata(walletId: string, peerMetadata?: any) {
+  const fallback = WALLET_METADATA_MAP[walletId] || WALLET_METADATA_MAP['walletconnect'];
+  return {
+    peerName: peerMetadata?.name || fallback.name,
+    peerIcon: peerMetadata?.icons?.[0] || fallback.icon,
+    peerRedirect: peerMetadata?.redirect || undefined,
+  };
 }
 
 interface DydxDerivation {
@@ -250,6 +301,8 @@ class WalletService {
       });
 
       const result: UnifiedConnectionResult = {};
+      const peerMetadata = session.peer?.metadata;
+      const meta = getSessionMetadata(walletId, peerMetadata);
 
       const evmAccounts: string[] = session.namespaces?.eip155?.accounts ?? [];
       if (evmAccounts.length > 0) {
@@ -260,6 +313,9 @@ class WalletService {
           evmAddress: address,
           evmChainId: parseInt(chainIdStr, 10),
           connectionMode: 'unified',
+          peerName: meta.peerName,
+          peerIcon: meta.peerIcon,
+          peerRedirect: meta.peerRedirect,
         };
         this.sessions.set('evm', evmSession);
         this.providers.set('evm', provider);
@@ -276,6 +332,9 @@ class WalletService {
           stellarAddress: address,
           stellarChainId: chainId,
           connectionMode: 'unified',
+          peerName: meta.peerName,
+          peerIcon: meta.peerIcon,
+          peerRedirect: meta.peerRedirect,
         };
         this.sessions.set('stellar', stellarSession);
         this.providers.set('stellar', provider);
@@ -313,6 +372,9 @@ class WalletService {
       let evmChainId: number | undefined;
       let cosmosAddress: string | undefined;
       let cosmosChainId: string | undefined;
+      let peerName: string | undefined;
+      let peerIcon: string | undefined;
+      let peerRedirect: { native?: string; universal?: string } | undefined;
 
       const isExtension =
         walletId !== 'walletconnect' && this.isExtensionInstalled(walletId);
@@ -324,6 +386,10 @@ class WalletService {
         evmChainId = result.evmChainId;
         cosmosAddress = result.cosmosAddress;
         cosmosChainId = result.cosmosChainId;
+        const meta = getSessionMetadata(walletId);
+        peerName = meta.peerName;
+        peerIcon = meta.peerIcon;
+        peerRedirect = meta.peerRedirect;
       } else {
         const result = await this.connectWalletConnectSingle(walletId, preferredType);
         provider = result.provider;
@@ -331,6 +397,9 @@ class WalletService {
         evmChainId = result.evmChainId;
         cosmosAddress = result.cosmosAddress;
         cosmosChainId = result.cosmosChainId;
+        peerName = (result as any).peerName;
+        peerIcon = (result as any).peerIcon;
+        peerRedirect = (result as any).peerRedirect;
       }
 
       const session: WalletSession = {
@@ -342,6 +411,9 @@ class WalletService {
         cosmosChainId,
         // WalletConnect single connections always use a per-type provider key
         connectionMode: isExtension ? undefined : 'separate',
+        peerName,
+        peerIcon,
+        peerRedirect,
       };
 
       this.sessions.set(type, session);
@@ -529,12 +601,16 @@ class WalletService {
 
     const publicKey: string = await freighter.getPublicKey();
     const config = getStellarConfig(this.currentNetwork);
+    const meta = getSessionMetadata('freighter');
 
     const session: WalletSession = {
       type: 'stellar',
       walletId: 'freighter',
       stellarAddress: publicKey,
       stellarChainId: config.chainId,
+      peerName: meta.peerName,
+      peerIcon: meta.peerIcon,
+      peerRedirect: meta.peerRedirect,
     };
 
     this.sessions.set('stellar', session);
@@ -557,6 +633,9 @@ class WalletService {
     evmChainId?: number;
     cosmosAddress?: string;
     cosmosChainId?: string;
+    peerName?: string;
+    peerIcon?: string;
+    peerRedirect?: { native?: string; universal?: string };
   }> {
     // Each separate connection gets its own provider keyed by type, ensuring
     // restore can find the right provider independent of any unified session.
@@ -634,7 +713,18 @@ class WalletService {
           }
 
           this.setupWalletConnectListeners(provider, preferredType);
-          resolve({ provider, evmAddress, evmChainId, cosmosAddress, cosmosChainId });
+          const peerMetadata = session.peer?.metadata;
+          const meta = getSessionMetadata(walletId, peerMetadata);
+          resolve({
+            provider,
+            evmAddress,
+            evmChainId,
+            cosmosAddress,
+            cosmosChainId,
+            peerName: meta.peerName,
+            peerIcon: meta.peerIcon,
+            peerRedirect: meta.peerRedirect,
+          });
         })
         .catch((error: any) => {
           clearTimeout(timeout);
@@ -688,12 +778,18 @@ class WalletService {
           }
 
           const [, chainId, address] = account.split(':');
+          const peerMetadata = session.peer?.metadata;
+          const meta = getSessionMetadata(walletId, peerMetadata);
+
           const walletSession: WalletSession = {
             type: 'stellar',
             walletId,
             stellarAddress: address,
             stellarChainId: chainId,
             connectionMode: 'separate',
+            peerName: meta.peerName,
+            peerIcon: meta.peerIcon,
+            peerRedirect: meta.peerRedirect,
           };
 
           this.sessions.set('stellar', walletSession);
@@ -877,6 +973,9 @@ class WalletService {
           stellarAddress: session.stellarAddress,
           stellarChainId: session.stellarChainId,
           connectionMode: session.connectionMode,
+          peerName: session.peerName,
+          peerIcon: session.peerIcon,
+          peerRedirect: session.peerRedirect,
         };
       });
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
@@ -989,12 +1088,16 @@ class WalletService {
 
         const publicKey: string = await win.freighter.getPublicKey();
         const config = getStellarConfig(this.currentNetwork);
+        const meta = getSessionMetadata('freighter');
 
         const session: WalletSession = {
           type: 'stellar',
           walletId: 'freighter',
           stellarAddress: publicKey,
           stellarChainId: config.chainId,
+          peerName: savedSession.peerName || meta.peerName,
+          peerIcon: savedSession.peerIcon || meta.peerIcon,
+          peerRedirect: savedSession.peerRedirect || meta.peerRedirect,
         };
 
         this.sessions.set('stellar', session);
@@ -1025,11 +1128,15 @@ class WalletService {
         if (!accounts?.length) return null;
 
         const chainIdHex: string = await evmProvider.request({ method: 'eth_chainId' });
+        const meta = getSessionMetadata(savedSession.walletId);
         const session: WalletSession = {
           type: 'evm',
           walletId: savedSession.walletId,
           evmAddress: accounts[0],
           evmChainId: parseInt(chainIdHex, 16),
+          peerName: savedSession.peerName || meta.peerName,
+          peerIcon: savedSession.peerIcon || meta.peerIcon,
+          peerRedirect: savedSession.peerRedirect || meta.peerRedirect,
         };
 
         if (hasDydxBlob && savedSession.dydxAddress) {
@@ -1064,12 +1171,16 @@ class WalletService {
 
         await cosmosProvider.enable(targetChainId);
         const account = await cosmosProvider.getKey(targetChainId);
+        const meta = getSessionMetadata(savedSession.walletId);
 
         const session: WalletSession = {
           type: 'cosmos',
           walletId: savedSession.walletId,
           cosmosAddress: account.bech32Address,
           cosmosChainId: targetChainId,
+          peerName: savedSession.peerName || meta.peerName,
+          peerIcon: savedSession.peerIcon || meta.peerIcon,
+          peerRedirect: savedSession.peerRedirect || meta.peerRedirect,
         };
 
         if (targetChainId === dydxChainId) {
@@ -1122,6 +1233,9 @@ class WalletService {
       stellarChainId = chainId;
     }
 
+    const peerMetadata = session?.peer?.metadata;
+    const meta = getSessionMetadata(saved.walletId, peerMetadata);
+
     const refreshed: WalletSession = {
       type: saved.type,
       walletId: saved.walletId,
@@ -1132,6 +1246,9 @@ class WalletService {
       cosmosChainId,
       stellarAddress,
       stellarChainId,
+      peerName: meta.peerName || saved.peerName,
+      peerIcon: meta.peerIcon || saved.peerIcon,
+      peerRedirect: meta.peerRedirect || saved.peerRedirect,
     };
 
     const dydxChainId = getDydxChainId(this.currentNetwork);
