@@ -62,7 +62,8 @@ interface UseEvmSwapActions {
     sellAsset: TokenInfo,
     buyAsset: TokenInfo,
     sellAmount: string,
-    slippageTolerance: number
+    slippageTolerance: number,
+    onBeforeSign?: () => void,
   ) => Promise<string>;
 
   performFusionSwap: (
@@ -71,7 +72,8 @@ interface UseEvmSwapActions {
     sellAmount: string,
     preset?: string,
     onProgress?: (step: 'approving' | 'signing') => void,
-    currentFusionQuote?: FusionQuote | null
+    currentFusionQuote?: FusionQuote | null,
+    onBeforeSign?: () => void,
   ) => Promise<string>;
 
   setGasless: (enabled: boolean) => void;
@@ -401,7 +403,8 @@ export const useEvmSwap = ({
       sellAsset: TokenInfo,
       buyAsset: TokenInfo,
       sellAmount: string,
-      slippageTolerance: number
+      slippageTolerance: number,
+      onBeforeSign?: () => void,
     ): Promise<string> => {
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
@@ -461,7 +464,8 @@ export const useEvmSwap = ({
                 network: useWalletStore.getState().network,
               });
             }
-          }
+          },
+          onBeforeSign,
         );
 
         if (activeSwapId.current === swapId) {
@@ -495,9 +499,9 @@ export const useEvmSwap = ({
       sellAmount: string,
       preset?: string,
       onProgress?: (step: 'approving' | 'signing') => void,
-      currentFusionQuote?: typeof state.fusionQuote
+      currentFusionQuote?: typeof state.fusionQuote,
+      onBeforeSign?: () => void,
     ): Promise<string> => {
-      // Use explicitly passed quote (avoids stale closure) or fall back to current state
       const fusionQuote = currentFusionQuote ?? state.fusionQuote;
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
@@ -531,7 +535,8 @@ export const useEvmSwap = ({
               amountOut: (fusionQuote.toTokenAmount || fusionQuote.dstTokenAmount) ? ethers.formatUnits(fusionQuote.toTokenAmount || fusionQuote.dstTokenAmount || '0', buyAsset.decimals || 18) : '0',
               txType: 'Token Approval',
             } as any).catch(backendErr => console.error('Failed to store fusion swap approval order on backend:', backendErr));
-          }
+          },
+          onBeforeSign,
         );
 
         // 1Inch Fusion swaps always go to backend

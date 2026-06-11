@@ -12,6 +12,13 @@ export interface SwapState {
   userSlippageTolerance: number;
   feePayType: 'native' | 'stablecoin';
 
+  // Pending transaction state — persists across navigation
+  pendingTxStatus: 'idle' | 'preparing' | 'signing' | 'success' | 'error';
+  pendingTxHasPendingSign: boolean;
+  pendingTxErrorMsg: string | null;
+  pendingTxHash: string | null;
+  pendingTxFromChainId: number | string | null;
+
   setFromChainId: (id: number | string) => void;
   setToChainId: (id: number | string) => void;
   setSellAssetSymbol: (symbol: string) => void;
@@ -23,6 +30,13 @@ export interface SwapState {
   setUserSlippageTolerance: (slippage: number) => void;
   setFeePayType: (type: 'native' | 'stablecoin') => void;
   resetInputs: () => void;
+
+  setPendingTxStatus: (s: SwapState['pendingTxStatus']) => void;
+  setPendingTxHasPendingSign: (v: boolean) => void;
+  setPendingTxErrorMsg: (msg: string | null) => void;
+  setPendingTxHash: (hash: string | null) => void;
+  setPendingTxFromChainId: (id: number | string | null) => void;
+  clearPendingTx: () => void;
 }
 
 export const useSwapStore = create<SwapState>((set) => ({
@@ -36,6 +50,13 @@ export const useSwapStore = create<SwapState>((set) => ({
   isGasless: false,
   userSlippageTolerance: 1.0,
   feePayType: 'stablecoin',
+
+  // Pending transaction initial state
+  pendingTxStatus: 'idle',
+  pendingTxHasPendingSign: false,
+  pendingTxErrorMsg: null,
+  pendingTxHash: null,
+  pendingTxFromChainId: null,
 
   setFromChainId: (id) => set({ fromChainId: id }),
   setToChainId: (id) => set({ toChainId: id }),
@@ -52,4 +73,18 @@ export const useSwapStore = create<SwapState>((set) => ({
     isGasless: false,
     feePayType: 'stablecoin',
   }),
+
+  setPendingTxStatus: (s) => set({ pendingTxStatus: s }),
+  setPendingTxHasPendingSign: (v) => set({ pendingTxHasPendingSign: v }),
+  setPendingTxErrorMsg: (msg) => set({ pendingTxErrorMsg: msg }),
+  setPendingTxHash: (hash) => set({ pendingTxHash: hash }),
+  setPendingTxFromChainId: (id) => set({ pendingTxFromChainId: id }),
+  clearPendingTx: () => set({
+    pendingTxStatus: 'idle',
+    pendingTxHasPendingSign: false,
+    pendingTxErrorMsg: null,
+    pendingTxHash: null,
+    pendingTxFromChainId: null,
+  }),
 }));
+

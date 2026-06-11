@@ -7,6 +7,7 @@ import {
   type StoreSwapOrderRequest,
   type StoreSwapOrderResponse,
   type SwapOrdersResponse,
+  type SwapOrder,
 } from '../service/evmTransactionStatusService';
 
 interface UseEvmTransactionState {
@@ -19,7 +20,7 @@ interface UseEvmTransactionState {
 interface UseEvmTransactionActions {
   getTransactionStatus: (payload: TransactionStatusRequest) => Promise<any>;
   storeSwapOrder: (payload: StoreSwapOrderRequest) => Promise<StoreSwapOrderResponse>;
-  getSwapOrdersByWallet: (address: string, page?: number, limit?: number, loadMore?: boolean) => Promise<SwapOrdersResponse>;
+  getSwapOrdersByWallet: (addresses: string[], page?: number, limit?: number, loadMore?: boolean) => Promise<SwapOrdersResponse>;
   reset: () => void;
 }
 
@@ -57,22 +58,80 @@ export const useEvmTransaction = (): UseEvmTransactionState & UseEvmTransactionA
     }
   }, []);
 
-  const getSwapOrdersByWalletAction = useCallback(async (address: string, page: number = 1, limit: number = 10, loadMore: boolean = false) => {
+  const getSwapOrdersByWalletAction = useCallback(async (addresses: string[], page: number = 1, limit: number = 10, loadMore: boolean = false) => {
+    if (!addresses || addresses.length === 0) {
+      setState(prev => ({ ...prev, loading: false }));
+      return { data: [], total: 0, page, limit, totalPages: 0, hasNext: false, hasPrev: false };
+    }
+
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const data = await getSwapOrdersByWallet(address, page, limit);
+      const results = await Promise.all(
+        addresses.map(addr =>
+          getSwapOrdersByWallet(addr, page, limit).catch(err => {
+            console.error(`Failed to fetch orders for address ${addr}:`, err);
+            return { data: [], total: 0, page, limit, totalPages: 0, hasNext: false, hasPrev: false } as SwapOrdersResponse;
+          })
+        )
+      );
+
+      // Merge all results
+      const allData: SwapOrder[] = [];
+      let total = 0;
+      let totalPages = 0;
+      let hasNext = false;
+      let hasPrev = false;
+
+      results.forEach(res => {
+        if (res && Array.isArray(res.data)) {
+          allData.push(...res.data);
+          total += res.total || 0;
+          totalPages = Math.max(totalPages, res.totalPages || 0);
+          if (res.hasNext) hasNext = true;
+          if (res.hasPrev) hasPrev = true;
+        }
+      });
+
+      // Sort combined data by createdAt descending
+      allData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      const mergedResponse: SwapOrdersResponse = {
+        data: allData,
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNext,
+        hasPrev,
+      };
+
       setState(prev => {
         const existingData = (loadMore && prev.ordersData?.data) ? prev.ordersData.data : [];
+        const seenHashes = new Set<string>();
+        const mergedDataList: SwapOrder[] = [];
+
+        [...existingData, ...allData].forEach(order => {
+          const hashLower = order.txHash.toLowerCase();
+          if (!seenHashes.has(hashLower)) {
+            seenHashes.add(hashLower);
+            mergedDataList.push(order);
+          }
+        });
+
+        // Re-sort
+        mergedDataList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
         return {
           ...prev,
           ordersData: {
-            ...data,
-            data: [...existingData, ...data.data],
+            ...mergedResponse,
+            data: mergedDataList,
           },
           loading: false,
         };
       });
-      return data;
+
+      return mergedResponse;
     } catch (err: any) {
       const message = err.message || 'An error occurred';
       setState(prev => ({ ...prev, error: message, loading: false }));

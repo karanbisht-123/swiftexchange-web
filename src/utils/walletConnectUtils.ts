@@ -33,11 +33,11 @@ export async function sendEVMTransaction(
   txParams: Record<string, any>
 ): Promise<string> {
 
-  if (isPending) {
-    throw new Error('A transaction is already pending. Please wait.');
-  }
+  // if (isPending) {
+  //   throw new Error('A transaction is already pending. Please wait.');
+  // }
 
-  isPending = true;
+  // isPending = true;
 
   try {
     const numericChainId = Number(chainId);

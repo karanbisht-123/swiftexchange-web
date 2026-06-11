@@ -8,8 +8,12 @@ import {
 
 import { Networks, Transaction, rpc } from '@stellar/stellar-sdk';
 
-const SOROBAN_RPC = 'https://rpc.ankr.com/stellar_soroban';
+// RPC Configuration
 
+const SOROBAN_RPC_PRIMARY = 'https://soroban-rpc.mainnet.stellar.gateway.fm';
+const SOROBAN_RPC_FALLBACK = 'https://rpc.ankr.com/stellar_soroban';
+
+// Network Constants
 
 export const STELLAR_NETWORK_PASSPHRASE: Record<'mainnet' | 'testnet', string> = {
   mainnet: Networks.PUBLIC,
@@ -21,18 +25,35 @@ const HORIZON_URLS: Record<'mainnet' | 'testnet', string> = {
   testnet: 'https://horizon-testnet.stellar.org',
 };
 
+const USDC_ISSUER: Record<'mainnet' | 'testnet', string> = {
+  mainnet: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+  testnet: 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER',
+};
+
+const withRpcFallback = async <T>(fn: (rpcUrl: string) => Promise<T>): Promise<T> => {
+  try {
+    return await fn(SOROBAN_RPC_PRIMARY);
+  } catch (primaryErr) {
+    console.warn('[Allbridge] Primary RPC failed, retrying with fallback', {
+      primary: SOROBAN_RPC_PRIMARY,
+      fallback: SOROBAN_RPC_FALLBACK,
+      error: primaryErr instanceof Error ? primaryErr.message : primaryErr,
+    });
+    return await fn(SOROBAN_RPC_FALLBACK);
+  }
+};
+
 let sdkInstance: AllbridgeCoreSdk | null = null;
 
 export const getAllbridgeSdk = (): AllbridgeCoreSdk => {
   if (!sdkInstance) {
     console.log('[Allbridge] Creating SDK instance', {
-      sorobanRpc: SOROBAN_RPC,
-      defaultRpcs: nodeRpcUrlsDefault,
-      overrides: { [ChainSymbol.SRB]: SOROBAN_RPC },
+      sorobanRpc: SOROBAN_RPC_PRIMARY,
+      overrides: { [ChainSymbol.SRB]: SOROBAN_RPC_PRIMARY },
     });
     sdkInstance = new AllbridgeCoreSdk({
       ...nodeRpcUrlsDefault,
-      [ChainSymbol.SRB]: SOROBAN_RPC,
+      [ChainSymbol.SRB]: SOROBAN_RPC_PRIMARY,
     });
     console.log('[Allbridge] SDK instance created');
   }
@@ -44,10 +65,11 @@ export const resetAllbridgeSdk = (): void => {
   sdkInstance = null;
 };
 
+
 export const getSupportedTokens = async (): Promise<any[]> => {
-  console.log('[Allbridge] Fetching supported tokens from Allbridge API...');
+  console.log('[Allbridge] Fetching supported tokens...');
   const tokens = await getAllbridgeSdk().tokens();
-  console.log('[Allbridge] Supported tokens received:', {
+  console.log('[Allbridge] Supported tokens received', {
     totalCount: tokens.length,
     chains: [...new Set(tokens.map((t: any) => t.chainSymbol))],
     stellarTokens: tokens.filter((t: any) => t.chainSymbol === ChainSymbol.SRB),
@@ -55,38 +77,32 @@ export const getSupportedTokens = async (): Promise<any[]> => {
   return tokens;
 };
 
-const USDC_ISSUER: Record<'mainnet' | 'testnet', string> = {
-  mainnet: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-  testnet: 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER',
-};
-
 export const getStellarUsdcBalance = async (
   address: string,
   networkEnv: 'mainnet' | 'testnet'
 ): Promise<string> => {
   if (!address) return '0';
+
   const horizonUrl = `${HORIZON_URLS[networkEnv]}/accounts/${address}`;
-  console.log('[Allbridge] Fetching Stellar USDC balance', {
-    address,
-    networkEnv,
-    horizonUrl,
-    expectedIssuer: USDC_ISSUER[networkEnv],
-  });
+  console.log('[Allbridge] Fetching Stellar USDC balance', { address, networkEnv });
+
   try {
     const res = await fetch(horizonUrl);
     if (!res.ok) {
       console.warn('[Allbridge] Horizon account fetch failed', { status: res.status, address });
       return '0';
     }
+
     const data = await res.json();
     const issuer = USDC_ISSUER[networkEnv];
-    const b = (data.balances as any[]).find(
-      b =>
+    const matched = (data.balances as any[]).find(
+      (b) =>
         (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
         b.asset_code === 'USDC' &&
         b.asset_issuer === issuer
     );
-    const balance = b ? b.balance : '0';
+
+    const balance = matched?.balance ?? '0';
     console.log('[Allbridge] Stellar USDC balance result', {
       address,
       balance,
@@ -120,11 +136,10 @@ export const getFeeOptions = async (
     destinationSymbol: destinationToken?.symbol,
     messenger,
   });
-  try {
-    const sdk = getAllbridgeSdk();
-    const result = await sdk.getGasFeeOptions(sourceToken, destinationToken, messenger);
-    const r = result as any;
 
+  try {
+    const result = await getAllbridgeSdk().getGasFeeOptions(sourceToken, destinationToken, messenger);
+    const r = result as any;
     const native: { int: string; float: string } = r?.native ?? { int: '0', float: '0' };
     const stablecoin: { int: string; float: string } | null = r?.stablecoin ?? null;
 
@@ -132,7 +147,6 @@ export const getFeeOptions = async (
       native,
       stablecoin,
       stablecoinAvailable: stablecoin !== null,
-      rawSdkResponse: result,
     });
 
     return { native, stablecoin };
@@ -152,12 +166,12 @@ export const getTransferTimeMs = (
     destinationChain: destinationToken?.chainSymbol,
     messenger,
   });
+
   try {
-    const sdk = getAllbridgeSdk();
-    const ms = (sdk as any).getAverageTransferTime(sourceToken, destinationToken, messenger);
+    const ms = (getAllbridgeSdk() as any).getAverageTransferTime(sourceToken, destinationToken, messenger);
     console.log('[Allbridge] Transfer time result', {
       ms,
-      seconds: ms ? Math.round(ms / 1000) : null,
+      seconds: ms ? Math.round(ms / 1_000) : null,
       minutes: ms ? Math.round(ms / 60_000) : null,
     });
     return typeof ms === 'number' && ms > 0 ? ms : 0;
@@ -167,6 +181,7 @@ export const getTransferTimeMs = (
   }
 };
 
+// Quote 
 export type FeePayType = 'native' | 'stablecoin';
 
 export interface QuoteRequest {
@@ -197,27 +212,20 @@ export const getBridgeQuote = async ({
     amount,
     sourceChain: sourceToken?.chainSymbol,
     sourceToken: sourceToken?.symbol,
-    sourceTokenAddress: sourceToken?.tokenAddress,
     destinationChain: destinationToken?.chainSymbol,
     destinationToken: destinationToken?.symbol,
-    destinationTokenAddress: destinationToken?.tokenAddress,
     messenger,
   });
 
   const sdk = getAllbridgeSdk();
-  console.log('[Allbridge] SDK instance ready for quote');
-
   const transferTimeMs = getTransferTimeMs(sourceToken, destinationToken, messenger);
-  console.log('[Allbridge] Transfer time calculated:', transferTimeMs);
 
-  console.log('[Allbridge] Calling sdk.getAmountToBeReceived and getFeeOptions...');
   const [amountToBeReceived, feeOptions] = await Promise.all([
-    sdk.getAmountToBeReceived(amount, sourceToken, destinationToken)
-      .then(res => { console.log('[Allbridge] sdk.getAmountToBeReceived success:', res); return res; })
-      .catch(err => { console.error('[Allbridge] sdk.getAmountToBeReceived failed:', err); throw err; }),
-    getFeeOptions(sourceToken, destinationToken, messenger)
-      .then(res => { console.log('[Allbridge] getFeeOptions success:', res); return res; })
-      .catch(err => { console.error('[Allbridge] getFeeOptions failed:', err); throw err; }),
+    sdk
+      .getAmountToBeReceived(amount, sourceToken, destinationToken)
+      .then((res) => { console.log('[Allbridge] getAmountToBeReceived success:', res); return res; })
+      .catch((err) => { console.error('[Allbridge] getAmountToBeReceived failed:', err); throw err; }),
+    getFeeOptions(sourceToken, destinationToken, messenger),
   ]);
 
   const inputNum = parseFloat(amount);
@@ -234,17 +242,20 @@ export const getBridgeQuote = async ({
     destinationToken,
     messenger,
   };
-  console.log('[Allbridge]  Bridge quote result', {
+
+  console.log('[Allbridge] Bridge quote result', {
     inputAmount: amount,
     outputAmount: result.amountToBeReceived,
     exchangeRate: result.exchangeRate,
     transferTimeMs: result.transferTimeMs,
     nativeFeeFloat: feeOptions.native.float,
-    stablecoinFeeFloat: feeOptions.stablecoin?.float ?? 'N/A (unavailable)',
+    stablecoinFeeFloat: feeOptions.stablecoin?.float ?? 'N/A',
   });
 
   return result;
 };
+
+//Transaction Preparatio
 
 export interface PrepareTransferRequest {
   amount: string;
@@ -257,6 +268,7 @@ export interface PrepareTransferRequest {
   feePaymentMethod?: FeePaymentMethod;
   slippageTolerance?: number;
 }
+
 
 export const prepareStellarToEvmRawTransaction = async ({
   amount,
@@ -277,10 +289,9 @@ export const prepareStellarToEvmRawTransaction = async ({
     destinationChain: destinationToken?.chainSymbol,
     messenger,
     feePaymentMethod,
-    sorobanRpc: SOROBAN_RPC,
   });
 
-  const rawTx = await (getAllbridgeSdk().bridge.rawTxBuilder as any).send({
+  const rawXdr = (await (getAllbridgeSdk().bridge.rawTxBuilder as any).send({
     amount,
     fromAccountAddress,
     toAccountAddress,
@@ -288,23 +299,27 @@ export const prepareStellarToEvmRawTransaction = async ({
     destinationToken,
     messenger,
     gasFeePaymentMethod: feePaymentMethod,
-  });
+  })) as string;
 
-  const rawXdr = rawTx as string;
+  console.log('[Allbridge] Raw XDR built, length:', rawXdr.length);
+
   const networkPassphrase = STELLAR_NETWORK_PASSPHRASE[network];
 
-  console.log('[Allbridge] Simulating transaction...');
-  const tx = new Transaction(rawXdr, networkPassphrase);
-  const server = new rpc.Server(SOROBAN_RPC);
+  const finalXdr = await withRpcFallback(async (rpcUrl) => {
+    console.log('[Allbridge] Simulating transaction via RPC:', rpcUrl);
 
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) {
-    throw new Error('Simulation failed: ' + sim.error);
-  }
+    const tx = new Transaction(rawXdr, networkPassphrase);
+    const server = new rpc.Server(rpcUrl);
+    const sim = await server.simulateTransaction(tx);
 
-  console.log('[Allbridge] Assembling simulated transaction...');
-  const assembled = rpc.assembleTransaction(tx, sim).build();
-  const finalXdr = assembled.toXDR();
+    if (rpc.Api.isSimulationError(sim)) {
+      throw new SimulationError(`Soroban simulation failed: ${sim.error}`);
+    }
+
+    console.log('[Allbridge] Assembling simulated transaction...');
+    const assembled = rpc.assembleTransaction(tx, sim).build();
+    return assembled.toXDR();
+  });
 
   console.log('[Allbridge] Assembled XDR ready', {
     originalLength: rawXdr.length,
@@ -314,7 +329,15 @@ export const prepareStellarToEvmRawTransaction = async ({
   return finalXdr;
 };
 
+
 export const getBridgeStatus = async (hash: string): Promise<any> => {
-  const sdk = getAllbridgeSdk();
-  return sdk.getTransferStatus(ChainSymbol.SRB, hash);
+  return getAllbridgeSdk().getTransferStatus(ChainSymbol.SRB, hash);
 };
+
+
+export class SimulationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SimulationError';
+  }
+}

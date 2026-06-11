@@ -155,7 +155,8 @@ export function getChainBySlug(slug: string, networkType: NetworkType): ChainCon
 }
 
 
-export function findChain(identifier: string, networkType: NetworkType): ChainConfig | undefined {
+export function findChain(identifier: string | undefined | null, networkType: NetworkType): ChainConfig | undefined {
+    if (!identifier || typeof identifier !== 'string') return undefined;
     const id = identifier.toLowerCase();
 
     const exactMatch = getChainBySlug(id, networkType);

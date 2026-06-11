@@ -83,7 +83,7 @@ export function getEvmSourceDenom(
   // EVM native coins
   const lowerAddress = (address || "").toLowerCase();
   const isZeroAddress = lowerAddress === '0x0000000000000000000000000000000000000000' || lowerAddress === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-  
+
   if (isNative || isZeroAddress) {
     const skipName = SKIP_CHAIN_NAME_MAP[chainId] || getChainById(chainId)?.slug || 'native';
     return skipName === 'native' ? 'native' : `${skipName}-native`;
@@ -204,11 +204,44 @@ export function buildEvmSigner(evmAddress: string, sessionProvider?: any) {
     if (!provider) throw new Error('No EVM provider available — wallet not connected');
     const chain = VIEM_CHAINS_BY_ID[Number(chainId)];
     if (!chain) throw new Error(`Unsupported EVM chain ID: ${chainId}`);
-    return createWalletClient({
+
+    const client = createWalletClient({
       account: evmAddress as `0x${string}`,
       chain,
       transport: custom(provider),
     });
+
+    const originalSendTransaction = client.sendTransaction.bind(client);
+    client.sendTransaction = async (args: any) => {
+      const parsedChainId = Number(chainId);
+      if (parsedChainId === 137) {
+        const minGasPrice = 30_000_000_000n;
+
+        if (args.gasPrice !== undefined && args.gasPrice !== null) {
+          const currentGasPrice = BigInt(args.gasPrice);
+          if (currentGasPrice < minGasPrice) {
+            args.gasPrice = minGasPrice;
+          }
+        }
+
+        if (args.maxPriorityFeePerGas !== undefined && args.maxPriorityFeePerGas !== null) {
+          const currentTip = BigInt(args.maxPriorityFeePerGas);
+          if (currentTip < minGasPrice) {
+            args.maxPriorityFeePerGas = minGasPrice;
+          }
+        }
+
+        if (args.maxFeePerGas !== undefined && args.maxFeePerGas !== null) {
+          const currentFee = BigInt(args.maxFeePerGas);
+          if (currentFee < minGasPrice) {
+            args.maxFeePerGas = minGasPrice + 10_000_000_000n;
+          }
+        }
+      }
+      return originalSendTransaction(args);
+    };
+
+    return client;
   };
 }
 

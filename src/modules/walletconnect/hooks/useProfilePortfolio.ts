@@ -14,8 +14,6 @@ export interface ChainFilter {
 export function useProfilePortfolio() {
   const { connectedWallets, isAnyWalletConnected } = useWalletConnect();
   const { network } = useWalletNetwork();
-
-  // Use existing assets hook to avoid extra API calls and reuse reactive logic/caching/polling
   const { assets, loading, isRefreshing, refetch, hasError } = useWalletAssets(network);
 
   // Group assets by chain type

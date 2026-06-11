@@ -332,7 +332,7 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
   // R9 — Adjusted P&L (references Cost Basis TOTAL row via formula)
   const cbPositions = d.positions?.length ?? 0;
   const cbDataStart = 5;
-  const cbTotalRow = cbDataStart + Math.max(cbPositions, 5);
+  const cbTotalRow = cbDataStart + Math.max(cbPositions, 1);
   const totalOpeningCostBasis = d.positions?.reduce((sum, pos) => sum + (pos.openingAmount ?? 0) * (pos.openingCostPerUnit ?? 0), 0) ?? 0;
   const adjustedTotalPnl = d.totalRealized + totalOpeningCostBasis;
   rows += row(9, 22,
@@ -458,7 +458,7 @@ function buildCostBasisSheet(d: StellarExportData, sst: SST): string {
   // Pre-populate from API positions data
   const positions = d.positions ?? [];
   const dataStart = 5;
-  const minRows = Math.max(positions.length, 5);
+  const minRows = positions.length;
 
   let totalOpeningCost = 0;
   let totalUnrealizedCostBasis = 0;
@@ -467,40 +467,44 @@ function buildCostBasisSheet(d: StellarExportData, sst: SST): string {
     const pos = positions[i];
     const r = dataStart + i;
     const numS = i % 2 === 0 ? S.NUM : S.NUM_ALT;
-    if (pos) {
-      const openingAmountVal = pos.openingAmount !== undefined && pos.openingAmount !== null ? pos.openingAmount : null;
-      const openingCostVal = pos.openingCostPerUnit !== undefined && pos.openingCostPerUnit !== null ? pos.openingCostPerUnit : null;
-      const openingTotalVal = (openingAmountVal !== null && openingCostVal !== null) ? openingAmountVal * openingCostVal : 0;
-      const currentPriceVal = pos.currentPrice ?? 0;
+    const openingAmountVal = pos.openingAmount !== undefined && pos.openingAmount !== null ? pos.openingAmount : null;
+    const openingCostVal = pos.openingCostPerUnit !== undefined && pos.openingCostPerUnit !== null ? pos.openingCostPerUnit : null;
+    const openingTotalVal = (openingAmountVal !== null && openingCostVal !== null) ? openingAmountVal * openingCostVal : 0;
+    const currentPriceVal = pos.currentPrice ?? 0;
 
-      totalOpeningCost += openingTotalVal;
-      const cachedUnrealized = openingAmountVal !== null && openingCostVal !== null
-        ? (pos.remaining * currentPriceVal) - openingTotalVal
-        : 0;
-      totalUnrealizedCostBasis += cachedUnrealized;
+    totalOpeningCost += openingTotalVal;
+    const cachedUnrealized = openingAmountVal !== null && openingCostVal !== null
+      ? (pos.remaining * currentPriceVal) - openingTotalVal
+      : 0;
+    totalUnrealizedCostBasis += cachedUnrealized;
 
-      // Col G: unrealized = current holdings × currentPrice − opening amount × cost per unit
-      const unrealFormula = `IFERROR(C${r}*${currentPriceVal.toFixed(6)}-D${r}*E${r},"—")`;
-      rows += row(r, 22,
-        sc(r, 1, pos.asset, i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
-        sc(r, 2, pos.issuer ? `${pos.issuer.slice(0, 10)}...${pos.issuer.slice(-6)}` : 'Native / Stellar', i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
-        nc(r, 3, pos.remaining, numS) +            // read-only: current holdings from API
-        nc(r, 4, openingAmountVal, S.EDITABLE) +   // ← user types: opening amount
-        nc(r, 5, openingCostVal, S.EDITABLE_N) +   // ← user types: cost per unit
-        fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, openingTotalVal) +
-        fc(r, 7, unrealFormula, S.FORMULA_NUM, cachedUnrealized)
-      );
-    } else {
-      rows += row(r, 22,
-        sc(r, 1, '', S.CELL, sst) + sc(r, 2, '', S.CELL, sst) + sc(r, 3, '', S.CELL, sst) +
-        nc(r, 4, null, S.EDITABLE) + nc(r, 5, null, S.EDITABLE_N) +
-        fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, 0) +
-        fc(r, 7, `0`, S.FORMULA_NUM, 0)
-      );
-    }
+    // Col G: unrealized = current holdings × currentPrice − opening amount × cost per unit
+    const unrealFormula = `IFERROR(C${r}*${currentPriceVal.toFixed(6)}-D${r}*E${r},"—")`;
+    rows += row(r, 22,
+      sc(r, 1, pos.asset, i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
+      sc(r, 2, pos.issuer ? `${pos.issuer.slice(0, 10)}...${pos.issuer.slice(-6)}` : 'Native / Stellar', i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
+      nc(r, 3, pos.remaining, numS) +            // read-only: current holdings from API
+      nc(r, 4, openingAmountVal, S.EDITABLE) +   // ← user types: opening amount
+      nc(r, 5, openingCostVal, S.EDITABLE_N) +   // ← user types: cost per unit
+      fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, openingTotalVal) +
+      fc(r, 7, unrealFormula, S.FORMULA_NUM, cachedUnrealized)
+    );
   }
 
-  const dataEnd = dataStart + minRows - 1;
+  if (minRows === 0) {
+    const r = dataStart;
+    rows += row(r, 22,
+      sc(r, 1, 'No positions available', S.CELL, sst) +
+      sc(r, 2, '', S.CELL, sst) +
+      sc(r, 3, '', S.CELL, sst) +
+      nc(r, 4, null, S.EDITABLE) +
+      nc(r, 5, null, S.EDITABLE_N) +
+      fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, 0) +
+      fc(r, 7, `0`, S.FORMULA_NUM, 0)
+    );
+  }
+
+  const dataEnd = dataStart + Math.max(minRows, 1) - 1;
   const totalRow = dataEnd + 1;
   rows += row(totalRow, 22,
     sc(totalRow, 1, 'TOTAL', S.TOTAL_LBL, sst) +

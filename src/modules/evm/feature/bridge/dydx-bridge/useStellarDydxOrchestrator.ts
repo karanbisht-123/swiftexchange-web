@@ -151,7 +151,6 @@ const classifyBridgeError = (err: unknown): BridgeSessionError => {
 const mapBackendOrderToSession = (
   orders: BackendOrder[],
   wallets: any,
-
 ): BridgeSession | null => {
   if (!orders || orders.length === 0) return null;
   const groupId = orders[0].requestId;
@@ -161,7 +160,36 @@ const mapBackendOrderToSession = (
   const dydxOrder = orders.find(o => o.provider === 'DYDX');
 
   const inputTokenSymbol = bridgeOrder?.fromToken || 'USDC';
-  const destinationChainId = 42161;
+  const toChainSymbol = bridgeOrder?.toChain;
+  let destinationChainId = 42161;
+  if (toChainSymbol) {
+    switch (toChainSymbol.toUpperCase()) {
+      case 'ARB':
+        destinationChainId = 42161;
+        break;
+      case 'POL':
+        destinationChainId = 137;
+        break;
+      case 'BSC':
+      case 'BNB':
+        destinationChainId = 56;
+        break;
+      case 'ETH':
+      case 'ETHEREUM':
+        destinationChainId = 1;
+        break;
+      case 'OPT':
+      case 'OP':
+        destinationChainId = 10;
+        break;
+      case 'AVAX':
+        destinationChainId = 43114;
+        break;
+      case 'BASE':
+        destinationChainId = 8453;
+        break;
+    }
+  }
 
   let phase: Phase = 'BRIDGE';
   let bridgeStatus: TxStatus = 'PENDING';
@@ -240,6 +268,7 @@ export const useStellarDydxOrchestrator = () => {
 
   const [isQuoting, setIsQuoting] = useState<boolean>(false);
   const isQuotingRef = useRef<boolean>(false);
+  const quoteAbortRef = useRef<AbortController | null>(null);
   const [swapQuote, setSwapQuote] = useState<SwapQuote | null>(null);
   const [bridgeQuote, setBridgeQuote] = useState<BridgeQuote | null>(null);
   const [depositQuote, setDepositQuote] = useState<DepositQuote | null>(null);
@@ -819,7 +848,7 @@ export const useStellarDydxOrchestrator = () => {
       const wallets = useWalletStore.getState().connectedWallets;
       const [evmOrdersRaw, stellarOrdersRaw] = await Promise.all([
         evmAddress ? getSwapOrdersByWallet(evmAddress, 1, 10) : Promise.resolve({ data: [] }),
-        stellarAddress ? getSwapOrdersByWallet(stellarAddress, 2, 10) : Promise.resolve({ data: [] }),
+        stellarAddress ? getSwapOrdersByWallet(stellarAddress, 1, 10) : Promise.resolve({ data: [] }),
       ]);
 
       const allBackendOrders = [
@@ -1072,9 +1101,32 @@ export const useStellarDydxOrchestrator = () => {
   // }, [isRestored, recoverBackendSessions]);
 
   useEffect(() => {
-    if (!isRestored || !inputAmount || parseFloat(inputAmount) <= 0 || activeSessionId) return;
+    if (!isRestored) return;
 
+    if (!inputAmount || parseFloat(inputAmount) <= 0) {
+      setSwapQuote(null);
+      setBridgeQuote(null);
+      setDepositQuote(null);
+      setRawQuotes(null);
+      setSetupError(null);
+      setQuoteTimestamp(null);
+      return;
+    }
+
+    if (activeSessionId) return;
+
+    // Clear quotes immediately when inputAmount changes
+    setSwapQuote(null);
+    setBridgeQuote(null);
+    setDepositQuote(null);
+    setRawQuotes(null);
+    setSetupError(null);
+    setQuoteTimestamp(null);
+
+    quoteAbortRef.current?.abort();
     const controller = new AbortController();
+    quoteAbortRef.current = controller;
+
     const timer = setTimeout(() => {
       if (!isQuotingRef.current) {
         fetchAllQuotes(inputAmount, controller.signal);
@@ -1090,16 +1142,19 @@ export const useStellarDydxOrchestrator = () => {
   useEffect(() => {
     if (activeSessionId || !inputAmount || parseFloat(inputAmount) <= 0) return;
 
-    const controller = new AbortController();
+    let localController: AbortController | null = null;
     const interval = setInterval(() => {
       if (!isQuotingRef.current) {
-        fetchAllQuotes(inputAmount, controller.signal);
+        quoteAbortRef.current?.abort();
+        localController = new AbortController();
+        quoteAbortRef.current = localController;
+        fetchAllQuotes(inputAmount, localController.signal);
       }
     }, 30000);
 
     return () => {
       clearInterval(interval);
-      controller.abort();
+      localController?.abort();
     };
   }, [inputAmount, fetchAllQuotes, activeSessionId]);
 
