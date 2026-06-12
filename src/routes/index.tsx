@@ -125,6 +125,14 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
+          {
+            path: ROUTES.MY_ASSETS,
+            element: (
+              <Layout>
+                <Profile />
+              </Layout>
+            ),
+          },
         ],
       },
     ],

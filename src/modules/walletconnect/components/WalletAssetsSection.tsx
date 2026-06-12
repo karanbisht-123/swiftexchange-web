@@ -1,4 +1,4 @@
-import { AlertCircle, RefreshCw, TrendingDown, TrendingUp, Wallet, MoreHorizontal, } from 'lucide-react';
+import { AlertCircle, RefreshCw, TrendingDown, TrendingUp, Wallet, MoreHorizontal, ArrowUpRight } from 'lucide-react';
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -342,7 +342,7 @@ const AssetRow = memo(({
 
 AssetRow.displayName = 'AssetRow';
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
+// Skeleton
 const SkeletonRows = () => (
   <div className="flex flex-col gap-2 px-3 py-3">
     {[1, 2, 3, 4, 5].map((i) => (
@@ -431,35 +431,50 @@ const WalletAssetsSection = () => {
       <section className="card lg:mt-3 rounded-none border-none lg:rounded-lg lg:overflow-hidden p-0">
 
         {/* ── Header ── */}
-        <div className="flex justify-between items-start px-4 py-2 lg:px-5  shadow-md">
-          <div>
-            <div className="flex items-center gap-1.5 text-muted mb-1.5">
-              <Wallet size={14} />
-              <span className="text-[11px] font-bold uppercase tracking-widest">Portfolio</span>
+        <div className="flex justify-between items-stretch px-4 py-3 lg:px-5 border-b border-color bg-secondary/50 backdrop-blur-md">
+          {/* Left Side: Balance & Stats */}
+          <div className="min-w-0 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 text-muted mb-1">
+                <Wallet size={12} className="text-brand shrink-0" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Portfolio</span>
+              </div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-2xl lg:text-3xl font-extrabold tracking-tight text-primary truncate leading-none">
+                  {loading ? <Shimmer className="h-7 w-28" /> : portfolioUtils.formatUSD(totalValue)}
+                </span>
+                {!loading && filteredAssets.length > 0 && (
+                  <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0
+                    ${isPositive ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}
+                  >
+                    {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                    {isPositive ? '+' : ''}{portfolioChange.toFixed(2)}%
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex items-baseline gap-2.5">
-              <span className="heading-3">
-                {loading ? <Shimmer className="h-8 w-36" /> : portfolioUtils.formatUSD(totalValue)}
-              </span>
-              {!loading && filteredAssets.length > 0 && (
-                <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold
-                  ${isPositive ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}
-                >
-                  {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                  {isPositive ? '+' : ''}{portfolioChange.toFixed(2)}%
-                </div>
-              )}
-            </div>
-            <span className="text-[11px] text-muted mt-1 block">24h performance</span>
+            <span className="text-[10px] text-muted mt-1 block leading-none">24h performance</span>
           </div>
-          <button
-            onClick={refetch}
-            disabled={loading || isRefreshing}
-            className="btn btn-ghost rounded-full p-2 mt-0.5"
-            title="Refresh"
-          >
-            <RefreshCw size={18} className={`text-muted ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
+
+          {/* Right Side: Refresh & Navigation Link */}
+          <div className="flex flex-col items-end justify-between shrink-0 pl-2 min-h-[58px]">
+            <button
+              onClick={refetch}
+              disabled={loading || isRefreshing}
+              className="flex items-center justify-center w-8 h-8 rounded-full text-muted hover:text-primary hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer"
+              title="Refresh"
+            >
+              <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
+            </button>
+            <div 
+              onClick={() => navigate(ROUTES.MY_ASSETS)}
+              className="group flex items-center gap-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand hover:text-brand-hover cursor-pointer transition-colors duration-200"
+              title="View full portfolio analytics and trading history"
+            >
+              <span>Detailed Portfolio</span>
+              <ArrowUpRight size={12} className="shrink-0 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 text-brand" />
+            </div>
+          </div>
         </div>
         {/* ── Body ── */}
         <div className="min-h-[400px]">
@@ -487,7 +502,14 @@ const WalletAssetsSection = () => {
                 <Wallet size={28} className="text-muted opacity-40" />
               </div>
               <p className="font-medium text-primary mb-1">No assets</p>
-              <p className="text-sm text-muted">Your wallet has no balances yet.</p>
+              <p className="text-sm text-muted mb-4">Your wallet has no balances yet.</p>
+              <button
+                onClick={() => navigate(ROUTES.MY_ASSETS)}
+                className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-primary font-bold text-xs uppercase tracking-wider bg-secondary border border-color hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer mx-auto shadow-sm"
+              >
+                <span>View Full Portfolio</span>
+                <ArrowUpRight size={14} className="text-muted group-hover:text-primary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0" />
+              </button>
             </div>
           ) : (
             <div className="w-full h-[71svh] lg:h-[65svh] pt-1">

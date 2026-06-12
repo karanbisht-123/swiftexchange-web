@@ -23,8 +23,8 @@ const SKIP_CHAIN_NAME_MAP: Record<number | string, string> = {
 
 export const SKIP_BRIDGES = ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as const;
 
-export const NATIVE_WALLET_GAS_RESERVE_UUSDC = 1_500_000; // $1.50
-export const NATIVE_WALLET_GAS_RESERVE_USD = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6; // 1.50
+export const NATIVE_WALLET_GAS_RESERVE_UUSDC = 1_250_000; // $1.25 USD
+export const NATIVE_WALLET_GAS_RESERVE_USD = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6; // $1.25 USD
 
 export function computeDepositSplit(walletBalanceUusdc: number): {
   keepUusdc: number;

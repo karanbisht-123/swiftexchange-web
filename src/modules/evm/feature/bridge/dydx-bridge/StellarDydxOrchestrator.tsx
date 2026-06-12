@@ -38,6 +38,9 @@ import {
 import { ConfirmationModal } from '../../../../../components/common/ConfirmationModal';
 import StellarActiveGuard from '../../../../walletconnect/components/StellarActiveGuard';
 import { type ChainConfig } from '../../../utils/Chainregistry';
+import { EvmTransactionSuccessModal } from '../../../components/EvmTransactionSuccessModal';
+import { useSwapStore } from '../../../../../store/swapStore';
+import { isTxOwnedByCurrentUser } from '../../../../dydx/hooks/useTransactionTracker';
 
 const STELLAR_CHAIN_ID = 'pubnet';
 const DEFAULT_SLIPPAGE = 1.0;
@@ -151,21 +154,24 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
 
   const isSessionUsdc = session.inputTokenSymbol === 'USDC';
   const activeChain = evmChains.find(c => c.chainId === session.destinationChainId);
+  const sym = session.inputTokenSymbol;
 
   const steps = isSessionUsdc
     ? [
       {
         id: 'BRIDGE',
-        label: 'Bridge to EVM',
-        description: `Move USDC from Stellar to ${activeChain?.name || 'EVM Chain'}. This involves a cross-chain protocol and typically takes 2-15 minutes.`,
+        label: `Bridge USDC → ${activeChain?.name || 'EVM'}`,
+        activeLabel: 'Sign bridge transfer in Stellar wallet',
+        description: `Sending USDC from Stellar to ${activeChain?.name || 'EVM'} via Allbridge. Takes 2–15 min once signed.`,
         color: 'text-blue-400',
         bg: 'bg-blue-400/20',
         border: 'border-blue-400/30',
       },
       {
         id: 'DEPOSIT',
-        label: 'Settle to dYdX',
-        description: 'Finalize the settlement from the EVM network to your dYdX trading account. This funds your dYdX position.',
+        label: `Deposit USDC → dYdX`,
+        activeLabel: 'Sign deposit in EVM wallet',
+        description: `Depositing USDC from ${activeChain?.name || 'EVM'} into your dYdX trading account.`,
         color: 'text-brand',
         bg: 'bg-brand/20',
         border: 'border-brand/30',
@@ -174,24 +180,27 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
     : [
       {
         id: 'SWAP',
-        label: 'Prepare USDC on Stellar',
-        description: 'Convert tokens to USDC on Stellar. This ensures compatibility with the cross-chain bridge infrastructure.',
+        label: `Swap ${sym} → USDC`,
+        activeLabel: `Sign ${sym} → USDC swap in Stellar wallet`,
+        description: `Swapping ${sym} to USDC on Stellar DEX. USDC is required for cross-chain bridging.`,
         color: 'text-emerald-400',
         bg: 'bg-emerald-400/20',
         border: 'border-emerald-400/30',
       },
       {
         id: 'BRIDGE',
-        label: 'Bridge to EVM',
-        description: `Cross-chain transfer to ${activeChain?.name || 'EVM Chain'}. Assets are moved securely via Allbridge liquidity pools.`,
+        label: `Bridge USDC → ${activeChain?.name || 'EVM'}`,
+        activeLabel: 'Sign bridge transfer in Stellar wallet',
+        description: `Sending USDC from Stellar to ${activeChain?.name || 'EVM'} via Allbridge. Takes 2–15 min once signed.`,
         color: 'text-blue-400',
         bg: 'bg-blue-400/20',
         border: 'border-blue-400/30',
       },
       {
         id: 'DEPOSIT',
-        label: 'Settle to dYdX',
-        description: 'Depositing from EVM into the dYdX Protocol. Once confirmed, your balance will be available for trading.',
+        label: `Deposit USDC → dYdX`,
+        activeLabel: 'Sign deposit in EVM wallet',
+        description: `Depositing USDC from ${activeChain?.name || 'EVM'} into your dYdX trading account.`,
         color: 'text-brand',
         bg: 'bg-brand/20',
         border: 'border-brand/30',
@@ -321,14 +330,17 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
                   </p>
 
                   {isActive && !isFailed && (
-                    <div className="mt-4 space-y-4">
-                      <div className="flex items-center gap-2 text-[9px] font-black text-brand uppercase tracking-widest animate-pulse">
-                        <div className="flex gap-1">
+                    <div className="mt-3 space-y-3">
+                      {/* Action hint for active step */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-0.5">
                           <div className="w-1 h-1 rounded-full bg-brand animate-bounce" />
                           <div className="w-1 h-1 rounded-full bg-brand animate-bounce delay-100" />
                           <div className="w-1 h-1 rounded-full bg-brand animate-bounce delay-200" />
                         </div>
-                        <span>Active Step</span>
+                        <span className="text-[9px] font-black text-brand uppercase tracking-widest">
+                          {s.activeLabel}
+                        </span>
                       </div>
 
                       {s.id === 'BRIDGE' && isStepPending && (
@@ -995,6 +1007,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     executeSessionStep,
     updateSession,
     quoteTimestamp,
+    signingPhase,
   } = useStellarDydxOrchestrator();
 
   const [showNetworkSelector, setShowNetworkSelector] = useState<boolean>(false);
@@ -1004,17 +1017,57 @@ export const StellarDydxOrchestrator: React.FC = () => {
   const [restoreInputsOnClear, setRestoreInputsOnClear] = useState<boolean>(false);
   const [awaitingWalletConfirm, setAwaitingWalletConfirm] = useState<boolean>(false);
   const [quoteAge, setQuoteAge] = useState<number>(0);
+  // One-time success modal: shown when a session first hits DONE, cleared after view
+  const [successModalSessionId, setSuccessModalSessionId] = useState<string | null>(null);
+  const shownSuccessRef = useRef<Set<string>>(new Set());
+  // Recovery banner: shown when user navigated away mid-signature and came back
+  const [showBridgeRecoveryBanner, setShowBridgeRecoveryBanner] = useState<boolean>(() =>
+    useSwapStore.getState().bridgePendingSignPhase !== 'idle'
+  );
+  const clearBridgePendingSign = useSwapStore(s => s.clearBridgePendingSign);
+  // Track the stored sign phase separately (persisted across navigation)
+  const bridgePendingSignPhase = useSwapStore(s => s.bridgePendingSignPhase);
+  const bridgePendingSignSessionId = useSwapStore(s => s.bridgePendingSignSessionId);
 
   const evmChains = useMemo(() => getEvmChainsForNetwork(currentNetwork), [currentNetwork]);
   const isBothConnected = !!evmAddress && !!stellarAddress;
 
+  // When signingPhase goes active (live), we are actively signing — hide recovery banner
+  // When signingPhase goes idle but the store still has a stale phase, it means user navigated away
+  useEffect(() => {
+    if (signingPhase !== 'idle') {
+      // Active signing — hide any stale recovery banner
+      setShowBridgeRecoveryBanner(false);
+    }
+  }, [signingPhase]);
+
+  // On mount: if the store had a persisted sign phase, show recovery banner
+  useEffect(() => {
+    if (bridgePendingSignPhase !== 'idle') {
+      setShowBridgeRecoveryBanner(true);
+    }
+  }, []);
+
+  // Detect newly-completed sessions and trigger the one-time success modal
+  useEffect(() => {
+    const doneSession = sessions.find(
+      s => s.phase === 'DONE' && isTxOwnedByCurrentUser(s, connectedWallets) && !shownSuccessRef.current.has(s.id)
+    );
+    if (doneSession) {
+      shownSuccessRef.current.add(doneSession.id);
+      setSuccessModalSessionId(doneSession.id);
+    }
+  }, [sessions, connectedWallets]);
+
   const activeSession = useMemo(() => {
-    return sessions.find(s => s.id === activeSessionId) || null;
-  }, [sessions, activeSessionId]);
+    const found = sessions.find(s => s.id === activeSessionId) || null;
+    if (found && !isTxOwnedByCurrentUser(found, connectedWallets)) return null;
+    return found;
+  }, [sessions, activeSessionId, connectedWallets]);
 
   const hasPendingSession = useMemo(() => {
-    return sessions.some(s => s.loadingStep);
-  }, [sessions]);
+    return sessions.some(s => isTxOwnedByCurrentUser(s, connectedWallets) && s.loadingStep);
+  }, [sessions, connectedWallets]);
 
   const tokenBalance = useMemo(() => {
     if (!inputToken) return '0';
@@ -1134,25 +1187,28 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (!evmAddress || !stellarAddress) return 'CONNECT WALLETS';
 
     if (activeSession) {
-      const activeChain = evmChains.find(c => c.chainId === activeSession.destinationChainId);
-      const isSessionUsdc = activeSession.inputTokenSymbol === 'USDC';
-      const totalSteps = isSessionUsdc ? 2 : 3;
-
       if (activeSession.error) return 'TRY AGAIN';
 
-      if (activeSession.phase === 'SWAP') return `SWAP TO USDC (1/${totalSteps})`;
+      if (signingPhase === 'signing_swap') return 'SIGN SWAP IN WALLET...';
+      if (signingPhase === 'signing_bridge') return 'SIGN BRIDGE IN WALLET...';
+      if (signingPhase === 'signing_deposit') return 'SIGN DEPOSIT IN WALLET...';
+
+      if (activeSession.phase === 'SWAP') {
+        if (activeSession.loadingStep) return 'PREPARING SWAP...';
+        return 'RETRY SWAP';
+      }
       if (activeSession.phase === 'BRIDGE') {
-        if (activeSession.bridgeTx.status === 'PENDING') return 'WAITING FOR BRIDGE CONFIRMATION...';
+        if (activeSession.bridgeTx.status === 'PENDING') return 'BRIDGING...';
         if (activeSession.bridgeTx.status === 'FAILED') return 'TRY AGAIN';
-        const step = isSessionUsdc ? 1 : 2;
-        return `BRIDGE TO ${activeChain?.name?.toUpperCase() || 'EVM'} (${step}/${totalSteps})`;
+        if (activeSession.loadingStep) return 'PREPARING BRIDGE...';
+        return 'RETRY BRIDGE';
       }
       if (activeSession.phase === 'DEPOSIT') {
-        if (activeSession.bridgeTx.status !== 'SUCCESS') return 'WAITING FOR BRIDGE FUNDS...';
-        if (activeSession.depositTx.status === 'PENDING') return 'SETTLEMENT IN PROGRESS...';
+        if (activeSession.bridgeTx.status !== 'SUCCESS') return 'WAITING FOR BRIDGE...';
+        if (activeSession.depositTx.status === 'PENDING') return 'DEPOSITING...';
         if (activeSession.depositTx.status === 'FAILED') return 'TRY AGAIN';
-        const step = isSessionUsdc ? 2 : 3;
-        return activeSession.loadingStep ? 'REFRESHING ROUTE...' : `SETTLE TO DYDX (${step}/${totalSteps})`;
+        if (activeSession.loadingStep) return 'PREPARING DEPOSIT...';
+        return 'RETRY DEPOSIT';
       }
       if (activeSession.phase === 'DONE') return 'START NEW TRANSFER';
     }
@@ -1181,11 +1237,13 @@ export const StellarDydxOrchestrator: React.FC = () => {
   }, [
     evmAddress, stellarAddress, activeSession, setupError, inputAmount, tokenBalance,
     nativeBalance, feePaymentMethod, isQuoting, evmChains, hasPendingSession, isUsdc,
-    rawQuotes, stablecoinFeeError,
+    rawQuotes, stablecoinFeeError, signingPhase,
   ]);
 
   const isButtonDisabled = useMemo(() => {
     if (!evmAddress || !stellarAddress) return true;
+    if (signingPhase !== 'idle') return true;
+    if (showBridgeRecoveryBanner) return true;
 
     if (activeSession) {
       if (activeSession.loadingStep) return true;
@@ -1218,7 +1276,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   }, [
     evmAddress, stellarAddress, activeSession, inputAmount, tokenBalance,
     nativeBalance, feePaymentMethod, isQuoting, hasPendingSession, isUsdc,
-    rawQuotes, stablecoinFeeError,
+    rawQuotes, stablecoinFeeError, signingPhase, showBridgeRecoveryBanner,
   ]);
 
   const customButtonClass = useMemo(() => {
@@ -1688,11 +1746,67 @@ export const StellarDydxOrchestrator: React.FC = () => {
               </div>
             )}
 
-            {(awaitingWalletConfirm || activeSession?.loadingStep) && (
-              <div className="bg-brand/10 border border-brand/20 rounded-2xl p-4 flex items-center gap-3 mb-4 animate-pulse">
+            {/* Live wallet-signing banner: shown while wallet popup is actively open */}
+            {signingPhase !== 'idle' && (
+              <div className="flex items-center gap-3 bg-brand/10 border border-brand/20 rounded-2xl px-4 py-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-300 animate-pulse">
                 <Wallet size={18} className="text-brand flex-shrink-0" />
-                <p className="text-xs font-bold text-brand">
-                  Open your wallet and approve the transaction to continue.
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-black text-brand uppercase tracking-widest">
+                    {signingPhase === 'signing_swap'
+                      ? 'Approval Request — Swap in Stellar wallet'
+                      : signingPhase === 'signing_bridge'
+                        ? 'Approval Request — Bridge transfer in Stellar wallet'
+                        : 'Approval Request — dYdX deposit in EVM wallet'}
+                  </p>
+                  <p className="text-[10px] font-bold text-brand/70 mt-0.5">
+                    {signingPhase === 'signing_swap' && 'Swapping your token to USDC on Stellar...'}
+                    {signingPhase === 'signing_bridge' && 'Sending USDC across the bridge to EVM...'}
+                    {signingPhase === 'signing_deposit' && 'Depositing USDC into your dYdX account...'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Recovery banner: user navigated away mid-signature and came back */}
+            {showBridgeRecoveryBanner && signingPhase === 'idle' && (
+              <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                <span className="text-amber-400 text-base leading-none flex-shrink-0">⏳</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest">
+                    {bridgePendingSignPhase === 'signing_swap'
+                      ? 'Waiting for swap signature'
+                      : bridgePendingSignPhase === 'signing_bridge'
+                        ? 'Waiting for bridge signature'
+                        : bridgePendingSignPhase === 'signing_deposit'
+                          ? 'Waiting for deposit signature'
+                          : 'Signature pending'}
+                  </p>
+                  <p className="text-[11px] text-amber-400/70 font-medium mt-0.5">
+                    You navigated away while signing. Open your wallet app to approve the pending transaction.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowBridgeRecoveryBanner(false);
+                    clearBridgePendingSign();
+                    // If there's a session tied to this pending sign, switch to it
+                    if (bridgePendingSignSessionId) {
+                      setActiveSessionId(bridgePendingSignSessionId);
+                    }
+                  }}
+                  className="flex-shrink-0 text-[10px] font-bold text-amber-400/60 hover:text-amber-300 border border-amber-500/20 hover:border-amber-400/40 rounded-lg px-2 py-1 transition-colors duration-150 whitespace-nowrap"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* General loading banner (preparing, not yet in signing phase) */}
+            {awaitingWalletConfirm && signingPhase === 'idle' && !showBridgeRecoveryBanner && (
+              <div className="flex items-center gap-2 bg-blue-500/8 border border-blue-500/20 rounded-2xl px-4 py-2.5 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                <span className="text-blue-400 text-sm leading-none animate-spin">⟳</span>
+                <p className="text-[11px] font-semibold text-blue-400/80">
+                  Building your request — please wait.
                 </p>
               </div>
             )}
@@ -1866,20 +1980,27 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     label={buttonLabel}
                     isLoading={
                       isQuoting ||
+                      signingPhase !== 'idle' ||
                       activeSession?.loadingStep ||
                       (activeSession?.phase === 'BRIDGE' && activeSession?.bridgeTx.status === 'PENDING') ||
                       (activeSession?.phase === 'DEPOSIT' && activeSession?.depositTx.status === 'PENDING')
                     }
                     loadingLabel={
-                      activeSession?.loadingStep
-                        ? 'Approve Transaction'
-                        : activeSession?.phase === 'BRIDGE' && activeSession?.bridgeTx.status === 'PENDING'
-                          ? 'WAITING FOR BRIDGE...'
-                          : activeSession?.phase === 'DEPOSIT' && activeSession?.depositTx.status === 'PENDING'
-                            ? 'SETTLING TO DYDX...'
-                            : isQuoting
-                              ? 'FETCHING QUOTES...'
-                              : 'PROCESSING...'
+                      signingPhase === 'signing_swap'
+                        ? 'SIGN SWAP IN WALLET...'
+                        : signingPhase === 'signing_bridge'
+                          ? 'SIGN BRIDGE IN WALLET...'
+                          : signingPhase === 'signing_deposit'
+                            ? 'SIGN DEPOSIT IN WALLET...'
+                            : activeSession?.loadingStep
+                              ? 'PREPARING REQUEST...'
+                              : activeSession?.phase === 'BRIDGE' && activeSession?.bridgeTx.status === 'PENDING'
+                                ? 'BRIDGING...'
+                                : activeSession?.phase === 'DEPOSIT' && activeSession?.depositTx.status === 'PENDING'
+                                  ? 'SETTLING TO DYDX...'
+                                  : isQuoting
+                                    ? 'FETCHING QUOTES...'
+                                    : 'PROCESSING...'
                     }
                     isDisabled={isButtonDisabled}
                     isError={!!(activeSession?.error || setupError || buttonLabel.includes('INSUFFICIENT'))}
@@ -1904,6 +2025,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
         {sessions.filter(s => {
           if (s.id === activeSessionId) return false;
           if (s.phase === 'DONE') return false;
+          if (!isTxOwnedByCurrentUser(s, connectedWallets)) return false;
           const hasPending = s.swapTx?.status === 'PENDING' || s.bridgeTx?.status === 'PENDING' || s.depositTx?.status === 'PENDING';
           const needsAction =
             (s.phase === 'DEPOSIT' && !s.depositTx?.hash) ||
@@ -1916,6 +2038,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 const otherSessions = sessions.filter(s => {
                   if (s.id === activeSessionId) return false;
                   if (s.phase === 'DONE') return false;
+                  if (!isTxOwnedByCurrentUser(s, connectedWallets)) return false;
                   const hasPending =
                     s.swapTx?.status === 'PENDING' ||
                     s.bridgeTx?.status === 'PENDING' ||
@@ -1997,6 +2120,35 @@ export const StellarDydxOrchestrator: React.FC = () => {
           }}
         />
       </div>
+
+      {/* ── One-time success modal ─────────────────────────────────────────────── */}
+      {(() => {
+        if (!successModalSessionId) return null;
+        const doneSession = sessions.find(s => s.id === successModalSessionId);
+        if (!doneSession) return null;
+        const txHash = doneSession.depositTx?.hash || doneSession.bridgeTx?.hash || '';
+        const doneChain = evmChains.find(c => c.chainId === doneSession.destinationChainId);
+        const explorerUrl = doneSession.depositTx?.hash && doneChain
+          ? getExplorerUrl(doneSession.destinationChainId, 'tx', doneSession.depositTx.hash)
+          : txHash
+            ? `https://core.allbridge.io/explorer/transfer/${txHash}`
+            : '';
+        return (
+          <EvmTransactionSuccessModal
+            txHash={txHash}
+            explorerUrl={explorerUrl || ''}
+            title="Bridge Complete 🎉"
+            subtitle="Your funds have been deposited"
+            networkName="dYdX"
+            onDone={() => {
+              setSuccessModalSessionId(null);
+              // Dismiss the done session so the roadmap card disappears
+              dismissSession(successModalSessionId);
+              setActiveSessionId(null);
+            }}
+          />
+        );
+      })()}
     </StellarActiveGuard>
   );
 };

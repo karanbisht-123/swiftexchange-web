@@ -141,50 +141,30 @@ export const signAndSubmitTransaction = async (
 
       console.log('[StellarTransactionService] signParams:', signParams);
 
-      try {
-        const result = await provider.client.request({
-          topic,
-          chainId,
-          request: {
-            method: 'stellar_signAndSubmitXDR',
-            params: signParams,
-          },
-        });
+      const result = await provider.client.request({
+        topic,
+        chainId,
+        request: {
+          method: 'stellar_signAndSubmitXDR',
+          params: signParams,
+        },
+      });
 
-        if (result?.status === 'success' || result?.hash) {
-          return { success: true, hash: result.hash };
-        }
+      if (result?.status === 'success' || result?.hash) {
+        return { success: true, hash: result.hash };
+      }
 
-        if (result?.signedXDR) {
-          const config = getStellarConfig(network.toLowerCase() as any);
-          const hash = await submitToHorizon(result.signedXDR, config.horizonUrl);
-          return { success: true, hash };
-        }
-
-        if (typeof result === 'string') {
-          return { success: true, hash: result };
-        }
-      } catch (wcError: any) {
-        console.warn('[StellarTransactionService] stellar_signAndSubmitXDR failed, trying fallback...', wcError);
-        const signResult = await provider.client.request({
-          topic,
-          chainId,
-          request: {
-            method: 'stellar_signTransaction',
-            params: signParams,
-          },
-        });
-
-        const signedXdr = signResult?.signedXDR || (typeof signResult === 'string' ? signResult : null);
-
-        if (!signedXdr) {
-          throw new Error('Wallet failed to sign the transaction');
-        }
-
+      if (result?.signedXDR) {
         const config = getStellarConfig(network.toLowerCase() as any);
-        const hash = await submitToHorizon(signedXdr, config.horizonUrl);
+        const hash = await submitToHorizon(result.signedXDR, config.horizonUrl);
         return { success: true, hash };
       }
+
+      if (typeof result === 'string') {
+        return { success: true, hash: result };
+      }
+
+      throw new Error('Transaction signing/submission failed or was cancelled');
     }
 
     if (typeof provider?.request === 'function') {
