@@ -1,7 +1,6 @@
 import {
   Activity,
   AlertTriangle,
-  ArrowRight,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -15,13 +14,17 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ROUTES } from '../../../constants/routes';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { FixedSizeList } from 'react-window';
 import { Notification } from '../../../components/common/Notification';
 import { Tooltip } from '../../../components/common/Tooltip';
 import { getChainById, getChainLogoUrl } from '../../evm/utils/Chainregistry';
-import { getEVMChains } from '../../walletconnect/config/chains';
+import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
+import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
+import { walletService } from '../../walletconnect/services/walletService';
 import { type Asset } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
@@ -48,8 +51,7 @@ interface DydxDepositModalProps {
 const PRIORITY_SYMBOLS = ['USDC', 'USDT', 'ETH'];
 
 
-const DEPOSIT_ROUTE = ['Your Wallet', 'Noble', 'dYdX'] as const;
-
+// const DEPOSIT_ROUTE = ['Your Wallet', 'Noble', 'dYdX'] as const;
 const getChainIconUrl = (asset: Asset): string | undefined => {
   if (asset.chainId) return getChainLogoUrl(asset.chainId);
   return undefined;
@@ -79,26 +81,7 @@ const AssetIcon = ({ asset, size = 'md' }: { asset: Asset; size?: 'sm' | 'md' })
 
 
 
-const RoutePill: React.FC = () => (
-  <div className="flex items-center gap-1.5 text-[11px] text-muted bg-secondary border border-color rounded-full px-3 py-1.5 w-fit mx-auto">
-    {DEPOSIT_ROUTE.map((chain, i) => (
-      <React.Fragment key={chain}>
-        <span
-          className={
-            i === 0
-              ? 'text-secondary font-medium'
-              : i === DEPOSIT_ROUTE.length - 1
-                ? 'text-brand font-medium'
-                : ''
-          }
-        >
-          {chain}
-        </span>
-        {i < DEPOSIT_ROUTE.length - 1 && <ArrowRight className="w-2.5 h-2.5 opacity-40" />}
-      </React.Fragment>
-    ))}
-  </div>
-);
+
 
 const ModalShell: React.FC<{
   onClose: () => void;
@@ -133,6 +116,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   onClose,
   initialAsset,
 }) => {
+  const navigate = useNavigate();
   const { network } = useWalletStore();
   const { assets } = useWalletAssets(network);
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
@@ -152,6 +136,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     MIN_DEPOSIT_USDC,
     notification,
     clearNotification,
+    step,
   } = useDydxDeposit();
 
   const evmChainId = (evmWallet?.chainId as number | string ?? 1);
@@ -168,7 +153,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [amount, setAmount] = useState('');
 
-  const activeStepLabel = isLoading ? stepLabel : (currentDepositTx?.stepLabel ?? '');
   const activeAmount = isLoading ? amount : (currentDepositTx?.amount ?? '');
   const activeAssetSymbol = isLoading
     ? selectedAsset?.symbol
@@ -194,13 +178,168 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   const usdEquivalent =
     !isStable && (selectedAsset?.current_price || 0) === 0 ? null : rawUsdEquivalent;
   const displayUsd = usdEquivalent ?? rawUsdEquivalent;
-  
+
   const goFast = displayUsd >= 20;
 
   const tracker = useTransactionTracker('deposit');
   const trackerTxHash = tracker.txHash;
   const trackerChainId = tracker.chainId;
   const hasPendingTracker = !!trackerTxHash && tracker.hasPolledOnce && !tracker.isTerminal;
+
+  const handleSwitchNetwork = async () => {
+    if (!selectedAsset) return;
+    const provider = walletService.getProvider('evm');
+    if (provider) {
+      try {
+        await switchOrAddChain(provider, Number(selectedAsset.chainId));
+      } catch (err) {
+        console.error('Failed to switch network:', err);
+      }
+    }
+  };
+
+  const renderStepper = () => {
+    const isChainMismatch = evmWallet && selectedAsset && Number(evmWallet.chainId) !== Number(selectedAsset.chainId);
+
+    let step1Status: 'pending' | 'active' | 'completed' = 'completed';
+    if (isChainMismatch && !trackerTxHash && step === 'idle') {
+      step1Status = 'active';
+    } else if (step === 'routing') {
+      step1Status = 'active';
+    } else {
+      step1Status = 'completed';
+    }
+
+    let step2Status: 'pending' | 'active' | 'completed' = 'pending';
+    const isNativeToken = selectedAsset?.isNative;
+    if (trackerTxHash || step === 'pending_bridge' || step === 'transferring' || step === 'success') {
+      step2Status = 'completed';
+    } else if (step === 'signing_evm' && step1Status === 'completed') {
+      step2Status = 'active';
+    }
+
+    let step3Status: 'pending' | 'active' | 'completed' = 'pending';
+    if (trackerTxHash || step === 'transferring' || step === 'success') {
+      step3Status = 'completed';
+    } else if (step === 'pending_bridge') {
+      step3Status = 'active';
+    }
+
+    let step4Status: 'pending' | 'active' | 'completed' | 'error' = 'pending';
+    if (step === 'success' || tracker.overallState === 'STATE_COMPLETED_SUCCESS') {
+      step4Status = 'completed';
+    } else if (step === 'error' || tracker.isError) {
+      step4Status = 'error';
+    } else if (step === 'transferring' || trackerTxHash) {
+      step4Status = 'active';
+    }
+
+    const steps = [
+      {
+        id: 1,
+        title: 'Switch Network & Prepare',
+        desc: isChainMismatch
+          ? `Switch your wallet network to ${getChainById(selectedAsset?.chainId || 1)?.name || 'source chain'}`
+          : 'Check connection and transaction route',
+        status: step1Status,
+        action: isChainMismatch && step1Status === 'active' ? (
+          <button
+            onClick={handleSwitchNetwork}
+            className="mt-2 px-3 py-1.5 bg-brand hover:brightness-110 text-white text-[11px] font-bold rounded-lg shadow-md transition-all active:scale-95 cursor-pointer"
+          >
+            Switch Network
+          </button>
+        ) : null
+      },
+      {
+        id: 2,
+        title: `Approve ${selectedAsset?.symbol || 'USDC'}`,
+        desc: isNativeToken
+          ? 'Native asset - no approval needed'
+          : `Authorize bridge to transfer your ${selectedAsset?.symbol || 'USDC'}`,
+        status: isNativeToken ? 'completed' : step2Status,
+      },
+      {
+        id: 3,
+        title: 'Confirm Deposit',
+        desc: 'Sign the deposit transaction in your wallet',
+        status: step3Status,
+      },
+      {
+        id: 4,
+        title: 'Bridge Transfer',
+        desc: 'Moving funds to your dYdX subaccount (typically 3-10 mins)',
+        status: step4Status,
+      }
+    ];
+
+    return (
+      <div className="space-y-6 my-2">
+        {steps.map((s, idx) => {
+          const isActive = s.status === 'active';
+          const isDone = s.status === 'completed';
+          const isErr = s.status === 'error';
+          const isLast = idx === steps.length - 1;
+
+          return (
+            <div key={s.id} className="relative flex gap-4">
+              {!isLast && (
+                <div
+                  className={`absolute left-[15px] top-8 bottom-[-24px] w-[2px] transition-all duration-500 ${isDone ? 'bg-brand' : 'bg-white/10'
+                    }`}
+                />
+              )}
+
+              <div className="shrink-0 z-10">
+                <div
+                  className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isActive
+                      ? 'border-brand bg-brand/20 shadow-[0_0_12px_rgba(var(--brand-rgb),0.4)] scale-105'
+                      : isDone
+                        ? 'border-brand bg-brand text-white'
+                        : isErr
+                          ? 'border-danger bg-danger/20 text-danger'
+                          : 'border-white/10 bg-secondary text-muted opacity-40'
+                    }`}
+                >
+                  {isActive ? (
+                    <Loader2 className="w-4 h-4 text-brand animate-spin" />
+                  ) : isDone ? (
+                    <Check className="w-4 h-4 text-white" />
+                  ) : isErr ? (
+                    <X className="w-4 h-4 text-danger" />
+                  ) : (
+                    <span className="text-xs font-bold">{s.id}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className={`flex-1 pb-4 transition-opacity duration-300 ${!isActive && !isDone ? 'opacity-40' : 'opacity-100'}`}>
+                <h4 className="text-sm font-bold text-primary">{s.title}</h4>
+                <p className="text-xs text-muted mt-0.5 leading-relaxed">{s.desc}</p>
+                {s.action}
+
+                {s.id === 4 && trackerTxHash && trackerChainId && (
+                  <div className="mt-4 border border-color rounded-xl p-4 bg-tertiary/50 animate-in fade-in duration-500">
+                    <TransactionTracker
+                      txHash={trackerTxHash}
+                      chainId={trackerChainId}
+                      overallState={tracker.overallState}
+                      steps={tracker.steps}
+                      activeStepIndex={tracker.activeStepIndex}
+                      assetRelease={tracker.assetRelease}
+                      isLoading={tracker.isLoading}
+                      isError={tracker.isError}
+                      errorMessage={tracker.errorMessage}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const autoClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -249,6 +388,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    if (initialAsset && (initialAsset.chainType === 'stellar' || initialAsset.chainId === 'pubnet' || initialAsset.chainId === 'testnet')) {
+      navigate(`${ROUTES.BRIDGE}?asset=${initialAsset.symbol}&type=perp`);
+      onClose();
+      return;
+    }
     const isDydxChain = (cid: any) => typeof cid === 'string' && cid.startsWith('dydx-');
     if (initialAsset && initialAsset.chainId !== 'pubnet' && initialAsset.chainId !== 'testnet' && !isDydxChain(initialAsset.chainId)) {
       setSelectedAsset(initialAsset);
@@ -260,7 +404,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
       const eth = candidates.find(a => a.symbol.toUpperCase() === 'ETH');
       setSelectedAsset(usdc || eth || candidates[0] || null);
     }
-  }, [isOpen, assets, initialAsset]);
+  }, [isOpen, assets, initialAsset, navigate, onClose]);
 
   useEffect(() => {
     const parsed = parseFloat(amount);
@@ -281,10 +425,15 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   }, [amount, selectedAsset, getRoute, evmChainId, goFast]);
 
   const handleSelectAsset = useCallback((asset: Asset) => {
+    if (asset.chainType === 'stellar' || asset.chainId === 'pubnet' || asset.chainId === 'testnet') {
+      navigate(`${ROUTES.BRIDGE}?asset=${asset.symbol}&type=perp`);
+      onClose();
+      return;
+    }
     setSelectedAsset(asset);
     setAmount('');
     setModalStep('form');
-  }, []);
+  }, [navigate, onClose]);
 
   const handleSetMax = useCallback(() => {
     if (selectedAsset?.balance) {
@@ -320,12 +469,17 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
       name: c.name,
       logo: c.logoUrl,
     }));
-    return [{ id: 'all', name: 'All Networks' }, ...evmVals];
+    const stellarConfig = getStellarConfig(network);
+    const stellarVal = {
+      id: stellarConfig.chainId,
+      name: 'Stellar',
+      logo: stellarConfig.logoUrl,
+    };
+    return [{ id: 'all', name: 'All Networks' }, ...evmVals, stellarVal];
   }, [network]);
 
   const filteredAssets = useMemo(() => {
     let result = assets.filter(a => {
-      if (a.chainId === 'pubnet' || a.chainId === 'testnet') return false;
       if (typeof a.chainId === 'string' && a.chainId.startsWith('dydx-')) return false;
       if (selectedNetwork !== 'all' && a.chainId !== selectedNetwork) return false;
       if ((a.balance || 0) <= 0) return false;
@@ -444,6 +598,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   if (!isOpen) return null;
 
   if (modalStep === 'tracker') {
+    const bridgeSucceeded =
+      tracker.overallState === 'STATE_COMPLETED_SUCCESS' ||
+      currentDepositTx?.status === 'success';
+
     return (
       <ModalShell onClose={onClose} className="min-h-[500px] sm:min-h-[580px]">
         <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0 border-b border-color">
@@ -456,7 +614,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             <h3 className="text-base font-semibold text-primary">Transfer Status</h3>
           </div>
           <div className="flex items-center gap-2">
-            {tracker.isTerminal && (
+            {trackerTxHash && tracker.isTerminal && (
               <button
                 onClick={tracker.refresh}
                 className="p-1.5 text-muted hover:text-primary transition-colors rounded-lg hover:bg-hover"
@@ -475,159 +633,77 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
         </div>
 
         <div className="overflow-y-auto flex-1 px-5 py-5 flex flex-col gap-4">
-          {trackerTxHash && (
-            <div className="rounded-xl border border-color bg-tertiary p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="text-xs text-muted mb-0.5">Depositing</div>
-                  <div className="text-lg font-semibold text-primary tracking-tight">
-                    {activeAmount
-                      ? `${activeAmount} ${activeAssetSymbol}`
-                      : 'In Progress'}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-muted mb-0.5">Status</div>
-                  <div
-                    className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 ${hasPendingTracker
-                      ? 'bg-brand/10 text-brand'
-                      : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
-                        ? 'bg-success-bg text-success'
-                        : 'bg-danger-bg text-danger'
-                      }`}
-                  >
-                    {hasPendingTracker && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block shrink-0" />
-                    )}
-                    {!tracker.hasPolledOnce
-                      ? (trackerTxHash ? 'Indexing…' : 'Signing…')
-                      : hasPendingTracker
-                        ? 'Bridging…'
-                        : tracker.overallState === 'STATE_COMPLETED_SUCCESS'
-                          ? 'Completed'
-                          : 'Failed'}
-                  </div>
-                </div>
-              </div>
-              <RoutePill />
+          {/* Large Amount Display */}
+          <div className="flex flex-col items-center justify-center py-6 border-b border-color/40">
+            <div className="text-3xl font-black text-primary flex items-center gap-2 font-mono">
+              {activeAmount || amount}
+              <span className="text-sm font-bold text-muted uppercase">
+                {activeAssetSymbol || selectedAsset?.symbol || 'USDC'}
+              </span>
             </div>
-          )}
+            <div className="text-xs text-muted mt-1.5 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block" />
+              dYdX Deposit
+            </div>
+          </div>
 
-          {(isLoading || (currentDepositTx && !trackerTxHash)) && (
-            <div className="relative flex gap-5 animate-in fade-in slide-in-from-bottom-2 px-1">
-              <div className="absolute left-[13px] top-8 bottom-[-10px] w-[2px] bg-white/5" />
-              <div className="flex-shrink-0 mt-0.5 relative z-10">
-                <div className="w-7 h-7 rounded-full border-2 border-brand bg-brand/20 shadow-[0_0_15px_rgba(var(--brand-rgb),0.5)] flex items-center justify-center scale-110">
-                  <div className="w-2 h-2 rounded-full bg-brand animate-ping" />
-                </div>
-              </div>
-              <div className="flex-1 pb-10">
-                <h4 className="text-sm font-bold tracking-tight text-primary">Initial Transaction</h4>
-                <div className="flex items-center gap-2.5 text-[11px] font-semibold text-muted mt-1.5 flex-wrap">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    {activeStepLabel || 'Signing...'}
-                  </span>
-                  <span className="text-muted/60 lowercase font-medium italic">Awaiting wallet confirmation…</span>
-                </div>
+          {/* Stepper Checklist */}
+          {renderStepper()}
+
+          {/* Error Details */}
+          {(depositError || (tracker.isError && tracker.errorMessage)) && (
+            <div className="p-3 bg-danger/10 border border-danger/20 rounded-xl flex items-start gap-2 animate-in fade-in duration-300">
+              <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-xs font-black text-danger uppercase mb-1">
+                  Error Details
+                </p>
+                <p className="text-[11px] font-bold text-danger/80 break-words">
+                  {depositError || tracker.errorMessage}
+                </p>
               </div>
             </div>
           )}
 
-          {!trackerTxHash && !isLoading && !currentDepositTx && (
-            <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center animate-in fade-in zoom-in-95">
-              <div className="w-16 h-16 rounded-full bg-secondary border border-color flex items-center justify-center mb-4">
-                <Activity className="w-8 h-8 text-muted/30" />
-              </div>
-              <h4 className="text-base font-bold text-primary mb-2">No active transfer found</h4>
-              <p className="text-xs text-muted mb-6 max-w-[240px]">
-                We couldn't find a pending deposit in your local session. It may have already completed or was cleared.
-              </p>
+          {/* Actions */}
+          <div className="mt-auto pt-4 space-y-2">
+            {tracker.isTerminal || step === 'success' ? (
               <button
-                onClick={() => setModalStep('form')}
-                className="px-6 py-2.5 rounded-xl bg-brand text-primary text-sm font-bold shadow-lg shadow-brand/20 hover:scale-105 transition-all"
+                onClick={() => {
+                  handleDismissTracker();
+                  setModalStep('form');
+                }}
+                className="w-full py-3 btn btn-primary rounded-xl font-semibold text-[15px]"
               >
-                Go to Deposit
+                {bridgeSucceeded ? 'Done' : 'Dismiss & Retry'}
               </button>
-            </div>
-          )}
-
-          {trackerTxHash && trackerChainId && (
-            <TransactionTracker
-              txHash={trackerTxHash}
-              chainId={trackerChainId}
-              overallState={tracker.overallState}
-              steps={tracker.steps}
-              activeStepIndex={tracker.activeStepIndex}
-              assetRelease={tracker.assetRelease}
-              isLoading={tracker.isLoading}
-              isError={tracker.isError}
-              errorMessage={tracker.errorMessage}
-            />
-          )}
-
-          {trackerTxHash &&
-            !tracker.hasPolledOnce &&
-            !tracker.isTerminal &&
-            currentDepositTx?.status === 'pending' && (
-              <div className="flex items-center gap-3 py-3 px-4 rounded-xl bg-brand/5 border border-brand/20">
-                <Loader2 className="w-4 h-4 text-brand animate-spin flex-shrink-0" />
-                <div className="text-sm text-muted">
-                  {tracker.overallState === 'STATE_SUBMITTED'
-                    ? 'Waiting for Skip to index the transaction…'
-                    : 'Checking status…'}
-                </div>
-              </div>
+            ) : (
+              <button
+                onClick={onClose}
+                className="w-full py-3 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors font-medium"
+              >
+                Close Modal
+              </button>
             )}
 
-          {tracker.isError && !hasPendingTracker && (
-            <button
-              onClick={tracker.refresh}
-              className="w-full py-2.5 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors flex items-center justify-center gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh status
-            </button>
-          )}
-
-          {!tracker.isTerminal && (
-            <p className="text-[11px] text-muted text-center leading-relaxed mt-4">
-              Safe to close — we'll track progress in the background.
-            </p>
-          )}
-
-          {tracker.isTerminal && (
+            {/* Cancel & Clear Option */}
             <button
               onClick={() => {
-                handleDismissTracker();
-                setModalStep('form');
+                if (
+                  confirm(
+                    "Are you sure you want to clear this transaction? This won't cancel the on-chain transfer, but will let you initiate a new one."
+                  )
+                ) {
+                  handleDismissTracker();
+                  reset();
+                  setModalStep('form');
+                }
               }}
-              className="w-full py-3 btn btn-primary rounded-xl font-semibold text-[15px]"
+              className="w-full py-2.5 rounded-xl border border-color text-xs text-muted hover:text-danger hover:bg-danger/5 transition-colors font-semibold"
             >
-              {tracker.overallState === 'STATE_COMPLETED_SUCCESS' ? 'Done' : 'Dismiss & Retry'}
+              Clear Stated Transaction
             </button>
-          )}
-
-          {!trackerTxHash && currentDepositTx && (
-            <button
-              onClick={() => {
-                handleDismissTracker();
-                setModalStep('form');
-              }}
-              className="w-full py-3 rounded-xl border border-color text-sm text-danger hover:bg-danger/10 transition-colors font-semibold"
-            >
-              Cancel & Clear Transaction
-            </button>
-          )}
-
-          {!tracker.isTerminal && !isLoading && tracker.hasPolledOnce && (
-            <button
-              onClick={() => setModalStep('form')}
-              className="w-full py-3 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors"
-            >
-              Back to form
-            </button>
-          )}
+          </div>
         </div>
 
         {notification && (

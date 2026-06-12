@@ -732,16 +732,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const isInsufficientBalance = useMemo(() => {
     if (!sellAmount || !selectedSellAsset) return false;
-    let requiredBalance = parseFloat(sellAmount);
-
-    if (actionType === 'BRIDGE' && feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) {
-      if (selectedSellAsset.symbol.toUpperCase() === activeQuote.data.fee.stablecoin.symbol.toUpperCase()) {
-        requiredBalance += parseFloat(activeQuote.data.fee.stablecoin.amount);
-      }
-    }
+    const requiredBalance = parseFloat(sellAmount);
 
     return requiredBalance > parseFloat((selectedSellAsset as any)?.balance || '0');
-  }, [sellAmount, selectedSellAsset, feePayType, activeQuote.data?.fee?.stablecoin, actionType]);
+  }, [sellAmount, selectedSellAsset]);
 
   const hasInsufficientStellarGas = useMemo(() => {
     if (!isStellar(fromChainId)) return false;
@@ -1410,7 +1404,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
 
     // BRIDGE mode
-    if (activeQuote.source === 'bridge') return activeQuote.data?.minimumAmountOut || '0.00';
+    if (activeQuote.source === 'bridge') {
+      const grossAmount = parseFloat(activeQuote.data?.minimumAmountOut || '0');
+      if (feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) {
+        const feeAmount = parseFloat(activeQuote.data.fee.stablecoin.amount || '0');
+        const netAmount = Math.max(0, grossAmount - feeAmount);
+        return toPlainString(netAmount);
+      }
+      return activeQuote.data?.minimumAmountOut || '0.00';
+    }
     if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
       const decimals = (selectedBuyAsset as any)?.decimals || 18;
       const amtRaw = activeQuote.data.toTokenAmount || activeQuote.data.dstTokenAmount || '0';
@@ -1423,7 +1425,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (swapQuote) return swapQuote.outputAmount || '0.00';
 
     return '0.00';
-  }, [actionType, swapQuote, fusionQuote, isGasless, showFusionScreen, selectedBuyAsset, activeQuote.data, activeQuote.source, fromChainId, isSameAssetSelected]);
+  }, [actionType, swapQuote, fusionQuote, isGasless, showFusionScreen, selectedBuyAsset, activeQuote.data, activeQuote.source, fromChainId, isSameAssetSelected, feePayType]);
 
   const conversionRate = useMemo(() => {
     const sellAmt = parseFloat(sellAmount);
@@ -1447,7 +1449,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }
         }
       }
-      if (activeQuote.source === 'bridge') return activeQuote.data?.minimumAmountOut || '0.00';
+      if (activeQuote.source === 'bridge') {
+        const grossAmount = parseFloat(activeQuote.data?.minimumAmountOut || '0');
+        if (feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) {
+          const feeAmount = parseFloat(activeQuote.data.fee.stablecoin.amount || '0');
+          return Math.max(0, grossAmount - feeAmount).toString();
+        }
+        return activeQuote.data?.minimumAmountOut || '0.00';
+      }
     }
 
     if (isStellar(fromChainId) && activeQuote.source === 'stellar') return activeQuote.data?.minimumOutput;
@@ -1829,6 +1838,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                                         {Number(currentFee.amount).toFixed(4)}
                                       </span>
                                       <span className="text-[9px] font-black text-muted">{currentFee.symbol}</span>
+                                      {feePayType === 'stablecoin' && (
+                                        <span className="text-[9px] font-bold text-muted/60 lowercase ml-1">
+                                          (deducted from amount)
+                                        </span>
+                                      )}
                                     </>
                                   );
                                 })()}

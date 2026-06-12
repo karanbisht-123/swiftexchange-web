@@ -672,10 +672,7 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
                   <span className="text-muted">Bridge Amount In</span>
                   <span className="text-primary font-black">
                     {rawQuotes.bridge.amountToBeReceived
-                      ? (
-                        parseFloat(rawQuotes.bridge.amountToBeReceived) +
-                        parseFloat(String(rawQuotes.bridge.feeOptions?.stablecoin?.float || '0'))
-                      ).toFixed(4)
+                      ? parseFloat(rawQuotes.bridge.amountToBeReceived).toFixed(4)
                       : '—'}{' '}
                     USDC
                   </span>
@@ -683,7 +680,13 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
                 <div className="flex justify-between">
                   <span className="text-muted">Amount Out</span>
                   <span className="text-brand font-black">
-                    {parseFloat(rawQuotes.bridge.amountToBeReceived || '0').toFixed(4)} USDC
+                    {(() => {
+                      let amt = parseFloat(rawQuotes.bridge.amountToBeReceived || '0');
+                      if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes.bridge.feeOptions?.stablecoin) {
+                        amt = Math.max(0, amt - Number(rawQuotes.bridge.feeOptions.stablecoin.float));
+                      }
+                      return amt.toFixed(4);
+                    })()} USDC
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -699,7 +702,7 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
                 <div className="flex justify-between">
                   <span className="text-muted">Fee (pay in USDC)</span>
                   <span className="text-yellow-400 font-black">
-                    {rawQuotes.bridge.feeOptions?.stablecoin?.float} USDC
+                    {rawQuotes.bridge.feeOptions?.stablecoin?.float} USDC{feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && ' (deducted from amount)'}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -1041,12 +1044,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     }
   }, [signingPhase]);
 
-  // On mount: if the store had a persisted sign phase, show recovery banner
-  useEffect(() => {
-    if (bridgePendingSignPhase !== 'idle') {
-      setShowBridgeRecoveryBanner(true);
-    }
-  }, []);
+
 
   // Detect newly-completed sessions and trigger the one-time success modal
   useEffect(() => {
@@ -1104,7 +1102,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     const stellarConfig = getStellarConfig(currentNetwork);
 
     let title = 'Bridge to dYdX';
-    let finalBottomAmt = depositQuote?.receivedAmount?.toString() || bridgeQuote?.amountToBeReceived || '0.00';
+    let finalBottomAmt = '0.00';
     let isPending = false;
 
     if (activeSession) {
@@ -1120,6 +1118,14 @@ export const StellarDydxOrchestrator: React.FC = () => {
         title = activeSession.phase === 'DONE' ? 'Transfer Successful' : 'Settle Funds to dYdX';
         finalBottomAmt = activeSession.expectedBridgeOutput || activeSession.intermediateAmount || '0.00';
       }
+    } else if (depositQuote?.receivedAmount) {
+      finalBottomAmt = depositQuote.receivedAmount.toString();
+    } else if (bridgeQuote?.amountToBeReceived) {
+      let amt = parseFloat(bridgeQuote.amountToBeReceived);
+      if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && bridgeQuote.feeOptions?.stablecoin) {
+        amt = Math.max(0, amt - Number(bridgeQuote.feeOptions.stablecoin.float));
+      }
+      finalBottomAmt = amt.toString();
     }
 
     const inputSym = activeSession ? activeSession.inputTokenSymbol : (inputToken?.symbol || 'Select');
@@ -1218,10 +1224,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (!inputAmount || parseFloat(inputAmount) <= 0) return 'ENTER AMOUNT';
     if (stablecoinFeeError) return 'AMOUNT TOO SMALL TO COVER FEE';
 
-    let requiredBalance = parseFloat(inputAmount);
-    if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
-      requiredBalance += Number(rawQuotes.bridge.feeOptions.stablecoin.float);
-    }
+    const requiredBalance = parseFloat(inputAmount);
     const isInsufficient = requiredBalance > parseFloat(tokenBalance);
     if (isInsufficient) return 'INSUFFICIENT BALANCE';
 
@@ -1257,10 +1260,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (parseFloat(inputAmount) <= 0) return true;
     if (stablecoinFeeError) return true;
 
-    let requiredBalance = parseFloat(inputAmount);
-    if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && rawQuotes?.bridge?.feeOptions?.stablecoin && isUsdc) {
-      requiredBalance += Number(rawQuotes.bridge.feeOptions.stablecoin.float);
-    }
+    const requiredBalance = parseFloat(inputAmount);
     const isInsufficient = requiredBalance > parseFloat(tokenBalance);
 
     let minXlm = feePaymentMethod === FeePaymentMethod.WITH_NATIVE_CURRENCY ? 5 : 1;
@@ -1368,11 +1368,15 @@ export const StellarDydxOrchestrator: React.FC = () => {
     }
 
     if (bridgeQuote) {
+      let bridgeAmt = bridgeQuote.amountToBeReceived ? parseFloat(bridgeQuote.amountToBeReceived) : 0;
+      if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && bridgeQuote.feeOptions?.stablecoin) {
+        bridgeAmt = Math.max(0, bridgeAmt - Number(bridgeQuote.feeOptions.stablecoin.float));
+      }
       items.push({
         label: 'Bridge',
         value: `Stellar → ${destinationChain?.name}`,
-        fee: `${bridgeFee} ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? 'USDC' : 'XLM'}`,
-        amount: bridgeQuote.amountToBeReceived ? portfolioUtils.formatBalance(bridgeQuote.amountToBeReceived) : '',
+        fee: `${bridgeFee} ${feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN ? 'USDC (deducted from amount)' : 'XLM'}`,
+        amount: bridgeAmt ? portfolioUtils.formatBalance(bridgeAmt.toString()) : '',
         time: `${bridgeTime}m`,
         icon: USDC_LOGO_URL,
         chainIcon: stellarConfig.logoUrl,

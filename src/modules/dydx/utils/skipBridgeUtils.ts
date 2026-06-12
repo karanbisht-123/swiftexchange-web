@@ -214,30 +214,71 @@ export function buildEvmSigner(evmAddress: string, sessionProvider?: any) {
     const originalSendTransaction = client.sendTransaction.bind(client);
     client.sendTransaction = async (args: any) => {
       const parsedChainId = Number(chainId);
-      if (parsedChainId === 137) {
-        const minGasPrice = 30_000_000_000n;
+      const minGasPrice = parsedChainId === 137 ? 30_000_000_000n : 0n; // Enforce minimum only for Polygon (137)
 
-        if (args.gasPrice !== undefined && args.gasPrice !== null) {
-          const currentGasPrice = BigInt(args.gasPrice);
-          if (currentGasPrice < minGasPrice) {
-            args.gasPrice = minGasPrice;
-          }
-        }
+      let rpcTip = 0n;
+      try {
+        const hex = await provider.request({ method: 'eth_maxPriorityFeePerGas' });
+        if (hex) rpcTip = BigInt(hex);
+      } catch (e) {
+        console.warn(`[buildEvmSigner] Failed to query eth_maxPriorityFeePerGas for chain ${chainId}`, e);
+      }
 
-        if (args.maxPriorityFeePerGas !== undefined && args.maxPriorityFeePerGas !== null) {
-          const currentTip = BigInt(args.maxPriorityFeePerGas);
-          if (currentTip < minGasPrice) {
-            args.maxPriorityFeePerGas = minGasPrice;
-          }
-        }
+      const targetTip = rpcTip > minGasPrice ? rpcTip : minGasPrice;
 
-        if (args.maxFeePerGas !== undefined && args.maxFeePerGas !== null) {
-          const currentFee = BigInt(args.maxFeePerGas);
-          if (currentFee < minGasPrice) {
-            args.maxFeePerGas = minGasPrice + 10_000_000_000n;
-          }
+      const originalGasPrice = args.gasPrice;
+      const originalMaxPriorityFeePerGas = args.maxPriorityFeePerGas;
+      const originalMaxFeePerGas = args.maxFeePerGas;
+
+      if (args.gasPrice !== undefined && args.gasPrice !== null) {
+        const currentGasPrice = BigInt(args.gasPrice);
+        if (currentGasPrice < targetTip) {
+          args.gasPrice = targetTip;
         }
       }
+
+      if (args.maxPriorityFeePerGas !== undefined && args.maxPriorityFeePerGas !== null) {
+        const currentTip = BigInt(args.maxPriorityFeePerGas);
+        if (currentTip < targetTip) {
+          args.maxPriorityFeePerGas = targetTip;
+        }
+      } else if (targetTip > 0n) {
+        args.maxPriorityFeePerGas = targetTip;
+      }
+
+      if (args.maxFeePerGas !== undefined && args.maxFeePerGas !== null) {
+        const currentFee = BigInt(args.maxFeePerGas);
+        const feeBuffer = parsedChainId === 137 ? 10_000_000_000n : (targetTip / 5n + 1_000_000_000n);
+        if (currentFee < targetTip + feeBuffer) {
+          args.maxFeePerGas = targetTip + feeBuffer;
+        }
+      } else {
+        let rpcGasPrice = 0n;
+        try {
+          const hex = await provider.request({ method: 'eth_gasPrice' });
+          if (hex) rpcGasPrice = BigInt(hex);
+        } catch { }
+        const baseFeeProxy = rpcGasPrice > minGasPrice ? rpcGasPrice : minGasPrice;
+        if (baseFeeProxy > 0n || targetTip > 0n) {
+          args.maxFeePerGas = baseFeeProxy + targetTip;
+        }
+      }
+
+      console.log(`[buildEvmSigner] Chain (${chainId}) Gas Adjustments Applied:`, {
+        original: {
+          gasPrice: originalGasPrice?.toString(),
+          maxPriorityFeePerGas: originalMaxPriorityFeePerGas?.toString(),
+          maxFeePerGas: originalMaxFeePerGas?.toString(),
+        },
+        adjusted: {
+          gasPrice: args.gasPrice?.toString(),
+          maxPriorityFeePerGas: args.maxPriorityFeePerGas?.toString(),
+          maxFeePerGas: args.maxFeePerGas?.toString(),
+        },
+        rpcTip: rpcTip.toString(),
+        targetTip: targetTip.toString(),
+      });
+
       return originalSendTransaction(args);
     };
 

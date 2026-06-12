@@ -94,14 +94,20 @@ const AddMarginModal: React.FC<AddMarginModalProps> = ({ isOpen, onClose, positi
     }, [isOpen, activeTab, eligibleSources.length]);
 
     useEffect(() => {
+        let timerId: ReturnType<typeof setTimeout> | undefined;
         if (isOpen) {
             setAmount('');
             setError(null);
             setModalState('idle');
             setActiveTab('add');
             clearTransferError();
-            setTimeout(() => inputRef.current?.focus(), 100);
+            timerId = setTimeout(() => inputRef.current?.focus(), 100);
         }
+        return () => {
+            if (timerId) {
+                clearTimeout(timerId);
+            }
+        };
     }, [isOpen]);
 
     useEffect(() => {

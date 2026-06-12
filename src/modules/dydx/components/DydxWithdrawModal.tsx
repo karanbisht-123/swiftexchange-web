@@ -2,7 +2,7 @@ import {
   Activity,
   AlertCircle,
   AlertTriangle,
-  ArrowRight,
+  Check,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -49,19 +49,7 @@ const formatPct = (val: number) => `${val.toFixed(2)}%`;
 //   { key: 'bridging', label: 'Bridge', sublabel: 'Reach Ethereum' },
 // ] as const;
 
-const ROUTE = ['dYdX', 'Noble', 'Ethereum'] as const;
-const RoutePill: React.FC = () => (
-  <div className="flex items-center gap-1.5 text-[11px] text-muted bg-secondary border border-color rounded-full px-3 py-1.5 w-fit mx-auto">
-    {ROUTE.map((chain, i) => (
-      <React.Fragment key={chain}>
-        <span className={i === 0 ? 'text-secondary font-medium' : i === ROUTE.length - 1 ? 'text-brand font-medium' : ''}>
-          {chain}
-        </span>
-        {i < ROUTE.length - 1 && <ArrowRight className="w-2.5 h-2.5 opacity-40" />}
-      </React.Fragment>
-    ))}
-  </div>
-);
+
 
 const ModalShell: React.FC<{
   onClose: () => void;
@@ -107,6 +95,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     bridgeTxHash: liveBridgeTxHash,
     bridgeTxChainId: liveBridgeChainId,
     errorRetryable,
+    nobleBalance,
   } = useDydxWithdraw();
   const store = useTransactionStore();
   const depositIsPending = useHasActivePendingDeposit();
@@ -121,6 +110,35 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   const [success, setSuccess] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
 
+  const [showProgress, setShowProgress] = useState<boolean>(() => {
+    const tx = getCurrentWithdrawTx();
+    return !!tx && !tx.isAcknowledged;
+  });
+
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
+    if (!isOpen) {
+      if (!isWithdrawing) {
+        setAmount('');
+        setSuccess(false);
+        clearWithdrawError();
+        setFromSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
+      }
+    } else {
+      const tx = getCurrentWithdrawTx();
+      const shouldShowProgress = tx && !tx.isAcknowledged;
+      setShowProgress(!!shouldShowProgress);
+
+      if (!shouldShowProgress && !isWithdrawing) {
+        setAmount('');
+        setSuccess(false);
+        clearWithdrawError();
+        setFromSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
+      }
+    }
+  }
 
   const bridgeTracker = useTransactionTracker('withdraw');
   const trackerTxHash = bridgeTracker.txHash;
@@ -129,23 +147,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   const currentWithdrawTx = useCurrentWithdrawTx();
   const persistedTx = currentWithdrawTx;
 
-  const activeStepLabel = isWithdrawing ? stepLabel : (persistedTx?.stepLabel ?? '');
   const activeAmount = isWithdrawing ? amount : (persistedTx?.amount ?? '');
-
-
-  const isPostRefreshBridgePhase =
-    !isWithdrawing &&
-    !!persistedTx &&
-    !persistedTx.isPreBridge &&
-    !!persistedTx.txHash;
-
-
-  const [showProgress, setShowProgress] = useState<boolean>(() => {
-    const tx = getCurrentWithdrawTx();
-    return !!tx && !tx.isAcknowledged;
-  });
-
-  const wasOpenRef = useRef(false);
 
   const autoClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -194,33 +196,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
       status: bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS' ? 'success' : 'failed',
     });
   }, [bridgeTracker.isTerminal, bridgeTracker.overallState]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      wasOpenRef.current = false;
-      if (!isWithdrawing) {
-        setAmount('');
-        setSuccess(false);
-        clearWithdrawError();
-        setFromSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
-      }
-      return;
-    }
-
-    if (wasOpenRef.current) return;
-    wasOpenRef.current = true;
-
-    const tx = getCurrentWithdrawTx();
-    const shouldShowProgress = tx && !tx.isAcknowledged;
-    setShowProgress(!!shouldShowProgress);
-
-    if (!shouldShowProgress && !isWithdrawing) {
-      setAmount('');
-      setSuccess(false);
-      clearWithdrawError();
-      setFromSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
-    }
-  }, [isOpen, isWithdrawing, clearWithdrawError]);
 
   useEffect(() => {
     if (isWithdrawing) setShowProgress(true);
@@ -292,6 +267,159 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     setShowProgress(false);
   }, [isWithdrawing, reset, bridgeTracker]);
 
+  const handleForceClear = useCallback(() => {
+    if (
+      confirm(
+        "Are you sure you want to clear this transaction? This won't cancel the on-chain transfer, but will let you initiate a new one."
+      )
+    ) {
+      bridgeTracker.acknowledge();
+      reset();
+      setSuccess(false);
+      setAmount('');
+      setShowProgress(false);
+      store.clearWithdrawTx();
+    }
+  }, [bridgeTracker, reset, store]);
+
+  const renderStepper = () => {
+    let step1Status: 'pending' | 'active' | 'completed' | 'error' = 'pending';
+    let step2Status: 'pending' | 'active' | 'completed' | 'error' = 'pending';
+    let step3Status: 'pending' | 'active' | 'completed' | 'error' = 'pending';
+
+    const isStep1Active = ['checking_gas', 'transferring_to_main', 'signing'].includes(step);
+    const isStep2Active = ['ibc_to_noble', 'waiting_noble'].includes(step);
+    const isStep3Active = ['bridging', 'pending'].includes(step) || !!trackerTxHash;
+
+    const isStep1Done = ['ibc_to_noble', 'waiting_noble', 'bridging', 'pending', 'success'].includes(step) || !!trackerTxHash;
+    const isStep2Done = ['bridging', 'pending', 'success'].includes(step) || !!trackerTxHash;
+    const isStep3Done = step === 'success' || bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS';
+
+    if (isStep3Done) {
+      step1Status = 'completed';
+      step2Status = 'completed';
+      step3Status = 'completed';
+    } else if (step === 'error' || bridgeTracker.isError) {
+      if (isStep1Active || step === 'checking_gas' || step === 'transferring_to_main' || step === 'signing') {
+        step1Status = 'error';
+      } else if (isStep2Active || step === 'ibc_to_noble' || step === 'waiting_noble') {
+        step1Status = 'completed';
+        step2Status = 'error';
+      } else {
+        step1Status = 'completed';
+        step2Status = 'completed';
+        step3Status = 'error';
+      }
+    } else {
+      if (isStep1Done) {
+        step1Status = 'completed';
+      } else if (isStep1Active) {
+        step1Status = 'active';
+      }
+
+      if (isStep2Done) {
+        step2Status = 'completed';
+      } else if (isStep2Active) {
+        step2Status = 'active';
+      }
+
+      if (isStep3Done) {
+        step3Status = 'completed';
+      } else if (isStep3Active) {
+        step3Status = 'active';
+      }
+    }
+
+    const steps = [
+      {
+        id: 1,
+        title: 'Settle on dYdX',
+        desc: 'Sign the transaction and withdraw funds from your dYdX subaccount to your native wallet.',
+        status: step1Status,
+      },
+      {
+        id: 2,
+        title: 'Transfer to Noble',
+        desc: `Send USDC via IBC from dYdX to Noble chain. Noble Balance: ${nobleBalance ? (nobleBalance / 1e6).toFixed(2) : '0.00'} USDC.`,
+        status: step2Status,
+      },
+      {
+        id: 3,
+        title: 'Bridge to Destination',
+        desc: 'Bridge USDC from Noble to Ethereum/EVM via CCTP/Skip bridge.',
+        status: step3Status,
+      }
+    ];
+
+    return (
+      <div className="space-y-6 my-2">
+        {steps.map((s, idx) => {
+          const isActive = s.status === 'active';
+          const isDone = s.status === 'completed';
+          const isErr = s.status === 'error';
+          const isLast = idx === steps.length - 1;
+
+          return (
+            <div key={s.id} className="relative flex gap-4">
+              {!isLast && (
+                <div
+                  className={`absolute left-[15px] top-8 bottom-[-24px] w-[2px] transition-all duration-500 ${
+                    isDone ? 'bg-brand' : 'bg-white/10'
+                  }`}
+                />
+              )}
+
+              <div className="shrink-0 z-10">
+                <div
+                  className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                    isActive
+                      ? 'border-brand bg-brand/20 shadow-[0_0_12px_rgba(var(--brand-rgb),0.4)] scale-105'
+                      : isDone
+                      ? 'border-brand bg-brand text-white'
+                      : isErr
+                      ? 'border-danger bg-danger/20 text-danger'
+                      : 'border-white/10 bg-secondary text-muted opacity-40'
+                  }`}
+                >
+                  {isActive ? (
+                    <Loader2 className="w-4 h-4 text-brand animate-spin" />
+                  ) : isDone ? (
+                    <Check className="w-4 h-4 text-white" />
+                  ) : isErr ? (
+                    <X className="w-4 h-4 text-danger" />
+                  ) : (
+                    <span className="text-xs font-bold">{s.id}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className={`flex-1 pb-4 transition-opacity duration-300 ${!isActive && !isDone ? 'opacity-40' : 'opacity-100'}`}>
+                <h4 className="text-sm font-bold text-primary">{s.title}</h4>
+                <p className="text-xs text-muted mt-0.5 leading-relaxed">{s.desc}</p>
+
+                {s.id === 3 && trackerTxHash && trackerChainId && (
+                  <div className="mt-4 border border-color rounded-xl p-4 bg-tertiary/50 animate-in fade-in duration-500">
+                    <TransactionTracker
+                      txHash={trackerTxHash}
+                      chainId={trackerChainId}
+                      overallState={bridgeTracker.overallState}
+                      steps={bridgeTracker.steps}
+                      activeStepIndex={bridgeTracker.activeStepIndex}
+                      assetRelease={bridgeTracker.assetRelease}
+                      isLoading={bridgeTracker.isLoading}
+                      isError={bridgeTracker.isError}
+                      errorMessage={bridgeTracker.errorMessage}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (!isOpen) return null;
   if (showProgress || isWithdrawing) {
     const elapsedMinutes = persistedTx
@@ -302,23 +430,20 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     const bridgeSucceeded =
       bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS' ||
       persistedTx?.status === 'success';
-    const bridgeFailed =
-      bridgeTracker.overallState === 'STATE_COMPLETED_ERROR' ||
-      bridgeTracker.overallState === 'STATE_ABANDONED' ||
-      persistedTx?.status === 'failed';
+
 
     return (
       <ModalShell onClose={onClose} className="min-h-[500px] sm:min-h-[580px]">
         <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0 border-b border-color">
           <div className="flex items-center gap-2.5">
-            {isWithdrawing
-              ? <Loader2 className="w-4 h-4 text-brand animate-spin" />
-              : bridgeSucceeded
-                ? <CheckCircle2 className="w-4 h-4 text-success" />
-                : <Clock className="w-4 h-4 text-brand" />}
-            <h3 className="text-base font-semibold text-primary">
-              {bridgeSucceeded ? 'Withdrawal Complete' : 'Withdrawal In Progress'}
-            </h3>
+            {isWithdrawing || (!bridgeIsTerminal && trackerTxHash) ? (
+              <Loader2 className="w-4 h-4 text-brand animate-spin" />
+            ) : bridgeSucceeded ? (
+              <CheckCircle2 className="w-4 h-4 text-success" />
+            ) : (
+              <Clock className="w-4 h-4 text-brand" />
+            )}
+            <h3 className="text-base font-semibold text-primary">Transfer Status</h3>
           </div>
           <div className="flex items-center gap-2">
             {trackerTxHash && bridgeTracker.isTerminal && (
@@ -340,78 +465,23 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
         </div>
 
         <div className="overflow-y-auto flex-1 px-5 py-5 flex flex-col gap-4">
-          <div className="rounded-xl border border-color bg-tertiary p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-xs text-muted mb-0.5">Withdrawing</div>
-                <div className="text-2xl font-bold text-primary tracking-tight">
-                  ${parseFloat(activeAmount || '0').toFixed(2)}
-                  <span className="text-sm font-normal text-muted ml-1.5">USDC</span>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-muted mb-0.5">Status</div>
-                <div
-                  className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 ${bridgeSucceeded
-                    ? 'bg-success-bg text-success'
-                    : bridgeFailed
-                      ? 'bg-danger-bg text-danger'
-                      : 'bg-brand/10 text-brand'
-                    }`}
-                >
-                  {(isWithdrawing || (!bridgeIsTerminal && trackerTxHash)) && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block shrink-0" />
-                  )}
-                  {bridgeSucceeded
-                    ? 'Completed'
-                    : bridgeFailed
-                      ? 'Failed'
-                      : activeStepLabel || 'Processing…'}
-                </div>
-              </div>
+          {/* Large Amount Display */}
+          <div className="flex flex-col items-center justify-center py-6 border-b border-color/40">
+            <div className="text-3xl font-black text-primary flex items-center gap-2 font-mono">
+              ${parseFloat(activeAmount || amount || '0').toFixed(2)}
+              <span className="text-sm font-bold text-muted uppercase">USDC</span>
             </div>
-            <RoutePill />
+            <div className="text-xs text-muted mt-1.5 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse inline-block" />
+              dYdX Withdrawal
+            </div>
           </div>
 
-          {(isWithdrawing || (persistedTx && !isPostRefreshBridgePhase)) && !bridgeSucceeded && (
-            <div className="relative flex gap-5 animate-in fade-in slide-in-from-bottom-2 px-1">
-              <div className="absolute left-[13px] top-8 bottom-[-10px] w-[2px] bg-white/5" />
-              <div className="flex-shrink-0 mt-0.5 relative z-10">
-                <div className="w-7 h-7 rounded-full border-2 border-brand bg-brand/20 shadow-[0_0_15px_rgba(var(--brand-rgb),0.5)] flex items-center justify-center scale-110">
-                  <div className="w-2 h-2 rounded-full bg-brand animate-ping" />
-                </div>
-              </div>
-              <div className="flex-1 pb-10">
-                <h4 className="text-sm font-bold tracking-tight text-primary">Initial Transaction</h4>
-                <div className="flex items-center gap-2.5 text-[11px] font-semibold text-muted mt-1.5 flex-wrap">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    {activeStepLabel || 'Signing...'}
-                  </span>
-                  <span className="text-muted/60 lowercase font-medium italic">Awaiting wallet confirmation…</span>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Stepper Checklist */}
+          {renderStepper()}
 
-          {!trackerTxHash && !isWithdrawing && !persistedTx && (
-            <div className="flex-1 flex flex-col items-center justify-center py-10 px-6 text-center animate-in fade-in zoom-in-95">
-              <div className="w-16 h-16 rounded-full bg-secondary border border-color flex items-center justify-center mb-4">
-                <Activity className="w-8 h-8 text-muted/30" />
-              </div>
-              <h4 className="text-base font-bold text-primary mb-2">No active transfer found</h4>
-              <p className="text-xs text-muted mb-6 max-w-[240px]">
-                We couldn't find a pending withdrawal in your local session. It may have already completed or was cleared.
-              </p>
-              <button
-                onClick={() => setShowProgress(false)}
-                className="px-6 py-2.5 rounded-xl bg-brand text-primary text-sm font-bold shadow-lg shadow-brand/20 hover:scale-105 transition-all"
-              >
-                Go to Withdraw
-              </button>
-            </div>
-          )}
-          {!isWithdrawing && persistedTx && !trackerTxHash && !bridgeSucceeded && (
+          {/* Fallback info when tracker not started yet */}
+          {!trackerTxHash && !isWithdrawing && persistedTx && !bridgeSucceeded && (
             <div className="flex items-start gap-4 p-4 bg-brand/5 border border-brand/20 rounded-2xl animate-in fade-in">
               <AlertCircle className="w-5 h-5 text-brand flex-shrink-0" />
               <div>
@@ -429,21 +499,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
                 </div>
               </div>
             </div>
-          )}
-
-          {/* Skip bridge tracker */}
-          {trackerTxHash && trackerChainId && (
-            <TransactionTracker
-              txHash={trackerTxHash}
-              chainId={trackerChainId}
-              overallState={bridgeTracker.overallState}
-              steps={bridgeTracker.steps}
-              activeStepIndex={bridgeTracker.activeStepIndex}
-              assetRelease={bridgeTracker.assetRelease}
-              isLoading={bridgeTracker.isLoading}
-              isError={bridgeTracker.isError}
-              errorMessage={bridgeTracker.errorMessage}
-            />
           )}
 
           {!bridgeTracker.hasPolledOnce && trackerTxHash && !bridgeIsTerminal && (
@@ -472,14 +527,17 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             </div>
           )}
 
-          {withdrawError && (
-            <div className="p-3 bg-danger/10 border border-danger/20 rounded-xl flex items-start gap-2">
+          {/* Error Details */}
+          {(withdrawError || (bridgeTracker.isError && bridgeTracker.errorMessage)) && (
+            <div className="p-3 bg-danger/10 border border-danger/20 rounded-xl flex items-start gap-2 animate-in fade-in duration-300">
               <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-xs font-black text-danger uppercase mb-1">
-                  {step === 'error' ? 'Withdrawal failed' : 'Error'}
+                  Error Details
                 </p>
-                <p className="text-[11px] font-bold text-danger/80 break-words">{withdrawError}</p>
+                <p className="text-[11px] font-bold text-danger/80 break-words">
+                  {withdrawError || bridgeTracker.errorMessage}
+                </p>
               </div>
             </div>
           )}
@@ -490,29 +548,32 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             </p>
           )}
 
+          {/* Actions */}
+          <div className="mt-auto pt-4 space-y-2">
+            {bridgeTracker.isTerminal || step === 'success' || step === 'error' ? (
+              <button
+                onClick={handleDismissProgress}
+                className="w-full py-3 btn btn-primary rounded-xl font-semibold text-[15px]"
+              >
+                {bridgeSucceeded ? 'Done' : 'Dismiss & Retry'}
+              </button>
+            ) : (
+              <button
+                onClick={onClose}
+                className="w-full py-3 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors font-medium"
+              >
+                Close Modal
+              </button>
+            )}
 
-
-          {!isWithdrawing && (bridgeIsTerminal || !trackerTxHash) && (
+            {/* Clear Stuck Transaction */}
             <button
-              onClick={handleDismissProgress}
-              className="w-full py-3 btn btn-primary rounded-xl font-semibold text-[15px]"
+              onClick={handleForceClear}
+              className="w-full py-2.5 rounded-xl border border-color text-xs text-muted hover:text-danger hover:bg-danger/5 transition-colors font-semibold"
             >
-              {bridgeSucceeded
-                ? 'Done'
-                : !trackerTxHash
-                  ? 'Check Noble & retry'
-                  : 'Dismiss & start new'}
+              Clear Stated Transaction
             </button>
-          )}
-
-          {!isWithdrawing && trackerTxHash && !bridgeIsTerminal && (
-            <button
-              onClick={handleDismissProgress}
-              className="w-full py-3 rounded-xl border border-color text-sm text-muted hover:text-primary hover:bg-hover transition-colors"
-            >
-              Start a new withdrawal
-            </button>
-          )}
+          </div>
         </div>
       </ModalShell>
     );

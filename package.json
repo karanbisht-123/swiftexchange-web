@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "lint:report": "eslint . --format html -o lint-report.html",
     "format": "prettier --write .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@allbridge/bridge-core-sdk": "^3.29.1",

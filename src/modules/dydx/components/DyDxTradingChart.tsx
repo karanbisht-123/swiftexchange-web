@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useThemeStore } from '../../../store/themeStore';
 
 import {
   AreaSeries,
@@ -29,24 +30,7 @@ import useMarketStore from '../store/marketStore';
 
 type ChartType = 'candlestick' | 'line' | 'area';
 
-const useTheme = () => {
-  const [isDark, setIsDark] = useState(
-    typeof window !== 'undefined' && document.documentElement.classList.contains('dark')
-  );
 
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-    return () => observer.disconnect();
-  }, []);
-
-  return isDark;
-};
 
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -74,7 +58,7 @@ function isValidCandle(c: { open: number; high: number; low: number; close: numb
 }
 
 export default function DyDxTradingChart() {
-  const isDark = useTheme();
+  const isDark = useThemeStore(s => s.theme) === 'dark';
   const isMobile = useIsMobile();
   const [timeframe, setTimeframe] = useState<CandleResolution>('15MINS');
   const [chartType, setChartType] = useState<ChartType>('candlestick');
@@ -509,7 +493,7 @@ export default function DyDxTradingChart() {
     { value: 'area', label: 'Area', icon: <BarChart3 className="w-4 h-4" /> },
   ];
 
-  const TimeframeSelector = () => (
+  const renderTimeframeSelector = () => (
     <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar px-1 flex-1">
       {timeframes.map(tf => (
         <button
@@ -526,7 +510,7 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-  const ChartTypeDropdown = () => (
+  const renderChartTypeDropdown = () => (
     <div className="relative">
       <button
         onClick={() => setShowChartTypeMenu(!showChartTypeMenu)}
@@ -563,7 +547,7 @@ export default function DyDxTradingChart() {
   );
 
   // Settings dropdown
-  const SettingsDropdown = () => (
+  const renderSettingsDropdown = () => (
     <div className="relative">
       <button
         onClick={() => setShowSettingsMenu(!showSettingsMenu)}
@@ -621,7 +605,7 @@ export default function DyDxTradingChart() {
     </div>
   );
 
-  const HistoryLoadingOverlay = () => {
+  const renderHistoryLoadingOverlay = () => {
     if (!isFetchingMore) return null;
 
     return (
@@ -632,7 +616,7 @@ export default function DyDxTradingChart() {
     );
   };
 
-  const MarketTransitionOverlay = () => {
+  const renderMarketTransitionOverlay = () => {
     if (!isLoading) return null;
 
     return (
@@ -659,12 +643,12 @@ export default function DyDxTradingChart() {
     >
       <div className="bg-secondary border-b border-color flex-shrink-0">
         <div className="flex items-center justify-between px-1 py-1">
-          <TimeframeSelector />
+          {renderTimeframeSelector()}
 
           <div className="flex items-center gap-1 px-1 shrink-0">
             <div className="w-px h-4 bg-color mx-2 hidden sm:block" />
-            <ChartTypeDropdown />
-            <SettingsDropdown />
+            {renderChartTypeDropdown()}
+            {renderSettingsDropdown()}
             <button
               onClick={downloadChart}
               className="p-2 hover:bg-hover rounded-md transition-colors hidden sm:flex items-center justify-center min-w-[40px] min-h-[40px]"
@@ -688,7 +672,7 @@ export default function DyDxTradingChart() {
       </div>
 
       <div className="flex-1 bg-secondary relative overflow-hidden">
-        <HistoryLoadingOverlay />
+        {renderHistoryLoadingOverlay()}
 
         {error && (
           <div className="absolute top-14 left-2 right-2 sm:mx-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg z-10 backdrop-blur-sm">
@@ -696,7 +680,7 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        <MarketTransitionOverlay />
+        {renderMarketTransitionOverlay()}
 
         <div
           ref={chartContainerRef}
@@ -710,11 +694,11 @@ export default function DyDxTradingChart() {
     <div className={`${isFullscreen ? 'fixed inset-0 z-50 animate-fade-in' : 'h-full'} bg-primary flex flex-col`}>
       <div className={`bg-secondary border-b border-color flex-shrink-0 ${isFullscreen ? 'safe-area-top' : ''}`}>
         <div className="flex items-center justify-between px-1 py-1">
-          <TimeframeSelector />
+          {renderTimeframeSelector()}
           
           <div className="flex items-center gap-0.5 shrink-0">
-            <ChartTypeDropdown />
-            <SettingsDropdown />
+            {renderChartTypeDropdown()}
+            {renderSettingsDropdown()}
             <button
               onClick={toggleFullscreen}
               className="p-1.5 hover:bg-hover rounded-md transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
@@ -731,7 +715,7 @@ export default function DyDxTradingChart() {
       </div>
 
       <div className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]">
-        <HistoryLoadingOverlay />
+        {renderHistoryLoadingOverlay()}
 
         {error && (
           <div className="absolute top-14 left-2 right-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg z-10">
@@ -739,7 +723,7 @@ export default function DyDxTradingChart() {
           </div>
         )}
 
-        <MarketTransitionOverlay />
+        {renderMarketTransitionOverlay()}
 
         <div
           ref={chartContainerRef}

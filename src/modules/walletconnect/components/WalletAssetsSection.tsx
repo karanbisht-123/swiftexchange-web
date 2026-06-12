@@ -116,7 +116,7 @@ const MobileActionSheet = ({
             />
             <div className="absolute -bottom-1 -right-1 w-[20px] h-[20px] rounded-full bg-secondary border border-color flex items-center justify-center shadow-sm">
               {getChainIcon(asset)
-                ? <img src={getChainIcon(asset)} className="w-3.5 h-3.5 rounded-full" />
+                ? <img src={getChainIcon(asset)} alt={asset.chainName} className="w-3.5 h-3.5 rounded-full" />
                 : <span className="text-[8px] font-bold text-muted">{asset.chainName?.[0]}</span>
               }
             </div>

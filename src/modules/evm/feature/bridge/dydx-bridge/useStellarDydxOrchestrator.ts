@@ -268,6 +268,10 @@ export const useStellarDydxOrchestrator = () => {
   const [inputToken, setInputToken] = useState<StellarToken | null>(null);
   const [destinationChain, setDestinationChain] = useState<ChainConfig | null>(null);
   const [feePaymentMethod, setFeePaymentMethod] = useState<FeePaymentMethod>(FeePaymentMethod.WITH_STABLECOIN);
+  const feePaymentMethodRef = useRef(feePaymentMethod);
+  useEffect(() => {
+    feePaymentMethodRef.current = feePaymentMethod;
+  }, [feePaymentMethod]);
 
   const [stellarAssets, setStellarAssets] = useState<StellarToken[]>([]);
   const [loadingAssets, setLoadingAssets] = useState<boolean>(true);
@@ -476,7 +480,12 @@ export const useStellarDydxOrchestrator = () => {
       const dstUsdcAmount = bq.amountToBeReceived;
       if (!dstUsdcAmount) throw new Error('Could not determine deposit amount');
 
-      const dr = await getRoute('USDC', parseFloat(dstUsdcAmount.toString()), destinationChain.chainId, false);
+      let finalDepositAmount = parseFloat(dstUsdcAmount.toString());
+      if (feePaymentMethodRef.current === FeePaymentMethod.WITH_STABLECOIN && bq.feeOptions?.stablecoin) {
+        finalDepositAmount = Math.max(0, finalDepositAmount - Number(bq.feeOptions.stablecoin.float));
+      }
+
+      const dr = await getRoute('USDC', finalDepositAmount, destinationChain.chainId, false);
       if (signal.aborted) return;
       if (!dr) throw new Error('No deposit route to dYdX found. Try another chain.');
       setDepositQuote(dr as DepositQuote);
@@ -610,9 +619,15 @@ export const useStellarDydxOrchestrator = () => {
       });
 
       if (result.hash) {
+        let expectedNetOutput = freshBridgeQuote.amountToBeReceived;
+        if (session.feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && freshBridgeQuote.feeOptions?.stablecoin) {
+          const stablecoinFee = Number(freshBridgeQuote.feeOptions.stablecoin.float || 0);
+          expectedNetOutput = String(Math.max(0, parseFloat(expectedNetOutput) - stablecoinFee));
+        }
+
         updateSession(session.id, {
           bridgeTx: { hash: result.hash, status: 'PENDING' },
-          intermediateAmount: freshBridgeQuote.amountToBeReceived,
+          intermediateAmount: expectedNetOutput,
           bridgeStartedAt: Date.now(),
           expectedBridgeTimeMs: freshBridgeQuote.transferTimeMs ? Number(freshBridgeQuote.transferTimeMs) : null,
         });
@@ -823,6 +838,12 @@ export const useStellarDydxOrchestrator = () => {
 
     const initialPhase: Phase = inputToken.symbol === 'USDC' ? 'BRIDGE' : 'SWAP';
 
+    let expectedBridgeOutput = bridgeQuote?.amountToBeReceived || null;
+    if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && bridgeQuote?.feeOptions?.stablecoin) {
+      const stablecoinFee = Number(bridgeQuote.feeOptions.stablecoin.float || 0);
+      expectedBridgeOutput = String(Math.max(0, parseFloat(expectedBridgeOutput || '0') - stablecoinFee));
+    }
+
     const newSession: BridgeSession = {
       id: sessionId,
       groupId,
@@ -844,7 +865,7 @@ export const useStellarDydxOrchestrator = () => {
       error: null,
       loadingStep: true,
       expectedSwapOutput: swapQuote?.estimatedOutput || null,
-      expectedBridgeOutput: bridgeQuote?.amountToBeReceived || null,
+      expectedBridgeOutput,
       expectedBridgeTimeMs: bridgeQuote?.transferTimeMs ? Number(bridgeQuote.transferTimeMs) : null,
       bridgeStartedAt: null,
     };
@@ -1236,6 +1257,33 @@ export const useStellarDydxOrchestrator = () => {
       controller.abort();
     };
   }, [inputAmount, inputToken, destinationChain, fetchAllQuotes, isRestored, activeSessionId]);
+
+  // Handle deposit route update on fee payment method changes without refetching Allbridge quote
+  useEffect(() => {
+    if (activeSessionId || !bridgeQuote) return;
+
+    const updateDepositRoute = async () => {
+      const dstUsdcAmount = bridgeQuote.amountToBeReceived;
+      if (!dstUsdcAmount) return;
+
+      let finalDepositAmount = parseFloat(dstUsdcAmount.toString());
+      if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && bridgeQuote.feeOptions?.stablecoin) {
+        finalDepositAmount = Math.max(0, finalDepositAmount - Number(bridgeQuote.feeOptions.stablecoin.float));
+      }
+
+      try {
+        const dr = await getRoute('USDC', finalDepositAmount, destinationChain?.chainId || 42161, false);
+        if (dr) {
+          setDepositQuote(dr as DepositQuote);
+          setRawQuotes(prev => prev ? { ...prev, dydx: dr as DepositQuote } : null);
+        }
+      } catch (err) {
+        console.error('Failed to update deposit route on fee method change:', err);
+      }
+    };
+
+    updateDepositRoute();
+  }, [feePaymentMethod, bridgeQuote, destinationChain, activeSessionId, getRoute]);
 
   useEffect(() => {
     if (activeSessionId || !inputAmount || parseFloat(inputAmount) <= 0) return;

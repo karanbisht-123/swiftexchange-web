@@ -15,6 +15,7 @@ import {
 
 import { useStellarChart } from '../../hook/useStallerChart';
 import { useAmmSwapStore } from '../../store/ammSwapStore';
+import { useThemeStore } from '../../../../store/themeStore';
 import type { ChartAssetPair, ChartResolution } from '../../types/stellarChart.types';
 
 type ChartType = 'candlestick' | 'line' | 'area';
@@ -45,23 +46,166 @@ interface StellarTradingChartProps {
   onAssetPairChange?: (pair: ChartAssetPair) => void;
 }
 
-const useTheme = () => {
-  const [isDark, setIsDark] = useState(
-    typeof window !== 'undefined' && document.documentElement.classList.contains('dark')
+interface DropdownProps {
+  label: string;
+  value: string;
+  options: { value: any; label: string }[];
+  onChange: (value: any) => void;
+  isOpen: boolean;
+  onToggle: () => void;
+}
+
+const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: DropdownProps) => {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useLayoutEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + window.scrollY, left: rect.left });
+    }
+  }, [isOpen]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={onToggle}
+        className="btn-secondary btn-sm flex items-center gap-2"
+      >
+        <span className="hidden md:inline">{label}:</span>{' '}
+        <span className="font-medium">{value}</span>
+        <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[9998]" onClick={onToggle} />
+            <div
+              className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[140px] z-[9999]"
+              style={{ position: 'absolute', top: menuPos.top, left: menuPos.left }}
+            >
+              {options.map((opt: any) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    onChange(opt.value);
+                    onToggle();
+                  }}
+                  className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${
+                    value === opt.label ? 'bg-hover text-brand' : 'text-primary'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body
+        )}
+    </div>
   );
+};
 
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-    return () => observer.disconnect();
-  }, []);
+interface SettingsDropdownProps {
+  showSettingsMenu: boolean;
+  setShowSettingsMenu: (show: boolean) => void;
+  showVolume: boolean;
+  setShowVolume: (show: boolean) => void;
+  showGrid: boolean;
+  setShowGrid: (show: boolean) => void;
+  showCrosshair: boolean;
+  setShowCrosshair: (show: boolean) => void;
+}
 
-  return isDark;
+const SettingsDropdown = ({
+  showSettingsMenu,
+  setShowSettingsMenu,
+  showVolume,
+  setShowVolume,
+  showGrid,
+  setShowGrid,
+  showCrosshair,
+  setShowCrosshair,
+}: SettingsDropdownProps) => {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+
+  useLayoutEffect(() => {
+    if (showSettingsMenu && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + window.scrollY,
+        right: window.innerWidth - rect.right,
+      });
+    }
+  }, [showSettingsMenu]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+        className="btn-secondary btn-sm flex items-center gap-2"
+      >
+        <span className="hidden md:inline">Settings</span>
+        <SettingsIcon className="w-4 h-4 md:hidden" />
+        <ChevronDown
+          className={`w-3 h-3 transition-transform ${showSettingsMenu ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {showSettingsMenu &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[9998]" onClick={() => setShowSettingsMenu(false)} />
+            <div
+              className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[160px] z-[9999]"
+              style={{ position: 'absolute', top: menuPos.top, right: menuPos.right }}
+            >
+              <button
+                onClick={() => setShowVolume(!showVolume)}
+                className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+              >
+                Volume
+                <input
+                  type="checkbox"
+                  checked={showVolume}
+                  readOnly
+                  className="w-3 h-3 pointer-events-none"
+                />
+              </button>
+              <button
+                onClick={() => setShowGrid(!showGrid)}
+                className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+              >
+                Grid
+                <input
+                  type="checkbox"
+                  checked={showGrid}
+                  readOnly
+                  className="w-3 h-3 pointer-events-none"
+                />
+              </button>
+              <button
+                onClick={() => setShowCrosshair(!showCrosshair)}
+                className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
+              >
+                Crosshair
+                <input
+                  type="checkbox"
+                  checked={showCrosshair}
+                  readOnly
+                  className="w-3 h-3 pointer-events-none"
+                />
+              </button>
+            </div>
+          </>,
+          document.body
+        )}
+    </div>
+  );
 };
 
 export default function StellarTradingChart({
@@ -69,7 +213,7 @@ export default function StellarTradingChart({
   autoStream = true,
   onAssetPairChange: _onAssetPairChange,
 }: StellarTradingChartProps) {
-  const isDark = useTheme();
+  const isDark = useThemeStore(s => s.theme) === 'dark';
   const [resolution, setResolution] = useState<ChartResolution>(CHART_RESOLUTIONS['1w']);
   const [timeRangeKey, setTimeRangeKey] = useState<keyof typeof TIME_RANGES>('1Y');
   const [chartType, setChartType] = useState<ChartType>('area');
@@ -407,137 +551,7 @@ export default function StellarTradingChart({
     updateTimeRange(newTimeRange);
   };
 
-  const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: any) => {
-    const buttonRef = useRef<HTMLButtonElement | null>(null);
-    const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
-    useLayoutEffect(() => {
-      if (isOpen && buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect();
-        setMenuPos({ top: rect.bottom + window.scrollY, left: rect.left });
-      }
-    }, [isOpen]);
-
-    return (
-      <div className="relative">
-        <button
-          ref={buttonRef}
-          onClick={onToggle}
-          className="btn-secondary btn-sm flex items-center gap-2"
-        >
-          <span className="hidden md:inline">{label}:</span>{' '}
-          <span className="font-medium">{value}</span>
-          <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-        </button>
-
-        {isOpen &&
-          createPortal(
-            <>
-              <div className="fixed inset-0 z-[9998]" onClick={onToggle} />
-              <div
-                className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[140px] z-[9999]"
-                style={{ position: 'absolute', top: menuPos.top, left: menuPos.left }}
-              >
-                {options.map((opt: any) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => {
-                      onChange(opt.value);
-                      onToggle();
-                    }}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${value === opt.label ? 'bg-hover text-brand' : 'text-primary'
-                      }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </>,
-            document.body
-          )}
-      </div>
-    );
-  };
-
-  const SettingsDropdown = ({ showSettingsMenu, setShowSettingsMenu }: any) => {
-    const buttonRef = useRef<HTMLButtonElement | null>(null);
-    const [menuPos, setMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
-
-    useLayoutEffect(() => {
-      if (showSettingsMenu && buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect();
-        setMenuPos({
-          top: rect.bottom + window.scrollY,
-          right: window.innerWidth - rect.right,
-        });
-      }
-    }, [showSettingsMenu]);
-
-    return (
-      <div className="relative">
-        <button
-          ref={buttonRef}
-          onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-          className="btn-secondary btn-sm flex items-center gap-2"
-        >
-          <span className="hidden md:inline">Settings</span>
-          <SettingsIcon className="w-4 h-4 md:hidden" />
-          <ChevronDown
-            className={`w-3 h-3 transition-transform ${showSettingsMenu ? 'rotate-180' : ''}`}
-          />
-        </button>
-
-        {showSettingsMenu &&
-          createPortal(
-            <>
-              <div className="fixed inset-0 z-[9998]" onClick={() => setShowSettingsMenu(false)} />
-              <div
-                className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[160px] z-[9999]"
-                style={{ position: 'absolute', top: menuPos.top, right: menuPos.right }}
-              >
-                <button
-                  onClick={() => setShowVolume(!showVolume)}
-                  className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
-                >
-                  Volume
-                  <input
-                    type="checkbox"
-                    checked={showVolume}
-                    readOnly
-                    className="w-3 h-3 pointer-events-none"
-                  />
-                </button>
-                <button
-                  onClick={() => setShowGrid(!showGrid)}
-                  className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
-                >
-                  Grid
-                  <input
-                    type="checkbox"
-                    checked={showGrid}
-                    readOnly
-                    className="w-3 h-3 pointer-events-none"
-                  />
-                </button>
-                <button
-                  onClick={() => setShowCrosshair(!showCrosshair)}
-                  className="w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors flex items-center justify-between text-primary"
-                >
-                  Crosshair
-                  <input
-                    type="checkbox"
-                    checked={showCrosshair}
-                    readOnly
-                    className="w-3 h-3 pointer-events-none"
-                  />
-                </button>
-              </div>
-            </>,
-            document.body
-          )}
-      </div>
-    );
-  };
 
   return (
     <div
@@ -593,6 +607,12 @@ export default function StellarTradingChart({
               <SettingsDropdown
                 showSettingsMenu={showSettingsMenu}
                 setShowSettingsMenu={setShowSettingsMenu}
+                showVolume={showVolume}
+                setShowVolume={setShowVolume}
+                showGrid={showGrid}
+                setShowGrid={setShowGrid}
+                showCrosshair={showCrosshair}
+                setShowCrosshair={setShowCrosshair}
               />
             </div>
 
