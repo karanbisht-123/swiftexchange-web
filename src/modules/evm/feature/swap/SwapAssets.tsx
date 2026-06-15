@@ -594,7 +594,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
           setActiveQuote({ source: 'stellar', data: null, error: null, loading: true });
           const sq = await ammService.getSwapQuote(fromAsset, toAsset, sellAmount, { slippageTolerance: userSlippageTolerance });
+
+          console.log(sq, "=================")
           setActiveQuote({ source: 'stellar', data: sq, error: null, loading: false });
+
         } catch (err) {
           console.error('Stellar quote error:', err);
           setActiveQuote({ source: 'stellar', data: null, error: parseSwapError(err), loading: false });
@@ -638,9 +641,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         try {
           const tokens = await getSupportedTokens();
           const fromChainSym = ChainSymbol.SRB;
-          let toChainSym: any = toChainConfig?.nativeCurrency.symbol;
-          if (toChainSym === 'BNB') toChainSym = ChainSymbol.BSC;
-          if (toChainSym === 'AVAX') toChainSym = ChainSymbol.AVA;
+          const toChainSym = toChainConfig?.nativeCurrency.symbol;
 
           const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol.toUpperCase() === sellAssetSymbol.toUpperCase());
           const dst = tokens.find(t => t.chainSymbol === toChainSym && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
@@ -723,7 +724,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setFusionStatus('idle');
     setActiveQuote(prev => ({ ...prev, loading: false }));
     setShowFusionScreen(false);
-  }, []);
+    setIsWaitingForWallet(false);
+  }, [setIsWaitingForWallet]);
 
   const setSwapProgressStatus = useCallback((status: 'approving' | 'signing') => {
     setBridgeTxStatus(status === 'signing' ? 'signing' : 'preparing');
@@ -848,8 +850,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       timer = setInterval(() => {
         setTimeToNextRefresh((prev) => {
           if (prev <= 1) {
-            fetchUnifiedQuote();
-            return 30;
+            return 0;
           }
           return prev - 1;
         });
@@ -865,7 +866,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [sellAmount, isLoadingExecution, isChainSwitching, showFusionScreen, fetchUnifiedQuote, isSameAssetSelected, isQuoteLoading, swapError, activeQuote.error, bridgeErrorMsg]);
+  }, [sellAmount, isLoadingExecution, isChainSwitching, showFusionScreen, isSameAssetSelected, isQuoteLoading, swapError, activeQuote.error, bridgeErrorMsg]);
+
+  useEffect(() => {
+    if (timeLeft <= 0) {
+      setTimeToNextRefresh(30);
+      fetchUnifiedQuote();
+    }
+  }, [timeLeft, fetchUnifiedQuote]);
 
   // Auto-clear execution errors after 5 seconds
   useEffect(() => {
@@ -1079,7 +1087,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               messenger: Messenger.ALLBRIDGE,
               slippageTolerance: userSlippageTolerance
             });
-            // Gate: if user navigated away while building the XDR, stop here.
             checkAborted();
             setBridgeTxStatus('signing');
             setPendingTxFromChainId(fromChainId);
@@ -1434,6 +1441,23 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     return (buyAmt / sellAmt).toFixed(6);
   }, [sellAmount, calculatedBuyAmount]);
 
+  const buyAssetPriceUsd = useMemo(() => {
+    if (!selectedBuyAsset) return null;
+    const quotePrices = activeQuote.data?.prices?.usd || fusionQuote?.prices?.usd;
+    const priceStr = quotePrices?.toToken || quotePrices?.dstToken || quotePrices?.toAsset || (selectedBuyAsset as any)?.price || (selectedBuyAsset as any)?.priceUSD;
+    if (priceStr) {
+      const parsed = parseFloat(priceStr);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return null;
+  }, [selectedBuyAsset, activeQuote.data, fusionQuote]);
+
+  const calculatedBuyAmountUsd = useMemo(() => {
+    const amt = parseFloat(calculatedBuyAmount);
+    if (isNaN(amt) || amt <= 0 || !buyAssetPriceUsd) return null;
+    return (amt * buyAssetPriceUsd);
+  }, [calculatedBuyAmount, buyAssetPriceUsd]);
+
   const minimumReceived = (() => {
     if (actionType === 'BRIDGE') {
       if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
@@ -1675,6 +1699,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     ) : ((swapQuote || activeQuote.data || isSameAssetSelected) ? <span>{calculatedBuyAmount}</span> : '0.00')}
                   </div>
                 </div>
+                {!activeQuote.loading && !swapQuoteLoading && calculatedBuyAmountUsd !== null && !isSameAssetSelected && (
+                  <div className="text-[11px] font-bold text-muted/60 mt-1">
+                    ~${calculatedBuyAmountUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                )}
                 {(swapQuote || activeQuote.data) && !isSameAssetSelected && !isErrorState && (
                   <div className="text-[9px] sm:text-[10px] text-green-500 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-end gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full border border-green-500/30 flex items-center justify-center">
@@ -1782,12 +1811,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       )}
 
                       {isStellar(fromChainId) && activeQuote.source === 'stellar' && activeQuote.data && (
-                        <div className="flex items-center justify-between py-2 border-b border-white/5">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
-                          <span className={`text-[11px] font-black ${activeQuote.data.priceImpact > 2 ? 'text-red-500' : 'text-green-500'}`}>
-                            {activeQuote.data.priceImpact.toFixed(2)}%
-                          </span>
-                        </div>
+                        <>
+                          <div className="flex items-center justify-between py-2 border-b border-white/5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
+                            <span className={`text-[11px] font-black ${activeQuote.data.priceImpact > 2 ? 'text-red-500' : 'text-green-500'}`}>
+                              {activeQuote.data.priceImpact.toFixed(2)}%
+                            </span>
+                          </div>
+                        </>
                       )}
 
 
@@ -1805,12 +1836,72 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         const formattedTime = totalTime < 60 ? `${totalTime}s` : `${Math.round(totalTime / 60)} min`;
                         return (
                           <>
-
-
                             <div className="flex items-center justify-between py-2 border-b border-white/5">
                               <span className="text-[10px] font-black uppercase tracking-widest text-muted">Price Impact</span>
                               <span className={`text-[11px] font-black ${q.priceImpactPercent > 2 ? 'text-orange-500' : 'text-primary'}`}>
-                                {q.priceImpactPercent ? `${q.priceImpactPercent.toFixed(2)}%` : '—'}
+                                {q.priceImpactPercent > 0 ? (
+                                  q.priceImpactPercent > 5 ? `⚠️ ${q.priceImpactPercent.toFixed(2)}% (high — warn user)` : `${q.priceImpactPercent.toFixed(2)}%`
+                                ) : '0.00%'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Protocol Fee</span>
+                              <span className="text-[11px] font-black text-primary">
+                                {q.fee?.bps ? `${(q.fee.bps / 100).toFixed(2)}%` : '0.30%'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Estimated Fee</span>
+                              <span className="text-[11px] font-black text-primary">
+                                {(() => {
+                                  try {
+                                    const feeRaw = presetData?.tokenFee || presetData?.costInDstToken || '0';
+                                    const addr = q.feeToken?.toLowerCase();
+
+                                    const feeTokenInfo = (() => {
+                                      if (!addr) {
+                                        return { symbol: buyAssetSymbol, decimals: selectedBuyAsset?.decimals || 18, price: q.prices?.usd?.toToken || q.prices?.usd?.dstToken };
+                                      }
+                                      if (selectedSellAsset?.address?.toLowerCase() === addr) {
+                                        return { symbol: sellAssetSymbol, decimals: selectedSellAsset.decimals || 18, price: q.prices?.usd?.fromToken || q.prices?.usd?.srcToken };
+                                      }
+                                      if (selectedBuyAsset?.address?.toLowerCase() === addr) {
+                                        return { symbol: buyAssetSymbol, decimals: selectedBuyAsset.decimals || 18, price: q.prices?.usd?.toToken || q.prices?.usd?.dstToken };
+                                      }
+                                      const found = swapAssets.find(a => a.address?.toLowerCase() === addr);
+                                      if (found) {
+                                        return { symbol: found.symbol, decimals: found.decimals || 18, price: (found as any).price || (found as any).priceUSD };
+                                      }
+                                      const destTokens = getTokensForChain(toChainId);
+                                      const foundDest = destTokens.find(t => t.address?.toLowerCase() === addr);
+                                      if (foundDest) {
+                                        return { symbol: foundDest.symbol, decimals: foundDest.decimals || 18, price: (foundDest as any).price || (foundDest as any).priceUSD };
+                                      }
+                                      if (addr === '0xd6df932a45c0f255f85145f286ea0b292b21c90b') {
+                                        return { symbol: 'ARB', decimals: 18, price: q.prices?.usd?.fromToken || q.prices?.usd?.srcToken || 0.90 };
+                                      }
+                                      return { symbol: buyAssetSymbol, decimals: selectedBuyAsset?.decimals || 18, price: q.prices?.usd?.toToken || q.prices?.usd?.dstToken };
+                                    })();
+
+                                    const feeDec = feeTokenInfo.decimals;
+                                    const feeValue = parseFloat(ethers.formatUnits(feeRaw, feeDec));
+                                    const feeTokenPrice = parseFloat(feeTokenInfo.price || '0');
+
+                                    const feeFormatted = feeValue >= 0.0001 ? feeValue.toFixed(4) : feeValue.toFixed(6);
+
+                                    const feeUsd = feeTokenPrice > 0 ? (feeValue * feeTokenPrice) : 0;
+                                    const feeUsdFormatted = feeUsd > 0
+                                      ? ` (~$${feeUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
+                                      : '';
+
+                                    return `${feeFormatted} ${feeTokenInfo.symbol}${feeUsdFormatted}`;
+                                  } catch (err) {
+                                    console.error('Failed to calculate token fee:', err);
+                                    return '—';
+                                  }
+                                })()}
                               </span>
                             </div>
 
@@ -1925,7 +2016,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   </p>
                 </div>
                 <button
-                  onClick={() => { setShowRecoveryBanner(false); clearPendingTx(); resetInputs(); setSellAmount(''); }}
+                  onClick={() => {
+                    swapAbortRef.current?.abort();
+                    setShowRecoveryBanner(false);
+                    setIsWaitingForWallet(false);
+                    resetLoadingState();
+                    clearPendingTx();
+                    resetInputs();
+                    setSellAmount('');
+                  }}
                   className="flex-shrink-0 text-[10px] font-bold text-amber-400/60 hover:text-amber-300 border border-amber-500/20 hover:border-amber-400/40 rounded-lg px-2 py-1 transition-colors duration-150 whitespace-nowrap"
                 >
                   Dismiss

@@ -100,9 +100,9 @@
   --color-bg-hover: #162035;
 
   /* Text Colors - High Contrast for Dark */
-  --color-text-primary: #e8edf8;
-  --color-text-secondary: #8896b3;
-  --color-text-muted: #4a5680;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #a3b3cc;
+  --color-text-muted: #7888a5;
   --color-text-inverse: #ffffff;
 
   /* Border Colors - Blue-tinted for dark */

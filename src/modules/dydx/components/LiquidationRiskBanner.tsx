@@ -87,7 +87,7 @@ function useLiquidationRisk(): RiskPosition[] {
       } else {
         const apiLev = pos.leverage ? parseFloat(pos.leverage) : 0;
         const storedRaw = localStorage.getItem(`dydx_leverage_${pos.market}`) ?? localStorage.getItem('dydx_leverage');
-        const storedLev = storedRaw ? parseFloat(storedRaw) : 0;
+        const storedLev = storedRaw ? parseFloat(storedRaw) : 5.0;
         const leverage = Math.min(
           apiLev > 0 ? apiLev : storedLev > 0 ? storedLev : maxLeverage,
           maxLeverage

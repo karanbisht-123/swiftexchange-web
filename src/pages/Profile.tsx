@@ -928,10 +928,8 @@ const Profile: React.FC = () => {
       positions.forEach(ticker => {
         const marketKey = `dydx_leverage_${ticker}`;
         const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
-        if (saved) {
-          const parsed = parseFloat(saved);
-          if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
-        }
+        const parsed = saved ? parseFloat(saved) : 5.0;
+        if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
       });
     });
     return map;
@@ -1569,7 +1567,7 @@ const Profile: React.FC = () => {
                                     <button
                                       onClick={() => setChartType('equity')}
                                       className={`px-3 py-1 rounded-lg text-[10.5px] font-bold transition-all ${chartType === 'equity'
-                                        ? 'bg-brand-primary text-white shadow-sm'
+                                        ? 'bg-brand shadow-sm text-white'
                                         : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
                                         }`}
                                     >
@@ -1578,7 +1576,7 @@ const Profile: React.FC = () => {
                                     <button
                                       onClick={() => setChartType('trades')}
                                       className={`px-3 py-1 rounded-lg text-[10.5px] font-bold transition-all ${chartType === 'trades'
-                                        ? 'bg-brand-primary text-white shadow-sm'
+                                        ? 'bg-brand shadow-sm text-white shadow-sm'
                                         : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
                                         }`}
                                     >
@@ -1593,7 +1591,7 @@ const Profile: React.FC = () => {
                                           key={tf}
                                           onClick={() => setTimeframe(tf)}
                                           className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all ${timeframe === tf
-                                            ? 'bg-brand-primary text-white shadow-sm'
+                                            ? 'bg-brand text-white shadow-sm'
                                             : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
                                             }`}
                                         >
@@ -1833,7 +1831,7 @@ const Profile: React.FC = () => {
                                           key={tf}
                                           onClick={() => setStellarTimeframe(tf)}
                                           className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all ${stellarTimeframe === tf
-                                            ? 'bg-brand-primary text-white shadow-sm'
+                                            ? 'bg-brand text-white shadow-sm'
                                             : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
                                             }`}
                                         >
@@ -1895,8 +1893,8 @@ const Profile: React.FC = () => {
                                   <div className="flex justify-between items-center">
                                     <span className="text-xs text-(--color-text-secondary) font-semibold">Net Outcomes</span>
                                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${(stellarPnlData?.totalPnL ?? 0) >= 0
-                                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                      : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                                       }`}>
                                       {(stellarPnlData?.totalPnL ?? 0) >= 0 ? 'Profit' : 'Loss'}
                                     </span>
@@ -1962,8 +1960,8 @@ const Profile: React.FC = () => {
                                     type="button"
                                     onClick={() => setStellarSubTab(id)}
                                     className={`pb-2 px-1 text-xs font-bold transition-all relative shrink-0 ${isActive
-                                        ? 'text-purple-400 font-extrabold'
-                                        : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
+                                      ? 'text-purple-400 font-extrabold'
+                                      : 'text-(--color-text-secondary) hover:text-(--color-text-primary)'
                                       }`}
                                   >
                                     {label}
@@ -2272,7 +2270,7 @@ const Profile: React.FC = () => {
                     <button
                       onClick={() => setSelectedChainFilter('all')}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 ${selectedChainFilter === 'all'
-                        ? 'bg-tertiary text border-blue-400'
+                        ? 'bg-brand text-white text border-blue-400'
                         : 'bg-secondary text-(--color-text-secondary) hover:bg-(--color-bg-secondary) border border-(--color-border)'
                         }`}
                     >
@@ -2283,7 +2281,7 @@ const Profile: React.FC = () => {
                         key={chain.id}
                         onClick={() => setSelectedChainFilter(chain.id)}
                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 flex items-center gap-1.5 ${selectedChainFilter === chain.id
-                          ? 'bg-tertiary text border-blue-400'
+                          ? 'bg-brand text-white border-blue-400'
                           : 'bg-secondary text-(--color-text-secondary) hover:bg-(--color-bg-secondary) border border-(--color-border)'
                           }`}
                       >

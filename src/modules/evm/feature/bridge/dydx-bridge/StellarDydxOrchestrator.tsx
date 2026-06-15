@@ -14,7 +14,8 @@ import {
   ExternalLink,
   ArrowLeft,
   Lock,
-  ArrowUpRight
+  ArrowUpRight,
+  X
 } from 'lucide-react';
 import { useWalletConnect } from '../../../../walletconnect/hooks/useWalletConnect';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
@@ -33,7 +34,8 @@ import {
   type BridgeSession,
   type SwapQuote,
   type BridgeQuote,
-  type DepositQuote
+  type DepositQuote,
+  type SigningStep
 } from './useStellarDydxOrchestrator';
 import { ConfirmationModal } from '../../../../../components/common/ConfirmationModal';
 import StellarActiveGuard from '../../../../walletconnect/components/StellarActiveGuard';
@@ -51,6 +53,22 @@ type SDKAny = any;
 
 const Shimmer: React.FC<{ className?: string }> = ({ className = 'h-4 w-16' }) => (
   <div className={`animate-pulse bg-white/5 rounded ${className}`} />
+);
+
+const SubStepPill = ({ state, label }: { state: 'active' | 'done' | 'waiting', label: string }) => (
+  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest transition-all ${state === 'active' ? 'bg-brand text-white border-brand' :
+    state === 'done' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+      'bg-white/5 text-muted border-divider'
+    }`}>
+    {state === 'active' && <RefreshCw size={9} className="animate-spin" />}
+    {state === 'done' && <CheckCircle2 size={9} />}
+    {state === 'waiting' && <div className="w-2 h-2 rounded-full border border-current opacity-40" />}
+    {label}
+  </div>
+);
+
+const Connector = () => (
+  <div className="w-4 h-0 border-t border-dotted border-brand/30 flex-shrink-0" />
 );
 
 interface WalletConnectionRequiredProps {
@@ -105,11 +123,13 @@ export const WalletConnectionRequired: React.FC<WalletConnectionRequiredProps> =
 interface SessionRoadmapProps {
   session: BridgeSession;
   evmChains: ChainConfig[];
+  signingStep: SigningStep;
 }
 
 export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
   session,
   evmChains,
+  signingStep,
 }) => {
   const currentNetwork = useWalletStore(state => state.network) as 'mainnet' | 'testnet';
   const [, setTick] = useState<number>(0);
@@ -228,7 +248,7 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
     if (stepId === 'SWAP')
       return `https://stellar.expert/explorer/${currentNetwork === 'testnet' ? 'testnet' : 'public'}/tx/${session.swapTx.hash}`;
     if (stepId === 'BRIDGE')
-      return `https://core.allbridge.io/explorer/transfer/${session.bridgeTx.hash}`;
+      return `https://core.allbridge.io/explorer?search=${session.bridgeTx.hash}`;
     return getExplorerUrl(session.destinationChainId, 'tx', session.depositTx.hash || '');
   };
 
@@ -298,7 +318,10 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
                               : 'text-muted'
                           }`}
                       >
-                        {s.label}
+                        {isActive && signingStep.phase !== 'idle'
+                          ? 'Wallet confirmation required'
+                          : s.label
+                        }
                       </h4>
                       {isStepPending && (
                         <span className="text-[8px] font-black bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full border border-blue-500/20 animate-pulse uppercase tracking-tighter">
@@ -339,7 +362,10 @@ export const SessionRoadmap: React.FC<SessionRoadmapProps> = ({
                           <div className="w-1 h-1 rounded-full bg-brand animate-bounce delay-200" />
                         </div>
                         <span className="text-[9px] font-black text-brand uppercase tracking-widest">
-                          {s.activeLabel}
+                          {isActive && signingStep.phase !== 'idle'
+                            ? `Open your ${signingStep.walletType === 'stellar' ? 'Stellar' : 'EVM'} wallet to approve`
+                            : s.activeLabel
+                          }
                         </span>
                       </div>
 
@@ -459,16 +485,16 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
   const stellarConfig = getStellarConfig(currentNetwork);
 
   return (
-    <div className="bg-tertiary rounded-xl border border-divider p-4 py-6 lg:p-6 pb-0 animate-fade-in relative">
-      <div className="flex items-center justify-between mb-8">
+    <div className="bg-tertiary rounded-xl border border-divider p-3 py-5 sm:p-4 sm:py-6 lg:p-6 pb-0 animate-fade-in relative">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
         <div className="flex items-center gap-2">
           <Layers size={14} className="text-brand" />
           <h4 className="text-[10px] font-black text-primary uppercase tracking-widest">
             Route Details
           </h4>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 bg-secondary/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-divider shadow-inner">
+        <div className="flex items-center gap-4 w-full sm:w-auto">
+          <div className="flex items-center gap-2 sm:gap-3 bg-secondary/80 backdrop-blur-md px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-divider shadow-inner w-full justify-between sm:justify-start">
             <div className="flex flex-col">
               <span className="text-[8px] font-black text-muted uppercase tracking-tighter">
                 XLM Balance
@@ -524,17 +550,17 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
       <div className="flex items-center justify-between px-2 mb-10 relative overflow-x-auto scrollbar-hide py-4 min-w-0 w-full">
         {routeBreakdown.items.map((item, idx) => (
           <React.Fragment key={idx}>
-            <div className="flex flex-col items-center gap-3 relative z-10 flex-shrink-0">
+            <div className="flex flex-col items-center gap-1.5 sm:gap-3 relative z-10 flex-shrink-0">
               <div
-                className={`w-14 h-14 relative rounded-2xl bg-tertiary flex items-center justify-center border transition-all duration-500 shadow-sm ${item.status === 'done'
+                className={`w-11 h-11 sm:w-14 sm:h-14 relative rounded-2xl bg-tertiary flex items-center justify-center border transition-all duration-500 shadow-sm ${item.status === 'done'
                   ? 'border-success/50'
                   : item.status === 'active'
                     ? 'border-brand shadow-lg shadow-brand/10'
                     : 'border-divider'
                   }`}
               >
-                <img src={item.icon} className="w-8 h-8 rounded-full shadow-sm" alt="" />
-                <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full border-2 border-secondary bg-bg-primary flex items-center justify-center p-0.5 shadow-sm">
+                <img src={item.icon} className="w-6 h-6 sm:w-8 sm:h-8 rounded-full shadow-sm" alt="" />
+                <div className="absolute -bottom-1 -right-1 w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full border-2 border-secondary bg-bg-primary flex items-center justify-center p-0.5 shadow-sm">
                   <img
                     src={item.chainIcon}
                     className="w-full h-full object-contain"
@@ -544,17 +570,17 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
               </div>
               <div className="flex flex-col items-center">
                 <span
-                  className={`text-[9px] font-black uppercase tracking-widest ${item.status === 'active' ? 'text-brand' : 'text-muted'}`}
+                  className={`text-[8px] sm:text-[9px] font-black uppercase tracking-widest ${item.status === 'active' ? 'text-brand' : 'text-muted'}`}
                 >
                   {item.label}
                 </span>
-                <span className="text-[8px] font-bold text-white/40 mt-0.5">
+                <span className="text-[7px] sm:text-[8px] font-bold text-white/40 mt-0.5">
                   {item.amount ? `${item.amount} USDC` : '---'}
                 </span>
                 {item.time && (
-                  <div className="flex items-center gap-1 mt-0.5 opacity-80">
+                  <div className="flex items-center gap-0.5 sm:gap-1 mt-0.5 opacity-80">
                     <Clock size={8} className="text-brand" />
-                    <span className="text-[10px] font-black text-brand uppercase tracking-tighter">
+                    <span className="text-[8px] sm:text-[10px] font-black text-brand uppercase tracking-tighter">
                       {item.time}
                     </span>
                   </div>
@@ -563,7 +589,7 @@ export const RouteBreakdownPanel: React.FC<RouteBreakdownPanelProps> = ({
             </div>
             {idx < routeBreakdown.items.length - 1 && (
               <div
-                className="flex-1 h-0 border-t-2 border-dotted mx-2 mb-12 transition-all duration-500 opacity-30 min-w-[30px]"
+                className="flex-1 h-0 border-t-2 border-dotted mx-1 sm:mx-2 mb-8 sm:mb-12 transition-all duration-500 opacity-30 min-w-[15px] sm:min-w-[30px]"
                 style={{
                   borderColor:
                     item.status === 'done' ? 'var(--success)' : 'var(--divider)',
@@ -1010,49 +1036,82 @@ export const StellarDydxOrchestrator: React.FC = () => {
     executeSessionStep,
     updateSession,
     quoteTimestamp,
-    signingPhase,
+    signingStep,
+    destinationGasBalance,
+    checkingGasBalance,
   } = useStellarDydxOrchestrator();
 
-  const [showNetworkSelector, setShowNetworkSelector] = useState<boolean>(false);
   const [showFullDetails, setShowFullDetails] = useState<boolean>(false);
   const [showAllSessions, setShowAllSessions] = useState<boolean>(false);
   const [sessionToClear, setSessionToClear] = useState<string | null>(null);
   const [restoreInputsOnClear, setRestoreInputsOnClear] = useState<boolean>(false);
   const [awaitingWalletConfirm, setAwaitingWalletConfirm] = useState<boolean>(false);
   const [quoteAge, setQuoteAge] = useState<number>(0);
-  // One-time success modal: shown when a session first hits DONE, cleared after view
+  const [isGasWarningDismissed, setIsGasWarningDismissed] = useState<boolean>(false);
+
+  useEffect(() => {
+    setIsGasWarningDismissed(false);
+  }, [destinationChain?.chainId]);
+
   const [successModalSessionId, setSuccessModalSessionId] = useState<string | null>(null);
-  const shownSuccessRef = useRef<Set<string>>(new Set());
-  // Recovery banner: shown when user navigated away mid-signature and came back
+  const shownSuccessRef = useRef<Set<string>>(new Set(
+    (() => {
+      try { return JSON.parse(localStorage.getItem('bridge_shown_success') || '[]') }
+      catch { return [] }
+    })()
+  ));
   const [showBridgeRecoveryBanner, setShowBridgeRecoveryBanner] = useState<boolean>(() =>
     useSwapStore.getState().bridgePendingSignPhase !== 'idle'
   );
   const clearBridgePendingSign = useSwapStore(s => s.clearBridgePendingSign);
-  // Track the stored sign phase separately (persisted across navigation)
   const bridgePendingSignPhase = useSwapStore(s => s.bridgePendingSignPhase);
   const bridgePendingSignSessionId = useSwapStore(s => s.bridgePendingSignSessionId);
 
   const evmChains = useMemo(() => getEvmChainsForNetwork(currentNetwork), [currentNetwork]);
   const isBothConnected = !!evmAddress && !!stellarAddress;
-
-  // When signingPhase goes active (live), we are actively signing — hide recovery banner
-  // When signingPhase goes idle but the store still has a stale phase, it means user navigated away
   useEffect(() => {
-    if (signingPhase !== 'idle') {
-      // Active signing — hide any stale recovery banner
+    if (signingStep.phase !== 'idle') {
       setShowBridgeRecoveryBanner(false);
     }
-  }, [signingPhase]);
+  }, [signingStep.phase]);
 
+  useEffect(() => {
+    if (!showBridgeRecoveryBanner) return;
+    const session = sessions.find(s => s.id === bridgePendingSignSessionId);
+    if (!session) return;
 
+    let isResolved = false;
+    if (bridgePendingSignPhase?.startsWith('signing_swap')) {
+      isResolved = session.swapTx.status === 'SUCCESS' || session.swapTx.status === 'FAILED' || session.phase !== 'SWAP';
+    } else if (bridgePendingSignPhase?.startsWith('signing_bridge')) {
+      isResolved = session.bridgeTx.status === 'SUCCESS' || session.bridgeTx.status === 'FAILED' || session.phase !== 'BRIDGE';
+    } else if (bridgePendingSignPhase?.startsWith('signing_deposit')) {
+      isResolved = session.depositTx.status === 'SUCCESS' || session.depositTx.status === 'FAILED' || session.phase !== 'DEPOSIT';
+    } else {
+      isResolved =
+        session.bridgeTx.status === 'SUCCESS' ||
+        session.bridgeTx.status === 'FAILED' ||
+        session.depositTx.status === 'SUCCESS' ||
+        session.depositTx.status === 'FAILED';
+    }
 
-  // Detect newly-completed sessions and trigger the one-time success modal
+    if (isResolved) {
+      setShowBridgeRecoveryBanner(false);
+      clearBridgePendingSign();
+    }
+  }, [sessions, showBridgeRecoveryBanner, bridgePendingSignSessionId, bridgePendingSignPhase, clearBridgePendingSign]);
+
   useEffect(() => {
     const doneSession = sessions.find(
       s => s.phase === 'DONE' && isTxOwnedByCurrentUser(s, connectedWallets) && !shownSuccessRef.current.has(s.id)
     );
     if (doneSession) {
       shownSuccessRef.current.add(doneSession.id);
+      try {
+        localStorage.setItem('bridge_shown_success',
+          JSON.stringify([...shownSuccessRef.current].slice(-20))
+        );
+      } catch { }
       setSuccessModalSessionId(doneSession.id);
     }
   }, [sessions, connectedWallets]);
@@ -1085,6 +1144,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
     if (parts.length <= 1) return str;
     return `${parts[0]}.${parts[1].slice(0, decimals)}`;
   };
+
 
   useEffect(() => {
     if (quoteTimestamp === null || activeSession) {
@@ -1192,30 +1252,32 @@ export const StellarDydxOrchestrator: React.FC = () => {
   const buttonLabel = useMemo(() => {
     if (!evmAddress || !stellarAddress) return 'CONNECT WALLETS';
 
+    if (signingStep.phase === 'signing_swap') return 'CONFIRMING IN WALLET...';
+    if (signingStep.phase === 'signing_bridge_approve') return 'APPROVE IN WALLET...';
+    if (signingStep.phase === 'signing_bridge_send') return 'CONFIRMING IN WALLET...';
+    if (signingStep.phase === 'signing_deposit_approve') return 'APPROVE USDC IN WALLET...';
+    if (signingStep.phase === 'signing_deposit_confirm') return 'CONFIRM DEPOSIT IN WALLET...';
+
     if (activeSession) {
       if (activeSession.error) return 'TRY AGAIN';
 
-      if (signingPhase === 'signing_swap') return 'SIGN SWAP IN WALLET...';
-      if (signingPhase === 'signing_bridge') return 'SIGN BRIDGE IN WALLET...';
-      if (signingPhase === 'signing_deposit') return 'SIGN DEPOSIT IN WALLET...';
-
-      if (activeSession.phase === 'SWAP') {
-        if (activeSession.loadingStep) return 'PREPARING SWAP...';
-        return 'RETRY SWAP';
-      }
       if (activeSession.phase === 'BRIDGE') {
         if (activeSession.bridgeTx.status === 'PENDING') return 'BRIDGING...';
         if (activeSession.bridgeTx.status === 'FAILED') return 'TRY AGAIN';
-        if (activeSession.loadingStep) return 'PREPARING BRIDGE...';
+        if (activeSession.loadingStep) return 'PREPARING...';
+        if (!activeSession.bridgeTx.hash) return 'CONFIRM IN WALLET';
         return 'RETRY BRIDGE';
       }
+
       if (activeSession.phase === 'DEPOSIT') {
         if (activeSession.bridgeTx.status !== 'SUCCESS') return 'WAITING FOR BRIDGE...';
         if (activeSession.depositTx.status === 'PENDING') return 'DEPOSITING...';
         if (activeSession.depositTx.status === 'FAILED') return 'TRY AGAIN';
-        if (activeSession.loadingStep) return 'PREPARING DEPOSIT...';
+        if (activeSession.loadingStep) return 'PREPARING...';
+        if (!activeSession.depositTx.hash) return 'DEPOSIT TO DYDX';
         return 'RETRY DEPOSIT';
       }
+
       if (activeSession.phase === 'DONE') return 'START NEW TRANSFER';
     }
 
@@ -1238,14 +1300,14 @@ export const StellarDydxOrchestrator: React.FC = () => {
 
     return 'START BRIDGE';
   }, [
-    evmAddress, stellarAddress, activeSession, setupError, inputAmount, tokenBalance,
-    nativeBalance, feePaymentMethod, isQuoting, evmChains, hasPendingSession, isUsdc,
-    rawQuotes, stablecoinFeeError, signingPhase,
+    signingStep, activeSession, evmAddress, stellarAddress, setupError,
+    hasPendingSession, inputAmount, stablecoinFeeError, tokenBalance,
+    feePaymentMethod, rawQuotes, nativeBalance, isQuoting
   ]);
 
   const isButtonDisabled = useMemo(() => {
     if (!evmAddress || !stellarAddress) return true;
-    if (signingPhase !== 'idle') return true;
+    if (signingStep.phase !== 'idle') return true;
     if (showBridgeRecoveryBanner) return true;
 
     if (activeSession) {
@@ -1276,7 +1338,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   }, [
     evmAddress, stellarAddress, activeSession, inputAmount, tokenBalance,
     nativeBalance, feePaymentMethod, isQuoting, hasPendingSession, isUsdc,
-    rawQuotes, stablecoinFeeError, signingPhase, showBridgeRecoveryBanner,
+    rawQuotes, stablecoinFeeError, signingStep, showBridgeRecoveryBanner
   ]);
 
   const customButtonClass = useMemo(() => {
@@ -1424,8 +1486,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
   return (
     <StellarActiveGuard bypass={!!activeSession}>
       <div className="w-full mx-auto lg:px-4 pb-4 animate-fade-in">
-        <div className={`-mb-1 flex px-2 items-center ${!activeSession ? 'justify-end' : 'justify-between'}`}>
-          {activeSession && (
+        {activeSession && (
+          <div className="-mb-1 flex px-2 items-center justify-between">
             <button
               onClick={handleBack}
               className="flex items-center gap-2 bg-brand hover:brightness-110 px-5 py-2.5 rounded-xl rounded-b-none pb-5 border border-brand/20 shadow-lg shadow-brand/20 text-white transition-all group animate-fade-in"
@@ -1435,65 +1497,81 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 Setup New Transfer
               </span>
             </button>
-          )}
-          {!activeSession && (
-            <div className="relative">
-              <button
-                onClick={() => setShowNetworkSelector(!showNetworkSelector)}
-                className="flex items-center gap-3 bg-tertiary hover:bg-hover px-5 py-2.5 rounded-xl rounded-b-none pb-5 border border-divider transition-all group"
-              >
-                <div className="flex flex-col items-start leading-none">
-                  <span className="text-[8px] font-black text-brand uppercase tracking-widest mb-1">
-                    Bridge Conduit
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <img src={activeChain?.logoURI} className="w-4 h-4 rounded-full" alt="" />
-                    <span className="text-xs font-black text-primary uppercase">
-                      {activeChain?.name}
-                    </span>
-                  </div>
-                </div>
-                <ChevronDown
-                  size={14}
-                  className={`text-muted transition-transform duration-300 ml-2 ${showNetworkSelector ? 'rotate-180' : ''}`}
-                />
-              </button>
-
-              {showNetworkSelector && (
-                <div className="absolute top-full right-0 mt-3 w-64 bg-tertiary border border-divider rounded-[2rem] p-3 z-[100] shadow-2xl animate-slide-up backdrop-blur-xl">
-                  <div className="px-3 py-2 mb-2 border-b border-divider/50">
-                    <span className="text-[10px] font-black text-muted uppercase tracking-widest">
-                      Select Bridge Pathway
-                    </span>
-                    <p className="text-[8px] font-bold text-muted/60 uppercase mt-1">
-                      Funds will pass through here to dYdX
-                    </p>
-                  </div>
-                  {evmChains.map(c => (
-                    <button
-                      key={c.chainId}
-                      onClick={() => {
-                        setDestinationChain(c);
-                        setShowNetworkSelector(false);
-                      }}
-                      className={`flex items-center gap-4 w-full px-4 py-3.5 rounded-xl transition-all ${destinationChain?.chainId === c.chainId
-                        ? 'bg-brand/10 text-brand'
-                        : 'hover:bg-hover text-secondary'
-                        }`}
-                    >
-                      <img src={c.logoURI} className="w-6 h-6 rounded-full shadow-md" alt="" />
-                      <span className="text-sm font-black uppercase tracking-tight">{c.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="space-y-4 relative">
           <div className="space-y-1 relative z-10">
             <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-8 group transition-all duration-500 shadow-xl relative z-20 border border-divider/10">
+              {/* Bridge Route: EVM Network Selection */}
+              <div className="mb-6 pb-5 border-b border-divider/30 w-full max-w-full overflow-hidden min-w-0">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-4">
+                  <div className="flex items-center gap-2">
+                    <Layers size={13} className="text-brand" />
+                    <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">
+                      Bridge Routing Conduit
+                    </span>
+                  </div>
+
+                  {/* Route Pathway Breadcrumb */}
+                  <div className="flex items-center gap-1.5 text-[8.5px] font-black text-muted bg-secondary/60 border border-divider/30 px-3 py-1.5 rounded-full shadow-inner w-fit">
+                    <img src={getStellarConfig(currentNetwork).logoUrl} className="w-3.5 h-3.5 rounded-full" alt="" />
+                    <span className="text-muted/85">STELLAR</span>
+                    <span className="text-brand/60">→</span>
+                    <img src={activeChain?.logoURI} className="w-3.5 h-3.5 rounded-full transition-all duration-300" alt="" key={activeChain?.chainId} />
+                    <span className="text-brand font-black">{activeChain?.name?.toUpperCase()}</span>
+                    <span className="text-brand/60">→</span>
+                    <div className="w-3.5 h-3.5 bg-black rounded-full flex items-center justify-center p-0.5">
+                      <img src={DYDX_LOGO_URL} className="w-full h-full object-contain" alt="" />
+                    </div>
+                    <span className="text-muted/85">DYDX</span>
+                  </div>
+                </div>
+
+                {activeSession ? (
+                  /* During Active Session, show pinned active chain conduit badge */
+                  <div className="flex items-center gap-2.5 bg-brand/5 border border-brand/20 px-4 py-2.5 rounded-2xl w-fit">
+                    <div className="relative flex-shrink-0">
+                      <img src={activeChain?.logoURI} className="w-5 h-5 rounded-full" alt="" />
+                      <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border border-secondary animate-pulse" />
+                    </div>
+                    <span className="text-xs font-black text-brand uppercase tracking-wider">
+                      Active Pathway: {activeChain?.name}
+                    </span>
+                  </div>
+                ) : (
+                  /* Prior to starting session, show Pinned selected chain and Scrollable unselected chains */
+                  <div className="flex items-center gap-3 w-full min-w-0 overflow-hidden">
+                    {destinationChain && (
+                      <div className="flex-shrink-0 flex items-center gap-2 bg-brand border border-brand px-4 py-2.5 rounded-2xl shadow-lg shadow-brand/20 text-white">
+                        <img src={destinationChain.logoURI} className="w-5 h-5 rounded-full" alt="" />
+                        <span className="text-xs font-black uppercase tracking-wider">
+                          {destinationChain.name}
+                        </span>
+                      </div>
+                    )}
+
+                    {evmChains.length > 1 && (
+                      <div className="w-[1px] h-6 bg-divider/30 flex-shrink-0" />
+                    )}
+
+                    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide py-0.5 flex-1 select-none min-w-0">
+                      {evmChains
+                        .filter(c => c.chainId !== destinationChain?.chainId)
+                        .map(c => (
+                          <button
+                            key={c.chainId}
+                            onClick={() => setDestinationChain(c)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-secondary hover:bg-hover border border-divider/60 text-muted hover:text-primary hover:border-divider text-[10px] font-black uppercase tracking-wider transition-all flex-shrink-0 active:scale-[0.98]"
+                          >
+                            <img src={c.logoURI} className="w-3.5 h-3.5 rounded-full opacity-60 hover:opacity-100" alt="" />
+                            <span>{c.name}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex justify-between items-center mb-6">
                 <span className="text-[10px] font-black text-muted uppercase tracking-[0.3em]">
                   You Pay
@@ -1512,7 +1590,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-3 sm:gap-6">
                 <button
                   onClick={() =>
                     !activeSession &&
@@ -1525,12 +1603,12 @@ export const StellarDydxOrchestrator: React.FC = () => {
                       },
                     })
                   }
-                  className={`flex items-center gap-4 bg-secondary hover:bg-hover rounded-2xl px-5 py-4 transition-all border border-divider/50 shadow-sm min-w-[190px] ${!activeSession ? 'active:scale-95' : 'pointer-events-none opacity-80'}`}
+                  className={`flex items-center gap-2 sm:gap-4 bg-secondary hover:bg-hover rounded-2xl px-3 py-3 sm:px-5 sm:py-4 transition-all border border-divider/50 shadow-sm min-w-[130px] sm:min-w-[190px] ${!activeSession ? 'active:scale-95' : 'pointer-events-none opacity-80'}`}
                 >
                   {loadingAssets && !activeSession ? (
-                    <div className="flex items-center gap-4">
-                      <Shimmer className="w-10 h-10 rounded-full" />
-                      <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 sm:gap-4">
+                      <Shimmer className="w-8 h-8 sm:w-10 sm:h-10 rounded-full" />
+                      <div className="flex flex-col gap-1 sm:gap-2">
                         <Shimmer className="h-4 w-12" />
                         <Shimmer className="h-2 w-8" />
                       </div>
@@ -1540,10 +1618,10 @@ export const StellarDydxOrchestrator: React.FC = () => {
                       <div className="relative">
                         <img
                           src={displayState.top.logo}
-                          className="w-10 h-10 rounded-full object-cover shadow-md"
+                          className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover shadow-md"
                           alt=""
                         />
-                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-secondary bg-primary flex items-center justify-center p-0.5 shadow-sm">
+                        <div className="absolute -bottom-1 -right-1 w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full border-2 border-secondary bg-primary flex items-center justify-center p-0.5 shadow-sm">
                           <img
                             src={
                               activeSession && (activeSession.phase === 'DEPOSIT' || activeSession.phase === 'DONE')
@@ -1556,16 +1634,16 @@ export const StellarDydxOrchestrator: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex flex-col items-start leading-tight">
-                        <span className="font-black text-lg text-primary uppercase tracking-tight">
+                        <span className="font-black text-sm sm:text-lg text-primary uppercase tracking-tight">
                           {displayState.top.symbol}
                         </span>
-                        <span className="text-[9px] font-black text-muted uppercase tracking-tighter">
+                        <span className="text-[8px] sm:text-[9px] font-black text-muted uppercase tracking-tighter">
                           {activeSession && (activeSession.phase === 'DEPOSIT' || activeSession.phase === 'DONE')
                             ? activeChain?.name || 'EVM'
                             : 'Stellar'}
                         </span>
                       </div>
-                      {!activeSession && <ChevronDown size={14} className="text-muted ml-auto" />}
+                      {!activeSession && <ChevronDown size={12} className="text-muted ml-auto" />}
                     </>
                   )}
                 </button>
@@ -1577,12 +1655,12 @@ export const StellarDydxOrchestrator: React.FC = () => {
                       type="text"
                       inputMode="decimal"
                       placeholder="0.00"
-                      className="w-full bg-transparent border-none text-right text-5xl font-black focus:ring-0 p-0 placeholder:text-muted/10 outline-none text-primary tracking-tighter min-w-0"
+                      className="w-full bg-transparent border-none text-right text-3xl sm:text-5xl font-black focus:ring-0 p-0 placeholder:text-muted/10 outline-none text-primary tracking-tighter min-w-0"
                       value={inputAmount}
                       onChange={e => setInputAmount(sanitizeAmount(e.target.value.replace(/[^0-9.]/g, '')))}
                     />
                   ) : (
-                    <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide text-5xl font-black text-primary tracking-tighter">
+                    <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide text-3xl sm:text-5xl font-black text-primary tracking-tighter">
                       {displayState.top.amount
                         ? parseFloat(parseFloat(displayState.top.amount).toFixed(7)).toString()
                         : '0.00'}
@@ -1592,8 +1670,8 @@ export const StellarDydxOrchestrator: React.FC = () => {
               </div>
             </div>
 
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
-              <div className="w-11 h-11 bg-secondary rounded-2xl flex items-center justify-center shadow-2xl">
+            <div className="absolute left-1/2  -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
+              <div className="w-12 h-12 border border-brand bg-secondary rounded-full flex items-center justify-center shadow-2xl">
                 <ArrowUpDown size={18} className="text-brand" />
               </div>
             </div>
@@ -1619,15 +1697,15 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-4 bg-secondary rounded-2xl px-5 py-4 border border-divider/50 shadow-sm min-w-[190px] opacity-90">
+              <div className="flex items-center gap-3 sm:gap-6">
+                <div className="flex items-center gap-2 sm:gap-4 bg-secondary rounded-2xl px-3 py-3 sm:px-5 sm:py-4 border border-divider/50 shadow-sm min-w-[130px] sm:min-w-[190px] opacity-90">
                   <div className="relative">
                     <img
                       src={displayState.bottom.logo}
-                      className="w-10 h-10 rounded-full object-cover shadow-md"
+                      className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover shadow-md"
                       alt=""
                     />
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-secondary bg-bg-primary flex items-center justify-center p-0.5 shadow-sm">
+                    <div className="absolute -bottom-1 -right-1 w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full border-2 border-secondary bg-bg-primary flex items-center justify-center p-0.5 shadow-sm">
                       {displayState.bottom.network === 'DYDX' ? (
                         <div className="w-full h-full bg-black rounded-full flex items-center justify-center p-1">
                           <img src={DYDX_LOGO_URL} className="w-full h-full object-contain" alt="" />
@@ -1646,10 +1724,10 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex flex-col items-start leading-tight">
-                    <span className="font-black text-lg text-primary uppercase tracking-tight">
+                    <span className="font-black text-sm sm:text-lg text-primary uppercase tracking-tight">
                       {displayState.bottom.symbol}
                     </span>
-                    <span className="text-[9px] font-black text-muted uppercase tracking-tighter">
+                    <span className="text-[8px] sm:text-[9px] font-black text-muted uppercase tracking-tighter">
                       {displayState.bottom.network}
                     </span>
                   </div>
@@ -1659,7 +1737,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                   {isQuoting ? (
                     <Shimmer className="h-10 w-full mb-1" />
                   ) : (
-                    <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide text-5xl font-black text-primary tracking-tighter">
+                    <div className="max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide text-3xl sm:text-5xl font-black text-primary tracking-tighter">
                       {displayState.bottom.amount
                         ? portfolioUtils.formatBalance(displayState.bottom.amount)
                         : '0.00'}
@@ -1690,7 +1768,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
           )}
 
           {activeSession && (
-            <SessionRoadmap session={activeSession} evmChains={evmChains} />
+            <SessionRoadmap session={activeSession} evmChains={evmChains} signingStep={signingStep} />
           )}
 
           {!activeSession && routeBreakdown && (
@@ -1750,38 +1828,92 @@ export const StellarDydxOrchestrator: React.FC = () => {
               </div>
             )}
 
-            {/* Live wallet-signing banner: shown while wallet popup is actively open */}
-            {signingPhase !== 'idle' && (
-              <div className="flex items-center gap-3 bg-brand/10 border border-brand/20 rounded-2xl px-4 py-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-300 animate-pulse">
-                <Wallet size={18} className="text-brand flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-black text-brand uppercase tracking-widest">
-                    {signingPhase === 'signing_swap'
-                      ? 'Approval Request — Swap in Stellar wallet'
-                      : signingPhase === 'signing_bridge'
-                        ? 'Approval Request — Bridge transfer in Stellar wallet'
-                        : 'Approval Request — dYdX deposit in EVM wallet'}
-                  </p>
-                  <p className="text-[10px] font-bold text-brand/70 mt-0.5">
-                    {signingPhase === 'signing_swap' && 'Swapping your token to USDC on Stellar...'}
-                    {signingPhase === 'signing_bridge' && 'Sending USDC across the bridge to EVM...'}
-                    {signingPhase === 'signing_deposit' && 'Depositing USDC into your dYdX account...'}
-                  </p>
+            {!activeSession && !isGasWarningDismissed && !checkingGasBalance && destinationGasBalance !== null && parseFloat(destinationGasBalance) < 0.0005 && destinationChain && (
+              <div
+                className="rounded-2xl p-4 mb-4 animate-fade-in space-y-2 relative"
+                style={{
+                  background: 'color-mix(in srgb, var(--color-warning, #eab308) 8%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--color-warning, #eab308) 25%, transparent)',
+                }}
+              >
+                <button
+                  onClick={() => setIsGasWarningDismissed(true)}
+                  className="absolute top-3 right-3 text-muted hover:text-primary transition-colors p-1 rounded-lg hover:bg-white/5"
+                  aria-label="Dismiss warning"
+                >
+                  <X size={14} className="text-amber-500/70 hover:text-amber-500 transition-colors" />
+                </button>
+                <div className="flex items-start gap-3 pr-6">
+                  <div
+                    className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
+                    style={{ background: 'color-mix(in srgb, var(--color-warning, #eab308) 15%, transparent)' }}
+                  >
+                    <Info size={16} className="text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-amber-500">
+                      Destination Gas Warning
+                    </p>
+                    <p className="text-xs font-bold leading-relaxed break-words" style={{ color: 'var(--color-text-secondary)' }}>
+                      You need a small amount of {destinationChain.nativeCurrency.symbol} on {destinationChain.name} to complete the final deposit to dYdX.
+                    </p>
+                    <p className="text-[10px] font-bold mt-1 opacity-80" style={{ color: 'var(--color-text-muted)' }}>
+                      Current balance: {parseFloat(destinationGasBalance).toFixed(5)} {destinationChain.nativeCurrency.symbol}. Please acquire gas before the deposit step.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
+            {signingStep.phase !== 'idle' && (
+              <div className="flex flex-col gap-1 bg-brand/10 border border-brand/20 rounded-2xl px-4 py-4 mb-3 animate-in fade-in slide-in-from-top-2 duration-300 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <Wallet size={18} className="text-brand flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-black text-brand uppercase tracking-widest">
+                      {signingStep.walletType === 'stellar'
+                        ? 'Confirm in your Stellar wallet'
+                        : 'Confirm in your EVM wallet'}
+                    </p>
+                    <p className="text-[10px] font-bold text-brand/70 mt-0.5">
+                      Sending {signingStep.inputSymbol} to dYdX  •  Step {signingStep.stepNumber} of {signingStep.totalSteps}
+                    </p>
+                  </div>
+                </div>
+                {(signingStep.phase === 'signing_bridge_approve' || signingStep.phase === 'signing_bridge_send') && (
+                  signingStep.phase === 'signing_bridge_approve' ? (
+                    <div className="flex items-center gap-2 mt-2 pl-7">
+                      <SubStepPill state="active" label="Approve bridge" />
+                      <Connector />
+                      <SubStepPill state="waiting" label="Send transaction" />
+                    </div>
+                  ) : null
+                )}
 
-            {/* Recovery banner: user navigated away mid-signature and came back */}
-            {showBridgeRecoveryBanner && signingPhase === 'idle' && (
+                {(signingStep.phase === 'signing_deposit_approve' || signingStep.phase === 'signing_deposit_confirm') && (
+                  <div className="flex items-center gap-2 mt-2 pl-7">
+                    <SubStepPill
+                      state={signingStep.phase === 'signing_deposit_approve' ? 'active' : 'done'}
+                      label="Approve USDC spend"
+                    />
+                    <Connector />
+                    <SubStepPill
+                      state={signingStep.phase === 'signing_deposit_confirm' ? 'active' : 'waiting'}
+                      label="Confirm deposit"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            {showBridgeRecoveryBanner && signingStep.phase === 'idle' && (
               <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
                 <span className="text-amber-400 text-base leading-none flex-shrink-0">⏳</span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest">
                     {bridgePendingSignPhase === 'signing_swap'
                       ? 'Waiting for swap signature'
-                      : bridgePendingSignPhase === 'signing_bridge'
+                      : bridgePendingSignPhase === 'signing_bridge' || bridgePendingSignPhase === 'signing_bridge_approve' || bridgePendingSignPhase === 'signing_bridge_send'
                         ? 'Waiting for bridge signature'
-                        : bridgePendingSignPhase === 'signing_deposit'
+                        : bridgePendingSignPhase === 'signing_deposit' || bridgePendingSignPhase === 'signing_deposit_approve' || bridgePendingSignPhase === 'signing_deposit_confirm'
                           ? 'Waiting for deposit signature'
                           : 'Signature pending'}
                   </p>
@@ -1793,7 +1925,6 @@ export const StellarDydxOrchestrator: React.FC = () => {
                   onClick={() => {
                     setShowBridgeRecoveryBanner(false);
                     clearBridgePendingSign();
-                    // If there's a session tied to this pending sign, switch to it
                     if (bridgePendingSignSessionId) {
                       setActiveSessionId(bridgePendingSignSessionId);
                     }
@@ -1804,9 +1935,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 </button>
               </div>
             )}
-
-            {/* General loading banner (preparing, not yet in signing phase) */}
-            {awaitingWalletConfirm && signingPhase === 'idle' && !showBridgeRecoveryBanner && (
+            {awaitingWalletConfirm && signingStep.phase === 'idle' && !showBridgeRecoveryBanner && (
               <div className="flex items-center gap-2 bg-blue-500/8 border border-blue-500/20 rounded-2xl px-4 py-2.5 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
                 <span className="text-blue-400 text-sm leading-none animate-spin">⟳</span>
                 <p className="text-[11px] font-semibold text-blue-400/80">
@@ -1984,27 +2113,31 @@ export const StellarDydxOrchestrator: React.FC = () => {
                     label={buttonLabel}
                     isLoading={
                       isQuoting ||
-                      signingPhase !== 'idle' ||
+                      signingStep.phase !== 'idle' ||
                       activeSession?.loadingStep ||
                       (activeSession?.phase === 'BRIDGE' && activeSession?.bridgeTx.status === 'PENDING') ||
                       (activeSession?.phase === 'DEPOSIT' && activeSession?.depositTx.status === 'PENDING')
                     }
                     loadingLabel={
-                      signingPhase === 'signing_swap'
+                      signingStep.phase === 'signing_swap'
                         ? 'SIGN SWAP IN WALLET...'
-                        : signingPhase === 'signing_bridge'
-                          ? 'SIGN BRIDGE IN WALLET...'
-                          : signingPhase === 'signing_deposit'
-                            ? 'SIGN DEPOSIT IN WALLET...'
-                            : activeSession?.loadingStep
-                              ? 'PREPARING REQUEST...'
-                              : activeSession?.phase === 'BRIDGE' && activeSession?.bridgeTx.status === 'PENDING'
-                                ? 'BRIDGING...'
-                                : activeSession?.phase === 'DEPOSIT' && activeSession?.depositTx.status === 'PENDING'
-                                  ? 'SETTLING TO DYDX...'
-                                  : isQuoting
-                                    ? 'FETCHING QUOTES...'
-                                    : 'PROCESSING...'
+                        : signingStep.phase === 'signing_bridge_approve'
+                          ? 'APPROVE BRIDGE...'
+                          : signingStep.phase === 'signing_bridge_send'
+                            ? 'SIGN BRIDGE IN WALLET...'
+                            : signingStep.phase === 'signing_deposit_approve'
+                              ? 'APPROVE USDC IN WALLET...'
+                              : signingStep.phase === 'signing_deposit_confirm'
+                                ? 'CONFIRM DEPOSIT IN WALLET...'
+                                : activeSession?.loadingStep
+                                  ? 'PREPARING REQUEST...'
+                                  : activeSession?.phase === 'BRIDGE' && activeSession?.bridgeTx.status === 'PENDING'
+                                    ? 'BRIDGING...'
+                                    : activeSession?.phase === 'DEPOSIT' && activeSession?.depositTx.status === 'PENDING'
+                                      ? 'SETTLING TO DYDX...'
+                                      : isQuoting
+                                        ? 'FETCHING QUOTES...'
+                                        : 'PROCESSING...'
                     }
                     isDisabled={isButtonDisabled}
                     isError={!!(activeSession?.error || setupError || buttonLabel.includes('INSUFFICIENT'))}
@@ -2124,8 +2257,6 @@ export const StellarDydxOrchestrator: React.FC = () => {
           }}
         />
       </div>
-
-      {/* ── One-time success modal ─────────────────────────────────────────────── */}
       {(() => {
         if (!successModalSessionId) return null;
         const doneSession = sessions.find(s => s.id === successModalSessionId);
@@ -2135,18 +2266,17 @@ export const StellarDydxOrchestrator: React.FC = () => {
         const explorerUrl = doneSession.depositTx?.hash && doneChain
           ? getExplorerUrl(doneSession.destinationChainId, 'tx', doneSession.depositTx.hash)
           : txHash
-            ? `https://core.allbridge.io/explorer/transfer/${txHash}`
+            ? `https://core.allbridge.io/explorer?search=${txHash}`
             : '';
         return (
           <EvmTransactionSuccessModal
             txHash={txHash}
             explorerUrl={explorerUrl || ''}
-            title="Bridge Complete 🎉"
+            title="Bridge Complete"
             subtitle="Your funds have been deposited"
             networkName="dYdX"
             onDone={() => {
               setSuccessModalSessionId(null);
-              // Dismiss the done session so the roadmap card disappears
               dismissSession(successModalSessionId);
               setActiveSessionId(null);
             }}

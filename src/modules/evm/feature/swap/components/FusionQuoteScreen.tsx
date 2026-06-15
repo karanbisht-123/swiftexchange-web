@@ -78,8 +78,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
     fusionRefreshIntervalRef.current = setInterval(() => {
       setRefreshCountdown(prev => {
         if (prev <= 1) {
-          onRefreshQuote();
-          return 30;
+          return 0;
         }
         return prev - 1;
       });
@@ -92,6 +91,13 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
       }
     };
   }, [txHash, loading, onRefreshQuote]);
+
+  useEffect(() => {
+    if (refreshCountdown <= 0 && onRefreshQuote) {
+      setRefreshCountdown(30);
+      onRefreshQuote();
+    }
+  }, [refreshCountdown, onRefreshQuote]);
 
   const preset = (quote.recommended_preset || 'fast') as keyof FusionQuote['presets'];
   const presetData = quote.presets[preset];
@@ -108,8 +114,50 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
 
   const minReceiveAmount = formatTokenAmount(presetData.auctionEndAmount, buyDecimals);
 
+  const receiveValueUsd = (() => {
+    try {
+      const toTokenPriceStr = (quote.prices?.usd as any)?.dstToken || (quote.prices?.usd as any)?.toToken || buyAsset?.price || buyAsset?.priceUSD;
+      if (toTokenPriceStr) {
+        const toTokenPrice = parseFloat(toTokenPriceStr);
+        const value = parseFloat(ethers.formatUnits(presetData.auctionStartAmount, buyDecimals));
+        return (value * toTokenPrice);
+      }
+    } catch {}
+    return null;
+  })();
 
-  const tokenFee = formatTokenAmount(presetData.tokenFee, buyDecimals);
+
+  const feeTokenInfo = (() => {
+    const addr = quote.feeToken?.toLowerCase();
+    const usdPrices = quote.prices?.usd as any;
+    if (!addr) {
+      return { symbol: buyAsset?.symbol || 'ETH', decimals: buyAsset?.decimals || 18, price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD };
+    }
+    if (sellAsset?.address?.toLowerCase() === addr) {
+      return { symbol: sellAsset?.symbol, decimals: sellAsset?.decimals || 18, price: usdPrices?.srcToken || usdPrices?.fromToken || sellAsset?.price || sellAsset?.priceUSD };
+    }
+    if (buyAsset?.address?.toLowerCase() === addr) {
+      return { symbol: buyAsset?.symbol, decimals: buyAsset?.decimals || 18, price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD };
+    }
+    if (addr === '0xd6df932a45c0f255f85145f286ea0b292b21c90b') {
+      return { symbol: 'ARB', decimals: 18, price: usdPrices?.fromToken || usdPrices?.srcToken || 0.90 };
+    }
+    return { symbol: buyAsset?.symbol || 'ETH', decimals: buyAsset?.decimals || 18, price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD };
+  })();
+
+  const feeRaw = (presetData as any).tokenFee || (presetData as any).costInDstToken || '0';
+  const feeDec = feeTokenInfo.decimals;
+  const feeValue = parseFloat(ethers.formatUnits(feeRaw, feeDec));
+  const feeTokenPrice = parseFloat(feeTokenInfo.price || '0');
+  
+  const feeFormatted = feeValue >= 0.0001 ? feeValue.toFixed(4) : feeValue.toFixed(6);
+  
+  const feeUsd = feeTokenPrice > 0 ? (feeValue * feeTokenPrice) : 0;
+  const feeUsdFormatted = feeUsd > 0
+    ? ` (~$${feeUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
+    : '';
+    
+  const formattedFeeDisplay = `${feeFormatted} ${feeTokenInfo.symbol}${feeUsdFormatted}`;
 
 
   const totalTime = presetData.startAuctionIn + presetData.auctionDuration;
@@ -126,7 +174,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
     },
     {
       label: 'Protocol fee',
-      value: `${tokenFee} ${buyAsset?.symbol}`,
+      value: formattedFeeDisplay,
     },
     {
       label: 'Min received',
@@ -136,8 +184,8 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
     {
       label: 'Price impact',
       value: (
-        <span className={`font-bold text-sm ${quote.priceImpactPercent > 2 ? 'text-orange-400' : 'text-primary'}`}>
-          {quote.priceImpactPercent.toFixed(2)}%
+        <span className={`font-bold text-sm ${((quote as any).priceImpactPercent ?? parseFloat((quote as any).priceImpact || '0')) > 2 ? 'text-orange-400' : 'text-primary'}`}>
+          {((quote as any).priceImpactPercent ?? parseFloat((quote as any).priceImpact || '0')).toFixed(2)}%
         </span>
       ),
     },
@@ -290,7 +338,14 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                       <div className="text-2xl font-black text-brand leading-none tracking-tight overflow-x-auto whitespace-nowrap scrollbar-hide max-w-full">
                         {receiveAmount}
                       </div>
-                      <p className="text-sm text-brand/60 font-semibold mt-1">{buyAsset?.symbol}</p>
+                      <div className="flex justify-between items-center mt-1">
+                        <p className="text-sm text-brand/60 font-semibold">{buyAsset?.symbol}</p>
+                        {receiveValueUsd !== null && (
+                          <p className="text-xs text-brand/50 font-bold">
+                            ~${receiveValueUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        )}
+                      </div>
                     </div>
                     <img
                       src={buyAsset?.logoURI}

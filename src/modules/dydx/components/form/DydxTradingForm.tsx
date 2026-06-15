@@ -122,7 +122,7 @@ export const DydxTradingForm: React.FC = () => {
   const [leverage, setLeverage] = useState(() => {
     const marketKey = selectedMarket ? `dydx_leverage_${selectedMarket}` : 'dydx_leverage';
     const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
-    return saved ? parseFloat(saved) : 1.0;
+    return saved ? parseFloat(saved) : 5.0;
   });
   const [currencyMode, setCurrencyMode] = useState<CurrencyMode>('USD');
 
@@ -295,6 +295,8 @@ export const DydxTradingForm: React.FC = () => {
     if (saved) {
       const parsed = parseFloat(saved);
       if (!isNaN(parsed)) setLeverage(parsed);
+    } else {
+      setLeverage(Math.min(5.0, maxLeverage));
     }
   }, [selectedMarket]);
 

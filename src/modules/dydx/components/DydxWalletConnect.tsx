@@ -175,10 +175,8 @@ export const DydxWalletConnect: React.FC = () => {
       positions.forEach(ticker => {
         const marketKey = `dydx_leverage_${ticker}`;
         const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
-        if (saved) {
-          const parsed = parseFloat(saved);
-          if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
-        }
+        const parsed = saved ? parseFloat(saved) : 5.0;
+        if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
       });
     });
     return map;

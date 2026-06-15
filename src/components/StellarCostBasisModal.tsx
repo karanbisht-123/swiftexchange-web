@@ -28,7 +28,7 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       {/* Backdrop */}
-      <div 
+      <div
         className="fixed inset-0 bg-black/60 backdrop-blur-md animate-backdrop-fade-in"
         onClick={onClose}
       />
@@ -46,7 +46,7 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
               <p className="text-xs text-(--color-text-secondary) mt-0.5">Specify opening amounts and cost per unit for your Stellar assets held prior to this period.</p>
             </div>
           </div>
-          
+
           <button
             onClick={onClose}
             className="p-2 rounded-xl bg-(--color-bg-tertiary) hover:bg-(--color-border) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
@@ -93,7 +93,7 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                       const cpuVal = parseFloat(cpuValText) || 0;
                       const openCost = amtVal * cpuVal;
                       const currentPrice = pos.currentPrice ?? 0;
-                      
+
                       const unrealPnl = (amtValText !== '' && cpuValText !== '')
                         ? (pos.remaining * currentPrice) - openCost
                         : (pos.unrealized ?? 0);
@@ -117,11 +117,10 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                                 value={amtValText}
                                 onChange={(e) => handleCostBasisChange(pos.asset, 'openingAmount', e.target.value)}
                                 placeholder="0.00"
-                                className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200 ${
-                                  isAutoAmount 
-                                    ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/10' 
+                                className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200 ${isAutoAmount
+                                    ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/10'
                                     : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
-                                }`}
+                                  }`}
                                 title={isAutoAmount ? 'Auto-filled from backend history. Edit to customize.' : 'Custom value'}
                               />
                             </div>
@@ -133,11 +132,10 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                                 value={cpuValText}
                                 onChange={(e) => handleCostBasisChange(pos.asset, 'costPerUnit', e.target.value)}
                                 placeholder="0.00"
-                                className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200 ${
-                                  isAutoPrice 
-                                    ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/10' 
+                                className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border focus:ring-2 focus:ring-brand-primary/10 outline-none transition-all duration-200 ${isAutoPrice
+                                    ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/10'
                                     : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
-                                }`}
+                                  }`}
                                 title={isAutoPrice ? 'Auto-filled from backend history. Edit to customize.' : 'Custom value'}
                               />
                             </div>
@@ -169,7 +167,7 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                   const cpuVal = parseFloat(cpuValText) || 0;
                   const openCost = amtVal * cpuVal;
                   const currentPrice = pos.currentPrice ?? 0;
-                  
+
                   const unrealPnl = (amtValText !== '' && cpuValText !== '')
                     ? (pos.remaining * currentPrice) - openCost
                     : (pos.unrealized ?? 0);
@@ -213,11 +211,10 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                             value={amtValText}
                             onChange={(e) => handleCostBasisChange(pos.asset, 'openingAmount', e.target.value)}
                             placeholder="0.00"
-                            className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border outline-none transition-all duration-200 ${
-                              isAutoAmount 
-                                ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400' 
+                            className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border outline-none transition-all duration-200 ${isAutoAmount
+                                ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400'
                                 : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
-                            }`}
+                              }`}
                           />
                         </div>
                         <div className="space-y-1">
@@ -227,11 +224,10 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
                             value={cpuValText}
                             onChange={(e) => handleCostBasisChange(pos.asset, 'costPerUnit', e.target.value)}
                             placeholder="0.00"
-                            className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border outline-none transition-all duration-200 ${
-                              isAutoPrice 
-                                ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400' 
+                            className={`w-full text-center font-semibold font-mono text-xs px-2.5 py-1.5 rounded-lg border outline-none transition-all duration-200 ${isAutoPrice
+                                ? 'border-dashed border-purple-500/30 bg-purple-500/5 text-purple-400'
                                 : 'border-(--color-border) bg-(--color-bg-tertiary)/40 hover:bg-(--color-bg-tertiary)/75 focus:bg-secondary focus:border-brand-primary'
-                            }`}
+                              }`}
                           />
                         </div>
                       </div>
@@ -291,7 +287,7 @@ export const StellarCostBasisModal: React.FC<StellarCostBasisModalProps> = ({
 
             <button
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl bg-brand-primary hover:bg-brand-primary-hover text-white font-bold text-xs shadow-md hover:shadow-lg transition-all active:scale-95 w-full sm:w-auto"
+              className="px-5 py-2.5 rounded-xl bg-brand-primary hover:bg-brand-primary-hover text font-bold text-xs shadow-md hover:shadow-lg transition-all active:scale-95 w-full sm:w-auto"
             >
               Save & Close
             </button>

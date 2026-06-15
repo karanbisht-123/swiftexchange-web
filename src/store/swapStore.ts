@@ -20,7 +20,7 @@ export interface SwapState {
   pendingTxFromChainId: number | string | null;
 
   // Bridge-specific pending sign state — separate namespace, no conflict with swap
-  bridgePendingSignPhase: 'idle' | 'signing_swap' | 'signing_bridge' | 'signing_deposit';
+  bridgePendingSignPhase: 'idle' | 'signing_swap' | 'signing_bridge' | 'signing_deposit' | 'signing_bridge_approve' | 'signing_bridge_send' | 'signing_deposit_approve' | 'signing_deposit_confirm';
   bridgePendingSignSessionId: string | null;
 
   setFromChainId: (id: number | string) => void;

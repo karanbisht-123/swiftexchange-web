@@ -97,7 +97,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   }
 
   const explorerLinkUrl = isAllbridge
-    ? `http://core.allbridge.io/explorer/transfer/${transaction.hash}`
+    ? `https://core.allbridge.io/explorer?search=${transaction.hash}`
     : getExplorerUrl(chainId, 'tx', displayHash);
   const timestamp = isLocal
     ? (transaction as LocalTransactionWithStatus).timestamp

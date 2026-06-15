@@ -65,16 +65,48 @@ export const resetAllbridgeSdk = (): void => {
   sdkInstance = null;
 };
 
+const mapChainSymbolToAllbridge = (symbol: string): ChainSymbol | string => {
+  if (symbol === 'BASE') return ChainSymbol.BAS;
+  if (symbol === 'BNB') return ChainSymbol.BSC;
+  if (symbol === 'AVAX') return ChainSymbol.AVA;
+  return symbol;
+};
+
+const mapChainSymbolFromAllbridge = (symbol: string): string => {
+  if (symbol === ChainSymbol.BAS) return 'BASE';
+  if (symbol === ChainSymbol.BSC) return 'BNB';
+  if (symbol === ChainSymbol.AVA) return 'AVAX';
+  return symbol;
+};
+
+const mapTokenToAllbridge = (token: any): any => {
+  if (!token) return token;
+  const mappedSymbol = mapChainSymbolToAllbridge(token.chainSymbol);
+  if (mappedSymbol !== token.chainSymbol) {
+    return { ...token, chainSymbol: mappedSymbol };
+  }
+  return token;
+};
 
 export const getSupportedTokens = async (): Promise<any[]> => {
   console.log('[Allbridge] Fetching supported tokens...');
   const tokens = await getAllbridgeSdk().tokens();
-  console.log('[Allbridge] Supported tokens received', {
-    totalCount: tokens.length,
-    chains: [...new Set(tokens.map((t: any) => t.chainSymbol))],
-    stellarTokens: tokens.filter((t: any) => t.chainSymbol === ChainSymbol.SRB),
+  
+  // Map internal Allbridge symbols to unified frontend chain symbols
+  const mappedTokens = tokens.map((t: any) => {
+    const mappedSymbol = mapChainSymbolFromAllbridge(t.chainSymbol);
+    if (mappedSymbol !== t.chainSymbol) {
+      return { ...t, chainSymbol: mappedSymbol };
+    }
+    return t;
   });
-  return tokens;
+
+  console.log('[Allbridge] Supported tokens received', {
+    totalCount: mappedTokens.length,
+    chains: [...new Set(mappedTokens.map((t: any) => t.chainSymbol))],
+    stellarTokens: mappedTokens.filter((t: any) => t.chainSymbol === ChainSymbol.SRB),
+  });
+  return mappedTokens;
 };
 
 export const getStellarUsdcBalance = async (
@@ -129,16 +161,19 @@ export const getFeeOptions = async (
   destinationToken: any,
   messenger: Messenger = Messenger.ALLBRIDGE
 ): Promise<FeeOptions> => {
+  const mappedSourceToken = mapTokenToAllbridge(sourceToken);
+  const mappedDestinationToken = mapTokenToAllbridge(destinationToken);
+
   console.log('[Allbridge] Fetching gas fee options', {
-    sourceChain: sourceToken?.chainSymbol,
-    sourceSymbol: sourceToken?.symbol,
-    destinationChain: destinationToken?.chainSymbol,
-    destinationSymbol: destinationToken?.symbol,
+    sourceChain: mappedSourceToken?.chainSymbol,
+    sourceSymbol: mappedSourceToken?.symbol,
+    destinationChain: mappedDestinationToken?.chainSymbol,
+    destinationSymbol: mappedDestinationToken?.symbol,
     messenger,
   });
 
   try {
-    const result = await getAllbridgeSdk().getGasFeeOptions(sourceToken, destinationToken, messenger);
+    const result = await getAllbridgeSdk().getGasFeeOptions(mappedSourceToken, mappedDestinationToken, messenger);
     const r = result as any;
     const native: { int: string; float: string } = r?.native ?? { int: '0', float: '0' };
     const stablecoin: { int: string; float: string } | null = r?.stablecoin ?? null;
@@ -161,14 +196,17 @@ export const getTransferTimeMs = (
   destinationToken: any,
   messenger: Messenger = Messenger.ALLBRIDGE
 ): number => {
+  const mappedSourceToken = mapTokenToAllbridge(sourceToken);
+  const mappedDestinationToken = mapTokenToAllbridge(destinationToken);
+
   console.log('[Allbridge] Getting average transfer time', {
-    sourceChain: sourceToken?.chainSymbol,
-    destinationChain: destinationToken?.chainSymbol,
+    sourceChain: mappedSourceToken?.chainSymbol,
+    destinationChain: mappedDestinationToken?.chainSymbol,
     messenger,
   });
 
   try {
-    const ms = (getAllbridgeSdk() as any).getAverageTransferTime(sourceToken, destinationToken, messenger);
+    const ms = (getAllbridgeSdk() as any).getAverageTransferTime(mappedSourceToken, mappedDestinationToken, messenger);
     console.log('[Allbridge] Transfer time result', {
       ms,
       seconds: ms ? Math.round(ms / 1_000) : null,
@@ -208,24 +246,27 @@ export const getBridgeQuote = async ({
   destinationToken,
   messenger = Messenger.ALLBRIDGE,
 }: QuoteRequest): Promise<QuoteResult> => {
+  const mappedSourceToken = mapTokenToAllbridge(sourceToken);
+  const mappedDestinationToken = mapTokenToAllbridge(destinationToken);
+
   console.log('[Allbridge] Fetching bridge quote', {
     amount,
-    sourceChain: sourceToken?.chainSymbol,
-    sourceToken: sourceToken?.symbol,
-    destinationChain: destinationToken?.chainSymbol,
-    destinationToken: destinationToken?.symbol,
+    sourceChain: mappedSourceToken?.chainSymbol,
+    sourceToken: mappedSourceToken?.symbol,
+    destinationChain: mappedDestinationToken?.chainSymbol,
+    destinationToken: mappedDestinationToken?.symbol,
     messenger,
   });
 
   const sdk = getAllbridgeSdk();
-  const transferTimeMs = getTransferTimeMs(sourceToken, destinationToken, messenger);
+  const transferTimeMs = getTransferTimeMs(mappedSourceToken, mappedDestinationToken, messenger);
 
   const [amountToBeReceived, feeOptions] = await Promise.all([
     sdk
-      .getAmountToBeReceived(amount, sourceToken, destinationToken)
+      .getAmountToBeReceived(amount, mappedSourceToken, mappedDestinationToken)
       .then((res) => { console.log('[Allbridge] getAmountToBeReceived success:', res); return res; })
       .catch((err) => { console.error('[Allbridge] getAmountToBeReceived failed:', err); throw err; }),
-    getFeeOptions(sourceToken, destinationToken, messenger),
+    getFeeOptions(mappedSourceToken, mappedDestinationToken, messenger),
   ]);
 
   const inputNum = parseFloat(amount);
@@ -280,13 +321,16 @@ export const prepareStellarToEvmRawTransaction = async ({
   messenger = Messenger.ALLBRIDGE,
   feePaymentMethod = FeePaymentMethod.WITH_NATIVE_CURRENCY,
 }: PrepareTransferRequest): Promise<string> => {
+  const mappedSourceToken = mapTokenToAllbridge(sourceToken);
+  const mappedDestinationToken = mapTokenToAllbridge(destinationToken);
+
   console.log('[Allbridge] Building raw Stellar XDR transaction', {
     amount,
     fromAccountAddress,
     toAccountAddress,
     network,
-    sourceChain: sourceToken?.chainSymbol,
-    destinationChain: destinationToken?.chainSymbol,
+    sourceChain: mappedSourceToken?.chainSymbol,
+    destinationChain: mappedDestinationToken?.chainSymbol,
     messenger,
     feePaymentMethod,
   });
@@ -295,8 +339,8 @@ export const prepareStellarToEvmRawTransaction = async ({
     amount,
     fromAccountAddress,
     toAccountAddress,
-    sourceToken,
-    destinationToken,
+    sourceToken: mappedSourceToken,
+    destinationToken: mappedDestinationToken,
     messenger,
     gasFeePaymentMethod: feePaymentMethod,
   })) as string;

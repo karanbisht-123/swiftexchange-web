@@ -443,8 +443,8 @@ function computePositionMetrics(
       const raw =
         localStorage.getItem(`dydx_leverage_${position.market}`) ??
         localStorage.getItem('dydx_leverage');
-      const parsed = raw ? parseFloat(raw) : 0;
-      return parsed > 0 ? parsed : 0;
+      const parsed = raw ? parseFloat(raw) : 5.0;
+      return parsed > 0 ? parsed : 5.0;
     })();
     leverage = Math.min(
       apiLeverage > 0 ? apiLeverage : storedLeverage > 0 ? storedLeverage : maxLeverage,
