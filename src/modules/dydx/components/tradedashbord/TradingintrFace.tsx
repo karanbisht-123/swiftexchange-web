@@ -121,7 +121,7 @@ const TradingintrFace = () => {
                 </ResizablePanelHorizontal>
               </div>
 
-              <ResizablePanel defaultHeight={40} minHeight={20} maxHeight={70}>
+              <ResizablePanel defaultHeight={32} minHeight={15} maxHeight={60}>
                 <BottomTabsSection
                   activeBottomTab={activeBottomTab}
                   setActiveBottomTab={setActiveBottomTab}
@@ -275,17 +275,27 @@ const PortfolioView = ({
 
       <div className="flex-1 overflow-auto relative">
         <Suspense fallback={<LoadingFallback />}>
-          {activeTab === 'wallet' && (
-            <div className="p-4">
-              <DydxWalletConnect />
-            </div>
-          )}
-          {activeTab === 'positions' && <PositionsPanel />}
-          {activeTab === 'orders' && <OpenOrdersPanel />}
-          {activeTab === 'fills' && <FillsPanel />}
-          {activeTab === 'history' && <OrderHistoryPanel />}
-          {activeTab === 'funding' && <FundingPaymentsPanel />}
-          {activeTab === 'transfers' && <TransferHistoryPanel />}
+          <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
+            <DydxWalletConnect />
+          </div>
+          <div style={{ display: activeTab === 'positions' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <PositionsPanel />
+          </div>
+          <div style={{ display: activeTab === 'orders' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <OpenOrdersPanel />
+          </div>
+          <div style={{ display: activeTab === 'fills' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <FillsPanel />
+          </div>
+          <div style={{ display: activeTab === 'history' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <OrderHistoryPanel />
+          </div>
+          <div style={{ display: activeTab === 'funding' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <FundingPaymentsPanel />
+          </div>
+          <div style={{ display: activeTab === 'transfers' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <TransferHistoryPanel />
+          </div>
         </Suspense>
       </div>
     </div>
@@ -542,16 +552,24 @@ const MobilePortfolio = () => {
 
       <div className="flex-1 overflow-auto relative">
         <Suspense fallback={<LoadingFallback />}>
-          {activeTab === 'wallet' && (
-            <div className="p-4">
-              <DydxWalletConnect />
-            </div>
-          )}
-          {activeTab === 'positions' && <PositionsPanel />}
-          {activeTab === 'orders' && <OpenOrdersPanel />}
-          {activeTab === 'fills' && <FillsPanel />}
-          {activeTab === 'history' && <OrderHistoryPanel />}
-          {activeTab === 'funding' && <FundingPaymentsPanel />}
+          <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
+            <DydxWalletConnect />
+          </div>
+          <div style={{ display: activeTab === 'positions' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <PositionsPanel />
+          </div>
+          <div style={{ display: activeTab === 'orders' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <OpenOrdersPanel />
+          </div>
+          <div style={{ display: activeTab === 'fills' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <FillsPanel />
+          </div>
+          <div style={{ display: activeTab === 'history' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <OrderHistoryPanel />
+          </div>
+          <div style={{ display: activeTab === 'funding' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <FundingPaymentsPanel />
+          </div>
         </Suspense>
       </div>
     </div>
@@ -676,12 +694,24 @@ const BottomTabsSection = ({
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0 pb-6 relative">
         <Suspense fallback={<LoadingFallback />}>
-          {activeBottomTab === 'positions' && <PositionsPanel />}
-          {activeBottomTab === 'orders' && <OpenOrdersPanel />}
-          {activeBottomTab === 'fills' && <FillsPanel />}
-          {activeBottomTab === 'history' && <OrderHistoryPanel />}
-          {activeBottomTab === 'funding' && <FundingPaymentsPanel />}
-          {activeBottomTab === 'transfer' && <TransferHistoryPanel />}
+          <div style={{ display: activeBottomTab === 'positions' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <PositionsPanel />
+          </div>
+          <div style={{ display: activeBottomTab === 'orders' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <OpenOrdersPanel />
+          </div>
+          <div style={{ display: activeBottomTab === 'fills' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <FillsPanel />
+          </div>
+          <div style={{ display: activeBottomTab === 'history' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <OrderHistoryPanel />
+          </div>
+          <div style={{ display: activeBottomTab === 'funding' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <FundingPaymentsPanel />
+          </div>
+          <div style={{ display: activeBottomTab === 'transfer' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
+            <TransferHistoryPanel />
+          </div>
         </Suspense>
       </div>
     </>

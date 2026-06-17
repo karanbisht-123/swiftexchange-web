@@ -17,7 +17,11 @@ const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
   const { fills: storeFills, isConnected } = useDydxData();
-  const [allFills, setAllFills] = useState<Fill[]>([]);
+
+  const cached = dydxDataService.getCachedFills(undefined, undefined);
+  const [allFills, setAllFills] = useState<Fill[]>(
+    cached ? cached.map(normalizeFill) : []
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingFills, setLoadingFills] = useState(false);
   const [fillsError, setFillsError] = useState<string | null>(null);
@@ -41,10 +45,13 @@ const FillsPanel: React.FC = () => {
 
     let isMounted = true;
     const fetchInitial = async () => {
-      setLoadingFills(true);
+      const hasCache = dydxDataService.getCachedFills(undefined, undefined);
+      if (!hasCache) {
+        setLoadingFills(true);
+      }
       setFillsError(null);
       try {
-        const initialFills = await dydxDataService.getFills(undefined, undefined, false);
+        const initialFills = await dydxDataService.getFills(undefined, undefined, true);
         if (isMounted) {
           setAllFills(initialFills.map(normalizeFill));
           initialLoadDoneRef.current = true;
@@ -61,6 +68,17 @@ const FillsPanel: React.FC = () => {
       isMounted = false;
     };
   }, [isConnected]);
+
+  useEffect(() => {
+    const cacheKey = `fills_all_default`;
+    const unsubscribe = dydxDataService.subscribe((key, data) => {
+      if (key === cacheKey) {
+        setAllFills(data.map(normalizeFill));
+        initialLoadDoneRef.current = true;
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (storeFills.length === 0) return;

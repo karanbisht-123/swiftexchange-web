@@ -240,6 +240,7 @@ function recomputeChildEquity(child: ChildSubaccount): void {
 
 interface WebSocketState {
   isConnected: boolean;
+  connectionStatus: 'connecting' | 'connected' | 'disconnected';
   connectionId: string | null;
   updateTrigger: number;
 
@@ -532,6 +533,7 @@ function recomputeParentFromChildren(
 export const useWebSocketStore = create<WebSocketState>()(
   subscribeWithSelector((set, get) => ({
     isConnected: false,
+    connectionStatus: 'disconnected' as const,
     connectionId: null,
     updateTrigger: 0,
     optimisticFreeCollateralDelta: 0,
@@ -1210,6 +1212,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         unsubTimers: new Map(),
         updateTrigger: 0,
         optimisticFreeCollateralDelta: 0,
+        connectionStatus: 'disconnected',
       });
     },
   }))
@@ -1217,8 +1220,8 @@ export const useWebSocketStore = create<WebSocketState>()(
 
 
 
-webSocketManager.onConnect(() => useWebSocketStore.setState({ isConnected: true }));
-webSocketManager.onDisconnect(() => useWebSocketStore.setState({ isConnected: false }));
+webSocketManager.onConnect(() => useWebSocketStore.setState({ isConnected: true, connectionStatus: 'connected' }));
+webSocketManager.onDisconnect(() => useWebSocketStore.setState({ isConnected: false, connectionStatus: 'disconnected' }));
 
 
 

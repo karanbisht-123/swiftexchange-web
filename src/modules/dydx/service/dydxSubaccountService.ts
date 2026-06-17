@@ -5,7 +5,55 @@ import { walletService } from '../../walletconnect/services/walletService';
 import { type MarginMode, SUBACCOUNT_CONSTANTS, type TransferResult } from '../types/trading.types';
 import { dydxWalletService } from './dydxWalletService';
 
+interface SubaccountBalanceCache {
+  equity: number;
+  availableBalance: number;
+  marginUsed: number;
+  timestamp: number;
+}
+
+const BALANCE_CACHE_TTL = 10_000;
+let subaccountBalanceCache: SubaccountBalanceCache | null = null;
+
 class DydxSubaccountService {
+  async fetchSubaccountBalance(address: string, subaccountNumber: number): Promise<SubaccountBalanceCache> {
+    const now = Date.now();
+    if (subaccountBalanceCache && now - subaccountBalanceCache.timestamp < BALANCE_CACHE_TTL) {
+      return subaccountBalanceCache;
+    }
+
+    const indexerClient = dydxWalletService.getIndexerClient();
+
+    const [equityResult, freeCollateralResult, marginResult] = await Promise.all([
+      indexerClient.account.getSubaccount(address, subaccountNumber)
+        .then(r => parseFloat(r.subaccount?.equity || '0'))
+        .catch(() => 0),
+      indexerClient.account.getSubaccount(address, subaccountNumber)
+        .then(r => parseFloat(r.subaccount?.freeCollateral || '0'))
+        .catch(() => 0),
+      indexerClient.account.getSubaccount(address, subaccountNumber)
+        .then(r => {
+          const equity = parseFloat(r.subaccount?.equity || '0');
+          const free = parseFloat(r.subaccount?.freeCollateral || '0');
+          return Math.max(0, equity - free);
+        })
+        .catch(() => 0),
+    ]);
+
+    subaccountBalanceCache = {
+      equity: equityResult,
+      availableBalance: freeCollateralResult,
+      marginUsed: marginResult,
+      timestamp: now,
+    };
+
+    return subaccountBalanceCache;
+  }
+
+  invalidateBalanceCache(): void {
+    subaccountBalanceCache = null;
+  }
+
   async transfer(
     fromSubaccount: number,
     toSubaccount: number,

@@ -55,6 +55,8 @@ export const DydxWalletConnect: React.FC = () => {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [lastAttemptedQuantums, setLastAttemptedQuantums] = useState<string | null>(null);
+  const [stableNoFunds, setStableNoFunds] = useState(false);
+  const noFundsTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { isConnected, address, balance, dataLoaded, error } = useDydxWallet();
   const { checkPendingDeposit, pendingDydxQuantums, recoverDeposit, notification, clearNotification, MIN_SUBACCOUNT_DEPOSIT_UUSDC } = useDydxDeposit();
@@ -213,13 +215,40 @@ export const DydxWalletConnect: React.FC = () => {
     Number(balance.totalEquity) === 0 &&
     Number(balance.crossEquity) === 0;
 
-  const showNoFunds =
+  const noFundsCandidate =
     dataLoaded &&
     !connectionError &&
     !!hasEvmWallet &&
     !needsDydxDerivation &&
     !isConnecting &&
     (isSubaccountNotFound || hasZeroBalance);
+
+  useEffect(() => {
+    if (noFundsCandidate) {
+      if (noFundsTimerRef.current === null) {
+        noFundsTimerRef.current = setTimeout(() => {
+          noFundsTimerRef.current = null;
+          setStableNoFunds(true);
+        }, 3000);
+      }
+    } else {
+      if (noFundsTimerRef.current !== null) {
+        clearTimeout(noFundsTimerRef.current);
+        noFundsTimerRef.current = null;
+      }
+      setStableNoFunds(false);
+    }
+  }, [noFundsCandidate]);
+
+  useEffect(() => {
+    return () => {
+      if (noFundsTimerRef.current !== null) {
+        clearTimeout(noFundsTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showNoFunds = stableNoFunds;
 
 
   if (showNoFunds) {

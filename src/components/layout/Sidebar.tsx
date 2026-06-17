@@ -1,5 +1,6 @@
 import {
   Infinity as InfinityIcon,
+  ArrowRightLeft,
   BarChart2,
   CandlestickChart,
   History,
@@ -9,16 +10,16 @@ import {
   QrCode,
   Repeat2,
   SendHorizontal,
+  User,
   X,
-  ArrowRightLeft,
-  User
 } from 'lucide-react';
 import type { FC, JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useGeolocationGuard } from '../../modules/commonfeature/hook/useGeolocationGuard';
-import { RESTRICTED_TRADING_LOCATIONS } from '../../modules/commonfeature/constants/compliance';
+
 import { ROUTES } from '../../constants/routes';
+import { RESTRICTED_TRADING_LOCATIONS } from '../../modules/commonfeature/constants/compliance';
+import { useGeolocationGuard } from '../../modules/commonfeature/hook/useGeolocationGuard';
 
 interface NavItem {
   href: string;
@@ -96,7 +97,7 @@ const Sidebar: FC = () => {
     },
     {
       href: ROUTES.BRIDGE,
-      label: 'SDEX Bridge',
+      label: 'DYDX-SDEX Bridge',
       icon: <ArrowRightLeft className="w-5 h-5" />,
     },
     {
@@ -147,8 +148,9 @@ const Sidebar: FC = () => {
       <button
         id="hamburger-btn"
         onClick={() => setIsOpen(!isOpen)}
-        className={`lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl transition-all duration-300 shadow-lg ${isOpen ? 'bg-secondary text-primary translate-x-[72px]' : 'bg-secondary text'
-          }`}
+        className={`lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl transition-all duration-300 shadow-lg ${
+          isOpen ? 'bg-secondary text-primary translate-x-[72px]' : 'bg-secondary text'
+        }`}
       >
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
@@ -190,13 +192,18 @@ const Sidebar: FC = () => {
                     ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale' : ''}
                   `}
                   style={{
-                    backgroundColor: isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
+                    backgroundColor:
+                      isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
                     transform: isActive ? 'scale(1.02)' : 'scale(1)',
                   }}
-                  title={item.isRestricted ? `${item.label} (Restricted in your region)` : item.label}
+                  title={
+                    item.isRestricted ? `${item.label} (Restricted in your region)` : item.label
+                  }
                 >
                   <span className="flex-shrink-0 mb-1">
-                    {item.isRestricted ? <X className="w-4 h-4 absolute top-2 right-2 text-red-500" /> : null}
+                    {item.isRestricted ? (
+                      <X className="w-4 h-4 absolute top-2 right-2 text-red-500" />
+                    ) : null}
                     {item.icon}
                   </span>
                   <span className="text-[10px] leading-tight font-medium text-center">
@@ -215,13 +222,18 @@ const Sidebar: FC = () => {
                     ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale pointer-events-none' : ''}
                   `}
                   style={{
-                    backgroundColor: isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
+                    backgroundColor:
+                      isActive && !item.isRestricted ? 'var(--color-brand-primary)' : 'transparent',
                     transform: isActive ? 'scale(1.02)' : 'scale(1)',
                   }}
-                  title={item.isRestricted ? `${item.label} (Restricted in your region)` : item.label}
+                  title={
+                    item.isRestricted ? `${item.label} (Restricted in your region)` : item.label
+                  }
                 >
                   <span className="shrink-0 mb-1">
-                    {item.isRestricted ? <X className="w-4 h-4 absolute top-2 right-2 text-red-500" /> : null}
+                    {item.isRestricted ? (
+                      <X className="w-4 h-4 absolute top-2 right-2 text-red-500" />
+                    ) : null}
                     {item.icon}
                   </span>
                   <span className="text-[10px] leading-tight font-medium text-center">

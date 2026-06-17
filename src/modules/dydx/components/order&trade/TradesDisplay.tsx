@@ -41,6 +41,24 @@ const TradeRow = memo(function TradeRow({ trade, depthPct, formatPrice, formatSi
   );
 }, (p, n) => p.trade.id === n.trade.id && p.depthPct === n.depthPct);
 
+const SkeletonTradeRow = memo(function SkeletonTradeRow({ index }: { index: number }) {
+  const widths = [
+    ['w-[45%]', 'w-[60%]', 'w-[52%]'],
+    ['w-[38%]', 'w-[55%]', 'w-[48%]'],
+    ['w-[52%]', 'w-[65%]', 'w-[44%]'],
+    ['w-[42%]', 'w-[58%]', 'w-[56%]'],
+  ];
+  const [w1, w2, w3] = widths[index % widths.length];
+  const isBuy = index % 3 !== 0;
+  return (
+    <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 relative overflow-hidden">
+      <div className={`skeleton-shimmer rounded h-[13px] ${w1} ${isBuy ? 'bg-success/15' : 'bg-danger/15'}`} />
+      <div className={`skeleton-shimmer rounded h-[13px] ${w2} bg-primary/10 mx-auto`} />
+      <div className={`skeleton-shimmer rounded h-[13px] ${w3} bg-primary/8 ml-auto`} />
+    </div>
+  );
+});
+
 export default function TradesDisplay() {
   const { selectedMarket } = useMarketStore();
   const { trades, isLoading, isConnected } = useTrades(selectedMarket, 50);
@@ -55,6 +73,8 @@ export default function TradesDisplay() {
   const formatTime = useCallback((t: string) => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }), []);
 
   const [baseCurrency, quoteCurrency] = selectedMarket.split('-');
+
+  const showSkeleton = isLoading && trades.length === 0;
 
   return (
     <div className="w-full h-full flex flex-col bg-secondary text-primary font-medium text-sm select-none">
@@ -74,22 +94,34 @@ export default function TradesDisplay() {
         <div className="text-right">Time</div>
       </div>
 
-      {isLoading && trades.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-2">
-          <div className="animate-spin rounded-full h-6 w-6 border-2 border-success border-t-transparent" />
-          <span className="text-muted text-sm">Loading...</span>
-        </div>
-      ) : (
-        <div className="relative flex-1 overflow-auto hide-scrollbar">
-          {trades.map(t => (
-            <TradeRow key={t.id} trade={t} depthPct={maxTradeSize > 0 ? (parseFloat(t.size) || 0) / maxTradeSize : 0} formatPrice={formatPrice} formatSize={formatSize} formatTime={formatTime} />
-          ))}
-        </div>
-      )}
+      <div className="relative flex-1 overflow-auto hide-scrollbar">
+        {showSkeleton
+          ? Array.from({ length: 20 }).map((_, i) => <SkeletonTradeRow key={i} index={i} />)
+          : trades.map(t => (
+            <TradeRow
+              key={t.id}
+              trade={t}
+              depthPct={maxTradeSize > 0 ? (parseFloat(t.size) || 0) / maxTradeSize : 0}
+              formatPrice={formatPrice}
+              formatSize={formatSize}
+              formatTime={formatTime}
+            />
+          ))
+        }
+      </div>
 
       <style>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { scrollbar-width: none; }
+
+        @keyframes shimmer {
+          0%   { opacity: 0.35; }
+          50%  { opacity: 0.85; }
+          100% { opacity: 0.35; }
+        }
+        .skeleton-shimmer {
+          animation: shimmer 1.4s ease-in-out infinite;
+        }
 
         @keyframes trade-enter {
           from {

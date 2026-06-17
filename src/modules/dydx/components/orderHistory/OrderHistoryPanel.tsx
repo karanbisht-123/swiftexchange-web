@@ -21,7 +21,10 @@ const ITEMS_PER_PAGE = 10;
 const OrderHistoryPanel: React.FC = () => {
   const { orders: storeOrders, isConnected } = useDydxData();
 
-  const [allOrders, setAllOrders] = useState<AnyOrder[]>([]);
+  const cached = dydxDataService.getCachedOrders(undefined, undefined, true);
+  const [allOrders, setAllOrders] = useState<AnyOrder[]>(
+    cached ? (cached.map(normalizeOrder) as AnyOrder[]) : []
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
@@ -51,10 +54,13 @@ const OrderHistoryPanel: React.FC = () => {
 
     let isMounted = true;
     const fetchInitial = async () => {
-      setLoadingOrders(true);
+      const hasCache = dydxDataService.getCachedOrders(undefined, undefined, true);
+      if (!hasCache) {
+        setLoadingOrders(true);
+      }
       setOrdersError(null);
       try {
-        const initialOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
+        const initialOrders = await dydxDataService.getOrders(undefined, undefined, true, true);
         if (isMounted) {
           setAllOrders(initialOrders.map(normalizeOrder) as AnyOrder[]);
           initialLoadDoneRef.current = true;
@@ -69,6 +75,17 @@ const OrderHistoryPanel: React.FC = () => {
 
     return () => { isMounted = false; };
   }, [isConnected]);
+
+  useEffect(() => {
+    const cacheKey = `orders_all_default_true`;
+    const unsubscribe = dydxDataService.subscribe((key, data) => {
+      if (key === cacheKey) {
+        setAllOrders(data.map(normalizeOrder) as AnyOrder[]);
+        initialLoadDoneRef.current = true;
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (storeOrders.length === 0) return;

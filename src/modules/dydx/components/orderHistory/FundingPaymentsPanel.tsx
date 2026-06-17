@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type FundingPayment, dydxDataService } from '../../service/dydxOrderService';
@@ -9,59 +10,108 @@ import { Pagination } from '../shared/Pagination';
 import { SideBadge } from '../shared/SideBadge';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 5;
 
 const FundingPaymentsPanel: React.FC = () => {
   const { isConnected } = useDydxData();
 
-  const [payments, setPayments] = useState<FundingPayment[]>([]);
-  const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
+  const getInitialState = () => {
+    const cached = dydxDataService.getCachedFundingPayments(undefined, ITEMS_PER_PAGE, 1);
+    return {
+      payments: cached?.fundingPayments ?? [],
+      totalItems: cached?.totalResults ?? 0,
+    };
+  };
 
-  const loadData = useCallback(
-    async (page: number) => {
+  const [payments, setPayments] = useState<FundingPayment[]>(() => getInitialState().payments);
+  const [totalItems, setTotalItems] = useState<number>(() => getInitialState().totalItems);
+  const [initialLoading, setInitialLoading] = useState(payments.length === 0);
+  const [backgroundFetching, setBackgroundFetching] = useState(false);
+
+  const initialLoadDoneRef = useRef(false);
+
+  const loadPage = useCallback(
+    async (page: number, showInitialLoader: boolean) => {
       if (!isConnected) return;
-      setLoading(true);
+      const cached = dydxDataService.getCachedFundingPayments(undefined, ITEMS_PER_PAGE, page);
+      if (cached) {
+        setPayments(cached.fundingPayments);
+        setTotalItems(cached.totalResults);
+      } else if (showInitialLoader) {
+        setInitialLoading(true);
+      }
+      const hasData = cached && cached.fundingPayments.length > 0;
+      if (hasData) {
+        setBackgroundFetching(true);
+      }
+
       try {
         const response = await dydxDataService.getFundingPayments(undefined, ITEMS_PER_PAGE, page);
         setPayments(response.fundingPayments);
         setTotalItems(response.totalResults);
+        initialLoadDoneRef.current = true;
       } catch (error) {
         console.error('[FundingPaymentsPanel] Failed to load data:', error);
-        setPayments([]);
-        setTotalItems(0);
+        if (!hasData) {
+          setPayments([]);
+          setTotalItems(0);
+        }
       } finally {
-        setLoading(false);
+        setInitialLoading(false);
+        setBackgroundFetching(false);
       }
     },
     [isConnected]
   );
 
   useEffect(() => {
-    if (isConnected) {
-      loadData(currentPage);
-    } else {
+    if (!isConnected) {
       setPayments([]);
       setTotalItems(0);
+      setCurrentPage(1);
+      initialLoadDoneRef.current = false;
+      setInitialLoading(true);
+      return;
     }
-  }, [isConnected, currentPage, loadData]);
 
-  const handlePageChange = (page: number) => {
+    if (!initialLoadDoneRef.current) {
+      loadPage(1, true);
+    }
+  }, [isConnected, loadPage]);
+
+  useEffect(() => {
+    if (!isConnected || !initialLoadDoneRef.current) return;
+    loadPage(currentPage, false);
+  }, [currentPage]);
+
+  useEffect(() => {
+    const cacheKey = `funding_payments_all_${ITEMS_PER_PAGE}_${currentPage}`;
+    const unsubscribe = dydxDataService.subscribe((key, data) => {
+      if (key === cacheKey) {
+        setPayments(data.fundingPayments);
+        setTotalItems(data.totalResults);
+        setBackgroundFetching(false);
+      }
+    });
+    return unsubscribe;
+  }, [currentPage]);
+
+  const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page);
-  };
+  }, []);
 
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE) || 1;
+  const totalPages = Math.max(Math.ceil(totalItems / ITEMS_PER_PAGE), 1);
 
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view funding payments" />;
   }
 
-  if (loading && payments.length === 0) {
+  if (initialLoading && payments.length === 0) {
     return <LoadingState message="Loading funding payments..." />;
   }
 
-  if (!loading && payments.length === 0) {
+  if (!initialLoading && !backgroundFetching && payments.length === 0) {
     return (
       <EmptyState title="No Funding Payments" description="No funding payment history found" />
     );
@@ -136,7 +186,6 @@ const FundingPaymentsPanel: React.FC = () => {
       <div className="md:hidden flex-1 overflow-auto space-y-0.5">
         {payments.map((payment, index) => {
           const paymentVal = parseFloat(payment.payment);
-          // const rateVal = parseFloat(payment.rate);
           const side = payment.side as 'LONG' | 'SHORT';
           const displaySide = side === 'LONG' ? 'BUY' : 'SELL';
 
@@ -167,15 +216,22 @@ const FundingPaymentsPanel: React.FC = () => {
         })}
       </div>
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={handlePageChange}
-        loading={loading}
-        hasMore={currentPage < totalPages}
-        itemsPerPage={ITEMS_PER_PAGE}
-        totalItems={totalItems}
-      />
+      <div className="relative">
+        {backgroundFetching && (
+          <div className="absolute top-1/2 right-14 -translate-y-1/2 z-10">
+            <Loader2 size={12} className="animate-spin text-muted" />
+          </div>
+        )}
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+          loading={false}
+          hasMore={currentPage < totalPages}
+          itemsPerPage={ITEMS_PER_PAGE}
+          totalItems={totalItems}
+        />
+      </div>
     </div>
   );
 };
