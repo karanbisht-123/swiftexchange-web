@@ -56,15 +56,12 @@ const DepthChart: React.FC = () => {
   }, [orderbook]);
 
   useEffect(() => {
-    const updateSize = () => {
+    const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
         setCanvasSize({ width, height });
       }
-    };
-
-    updateSize();
-    const resizeObserver = new ResizeObserver(updateSize);
+    });
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
     }

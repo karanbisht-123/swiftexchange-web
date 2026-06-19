@@ -1,17 +1,11 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
-
 import type {
+  BuildFusionOrderRequest,
   SwapQuote,
   SwapQuoteRequest,
-  BuildFusionOrderRequest,
 } from '../../../types/evm/swap.types';
-
 import { getChainById } from '../utils/Chainregistry';
-
-import {
-  NATIVE_ADDRESS,
-  AGGREGATOR_NATIVE_ADDRESS,
-} from '../utils/assetmanagement/constants';
+import { AGGREGATOR_NATIVE_ADDRESS, NATIVE_ADDRESS } from '../utils/assetmanagement/constants';
 
 const isNativeAddress = (address: string | undefined | null): boolean => {
   if (!address) return true;
@@ -23,11 +17,7 @@ const isNativeAddress = (address: string | undefined | null): boolean => {
 const getChainSymbol = (chainId: number | string) => {
   const chain = getChainById(chainId);
 
-  const symbol = (
-    chain?.symbol ||
-    chain?.nativeCurrency.symbol ||
-    ''
-  ).toUpperCase();
+  const symbol = (chain?.symbol || chain?.nativeCurrency.symbol || '').toUpperCase();
 
   if (symbol === 'BNB') return 'BSC';
   return symbol;
@@ -103,39 +93,26 @@ export interface SubmitFusionOrderRequest {
   orderHash?: string;
 }
 
-
-
 // Get swap endpoint
-const getSwapEndpoint = (
-  action: 'quote' | 'prepare'
-) => {
-  return action === 'quote'
-    ? `/quoter/quote`
-    : `/quoter/swap`;
+const getSwapEndpoint = (action: 'quote' | 'prepare') => {
+  return action === 'quote' ? `/quoter/quote` : `/quoter/swap`;
 };
 
 // Build quote payload
-function buildQuotePayload(
-  request: SwapQuoteRequest,
-  chainId: any
-) {
-  const slippageValue = parseFloat(
-    request.slippage || '1'
-  );
+function buildQuotePayload(request: SwapQuoteRequest, chainId: any) {
+  const slippageValue = parseFloat(request.slippage || '1');
 
   return {
     ...request,
 
     tokenIn: {
       ...request.tokenIn,
-      chainId:
-        request.tokenIn.chainId || chainId,
+      chainId: request.tokenIn.chainId || chainId,
     },
 
     tokenOut: {
       ...request.tokenOut,
-      chainId:
-        request.tokenOut.chainId || chainId,
+      chainId: request.tokenOut.chainId || chainId,
     },
 
     recipient: request.recipient || '',
@@ -147,56 +124,41 @@ function buildQuotePayload(
 // Get swap quote
 export async function getSwapQuote(
   chainId: number | string,
-  request: SwapQuoteRequest
+  request: SwapQuoteRequest,
+  signal?: AbortSignal
 ): Promise<SwapQuote> {
   console.log(request, '-------------');
 
-  const payload = buildQuotePayload(
-    request,
-    chainId
+  const payload = buildQuotePayload(request, chainId);
+
+  const res = await fetchApiResponseFromProxy<any>(
+    getSwapEndpoint('quote'),
+    'POST',
+    payload,
+    undefined,
+    false,
+    signal
   );
 
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      getSwapEndpoint('quote'),
-      'POST',
-      payload
-    );
-
   if (!res.data || !res.data.success) {
-    throw new Error(
-      res.data?.message ||
-      'Failed to fetch swap quote'
-    );
+    throw new Error(res.data?.message || 'Failed to fetch swap quote');
   }
 
   const { provider, data } = res.data;
 
-
-
   // Handle normal swap response
   return {
-    inputAmount:
-      data.inputAmount || request.amount,
+    inputAmount: data.inputAmount || request.amount,
 
-    inputToken:
-      data.inputToken ||
-      request.tokenIn.symbol,
+    inputToken: data.inputToken || request.tokenIn.symbol,
 
-    outputAmount:
-      data.outputAmount || '0',
+    outputAmount: data.outputAmount || '0',
 
-    outputToken:
-      data.outputToken ||
-      request.tokenOut.symbol,
+    outputToken: data.outputToken || request.tokenOut.symbol,
 
-    pricePerToken:
-      data.pricePerToken || '0',
+    pricePerToken: data.pricePerToken || '0',
 
-    fee:
-      typeof data.fee === 'string'
-        ? parseInt(data.fee, 10)
-        : data.fee || 0,
+    fee: typeof data.fee === 'string' ? parseInt(data.fee, 10) : data.fee || 0,
 
     networkFee: data.networkFee || 0,
 
@@ -208,8 +170,7 @@ export async function getSwapQuote(
 
     provider: provider || 'UNISWAP',
 
-    minimumReceived:
-      data.minimumReceived || undefined,
+    minimumReceived: data.minimumReceived || undefined,
   };
 }
 
@@ -217,12 +178,7 @@ export async function getSwapQuote(
 export async function prepareSwapTransaction(
   request: SwapTransactionRequest
 ): Promise<SwapTransactionData[]> {
-  const {
-    quote,
-    senderAddress,
-    slippageTolerance,
-    ...rest
-  } = request;
+  const { quote, senderAddress, slippageTolerance, ...rest } = request;
 
   // Normalize native token address
   const normalizedTokenInAddress = isNativeAddress(request.tokenIn.address)
@@ -251,30 +207,18 @@ export async function prepareSwapTransaction(
 
     recipient: request.senderAddress,
 
-    chainId: getChainSymbol(
-      request.chainId
-    ),
+    chainId: getChainSymbol(request.chainId),
   };
 
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      getSwapEndpoint('prepare'),
-      'POST',
-      payload
-    );
+  const res = await fetchApiResponseFromProxy<any>(getSwapEndpoint('prepare'), 'POST', payload);
 
-  const txData =
-    res.data?.data || res.data;
+  const txData = res.data?.data || res.data;
 
   if (!txData) {
-    throw new Error(
-      'No transaction data received'
-    );
+    throw new Error('No transaction data received');
   }
 
-  return Array.isArray(txData)
-    ? txData
-    : [txData];
+  return Array.isArray(txData) ? txData : [txData];
 }
 
 // Get bridge quote
@@ -285,30 +229,17 @@ export async function getBridgeQuote(
   sourceToken: string,
   destinationToken: string
 ): Promise<any> {
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      `/bridge/swap-quotes`,
-      'POST',
-      {
-        amount,
+  const res = await fetchApiResponseFromProxy<any>(`/bridge/swap-quotes`, 'POST', {
+    amount,
 
-        sourceChain:
-          getBridgeChainSymbol(
-            sourceChainId
-          ),
+    sourceChain: getBridgeChainSymbol(sourceChainId),
 
-        destinationChain:
-          getBridgeChainSymbol(
-            destinationChainId
-          ),
+    destinationChain: getBridgeChainSymbol(destinationChainId),
 
-        sourceToken:
-          sourceToken.toUpperCase(),
+    sourceToken: sourceToken.toUpperCase(),
 
-        destinationToken:
-          destinationToken.toUpperCase(),
-      }
-    );
+    destinationToken: destinationToken.toUpperCase(),
+  });
 
   return res.data;
 }
@@ -370,42 +301,26 @@ export interface BridgeTransactionResponse {
 export async function prepareBridgeTransaction(
   request: BridgeTransactionRequest
 ): Promise<BridgeTransactionResponse> {
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      `/bridge/swap-transaction/prepare`,
-      'POST',
-      {
-        walletType:
-          getBridgeChainSymbol(
-            request.fromChainId
-          ),
+  const res = await fetchApiResponseFromProxy<any>(`/bridge/swap-transaction/prepare`, 'POST', {
+    walletType: getBridgeChainSymbol(request.fromChainId),
 
-        destinationWalletType:
-          getBridgeChainSymbol(
-            request.toChainId
-          ),
+    destinationWalletType: getBridgeChainSymbol(request.toChainId),
 
-        amount: request.amount,
+    amount: request.amount,
 
-        sourceToken:
-          request.sourceToken.toUpperCase(),
+    sourceToken: request.sourceToken.toUpperCase(),
 
-        destinationToken:
-          request.destinationToken.toUpperCase(),
+    destinationToken: request.destinationToken.toUpperCase(),
 
-        fromAddress: request.fromAddress,
+    fromAddress: request.fromAddress,
 
-        toAddress:
-          request.destinationAddress,
+    toAddress: request.destinationAddress,
 
-        feePayType: request.feePayType,
+    feePayType: request.feePayType,
 
-        // Add extra slippage buffer
-        slippageTolerance:
-          (request.slippageTolerance ||
-            0.5) + 1,
-      }
-    );
+    // Add extra slippage buffer
+    slippageTolerance: (request.slippageTolerance || 0.5) + 1,
+  });
 
   return res.data;
 }
@@ -420,10 +335,13 @@ export async function get1InchFusionQuote(
     walletAddress: string;
     decimals?: number;
   },
-  toChainId?: number | string
+  toChainId?: number | string,
+  signal?: AbortSignal
 ): Promise<any> {
   const isCrossChain = toChainId && String(chainId) !== String(toChainId);
-  const endpoint = isCrossChain ? `/swap/1inch/fusion-plus/getSwapQuote` : `/swap/1inch/getSwapQuote`;
+  const endpoint = isCrossChain
+    ? `/swap/1inch/fusion-plus/getSwapQuote`
+    : `/swap/1inch/getSwapQuote`;
 
   let payload: any;
   if (isCrossChain) {
@@ -444,20 +362,19 @@ export async function get1InchFusionQuote(
     };
   }
 
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      endpoint,
-      'POST',
-      payload
-    );
+  const res = await fetchApiResponseFromProxy<any>(
+    endpoint,
+    'POST',
+    payload,
+    undefined,
+    false,
+    signal
+  );
 
-  const data =
-    res.data?.data || res.data;
+  const data = res.data?.data || res.data;
 
   if (!data) {
-    throw new Error(
-      'No 1inch quote data received'
-    );
+    throw new Error('No 1inch quote data received');
   }
 
   return data;
@@ -492,20 +409,12 @@ export async function build1InchFusionOrder(
     };
   }
 
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      endpoint,
-      'POST',
-      payload
-    );
+  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', payload);
 
-  const data =
-    res.data?.data || res.data;
+  const data = res.data?.data || res.data;
 
   if (!data) {
-    throw new Error(
-      'Failed to build 1inch Fusion order'
-    );
+    throw new Error('Failed to build 1inch Fusion order');
   }
 
   return data;
@@ -523,20 +432,12 @@ export async function submit1InchFusionOrder(
     endpoint = `/swap/1inch/submitFusionPlusNativeOrder`;
   }
 
-  const res =
-    await fetchApiResponseFromProxy<any>(
-      endpoint,
-      'POST',
-      request
-    );
+  const res = await fetchApiResponseFromProxy<any>(endpoint, 'POST', request);
 
-  const data =
-    res.data?.data || res.data;
+  const data = res.data?.data || res.data;
 
   if (!data) {
-    throw new Error(
-      'Failed to submit 1inch Fusion order'
-    );
+    throw new Error('Failed to submit 1inch Fusion order');
   }
 
   return data;

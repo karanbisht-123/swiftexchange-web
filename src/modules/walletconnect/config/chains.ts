@@ -164,7 +164,7 @@ export const WALLETCONNECT_PROJECT_ID =
 export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',
   description: 'Trade Swiftly, Trade Securely',
-  url: 'https://SwiftExchange.com',
+  url: 'https://app.swiftexchange.io',
   icons: ['/logo.png'],
 };
 

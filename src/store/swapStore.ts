@@ -12,12 +12,16 @@ export interface SwapState {
   userSlippageTolerance: number;
   feePayType: 'native' | 'stablecoin';
 
-  // Pending transaction state — persists across navigation
+  // Pending transaction state — persists across navigation (Swap)
   pendingTxStatus: 'idle' | 'preparing' | 'signing' | 'success' | 'error';
   pendingTxHasPendingSign: boolean;
   pendingTxErrorMsg: string | null;
   pendingTxHash: string | null;
   pendingTxFromChainId: number | string | null;
+
+  // Bridge-specific pending sign state — separate namespace, no conflict with swap
+  bridgePendingSignPhase: 'idle' | 'signing_swap' | 'signing_bridge' | 'signing_deposit' | 'signing_bridge_approve' | 'signing_bridge_send' | 'signing_deposit_approve' | 'signing_deposit_confirm';
+  bridgePendingSignSessionId: string | null;
 
   setFromChainId: (id: number | string) => void;
   setToChainId: (id: number | string) => void;
@@ -37,6 +41,10 @@ export interface SwapState {
   setPendingTxHash: (hash: string | null) => void;
   setPendingTxFromChainId: (id: number | string | null) => void;
   clearPendingTx: () => void;
+
+  // Bridge sign phase setters
+  setBridgePendingSignPhase: (phase: SwapState['bridgePendingSignPhase'], sessionId?: string | null) => void;
+  clearBridgePendingSign: () => void;
 }
 
 export const useSwapStore = create<SwapState>((set) => ({
@@ -57,6 +65,10 @@ export const useSwapStore = create<SwapState>((set) => ({
   pendingTxErrorMsg: null,
   pendingTxHash: null,
   pendingTxFromChainId: null,
+
+  // Bridge sign phase initial state
+  bridgePendingSignPhase: 'idle',
+  bridgePendingSignSessionId: null,
 
   setFromChainId: (id) => set({ fromChainId: id }),
   setToChainId: (id) => set({ toChainId: id }),
@@ -85,6 +97,15 @@ export const useSwapStore = create<SwapState>((set) => ({
     pendingTxErrorMsg: null,
     pendingTxHash: null,
     pendingTxFromChainId: null,
+  }),
+
+  setBridgePendingSignPhase: (phase, sessionId = null) => set({
+    bridgePendingSignPhase: phase,
+    bridgePendingSignSessionId: sessionId ?? null,
+  }),
+  clearBridgePendingSign: () => set({
+    bridgePendingSignPhase: 'idle',
+    bridgePendingSignSessionId: null,
   }),
 }));
 

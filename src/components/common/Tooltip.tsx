@@ -2,10 +2,11 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 interface TooltipProps {
-  content: string;
+  content: React.ReactNode;
   children: React.ReactNode;
   position?: 'top' | 'bottom' | 'left' | 'right';
   className?: string;
+  tooltipClassName?: string;
   unstyled?: boolean;
 }
 
@@ -14,6 +15,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   children,
   position = 'top',
   className = '',
+  tooltipClassName = '',
   unstyled = false,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -84,37 +86,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
     };
   }, [isVisible, updatePosition]);
 
-  useEffect(() => {
-    if (!isVisible) return;
-
-    const handleScroll = () => {
-      updatePosition();
-    };
-    const handleResize = () => {
-      updatePosition();
-    };
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        triggerRef.current &&
-        !triggerRef.current.contains(e.target as Node) &&
-        tooltipRef.current &&
-        !tooltipRef.current.contains(e.target as Node)
-      ) {
-        setIsVisible(false);
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll, true);
-    window.addEventListener('resize', handleResize);
-    document.addEventListener('mousedown', handleClickOutside);
-
-    return () => {
-      window.removeEventListener('scroll', handleScroll, true);
-      window.removeEventListener('resize', handleResize);
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isVisible]);
-
   const arrowClasses = {
     top: 'top-full left-1/2 -translate-x-1/2 border-t-tertiary border-l-transparent border-r-transparent border-b-transparent',
     bottom:
@@ -140,7 +111,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         createPortal(
           <div
             ref={tooltipRef}
-            className={`absolute z-[9999] px-3 py-2 text-xs font-medium text-secondary bg-tertiary border border-color rounded-lg shadow-xl w-max max-w-[250px] whitespace-normal animate-fade-in`}
+            className={`absolute z-[9999] px-3 py-2 text-xs font-medium text-secondary bg-tertiary border border-color rounded-lg shadow-xl w-max whitespace-normal animate-fade-in ${tooltipClassName || 'max-w-[250px]'}`}
             style={{ top: coords.top, left: coords.left }}
           >
             {content}

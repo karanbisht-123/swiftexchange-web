@@ -33,9 +33,14 @@ import { checkTxStatus } from './TransactionMonitor';
 type ViewType = 'recent' | 'stellar' | number;
 
 const STATUS_STYLES: Record<LocalTransactionWithStatus['status'], string> = {
-  pending: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500',
-  success: 'bg-green-500/10 border-green-500/20 text-green-500',
-  failed: 'bg-red-500/10 border-red-500/20 text-red-500',
+  pending: 'bg-yellow-500/10 border border-yellow-500/20 text-yellow-500',
+  success: 'bg-green-500/10 border border-green-500/20 text-green-500',
+  failed: 'bg-red-500/10 border border-red-500/20 text-red-500',
+};
+
+const formatRecentTime = (timestamp: number): string => {
+  const timeStr = new Date(timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${timeStr} (${formatRelativeTime(timestamp)})`;
 };
 
 const formatRelativeTime = (timestamp: number): string => {
@@ -73,8 +78,6 @@ const isBypassedProvider = (provider: string | undefined | null): boolean => {
   );
 };
 
-// Resolve chain identifier to a display-friendly logo URL.
-// Handles SRB / stellar / pubnet / testnet as Stellar, dydx, and all EVM chains.
 const resolveChainLogoUrl = (cId: string | number): string => {
   const id = String(cId).toUpperCase();
   if (id === 'DYDX') {
@@ -83,10 +86,9 @@ const resolveChainLogoUrl = (cId: string | number): string => {
   if (id === 'SRB' || id === 'STELLAR' || id === 'PUBNET' || id === 'TESTNET') {
     return 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png';
   }
-  return getChainLogoUrl(cId);
+  return getChainLogoUrl(cId) || '';
 };
 
-// Resolve chain identifier to a human-readable name.
 const resolveChainDisplayName = (cId: string | number): string => {
   const id = String(cId).toUpperCase();
   if (id === 'DYDX') return 'dYdX';
@@ -94,15 +96,10 @@ const resolveChainDisplayName = (cId: string | number): string => {
   return getChainName(cId);
 };
 
-// Given a raw chain symbol from the backend (e.g. 'ARB', 'POL', 'BSC', 'SRB'),
-// return a stable chainId to use everywhere. For chains that don't exist in the
-// registry (Stellar / SRB) we return the raw symbol itself so the logo/name
-// helpers above can handle it.
 const resolveChainId = (chainSymbol: string | undefined, network: string): string | number => {
   if (!chainSymbol) return '';
-  const found = findChain(chainSymbol, network);
+  const found = findChain(chainSymbol, network as any);
   if (found) return found.chainId;
-  // Not in EVM registry — return the raw symbol (SRB, dydx, etc.)
   return chainSymbol;
 };
 
@@ -129,12 +126,9 @@ const EvmTransactionHistory: React.FC = () => {
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
-  // const cosmosWallet = connectedWallets[WalletType.COSMOS];
   const walletAddress = evmWallet?.address;
   const hasEvm = Boolean(walletAddress);
   const hasStellar = Boolean(stellarWallet);
-  // const hasCosmos = Boolean(cosmosWallet);
-
   const availableChains = getEvmChainsForNetwork(currentNetwork);
 
   const defaultView: ViewType = 'recent';
@@ -204,16 +198,12 @@ const EvmTransactionHistory: React.FC = () => {
   const checkingHashes = useRef<Set<string>>(new Set());
   const processedHashRef = useRef<string | null>(null);
 
-  // Actively check on-chain transaction receipt ONLY for pending Uniswap backend orders
-  // Other provider statuses must come exclusively from the backend proxy
   useEffect(() => {
     const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) =>
       isBypassedProvider(order.provider) &&
       order.status === 'pending' &&
       !liveStatusOverrides[order.txHash.toLowerCase()]
     );
-
-    // Disabled polling for UNISWAP/EVMTX transactions on-chain - backend will update the status.
     const ordersToCheck = [] as typeof pendingOrders;
 
     if (!ordersToCheck || ordersToCheck.length === 0) return;
@@ -411,7 +401,18 @@ const EvmTransactionHistory: React.FC = () => {
       processedHashRef.current = null;
       return;
     }
-
+    if (typeof selectedView === 'number' && historyData && historyData.length > 0) {
+      const foundInHistory = historyData.find(
+        (tx: TransactionItem) => tx.hash.toLowerCase() === txHashFromUrl.toLowerCase()
+      );
+      if (foundInHistory) {
+        setSelectedTx(foundInHistory);
+        setSelectedLocalTx(null);
+        processedHashRef.current = txHashFromUrl;
+        if (window.innerWidth < 1024) setIsSheetOpen(true);
+        return;
+      }
+    }
     if (backendOrders?.data) {
       const found = backendOrders.data.find(
         (order: SwapOrder) => order.txHash.toLowerCase() === txHashFromUrl.toLowerCase()
@@ -639,7 +640,7 @@ const EvmTransactionHistory: React.FC = () => {
           }
         };
         checkLocalStatus();
-      } else {
+      } else if (!isBypassed) {
         getTransactionStatus({
           walletType: tx.fromChainSymbol || 'ETH',
           txHash: tx.hash,
@@ -713,10 +714,6 @@ const EvmTransactionHistory: React.FC = () => {
   const renderRecentTransactions = () => {
     const combinedRecent = (() => {
       const mergedMap = new Map<string, LocalTransactionWithStatus>();
-
-      // Add local transactions — skip ones that are purely Stellar-native
-      // (identified by chainId or from-address). Cross-chain orders that
-      // touch Stellar but originated from an EVM wallet are kept.
       localTransactions?.forEach((tx) => {
         const isStellarNativeTx =
           tx.chainId === 'pubnet' ||
@@ -751,8 +748,6 @@ const EvmTransactionHistory: React.FC = () => {
 
 
         const fromChainId = resolveChainId(order.fromChain, currentNetwork);
-        // const toChainId = resolveChainId(order.toChain, currentNetwork);
-
         const isBridge = order.fromChain !== order.toChain;
         const defaultTxType = isBridge ? 'Bridge' : 'Swap';
         const description = order.txType || defaultTxType;
@@ -848,6 +843,7 @@ const EvmTransactionHistory: React.FC = () => {
     const renderTransactionRow = (tx: typeof combinedRecent[0]) => {
       const isSelected = selectedLocalTx?.hash === tx.hash;
       const isPending = tx.status === 'pending';
+      const isFailed = tx.status === 'failed';
       const statusStyle = STATUS_STYLES[tx.status];
 
       const txProvider = ((tx as any).provider || '').toUpperCase();
@@ -895,9 +891,6 @@ const EvmTransactionHistory: React.FC = () => {
         return '';
       };
 
-      // --- Chain / asset resolution ---
-      // Priority: always use backend fromChainSymbol / toChainSymbol when available.
-      // resolveChainId handles SRB, dydx, and all EVM chains correctly.
       let fromAssetSymbol = '';
       let toAssetSymbol = '';
       let fromChainId: string | number = tx.chainId;
@@ -947,7 +940,6 @@ const EvmTransactionHistory: React.FC = () => {
         }
       }
 
-      // Use the shared helpers for logo + display name — they handle SRB, dydx, EVM
       const fromChainLogo = resolveChainLogoUrl(fromChainId);
       const toChainLogo = toChainId !== undefined ? resolveChainLogoUrl(toChainId) : undefined;
       const fromChainName = resolveChainDisplayName(fromChainId);
@@ -970,10 +962,12 @@ const EvmTransactionHistory: React.FC = () => {
           key={tx.hash}
           onClick={() => handleLocalTxClick(tx)}
           className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${isSelected
-            ? 'bg-secondary border border-color'
-            : isPending
-              ? 'bg-primary border border-yellow-500/15 hover:border-yellow-500/30'
-              : 'bg-primary border border-transparent hover:border-color'
+              ? 'bg-secondary border border-color shadow-sm'
+              : isPending
+                ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
+                : isFailed
+                  ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
+                  : 'bg-primary border border-transparent hover:border-color'
             }`}
         >
           <div className="flex items-center gap-2.5">
@@ -1010,7 +1004,7 @@ const EvmTransactionHistory: React.FC = () => {
               {/* Label row */}
               <div className="flex items-center gap-1.5 mb-1">
                 <span className="text-xs font-semibold text-primary truncate leading-tight">{cleanLabel}</span>
-                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full shrink-0 capitalize tracking-wide ${statusStyle}`}>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}>
                   {tx.status === 'pending' && (txProvider === 'SKIP' || txProvider === 'SRBTODYDX')
                     ? 'Bridging'
                     : tx.status === 'pending' && txProvider === 'DYDX'
@@ -1055,10 +1049,10 @@ const EvmTransactionHistory: React.FC = () => {
                 </div>
               )}
               <div className="flex items-center gap-1">
-                <span className="text-sm text-muted font-mono opacity-70">{formatRelativeTime(tx.timestamp)}</span>
+                <span className="text-sm text-muted font-mono opacity-70">{formatRecentTime(tx.timestamp)}</span>
                 {!isFusion && (
                   <a
-                    href={isAllbridge ? `http://core.allbridge.io/explorer/transfer/${tx.hash}` : getExplorerUrl(tx.chainId, 'tx', tx.hash)}
+                    href={isAllbridge ? `https://core.allbridge.io/explorer?search=${tx.hash}` : getExplorerUrl(tx.chainId, 'tx', tx.hash)}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={e => e.stopPropagation()}
@@ -1295,27 +1289,43 @@ const EvmTransactionHistory: React.FC = () => {
                           {tx.category}
                         </span>
                       </div>
-                      <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
-                        <span className="hidden lg:inline opacity-75 shrink-0">
-                          {tx.blockNum
-                            ? `Block #${formatBlockNumber(tx.blockNum)}`
-                            : 'Pending'}
-                        </span>
-                        <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
-                        <span className="truncate max-w-[80px] lg:max-w-[120px]">
-                          {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
-                        </span>
-                        <a
-                          href={getExplorerUrl(typeof selectedView === 'number' ? selectedView : 1, 'tx', tx.hash)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()}
-                          className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
-                          title="View on Explorer"
-                        >
-                          <ExternalLink size={10} />
-                        </a>
-                      </div>
+                      {(() => {
+                        const formattedTime = tx.metadata?.blockTimestamp
+                          ? new Date(tx.metadata.blockTimestamp).toLocaleTimeString(undefined, {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                          : '';
+                        return (
+                          <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
+                            {formattedTime && (
+                              <>
+                                <span className="text-muted/80 font-sans shrink-0 font-medium">{formattedTime}</span>
+                                <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                              </>
+                            )}
+                            <span className="hidden lg:inline opacity-75 shrink-0">
+                              {tx.blockNum
+                                ? `Block #${formatBlockNumber(tx.blockNum)}`
+                                : 'Pending'}
+                            </span>
+                            <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                            <span className="truncate max-w-[80px] lg:max-w-[120px]">
+                              {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
+                            </span>
+                            <a
+                              href={getExplorerUrl(typeof selectedView === 'number' ? selectedView : 1, 'tx', tx.hash)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                              title="View on Explorer"
+                            >
+                              <ExternalLink size={10} />
+                            </a>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 ml-2">

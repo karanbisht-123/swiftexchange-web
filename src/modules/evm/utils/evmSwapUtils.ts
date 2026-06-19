@@ -1,20 +1,21 @@
 import { ethers } from 'ethers';
+
 import type { SwapQuote, SwapQuoteRequest } from '../../../types/evm/swap.types';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { simulateSwapTransaction } from '../service/evmSimulationService';
 import {
+  build1InchFusionOrder,
+  get1InchFusionQuote,
   getSwapQuote,
   prepareSwapTransaction,
-  get1InchFusionQuote,
-  build1InchFusionOrder,
   submit1InchFusionOrder,
 } from '../service/evmSwapService';
 import type { TokenInfo } from '../service/tokenListService';
 import { getChainById } from './Chainregistry';
-import { parseSwapError } from './swapErrorHandler';
-import { NATIVE_ADDRESS, AGGREGATOR_NATIVE_ADDRESS } from './assetmanagement/constants';
-import { rpcManager } from './rpcProvider';
+import { AGGREGATOR_NATIVE_ADDRESS, NATIVE_ADDRESS } from './assetmanagement/constants';
 import { getEVMNetworkConfig } from './evmUtils';
-import { simulateSwapTransaction } from '../service/evmSimulationService';
+import { rpcManager } from './rpcProvider';
+import { parseSwapError } from './swapErrorHandler';
 
 // Constants
 const LIMIT_ORDER_PROTOCOL = '0x111111125421ca6dc452d289314280a0f8842a65';
@@ -29,12 +30,14 @@ const ERC20_ABI = [
   'function approve(address spender, uint256 amount) returns (bool)',
 ];
 
-
-
 // Safely converts a raw string to BigInt, returns 0n on failure.
 function safeValue(raw: string | undefined | null): bigint {
   if (!raw) return 0n;
-  try { return BigInt(raw); } catch { return 0n; }
+  try {
+    return BigInt(raw);
+  } catch {
+    return 0n;
+  }
 }
 
 // Returns a valid gasLimit bigint from tx fields, or undefined if missing/invalid.
@@ -44,19 +47,24 @@ function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefin
   try {
     const n = BigInt(raw);
     return n > 0n ? n : undefined;
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }
 
 // Estimates gas for a tx with 20% buffer. Returns undefined if estimation fails.
 async function estimateGasWithBuffer(
   provider: ethers.BrowserProvider,
-  txParams: ethers.TransactionRequest,
+  txParams: ethers.TransactionRequest
 ): Promise<bigint | undefined> {
   try {
     const estimated = await provider.estimateGas(txParams);
     return (estimated * 120n) / 100n;
   } catch (err: any) {
-    if (err.message?.includes('execution reverted') || err.info?.error?.message?.includes('execution reverted')) {
+    if (
+      err.message?.includes('execution reverted') ||
+      err.info?.error?.message?.includes('execution reverted')
+    ) {
       throw new Error(`Transaction will fail: ${err.info?.error?.message || err.message}`);
     }
     console.warn('[estimateGasWithBuffer] Failed, letting wallet decide:', err);
@@ -73,7 +81,7 @@ async function pollForReceipt(
   txHash: string,
   intervalMs = 2_000,
   timeoutMs = 120_000,
-  onSlow?: () => void,
+  onSlow?: () => void
 ): Promise<ethers.TransactionReceipt | null> {
   const start = Date.now();
   let slowFired = false;
@@ -110,7 +118,6 @@ async function pollForReceipt(
  *   3. Add chain detection if you want EIP-1559 only on supported chains
  */
 
-
 // Approval
 /**
  * Reads on-chain ERC-20 allowance for a given spender.
@@ -122,13 +129,13 @@ async function readAllowance(
   owner: string,
   spender: string,
   chainId: number | string,
-  provider: any,
+  provider: any
 ): Promise<bigint> {
   // public RPC
   try {
     const rpcUrls = getEVMNetworkConfig(chainId).rpcUrls;
     if (rpcUrls.length > 0) {
-      return await rpcManager.fetchWithFallback(chainId, rpcUrls, async (rpcProvider) => {
+      return await rpcManager.fetchWithFallback(chainId, rpcUrls, async rpcProvider => {
         const contract = new ethers.Contract(tokenAddress, ERC20_ABI, rpcProvider);
         return contract.allowance(owner, spender, { blockTag: 'pending' }) as Promise<bigint>;
       });
@@ -167,7 +174,7 @@ async function sendApprovalTx(
   walletAddress: string,
   provider: any,
   amount: bigint = ethers.MaxUint256,
-  onBeforeWalletSign?: () => void,
+  onBeforeWalletSign?: () => void
 ): Promise<string> {
   const ethersProvider = new ethers.BrowserProvider(provider);
   const signer = await ethersProvider.getSigner();
@@ -186,7 +193,8 @@ async function sendApprovalTx(
     });
     gasLimit = (estimated * 120n) / 100n;
   } catch (err: any) {
-    if (err.message?.includes('Insufficient funds') || err.message?.includes('insufficient funds')) throw err;
+    if (err.message?.includes('Insufficient funds') || err.message?.includes('insufficient funds'))
+      throw err;
     console.warn('[sendApprovalTx] Gas estimate failed, using 100k fallback');
     gasLimit = 100_000n;
   }
@@ -249,13 +257,19 @@ export async function ensureFusionAllowance(
   amountBN: bigint,
   provider: any,
   chainId: number | string,
-  onBeforeWalletSign?: () => void,
+  onBeforeWalletSign?: () => void
 ): Promise<{ approvalTxHash?: string }> {
   if (!tokenAddress || isNativeAddress(tokenAddress)) {
     return {}; // native — no approval needed
   }
 
-  const allowance = await readAllowance(tokenAddress, walletAddress, LIMIT_ORDER_PROTOCOL, chainId, provider);
+  const allowance = await readAllowance(
+    tokenAddress,
+    walletAddress,
+    LIMIT_ORDER_PROTOCOL,
+    chainId,
+    provider
+  );
 
   if (allowance >= amountBN) {
     console.log('[ensureFusionAllowance] Already approved, skipping');
@@ -266,15 +280,29 @@ export async function ensureFusionAllowance(
 
   if (allowance > 0n && allowance < amountBN) {
     if (tokenAddress.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7') {
-      await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, 0n, onBeforeWalletSign);
+      await sendApprovalTx(
+        tokenAddress,
+        LIMIT_ORDER_PROTOCOL,
+        walletAddress,
+        provider,
+        0n,
+        onBeforeWalletSign
+      );
     }
   }
 
-  const approvalTxHash = await sendApprovalTx(tokenAddress, LIMIT_ORDER_PROTOCOL, walletAddress, provider, ethers.MaxUint256, onBeforeWalletSign);
+  const approvalTxHash = await sendApprovalTx(
+    tokenAddress,
+    LIMIT_ORDER_PROTOCOL,
+    walletAddress,
+    provider,
+    ethers.MaxUint256,
+    onBeforeWalletSign
+  );
 
   const ethersProvider = new ethers.BrowserProvider(provider);
   const receipt = await pollForReceipt(ethersProvider, approvalTxHash, 2000, 120000);
-  if (receipt && receipt.status === 0) {
+  if (receipt?.status === 0) {
     throw new Error('Fusion approval transaction failed on-chain');
   }
 
@@ -286,9 +314,7 @@ export function formatAmount(amount: string, decimals: number): string {
   if (!amount) return '0';
   try {
     const parts = amount.split('.');
-    const cleanAmount = parts.length > 1
-      ? parts[0] + '.' + parts[1].slice(0, decimals)
-      : amount;
+    const cleanAmount = parts.length > 1 ? parts[0] + '.' + parts[1].slice(0, decimals) : amount;
     return ethers.parseUnits(cleanAmount, decimals).toString();
   } catch (err) {
     console.warn('[formatAmount] Fallback to raw:', err);
@@ -303,6 +329,7 @@ export async function fetchEvmQuote(
   request: SwapQuoteRequest,
   selectedSellAsset: TokenInfo,
   selectedBuyAsset: TokenInfo,
+  signal?: AbortSignal
 ): Promise<SwapQuote> {
   try {
     const config = getEVMNetworkConfig(chainId);
@@ -314,8 +341,14 @@ export async function fetchEvmQuote(
   }
 
   try {
-    const isNativeSell = !!selectedSellAsset.isNative || isNativeAddress(request.tokenIn?.address) || isNativeAddress(selectedSellAsset.address);
-    const isNativeBuy = !!selectedBuyAsset.isNative || isNativeAddress(request.tokenOut?.address) || isNativeAddress(selectedBuyAsset.address);
+    const isNativeSell =
+      !!selectedSellAsset.isNative ||
+      isNativeAddress(request.tokenIn?.address) ||
+      isNativeAddress(selectedSellAsset.address);
+    const isNativeBuy =
+      !!selectedBuyAsset.isNative ||
+      isNativeAddress(request.tokenOut?.address) ||
+      isNativeAddress(selectedBuyAsset.address);
 
     const normalizedSellAddress = isNativeSell
       ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
@@ -325,9 +358,9 @@ export async function fetchEvmQuote(
       ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
       : selectedBuyAsset.address;
 
-    if (!isNativeSell && !ethers.isAddress(normalizedSellAddress))
+    if (!isNativeSell && !ethers.isAddress(normalizedSellAddress || ''))
       throw new Error(`Invalid sell token address: ${selectedSellAsset.address}`);
-    if (!isNativeBuy && !ethers.isAddress(normalizedBuyAddress))
+    if (!isNativeBuy && !ethers.isAddress(normalizedBuyAddress || ''))
       throw new Error(`Invalid buy token address: ${selectedBuyAsset.address}`);
 
     const adjustedRequest: SwapQuoteRequest = {
@@ -349,7 +382,7 @@ export async function fetchEvmQuote(
       slippage: request.slippage,
     } as any;
 
-    const quote = await getSwapQuote(chainId, adjustedRequest);
+    const quote = await getSwapQuote(chainId, adjustedRequest, signal);
     return {
       ...quote,
       inputToken: selectedSellAsset.symbol,
@@ -380,7 +413,7 @@ export async function executeSwap(
   getProvider: (type: WalletType) => any,
   onApprovalTxHash?: (hash: string) => void,
   onSwapTxHash?: (hash: string) => void,
-  onBeforeWalletSign?: () => void,
+  onBeforeWalletSign?: () => void
 ): Promise<string> {
   const provider = getProvider(WalletType.EVM);
   if (!provider) throw new Error('EVM wallet not connected');
@@ -411,7 +444,7 @@ export async function executeSwap(
 
   // Build and simulate gas for all txs in parallel before sending any
   const txParamsList = await Promise.all(
-    transactions.map(async (tx) => {
+    transactions.map(async tx => {
       const txParams: ethers.TransactionRequest = {
         from: tx.from || senderAddress,
         to: tx.to,
@@ -431,7 +464,13 @@ export async function executeSwap(
       // -------------------------------------------------------------------
 
       const rawGasPrice = tx.gasPrice ?? tx.maxFeePerGas;
-      if (rawGasPrice) txParams.gasPrice = BigInt(rawGasPrice);
+      if (rawGasPrice) {
+        try {
+          txParams.gasPrice = BigInt(rawGasPrice as any);
+        } catch {
+          // ignore invalid gasPrice from API and proceed without forcing gasPrice
+        }
+      }
 
       if (tx.nonce != null) txParams.nonce = Number(tx.nonce);
 
@@ -442,26 +481,34 @@ export async function executeSwap(
           txParams.from as string,
           txParams.to as string,
           txParams.value?.toString() || '0',
-          txParams.data?.toString() || '0x',
+          txParams.data?.toString() || '0x'
         );
         txParams.gasLimit = sim.gasLimit;
       } catch (simError: any) {
-        if (simError.message?.includes('Insufficient funds') || simError.message?.includes('insufficient funds')) {
+        if (
+          simError.message?.includes('Insufficient funds') ||
+          simError.message?.includes('insufficient funds')
+        ) {
           throw new Error('Insufficient native token balance to cover gas fees.');
         }
         console.warn('[executeSwap] Gas sim failed, trying fallback:', simError.message);
         const apiLimit = safeGasLimit(tx);
-        txParams.gasLimit = apiLimit ?? await estimateGasWithBuffer(ethersProvider, txParams);
+        txParams.gasLimit = apiLimit ?? (await estimateGasWithBuffer(ethersProvider, txParams));
       }
 
       return txParams;
-    }),
+    })
   );
 
   let lastTxHash = '';
 
   let signFired = false;
-  const fireSign = () => { if (!signFired) { signFired = true; onBeforeWalletSign?.(); } };
+  const fireSign = () => {
+    if (!signFired) {
+      signFired = true;
+      onBeforeWalletSign?.();
+    }
+  };
 
   for (let i = 0; i < txParamsList.length; i++) {
     const tx = txParamsList[i];
@@ -488,18 +535,28 @@ export async function fetch1InchFusionQuote(
   amount: string,
   walletAddress: string,
   decimals: number,
-  toChain?: number | string
+  toChain?: number | string,
+  signal?: AbortSignal
 ): Promise<any> {
   try {
-    const normalizedTokenIn = isNativeAddress(tokenIn) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : tokenIn;
-    const normalizedTokenOut = isNativeAddress(tokenOut) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : tokenOut;
+    const normalizedTokenIn = isNativeAddress(tokenIn)
+      ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+      : tokenIn;
+    const normalizedTokenOut = isNativeAddress(tokenOut)
+      ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+      : tokenOut;
 
-    return await get1InchFusionQuote(chain, {
-      tokenIn: normalizedTokenIn,
-      tokenOut: normalizedTokenOut,
-      amount: formatAmount(amount, decimals),
-      walletAddress,
-    }, toChain);
+    return await get1InchFusionQuote(
+      chain,
+      {
+        tokenIn: normalizedTokenIn,
+        tokenOut: normalizedTokenOut,
+        amount: formatAmount(amount, decimals),
+        walletAddress,
+      },
+      toChain,
+      signal
+    );
   } catch (error: any) {
     throw new Error(parseSwapError(error));
   }
@@ -516,7 +573,7 @@ export async function execute1InchFusionSwap(
   getProvider: (type: WalletType) => any,
   onProgress?: (step: 'approving' | 'signing') => void,
   onApprovalTxHash?: (hash: string) => void,
-  onBeforeWalletSign?: () => void,
+  onBeforeWalletSign?: () => void
 ): Promise<string> {
   const provider = getProvider(WalletType.EVM);
   if (!provider) throw new Error('EVM wallet not connected');
@@ -535,7 +592,14 @@ export async function execute1InchFusionSwap(
   const amountBN = BigInt(formatAmount(sellAmount, sellAsset.decimals));
 
   onProgress?.('approving');
-  const allowance = await ensureFusionAllowance(sellAsset.address, senderAddress, amountBN, provider, chainId, onBeforeWalletSign);
+  const allowance = await ensureFusionAllowance(
+    sellAsset.address,
+    senderAddress,
+    amountBN,
+    provider,
+    chainId,
+    onBeforeWalletSign
+  );
   if (allowance.approvalTxHash) {
     if (onProgress) onProgress('approving');
     if (onApprovalTxHash) onApprovalTxHash(allowance.approvalTxHash);
@@ -558,10 +622,17 @@ export async function execute1InchFusionSwap(
     throw new Error(`Simulation Alert: ${errorDetails}`);
   }
 
-  const normalizedTokenIn = (sellAsset.isNative || isNativeAddress(sellAsset.address)) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : sellAsset.address;
-  const normalizedTokenOut = (buyAsset.isNative || isNativeAddress(buyAsset.address)) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : buyAsset.address;
+  const normalizedTokenIn =
+    sellAsset.isNative || isNativeAddress(sellAsset.address)
+      ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+      : sellAsset.address;
+  const normalizedTokenOut =
+    buyAsset.isNative || isNativeAddress(buyAsset.address)
+      ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+      : buyAsset.address;
 
-  const secretCount = quote.presets?.[preset]?.secretsCount || quote.presets?.[preset]?.secretCount || 1;
+  const secretCount =
+    quote.presets?.[preset]?.secretsCount || quote.presets?.[preset]?.secretCount || 1;
 
   const isSourceNative = sellAsset.isNative || isNativeAddress(sellAsset.address);
 
@@ -574,12 +645,14 @@ export async function execute1InchFusionSwap(
     chain: chainSymbol,
     preset,
     permit: '',
-    toChain: isCrossChain ? (() => {
-      const symbol = getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
-      return symbol === 'BNB' ? 'BSC' : symbol;
-    })() : undefined,
+    toChain: isCrossChain
+      ? (() => {
+          const symbol = getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+          return symbol === 'BNB' ? 'BSC' : symbol;
+        })()
+      : undefined,
     secretCount: isCrossChain ? secretCount : undefined,
-    isNative: isSourceNative
+    isNative: isSourceNative,
   });
 
   const { typedData, extension, orderHash } = fusionOrder;
@@ -588,7 +661,7 @@ export async function execute1InchFusionSwap(
     sellAssetAddress: sellAsset.address,
     buyAssetAddress: buyAsset.address,
     normalizedTokenIn,
-    normalizedTokenOut
+    normalizedTokenOut,
   });
 
   if (!orderHash) throw new Error('No orderHash received from build order');
@@ -614,7 +687,7 @@ export async function execute1InchFusionSwap(
     submitPayload = {
       orderHash: fusionOrder.orderHash,
       txHash: txResponse.hash,
-      srcChain: chainSymbol
+      srcChain: chainSymbol,
     };
   } else {
     if (!typedData) throw new Error('No typed data received for signing');
@@ -646,7 +719,7 @@ export async function execute1InchFusionSwap(
       extension,
       signature,
       permit: '',
-      orderHash
+      orderHash,
     };
 
     if (isCrossChain) {
@@ -669,7 +742,7 @@ export async function execute1InchFusionSwap(
         signature,
         extension,
         quoteId: quote.quoteId,
-        orderHash
+        orderHash,
       };
     }
   }
@@ -684,11 +757,15 @@ export async function execute1InchFusionSwap(
     } catch (err: any) {
       const msg = err.message?.toLowerCase() ?? '';
       const isTransient =
-        msg.includes('allowance') || msg.includes('permit') ||
-        msg.includes('balance') || msg.includes('insufficient');
+        msg.includes('allowance') ||
+        msg.includes('permit') ||
+        msg.includes('balance') ||
+        msg.includes('insufficient');
 
       if (isTransient && attempt < MAX_RETRIES) {
-        console.warn(`[execute1InchFusionSwap] Submission failed, retrying (${attempt}/${MAX_RETRIES})`);
+        console.warn(
+          `[execute1InchFusionSwap] Submission failed, retrying (${attempt}/${MAX_RETRIES})`
+        );
         await new Promise(r => setTimeout(r, 4_000));
         continue;
       }

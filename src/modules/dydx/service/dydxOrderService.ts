@@ -1,6 +1,7 @@
 import { PositionStatus, TickerType } from '@dydxprotocol/v4-client-js';
 
 import { dydxWalletService } from './dydxWalletService';
+import { useWebSocketStore } from '../store/websocketStore';
 
 export interface Position {
   market: string;
@@ -131,6 +132,7 @@ export interface TransfersResponse {
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
+  isFetching?: boolean;
 }
 
 export function normalizeFill(f: any): Fill {
@@ -190,6 +192,52 @@ class DydxDataService {
     cacheHits: 0,
     cacheMisses: 0,
   };
+  private listeners = new Set<(key: string, data: any) => void>();
+
+  subscribe(listener: (key: string, data: any) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notifyListeners(key: string, data: any): void {
+    this.listeners.forEach(listener => {
+      try {
+        listener(key, data);
+      } catch (err) {
+        console.error('[DydxDataService] Listener error:', err);
+      }
+    });
+  }
+
+  getCachedValueWithoutSideEffects<T>(key: string): T | null {
+    const entry = this.cache.get(key);
+    return entry ? (entry.data as T) : null;
+  }
+
+  getCachedFundingPayments(
+    ticker?: string,
+    limit: number = 100,
+    page: number = 1
+  ): FundingPaymentsResponse | null {
+    const cacheKey = `funding_payments_${ticker || 'all'}_${limit}_${page}`;
+    return this.getCachedValueWithoutSideEffects<FundingPaymentsResponse>(cacheKey);
+  }
+
+  getCachedOrders(
+    ticker?: string,
+    limit?: number,
+    returnLatestOrders = true
+  ): Order[] | null {
+    const cacheKey = `orders_${ticker || 'all'}_${limit || 'default'}_${returnLatestOrders}`;
+    return this.getCachedValueWithoutSideEffects<Order[]>(cacheKey);
+  }
+
+  getCachedFills(ticker?: string, limit?: number): Fill[] | null {
+    const cacheKey = `fills_${ticker || 'all'}_${limit || 'default'}`;
+    return this.getCachedValueWithoutSideEffects<Fill[]>(cacheKey);
+  }
 
   private getContext() {
     const indexer = dydxWalletService.getIndexerClient();
@@ -203,9 +251,10 @@ class DydxDataService {
     return { indexer, address, subaccountNumber: Number(subaccountNumber) };
   }
 
-  private getCached<T>(key: string): T | null {
+  private getCached<T>(key: string, customTtl?: number): T | null {
     const entry = this.cache.get(key);
-    if (entry && Date.now() - entry.timestamp < this.CACHE_TTL) {
+    const ttl = customTtl !== undefined ? customTtl : this.CACHE_TTL;
+    if (entry && Date.now() - entry.timestamp < ttl) {
       this.stats.cacheHits++;
       return entry.data as T;
     }
@@ -215,7 +264,33 @@ class DydxDataService {
   }
 
   private setCache<T>(key: string, data: T): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
+    this.cache.set(key, { data, timestamp: Date.now(), isFetching: false });
+  }
+
+  private triggerBackgroundRevalidate<T>(
+    key: string,
+    fetchPromise: Promise<T>,
+    onSuccess?: (data: T) => void
+  ): void {
+    const entry = this.cache.get(key);
+    if (!entry) return;
+
+    entry.isFetching = true;
+
+    fetchPromise
+      .then(data => {
+        entry.data = data;
+        entry.timestamp = Date.now();
+        entry.isFetching = false;
+        this.notifyListeners(key, data);
+        if (onSuccess) {
+          try { onSuccess(data); } catch (e) { console.error('[DydxDataService] onSuccess callback failed:', e); }
+        }
+      })
+      .catch(err => {
+        console.error(`[DydxDataService] Background revalidation failed for key ${key}:`, err);
+        entry.isFetching = false;
+      });
   }
 
   invalidateCache(keys: string | string[]): void {
@@ -308,10 +383,48 @@ class DydxDataService {
     const cacheKey = `orders_${ticker || 'all'}_${limit || 'default'}_${returnLatestOrders}`;
 
     if (useCache) {
-      const cached = this.getCached<Order[]>(cacheKey);
-      if (cached) return cached;
+      const entry = this.cache.get(cacheKey);
+      if (entry) {
+        const age = Date.now() - entry.timestamp;
+        if (age < 60000) {
+          this.stats.cacheHits++;
+          return entry.data as Order[];
+        }
+        if (!entry.isFetching) {
+          const fetchPromise = this.fetchOrdersRaw(ticker, limit, returnLatestOrders);
+          this.triggerBackgroundRevalidate(cacheKey, fetchPromise, (data) => {
+            try {
+              const address = dydxWalletService.getAddress();
+              const subaccountNumber = dydxWalletService.getSubaccountNumber();
+              const parentKey = address ? `parent_subaccount_${address}_${subaccountNumber}` : null;
+              if (parentKey) {
+                useWebSocketStore.getState().updateParentSubaccount(
+                  parentKey,
+                  { orders: data as any, lastUpdate: Date.now() },
+                  0
+                );
+              }
+            } catch (err) {
+              console.error('[DydxDataService] Failed to update websocket store for orders:', err);
+            }
+          });
+        }
+
+        this.stats.cacheHits++;
+        return entry.data as Order[];
+      }
     }
 
+    const sorted = await this.fetchOrdersRaw(ticker, limit, returnLatestOrders);
+    this.setCache(cacheKey, sorted);
+    return sorted;
+  }
+
+  private async fetchOrdersRaw(
+    ticker?: string,
+    limit?: number,
+    returnLatestOrders = true
+  ): Promise<Order[]> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
 
@@ -331,16 +444,13 @@ class DydxDataService {
 
       const orders = ((response || []) as any[]).map(normalizeOrder);
 
-      const sorted = orders.sort((a, b) => {
+      return orders.sort((a, b) => {
         const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
         const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         return timeB - timeA;
       });
-
-      this.setCache(cacheKey, sorted);
-      return sorted;
     } catch (err) {
-      console.error('[DydxDataService] getOrders failed:', err);
+      console.error('[DydxDataService] fetchOrdersRaw failed:', err);
       return [];
     }
   }
@@ -349,10 +459,46 @@ class DydxDataService {
     const cacheKey = `fills_${ticker || 'all'}_${limit || 'default'}`;
 
     if (useCache) {
-      const cached = this.getCached<Fill[]>(cacheKey);
-      if (cached) return cached;
+      const entry = this.cache.get(cacheKey);
+      if (entry) {
+        const age = Date.now() - entry.timestamp;
+        if (age < 60000) {
+          this.stats.cacheHits++;
+          return entry.data as Fill[];
+        }
+
+        // Stale-While-Revalidate background fetch
+        if (!entry.isFetching) {
+          const fetchPromise = this.fetchFillsRaw(ticker, limit);
+          this.triggerBackgroundRevalidate(cacheKey, fetchPromise, (data) => {
+            // Update useWebSocketStore in the background so all subscribers get fresh data
+            try {
+              const address = dydxWalletService.getAddress();
+              const subaccountNumber = dydxWalletService.getSubaccountNumber();
+              const parentKey = address ? `parent_subaccount_${address}_${subaccountNumber}` : null;
+              if (parentKey) {
+                useWebSocketStore.getState().updateParentSubaccount(
+                  parentKey,
+                  { fills: data as any, lastUpdate: Date.now() }
+                );
+              }
+            } catch (err) {
+              console.error('[DydxDataService] Failed to update websocket store for fills:', err);
+            }
+          });
+        }
+
+        this.stats.cacheHits++;
+        return entry.data as Fill[];
+      }
     }
 
+    const sorted = await this.fetchFillsRaw(ticker, limit);
+    this.setCache(cacheKey, sorted);
+    return sorted;
+  }
+
+  private async fetchFillsRaw(ticker?: string, limit?: number): Promise<Fill[]> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
 
@@ -369,16 +515,13 @@ class DydxDataService {
 
       const fills = ((response?.fills || []) as any[]).map(normalizeFill);
 
-      const sorted = fills.sort((a, b) => {
+      return fills.sort((a, b) => {
         const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return timeB - timeA;
       });
-
-      this.setCache(cacheKey, sorted);
-      return sorted;
     } catch (err) {
-      console.error('[DydxDataService] getFills failed:', err);
+      console.error('[DydxDataService] fetchFillsRaw failed:', err);
       return [];
     }
   }
@@ -456,7 +599,11 @@ class DydxDataService {
   }
 
   clearCache(pattern?: string): void {
-    this.invalidateCache(pattern || '');
+    if (!pattern) {
+      this.cache.clear();
+    } else {
+      this.invalidateCache(pattern);
+    }
   }
 
   isReady(): boolean {
@@ -475,15 +622,48 @@ class DydxDataService {
   async getFundingPayments(
     ticker?: string,
     limit: number = 100,
+    page: number = 1,
+    useCache = true
+  ): Promise<FundingPaymentsResponse> {
+    const cacheKey = `funding_payments_${ticker || 'all'}_${limit}_${page}`;
+
+    if (useCache) {
+      const entry = this.cache.get(cacheKey);
+      if (entry) {
+        const age = Date.now() - entry.timestamp;
+        if (age < 60000) {
+          this.stats.cacheHits++;
+          return entry.data as FundingPaymentsResponse;
+        }
+
+        // Stale-While-Revalidate background fetch
+        if (!entry.isFetching) {
+          const fetchPromise = this.fetchFundingPaymentsRaw(ticker, limit, page);
+          this.triggerBackgroundRevalidate(cacheKey, fetchPromise);
+        }
+
+        this.stats.cacheHits++;
+        return entry.data as FundingPaymentsResponse;
+      }
+    }
+
+    const result = await this.fetchFundingPaymentsRaw(ticker, limit, page);
+    this.setCache(cacheKey, result);
+    return result;
+  }
+
+  private async fetchFundingPaymentsRaw(
+    ticker?: string,
+    limit: number = 100,
     page: number = 1
   ): Promise<FundingPaymentsResponse> {
     this.stats.restCalls++;
-    const { indexer, address, subaccountNumber } = this.getContext();
+    const { indexer, address } = this.getContext();
 
     try {
-      const response: any = await indexer.account.getSubaccountFundingPayments(
+      const response: any = await indexer.account.getParentSubaccountNumberFundingPayments(
         address,
-        subaccountNumber,
+        0, // parent subaccount number
         limit,
         ticker,
         undefined,
@@ -497,7 +677,7 @@ class DydxDataService {
         offset: response.offset || 0,
       };
     } catch (err) {
-      console.error('[DydxDataService] getFundingPayments failed:', err);
+      console.error('[DydxDataService] fetchFundingPaymentsRaw failed:', err);
       return {
         fundingPayments: [],
         pageSize: limit,
@@ -649,8 +829,6 @@ class DydxDataService {
           currentBefore = lastItem.createdAt;
         }
       }
-
-      // Deduplicate by id or createdAt
       const uniqueTransfers: Transfer[] = [];
       const seenIds = new Set();
       for (const item of allTransfers) {

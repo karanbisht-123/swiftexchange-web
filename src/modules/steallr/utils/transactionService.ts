@@ -1,6 +1,7 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { StellarSequenceTracker } from './StellarSequenceTracker';
+import { sendCustomNotification } from '../../../service/notificationService';
 
 export interface SignAndSubmitParams {
   xdr: string;
@@ -16,9 +17,6 @@ export interface SignAndSubmitResult {
   error?: string;
 }
 
-/**
- * Submits a signed transaction XDR to the Stellar Horizon server.
- */
 async function submitToHorizon(
   signedXdr: string,
   horizonUrl: string
@@ -46,13 +44,18 @@ async function submitToHorizon(
   return json.hash;
 }
 
-/**
- * Unified service to sign and submit Stellar transactions.
- * Handles both WalletConnect (multichain) and Freighter extension.
- */
 export const signAndSubmitTransaction = async (
   params: SignAndSubmitParams
 ): Promise<SignAndSubmitResult> => {
+  const token = localStorage.getItem('device_token');
+  if (token) {
+    sendCustomNotification(token, {
+      title: 'Transaction Request',
+      body: 'Please confirm the Stellar transaction.',
+    }).catch(err => {
+      console.error(err);
+    });
+  }
   const { network, networkPassphrase, provider } = params;
   let finalXdr = params.xdr;
 
@@ -141,50 +144,30 @@ export const signAndSubmitTransaction = async (
 
       console.log('[StellarTransactionService] signParams:', signParams);
 
-      try {
-        const result = await provider.client.request({
-          topic,
-          chainId,
-          request: {
-            method: 'stellar_signAndSubmitXDR',
-            params: signParams,
-          },
-        });
+      const result = await provider.client.request({
+        topic,
+        chainId,
+        request: {
+          method: 'stellar_signAndSubmitXDR',
+          params: signParams,
+        },
+      });
 
-        if (result?.status === 'success' || result?.hash) {
-          return { success: true, hash: result.hash };
-        }
+      if (result?.status === 'success' || result?.hash) {
+        return { success: true, hash: result.hash };
+      }
 
-        if (result?.signedXDR) {
-          const config = getStellarConfig(network.toLowerCase() as any);
-          const hash = await submitToHorizon(result.signedXDR, config.horizonUrl);
-          return { success: true, hash };
-        }
-
-        if (typeof result === 'string') {
-          return { success: true, hash: result };
-        }
-      } catch (wcError: any) {
-        console.warn('[StellarTransactionService] stellar_signAndSubmitXDR failed, trying fallback...', wcError);
-        const signResult = await provider.client.request({
-          topic,
-          chainId,
-          request: {
-            method: 'stellar_signTransaction',
-            params: signParams,
-          },
-        });
-
-        const signedXdr = signResult?.signedXDR || (typeof signResult === 'string' ? signResult : null);
-
-        if (!signedXdr) {
-          throw new Error('Wallet failed to sign the transaction');
-        }
-
+      if (result?.signedXDR) {
         const config = getStellarConfig(network.toLowerCase() as any);
-        const hash = await submitToHorizon(signedXdr, config.horizonUrl);
+        const hash = await submitToHorizon(result.signedXDR, config.horizonUrl);
         return { success: true, hash };
       }
+
+      if (typeof result === 'string') {
+        return { success: true, hash: result };
+      }
+
+      throw new Error('Transaction signing/submission failed or was cancelled');
     }
 
     if (typeof provider?.request === 'function') {

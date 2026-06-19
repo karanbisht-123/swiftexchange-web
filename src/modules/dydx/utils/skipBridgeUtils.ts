@@ -1,3 +1,4 @@
+
 import { fromBech32, toBech32 } from '@cosmjs/encoding';
 import { createWalletClient, custom } from 'viem';
 import * as viemChains from 'viem/chains';
@@ -23,17 +24,17 @@ const SKIP_CHAIN_NAME_MAP: Record<number | string, string> = {
 
 export const SKIP_BRIDGES = ['CCTP', 'GO_FAST', 'IBC', 'AXELAR'] as const;
 
-export const NATIVE_WALLET_GAS_RESERVE_UUSDC = 1_500_000; // $1.50
-export const NATIVE_WALLET_GAS_RESERVE_USD = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6; // 1.50
+export const NATIVE_WALLET_GAS_RESERVE_UUSDC = 1_250_000; // $1.25 USD
+export const NATIVE_WALLET_GAS_RESERVE_USD = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6; // $1.25 USD
 
-export function computeDepositSplit(walletBalanceUusdc: number): {
-  keepUusdc: number;
-  depositUusdc: number;
-} {
-  const keepUusdc = Math.min(walletBalanceUusdc, NATIVE_WALLET_GAS_RESERVE_UUSDC);
-  const depositUusdc = Math.max(0, walletBalanceUusdc - keepUusdc);
-  return { keepUusdc, depositUusdc };
-}
+// Chains that need legacy gasPrice instead of EIP-1559 fields
+const LEGACY_GAS_CHAINS = new Set([56, 97]); // BNB Smart Chain mainnet + testnet
+
+// Minimum priority fee floors per chain (in wei)
+const MIN_TIP_BY_CHAIN: Record<number, bigint> = {
+  137: 30_000_000_000n,   // Polygon
+  80001: 30_000_000_000n, // Mumbai
+};
 
 export function dydxToNoble(dydxAddress: string): string {
   try {
@@ -92,8 +93,6 @@ export function getEvmSourceDenom(
   if (lowerAddress.startsWith('0x')) {
     return lowerAddress;
   }
-
-  // Fallback to registry lookup by symbol
   const registryAddress = getTokenAddress(chainId, symbol as any);
   if (registryAddress && registryAddress.startsWith('0x')) {
     return registryAddress.toLowerCase();
@@ -202,7 +201,9 @@ export function buildEvmSigner(evmAddress: string, sessionProvider?: any) {
   return async (chainId: string) => {
     const provider = sessionProvider ?? (window as any).ethereum;
     if (!provider) throw new Error('No EVM provider available — wallet not connected');
-    const chain = VIEM_CHAINS_BY_ID[Number(chainId)];
+
+    const parsedChainId = Number(chainId);
+    const chain = VIEM_CHAINS_BY_ID[parsedChainId];
     if (!chain) throw new Error(`Unsupported EVM chain ID: ${chainId}`);
 
     const client = createWalletClient({
@@ -212,32 +213,99 @@ export function buildEvmSigner(evmAddress: string, sessionProvider?: any) {
     });
 
     const originalSendTransaction = client.sendTransaction.bind(client);
+
+
+
     client.sendTransaction = async (args: any) => {
-      const parsedChainId = Number(chainId);
-      if (parsedChainId === 137) {
-        const minGasPrice = 30_000_000_000n;
+      const isLegacy = LEGACY_GAS_CHAINS.has(parsedChainId);
+      const minTip = MIN_TIP_BY_CHAIN[parsedChainId] ?? 0n;
 
-        if (args.gasPrice !== undefined && args.gasPrice !== null) {
-          const currentGasPrice = BigInt(args.gasPrice);
-          if (currentGasPrice < minGasPrice) {
-            args.gasPrice = minGasPrice;
+      const original = {
+        gasPrice: args.gasPrice?.toString(),
+        maxFeePerGas: args.maxFeePerGas?.toString(),
+        maxPriorityFeePerGas: args.maxPriorityFeePerGas?.toString(),
+      };
+
+      if (isLegacy) {
+        let gasPrice = 0n;
+        try {
+          const hex = await provider.request({ method: 'eth_gasPrice' });
+          if (hex) gasPrice = BigInt(hex);
+        } catch (e) {
+          console.warn(`[buildEvmSigner] eth_gasPrice failed for chain ${chainId}`, e);
+        }
+
+        const current = args.gasPrice != null ? BigInt(args.gasPrice) : 0n;
+        const effective = gasPrice > minTip ? gasPrice : minTip;
+        args.gasPrice = current > effective ? current : effective;
+
+        delete args.maxFeePerGas;
+        delete args.maxPriorityFeePerGas;
+      } else {
+        let baseFee = 0n;
+        let tip = 0n;
+
+        try {
+          const feeHistory = await provider.request({
+            method: 'eth_feeHistory',
+            params: ['0x5', 'latest', [50]],
+          });
+
+          const nextBaseFeeHex = feeHistory?.baseFeePerGas?.at(-1);
+          if (nextBaseFeeHex) baseFee = BigInt(nextBaseFeeHex);
+
+          const rewards: string[] = (feeHistory?.reward ?? []).flat().filter(Boolean);
+          if (rewards.length > 0) {
+            const sum = rewards.reduce((acc: bigint, r: string) => acc + BigInt(r), 0n);
+            tip = sum / BigInt(rewards.length);
+          }
+        } catch (e) {
+          console.warn(`[buildEvmSigner] eth_feeHistory failed for chain ${chainId}`, e);
+        }
+
+        if (baseFee === 0n) {
+          try {
+            const hex = await provider.request({ method: 'eth_gasPrice' });
+            if (hex) baseFee = BigInt(hex);
+          } catch (e) {
+            console.warn(`[buildEvmSigner] eth_gasPrice fallback failed for chain ${chainId}`, e);
           }
         }
 
-        if (args.maxPriorityFeePerGas !== undefined && args.maxPriorityFeePerGas !== null) {
-          const currentTip = BigInt(args.maxPriorityFeePerGas);
-          if (currentTip < minGasPrice) {
-            args.maxPriorityFeePerGas = minGasPrice;
-          }
+        if (tip < minTip) tip = minTip;
+
+        const feeCap = (baseFee * 2n) + tip;
+
+        if (args.maxFeePerGas != null) {
+          const given = BigInt(args.maxFeePerGas);
+          args.maxFeePerGas = given > feeCap ? given : feeCap;
+        } else {
+          args.maxFeePerGas = feeCap;
         }
 
-        if (args.maxFeePerGas !== undefined && args.maxFeePerGas !== null) {
-          const currentFee = BigInt(args.maxFeePerGas);
-          if (currentFee < minGasPrice) {
-            args.maxFeePerGas = minGasPrice + 10_000_000_000n;
-          }
+        if (args.maxPriorityFeePerGas != null) {
+          const given = BigInt(args.maxPriorityFeePerGas);
+          args.maxPriorityFeePerGas = given > tip ? given : tip;
+        } else {
+          args.maxPriorityFeePerGas = tip;
         }
+
+        if (BigInt(args.maxPriorityFeePerGas) > BigInt(args.maxFeePerGas)) {
+          args.maxPriorityFeePerGas = args.maxFeePerGas;
+        }
+
+        if (args.gasPrice != null) delete args.gasPrice;
       }
+
+      console.log(`[buildEvmSigner] Chain (${chainId}) gas adjustments:`, {
+        original,
+        adjusted: {
+          gasPrice: args.gasPrice?.toString(),
+          maxFeePerGas: args.maxFeePerGas?.toString(),
+          maxPriorityFeePerGas: args.maxPriorityFeePerGas?.toString(),
+        },
+      });
+
       return originalSendTransaction(args);
     };
 
@@ -317,4 +385,47 @@ export async function fetchDydxWalletUsdcBalance(dydxAddress: string): Promise<n
 export async function fetchDydxWalletUsdcBalanceHuman(dydxAddress: string): Promise<number> {
   const uusdc = await fetchDydxWalletUsdcBalance(dydxAddress);
   return uusdc / 1e6;
+}
+
+/**
+ * Split incoming bridge funds between a gas-reserve kept in the native wallet
+ * and the amount forwarded to the dYdX subaccount.
+ *
+ * @param incomingUusdc     The freshly-arrived balance delta (uusdc).
+ * @param preExistingUusdc  The wallet balance that existed BEFORE the bridge.
+ */
+export function computeSplit(
+  incomingUusdc: number,
+  preExistingUusdc: number
+): { keepUusdc: number; depositUusdc: number } {
+  const shortfall = Math.max(0, NATIVE_WALLET_GAS_RESERVE_UUSDC - preExistingUusdc);
+  const keepUusdc = Math.min(shortfall, incomingUusdc);
+  const depositUusdc = Math.max(0, incomingUusdc - keepUusdc);
+  return { keepUusdc, depositUusdc };
+}
+
+export async function pollUntilBalance(
+  fetchBalance: () => Promise<number>,
+  minAmount: number,
+  timeoutMs: number,
+  intervalMs: number,
+  label: string
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const bal = await fetchBalance();
+      console.log(`[pollUntilBalance:${label}] balance=${bal} need>=${minAmount}`);
+      if (bal >= minAmount) return bal;
+    } catch (e) {
+      console.warn(`[pollUntilBalance:${label}] fetch error:`, e);
+    }
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+
+  throw new Error(
+    `Timed out waiting for ${label} balance to reach ${minAmount} ` +
+    `(deadline ${timeoutMs / 1000}s exceeded).`
+  );
 }

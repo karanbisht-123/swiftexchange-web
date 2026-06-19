@@ -13,13 +13,19 @@ import {
   STELLAR_NETWORK_PASSPHRASE
 } from '../../../../steallr/service/allbridgeService';
 import { useDydxDeposit } from '../../../../dydx/hooks/useDydxDeposit';
+import { skipApiService } from '../../../../dydx/service/skipApiService';
+import { ethers } from 'ethers';
 import { ChainSymbol, FeePaymentMethod, Messenger } from '@allbridge/bridge-core-sdk';
 import { getEvmChainsForNetwork, type ChainConfig } from '../../../utils/Chainregistry';
 import { switchOrAddChain } from '../../../utils/evmChainUtils';
+import { getNativeBalance, getERC20Balances } from '../../../utils/evmUtils';
+import { getChainById } from '../../../utils/Chainregistry';
 import * as StellarSDK from '@stellar/stellar-sdk';
 import { addLocalTransaction } from '../../../../evm/service/localTransactionService';
 import { storeSwapOrder, getTransactionStatus, getSwapOrdersByWallet, updateSwapOrderStatus } from '../../../../evm/service/evmTransactionStatusService';
+import { parseWalletError } from '../../../utils/swapErrorHandler';
 import { useNotificationStore } from '../../../../../store/notificationStore';
+import { useSwapStore } from '../../../../../store/swapStore';
 import { isTxOwnedByCurrentUser } from '../../../../dydx/hooks/useTransactionTracker';
 
 const STELLAR_CHAIN_ID = 'pubnet';
@@ -31,6 +37,22 @@ type SDKAny = any;
 
 export type Phase = 'SETUP' | 'SWAP' | 'BRIDGE' | 'DEPOSIT' | 'DONE';
 export type TxStatus = 'PENDING' | 'SUCCESS' | 'FAILED';
+
+export type SigningPhase =
+  | 'idle'
+  | 'signing_swap'
+  | 'signing_bridge_approve'
+  | 'signing_bridge_send'
+  | 'signing_deposit_approve'
+  | 'signing_deposit_confirm';
+
+export interface SigningStep {
+  phase: SigningPhase;
+  inputSymbol: string;
+  stepNumber: number;
+  totalSteps: number;
+  walletType: 'stellar' | 'evm' | null;
+}
 
 export interface StellarToken {
   id: string;
@@ -126,6 +148,7 @@ interface BackendOrder {
   requestId?: string;
   status?: 'pending' | 'completed' | 'failed';
   txType?: string;
+  createdAt?: string | number;
 }
 
 const sanitizeAmount = (val: string | number | null | undefined, decimals: number = 7): string => {
@@ -137,13 +160,9 @@ const sanitizeAmount = (val: string | number | null | undefined, decimals: numbe
 };
 
 const classifyBridgeError = (err: unknown): BridgeSessionError => {
-  const rawMsg = err instanceof Error
-    ? err.message
-    : typeof err === 'object' && err !== null && 'message' in err
-      ? String((err as { message: unknown }).message)
-      : String(err);
+  const cleanMsg = parseWalletError(err);
   return {
-    message: rawMsg || 'An unexpected error occurred.',
+    message: cleanMsg || 'An unexpected error occurred.',
     action: 'Tap Try Again to retry this step.',
   };
 };
@@ -212,7 +231,12 @@ const mapBackendOrderToSession = (
     if (phase === 'BRIDGE' && bridgeStatus === 'SUCCESS') phase = 'DEPOSIT';
   }
 
-  if (phase === 'DONE' || Date.now() - (bridgeOrder ? Date.now() : 0) > RECOVERY_MAX_AGE_MS) {
+  const orderTime = bridgeOrder?.createdAt || dydxOrder?.createdAt;
+  const orderTimestamp = orderTime
+    ? (typeof orderTime === 'number' ? orderTime : new Date(orderTime).getTime())
+    : Date.now();
+
+  if (phase === 'DONE' || Date.now() - orderTimestamp > RECOVERY_MAX_AGE_MS) {
     return null;
   }
 
@@ -261,6 +285,10 @@ export const useStellarDydxOrchestrator = () => {
   const [inputToken, setInputToken] = useState<StellarToken | null>(null);
   const [destinationChain, setDestinationChain] = useState<ChainConfig | null>(null);
   const [feePaymentMethod, setFeePaymentMethod] = useState<FeePaymentMethod>(FeePaymentMethod.WITH_STABLECOIN);
+  const feePaymentMethodRef = useRef(feePaymentMethod);
+  useEffect(() => {
+    feePaymentMethodRef.current = feePaymentMethod;
+  }, [feePaymentMethod]);
 
   const [stellarAssets, setStellarAssets] = useState<StellarToken[]>([]);
   const [loadingAssets, setLoadingAssets] = useState<boolean>(true);
@@ -276,8 +304,48 @@ export const useStellarDydxOrchestrator = () => {
   const [setupError, setSetupError] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<BridgeSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, _setActiveSessionId] = useState<string | null>(null);
+  const hasAutoOpenedRef = useRef(false);
+  const setActiveSessionId = useCallback((id: string | null) => {
+    _setActiveSessionId(id);
+    if (id === null) {
+      hasAutoOpenedRef.current = true;
+    }
+  }, []);
+
+  const prevEvmAddressRef = useRef(evmAddress);
+  const prevStellarAddressRef = useRef(stellarAddress);
+  useEffect(() => {
+    if (evmAddress !== prevEvmAddressRef.current || stellarAddress !== prevStellarAddressRef.current) {
+      hasAutoOpenedRef.current = false;
+      prevEvmAddressRef.current = evmAddress;
+      prevStellarAddressRef.current = stellarAddress;
+    }
+  }, [evmAddress, stellarAddress]);
+
   const [isRestored, setIsRestored] = useState<boolean>(false);
+  // Tracks which wallet signature step is in progress
+  const [signingStep, setSigningStep] = useState<SigningStep>({
+    phase: 'idle',
+    inputSymbol: '',
+    stepNumber: 0,
+    totalSteps: 0,
+    walletType: null,
+  });
+
+  const [destinationGasBalance, setDestinationGasBalance] = useState<string | null>(null);
+  const [checkingGasBalance, setCheckingGasBalance] = useState<boolean>(false);
+  // EVM USDC balance on the destination chain — fetched once when bridge completes
+  const [evmUsdcBalance, setEvmUsdcBalance] = useState<string | null>(null);
+  const [checkingEvmUsdcBalance, setCheckingEvmUsdcBalance] = useState<boolean>(false);
+
+  const clearSigningStep = useCallback(() => setSigningStep({
+    phase: 'idle',
+    inputSymbol: '',
+    stepNumber: 0,
+    totalSteps: 0,
+    walletType: null,
+  }), []);
   const hasRestoredRef = useRef<boolean>(false);
   const [quoteTimestamp, setQuoteTimestamp] = useState<number | null>(null);
 
@@ -302,6 +370,7 @@ export const useStellarDydxOrchestrator = () => {
     try {
       const sessionsToSave = updated
         .filter(s => s.phase !== 'SETUP')
+        .filter(s => s.swapTx?.hash || s.bridgeTx?.hash || s.depositTx?.hash) // to save atles on hash need
         .map(s => ({
           id: s.id,
           groupId: s.groupId,
@@ -353,8 +422,15 @@ export const useStellarDydxOrchestrator = () => {
     return null;
   }, [stellarAssets, currentNetwork]);
 
+  // Guard: only fetch stellar assets once per wallet+service combination
+  const hasFetchedAssetsRef = useRef<string | null>(null);
+
   const fetchStellarAssets = useCallback(async () => {
     if (!ammService || !stellarAddress) return;
+    // Deduplicate: don't re-fetch if we already loaded for this wallet
+    const fetchKey = `${stellarAddress}`;
+    if (hasFetchedAssetsRef.current === fetchKey) return;
+    hasFetchedAssetsRef.current = fetchKey;
     try {
       setLoadingAssets(true);
       const { tokens: balances, subentryCount } = await ammService.getAssetsWithBalances(stellarAddress);
@@ -394,6 +470,8 @@ export const useStellarDydxOrchestrator = () => {
       });
     } catch (err) {
       console.error('Failed to fetch Stellar balances:', err);
+      // Reset guard so user can retry
+      hasFetchedAssetsRef.current = null;
     } finally {
       setLoadingAssets(false);
     }
@@ -445,7 +523,7 @@ export const useStellarDydxOrchestrator = () => {
 
       setSwapQuote(finalSwapQuote);
 
-      const dstSymbol = (destinationChain.symbol === 'BNB' ? ChainSymbol.BSC : destinationChain.symbol) as ChainSymbol;
+      const dstSymbol = destinationChain.symbol as ChainSymbol;
       const srcUsdc = allTokens.find(t => t.chainSymbol === ChainSymbol.SRB && t.symbol === 'USDC');
       const dstUsdc = allTokens.find(t => t.chainSymbol === dstSymbol && t.symbol === 'USDC');
       if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found for selected chain');
@@ -467,7 +545,12 @@ export const useStellarDydxOrchestrator = () => {
       const dstUsdcAmount = bq.amountToBeReceived;
       if (!dstUsdcAmount) throw new Error('Could not determine deposit amount');
 
-      const dr = await getRoute('USDC', parseFloat(dstUsdcAmount.toString()), destinationChain.chainId, false);
+      let finalDepositAmount = parseFloat(dstUsdcAmount.toString());
+      if (feePaymentMethodRef.current === FeePaymentMethod.WITH_STABLECOIN && bq.feeOptions?.stablecoin) {
+        finalDepositAmount = Math.max(0, finalDepositAmount - Number(bq.feeOptions.stablecoin.float));
+      }
+
+      const dr = await getRoute('USDC', finalDepositAmount, destinationChain.chainId, false);
       if (signal.aborted) return;
       if (!dr) throw new Error('No deposit route to dYdX found. Try another chain.');
       setDepositQuote(dr as DepositQuote);
@@ -513,6 +596,16 @@ export const useStellarDydxOrchestrator = () => {
       const tx = await ammService.buildSwapTransaction(stellarAddress, freshSwapQuote as SDKAny, {
         slippageTolerance: DEFAULT_SLIPPAGE,
       });
+
+      // Signal that we are now waiting for the swap wallet signature
+      setSigningStep({
+        phase: 'signing_swap',
+        inputSymbol: session.inputTokenSymbol,  // e.g. "XLM"
+        stepNumber: 1,
+        totalSteps: 3,
+        walletType: 'stellar',
+      });
+      useSwapStore.getState().setBridgePendingSignPhase('signing_swap', session.id);
       const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
 
       addLocalTransaction({
@@ -540,6 +633,9 @@ export const useStellarDydxOrchestrator = () => {
     } catch (err: unknown) {
       updateSession(session.id, { error: classifyBridgeError(err) });
       return false;
+    } finally {
+      clearSigningStep();
+      useSwapStore.getState().clearBridgePendingSign();
     }
   }, [ammService, stellarAddress, getProvider, currentNetwork, updateSession, showToast, stellarAssets, getStellarAsset]);
 
@@ -549,7 +645,7 @@ export const useStellarDydxOrchestrator = () => {
       const sessionChain = getEvmChainsForNetwork(currentNetwork).find(c => c.chainId === session.destinationChainId);
       if (!sessionChain) throw new Error('Destination chain not found');
 
-      const dstSymbol = (sessionChain.symbol === 'BNB' ? ChainSymbol.BSC : sessionChain.symbol) as ChainSymbol;
+      const dstSymbol = sessionChain.symbol as ChainSymbol;
       const srcUsdc = allTokens.find(t => t.chainSymbol === ChainSymbol.SRB && t.symbol === 'USDC');
       const dstUsdc = allTokens.find(t => t.chainSymbol === dstSymbol && t.symbol === 'USDC');
       if (!srcUsdc || !dstUsdc) throw new Error('Bridge tokens not found');
@@ -581,6 +677,20 @@ export const useStellarDydxOrchestrator = () => {
       });
 
       const provider = getProvider(WalletType.STELLAR) as SDKAny;
+
+      const isUsdc = session.inputTokenSymbol === 'USDC';
+      const totalSteps = isUsdc ? 2 : 3;
+      const bridgeStepNumber = isUsdc ? 1 : 2;
+
+      setSigningStep({
+        phase: 'signing_bridge_send',
+        inputSymbol: session.inputTokenSymbol,
+        stepNumber: bridgeStepNumber,
+        totalSteps,
+        walletType: 'stellar',
+      });
+      useSwapStore.getState().setBridgePendingSignPhase('signing_bridge_send', session.id);
+
       const result = await signAndSubmitTransaction({
         xdr,
         network: currentNetwork,
@@ -590,9 +700,15 @@ export const useStellarDydxOrchestrator = () => {
       });
 
       if (result.hash) {
+        let expectedNetOutput = freshBridgeQuote.amountToBeReceived;
+        if (session.feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && freshBridgeQuote.feeOptions?.stablecoin) {
+          const stablecoinFee = Number(freshBridgeQuote.feeOptions.stablecoin.float || 0);
+          expectedNetOutput = String(Math.max(0, parseFloat(expectedNetOutput) - stablecoinFee));
+        }
+
         updateSession(session.id, {
           bridgeTx: { hash: result.hash, status: 'PENDING' },
-          intermediateAmount: freshBridgeQuote.amountToBeReceived,
+          intermediateAmount: expectedNetOutput,
           bridgeStartedAt: Date.now(),
           expectedBridgeTimeMs: freshBridgeQuote.transferTimeMs ? Number(freshBridgeQuote.transferTimeMs) : null,
         });
@@ -629,11 +745,15 @@ export const useStellarDydxOrchestrator = () => {
         });
       }
 
+      console.log(result, "sing result form wallt conenct")
       if (!result.success) throw new Error(result.error || 'Transaction failed');
       return true;
     } catch (err: unknown) {
       updateSession(session.id, { error: classifyBridgeError(err) });
       return false;
+    } finally {
+      clearSigningStep();
+      useSwapStore.getState().clearBridgePendingSign();
     }
   }, [stellarAddress, evmAddress, currentNetwork, getProvider, updateSession, showToast, assetMap]);
 
@@ -657,6 +777,57 @@ export const useStellarDydxOrchestrator = () => {
       } catch {
         throw new Error(`Please switch your wallet network to ${sessionChain.name} before depositing.`);
       }
+
+      // 1. Check if we need to approve USDC. We query Skip Route and Messages to get spender contract info.
+      let needsApprove = false;
+      // try {
+      //   const rawRoute = await skipApiService.getDepositRoute(
+      //     'USDC',
+      //     sessionChain.chainId,
+      //     confirmedReceiveAmount,
+      //     true
+      //   );
+      //   if (rawRoute) {
+      //     const msgs = await skipApiService.getDepositMsgs(
+      //       rawRoute,
+      //       evmAddress!,
+      //       session.requiredWallets.dydx || evmAddress!
+      //     );
+      //     if (msgs.evmTx?.requiredErc20Approvals && msgs.evmTx.requiredErc20Approvals.length > 0) {
+      //       const ethersProvider = new ethers.BrowserProvider(provider);
+      //       for (const approval of msgs.evmTx.requiredErc20Approvals) {
+      //         const tokenContract = new ethers.Contract(
+      //           approval.tokenContract,
+      //           ['function allowance(address owner, address spender) view returns (uint256)'],
+      //           ethersProvider
+      //         );
+      //         const currentAllowance = await tokenContract.allowance(evmAddress, approval.spender);
+      //         const requiredAmount = BigInt(approval.amount);
+      //         if (currentAllowance < requiredAmount) {
+      //           needsApprove = true;
+      //           break;
+      //         }
+      //       }
+      //     }
+      //   }
+      // } catch (err) {
+      //   console.warn('Failed to query Skip route/allowance, defaulting to approve phase:', err);
+      //   needsApprove = true;
+      // }
+
+      const isUsdc = session.inputTokenSymbol === 'USDC';
+      const totalSteps = isUsdc ? 2 : 3;
+
+      const initialPhase = needsApprove ? 'signing_deposit_approve' : 'signing_deposit_confirm';
+
+      setSigningStep({
+        phase: initialPhase,
+        inputSymbol: session.inputTokenSymbol,
+        stepNumber: totalSteps,
+        totalSteps,
+        walletType: 'evm',
+      });
+      useSwapStore.getState().setBridgePendingSignPhase(initialPhase, session.id);
 
       const dr = await getRoute('USDC', confirmedReceiveAmount, sessionChain.chainId, true);
       if (!dr) throw new Error('Could not verify fresh deposit route. Please try again.');
@@ -697,6 +868,8 @@ export const useStellarDydxOrchestrator = () => {
             requestId: session.groupId,
             txType: 'Bridge',
           }).catch(err => console.error('Failed to store dYdX deposit order:', err));
+          setSigningStep(prev => ({ ...prev, phase: 'signing_deposit_confirm' }));
+          useSwapStore.getState().setBridgePendingSignPhase('signing_deposit_confirm', session.id);
 
           updateSession(session.id, {
             depositTx: { hash, status: 'PENDING' },
@@ -717,11 +890,15 @@ export const useStellarDydxOrchestrator = () => {
     } catch (err: unknown) {
       updateSession(session.id, { error: classifyBridgeError(err) });
       return false;
+    } finally {
+      clearSigningStep();
+      useSwapStore.getState().clearBridgePendingSign();
     }
   }, [evmAddress, currentNetwork, deposit, getRoute, updateSession, showToast, getProvider]);
 
-  const executeSessionStep = useCallback(async (sessionId: string) => {
-    const session = sessions.find(s => s.id === sessionId);
+  const executeAllSteps = useCallback(async (sessionId: string, initialSession?: BridgeSession) => {
+    const getSession = () => sessions.find(s => s.id === sessionId);
+    let session = initialSession || getSession();
     if (!session) return;
 
     updateSession(sessionId, { loadingStep: true, error: null });
@@ -729,21 +906,39 @@ export const useStellarDydxOrchestrator = () => {
     try {
       if (session.phase === 'SWAP') {
         const ok = await executeSwap(session);
-        updateSession(sessionId, {
-          ...(ok ? { phase: 'BRIDGE' } : {}),
-          loadingStep: false,
-        });
-      } else if (session.phase === 'BRIDGE') {
-        await executeBridge(session);
+        if (!ok) {
+          updateSession(sessionId, { loadingStep: false });
+          return;
+        }
+        updateSession(sessionId, { phase: 'BRIDGE', loadingStep: true });
+        session = { ...session, phase: 'BRIDGE', swapTx: { ...session.swapTx, status: 'SUCCESS' } };
+      }
+      if (session.phase === 'BRIDGE' && !session.bridgeTx?.hash) {
+        const ok = await executeBridge(session);
+        if (!ok) {
+          updateSession(sessionId, { loadingStep: false });
+          return;
+        }
         updateSession(sessionId, { loadingStep: false });
-      } else if (session.phase === 'DEPOSIT') {
-        await executeDeposit(session);
+        return;
+      }
+      session = getSession()!;
+      if (session?.phase === 'DEPOSIT' && session.bridgeTx?.status === 'SUCCESS' && !session.depositTx?.hash) {
+        const ok = await executeDeposit(session);
+        updateSession(sessionId, { loadingStep: false });
+        if (!ok) return;
+      } else {
         updateSession(sessionId, { loadingStep: false });
       }
     } catch (err: unknown) {
       updateSession(sessionId, { error: classifyBridgeError(err), loadingStep: false });
     }
   }, [sessions, executeSwap, executeBridge, executeDeposit, updateSession]);
+
+  const executeSessionStep = useCallback(async (sessionId: string) => {
+    return executeAllSteps(sessionId);
+  }, [executeAllSteps]);
+
 
   const createSession = useCallback(async () => {
     if (!inputToken || !destinationChain || !inputAmount) return;
@@ -760,6 +955,12 @@ export const useStellarDydxOrchestrator = () => {
       : `grp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
     const initialPhase: Phase = inputToken.symbol === 'USDC' ? 'BRIDGE' : 'SWAP';
+
+    let expectedBridgeOutput = bridgeQuote?.amountToBeReceived || null;
+    if (feePaymentMethod === FeePaymentMethod.WITH_STABLECOIN && bridgeQuote?.feeOptions?.stablecoin) {
+      const stablecoinFee = Number(bridgeQuote.feeOptions.stablecoin.float || 0);
+      expectedBridgeOutput = String(Math.max(0, parseFloat(expectedBridgeOutput || '0') - stablecoinFee));
+    }
 
     const newSession: BridgeSession = {
       id: sessionId,
@@ -782,40 +983,19 @@ export const useStellarDydxOrchestrator = () => {
       error: null,
       loadingStep: true,
       expectedSwapOutput: swapQuote?.estimatedOutput || null,
-      expectedBridgeOutput: bridgeQuote?.amountToBeReceived || null,
+      expectedBridgeOutput,
       expectedBridgeTimeMs: bridgeQuote?.transferTimeMs ? Number(bridgeQuote.transferTimeMs) : null,
       bridgeStartedAt: null,
     };
 
     setSessions(prev => {
       const next = [...prev, newSession];
-      saveSessions(next);
+      // saveSessions(next);
       return next;
     });
-
     setActiveSessionId(sessionId);
     clearSetupForm();
-
-    if (initialPhase === 'SWAP') {
-      executeSwap(newSession)
-        .then(ok => {
-          updateSession(sessionId, {
-            ...(ok ? { phase: 'BRIDGE' } : {}),
-            loadingStep: false,
-          });
-        })
-        .catch(err => {
-          updateSession(sessionId, { error: classifyBridgeError(err), loadingStep: false });
-        });
-    } else {
-      executeBridge(newSession)
-        .then(() => {
-          updateSession(sessionId, { loadingStep: false });
-        })
-        .catch(err => {
-          updateSession(sessionId, { error: classifyBridgeError(err), loadingStep: false });
-        });
-    }
+    await executeAllSteps(sessionId, newSession);
   }, [
     inputToken,
     destinationChain,
@@ -825,8 +1005,7 @@ export const useStellarDydxOrchestrator = () => {
     bridgeQuote,
     saveSessions,
     clearSetupForm,
-    executeSwap,
-    executeBridge,
+    executeAllSteps,
     updateSession,
     quoteTimestamp,
   ]);
@@ -846,6 +1025,7 @@ export const useStellarDydxOrchestrator = () => {
     if (!evmAddress && !stellarAddress) return;
     try {
       const wallets = useWalletStore.getState().connectedWallets;
+      // Only fetch 1 page per wallet — no batch pagination on initial load
       const [evmOrdersRaw, stellarOrdersRaw] = await Promise.all([
         evmAddress ? getSwapOrdersByWallet(evmAddress, 1, 10) : Promise.resolve({ data: [] }),
         stellarAddress ? getSwapOrdersByWallet(stellarAddress, 1, 10) : Promise.resolve({ data: [] }),
@@ -864,136 +1044,60 @@ export const useStellarDydxOrchestrator = () => {
         }
       });
 
+      let activeIdToClear = false;
       setSessions(prev => {
         const existingGroupIds = new Set(prev.map(s => s.groupId).filter(Boolean));
         const newSessions: BridgeSession[] = [];
+        const sessionsToDismiss = new Set<string>();
 
         for (const [groupId, orders] of ordersByGroup) {
-          if (existingGroupIds.has(groupId)) continue;
+          const isCompleted = orders.some(o => o.provider === 'DYDX' && o.status === 'completed');
+
+          if (existingGroupIds.has(groupId)) {
+            if (isCompleted) {
+              const existingSession = prev.find(s => s.groupId === groupId);
+              if (existingSession) {
+                sessionsToDismiss.add(existingSession.id);
+              }
+            }
+            continue;
+          }
+
+          if (isCompleted) continue;
+
           const recovered = mapBackendOrderToSession(orders, wallets);
           if (recovered) newSessions.push(recovered);
         }
 
-        if (newSessions.length === 0) return prev;
-        const merged = [...prev, ...newSessions];
-        saveSessions(merged);
-        return merged;
+        if (activeSessionId && sessionsToDismiss.has(activeSessionId)) {
+          activeIdToClear = true;
+        }
+
+        let nextSessions = prev.filter(s => !sessionsToDismiss.has(s.id));
+        if (newSessions.length > 0) {
+          nextSessions = [...nextSessions, ...newSessions];
+        }
+
+        if (nextSessions.length === prev.length && newSessions.length === 0) return prev;
+        saveSessions(nextSessions);
+        return nextSessions;
       });
 
-      setSessions(current => {
-        const pending = current
-          .filter(s => s.phase !== 'DONE' && s.phase !== 'SETUP')
-          .sort((a, b) => b.createdAt - a.createdAt);
-        if (pending.length > 0 && !activeSessionId) {
-          setActiveSessionId(pending[0].id);
-        }
-        return current;
-      });
+      if (activeIdToClear) {
+        setActiveSessionId(null);
+      }
     } catch (err) {
       console.error('Backend session recovery failed:', err);
     }
   }, [evmAddress, stellarAddress, currentNetwork, saveSessions, activeSessionId]);
 
-  const reconcileWithBackend = useCallback(async (currentSessions: BridgeSession[]) => {
-    if (!evmAddress) return;
-
-    const sessionsToCheck = currentSessions.filter(s =>
-      s.phase !== 'DONE' &&
-      s.groupId &&
-      !s.groupId.startsWith('legacy-') &&
-      (s.bridgeTx.hash || s.depositTx.hash)
-    );
-
-    if (sessionsToCheck.length === 0) return;
-
-    try {
-      const fetchOrders = async (address: string) => {
-        const [p1, p2] = await Promise.allSettled([
-          getSwapOrdersByWallet(address, 1, 10),
-          getSwapOrdersByWallet(address, 2, 10),
-        ]);
-        const orders: SDKAny[] = [];
-        if (p1.status === 'fulfilled' && Array.isArray(p1.value?.data)) orders.push(...p1.value.data);
-        if (p2.status === 'fulfilled' && Array.isArray(p2.value?.data)) orders.push(...p2.value.data);
-        return orders;
-      };
-
-      const [evmOrders, stellarOrders] = await Promise.all([
-        fetchOrders(evmAddress),
-        stellarAddress ? fetchOrders(stellarAddress) : Promise.resolve([] as SDKAny[]),
-      ]);
-
-      const seenHashes = new Set<string>();
-      const allOrders: SDKAny[] = [];
-      for (const o of [...evmOrders, ...stellarOrders]) {
-        if (o?.txHash && !seenHashes.has(o.txHash.toLowerCase())) {
-          seenHashes.add(o.txHash.toLowerCase());
-          allOrders.push(o);
-        }
-      }
-
-      const ordersByGroupId = new Map<string, SDKAny[]>();
-      for (const o of allOrders) {
-        if (o?.requestId) {
-          if (!ordersByGroupId.has(o.requestId)) ordersByGroupId.set(o.requestId, []);
-          ordersByGroupId.get(o.requestId)!.push(o);
-        }
-      }
-
-      for (const session of sessionsToCheck) {
-        const groupOrders = ordersByGroupId.get(session.groupId);
-        if (!groupOrders || groupOrders.length === 0) continue;
-
-        const srbOrder = groupOrders.find(o => o.provider === 'SRBTODYDX' || o.provider === 'ALLBRIDGE');
-        const dydxOrder = groupOrders.find(o => o.provider === 'DYDX');
-
-        if (srbOrder && session.phase === 'BRIDGE' && session.bridgeTx.hash) {
-          const backendStatus: TxStatus =
-            srbOrder.status === 'completed' ? 'SUCCESS' :
-              srbOrder.status === 'failed' ? 'FAILED' : 'PENDING';
-
-          if (session.bridgeTx.status !== backendStatus) {
-            updateSession(session.id, {
-              bridgeTx: { ...session.bridgeTx, status: backendStatus },
-              ...(backendStatus === 'SUCCESS' ? {
-                phase: 'DEPOSIT',
-                intermediateAmount: srbOrder.amountOut ? String(srbOrder.amountOut) : session.intermediateAmount,
-              } : {}),
-            });
-          }
-        }
-        if (dydxOrder && (session.phase === 'DEPOSIT' || session.phase === 'BRIDGE')) {
-          const backendDydxStatus: TxStatus =
-            dydxOrder.status === 'completed' ? 'SUCCESS' :
-              dydxOrder.status === 'failed' ? 'FAILED' : 'PENDING';
-
-          const currentDepositHash = session.depositTx?.hash;
-          const backendHash = dydxOrder.txHash?.trim();
-
-          if (!currentDepositHash && backendHash) {
-            updateSession(session.id, {
-              bridgeTx: { ...session.bridgeTx, status: 'SUCCESS' },
-              phase: backendDydxStatus === 'SUCCESS' ? 'DONE' : 'DEPOSIT',
-              depositTx: { hash: backendHash, status: backendDydxStatus },
-              intermediateAmount: dydxOrder.amountIn ? String(dydxOrder.amountIn) : session.intermediateAmount,
-            });
-          } else if (currentDepositHash && session.depositTx.status !== backendDydxStatus) {
-            updateSession(session.id, {
-              depositTx: { hash: currentDepositHash, status: backendDydxStatus },
-              ...(backendDydxStatus === 'SUCCESS' ? { phase: 'DONE' } : {}),
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Backend reconciliation error:', err);
-    }
-  }, [evmAddress, stellarAddress, updateSession]);
 
   useEffect(() => {
     try {
       const config = getStellarConfig(currentNetwork);
       setAmmService(new AmmSwapService(config.horizonUrl, config.networkPassphrase, config.chainId));
+      // Reset asset fetch guard so assets reload for the new network
+      hasFetchedAssetsRef.current = null;
     } catch (err) {
       console.error('Failed to init AmmSwapService:', err);
     }
@@ -1019,14 +1123,17 @@ export const useStellarDydxOrchestrator = () => {
   }, [currentNetwork, destinationChain, isRestored]);
 
   useEffect(() => {
+    const wallets = connectedWallets;
+    if (Object.keys(wallets).length === 0) {
+      return;
+    }
+
     if (hasRestoredRef.current) return;
     hasRestoredRef.current = true;
 
     try {
       const saved = localStorage.getItem(BRIDGE_STEP_KEY);
-      const wallets = connectedWallets;
-
-      if (!saved || Object.keys(wallets).length === 0) {
+      if (!saved) {
         setSessions([]);
         setActiveSessionId(null);
         return;
@@ -1039,8 +1146,8 @@ export const useStellarDydxOrchestrator = () => {
         return;
       }
 
-      const userSessions = (parsed.filter(p =>
-        isTxOwnedByCurrentUser(p, wallets)
+      const allSessions = (parsed.filter(p =>
+        p.phase !== 'DONE'
       ) as SDKAny[]).map(p => ({
         id: p.id || `session-${Date.now()}`,
         groupId: p.groupId || `legacy-${p.id || Date.now()}`,
@@ -1071,8 +1178,30 @@ export const useStellarDydxOrchestrator = () => {
         expectedBridgeTimeMs: p.expectedBridgeTimeMs || null,
       })) as BridgeSession[];
 
-      setSessions(userSessions);
-
+      setSessions(allSessions);
+      saveSessions(allSessions);
+    } catch (err) {
+      console.error('Failed to restore bridge sessions', err);
+      setSessions([]);
+      setActiveSessionId(null);
+    } finally {
+      setIsRestored(true);
+      // One-time on page load: fetch backend orders to recover any in-progress sessions
+      recoverBackendSessions();
+    }
+  }, [connectedWallets]);
+  useEffect(() => {
+    if (!isRestored) return;
+    const wallets = connectedWallets;
+    const userSessions = sessions.filter(s => isTxOwnedByCurrentUser(s, wallets));
+    if (activeSessionId) {
+      const active = sessions.find(s => s.id === activeSessionId);
+      if (!active || !isTxOwnedByCurrentUser(active, wallets)) {
+        setActiveSessionId(null);
+      }
+    }
+    if (!activeSessionId && !hasAutoOpenedRef.current) {
+      hasAutoOpenedRef.current = true;
       const needsAction = userSessions
         .filter(s => s.phase !== 'DONE' && s.phase !== 'SETUP')
         .filter(s => {
@@ -1084,21 +1213,43 @@ export const useStellarDydxOrchestrator = () => {
         })
         .sort((a, b) => b.createdAt - a.createdAt);
 
-      setActiveSessionId(needsAction.length > 0 ? needsAction[0].id : null);
-    } catch (err) {
-      console.error('Failed to restore bridge sessions', err);
-      setSessions([]);
-      setActiveSessionId(null);
-    } finally {
-      setIsRestored(true);
-      recoverBackendSessions();
+      if (needsAction.length > 0) {
+        setActiveSessionId(needsAction[0].id);
+      }
     }
-  }, [connectedWallets]);
+  }, [sessions, connectedWallets, isRestored, activeSessionId]);
+  useEffect(() => {
+    if (!destinationChain || !evmAddress) {
+      setDestinationGasBalance(null);
+      return;
+    }
 
-  // useEffect(() => {
-  //   if (!isRestored) return;
-  //   recoverBackendSessions();
-  // }, [isRestored, recoverBackendSessions]);
+    setDestinationGasBalance(null);
+
+    let active = true;
+    const checkBalance = async () => {
+      setCheckingGasBalance(true);
+      try {
+        const bal = await getNativeBalance(destinationChain.chainId, evmAddress);
+        if (active) {
+          setDestinationGasBalance(bal);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch destination EVM native balance:', err);
+        if (active) setDestinationGasBalance('0');
+      } finally {
+        if (active) setCheckingGasBalance(false);
+      }
+    };
+
+    // Check once when chain or address changes — no polling interval to avoid
+    // continuous background EVM RPC calls
+    checkBalance();
+
+    return () => {
+      active = false;
+    };
+  }, [destinationChain, evmAddress]);
 
   useEffect(() => {
     if (!isRestored) return;
@@ -1114,8 +1265,6 @@ export const useStellarDydxOrchestrator = () => {
     }
 
     if (activeSessionId) return;
-
-    // Clear quotes immediately when inputAmount changes
     setSwapQuote(null);
     setBridgeQuote(null);
     setDepositQuote(null);
@@ -1138,7 +1287,11 @@ export const useStellarDydxOrchestrator = () => {
       controller.abort();
     };
   }, [inputAmount, inputToken, destinationChain, fetchAllQuotes, isRestored, activeSessionId]);
+  // NOTE: Removed auto fee-method deposit route refetch — it caused extra getRoute API calls
+  // on every fee toggle. The deposit amount is already computed inline from bridgeQuote in
+  // fetchAllQuotes and displayed from rawQuotes. No separate effect needed.
 
+  // Refresh quotes every 30s to keep slippage data fresh, only during setup (no active session)
   useEffect(() => {
     if (activeSessionId || !inputAmount || parseFloat(inputAmount) <= 0) return;
 
@@ -1157,6 +1310,53 @@ export const useStellarDydxOrchestrator = () => {
       localController?.abort();
     };
   }, [inputAmount, fetchAllQuotes, activeSessionId]);
+
+  // Fetch EVM USDC balance once when active session bridge completes (enters DEPOSIT phase).
+  // This lets us warn the user if they've spent the bridged funds elsewhere before depositing.
+  const evmUsdcCheckKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Only run when there is an active session in DEPOSIT phase with bridge SUCCESS
+    const sessions_ = sessions;
+    const activeSession = sessions_.find(s => s.id === activeSessionId);
+    if (
+      !activeSession ||
+      activeSession.phase !== 'DEPOSIT' ||
+      activeSession.bridgeTx.status !== 'SUCCESS' ||
+      !evmAddress
+    ) {
+      return;
+    }
+
+    // Deduplicate: only check once per session+phase combination
+    const checkKey = `${activeSession.id}-DEPOSIT`;
+    if (evmUsdcCheckKeyRef.current === checkKey) return;
+    evmUsdcCheckKeyRef.current = checkKey;
+
+    const chainConfig = getChainById(activeSession.destinationChainId);
+    const usdcAddress = chainConfig?.tokens?.USDC;
+    if (!usdcAddress) return; // chain has no known USDC contract — skip silently
+
+    let cancelled = false;
+    const check = async () => {
+      setCheckingEvmUsdcBalance(true);
+      try {
+        const results = await getERC20Balances(activeSession.destinationChainId, evmAddress, [
+          { symbol: 'USDC', address: usdcAddress, decimals: 6, isNative: false },
+        ]);
+        if (!cancelled) {
+          const bal = results[0]?.balance;
+          setEvmUsdcBalance(bal != null ? String(bal) : null);
+        }
+      } catch (err) {
+        console.warn('[EVM USDC balance check] Failed:', err);
+        if (!cancelled) setEvmUsdcBalance(null);
+      } finally {
+        if (!cancelled) setCheckingEvmUsdcBalance(false);
+      }
+    };
+    check();
+    return () => { cancelled = true; };
+  }, [activeSessionId, sessions, evmAddress]);
 
   const sessionsRef = useRef<BridgeSession[]>([]);
   useEffect(() => {
@@ -1293,13 +1493,22 @@ export const useStellarDydxOrchestrator = () => {
           }
         }
       }
-      await reconcileWithBackend(currentSessions);
+      // Note: reconcileWithBackend (orderWallet API) is intentionally NOT called here
+      // on a polling interval. It is only called once on restore/recovery.
+      // Only Allbridge and Skip status APIs poll on a timer.
     };
 
     pollAllSessions();
     const interval = setInterval(pollAllSessions, 20000);
     return () => clearInterval(interval);
   }, [evmAddress, isRestored, updateSession, showToast, dismissSession, currentNetwork]);
+
+  const signingPhase = useMemo(() => {
+    return signingStep.phase === 'idle' ? 'idle'
+      : signingStep.phase === 'signing_swap' ? 'signing_swap'
+        : signingStep.phase.startsWith('signing_bridge') ? 'signing_bridge'
+          : 'signing_deposit';
+  }, [signingStep.phase]);
 
   return {
     inputAmount,
@@ -1329,5 +1538,13 @@ export const useStellarDydxOrchestrator = () => {
     executeSessionStep,
     updateSession,
     quoteTimestamp,
+    signingStep,
+    signingPhase,
+    isSigningInProgress: signingStep.phase !== 'idle',
+    destinationGasBalance,
+    checkingGasBalance,
+    evmUsdcBalance,
+    checkingEvmUsdcBalance,
+
   };
 };

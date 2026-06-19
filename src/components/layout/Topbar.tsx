@@ -12,7 +12,7 @@ import ThemeToggle from '../../utils/ThemeToggle';
 const Topbar: React.FC = () => {
   const { connectedWallets, isRestoringSession, disconnectAll } = useWalletConnect();
   const navigate = useNavigate();
-  const location = useLocation();
+  const loc = useLocation();
   const hasRedirected = useRef(false);
 
   const { notifications, setGlobalPanelOpen } = useNotificationStore();
@@ -23,11 +23,11 @@ const Topbar: React.FC = () => {
   useEffect(() => {
     if (isRestoringSession) return;
 
-    if (isAnyWalletConnected && !hasRedirected.current && location.pathname === ROUTES.HOME) {
+    if (isAnyWalletConnected && !hasRedirected.current && loc.pathname === ROUTES.HOME) {
       hasRedirected.current = true;
       navigate(ROUTES.DASHBOARD);
     }
-  }, [isAnyWalletConnected, isRestoringSession, navigate, location.pathname]);
+  }, [isAnyWalletConnected, isRestoringSession, navigate, loc.pathname]);
 
   const handleDisconnectAll = useCallback(async () => {
     await disconnectAll();

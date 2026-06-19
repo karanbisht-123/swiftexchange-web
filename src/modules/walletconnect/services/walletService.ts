@@ -14,6 +14,7 @@ import {
 } from '../config/chains';
 import { decryptAndRestore, encryptAndStore, hasEncryptedBlob, purge } from './dydxKeyManager';
 import { sessionVault } from './sessionVault';
+import { sendCustomNotification } from '../../../service/notificationService';
 
 const CONNECTION_TIMEOUT_MS = 120_000;
 const SESSION_STORAGE_KEY = 'wallet_sessions';
@@ -142,6 +143,15 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
   const dataToSign = isWalletConnect ? typedData : JSON.stringify(typedData);
 
   try {
+    const token = localStorage.getItem('device_token');
+    if (token) {
+      sendCustomNotification(token, {
+        title: 'Signature Request',
+        body: 'Please open your wallet to sign the dYdX onboarding message.',
+      }).catch(err => {
+        console.error(err);
+      });
+    }
     const signaturePromise = (provider as any).request({
       method: 'eth_signTypedData_v4',
       params: [evmAddress, dataToSign],
@@ -284,6 +294,15 @@ class WalletService {
         provider.on('display_uri', (uri: string) => {
           this.openMobileDeepLink(walletId, uri);
           modal!.openModal({ uri });
+          const token = localStorage.getItem('device_token');
+          if (token) {
+            sendCustomNotification(token, {
+              title: 'Connection Request',
+              body: 'Please open your wallet to connect.',
+            }).catch(err => {
+              console.error(err);
+            });
+          }
         });
 
         provider
@@ -676,6 +695,15 @@ class WalletService {
       provider.on('display_uri', (uri: string) => {
         this.openMobileDeepLink(walletId, uri);
         modal.openModal({ uri });
+        const token = localStorage.getItem('device_token');
+        if (token) {
+          sendCustomNotification(token, {
+            title: 'Connection Request',
+            body: 'Please open your wallet to connect.',
+          }).catch(err => {
+            console.error(err);
+          });
+        }
       });
 
       provider
@@ -735,7 +763,7 @@ class WalletService {
   }
 
   private async connectStellarWalletConnectSingle(walletId: string): Promise<WalletSession> {
-    // Keyed as 'stellar' so restore finds it via getOrCreateProvider('stellar')
+
     const provider = await this.getOrCreateProvider('stellar');
     const config = getStellarConfig(this.currentNetwork);
     const stellarChain = `stellar:${config.chainId}`;
@@ -763,6 +791,15 @@ class WalletService {
 
       provider.on('display_uri', (uri: string) => {
         modal.openModal({ uri });
+        const token = localStorage.getItem('device_token');
+        if (token) {
+          sendCustomNotification(token, {
+            title: 'Connection Request',
+            body: 'Please open your wallet to connect.',
+          }).catch(err => {
+            console.error(err);
+          });
+        }
       });
 
       provider

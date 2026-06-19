@@ -1,4 +1,4 @@
-import { ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { ArrowDown, ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { getFusionOrderStatus, type FusionOrderStatusResponse } from '../service/evmTransactionStatusService';
 
@@ -6,6 +6,7 @@ import { type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
 import { type TransactionItem } from '../service/EvmTransactionService';
 import { getChainLogoUrl, getChainName, getExplorerUrl, getGlobalAssetMetadata, getAssetByAddress } from '../utils/Chainregistry';
 import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
+
 
 interface TransactionDetailsViewProps {
   transaction: TransactionItem | LocalTransactionWithStatus;
@@ -43,11 +44,16 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
 
   const isLocal = 'type' in transaction;
-  const rawStatus = backendStatus?.status || (isLocal ? (transaction as LocalTransactionWithStatus).status : 'success');
+  const isBackendOrder = (transaction as any).isBackendOrder;
+
+  const rawStatus = (isFusion && fusionDetails?.status)
+    ? fusionDetails.status
+    : (backendStatus?.status || (isLocal ? (transaction as LocalTransactionWithStatus).status : 'success'));
+
   const getStatusType = (s: string | undefined): 'success' | 'failed' | 'pending' => {
     if (!s) return 'pending';
     const lower = s.toLowerCase();
-    if (lower === 'completed' || lower === 'executed' || lower === 'success') {
+    if (lower === 'completed' || lower === 'executed' || lower === 'success' || lower === 'filled') {
       return 'success';
     }
     if (lower === 'failed' || lower === 'cancelled' || lower === 'expired' || lower === 'invalid' || lower === 'refunded') {
@@ -58,6 +64,17 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   const status = getStatusType(rawStatus);
   const type = isLocal ? (transaction as LocalTransactionWithStatus).type : 'transaction';
   const description = isLocal ? (transaction as LocalTransactionWithStatus).description : null;
+
+  const cleanLabel = (desc: string | null | undefined, defaultType: string) => {
+    if (!desc) return `${defaultType.charAt(0).toUpperCase() + defaultType.slice(1)} Transaction`;
+    return desc
+      .replace(/\s*\(Step \d+\/\d+\)/i, '')
+      .replace(/\s*for Swap/i, '');
+  };
+
+  const displayType = isLocal
+    ? (description ? cleanLabel(description, type) : type)
+    : type;
 
   useEffect(() => {
     if (isFusion && transaction.hash) {
@@ -79,8 +96,8 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     }
   }
 
-  const explorerLinkUrl = isAllbridge 
-    ? `http://core.allbridge.io/explorer/transfer/${transaction.hash}` 
+  const explorerLinkUrl = isAllbridge
+    ? `https://core.allbridge.io/explorer?search=${transaction.hash}`
     : getExplorerUrl(chainId, 'tx', displayHash);
   const timestamp = isLocal
     ? (transaction as LocalTransactionWithStatus).timestamp
@@ -136,8 +153,17 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     );
   };
 
-  const amount = isLocal ? '—' : getDisplayAmountWithSign(formatTxAmount(transaction as TransactionItem), incoming, isSelf);
-  const assetName = isLocal ? '' : formatAssetName(transaction as TransactionItem);
+  const amountIn = (transaction as any).amountIn;
+  const amount = isBackendOrder
+    ? `- ${amountIn}`
+    : isLocal
+      ? '—'
+      : getDisplayAmountWithSign(formatTxAmount(transaction as TransactionItem), incoming, isSelf);
+  const assetName = isBackendOrder
+    ? (transaction as any).fromToken || ''
+    : isLocal
+      ? ''
+      : formatAssetName(transaction as TransactionItem);
 
   return (
     <div className="flex flex-col h-full bg-secondary rounded-2xl overflow-hidden border border-color shadow-sm">
@@ -177,33 +203,132 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             )}
           </div>
           {logoUrl && (
-            <img 
-              src={logoUrl} 
-              alt={chainSymbol} 
+            <img
+              src={logoUrl}
+              alt={chainSymbol}
               className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full border-2 border-secondary object-cover bg-secondary animate-fade-in"
             />
           )}
         </div>
-        {!isLocal ? (
-          <div className="text-3xl font-black text-primary tracking-tight mb-2">
-            {amount} <span className="text-xl text-muted font-bold ml-1">{assetName}</span>
+        {(!isLocal || isBackendOrder) ? (
+          <div className="text-center mb-2">
+            <div className="text-3xl font-black text-primary tracking-tight mb-1">
+              {amount} <span className="text-xl text-muted font-bold ml-1">{assetName}</span>
+            </div>
+            <div className="text-sm font-semibold text-muted">
+              {cleanLabel(description, type)}
+            </div>
           </div>
         ) : (
           <div className="text-2xl font-black text-primary tracking-tight text-center max-w-[80%] leading-tight mb-2">
-            {description || `${type.charAt(0).toUpperCase() + type.slice(1)} Transaction`}
+            {cleanLabel(description, type)}
           </div>
         )}
         <div className="flex items-center gap-3 mt-2">
           {getStatusDisplay()}
           <div className="h-1 w-1 rounded-full bg-muted/30" />
           <span className={`text-xs font-bold text-muted uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-color/30 ${type === 'approval' ? 'bg-blue-500/10 text-blue-500' : 'bg-tertiary/50'}`}>
-            {isLocal ? type : (transaction as TransactionItem).category}
+            {isLocal ? displayType : (transaction as TransactionItem).category}
           </span>
         </div>
       </div>
 
-      <div className="p-8 space-y-8 overflow-y-auto flex-1 custom-scrollbar">
-        <div className="space-y-4">
+      <div className="p-4 space-y-8 overflow-y-auto flex-1 custom-scrollbar">
+        {isBackendOrder && (
+          <>
+            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+              <h4 className="text-xs font-bold text-muted uppercase tracking-wider">
+                Order Details
+              </h4>
+
+              <div className="bg-tertiary/20 rounded-2xl border border-color/40 p-4 space-y-4 shadow-inner">
+                {/* You Pay Section */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center border border-color/30 overflow-hidden shrink-0 shadow-sm">
+                      {getGlobalAssetMetadata((transaction as any).fromToken)?.logoURI ? (
+                        <img
+                          src={getGlobalAssetMetadata((transaction as any).fromToken)?.logoURI}
+                          alt={(transaction as any).fromToken}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs font-black text-primary">{(transaction as any).fromToken?.slice(0, 2).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted block uppercase tracking-wider font-bold opacity-60">You Pay</span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-base font-black text-primary font-mono leading-none">{(transaction as any).amountIn}</span>
+                        <span className="text-xs font-black text-muted leading-none">{(transaction as any).fromToken}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Source Chain */}
+                  <div className="flex items-center gap-1.5 bg-tertiary/50 px-2.5 py-1 rounded-xl border border-color/20 shadow-sm">
+                    {getChainLogoUrl((transaction as any).fromChainSymbol || chainId) && (
+                      <img
+                        src={getChainLogoUrl((transaction as any).fromChainSymbol || chainId)}
+                        alt=""
+                        className="w-4 h-4 rounded-full bg-primary"
+                      />
+                    )}
+                    <span className="text-xs font-bold text-primary font-mono">{(transaction as any).fromChainSymbol}</span>
+                  </div>
+                </div>
+
+                {/* Vertical Divider Arrow */}
+                <div className="flex items-center justify-center py-1">
+                  <div className="h-px bg-color/50 flex-1" />
+                  <div className="mx-3 p-1.5 rounded-full bg-primary border border-color shadow-sm text-muted animate-pulse">
+                    <ArrowDown size={14} />
+                  </div>
+                  <div className="h-px bg-color/50 flex-1" />
+                </div>
+
+                {/* You Receive Section */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center border border-color/30 overflow-hidden shrink-0 shadow-sm">
+                      {getGlobalAssetMetadata((transaction as any).toToken)?.logoURI ? (
+                        <img
+                          src={getGlobalAssetMetadata((transaction as any).toToken)?.logoURI}
+                          alt={(transaction as any).toToken}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs font-black text-primary">{(transaction as any).toToken?.slice(0, 2).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted block uppercase tracking-wider font-bold opacity-60">You Receive</span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-base font-black text-primary font-mono leading-none">{(transaction as any).amountOut}</span>
+                        <span className="text-xs font-black text-muted leading-none">{(transaction as any).toToken}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Destination Chain */}
+                  <div className="flex items-center gap-1.5 bg-tertiary/50 px-2.5 py-1 rounded-xl border border-color/20 shadow-sm">
+                    {getChainLogoUrl((transaction as any).toChainSymbol || (transaction as any).fromChainSymbol || chainId) && (
+                      <img
+                        src={getChainLogoUrl((transaction as any).toChainSymbol || (transaction as any).fromChainSymbol || chainId)}
+                        alt=""
+                        className="w-4 h-4 rounded-full bg-primary"
+                      />
+                    )}
+                    <span className="text-xs font-bold text-primary font-mono">{(transaction as any).toChainSymbol || (transaction as any).fromChainSymbol}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="h-px bg-color w-full" />
+          </>
+        )}
+
+        <div className="space-y-2">
           <h4 className="text-xs font-bold text-muted uppercase tracking-wider">Transaction Info</h4>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
@@ -356,7 +481,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             </div>
             <div className="bg-tertiary/30 p-3 rounded-lg">
               <span className="text-xs text-muted block mb-1">Type</span>
-              <span className="text-sm font-semibold text-primary capitalize">{type}</span>
+              <span className="text-sm font-semibold text-primary capitalize">{displayType}</span>
             </div>
           </div>
         </div>

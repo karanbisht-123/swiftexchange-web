@@ -1,4 +1,4 @@
-import { messages, route, setClientOptions } from '@skip-go/client';
+import { route, setClientOptions } from '@skip-go/client';
 
 import {
   DYDX_CHAIN_ID,
@@ -45,23 +45,6 @@ export interface SkipRoute {
   sourceChainId: string;
   sourceAssetDenom: string;
   requiredChainAddresses: string[];
-}
-
-export interface SkipEvmTx {
-  chainId: string;
-  to?: string;
-  value?: string;
-  data?: string;
-  requiredErc20Approvals?: {
-    amount: string;
-    spender: string;
-    tokenContract: string;
-  }[];
-}
-
-export interface SkipMsgsResponse {
-  evmTx: SkipEvmTx | null;
-  minAmountOut?: string;
 }
 
 function normaliseRoute(
@@ -125,7 +108,10 @@ export const skipApiService = {
   },
 
   // Fetch the optimal route from Noble → destination EVM chain.
-  async getWithdrawalRoute(destEvmChainId: number | string, amountHuman: number): Promise<SkipRoute> {
+  async getWithdrawalRoute(
+    destEvmChainId: number | string,
+    amountHuman: number
+  ): Promise<SkipRoute> {
     const destAssetDenom = getEvmSourceDenom('USDC', destEvmChainId);
     const amountIn = Math.floor(amountHuman * 1e6).toString();
 
@@ -145,42 +131,6 @@ export const skipApiService = {
 
     if (!raw) throw new Error('Skip returned no withdrawal route');
     return normaliseRoute(raw, NOBLE_CHAIN_ID, NOBLE_USDC_DENOM, amountIn);
-  },
-
-  // Build the transaction messages for a deposit route.
-  async getDepositMsgs(
-    skipRoute: SkipRoute,
-    evmAddress: string,
-    dydxAddress: string,
-    slippageTolerancePercent = '1'
-  ): Promise<SkipMsgsResponse> {
-    const chainIdsToAddresses: Record<string, string> = {};
-    for (const chainId of skipRoute.requiredChainAddresses) {
-      chainIdsToAddresses[chainId] = chainId === DYDX_CHAIN_ID ? dydxAddress : evmAddress;
-    }
-
-    const raw = await messages({
-      sourceAssetDenom: skipRoute.sourceAssetDenom,
-      sourceAssetChainId: skipRoute.sourceChainId,
-      destAssetDenom: DYDX_USDC_DENOM,
-      destAssetChainId: DYDX_CHAIN_ID,
-      amountIn: skipRoute.amountIn,
-      amountOut: skipRoute.amountOut,
-      chainIdsToAddresses,
-      operations: skipRoute.operations,
-      estimatedAmountOut: skipRoute.amountOut,
-      slippageTolerancePercent,
-      allowUnsafe: false,
-      smartRelay: true,
-    } as any);
-
-    if (!raw) throw new Error('Skip returned no deposit messages');
-
-    const evmTxItem = (raw.txs ?? []).find((t: any) => 'evmTx' in t);
-    return {
-      evmTx: evmTxItem ? (evmTxItem as any).evmTx : null,
-      minAmountOut: raw.minAmountOut,
-    };
   },
 
   getUsdcContractForChain: (chainId: number | string) => getEvmSourceDenom('USDC', chainId),

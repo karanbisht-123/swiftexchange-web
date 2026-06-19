@@ -1,17 +1,17 @@
 import { AlertCircle, ArrowUpRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { Notification } from '../../../components/common/Notification';
+import { Tooltip } from '../../../components/common/Tooltip';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { useDydxWallet } from '../hooks/useDydxWallet';
 import { dydxWalletService } from '../service/dydxWalletService';
 import useOrderPreviewStore from '../store/orderPreviewStore';
 import { selectPortfolioMetrics, useWebSocketStore } from '../store/websocketStore';
-import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { DydxDepositModal } from './DydxDepositModal';
 import { DydxWithdrawModal } from './DydxWithdrawModal';
 import { SubaccountTransfer } from './SubaccountTransfer';
-import { Tooltip } from '../../../components/common/Tooltip';
-import { Notification } from '../../../components/common/Notification';
 
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -55,9 +55,17 @@ export const DydxWalletConnect: React.FC = () => {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [lastAttemptedQuantums, setLastAttemptedQuantums] = useState<string | null>(null);
+  const [stableNoFunds, setStableNoFunds] = useState(false);
+  const noFundsTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { isConnected, address, balance, dataLoaded, error } = useDydxWallet();
-  const { checkPendingDeposit, pendingDydxQuantums, recoverDeposit, notification, clearNotification, MIN_SUBACCOUNT_DEPOSIT_UUSDC } = useDydxDeposit();
+  const {
+    checkPendingDeposit,
+    pendingDydxQuantums,
+    notification,
+    clearNotification,
+    MIN_SUBACCOUNT_DEPOSIT_UUSDC,
+  } = useDydxDeposit();
 
   useEffect(() => {
     if (isConnected && address) {
@@ -72,13 +80,10 @@ export const DydxWalletConnect: React.FC = () => {
       if (parseInt(pendingDydxQuantums) >= MIN_SUBACCOUNT_DEPOSIT_UUSDC) {
         setIsRecovering(true);
         setLastAttemptedQuantums(pendingDydxQuantums);
-        recoverDeposit(pendingDydxQuantums).finally(() => {
-          setIsRecovering(false);
-          checkPendingDeposit();
-        });
+        checkPendingDeposit();
       }
     }
-  }, [pendingDydxQuantums, isRecovering, lastAttemptedQuantums, recoverDeposit, checkPendingDeposit]);
+  }, [pendingDydxQuantums, isRecovering, lastAttemptedQuantums, checkPendingDeposit]);
 
   useEffect(() => {
     if (
@@ -123,8 +128,14 @@ export const DydxWalletConnect: React.FC = () => {
   }, [deriveDydx]);
 
   const handleConnect = useCallback(async () => {
-    if (!hasEvmWallet) { openModal(); return; }
-    if (needsDydxDerivation) { await handleDeriveDydx(); return; }
+    if (!hasEvmWallet) {
+      openModal();
+      return;
+    }
+    if (needsDydxDerivation) {
+      await handleDeriveDydx();
+      return;
+    }
     setIsConnecting(true);
     setConnectionError(null);
     try {
@@ -164,7 +175,7 @@ export const DydxWalletConnect: React.FC = () => {
   //   return 0;
   // }, [parentData?.childSubaccounts]);
 
-  // Collect leverages from localStorage for all active positions to ensure the 
+  // Collect leverages from localStorage for all active positions to ensure the
   // Portfolio summary margin matches the Positions table margin.
   const leveragesMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -175,10 +186,8 @@ export const DydxWalletConnect: React.FC = () => {
       positions.forEach(ticker => {
         const marketKey = `dydx_leverage_${ticker}`;
         const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
-        if (saved) {
-          const parsed = parseFloat(saved);
-          if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
-        }
+        const parsed = saved ? parseFloat(saved) : 5.0;
+        if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
       });
     });
     return map;
@@ -211,11 +220,9 @@ export const DydxWalletConnect: React.FC = () => {
     error?.toLowerCase().includes('404') || error?.toLowerCase().includes('subaccount');
 
   const hasZeroBalance =
-    balance !== null &&
-    Number(balance.totalEquity) === 0 &&
-    Number(balance.crossEquity) === 0;
+    balance !== null && Number(balance.totalEquity) === 0 && Number(balance.crossEquity) === 0;
 
-  const showNoFunds =
+  const noFundsCandidate =
     dataLoaded &&
     !connectionError &&
     !!hasEvmWallet &&
@@ -223,6 +230,32 @@ export const DydxWalletConnect: React.FC = () => {
     !isConnecting &&
     (isSubaccountNotFound || hasZeroBalance);
 
+  useEffect(() => {
+    if (noFundsCandidate) {
+      if (noFundsTimerRef.current === null) {
+        noFundsTimerRef.current = setTimeout(() => {
+          noFundsTimerRef.current = null;
+          setStableNoFunds(true);
+        }, 3000);
+      }
+    } else {
+      if (noFundsTimerRef.current !== null) {
+        clearTimeout(noFundsTimerRef.current);
+        noFundsTimerRef.current = null;
+      }
+      setStableNoFunds(false);
+    }
+  }, [noFundsCandidate]);
+
+  useEffect(() => {
+    return () => {
+      if (noFundsTimerRef.current !== null) {
+        clearTimeout(noFundsTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showNoFunds = stableNoFunds;
 
   if (showNoFunds) {
     return (
@@ -241,7 +274,10 @@ export const DydxWalletConnect: React.FC = () => {
             <button
               onClick={() => setShowDepositModal(true)}
               className="text-xs font-medium py-1.5 px-3 rounded flex-shrink-0 transition-colors"
-              style={{ backgroundColor: 'var(--color-brand-accent)', color: 'var(--color-text-inverse)' }}
+              style={{
+                backgroundColor: 'var(--color-brand-accent)',
+                color: 'var(--color-text-inverse)',
+              }}
             >
               Add Funds
             </button>
@@ -251,7 +287,6 @@ export const DydxWalletConnect: React.FC = () => {
       </>
     );
   }
-
 
   if (connectionError || (error && !isSubaccountNotFound)) {
     return (
@@ -266,14 +301,16 @@ export const DydxWalletConnect: React.FC = () => {
           onClick={handleRetry}
           disabled={isConnecting || isDeriving}
           className="w-full py-2 rounded text-sm font-medium transition disabled:opacity-50"
-          style={{ backgroundColor: 'var(--color-brand-accent)', color: 'var(--color-text-inverse)' }}
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)',
+          }}
         >
           {isConnecting || isDeriving ? 'Processing...' : 'Retry Connection'}
         </button>
       </div>
     );
   }
-
 
   if (!hasEvmWallet) {
     return (
@@ -290,14 +327,16 @@ export const DydxWalletConnect: React.FC = () => {
         <button
           onClick={openModal}
           className="w-full font-medium py-2 rounded text-sm transition"
-          style={{ backgroundColor: 'var(--color-brand-accent)', color: 'var(--color-text-inverse)' }}
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)',
+          }}
         >
           Connect Wallet
         </button>
       </div>
     );
   }
-
 
   if (needsDydxDerivation) {
     return (
@@ -320,14 +359,16 @@ export const DydxWalletConnect: React.FC = () => {
           onClick={handleDeriveDydx}
           disabled={isDeriving}
           className="w-full font-medium py-2 rounded text-sm transition disabled:opacity-50"
-          style={{ backgroundColor: 'var(--color-brand-accent)', color: 'var(--color-text-inverse)' }}
+          style={{
+            backgroundColor: 'var(--color-brand-accent)',
+            color: 'var(--color-text-inverse)',
+          }}
         >
           {isDeriving ? 'Deriving...' : 'Derive dYdX Account'}
         </button>
       </div>
     );
   }
-
 
   if (isConnecting || (!isConnected && hasDydxAddress)) {
     return (
@@ -340,13 +381,10 @@ export const DydxWalletConnect: React.FC = () => {
     );
   }
 
-
   return (
     <div className="bg-secondary border-b border-color lg:rounded-none p-3 sm:p-4">
-
       {marginMetrics ? (
         <div className="space-y-1.5">
-
           {/* Portfolio Value = sum of ALL children (cross + isolated) */}
           <div className="flex justify-between items-center">
             <Tooltip
@@ -396,9 +434,19 @@ export const DydxWalletConnect: React.FC = () => {
             <div className="flex items-center gap-2">
               <div className="relative w-6 h-6">
                 <svg className="w-6 h-6 transform -rotate-90" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="10" stroke="var(--color-bg-tertiary)" strokeWidth="2" fill="none" />
                   <circle
-                    cx="12" cy="12" r="10" fill="none"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="var(--color-bg-tertiary)"
+                    strokeWidth="2"
+                    fill="none"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    fill="none"
                     stroke={
                       (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
                         ? 'var(--color-danger)'
@@ -415,12 +463,13 @@ export const DydxWalletConnect: React.FC = () => {
               </div>
               <div className="flex flex-col items-end">
                 <span
-                  className={`text-sm font-semibold leading-none ${(projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
-                    ? 'text-danger'
-                    : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
-                      ? 'text-warning'
-                      : 'text-success'
-                    }`}
+                  className={`text-sm font-semibold leading-none ${
+                    (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 85
+                      ? 'text-danger'
+                      : (projectedMarginUsagePercent ?? marginMetrics.marginUsagePercent) > 70
+                        ? 'text-warning'
+                        : 'text-success'
+                  }`}
                 >
                   {projectedMarginUsagePercent !== null ? (
                     <>
@@ -460,10 +509,11 @@ export const DydxWalletConnect: React.FC = () => {
 
           {marginMetrics.marginUsagePercent > 70 && (
             <div
-              className={`rounded p-2 text-xs flex items-start gap-2 ${marginMetrics.marginUsagePercent > 85
-                ? 'bg-danger-bg text-danger'
-                : 'bg-warning-bg text-warning'
-                }`}
+              className={`rounded p-2 text-xs flex items-start gap-2 ${
+                marginMetrics.marginUsagePercent > 85
+                  ? 'bg-danger-bg text-danger'
+                  : 'bg-warning-bg text-warning'
+              }`}
             >
               <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
               <span>
@@ -476,7 +526,10 @@ export const DydxWalletConnect: React.FC = () => {
             <button
               onClick={() => setShowDepositModal(true)}
               className="flex-1 text-center text-sm font-medium py-2 rounded transition-colors"
-              style={{ backgroundColor: 'var(--color-brand-accent)', color: 'var(--color-text-inverse)' }}
+              style={{
+                backgroundColor: 'var(--color-brand-accent)',
+                color: 'var(--color-text-inverse)',
+              }}
             >
               Deposit
             </button>
@@ -510,7 +563,10 @@ export const DydxWalletConnect: React.FC = () => {
             <button
               onClick={() => setShowDepositModal(true)}
               className="flex-1 text-center text-sm font-medium py-2 rounded transition-colors"
-              style={{ backgroundColor: 'var(--color-brand-accent)', color: 'var(--color-text-inverse)' }}
+              style={{
+                backgroundColor: 'var(--color-brand-accent)',
+                color: 'var(--color-text-inverse)',
+              }}
             >
               Deposit
             </button>

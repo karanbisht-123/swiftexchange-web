@@ -16,7 +16,6 @@ import {
   NOBLE_CHAIN_ID,
   NOBLE_USDC_DENOM,
   SKIP_BRIDGES,
-  // getUsdcAddress,
   getEvmSourceDenom,
   buildCosmosSigner,
   buildEvmSigner,
@@ -24,6 +23,7 @@ import {
   dydxToNoble,
   fetchDydxWalletUsdcBalance,
   sumNobleFeesUusdc,
+  pollUntilBalance,
 } from '../utils/skipBridgeUtils';
 
 const NOBLE_RPC_ENDPOINT = 'https://noble-rpc.polkachu.com:443';
@@ -60,28 +60,7 @@ function formatTxHash(hashRaw: unknown): string {
   return 'submitted';
 }
 
-async function waitForNobleBalance(
-  nobleAddress: string,
-  minAmountUusdc: number,
-  onTick?: (balance: number) => void
-): Promise<number> {
-  const client = await StargateClient.connect(NOBLE_RPC_ENDPOINT);
-  const deadline = Date.now() + NOBLE_POLL_TIMEOUT_MS;
 
-  while (Date.now() < deadline) {
-    const coin = await client.getBalance(nobleAddress, NOBLE_USDC_DENOM);
-    const bal = parseInt(coin?.amount ?? '0', 10);
-    onTick?.(bal);
-    console.log(`[withdraw] Noble balance: ${bal} uusdc (need >= ${minAmountUusdc})`);
-    if (bal >= minAmountUusdc) return bal;
-    await new Promise(r => setTimeout(r, NOBLE_POLL_INTERVAL_MS));
-  }
-
-  throw new Error(
-    `Timed out waiting for Noble funds. ` +
-    `Check https://www.mintscan.io/noble/address/${nobleAddress}`
-  );
-}
 
 function isTransientBroadcastError(err: any): boolean {
   const msg = (err?.message ?? '').toLowerCase();
@@ -279,34 +258,15 @@ export const useDydxWithdraw = () => {
         );
         setTxHash(formatTxHash((withdrawResult as any)?.hash));
         {
-          const POLL_INTERVAL_MS = 3_000;
-          const POLL_TIMEOUT_MS = 60_000;
-          // We expect the wallet balance to grow by at least shortfallUusdc
-          // (the user's amountInQuantums will be sent onwards via IBC).
           const requiredWalletBalance = walletUusdc + shortfallUusdc;
-          const deadline = Date.now() + POLL_TIMEOUT_MS;
 
-          console.log(`[withdraw] Waiting for native wallet >= ${requiredWalletBalance} uusdc...`);
-
-          let settled = false;
-          while (Date.now() < deadline) {
-            await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-            const currentBal = await fetchDydxWalletUsdcBalance(dydxAddress);
-            console.log(
-              `[withdraw] Native wallet: ${currentBal} uusdc (need >= ${requiredWalletBalance})`
-            );
-            if (currentBal >= requiredWalletBalance) {
-              settled = true;
-              break;
-            }
-          }
-
-          if (!settled) {
-            throw new Error(
-              `Withdrawal did not reflect in native wallet within ${POLL_TIMEOUT_MS / 1000}s. ` +
-              `Check https://www.mintscan.io/dydx/address/${dydxAddress}`
-            );
-          }
+          await pollUntilBalance(
+            () => fetchDydxWalletUsdcBalance(dydxAddress),
+            requiredWalletBalance,
+            60_000,
+            3_000,
+            'dYdX native wallet'
+          );
         }
 
         setStep('ibc_to_noble');
@@ -361,8 +321,18 @@ export const useDydxWithdraw = () => {
         setStep('waiting_noble');
 
         const minNobleBalance = Math.floor(amountInQuantums * 0.9);
-        const finalNobleBalance = await waitForNobleBalance(nobleAddress, minNobleBalance, bal =>
-          setNobleBalance(bal)
+        const finalNobleBalance = await pollUntilBalance(
+          async () => {
+            const client = await StargateClient.connect(NOBLE_RPC_ENDPOINT);
+            const coin = await client.getBalance(nobleAddress, NOBLE_USDC_DENOM);
+            const bal = parseInt(coin?.amount ?? '0', 10);
+            setNobleBalance(bal);
+            return bal;
+          },
+          minNobleBalance,
+          NOBLE_POLL_TIMEOUT_MS,
+          NOBLE_POLL_INTERVAL_MS,
+          'Noble'
         );
         console.log('[withdraw] Noble balance confirmed:', finalNobleBalance, 'uusdc');
         setWithdrawnAmount(parseFloat(amount));

@@ -32,12 +32,12 @@ export function useProfilePortfolio() {
     const tabs: PortfolioTab[] = [];
     if (isAnyWalletConnected) {
       tabs.push('total');
+      tabs.push('evm');
+      tabs.push('stellar');
+      tabs.push('dydx');
     }
-    if (connectedWallets.evm) tabs.push('evm');
-    if (connectedWallets.stellar) tabs.push('stellar');
-    if (connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress) tabs.push('dydx');
     return tabs;
-  }, [connectedWallets, isAnyWalletConnected]);
+  }, [isAnyWalletConnected]);
 
   // State for active card selection - defaults to 'total'
   const [activeTab, setActiveTab] = useState<PortfolioTab>('total');

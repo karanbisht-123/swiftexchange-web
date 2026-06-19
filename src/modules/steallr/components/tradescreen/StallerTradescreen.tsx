@@ -24,20 +24,20 @@ const StellarTradeScreen = () => {
   const [hasCheckedClaims, setHasCheckedClaims] = useState(false);
   const { connectedWallets } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
-  const location = useLocation();
+  const loc = useLocation();
   const navigate = useNavigate();
   const { setPreSelectedToken } = useAmmSwapStore();
 
   useEffect(() => {
-    if (location.state?.selectedAsset && location.state?.fromTradeButton) {
-      const asset = location.state.selectedAsset as NavigationAsset;
+    if (loc.state?.selectedAsset && loc.state?.fromTradeButton) {
+      const asset = loc.state.selectedAsset as NavigationAsset;
       setPreSelectedToken({
         code: asset.symbol,
         issuer: asset.issuer,
       });
-      navigate(location.pathname, { replace: true, state: {} });
+      navigate(loc.pathname, { replace: true, state: {} });
     }
-  }, [location.state, location.pathname, navigate, setPreSelectedToken]);
+  }, [loc.state, loc.pathname, navigate, setPreSelectedToken]);
 
   useEffect(() => {
     const checkClaims = async () => {

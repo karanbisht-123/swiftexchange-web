@@ -178,7 +178,20 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
             set((s) => {
               const otherAssets = s.assets.filter(a => a.chainType !== chainType);
 
-              const combined = [...otherAssets, ...newAssets];
+              // Preserve cached price and percentage data if new assets have a price of 0
+              const enrichedNewAssets = newAssets.map(newAsset => {
+                const existingAsset = s.assets.find(a => a.id === newAsset.id);
+                if (existingAsset && (!newAsset.current_price || newAsset.current_price === 0)) {
+                  return {
+                    ...newAsset,
+                    current_price: existingAsset.current_price || 0,
+                    price_change_percentage_24h: existingAsset.price_change_percentage_24h || 0
+                  };
+                }
+                return newAsset;
+              });
+
+              const combined = [...otherAssets, ...enrichedNewAssets];
               const sorted = combined.sort((a, b) => {
                 const valA = (a.balance || 0) * (a.current_price || 0);
                 const valB = (b.balance || 0) * (b.current_price || 0);
