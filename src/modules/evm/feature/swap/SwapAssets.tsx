@@ -757,7 +757,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     setActiveQuote(prev => ({ ...prev, loading: false }));
     setShowFusionScreen(false);
     setIsWaitingForWallet(false);
-  }, [setIsWaitingForWallet]);
+    resetSwap();
+    isSubmittingRef.current = false;
+  }, [setIsWaitingForWallet, resetSwap]);
 
   const setSwapProgressStatus = useCallback((status: 'approving' | 'signing') => {
     setBridgeTxStatus(status === 'signing' ? 'signing' : 'preparing');
@@ -995,6 +997,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [swapError, bridgeErrorMsg, resetSwap]);
+
+  useEffect(() => {
+    if (swapError || bridgeErrorMsg || bridgeTxStatus === 'error') {
+      setIsWaitingForWallet(false);
+      setShowRecoveryBanner(false);
+      isSubmittingRef.current = false;
+      resetSwap();
+    }
+  }, [swapError, bridgeErrorMsg, bridgeTxStatus, resetSwap]);
 
   const handleMaxAmount = useCallback(() => {
     if (selectedSellAsset && selectedSellAsset.balance !== undefined) {

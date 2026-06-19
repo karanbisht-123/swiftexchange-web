@@ -780,40 +780,40 @@ export const useStellarDydxOrchestrator = () => {
 
       // 1. Check if we need to approve USDC. We query Skip Route and Messages to get spender contract info.
       let needsApprove = false;
-      try {
-        const rawRoute = await skipApiService.getDepositRoute(
-          'USDC',
-          sessionChain.chainId,
-          confirmedReceiveAmount,
-          true
-        );
-        if (rawRoute) {
-          const msgs = await skipApiService.getDepositMsgs(
-            rawRoute,
-            evmAddress!,
-            session.requiredWallets.dydx || evmAddress!
-          );
-          if (msgs.evmTx?.requiredErc20Approvals && msgs.evmTx.requiredErc20Approvals.length > 0) {
-            const ethersProvider = new ethers.BrowserProvider(provider);
-            for (const approval of msgs.evmTx.requiredErc20Approvals) {
-              const tokenContract = new ethers.Contract(
-                approval.tokenContract,
-                ['function allowance(address owner, address spender) view returns (uint256)'],
-                ethersProvider
-              );
-              const currentAllowance = await tokenContract.allowance(evmAddress, approval.spender);
-              const requiredAmount = BigInt(approval.amount);
-              if (currentAllowance < requiredAmount) {
-                needsApprove = true;
-                break;
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to query Skip route/allowance, defaulting to approve phase:', err);
-        needsApprove = true;
-      }
+      // try {
+      //   const rawRoute = await skipApiService.getDepositRoute(
+      //     'USDC',
+      //     sessionChain.chainId,
+      //     confirmedReceiveAmount,
+      //     true
+      //   );
+      //   if (rawRoute) {
+      //     const msgs = await skipApiService.getDepositMsgs(
+      //       rawRoute,
+      //       evmAddress!,
+      //       session.requiredWallets.dydx || evmAddress!
+      //     );
+      //     if (msgs.evmTx?.requiredErc20Approvals && msgs.evmTx.requiredErc20Approvals.length > 0) {
+      //       const ethersProvider = new ethers.BrowserProvider(provider);
+      //       for (const approval of msgs.evmTx.requiredErc20Approvals) {
+      //         const tokenContract = new ethers.Contract(
+      //           approval.tokenContract,
+      //           ['function allowance(address owner, address spender) view returns (uint256)'],
+      //           ethersProvider
+      //         );
+      //         const currentAllowance = await tokenContract.allowance(evmAddress, approval.spender);
+      //         const requiredAmount = BigInt(approval.amount);
+      //         if (currentAllowance < requiredAmount) {
+      //           needsApprove = true;
+      //           break;
+      //         }
+      //       }
+      //     }
+      //   }
+      // } catch (err) {
+      //   console.warn('Failed to query Skip route/allowance, defaulting to approve phase:', err);
+      //   needsApprove = true;
+      // }
 
       const isUsdc = session.inputTokenSymbol === 'USDC';
       const totalSteps = isUsdc ? 2 : 3;

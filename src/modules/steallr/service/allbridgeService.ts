@@ -8,12 +8,11 @@ import {
 
 import { Networks, Transaction, rpc } from '@stellar/stellar-sdk';
 
-// RPC Configuration
-
-const SOROBAN_RPC_PRIMARY = 'https://soroban-rpc.mainnet.stellar.gateway.fm';
-const SOROBAN_RPC_FALLBACK = 'https://rpc.ankr.com/stellar_soroban';
-
-// Network Constants
+const SOROBAN_RPCS = [
+  'https://rpc.lightsail.network',
+  'https://soroban-rpc.mainnet.stellar.gateway.fm',
+  'https://rpc.ankr.com/stellar_soroban',
+];
 
 export const STELLAR_NETWORK_PASSPHRASE: Record<'mainnet' | 'testnet', string> = {
   mainnet: Networks.PUBLIC,
@@ -30,33 +29,47 @@ const USDC_ISSUER: Record<'mainnet' | 'testnet', string> = {
   testnet: 'GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER',
 };
 
-const withRpcFallback = async <T>(fn: (rpcUrl: string) => Promise<T>): Promise<T> => {
-  try {
-    return await fn(SOROBAN_RPC_PRIMARY);
-  } catch (primaryErr) {
-    console.warn('[Allbridge] Primary RPC failed, retrying with fallback', {
-      primary: SOROBAN_RPC_PRIMARY,
-      fallback: SOROBAN_RPC_FALLBACK,
-      error: primaryErr instanceof Error ? primaryErr.message : primaryErr,
-    });
-    return await fn(SOROBAN_RPC_FALLBACK);
+
+const withRpcFallback = async <T>(
+  fn: (rpcUrl: string) => Promise<T>
+): Promise<T> => {
+  let lastError: unknown;
+
+  for (const rpcUrl of SOROBAN_RPCS) {
+    try {
+      console.log('[Allbridge] Trying RPC', rpcUrl);
+      return await fn(rpcUrl);
+    } catch (error) {
+      lastError = error;
+
+      console.warn('[Allbridge] RPC failed', {
+        rpcUrl,
+        error: error instanceof Error ? error.message : error,
+      });
+    }
   }
+
+  throw lastError;
 };
 
 let sdkInstance: AllbridgeCoreSdk | null = null;
 
+
 export const getAllbridgeSdk = (): AllbridgeCoreSdk => {
   if (!sdkInstance) {
     console.log('[Allbridge] Creating SDK instance', {
-      sorobanRpc: SOROBAN_RPC_PRIMARY,
-      overrides: { [ChainSymbol.SRB]: SOROBAN_RPC_PRIMARY },
+      sorobanRpc: SOROBAN_RPCS[0],
+      overrides: { [ChainSymbol.SRB]: SOROBAN_RPCS[0] },
     });
+
     sdkInstance = new AllbridgeCoreSdk({
       ...nodeRpcUrlsDefault,
-      [ChainSymbol.SRB]: SOROBAN_RPC_PRIMARY,
+      [ChainSymbol.SRB]: SOROBAN_RPCS[0],
     });
+
     console.log('[Allbridge] SDK instance created');
   }
+
   return sdkInstance;
 };
 
@@ -91,8 +104,6 @@ const mapTokenToAllbridge = (token: any): any => {
 export const getSupportedTokens = async (): Promise<any[]> => {
   console.log('[Allbridge] Fetching supported tokens...');
   const tokens = await getAllbridgeSdk().tokens();
-  
-  // Map internal Allbridge symbols to unified frontend chain symbols
   const mappedTokens = tokens.map((t: any) => {
     const mappedSymbol = mapChainSymbolFromAllbridge(t.chainSymbol);
     if (mappedSymbol !== t.chainSymbol) {
@@ -100,7 +111,6 @@ export const getSupportedTokens = async (): Promise<any[]> => {
     }
     return t;
   });
-
   console.log('[Allbridge] Supported tokens received', {
     totalCount: mappedTokens.length,
     chains: [...new Set(mappedTokens.map((t: any) => t.chainSymbol))],
@@ -114,10 +124,8 @@ export const getStellarUsdcBalance = async (
   networkEnv: 'mainnet' | 'testnet'
 ): Promise<string> => {
   if (!address) return '0';
-
   const horizonUrl = `${HORIZON_URLS[networkEnv]}/accounts/${address}`;
   console.log('[Allbridge] Fetching Stellar USDC balance', { address, networkEnv });
-
   try {
     const res = await fetch(horizonUrl);
     if (!res.ok) {
@@ -296,7 +304,6 @@ export const getBridgeQuote = async ({
   return result;
 };
 
-//Transaction Preparatio
 
 export interface PrepareTransferRequest {
   amount: string;

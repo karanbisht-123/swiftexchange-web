@@ -25,8 +25,9 @@ import SubscriptionKeepAlive from './SubscriptionKeepAlive';
 import { GeolocationGuard } from '../../../commonfeature/components/GeolocationGuard';
 import { RESTRICTED_TRADING_LOCATIONS } from '../../../commonfeature/constants/compliance';
 
+
 const DepthChart = lazy(() => import('../DepthChart'));
-const DyDxTradingChart = lazy(() => import('../DyDxTradingChart'));
+const TradingChart = lazy(() => import('../TradingChart/index'))
 const FundingChart = lazy(() => import('./FundingChart'));
 const OrderAndTrades = lazy(() => import('../order&trade/OrderAndTrades'));
 const Orderbook = lazy(() => import('../order&trade/Orderbook'));
@@ -60,97 +61,98 @@ const TradingintrFace = () => {
 
         {view === 'trade' && (
           <div className="flex flex-col flex-1 overflow-hidden">
-          <div className="hidden lg:grid lg:grid-cols-[1fr_auto] flex-1 overflow-hidden">
-            <div className="flex flex-col overflow-hidden min-w-0">
-              <div className="flex overflow-hidden flex-1">
-                <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
-                  <MarketSwitcher />
-                  <div className="flex border-b border-color bg-secondary">
-                    {(['price', 'depth', 'funding'] as const).map(tab => (
-                      <button
-                        key={tab}
-                        onClick={() => setActiveChartTab(tab)}
-                        className="relative px-4 py-2 text-sm font-medium transition-all duration-200 capitalize"
-                      >
-                        <span
-                          className={
-                            activeChartTab === tab
-                              ? 'text-primary'
-                              : 'text-muted hover:text-primary'
-                          }
+            <div className="hidden lg:grid lg:grid-cols-[1fr_auto] flex-1 overflow-hidden">
+              <div className="flex flex-col overflow-hidden min-w-0">
+                <div className="flex overflow-hidden flex-1">
+                  <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
+                    <MarketSwitcher />
+                    <div className="flex border-b border-color bg-secondary">
+                      {(['price', 'depth', 'funding'] as const).map(tab => (
+                        <button
+                          key={tab}
+                          onClick={() => setActiveChartTab(tab)}
+                          className="relative px-4 py-2 text-sm font-medium transition-all duration-200 capitalize"
                         >
-                          {tab === 'price' ? 'Price Chart' : tab === 'depth' ? 'Depth' : 'Funding'}
-                        </span>
-                        {activeChartTab === tab && (
-                          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-all duration-300" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                          <span
+                            className={
+                              activeChartTab === tab
+                                ? 'text-primary'
+                                : 'text-muted hover:text-primary'
+                            }
+                          >
+                            {tab === 'price' ? 'Price Chart' : tab === 'depth' ? 'Depth' : 'Funding'}
+                          </span>
+                          {activeChartTab === tab && (
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-all duration-300" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
 
-                  <div className="flex-1 relative">
-                    <Suspense fallback={<LoadingFallback />}>
-                      {activeChartTab === 'price' && (
-                        <div className="absolute inset-0">
-                          <DyDxTradingChart />
-                        </div>
-                      )}
-                      {activeChartTab === 'depth' && (
-                        <div className="absolute inset-0">
-                          <DepthChart />
-                        </div>
-                      )}
-                      {activeChartTab === 'funding' && selectedMarket && (
-                        <div className="absolute inset-0">
-                          <FundingChart market={selectedMarket} />
-                        </div>
-                      )}
-                    </Suspense>
+                    <div className="flex-1 relative">
+                      <Suspense fallback={<LoadingFallback />}>
+                        {activeChartTab === 'price' && (
+                          <div className="absolute inset-0">
+                            {/* <DyDxTradingChart /> */}
+                            <TradingChart />
+                          </div>
+                        )}
+                        {activeChartTab === 'depth' && (
+                          <div className="absolute inset-0">
+                            <DepthChart />
+                          </div>
+                        )}
+                        {activeChartTab === 'funding' && selectedMarket && (
+                          <div className="absolute inset-0">
+                            <FundingChart market={selectedMarket} />
+                          </div>
+                        )}
+                      </Suspense>
+                    </div>
                   </div>
+                  <ResizablePanelHorizontal
+                    defaultWidth={300}
+                    minWidth={250}
+                    maxWidth={500}
+                    position="left"
+                    className="bg-secondary shrink-0 z-10"
+                  >
+                    <Suspense fallback={<LoadingFallback />}>
+                      <OrderAndTrades />
+                    </Suspense>
+                  </ResizablePanelHorizontal>
                 </div>
-                <ResizablePanelHorizontal
-                  defaultWidth={300}
-                  minWidth={250}
-                  maxWidth={500}
-                  position="left"
-                  className="bg-secondary shrink-0 z-10"
-                >
-                  <Suspense fallback={<LoadingFallback />}>
-                    <OrderAndTrades />
-                  </Suspense>
-                </ResizablePanelHorizontal>
+
+                <ResizablePanel defaultHeight={32} minHeight={15} maxHeight={60}>
+                  <BottomTabsSection
+                    activeBottomTab={activeBottomTab}
+                    setActiveBottomTab={setActiveBottomTab}
+                  />
+                </ResizablePanel>
               </div>
 
-              <ResizablePanel defaultHeight={32} minHeight={15} maxHeight={60}>
-                <BottomTabsSection
-                  activeBottomTab={activeBottomTab}
-                  setActiveBottomTab={setActiveBottomTab}
-                />
-              </ResizablePanel>
+              <div className="bg-secondary flex-shrink-0 h-full overflow-hidden">
+                <Suspense fallback={<LoadingFallback />}>
+                  <DydxTradingForm />
+                </Suspense>
+              </div>
             </div>
 
-            <div className="bg-secondary flex-shrink-0 h-full overflow-hidden">
-              <Suspense fallback={<LoadingFallback />}>
-                <DydxTradingForm />
-              </Suspense>
-            </div>
+            <MobileLayout />
           </div>
+        )}
 
-          <MobileLayout />
-        </div>
-      )}
+        {view === 'markets' && (
+          <div className="flex flex-col flex-1 overflow-auto">
+            <MarketsDisplay />
+          </div>
+        )}
 
-      {view === 'markets' && (
-        <div className="flex flex-col flex-1 overflow-auto">
-          <MarketsDisplay />
-        </div>
-      )}
-
-      {view === 'portfolio' && (
-        <div className="flex flex-col flex-1 bg-secondary p-3 sm:p-6 overflow-auto">
-          <PortfolioView activeTab={activeBottomTab} setActiveTab={setActiveBottomTab} />
-        </div>
-      )}
+        {view === 'portfolio' && (
+          <div className="flex flex-col flex-1 bg-secondary p-3 sm:p-6 overflow-auto">
+            <PortfolioView activeTab={activeBottomTab} setActiveTab={setActiveBottomTab} />
+          </div>
+        )}
       </div>
     </GeolocationGuard>
   );
@@ -251,11 +253,10 @@ const PortfolioView = ({
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
-                activeTab === tab
-                  ? 'text-primary border-b-2 border-blue-500'
-                  : 'text-muted hover:text-primary'
-              }`}
+              className={`relative px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === tab
+                ? 'text-primary border-b-2 border-blue-500'
+                : 'text-muted hover:text-primary'
+                }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}
@@ -329,7 +330,8 @@ const MobileLayout = () => {
           <Suspense fallback={<LoadingFallback />}>
             {activeTab === 'price' && (
               <div className="h-full">
-                <DyDxTradingChart />
+                {/* <DyDxTradingChart /> */}
+                <TradingChart />
               </div>
             )}
             {activeTab === 'depth' && (
@@ -350,9 +352,8 @@ const MobileLayout = () => {
             {activeTab === 'trade' && (
               <div className="h-full overflow-hidden flex relative">
                 <div
-                  className={`transition-all duration-300 ease-in-out border-r border-color overflow-hidden flex flex-col ${
-                    tradeView === 'split' ? 'w-1/2' : tradeView === 'orderbook' ? 'w-full' : 'w-0'
-                  }`}
+                  className={`transition-all duration-300 ease-in-out border-r border-color overflow-hidden flex flex-col ${tradeView === 'split' ? 'w-1/2' : tradeView === 'orderbook' ? 'w-full' : 'w-0'
+                    }`}
                 >
                   <div className="flex-1 relative overflow-hidden group">
                     <Orderbook />
@@ -376,9 +377,8 @@ const MobileLayout = () => {
                   </div>
                 </div>
                 <div
-                  className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
-                    tradeView === 'split' ? 'w-1/2' : tradeView === 'form' ? 'w-full' : 'w-0'
-                  }`}
+                  className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${tradeView === 'split' ? 'w-1/2' : tradeView === 'form' ? 'w-full' : 'w-0'
+                    }`}
                 >
                   <div className="flex-1 relative overflow-hidden group">
                     <DydxTradingForm />
@@ -418,11 +418,10 @@ const MobileLayout = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-primary text-muted hover:bg-hover hover:text-primary'
-                }`}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-primary text-muted hover:bg-hover hover:text-primary'
+                  }`}
               >
                 <Icon className="w-5 h-5 shrink-0" />
                 {isActive && (
@@ -528,11 +527,10 @@ const MobilePortfolio = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative px-4 py-3 text-xs font-semibold transition-colors whitespace-nowrap ${
-                activeTab === tab
-                  ? 'text-primary border-b-2 border-blue-500'
-                  : 'text-muted hover:text-primary'
-              }`}
+              className={`relative px-4 py-3 text-xs font-semibold transition-colors whitespace-nowrap ${activeTab === tab
+                ? 'text-primary border-b-2 border-blue-500'
+                : 'text-muted hover:text-primary'
+                }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}
@@ -670,11 +668,10 @@ const BottomTabsSection = ({
             <button
               key={tab}
               onClick={() => setActiveBottomTab(tab)}
-              className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${
-                activeBottomTab === tab
-                  ? 'text-primary border-b-2 border-blue-500'
-                  : 'text-muted hover:text-primary'
-              }`}
+              className={`relative px-3 sm:px-4 py-2 text-xs sm:text-sm transition-colors whitespace-nowrap ${activeBottomTab === tab
+                ? 'text-primary border-b-2 border-blue-500'
+                : 'text-muted hover:text-primary'
+                }`}
             >
               <span className="flex items-center gap-2">
                 {labels[tab]}

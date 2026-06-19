@@ -1,3 +1,5 @@
+import { sendCustomNotification } from '../service/notificationService';
+
 /**
  * @param minutes - How many minutes until the request expires (default: 2)
  * @returns Unix timestamp in seconds
@@ -40,6 +42,15 @@ export async function sendEVMTransaction(
   // isPending = true;
 
   try {
+    const token = localStorage.getItem('device_token');
+    if (token) {
+      sendCustomNotification(token, {
+        title: 'Transaction Request',
+        body: `Please confirm the EVM transaction to ${txParams.to || ''}`,
+      }).catch(err => {
+        console.error(err);
+      });
+    }
     const numericChainId = Number(chainId);
 
     if (isWalletConnectProvider(provider)) {

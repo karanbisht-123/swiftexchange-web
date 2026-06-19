@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { sendEVMTransaction } from '../../../utils/walletConnectUtils';
+import { sendCustomNotification } from '../../../service/notificationService';
 
 
 
@@ -119,6 +120,15 @@ class TransactionRouter {
 
   async routeTransaction(request: TransactionRequest): Promise<TransactionResponse> {
     console.group('[Router] routeTransaction START');
+    const token = localStorage.getItem('device_token');
+    if (token) {
+      sendCustomNotification(token, {
+        title: 'Transaction Request',
+        body: `New ${request.type} transaction of ${request.amount} to ${request.to}`,
+      }).catch(err => {
+        console.error(err);
+      });
+    }
     console.log('Request details:', {
       type: request.type,
       network: request.network,

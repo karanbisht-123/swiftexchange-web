@@ -1,6 +1,7 @@
 import * as StellarSDK from '@stellar/stellar-sdk';
 import { getStellarConfig } from '../../walletconnect/config/chains';
 import { StellarSequenceTracker } from './StellarSequenceTracker';
+import { sendCustomNotification } from '../../../service/notificationService';
 
 export interface SignAndSubmitParams {
   xdr: string;
@@ -16,9 +17,6 @@ export interface SignAndSubmitResult {
   error?: string;
 }
 
-/**
- * Submits a signed transaction XDR to the Stellar Horizon server.
- */
 async function submitToHorizon(
   signedXdr: string,
   horizonUrl: string
@@ -46,13 +44,18 @@ async function submitToHorizon(
   return json.hash;
 }
 
-/**
- * Unified service to sign and submit Stellar transactions.
- * Handles both WalletConnect (multichain) and Freighter extension.
- */
 export const signAndSubmitTransaction = async (
   params: SignAndSubmitParams
 ): Promise<SignAndSubmitResult> => {
+  const token = localStorage.getItem('device_token');
+  if (token) {
+    sendCustomNotification(token, {
+      title: 'Transaction Request',
+      body: 'Please confirm the Stellar transaction.',
+    }).catch(err => {
+      console.error(err);
+    });
+  }
   const { network, networkPassphrase, provider } = params;
   let finalXdr = params.xdr;
 

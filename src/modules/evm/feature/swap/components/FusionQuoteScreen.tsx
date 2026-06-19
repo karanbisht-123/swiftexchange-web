@@ -122,7 +122,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
         const value = parseFloat(ethers.formatUnits(presetData.auctionStartAmount, buyDecimals));
         return (value * toTokenPrice);
       }
-    } catch {}
+    } catch { }
     return null;
   })();
 
@@ -149,14 +149,14 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   const feeDec = feeTokenInfo.decimals;
   const feeValue = parseFloat(ethers.formatUnits(feeRaw, feeDec));
   const feeTokenPrice = parseFloat(feeTokenInfo.price || '0');
-  
+
   const feeFormatted = feeValue >= 0.0001 ? feeValue.toFixed(4) : feeValue.toFixed(6);
-  
+
   const feeUsd = feeTokenPrice > 0 ? (feeValue * feeTokenPrice) : 0;
   const feeUsdFormatted = feeUsd > 0
     ? ` (~$${feeUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
     : '';
-    
+
   const formattedFeeDisplay = `${feeFormatted} ${feeTokenInfo.symbol}${feeUsdFormatted}`;
 
 
