@@ -1,5 +1,4 @@
 import type { ApiResponse } from '../types/evm/apiResponse.type';
-import { API_CONFIG } from './apiConfig';
 import {
   GAS_TTL,
   dropPnlInflight,
@@ -12,8 +11,9 @@ import {
   setPnlInflight,
   writeLocalCache,
 } from './apiCache';
+import { API_CONFIG } from './apiConfig';
 
-//Internal helpers 
+//Internal helpers
 
 async function fetchWithRetry(
   url: string,
@@ -43,7 +43,9 @@ async function parseError(res: Response): Promise<string> {
     const raw = body.message || body.error;
     if (Array.isArray(raw)) return raw.join('. ');
     if (typeof raw === 'string') return raw;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return res.statusText;
 }
 
@@ -68,18 +70,25 @@ async function parseBody<T>(res: Response): Promise<T> {
   }
 }
 
-// Public API 
+// Public API
 
 export async function fetchApiResponseFromProxy<T>(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' = 'POST',
   body?: unknown,
   retries?: number,
-  keepalive: boolean = false
+  keepalive: boolean = false,
+  signal?: AbortSignal
 ): Promise<ApiResponse<T>> {
   const res = await fetchWithRetry(
     `${API_CONFIG.proxyUrl}${endpoint}`,
-    { method, headers: makeHeaders(), body: body ? JSON.stringify(body) : undefined, keepalive },
+    {
+      method,
+      headers: makeHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+      keepalive,
+      signal,
+    },
     retries
   );
   if (!res.ok) throw new Error(`API error: ${await parseError(res)}`);
@@ -101,7 +110,7 @@ export async function fetchApiResponseFromServer<T>(
   return { data: await parseBody<T>(res) };
 }
 
-// Wallet Gas Info 
+// Wallet Gas Info
 
 export interface WalletGasInfo {
   transactionCount: number;
@@ -127,14 +136,17 @@ export async function getWalletGasInfo(
       `/eth/wallet-address/${address}/info`,
       'GET'
     );
-    if (data) { writeLocalCache(key, data); return data; }
+    if (data) {
+      writeLocalCache(key, data);
+      return data;
+    }
     return null;
   } catch {
     return readStaleCache<WalletGasInfo>(key);
   }
 }
 
-//Stellar PnL 
+//Stellar PnL
 
 export async function fetchStellarPnl(
   address: string,
@@ -144,8 +156,10 @@ export async function fetchStellarPnl(
 ): Promise<unknown> {
   const key = `${address}_${from}_${to}_${includeExcel}`;
 
-  const cached = getPnlCache(key); if (cached) return cached;
-  const inFlight = getPnlInflight(key); if (inFlight) return inFlight;
+  const cached = getPnlCache(key);
+  if (cached) return cached;
+  const inFlight = getPnlInflight(key);
+  if (inFlight) return inFlight;
 
   const promise = (async () => {
     const summary = !includeExcel;
@@ -166,6 +180,9 @@ export async function fetchStellarPnl(
   })();
 
   setPnlInflight(key, promise);
-  try { return await promise; }
-  finally { dropPnlInflight(key); }
+  try {
+    return await promise;
+  } finally {
+    dropPnlInflight(key);
+  }
 }

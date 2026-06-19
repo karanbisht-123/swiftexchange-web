@@ -88,27 +88,67 @@ export function useAllTransactions({ userAddress }: UseAllTransactionsProps) {
         let amount = 'N/A';
         let assetCode = 'N/A';
 
-        if (op.asset_balance_changes && op.asset_balance_changes.length > 0) {
-          const relevantChange =
-            op.asset_balance_changes.find(
-              (c: any) => c.to === accountId || c.from === accountId
-            ) ?? op.asset_balance_changes[0];
+        console.group('🔍 BRIDGE TRANSACTION DEBUG');
+        console.log('Operation:', op);
+        console.log('Account:', accountId);
+        console.log('Asset Balance Changes:', op.asset_balance_changes);
 
-          amount = relevantChange.amount ?? 'N/A';
-          assetCode =
-            relevantChange.asset_type === 'native'
-              ? 'XLM'
-              : relevantChange.asset_code ?? 'N/A';
+        if (op.asset_balance_changes?.length > 0) {
+          console.table(
+            op.asset_balance_changes.map((c: any) => ({
+              from: c.from,
+              to: c.to,
+              amount: c.amount,
+              asset: c.asset_code,
+              assetType: c.asset_type,
+            }))
+          );
+
+          // All outgoing transfers from current user
+          const outgoingChanges = op.asset_balance_changes.filter((c: any) => c.from === accountId);
+
+          console.log('Outgoing Changes:', outgoingChanges);
+
+          if (outgoingChanges.length > 0) {
+            const primaryAsset =
+              outgoingChanges.find((c: any) => c.asset_code)?.asset_code ??
+              (outgoingChanges[0].asset_type === 'native' ? 'XLM' : outgoingChanges[0].asset_code);
+
+            const sameAssetTransfers = outgoingChanges.filter((c: any) => {
+              const code = c.asset_type === 'native' ? 'XLM' : c.asset_code;
+              return code === primaryAsset;
+            });
+
+            const totalAmount = sameAssetTransfers.reduce(
+              (sum: number, c: any) => sum + Number(c.amount || 0),
+              0
+            );
+
+            amount = totalAmount.toFixed(7);
+            assetCode = primaryAsset;
+          } else {
+            // fallback
+            const firstChange = op.asset_balance_changes[0];
+
+            amount = firstChange.amount ?? 'N/A';
+            assetCode =
+              firstChange.asset_type === 'native' ? 'XLM' : (firstChange.asset_code ?? 'N/A');
+          }
         }
 
         if (op.function === 'HostFunctionTypeHostFunctionTypeInvokeContract') {
           details = 'Smart Contract Call';
-          const contractId =
-            (op as any).contract_id ?? (op as any).contract ?? 'Unknown Contract';
+
+          const contractId = (op as any).contract_id ?? (op as any).contract ?? 'Unknown Contract';
+
           if (contractId !== 'Unknown Contract') {
             toAsset = contractId.length > 12 ? `${contractId.slice(0, 12)}...` : contractId;
           }
         }
+
+        console.log('Final Amount:', amount);
+        console.log('Final Asset:', assetCode);
+        console.groupEnd();
 
         return {
           ...base,

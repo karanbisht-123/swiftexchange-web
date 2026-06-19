@@ -8,7 +8,7 @@ import {
   Clock,
   Copy,
   ExternalLink,
-  Fuel,
+  // Fuel,
   Loader2,
   RefreshCw,
   X,
@@ -29,26 +29,17 @@ import {
 import { TransactionTracker } from './TransactionTracker';
 import { SUBACCOUNT_CONSTANTS } from '../types/trading.types';
 import { validateWithdrawAmount } from '../utils/inputValidation';
-import { NATIVE_WALLET_GAS_RESERVE_UUSDC } from '../utils/skipBridgeUtils';
+// import { NATIVE_WALLET_GAS_RESERVE_UUSDC } from '../utils/skipBridgeUtils';
 
 interface DydxWithdrawModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const ESTIMATED_GAS_FEE_USDC = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6;
+// const ESTIMATED_GAS_FEE_USDC = NATIVE_WALLET_GAS_RESERVE_UUSDC / 1e6;
 
 const formatCurr = (val: number) => `$${val.toFixed(2)}`;
 const formatPct = (val: number) => `${val.toFixed(2)}%`;
-
-// const STEPS = [
-//   { key: 'checking_gas', label: 'Prepare', sublabel: 'Gas & validation' },
-//   { key: 'signing', label: 'Sign', sublabel: 'Settle on dYdX' },
-//   { key: 'ibc_to_noble', label: 'Noble', sublabel: 'IBC transfer' },
-//   { key: 'waiting_noble', label: 'Confirm', sublabel: 'Noble chain' },
-//   { key: 'bridging', label: 'Bridge', sublabel: 'Reach Ethereum' },
-// ] as const;
-
 
 
 const ModalShell: React.FC<{
@@ -115,30 +106,40 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     return !!tx && !tx.isAcknowledged;
   });
 
-  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  const wasOpenRef = useRef(false);
 
-  if (isOpen !== prevIsOpen) {
-    setPrevIsOpen(isOpen);
+  useEffect(() => {
     if (!isOpen) {
+      wasOpenRef.current = false;
       if (!isWithdrawing) {
         setAmount('');
         setSuccess(false);
+        setShowProgress(false);
         clearWithdrawError();
         setFromSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
-      }
-    } else {
-      const tx = getCurrentWithdrawTx();
-      const shouldShowProgress = tx && !tx.isAcknowledged;
-      setShowProgress(!!shouldShowProgress);
 
-      if (!shouldShowProgress && !isWithdrawing) {
-        setAmount('');
-        setSuccess(false);
-        clearWithdrawError();
-        setFromSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
+        const tx = getCurrentWithdrawTx();
+        if (tx && (tx.status === 'success' || tx.status === 'failed')) {
+          useTransactionStore.getState().clearWithdrawTx();
+        }
+        reset();
       }
+      return;
     }
-  }
+    if (wasOpenRef.current) return;
+    wasOpenRef.current = true;
+
+    const tx = getCurrentWithdrawTx();
+    const shouldShowProgress = tx && !tx.isAcknowledged;
+    setShowProgress(!!shouldShowProgress);
+
+    if (!shouldShowProgress && !isWithdrawing) {
+      setAmount('');
+      setSuccess(false);
+      clearWithdrawError();
+      setFromSubaccount(SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT);
+    }
+  }, [isOpen, isWithdrawing, reset, clearWithdrawError]);
 
   const bridgeTracker = useTransactionTracker('withdraw');
   const trackerTxHash = bridgeTracker.txHash;
@@ -363,23 +364,21 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             <div key={s.id} className="relative flex gap-4">
               {!isLast && (
                 <div
-                  className={`absolute left-[15px] top-8 bottom-[-24px] w-[2px] transition-all duration-500 ${
-                    isDone ? 'bg-brand' : 'bg-white/10'
-                  }`}
+                  className={`absolute left-[15px] top-8 bottom-[-24px] w-[2px] transition-all duration-500 ${isDone ? 'bg-brand' : 'bg-white/10'
+                    }`}
                 />
               )}
 
               <div className="shrink-0 z-10">
                 <div
-                  className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                    isActive
+                  className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isActive
                       ? 'border-brand bg-brand/20 shadow-[0_0_12px_rgba(var(--brand-rgb),0.4)] scale-105'
                       : isDone
-                      ? 'border-brand bg-brand text-white'
-                      : isErr
-                      ? 'border-danger bg-danger/20 text-danger'
-                      : 'border-white/10 bg-secondary text-muted opacity-40'
-                  }`}
+                        ? 'border-brand bg-brand text-white'
+                        : isErr
+                          ? 'border-danger bg-danger/20 text-danger'
+                          : 'border-white/10 bg-secondary text-muted opacity-40'
+                    }`}
                 >
                   {isActive ? (
                     <Loader2 className="w-4 h-4 text-brand animate-spin" />
@@ -704,13 +703,13 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
               <span>{formatCurr(equityAfter)}</span>
             </div>
           </div>
-          <div className="flex justify-between items-center border-t border-color pt-3">
+          {/* <div className="flex justify-between items-center border-t border-color pt-3">
             <div className="flex items-center gap-1.5">
               <Fuel className="w-3.5 h-3.5 text-muted" />
               <span className="text-sm text-muted">Network Fee</span>
             </div>
             <span className="text-sm text-secondary">~${ESTIMATED_GAS_FEE_USDC.toFixed(4)} USDC</span>
-          </div>
+          </div> */}
         </div>
 
         {withdrawError && (

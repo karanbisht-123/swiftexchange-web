@@ -80,13 +80,14 @@ export interface PendingTxInfo {
   txHash: string | null;
   chainId: string | null;
   startedAt: number;
-  status: 'pending' | 'success' | 'failed';
+  status: 'awaiting-signature' | 'pending' | 'success' | 'failed';
   amount?: string;
   assetSymbol?: string;
   stepLabel?: string;
+  estimatedTime?: string;
   isPreBridge?: boolean;
   isAcknowledged?: boolean;
-  ownerAddresses?: string[]; // Deprecated, use requiredWallets
+  ownerAddresses?: string[];
   requiredWallets?: {
     evm?: string;
     stellar?: string;
@@ -104,10 +105,6 @@ interface TransactionStore {
   acknowledgeWithdraw: () => void;
   clearDepositTx: () => void;
   clearWithdrawTx: () => void;
-
-  // Legacy fields for backward compatibility
-  depositTx?: PendingTxInfo | null;
-  withdrawTx?: PendingTxInfo | null;
 }
 
 export const useTransactionStore = create<TransactionStore>()(
@@ -115,8 +112,6 @@ export const useTransactionStore = create<TransactionStore>()(
     set => ({
       depositTxs: [],
       withdrawTxs: [],
-      depositTx: null,
-      withdrawTx: null,
       setDepositTx: tx => set(state => {
         const wallets = useWalletStore.getState().connectedWallets;
         if (!tx) {
@@ -162,17 +157,6 @@ export const useTransactionStore = create<TransactionStore>()(
     }),
     {
       name: 'swiftex_pending_skip_txs_v2',
-      onRehydrateStorage: () => (state) => {
-        // Migrate legacy single objects to arrays if needed
-        if (state) {
-          if (state.depositTx && !state.depositTxs?.some(t => t.txHash === state.depositTx!.txHash)) {
-            state.depositTxs = [...(state.depositTxs || []), state.depositTx];
-          }
-          if (state.withdrawTx && !state.withdrawTxs?.some(t => t.txHash === state.withdrawTx!.txHash)) {
-            state.withdrawTxs = [...(state.withdrawTxs || []), state.withdrawTx];
-          }
-        }
-      }
     }
   )
 );
@@ -238,32 +222,27 @@ export function useHasActivePendingDeposit(): boolean {
   const depositTxs = useTransactionStore(s => s.depositTxs);
   const wallets = useWalletStore(s => s.connectedWallets);
   const activeTx = depositTxs?.find(t => isTxOwnedByCurrentUser(t, wallets));
-  return !!activeTx && activeTx.status === 'pending';
+  return !!activeTx && (activeTx.status === 'pending' || activeTx.status === 'awaiting-signature');
 }
 
 export function useHasActivePendingWithdraw(): boolean {
   const withdrawTxs = useTransactionStore(s => s.withdrawTxs);
   const wallets = useWalletStore(s => s.connectedWallets);
   const activeTx = withdrawTxs?.find(t => isTxOwnedByCurrentUser(t, wallets));
-  return !!activeTx && activeTx.status === 'pending';
+  return !!activeTx && (activeTx.status === 'pending' || activeTx.status === 'awaiting-signature');
 }
 
 export function getIsDepositPending(): boolean {
   const tx = getCurrentDepositTx();
-  return !!tx && tx.status === 'pending';
+  return !!tx && (tx.status === 'pending' || tx.status === 'awaiting-signature');
 }
 
 export function getIsWithdrawPending(): boolean {
   const tx = getCurrentWithdrawTx();
-  return !!tx && tx.status === 'pending';
+  return !!tx && (tx.status === 'pending' || tx.status === 'awaiting-signature');
 }
 
-export const LS_PENDING_TX_KEY = 'swiftex_pending_skip_tx_v2';
-export function savePendingTx(_info: any): void { }
-export function loadPendingTx(): any | null {
-  return null;
-}
-export function clearPendingTx(): void { }
+
 
 interface RawPacketTx {
   chain_id?: string;
@@ -410,7 +389,7 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
   }, []);
 
   const updateStoreStatus = useCallback(
-    (status: 'pending' | 'success' | 'failed') => {
+    (status: 'awaiting-signature' | 'pending' | 'success' | 'failed') => {
       const currentState = useTransactionStore.getState();
       const wallets = useWalletStore.getState().connectedWallets;
       const txs = type === 'deposit' ? currentState.depositTxs : currentState.withdrawTxs;
@@ -519,14 +498,6 @@ export function useTransactionTracker(type: 'deposit' | 'withdraw'): TxTrackerRe
 
   useEffect(() => {
     if (!txHash || !chainId) {
-      const currentState = useTransactionStore.getState();
-      const currentTxInfo = type === 'deposit' ? currentState.depositTx : currentState.withdrawTx;
-
-      if (currentTxInfo?.status === 'pending') {
-        setResult(prev => ({ ...prev, txHash: null, chainId: null, isLoading: true }));
-        return;
-      }
-
       stopPolling();
       isTerminalRef.current = false;
       setResult({ ...EMPTY_RESULT, txHash: null, chainId: null });

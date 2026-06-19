@@ -95,11 +95,11 @@ const Sidebar: FC = () => {
       label: 'Swap',
       icon: <Repeat2 className="w-5 h-5" />,
     },
-    {
-      href: ROUTES.BRIDGE,
-      label: 'DYDX-SDEX Bridge',
-      icon: <ArrowRightLeft className="w-5 h-5" />,
-    },
+    // {
+    //   href: ROUTES.BRIDGE,
+    //   label: 'DYDX-SDEX Bridge',
+    //   icon: <ArrowRightLeft className="w-5 h-5" />,
+    // },
     {
       href: ROUTES.TRADING_EVM_FIAT,
       label: 'Fiat On/Off Ramp',
@@ -129,8 +129,8 @@ const Sidebar: FC = () => {
       isRestricted: isDydxRestricted,
     },
     {
-      href: ROUTES.PROFILE,
-      label: 'Profile',
+      href: ROUTES.PORTFOLIO,
+      label: 'Portfolio',
       icon: <User className="w-5 h-5" />,
     },
   ];

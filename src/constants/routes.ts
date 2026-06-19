@@ -11,7 +11,7 @@ export const ROUTES = {
   TRADING_EVM_FIAT: '/trading/evm/fiat',
   TRADING_DYDX_FUTURES: '/trading/dydx/futures',
   MARKETS: '/markets',
-  PROFILE: '/profile',
+  PORTFOLIO: '/portfolio',
   SETTINGS: '/settings',
 } as const;
 

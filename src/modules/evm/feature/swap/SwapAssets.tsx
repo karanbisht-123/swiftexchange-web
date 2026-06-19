@@ -48,9 +48,6 @@ import { getStellarConfig } from '../../../walletconnect/config/chains';
 
 const STELLAR_CHAIN_ID = 'pubnet';
 const isStellar = (id: any) => id === 'stellar' || id === STELLAR_CHAIN_ID || id === 'testnet';
-const STELLAR_SWAP_GAS_BUFFER = 0.1;
-const STELLAR_BRIDGE_GAS_BUFFER = 2.0;
-
 const isSameAsset = (a: any, b: any) => {
   if (!a || !b) return false;
   if (a.chainId && b.chainId && String(a.chainId) !== String(b.chainId)) return false;
@@ -387,6 +384,41 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       }
     }
   }, [locationState]);
+
+  useEffect(() => {
+    if (
+      isConnected &&
+      isEvmChain(fromChainId) &&
+      currentChainId !== null &&
+      String(currentChainId) !== String(fromChainId) &&
+      !isChainSwitching
+    ) {
+      let active = true;
+      const autoSwitchChain = async () => {
+        setIsChainSwitching(true);
+        try {
+          const provider = getProvider(WalletType.EVM);
+          await switchOrAddChain(provider, fromChainId);
+        } catch (err) {
+          console.error(err);
+          if (active) {
+            setFromChainId(currentChainId);
+            if (fromChainId === toChainId) {
+              setToChainId(currentChainId);
+            }
+          }
+        } finally {
+          if (active) {
+            setIsChainSwitching(false);
+          }
+        }
+      };
+      autoSwitchChain();
+      return () => {
+        active = false;
+      };
+    }
+  }, [fromChainId, currentChainId, isConnected, isChainSwitching, getProvider, setFromChainId, setToChainId, toChainId]);
 
   useEffect(() => {
     resetSwap();
@@ -746,7 +778,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (!xlm) return true;
 
     const xlmBalanceAfterReserve = parseFloat(xlm.balance || '0');
-    let requiredGasFee = actionType === 'BRIDGE' ? STELLAR_BRIDGE_GAS_BUFFER : STELLAR_SWAP_GAS_BUFFER;
+
+    // Dynamic fee estimation: Stellar network fee is very small (0.01 XLM)
+    let requiredGasFee = 0.01;
 
     if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuote.data?.fee?.native) {
       requiredGasFee += parseFloat(activeQuote.data.fee.native.amount);
@@ -760,16 +794,68 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
   }, [fromChainId, stellarAssets, sellAssetSymbol, sellAmount, actionType, feePayType, activeQuote.data?.fee?.native]);
 
+  const hasInsufficientEvmGas = useMemo(() => {
+    if (isStellar(fromChainId)) return false;
+    if (swapAssets.length === 0) return false;
+    const nativeAsset = swapAssets.find(a => a.isNative);
+    if (!nativeAsset) return false;
+
+    const nativeBalance = parseFloat(nativeAsset.balance || '0');
+    const decimals = nativeAsset.decimals || 18;
+
+    // For gasless swap/bridge (like 1inch Fusion / Fusion Plus), required gas is 0
+    if (isGasless || activeQuote.source === 'fusion_plus') {
+      return false;
+    }
+
+    // Default buffer if quote does not provide it
+    const defaultBufferBN = getGasBuffer(fromChainId, decimals);
+    const defaultBuffer = parseFloat(ethers.formatUnits(defaultBufferBN, decimals));
+
+    let requiredGas = defaultBuffer;
+
+    // Use dynamic swap quote network fee if available
+    if (actionType === 'SWAP' && swapQuote?.networkFee && swapQuote.networkFee > 0) {
+      requiredGas = swapQuote.networkFee;
+    }
+
+    // Use dynamic bridge quote fee if paying native
+    if (actionType === 'BRIDGE' && activeQuote.source === 'bridge') {
+      if (feePayType === 'native' && activeQuote.data?.fee?.native) {
+        requiredGas = defaultBuffer + parseFloat(activeQuote.data.fee.native.amount);
+      } else {
+        requiredGas = defaultBuffer;
+      }
+    }
+
+    if (selectedSellAsset?.isNative) {
+      const sellAmt = parseFloat(sellAmount || '0');
+      return (sellAmt + requiredGas) > nativeBalance;
+    } else {
+      return nativeBalance < requiredGas;
+    }
+  }, [fromChainId, swapAssets, selectedSellAsset, sellAmount, actionType, feePayType, activeQuote.source, activeQuote.data?.fee?.native, swapQuote?.networkFee, isGasless]);
+
   const isSameAssetSelected = useMemo(() => {
     return actionType === 'SWAP' && fromChainId === toChainId && isSameAsset(selectedSellAsset, selectedBuyAsset) && !!selectedSellAsset;
   }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
+
+  const isAmountLessThanFee = useMemo(() => {
+    if (actionType !== 'BRIDGE' || !sellAmount || !activeQuote.data) return false;
+    if (feePayType === 'stablecoin' && activeQuote.data.fee?.stablecoin) {
+      const feeAmount = parseFloat(activeQuote.data.fee.stablecoin.amount || '0');
+      const amount = parseFloat(sellAmount || '0');
+      return amount <= feeAmount;
+    }
+    return false;
+  }, [actionType, sellAmount, activeQuote.data, feePayType]);
 
   const hasActiveCrossChainQuote = useMemo(() => {
     if (actionType !== 'BRIDGE') return false;
     return !!activeQuote.data;
   }, [actionType, activeQuote.data]);
 
-  const isErrorState = !!(swapError || isInsufficientBalance || hasInsufficientStellarGas || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
+  const isErrorState = !!(swapError || isInsufficientBalance || isAmountLessThanFee || hasInsufficientStellarGas || hasInsufficientEvmGas || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
   const isLoadingExecution = actionType === 'SWAP'
     ? (isStellar(fromChainId)
       ? ['preparing', 'signing'].includes(bridgeTxStatus)
@@ -785,14 +871,26 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (swapError) return swapError;
     if (activeQuote.error) return activeQuote.error;
     if (isInsufficientBalance) return 'Insufficient balance for this transaction';
+    if (isAmountLessThanFee) {
+      const feeAmount = parseFloat(activeQuote.data?.fee?.stablecoin?.amount || '0');
+      return `Amount must be greater than the bridge fee of ${feeAmount.toFixed(4)} USDC`;
+    }
     if (hasInsufficientStellarGas) {
-      const requiredGasFee = actionType === 'BRIDGE' ? STELLAR_BRIDGE_GAS_BUFFER.toFixed(1) : STELLAR_SWAP_GAS_BUFFER.toFixed(1);
-      return `Insufficient XLM balance. You need at least ${requiredGasFee} XLM (beyond reserve) for gas fees.`;
+      let reqFee = 0.01;
+      if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuote.data?.fee?.native) {
+        reqFee += parseFloat(activeQuote.data.fee.native.amount);
+      }
+      return `Insufficient XLM balance. You need at least ${reqFee.toFixed(3)} XLM (beyond reserve) for gas fees.`;
+    }
+    if (hasInsufficientEvmGas) {
+      const nativeAsset = swapAssets.find(a => a.isNative);
+      const nativeSymbol = nativeAsset?.symbol || 'ETH';
+      return `Insufficient ${nativeSymbol} balance for gas fees.`;
     }
     if (isSameAssetSelected) return 'Please select different assets to swap';
     if (actionType === 'BRIDGE' && crossChainWarning) return crossChainWarning;
     return null;
-  }, [isInsufficientBalance, hasInsufficientStellarGas, isSameAssetSelected, bridgeTxStatus, bridgeErrorMsg, swapError, actionType, crossChainWarning, activeQuote.error]);
+  }, [isInsufficientBalance, isAmountLessThanFee, hasInsufficientStellarGas, hasInsufficientEvmGas, isSameAssetSelected, bridgeTxStatus, bridgeErrorMsg, swapError, actionType, crossChainWarning, activeQuote.error, swapAssets, activeQuote.data]);
 
   const buttonLabel = useMemo(() => {
     if (isFetchingSwapAssets || activeQuote.loading || swapQuoteLoading || isFetchingStellarAssets) return 'FETCHING QUOTES...';
@@ -806,14 +904,20 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     }
 
     if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
+    if (isAmountLessThanFee) return 'AMOUNT LESS THAN FEE';
     if (hasInsufficientStellarGas) return 'INSUFFICIENT XLM FOR GAS';
+    if (hasInsufficientEvmGas) {
+      const nativeAsset = swapAssets.find(a => a.isNative);
+      const nativeSymbol = nativeAsset?.symbol || 'ETH';
+      return `INSUFFICIENT ${nativeSymbol} FOR GAS`;
+    }
 
     if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
       return 'ADD TRUSTLINE & SWAP';
     }
 
     return 'SWAP';
-  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, hasInsufficientStellarGas, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, swapQuote, activeQuote.data, errorMessage, bridgeTxStatus]);
+  }, [isFetchingSwapAssets, activeQuote.loading, activeQuote.error, isFetchingStellarAssets, sellAmount, isInsufficientBalance, isAmountLessThanFee, hasInsufficientStellarGas, hasInsufficientEvmGas, swapError, bridgeErrorMsg, swapQuoteLoading, actionType, isSameAssetSelected, toChainId, selectedBuyAsset, swapQuote, activeQuote.data, errorMessage, bridgeTxStatus, swapAssets]);
 
   useEffect(() => {
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
@@ -1387,7 +1491,9 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const isSwapDisabled = !sellAmount ||
     parseFloat(sellAmount) <= 0 ||
     isInsufficientBalance ||
+    isAmountLessThanFee ||
     hasInsufficientStellarGas ||
+    hasInsufficientEvmGas ||
     isLoadingExecution ||
     (actionType === 'SWAP' && isStellar(fromChainId) && !activeQuote.data) ||
     (actionType === 'SWAP' && !isStellar(fromChainId) && !swapQuote && !isGasless) ||

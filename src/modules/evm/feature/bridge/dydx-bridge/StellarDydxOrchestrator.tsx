@@ -816,6 +816,7 @@ interface PendingSessionCardProps {
   setActiveSessionId: (id: string | null) => void;
   setRestoreInputsOnClear: (r: boolean) => void;
   setSessionToClear: (id: string | null) => void;
+  isSigningInProgress: boolean;
 }
 
 export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
@@ -825,6 +826,7 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
   setActiveSessionId,
   setRestoreInputsOnClear,
   setSessionToClear,
+  isSigningInProgress
 }) => {
   const chain = evmChains.find(c => c.chainId === session.destinationChainId);
 
@@ -951,12 +953,12 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
           <div className="flex items-center gap-1.5 mt-1">
             <button
               onClick={() => {
-                if (isSafeToClear) {
+                if (isSafeToClear && !isSigningInProgress) {
                   setRestoreInputsOnClear(false);
                   setSessionToClear(session.id);
                 }
               }}
-              disabled={!isSafeToClear}
+              disabled={!isSafeToClear || isSigningInProgress}
               className="w-[72px] h-[28px] rounded-lg text-[9px] font-black uppercase tracking-widest transition-all active:scale-[0.98]"
               style={{
                 background: 'transparent',
@@ -970,13 +972,16 @@ export const PendingSessionCard: React.FC<PendingSessionCardProps> = ({
             </button>
             <button
               onClick={() => {
-                updateSession(session.id, { error: null });
-                setActiveSessionId(session.id);
+                if (!isSigningInProgress) {
+                  updateSession(session.id, { error: null });
+                  setActiveSessionId(session.id);
+                }
               }}
+              disabled={isSigningInProgress}
               className="w-[72px] h-[28px] rounded-lg text-[9px] font-black uppercase tracking-widest transition-all active:scale-[0.98] hover:brightness-110"
               style={{
-                background: 'var(--color-brand)',
-                color: '#fff',
+                background: isSigningInProgress ? 'var(--color-text-muted)' : 'var(--color-brand)',
+                color: isSigningInProgress ? 'var(--color-text-secondary)' : '#fff',
                 border: 'none',
                 cursor: 'pointer',
               }}
@@ -1037,8 +1042,11 @@ export const StellarDydxOrchestrator: React.FC = () => {
     updateSession,
     quoteTimestamp,
     signingStep,
+    isSigningInProgress,
     destinationGasBalance,
     checkingGasBalance,
+    evmUsdcBalance,
+    checkingEvmUsdcBalance,
   } = useStellarDydxOrchestrator();
 
   const [showFullDetails, setShowFullDetails] = useState<boolean>(false);
@@ -1486,7 +1494,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
   return (
     <StellarActiveGuard bypass={!!activeSession}>
       <div className="w-full mx-auto lg:px-4 pb-4 animate-fade-in">
-        {activeSession && (
+        {activeSession && !isSigningInProgress && !showBridgeRecoveryBanner && (
           <div className="-mb-1 flex px-2 items-center justify-between">
             <button
               onClick={handleBack}
@@ -1864,6 +1872,49 @@ export const StellarDydxOrchestrator: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* EVM USDC balance warning for DEPOSIT phase — catches the case where the user
+                spent bridged funds on the destination chain before clicking Deposit */}
+            {activeSession &&
+              activeSession.phase === 'DEPOSIT' &&
+              activeSession.bridgeTx.status === 'SUCCESS' &&
+              !activeSession.depositTx.hash &&
+              !checkingEvmUsdcBalance &&
+              evmUsdcBalance !== null &&
+              activeSession.intermediateAmount &&
+              parseFloat(evmUsdcBalance) < parseFloat(activeSession.intermediateAmount) * 0.95 && (
+              <div
+                className="rounded-2xl p-4 mb-4 animate-fade-in space-y-2"
+                style={{
+                  background: 'color-mix(in srgb, #ef4444 8%, transparent)',
+                  border: '1px solid color-mix(in srgb, #ef4444 30%, transparent)',
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
+                    style={{ background: 'color-mix(in srgb, #ef4444 15%, transparent)' }}
+                  >
+                    <AlertCircle size={16} className="text-rose-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-rose-400">
+                      Insufficient USDC on {evmChains.find(c => c.chainId === activeSession.destinationChainId)?.name || 'EVM'}
+                    </p>
+                    <p className="text-xs font-bold leading-relaxed break-words" style={{ color: 'var(--color-text-secondary)' }}>
+                      Your EVM wallet only has{' '}
+                      <span className="text-rose-400 font-black">{parseFloat(evmUsdcBalance).toFixed(4)} USDC</span>{' '}
+                      but the deposit requires ~{parseFloat(activeSession.intermediateAmount).toFixed(4)} USDC.
+                      The bridged funds may have been spent or are still arriving.
+                    </p>
+                    <p className="text-[10px] font-bold mt-1 opacity-80" style={{ color: 'var(--color-text-muted)' }}>
+                      Please ensure you have sufficient USDC on {evmChains.find(c => c.chainId === activeSession.destinationChainId)?.name || 'the destination chain'} before depositing.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {signingStep.phase !== 'idle' && (
               <div className="flex flex-col gap-1 bg-brand/10 border border-brand/20 rounded-2xl px-4 py-4 mb-3 animate-in fade-in slide-in-from-top-2 duration-300 animate-pulse">
                 <div className="flex items-center gap-3">
@@ -2199,6 +2250,7 @@ export const StellarDydxOrchestrator: React.FC = () => {
                         setActiveSessionId={setActiveSessionId}
                         setRestoreInputsOnClear={setRestoreInputsOnClear}
                         setSessionToClear={setSessionToClear}
+                        isSigningInProgress={isSigningInProgress || showBridgeRecoveryBanner}
                       />
                     ))}
 
