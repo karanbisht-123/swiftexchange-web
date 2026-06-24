@@ -154,6 +154,9 @@ export async function fetchStellarPnl(
   to: string,
   includeExcel: boolean = false
 ): Promise<unknown> {
+  const token = API_CONFIG.deviceJwt;
+  if (!token) return null;
+
   const key = `${address}_${from}_${to}_${includeExcel}`;
 
   const cached = getPnlCache(key);
@@ -169,7 +172,7 @@ export async function fetchStellarPnl(
       method: 'GET',
       headers: {
         'x-auth-device-token': API_CONFIG.deviceAuth,
-        Authorization: `Bearer ${API_CONFIG.deviceJwt}`,
+        Authorization: `Bearer ${token}`,
       },
     });
 

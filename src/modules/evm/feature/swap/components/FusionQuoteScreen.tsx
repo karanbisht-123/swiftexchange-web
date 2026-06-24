@@ -218,8 +218,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
       : 'translate(-50%, -50%) scale(0.96)',
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
+  // Render
   return (
     <>
       <div
@@ -233,13 +232,9 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
         style={isMobile ? mobileStyle : desktopStyle}
       >
         <div className="bg-secondary rounded-t-3xl md:rounded-3xl border-t border-x md:border border-color flex flex-col max-h-[92dvh] md:max-h-[80vh] overflow-hidden">
-
-          {/* Mobile drag handle */}
           <div className="flex justify-center pt-3 pb-1 md:hidden">
             <div className="w-10 h-1 rounded-full bg-muted/30" />
           </div>
-
-          {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-brand/10 flex items-center justify-center">
@@ -247,7 +242,6 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
               </div>
               <div>
                 <span className="text-base font-bold text-primary tracking-tight">Swap Execution</span>
-                {/* Show which preset is active */}
                 <span className="ml-2 text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-brand/10 text-brand">
                   {preset}
                 </span>
@@ -272,12 +266,8 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
               )}
             </div>
           </div>
-
-          {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-5 space-y-4">
-
             {txHash ? (
-              /* ── Success state ── */
               <div className="py-10 flex flex-col items-center text-center space-y-5 animate-in fade-in zoom-in duration-500">
                 <div className="w-20 h-20 rounded-full bg-green-500/10 flex items-center justify-center">
                   <CheckCircle2 size={44} className="text-green-400" />
@@ -306,9 +296,7 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
               </div>
 
             ) : (
-              /* ── Quote display ── */
               <>
-                {/* Sell / Receive cards */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between bg-tertiary rounded-2xl px-4 py-4 border border-color">
                     <div className="min-w-0 flex-1 w-0">
@@ -331,7 +319,6 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                     </div>
                   </div>
 
-                  {/* You receive — derived from preset.auctionStartAmount */}
                   <div className="flex items-center justify-between bg-brand/5 rounded-2xl px-4 py-4 border border-brand/20">
                     <div className="min-w-0 flex-1 w-0">
                       <p className="text-xs text-brand/60 mb-1 font-medium">You receive</p>

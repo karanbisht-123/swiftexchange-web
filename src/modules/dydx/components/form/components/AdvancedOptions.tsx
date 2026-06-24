@@ -5,7 +5,7 @@ import { Tooltip } from '../../../../../components/common/Tooltip';
 import type { OrderTypeEnum } from '../../../types/trading.types';
 import { validateNumberInput } from '../../../utils/inputValidation';
 
-export type TimeInForceOption = 'GTT' | 'IOC' | 'POST_ONLY';
+export type TimeInForceOption = 'GTT' | 'IOC';
 export type GoodTilUnit = 'minutes' | 'hours' | 'days' | 'weeks';
 
 interface AdvancedOptionsProps {
@@ -13,10 +13,12 @@ interface AdvancedOptionsProps {
   timeInForce: TimeInForceOption;
   goodTilValue: number;
   goodTilUnit: GoodTilUnit;
+  postOnly: boolean;
   reduceOnly: boolean;
   onTimeInForceChange: (tif: TimeInForceOption) => void;
   onGoodTilValueChange: (value: number) => void;
   onGoodTilUnitChange: (unit: GoodTilUnit) => void;
+  onPostOnlyChange: (checked: boolean) => void;
   onReduceOnlyChange: (checked: boolean) => void;
 }
 
@@ -32,16 +34,20 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
   timeInForce,
   goodTilValue,
   goodTilUnit,
+  postOnly,
   reduceOnly,
   onTimeInForceChange,
   onGoodTilValueChange,
   onGoodTilUnitChange,
+  onPostOnlyChange,
   onReduceOnlyChange,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isLimit = orderType === 'LIMIT';
   const isConditional = CONDITIONAL_TYPES.includes(orderType as any);
+  const isLimitLike = orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
+  const isMarketConditional = orderType === 'STOP_MARKET' || orderType === 'TAKE_PROFIT_MARKET';
 
   return (
     <div className="px-1 lg:px-3 mt-4">
@@ -72,9 +78,8 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                     onChange={e => onTimeInForceChange(e.target.value as TimeInForceOption)}
                     className="w-full bg-transparent text-sm text-primary font-medium focus:outline-none appearance-none cursor-pointer pl-0.5 pr-6"
                   >
-                    <option value="GTT">Good Til Time</option>
+                    {!isMarketConditional && <option value="GTT">Good Til Time</option>}
                     <option value="IOC">Immediate or Cancel</option>
-                    <option value="POST_ONLY">Post-Only</option>
                   </select>
                   <div className="absolute right-1 pointer-events-none">
                     <svg
@@ -98,7 +103,7 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
             )}
 
             {(isLimit || isConditional) &&
-              (timeInForce === 'GTT' || timeInForce === 'POST_ONLY') && (
+              timeInForce === 'GTT' && (
                 <div className="flex-1 bg-primary border border-color rounded-xl p-2.5 relative">
                   <label className="block text-[10px] font-medium text-muted mb-0.5 ml-0.5">
                     Time
@@ -184,11 +189,55 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({
                 </Tooltip>
               </label>
             )}
+
+            {isLimitLike && (
+              <label className="flex items-center gap-2 cursor-pointer group w-fit">
+                <div className={`relative flex items-center justify-center w-5 h-5 rounded-md border border-color bg-primary group-hover:border-brand-primary transition-colors ${reduceOnly || timeInForce === 'IOC' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={postOnly}
+                    onChange={e => onPostOnlyChange(e.target.checked)}
+                    disabled={reduceOnly || timeInForce === 'IOC'}
+                    className="peer absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <div className="absolute inset-0 bg-brand-primary rounded-md opacity-0 peer-checked:opacity-100 transition-opacity" />
+                  <svg
+                    className="absolute w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 transition-opacity z-10"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <path
+                      d="M10 3L4.5 8.5L2 6"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+                <Tooltip
+                  content={
+                    reduceOnly
+                      ? "Post-Only cannot be combined with Reduce-Only."
+                      : timeInForce === 'IOC'
+                      ? "Post-Only is not available with IOC execution."
+                      : "Post-Only ensures your order is placed as a maker order only."
+                  }
+                  position="top"
+                >
+                  <span
+                    className={`text-xs ml-0.5 transition-colors ${postOnly ? 'text-primary font-semibold text-[13px]' : 'text-muted group-hover:text-primary font-medium'} ${reduceOnly || timeInForce === 'IOC' ? 'opacity-50' : ''}`}
+                  >
+                    Post-Only
+                  </span>
+                </Tooltip>
+              </label>
+            )}
           </div>
 
           {reduceOnly &&
             (isLimit || isConditional) &&
-            (timeInForce === 'GTT' || timeInForce === 'POST_ONLY') && (
+            timeInForce === 'GTT' && (
               <div className="flex items-center gap-2 text-[10px] text-yellow-400 bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2">
                 <span>⚠</span>
                 <span>Reduce-only orders will use IOC</span>

@@ -6,7 +6,7 @@ import { validateAddress } from '../../../validator/AddressValidator';
 import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
 import { checkTrustlineExists, estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
 import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
-import { toPlainString } from '../../evm/hook/useEvmSwap';
+import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
 import { getChainById, getExplorerUrl } from '../../evm/utils/Chainregistry';
@@ -284,28 +284,28 @@ export const useSendAsset = (onBack?: () => void) => {
           console.warn('[useSendAsset] Backend transaction preparation failed. Falling back to client-side simulation:', apiError);
         }
 
-        req = { 
-          type: 'evm', 
-          network: currentAsset.network, 
-          networkKey: Number(currentAsset.networkKey), 
-          from: senderAddress, 
-          to, 
-          amount: sendAmt, 
+        req = {
+          type: 'evm',
+          network: currentAsset.network,
+          networkKey: Number(currentAsset.networkKey),
+          from: senderAddress,
+          to,
+          amount: sendAmt,
           data,
           unsignedTx
         };
         console.log('[useSendAsset] Sending transaction request to router:', req);
         const res = await sendTransaction(req);
         const chainSymbol = currentAsset.type === 'evm' ? (getChainById(Number(currentAsset.networkKey))?.symbol || currentAsset.network) : currentAsset.network;
-          
-          await storeSwapOrder({
-            txHash: res.hash || 'unknown',
-            walletAddress: senderAddress,
-            provider: "EVMTX",
-            fromChain: chainSymbol,
-            toChain: chainSymbol,
-            fromToken: currentAsset.symbol,
-            toToken: currentAsset.symbol,
+
+        await storeSwapOrder({
+          txHash: res.hash || 'unknown',
+          walletAddress: senderAddress,
+          provider: "EVMTX",
+          fromChain: chainSymbol,
+          toChain: chainSymbol,
+          fromToken: currentAsset.symbol,
+          toToken: currentAsset.symbol,
           amountIn: amount,
           amountOut: amount,
           txType: currentAsset.isNative ? 'Native Transfer' : 'Token Transfer'

@@ -130,6 +130,7 @@ export const DydxTradingForm: React.FC = () => {
   const [goodTilValue, setGoodTilValue] = useState(28);
   const [goodTilUnit, setGoodTilUnit] = useState<GoodTilUnit>('days');
   const [reduceOnly, setReduceOnly] = useState(false);
+  const [postOnly, setPostOnly] = useState(false);
 
   const [showTpSl, setShowTpSl] = useState(false);
   const [tpPrice, setTpPrice] = useState('');
@@ -327,11 +328,25 @@ export const DydxTradingForm: React.FC = () => {
   }, [orderError, clearOrderError]);
 
   useEffect(() => {
-    if (reduceOnly && (isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
+    if (reduceOnly && (isLimit || isConditional) && timeInForce === 'GTT') {
       setTimeInForce('IOC');
+      setPostOnly(false);
       addNotification('warning', 'Reduce-only orders must use IOC', 'Time-in-Force Changed');
     }
   }, [reduceOnly, isLimit, isConditional, timeInForce]);
+
+  useEffect(() => {
+    const isLimitLike = orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
+    const isMarketConditional = orderType === 'STOP_MARKET' || orderType === 'TAKE_PROFIT_MARKET';
+
+    if (isMarketConditional && timeInForce !== 'IOC') {
+      setTimeInForce('IOC');
+      setPostOnly(false);
+      addNotification('warning', 'Trigger market orders must use IOC execution', 'Time-in-Force Changed');
+    } else if (!isLimitLike && postOnly) {
+      setPostOnly(false);
+    }
+  }, [orderType, timeInForce, postOnly]);
 
   useEffect(() => {
     const handlePriceClick = (clickedPrice: string) => {
@@ -380,7 +395,7 @@ export const DydxTradingForm: React.FC = () => {
   }, [triggerPrice, orderType, marketData, side]);
 
   useEffect(() => {
-    if ((isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
+    if ((isLimit || isConditional) && timeInForce === 'GTT') {
       const error = validateGoodTil(goodTilValue, goodTilUnit, isConditional);
       setGoodTilError(error || '');
     } else {
@@ -475,7 +490,7 @@ export const DydxTradingForm: React.FC = () => {
     }
 
     let goodTilTimeInSeconds: number | undefined;
-    if ((isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
+    if ((isLimit || isConditional) && timeInForce === 'GTT') {
       goodTilTimeInSeconds = convertToSeconds(goodTilValue, goodTilUnit);
     }
 
@@ -524,10 +539,10 @@ export const DydxTradingForm: React.FC = () => {
         size: finalQuantity,
         price: finalPrice,
         triggerPrice: finalTriggerPrice,
-        timeInForce: timeInForce === 'POST_ONLY' ? 'GTT' : timeInForce,
+        timeInForce: timeInForce,
         reduceOnly,
         postOnly:
-          timeInForce === 'POST_ONLY' &&
+          postOnly &&
           (orderType === 'LIMIT' ||
             orderType === 'STOP_LIMIT' ||
             orderType === 'TAKE_PROFIT_LIMIT'),
@@ -736,11 +751,30 @@ export const DydxTradingForm: React.FC = () => {
               timeInForce={timeInForce}
               goodTilValue={goodTilValue}
               goodTilUnit={goodTilUnit}
+              postOnly={postOnly}
               reduceOnly={reduceOnly}
-              onTimeInForceChange={setTimeInForce}
+              onTimeInForceChange={tif => {
+                setTimeInForce(tif);
+                if (tif === 'IOC') {
+                  setPostOnly(false);
+                }
+              }}
               onGoodTilValueChange={setGoodTilValue}
               onGoodTilUnitChange={setGoodTilUnit}
-              onReduceOnlyChange={setReduceOnly}
+              onPostOnlyChange={checked => {
+                setPostOnly(checked);
+                if (checked) {
+                  setTimeInForce('GTT');
+                  setReduceOnly(false);
+                }
+              }}
+              onReduceOnlyChange={checked => {
+                setReduceOnly(checked);
+                if (checked) {
+                  setTimeInForce('IOC');
+                  setPostOnly(false);
+                }
+              }}
             />
           )}
 
@@ -789,6 +823,7 @@ export const DydxTradingForm: React.FC = () => {
             triggerPrice={triggerPrice}
             leverage={leverage}
             orderType={orderType}
+            timeInForce={timeInForce}
             currencyMode={currencyMode}
             marginMode={marginMode}
             onPlaceOrder={handlePlaceOrder}

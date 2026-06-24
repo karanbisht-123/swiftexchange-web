@@ -49,17 +49,46 @@ const HeroComponent: React.FC = () => {
             <strong>dYdX</strong>.
           </p>
 
-          <div className="flex flex-row items-center gap-4 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
             <button
               onClick={openModal}
-              className="btn btn-primary btn-lg w-full sm:w-auto shadow-lg shadow-brand-primary/20 hover:shadow-brand-primary/30 transition-all flex items-center justify-center gap-2 group"
+              className="btn btn-primary btn-lg w-full max-w-[280px] sm:w-auto shadow-lg shadow-brand-primary/20 hover:shadow-brand-primary/30 transition-all flex items-center justify-center gap-2 group"
             >
               Start Trading
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
-            {/* <button className="btn btn-secondary btn-lg w-full sm:w-auto flex items-center justify-center gap-2 bg-secondary/10 border-transparent hover:bg-secondary/20">
-              Explore Markets
-            </button> */}
+
+            <div className="flex flex-row items-center gap-3">
+              {/* App Store — Live */}
+              <a
+                href="https://apps.apple.com/us/app/swiftex-wallet/id6759080930"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block hover:scale-105 transition-transform duration-300"
+                aria-label="Download on App Store"
+              >
+                <img
+                  src="/app-store-download.fb5659b5.png"
+                  alt="Download on App Store"
+                  className="h-14 w-auto"
+                />
+              </a>
+
+              {/* Google Play — Live */}
+              <a
+                href="https://play.google.com/store/apps/details?id=org.app.swiftEx.wallet&pcampaignid=web_share"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block hover:scale-105 transition-transform duration-300"
+                aria-label="Get it on Google Play"
+              >
+                <img
+                  src="/google-play-download.1c0e3a31.png"
+                  alt="Get it on Google Play"
+                  className="h-14 w-auto"
+                />
+              </a>
+            </div>
           </div>
 
           <div className="w-full hidden lg:block pt-4">

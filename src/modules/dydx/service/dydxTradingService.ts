@@ -78,6 +78,7 @@ class DydxTradingService {
       const orderCategory = this.categorizeOrder(params.type);
 
       this.validateReduceOnlyConstraints(params, orderCategory);
+      this.validatePostOnlyConstraints(params);
 
       let price = params.price ?? 0;
       if (orderCategory.isMarket || !price) {
@@ -118,6 +119,7 @@ class DydxTradingService {
           transferAmount,
           address,
           subaccountNumber,
+          marketInfo,
         });
       } else {
         if (orderCategory.isMarket) {
@@ -237,6 +239,7 @@ class DydxTradingService {
     transferAmount,
     address,
     subaccountNumber,
+    marketInfo,
   }: {
     client: any;
     subaccount: any;
@@ -250,6 +253,7 @@ class DydxTradingService {
     transferAmount: number;
     address?: string;
     subaccountNumber: number;
+    marketInfo: MarketData;
   }) {
     if (orderCategory.isMarket) {
       console.log(`[atomic] Market+isolated: sending transfer tx first ($${transferAmount.toFixed(2)} → subaccount ${subaccountNumber})`);
@@ -271,17 +275,22 @@ class DydxTradingService {
       console.log(`[atomic] Transfer tx broadcast: ${this.extractHash(transferResult.hash)}`);
 
       const walletAddress = address ?? dydxWalletService.getAddress()!;
-      await this.waitForTransferToLand(walletAddress, subaccountNumber, transferAmount);
+      await this.waitForTransferToLand(client, walletAddress, subaccountNumber, transferAmount);
+
+      // Recalculate price using a fresh orderbook snapshot after the transfer delay
+      let freshPrice = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
+      freshPrice = this.roundPrice(freshPrice, marketInfo.tickSize!);
+
       const height = await this.getFreshBlockHeight(client);
       const goodTilBlock = height + TRADING_CONFIG.SHORT_BLOCK_FORWARD;
 
-      console.log(`[atomic] Transfer confirmed → placing short-term order at block ${height} | goodTilBlock = ${goodTilBlock}`);
+      console.log(`[atomic] Transfer confirmed → placing short-term order at block ${height} | goodTilBlock = ${goodTilBlock} | freshPrice = ${freshPrice}`);
 
       return client.placeShortTermOrder(
         subaccount,
         params.market,
         this.normalizeToOrderSide(params.side),
-        price,
+        freshPrice,
         size,
         clientId,
         goodTilBlock,
@@ -331,7 +340,22 @@ class DydxTradingService {
     return result;
   }
 
+  private decodeQuantumsToUSD(quantums: Uint8Array): number {
+    if (!quantums || quantums.length <= 1) {
+      return 0;
+    }
+    const negated = (quantums[0] & 1) === 1;
+    const hex = Array.from(quantums.slice(1))
+      .map((b: any) => b.toString(16).padStart(2, '0'))
+      .join('');
+    if (!hex) return 0;
+    const abs = BigInt(`0x${hex}`);
+    const signedBigInt = negated ? -abs : abs;
+    return Number(signedBigInt) / 1_000_000;
+  }
+
   private async waitForTransferToLand(
+    client: any,
     address: string,
     subaccountNumber: number,
     minEquity: number
@@ -382,10 +406,11 @@ class DydxTradingService {
         resolved = true;
         unsubscribe();
         clearInterval(pollInterval);
+        clearInterval(validatorPollInterval);
         clearTimeout(timeoutId);
       };
 
-      // WebSocket Subscription (Primarypath)
+      // WebSocket Subscription (Primary path)
       const unsubscribe = useWebSocketStore.subscribe((state) => {
         if (isConditionMet(state)) {
           console.log(`[atomic] [reflection] Transfer confirmed via WebSocket update`);
@@ -393,6 +418,31 @@ class DydxTradingService {
           resolve();
         }
       });
+
+      // Validator Polling (Fastest path - bypass Indexer DB indexing lag)
+      const validatorPollInterval = setInterval(async () => {
+        if (resolved) return;
+        try {
+          const subaccountResp = await client.validatorClient.get.getSubaccount(address, subaccountNumber);
+          if (resolved) return;
+          if (subaccountResp?.subaccount?.assetPositions) {
+            const usdcPosition = subaccountResp.subaccount.assetPositions.find(
+              (p: any) => p.assetId === 0
+            );
+            if (usdcPosition) {
+              const usdVal = this.decodeQuantumsToUSD(usdcPosition.quantums);
+              console.log(`[atomic] [reflection] Validator USDC balance: $${usdVal.toFixed(2)} (target: $${(minEquity * 0.99).toFixed(2)})`);
+              if (usdVal >= minEquity * 0.99) {
+                console.log(`[atomic] [reflection] Transfer confirmed via Validator polling!`);
+                cleanup();
+                resolve();
+              }
+            }
+          }
+        } catch (e: any) {
+          console.log(`[atomic] [reflection] Validator poll error: ${e.message}`);
+        }
+      }, 400);
 
       // Polling Fallback (Secondary path)
       const indexer = dydxWalletService.getIndexerClient();
@@ -809,6 +859,17 @@ class DydxTradingService {
   private validateReduceOnlyConstraints(params: PlaceOrderParams, _orderCategory: any) {
     if (!params.reduceOnly) return;
     if (params.postOnly) throw new Error('Reduce-Only and Post-Only cannot be combined');
+  }
+
+  private validatePostOnlyConstraints(params: PlaceOrderParams) {
+    if (!params.postOnly) return;
+    const isLimitLike =
+      params.type === 'LIMIT' ||
+      params.type === 'STOP_LIMIT' ||
+      params.type === 'TAKE_PROFIT_LIMIT';
+    if (!isLimitLike) {
+      throw new Error('Post-Only is only valid for Limit, Stop Limit, and Take Profit Limit orders');
+    }
   }
 
   private categorizeOrder(type: string) {

@@ -2,7 +2,7 @@ import { AlertCircle, Copy, Info, Loader2, ChevronRight, Wallet, RefreshCw } fro
 import React, { useCallback, useMemo, useRef } from 'react';
 import PageLayout from '../../../components/layout/PageLayout';
 import { Tooltip } from '../../../components/common/Tooltip';
-import { toPlainString } from '../../evm/hook/useEvmSwap';
+import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
 import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { useSendAsset } from '../hook/useSendassets';
@@ -251,7 +251,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                 <div className="space-y-2 mb-2">
                   <div className="flex justify-between items-center gap-4 min-w-0 text-xs">
                     <span className="text-text-secondary font-medium shrink-0">Estimated Fee</span>
-                    <span 
+                    <span
                       className="font-bold text-text-primary truncate text-right flex-1"
                       title={`${estimatedFees?.totalCost || currentAsset.baseFee} ${currentAsset.symbol}`}
                     >
@@ -262,7 +262,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                 <div className="h-px bg-divider/10 my-3" />
                 <div className="flex justify-between items-center gap-4 min-w-0">
                   <span className="text-sm font-bold text-text-primary shrink-0">Total {currentAsset.isNative ? 'Cost' : 'to Send'}</span>
-                  <span 
+                  <span
                     className="text-xl font-black text-brand-primary truncate text-right flex-1"
                     title={`${totalAmount.toFixed(currentAsset.decimals)} ${currentAsset.symbol}`}
                   >

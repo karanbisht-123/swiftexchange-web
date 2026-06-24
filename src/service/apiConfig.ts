@@ -5,7 +5,9 @@ export const API_CONFIG = {
     serverUrl: import.meta.env.VITE_BASE_SERVER_URL,
     proxyUrl: import.meta.env.VITE_BASE_PROXY_URL,
     deviceAuth: import.meta.env.VITE_API_DEVICE_AUTH,
-    deviceJwt: import.meta.env.VITE_API_DEVICE_JWT,
+    get deviceJwt(): string {
+        return localStorage.getItem('device_token') || '';
+    },
     userToken: import.meta.env.VITE_API_USER_AUTH,
 } as const;
 

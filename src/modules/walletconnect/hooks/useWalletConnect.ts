@@ -16,6 +16,7 @@ export const useWalletConnect = () => {
   const isModalOpen = useWalletStore(state => state.isModalOpen);
   const network = useWalletStore(state => state.network);
   const isRestoringSession = useWalletStore(state => state.isRestoringSession);
+  const session = useWalletStore(state => state.session);
 
   const connectWallet = useWalletStore(state => state.connectWallet);
   const connectUnified = useWalletStore(state => state.connectUnified);
@@ -72,6 +73,7 @@ export const useWalletConnect = () => {
     connectionStatus,
     network,
     isRestoringSession,
+    session,
 
     isAnyWalletConnected,
     connectedCount,

@@ -15,6 +15,7 @@ import {
 import { decryptAndRestore, encryptAndStore, hasEncryptedBlob, purge } from './dydxKeyManager';
 import { sessionVault } from './sessionVault';
 import { sendCustomNotification } from '../../../service/notificationService';
+import { WALLET_METADATA_MAP } from '../constants/Wallet';
 
 const CONNECTION_TIMEOUT_MS = 120_000;
 const SESSION_STORAGE_KEY = 'wallet_sessions';
@@ -40,11 +41,6 @@ interface WalletSession {
   dydxAddress?: string;
   stellarAddress?: string;
   stellarChainId?: string;
-  /**
-   * Tracks whether this WalletConnect session was established as part of a
-   * unified (multichain) connection or as an individual chain connection.
-   * Used during session restore to pick the correct provider key.
-   */
   connectionMode?: 'unified' | 'separate';
   peerName?: string;
   peerIcon?: string;
@@ -55,40 +51,7 @@ interface WalletSession {
   };
 }
 
-const WALLET_METADATA_MAP: Record<string, { name: string; icon: string }> = {
-  metamask: {
-    name: 'MetaMask',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT3ymr3UNKopfI0NmUY95Dr-0589vG-91KuAA&s',
-  },
-  trust: {
-    name: 'Trust Wallet',
-    icon: 'https://play-lh.googleusercontent.com/cd5BevWohRqLwsI2_i3k4YIVtcO57cIZCs6l20H1Hcdj0P2rFEcX_7QtgKbTM3Sn_A',
-  },
-  rainbow: {
-    name: 'Rainbow',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRDU5aTw2FNop7OonFBOXEeAXb1biSQbBr6Ew&s',
-  },
-  keplr: {
-    name: 'Keplr',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ5rMEIpPYpBjh6xhQtBd7TQDiaUi1H1VX9eA&s',
-  },
-  leap: {
-    name: 'Leap Wallet',
-    icon: 'https://avatars.githubusercontent.com/u/99279452?s=200&v=4',
-  },
-  lobstr: {
-    name: 'LOBSTR',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRr4vU2tmIUuPEaeD2fPRDIgbC4ZcqfNzQR3Q&s',
-  },
-  freighter: {
-    name: 'Freighter',
-    icon: 'https://framerusercontent.com/images/hJLECaObEXnPQkYrO2ZccbSk.png?width=512&height=512',
-  },
-  walletconnect: {
-    name: 'WalletConnect',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU',
-  },
-};
+
 
 function getSessionMetadata(walletId: string, peerMetadata?: any) {
   const fallback = WALLET_METADATA_MAP[walletId] || WALLET_METADATA_MAP['walletconnect'];
@@ -256,8 +219,69 @@ class WalletService {
       core,
     });
 
+    this.wrapProviderRequests(provider);
+
     this.providers.set(key, provider);
     return provider;
+  }
+
+  private wrapProviderRequests(provider: any): void {
+    if (!provider) return;
+    const serviceInstance = this;
+
+    const wrapMethod = (target: any) => {
+      if (!target || typeof target.request !== 'function' || target.request.__isWrapped) return;
+      const originalRequest = target.request;
+
+      target.request = function (this: any, ...args: any[]) {
+        const method = args[0]?.method;
+        const SIGNING_METHODS = [
+          'eth_sendTransaction',
+          'eth_signTypedData_v4',
+          'personal_sign',
+          'cosmos_signDirect',
+          'cosmos_signAmino',
+          'stellar_signTransaction',
+          'stellar_signAndSubmitXDR',
+        ];
+
+        if (SIGNING_METHODS.includes(method)) {
+          try {
+            const session = provider.session;
+            const storedSession = Array.from(serviceInstance.sessions.values()).find(
+              s => s.peerRedirect
+            );
+            const redirect = session?.peer?.metadata?.redirect || storedSession?.peerRedirect;
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+            const isInAppBrowser =
+              (typeof window !== 'undefined' && !!(window as any).ethereum) ||
+              /Trust|MetaMask|Keplr|Freighter|LOBSTR/i.test(navigator.userAgent);
+
+            if (redirect && !isInAppBrowser && (isAndroid || isIOS)) {
+              const href = isAndroid
+                ? (redirect.native || redirect.universal)
+                : (redirect.universal || redirect.native);
+
+              if (href) {
+                console.log('[WalletService] Redirecting to wallet for', method, '::', href);
+                window.location.href = href;
+              }
+            }
+          } catch (e) {
+            console.error('[WalletService] Auto-redirect error:', e);
+          }
+        }
+
+        return originalRequest.apply(this, args);
+      };
+      target.request.__isWrapped = true;
+    };
+
+    wrapMethod(provider);
+    if (provider.client) {
+      wrapMethod(provider.client);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1516,18 +1540,33 @@ class WalletService {
   private openMobileDeepLink(walletId: string, uri: string): void {
     if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
 
-    const deepLinks: Record<string, string> = {
-      metamask: `https://metamask.app.link/wc?uri=${encodeURIComponent(uri)}`,
-      trust: `https://link.trustwallet.com/wc?uri=${encodeURIComponent(uri)}`,
-      coinbase: `https://go.cb-w.com/wc?uri=${encodeURIComponent(uri)}`,
-      phantom: `https://phantom.app/ul/v1/connect?uri=${encodeURIComponent(uri)}`,
-      keplr: `keplrwallet://wcV2?uri=${encodeURIComponent(uri)}`,
-      leap: `leapcosmos://wcV2?uri=${encodeURIComponent(uri)}`,
-      rainbow: `https://rnbwapp.com/wc?uri=${encodeURIComponent(uri)}`,
-    };
+    const isInAppBrowser =
+      (typeof window !== 'undefined' && !!(window as any).ethereum) ||
+      /Trust|MetaMask|Keplr|Freighter|LOBSTR/i.test(navigator.userAgent);
+    if (isInAppBrowser) {
+      console.log('[WalletService] In-app browser detected, skipping deep link redirect');
+      return;
+    }
 
-    const link = deepLinks[walletId];
-    if (link) setTimeout(() => { window.location.href = link; }, 100);
+    const meta = WALLET_METADATA_MAP[walletId];
+    if (!meta || !meta.redirects) return;
+
+    const { native, universal } = meta.redirects;
+
+    let link = '';
+    if (universal) {
+      link = `${universal}?uri=${encodeURIComponent(uri)}`;
+    } else if (native) {
+      const separator = native.endsWith('://') ? '' : '/';
+      link = `${native}${separator}wc?uri=${encodeURIComponent(uri)}`;
+    }
+
+    if (link) {
+      console.log(`[WalletService] Redirecting to ${walletId} via:`, link);
+      setTimeout(() => {
+        window.location.href = link;
+      }, 100);
+    }
   }
 
   // ---------------------------------------------------------------------------

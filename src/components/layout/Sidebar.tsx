@@ -1,6 +1,6 @@
 import {
   Infinity as InfinityIcon,
-  ArrowRightLeft,
+  // ArrowRightLeft,
   BarChart2,
   CandlestickChart,
   History,
@@ -148,9 +148,8 @@ const Sidebar: FC = () => {
       <button
         id="hamburger-btn"
         onClick={() => setIsOpen(!isOpen)}
-        className={`lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl transition-all duration-300 shadow-lg ${
-          isOpen ? 'bg-secondary text-primary translate-x-[72px]' : 'bg-secondary text'
-        }`}
+        className={`lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl transition-all duration-300 shadow-lg ${isOpen ? 'bg-secondary text-primary translate-x-[72px]' : 'bg-secondary text'
+          }`}
       >
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>

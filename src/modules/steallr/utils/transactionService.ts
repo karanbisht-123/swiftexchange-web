@@ -44,21 +44,21 @@ async function submitToHorizon(
   return json.hash;
 }
 
+async function notifyWalletSignRequest(): Promise<void> {
+  const token = localStorage.getItem('device_token');
+  if (!token) return;
+
+  await sendCustomNotification(token, {
+    title: 'Wallet Signature Required',
+    body: `Open your wallet to sign the transaction.`,
+  }).catch(console.error);
+}
+
 export const signAndSubmitTransaction = async (
   params: SignAndSubmitParams
 ): Promise<SignAndSubmitResult> => {
-  const token = localStorage.getItem('device_token');
-  if (token) {
-    sendCustomNotification(token, {
-      title: 'Transaction Request',
-      body: 'Please confirm the Stellar transaction.',
-    }).catch(err => {
-      console.error(err);
-    });
-  }
   const { network, networkPassphrase, provider } = params;
   let finalXdr = params.xdr;
-
   let sourceAddress: string | undefined;
   let txSeq: string | undefined;
 
@@ -106,33 +106,28 @@ export const signAndSubmitTransaction = async (
 
   try {
     const win = window as any;
+
     if (provider?.isFreighter || (win.freighter && provider === win.freighter)) {
       console.log('[StellarTransactionService] Using Freighter');
       const freighter = win.freighterApi || win.freighter;
 
-      const signResult = await freighter.signTransaction(finalXdr, {
-        network,
-        networkPassphrase
-      });
-
+      await notifyWalletSignRequest();
+      const signResult = await freighter.signTransaction(finalXdr, { network, networkPassphrase });
       const signedXdr = typeof signResult === 'string' ? signResult : signResult?.signedTxXdr;
 
       if (!signedXdr) {
         throw new Error('Freighter failed to sign the transaction');
       }
+
       const config = getStellarConfig(network.toLowerCase() as any);
       const hash = await submitToHorizon(signedXdr, config.horizonUrl);
-
       return { success: true, hash };
     }
 
     if (provider?.client && provider?.session) {
       console.log('[StellarTransactionService] Using WalletConnect');
-
-      console.log("-----------")
       const config = getStellarConfig(network.toLowerCase() as any);
       const stellarNetwork = config.chainId;
-
       const topic = provider.session.topic;
       const chainId = `stellar:${stellarNetwork}`;
 
@@ -144,6 +139,7 @@ export const signAndSubmitTransaction = async (
 
       console.log('[StellarTransactionService] signParams:', signParams);
 
+      await notifyWalletSignRequest();
       const result = await provider.client.request({
         topic,
         chainId,
@@ -158,7 +154,6 @@ export const signAndSubmitTransaction = async (
       }
 
       if (result?.signedXDR) {
-        const config = getStellarConfig(network.toLowerCase() as any);
         const hash = await submitToHorizon(result.signedXDR, config.horizonUrl);
         return { success: true, hash };
       }
@@ -172,6 +167,8 @@ export const signAndSubmitTransaction = async (
 
     if (typeof provider?.request === 'function') {
       console.log('[StellarTransactionService] Using generic provider.request');
+
+      await notifyWalletSignRequest();
       const result = await provider.request({
         method: 'stellar_signAndSubmitXDR',
         params: {
@@ -202,9 +199,6 @@ export const signAndSubmitTransaction = async (
       }
     }
 
-    return {
-      success: false,
-      error: errStr,
-    };
+    return { success: false, error: errStr };
   }
 };
