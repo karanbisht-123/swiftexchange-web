@@ -90,7 +90,10 @@ export class StellarBaseService {
   async getAssetsWithBalances(address: string): Promise<{ tokens: TokenInfo[], subentryCount: number }> {
     const isMainnet = this.networkPassphrase.includes('Public Global Stellar Network');
     const chainId = isMainnet ? 'pubnet' : 'testnet';
-    const chainConfig = getChainById(chainId);
+    let chainConfig = getChainById(chainId);
+    if (!chainConfig && !isMainnet) {
+      chainConfig = getChainById('pubnet');
+    }
 
     if (!chainConfig) return { tokens: [], subentryCount: 0 };
 
@@ -121,6 +124,8 @@ export class StellarBaseService {
         decimals: a.decimals,
         isPopular: true,
         hasTrustline: a.type === 'NATIVE' || !!balRecord,
+        homeDomain: a.domain || (a.type === 'NATIVE' ? 'stellar.org' : undefined),
+        domain: a.domain || (a.type === 'NATIVE' ? 'stellar.org' : undefined),
       };
     });
 

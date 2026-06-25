@@ -310,15 +310,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       set({ isRestoringSession: true });
 
       try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('RESTORE_TIMEOUT')), 5000)
-        );
+        const sessions = await walletService.restoreSessions();
 
-        const sessions = await Promise.race([
-          walletService.restoreSessions(),
-          timeoutPromise
-        ]);
-
+        // WC looked and found no live sessions — safe to clean up.
         if (!sessions.length) {
           set({ isRestoringSession: false });
           await get().disconnectAll();
@@ -365,9 +359,11 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           session: rawSession,
         });
       } catch (error: any) {
-        console.error('[WalletStore] Failed to restore sessions or timed out:', error);
+        console.error('[WalletStore] Failed to restore sessions:', {
+          message: error?.message,
+          stack: error?.stack,
+        });
         set({ isRestoringSession: false });
-        await get().disconnectAll();
       }
     },
 

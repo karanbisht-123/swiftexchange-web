@@ -32,7 +32,11 @@ interface DisplayAsset {
   isTrusted: boolean;
   iconUrl?: string;
   name?: string;
+  domain?: string;
+  isLowLiquidity?: boolean;
 }
+
+
 
 interface AssetClickPayload {
   ticker: string;
@@ -104,11 +108,12 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       }
     });
 
-    return Array.from(assetsMap.values()).sort((a, b) => {
-      if (a.isTrusted !== b.isTrusted) return a.isTrusted ? -1 : 1;
-      if (a.code !== b.code) return a.code.localeCompare(b.code);
-      return a.issuer.localeCompare(b.issuer);
-    });
+    return Array.from(assetsMap.values())
+      .sort((a, b) => {
+        if (a.isTrusted !== b.isTrusted) return a.isTrusted ? -1 : 1;
+        if (a.code !== b.code) return a.code.localeCompare(b.code);
+        return a.issuer.localeCompare(b.issuer);
+      });
   }, [balances]);
 
   const { displayedAssets, searchLoading } = useAssetSearch({
@@ -273,14 +278,19 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                       {asset.isTrusted && (
                         <CheckCircle2 size={10} className="text-green-500 shrink-0" />
                       )}
+                      {asset.isLowLiquidity && (
+                        <span className="px-1 py-0.5 rounded bg-yellow-500/10 text-yellow-500 text-[8px] font-bold uppercase tracking-wider scale-90 shrink-0">
+                          Low Liquidity
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted/60 font-mono">
-                      <span>{asset.code}</span>
+                    <div className="flex items-center gap-1 text-[10px] text-muted/60">
+                      <span className="font-mono">{asset.code}</span>
                       {asset.issuer && (
                         <>
-                          <span className="opacity-30">·</span>
-                          <span className="truncate max-w-[90px] lg:max-w-[140px]">
-                            {truncateAddress(asset.issuer)}
+                          <span className="opacity-30 mx-0.5">·</span>
+                          <span className="truncate max-w-[110px] lg:max-w-[160px] font-medium">
+                            {asset.domain || truncateAddress(asset.issuer)}
                           </span>
                         </>
                       )}
