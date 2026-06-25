@@ -4,11 +4,12 @@ export const IS_PROD = import.meta.env.PROD;
 export const API_CONFIG = {
     serverUrl: import.meta.env.VITE_BASE_SERVER_URL,
     proxyUrl: import.meta.env.VITE_BASE_PROXY_URL,
-    deviceAuth: import.meta.env.VITE_API_DEVICE_AUTH,
+    get deviceAuth(): string {
+        return localStorage.getItem('device_token') || import.meta.env.VITE_API_DEVICE_AUTH || '';
+    },
     get deviceJwt(): string {
         return localStorage.getItem('device_token') || '';
     },
-    userToken: import.meta.env.VITE_API_USER_AUTH,
 } as const;
 
 if (IS_DEV) {

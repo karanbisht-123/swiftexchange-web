@@ -13,45 +13,33 @@ interface SubaccountBalanceCache {
 }
 
 const BALANCE_CACHE_TTL = 10_000;
-let subaccountBalanceCache: SubaccountBalanceCache | null = null;
+const MIN_SWEEP_THRESHOLD = 0.01;
+const MAINTENANCE_MARGIN_SAFETY_FACTOR = 1.10;
+const USDC_QUANTUM_FACTOR = 1e6;
 
 class DydxSubaccountService {
+  private balanceCache: SubaccountBalanceCache | null = null;
+
   async fetchSubaccountBalance(address: string, subaccountNumber: number): Promise<SubaccountBalanceCache> {
     const now = Date.now();
-    if (subaccountBalanceCache && now - subaccountBalanceCache.timestamp < BALANCE_CACHE_TTL) {
-      return subaccountBalanceCache;
+    if (this.balanceCache && now - this.balanceCache.timestamp < BALANCE_CACHE_TTL) {
+      return this.balanceCache;
     }
 
     const indexerClient = dydxWalletService.getIndexerClient();
+    const subaccountResp = await indexerClient.account.getSubaccount(address, subaccountNumber)
+      .catch(() => ({ subaccount: null }));
 
-    const [equityResult, freeCollateralResult, marginResult] = await Promise.all([
-      indexerClient.account.getSubaccount(address, subaccountNumber)
-        .then(r => parseFloat(r.subaccount?.equity || '0'))
-        .catch(() => 0),
-      indexerClient.account.getSubaccount(address, subaccountNumber)
-        .then(r => parseFloat(r.subaccount?.freeCollateral || '0'))
-        .catch(() => 0),
-      indexerClient.account.getSubaccount(address, subaccountNumber)
-        .then(r => {
-          const equity = parseFloat(r.subaccount?.equity || '0');
-          const free = parseFloat(r.subaccount?.freeCollateral || '0');
-          return Math.max(0, equity - free);
-        })
-        .catch(() => 0),
-    ]);
+    const equity = parseFloat(subaccountResp.subaccount?.equity || '0');
+    const freeCollateral = parseFloat(subaccountResp.subaccount?.freeCollateral || '0');
+    const marginUsed = Math.max(0, equity - freeCollateral);
 
-    subaccountBalanceCache = {
-      equity: equityResult,
-      availableBalance: freeCollateralResult,
-      marginUsed: marginResult,
-      timestamp: now,
-    };
-
-    return subaccountBalanceCache;
+    this.balanceCache = { equity, availableBalance: freeCollateral, marginUsed, timestamp: now };
+    return this.balanceCache;
   }
 
   invalidateBalanceCache(): void {
-    subaccountBalanceCache = null;
+    this.balanceCache = null;
   }
 
   async transfer(
@@ -68,7 +56,7 @@ class DydxSubaccountService {
       }
 
       const localWallet = await this.getSigningWallet();
-      const amountInQuantums = Math.floor(parseFloat(amount) * 1e6);
+      const amountInQuantums = Math.floor(parseFloat(amount) * USDC_QUANTUM_FACTOR);
 
       if (amountInQuantums <= 0) {
         throw new Error('Transfer amount must be greater than 0');
@@ -190,7 +178,7 @@ class DydxSubaccountService {
     let sweptTotal = 0;
     const sweepable = childSubaccounts.filter(child => {
       const hasNoPositions = Object.keys(child.openPerpetualPositions || {}).length === 0;
-      const hasFreeCollateral = parseFloat(child.freeCollateral) > 0.01;
+      const hasFreeCollateral = parseFloat(child.freeCollateral) > MIN_SWEEP_THRESHOLD;
       const isIsolated = child.subaccountNumber >= SUBACCOUNT_CONSTANTS.ISOLATED_START;
       return isIsolated && hasNoPositions && hasFreeCollateral;
     });
@@ -246,12 +234,12 @@ class DydxSubaccountService {
         return { success: false, swept: 0, error: 'Subaccount still has open positions' };
       }
 
-      if (equity <= 0.01) {
+      if (equity <= MIN_SWEEP_THRESHOLD) {
         return { success: true, swept: 0 };
       }
 
-      const sweepAmount = freeCollateral > 0 ? freeCollateral : equity;
-      if (sweepAmount <= 0.01) {
+      const sweepAmount = freeCollateral > MIN_SWEEP_THRESHOLD ? freeCollateral : equity;
+      if (sweepAmount <= MIN_SWEEP_THRESHOLD) {
         return { success: true, swept: 0 };
       }
 
@@ -379,7 +367,7 @@ class DydxSubaccountService {
         const mmf = mktData?.maintenanceMarginFraction ? parseFloat(mktData.maintenanceMarginFraction) : 0.03;
         const size = Math.abs(parseFloat(p.size));
         const notional = size * oraclePrice;
-        totalMinRequired += notional * mmf * 1.10;
+        totalMinRequired += notional * mmf * MAINTENANCE_MARGIN_SAFETY_FACTOR;
       });
 
       const transferable = Math.max(0, equity - totalMinRequired);

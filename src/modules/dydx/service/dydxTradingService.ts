@@ -23,16 +23,15 @@ import { useWebSocketStore } from '../store/websocketStore';
 
 const TRADING_CONFIG = {
   DEFAULT_SLIPPAGE: 0.05,
-  SHORT_BLOCK_FORWARD: 18,
+  SHORT_BLOCK_FORWARD: 19,
   SHORT_BLOCK_WINDOW: 20,
   SHORT_TERM_BLOCKS: 19,
   DEFAULT_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
   CLOSE_POSITION_SLIPPAGE: 0.03,
   MAX_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
   ISOLATED_FEE_BUFFER: 0.02,
-
-  TRANSFER_CONFIRM_POLL_MS: 800,
-  TRANSFER_CONFIRM_MAX_ATTEMPTS: 45,
+  TRANSFER_CONFIRM_POLL_MS: 400,
+  TRANSFER_CONFIRM_MAX_ATTEMPTS: 37,
 } as const;
 
 const CONDITIONAL_ORDER_TYPES = new Set([
@@ -81,11 +80,15 @@ class DydxTradingService {
       this.validatePostOnlyConstraints(params);
 
       let price = params.price ?? 0;
-      if (orderCategory.isMarket || !price) {
-        price = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
-      }
-      price = this.roundPrice(price, marketInfo.tickSize!);
 
+      const isIsolatedMarket = orderCategory.isMarket && (subaccountNumber ?? 0) >= 128 && !!params.leverage;
+
+      if (!isIsolatedMarket) {
+        if (orderCategory.isMarket || !price) {
+          price = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
+        }
+        price = this.roundPrice(price, marketInfo.tickSize!);
+      }
       const triggerPrice = params.triggerPrice
         ? this.roundPrice(params.triggerPrice, marketInfo.tickSize!)
         : undefined;
@@ -275,12 +278,22 @@ class DydxTradingService {
       console.log(`[atomic] Transfer tx broadcast: ${this.extractHash(transferResult.hash)}`);
 
       const walletAddress = address ?? dydxWalletService.getAddress()!;
-      await this.waitForTransferToLand(client, walletAddress, subaccountNumber, transferAmount);
+      await this.waitForTransferToLand(
+        client,
+        walletAddress,
+        subaccountNumber,
+        transferAmount,
+        SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
+      );
 
-      // Recalculate price using a fresh orderbook snapshot after the transfer delay
-      let freshPrice = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
+
+      const oraclePrice = parseFloat(marketInfo.oraclePrice);
+      const slippage = params.slippageTolerance ?? TRADING_CONFIG.DEFAULT_SLIPPAGE;
+      const normalizedSide = params.side.toUpperCase().trim();
+      let freshPrice = normalizedSide === 'BUY'
+        ? oraclePrice * (1 + slippage)
+        : oraclePrice * (1 - slippage);
       freshPrice = this.roundPrice(freshPrice, marketInfo.tickSize!);
-
       const height = await this.getFreshBlockHeight(client);
       const goodTilBlock = height + TRADING_CONFIG.SHORT_BLOCK_FORWARD;
 
@@ -358,12 +371,13 @@ class DydxTradingService {
     client: any,
     address: string,
     subaccountNumber: number,
-    minEquity: number
+    minEquity: number,
+    parentSubaccountNumber: number = 0
   ): Promise<void> {
     const { TRANSFER_CONFIRM_POLL_MS, TRANSFER_CONFIRM_MAX_ATTEMPTS } = TRADING_CONFIG;
     const maxWaitMs = TRANSFER_CONFIRM_MAX_ATTEMPTS * TRANSFER_CONFIRM_POLL_MS;
-    // Key used in useWebSocketStore for the address profile
-    const parentKey = `parent_subaccount_${address}_0`;
+
+    const parentKey = `parent_subaccount_${address}_${parentSubaccountNumber}`;
     const isConditionMet = (state: any) => {
       const parentData = state.parentSubaccounts.get(parentKey);
       if (!parentData?.childSubaccounts) return false;
@@ -376,7 +390,7 @@ class DydxTradingService {
       const equity = parseFloat(child.equity || '0');
       const freeCollateral = parseFloat(child.freeCollateral || '0');
 
-      // Use a 1% buffer to account for minor precision differences, same as original
+      //buffer to account for minor precision differences
       return equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99;
     };
 
@@ -410,7 +424,7 @@ class DydxTradingService {
         clearTimeout(timeoutId);
       };
 
-      // WebSocket Subscription (Primary path)
+      // WebSocket Subscription 
       const unsubscribe = useWebSocketStore.subscribe((state) => {
         if (isConditionMet(state)) {
           console.log(`[atomic] [reflection] Transfer confirmed via WebSocket update`);
@@ -419,7 +433,6 @@ class DydxTradingService {
         }
       });
 
-      // Validator Polling (Fastest path - bypass Indexer DB indexing lag)
       const validatorPollInterval = setInterval(async () => {
         if (resolved) return;
         try {
@@ -443,10 +456,9 @@ class DydxTradingService {
           console.log(`[atomic] [reflection] Validator poll error: ${e.message}`);
         }
       }, 400);
-
-      // Polling Fallback (Secondary path)
       const indexer = dydxWalletService.getIndexerClient();
       let pollAttempt = 0;
+      const INDEXER_POLL_MS = TRANSFER_CONFIRM_POLL_MS * 2;
 
       const pollInterval = setInterval(async () => {
         if (resolved) return;
@@ -466,7 +478,7 @@ class DydxTradingService {
         } catch (e: any) {
           console.log(`[atomic] [reflection] Transfer poll failed: ${e.message}`);
         }
-      }, TRANSFER_CONFIRM_POLL_MS);
+      }, INDEXER_POLL_MS);
     });
   }
   private async getFreshBlockHeight(client: any): Promise<number> {

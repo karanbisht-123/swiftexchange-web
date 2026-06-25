@@ -1,4 +1,4 @@
-import { Radio, RefreshCw } from 'lucide-react';
+import { Radio, RefreshCw, Loader2 } from 'lucide-react';
 import React from 'react';
 
 import { useRecentTrades } from '../../hook/useRecentTrades';
@@ -19,15 +19,20 @@ const LastTrades: React.FC<LastTradesProps> = ({ baseAsset, counterAsset }) => {
   return (
     <>
       <style>{`
-        @keyframes trade-slide-in {
-          from { opacity: 0; background-color: rgba(34,197,94,0.12); transform: translateX(-6px); }
+        @keyframes trade-slide-in-buy {
+          from { opacity: 0; background-color: rgba(34,197,94,0.15); transform: translateX(-4px); }
           to   { opacity: 1; background-color: transparent; transform: translateX(0); }
         }
-        .trade-flash { animation: trade-slide-in 0.8s ease; }
+        @keyframes trade-slide-in-sell {
+          from { opacity: 0; background-color: rgba(239,68,68,0.15); transform: translateX(-4px); }
+          to   { opacity: 1; background-color: transparent; transform: translateX(0); }
+        }
+        .trade-flash-buy { animation: trade-slide-in-buy 1s cubic-bezier(0.16, 1, 0.3, 1); }
+        .trade-flash-sell { animation: trade-slide-in-sell 1s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>
 
-      <div className="h-full bg-secondary text-sm">
-        <div className="hidden  px-4 py-3 lg:flex items-center justify-between border-b border-white/5">
+      <div className="h-full bg-secondary text-sm flex flex-col">
+        <div className="hidden px-4 py-3 lg:flex items-center justify-between border-b border-white/5 shrink-0">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-primary">Recent Trades</h3>
             <div className="flex items-center gap-1.5 ml-2">
@@ -44,21 +49,33 @@ const LastTrades: React.FC<LastTradesProps> = ({ baseAsset, counterAsset }) => {
           </button>
         </div>
 
-        <div className="grid grid-cols-3 px-4 py-2 text-xs font-medium text-muted uppercase tracking-wider">
+        <div className="grid grid-cols-3 px-4 py-2 text-xs font-medium text-muted uppercase tracking-wider shrink-0">
           <span>Price</span>
           <span className="text-right">Amount ({baseAsset?.code})</span>
           <span className="text-right">Time</span>
         </div>
 
-        <div className="overflow-y-auto max-h-[400px] scrollbar-hide">
-          {trades.length === 0 && !isLoading ? (
-            <div className="text-center py-8 text-muted text-xs">No recent trades found</div>
+        <div className="flex-1 overflow-y-auto scrollbar-hide">
+          {trades.length === 0 && isLoading ? (
+            <div className="w-full h-full flex flex-col items-center justify-center text-muted text-xs gap-2 py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+              <span>Loading recent trades...</span>
+            </div>
+          ) : trades.length === 0 ? (
+            <div className="w-full h-full flex flex-col items-center justify-center text-muted text-xs py-12">
+              No recent trades found
+            </div>
           ) : (
             trades.map(trade => (
               <div
                 key={trade.id}
-                className={`grid grid-cols-3 px-4 py-2 hover:bg-white/5 transition-colors ${newTradeIds.has(trade.id) ? 'trade-flash' : ''
-                  }`}
+                className={`grid grid-cols-3 px-4 py-2 hover:bg-white/5 transition-colors ${
+                  newTradeIds.has(trade.id)
+                    ? trade.isBuy
+                      ? 'trade-flash-buy'
+                      : 'trade-flash-sell'
+                    : ''
+                }`}
               >
                 <span className={`font-mono ${trade.isBuy ? 'text-green-500' : 'text-red-500'}`}>
                   {trade.price}

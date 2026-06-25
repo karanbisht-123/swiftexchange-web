@@ -495,6 +495,10 @@ export const DydxTradingForm: React.FC = () => {
     }
 
     if (marginMode === 'ISOLATED') {
+      // Fix #5: mirror exactly what the service does — only check if crossFreeCollateral
+      // can cover the *shortfall* (targetEquityWithBuffer - currentIsolatedEquity).
+      // The old check (crossFree + isolatedEquity < fullRequired) triggered false rejections
+      // when the isolated subaccount already held sufficient equity.
       const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
       const crossFreeCollateral = crossSub ? parseFloat(crossSub.freeCollateral || '0') : 0;
       const oraclePrice = parseFloat(marketData?.oraclePrice || '0');
@@ -507,28 +511,22 @@ export const DydxTradingForm: React.FC = () => {
         ? Math.max(requiredMargin, ISOLATED_EQUITY_TIER_MIN)
         : requiredMargin;
 
-      const requiredMarginWithBuffer = effectiveMargin * 1.02;
+      const targetEquityWithBuffer = effectiveMargin * (1 + 0.02); // matches ISOLATED_FEE_BUFFER
 
-      const totalAvailable = crossFreeCollateral + isolatedEquity;
-      if (totalAvailable < requiredMarginWithBuffer) {
+      // How much more does the isolated subaccount still need?
+      const shortfall = Math.max(0, targetEquityWithBuffer - isolatedEquity);
+
+      if (shortfall > 0 && crossFreeCollateral < shortfall) {
+        const totalAvailable = crossFreeCollateral + isolatedEquity;
         addNotification(
           'error',
           isLongTermOrder
-            ? `Insufficient collateral for isolated order. Requires $${requiredMarginWithBuffer.toFixed(2)} (incl. 5% buffer). Available: $${totalAvailable.toFixed(2)}`
-            : `Insufficient collateral for isolated market order. Requires $${requiredMarginWithBuffer.toFixed(2)}. Available: $${totalAvailable.toFixed(2)}`,
+            ? `Insufficient collateral for isolated order. Requires $${targetEquityWithBuffer.toFixed(2)} (incl. 2% buffer). Available: $${totalAvailable.toFixed(2)}`
+            : `Insufficient collateral for isolated market order. Requires $${targetEquityWithBuffer.toFixed(2)} (incl. 2% buffer). Available: $${totalAvailable.toFixed(2)}`,
           'Insufficient Margin'
         );
         return;
       }
-
-      // if (isolatedEquity < requiredMarginWithBuffer) {
-      //   const autoDepositAmount = requiredMarginWithBuffer - isolatedEquity;
-      //   addNotification(
-      //     'info',
-      //     `$${autoDepositAmount.toFixed(2)} will be auto-deposited from Cross Margin.`,
-      //     'Auto-Deposit'
-      //   );
-      // }
     }
 
     const result = await placeOrder(

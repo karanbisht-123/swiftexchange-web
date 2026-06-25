@@ -20,9 +20,7 @@ const AssetManager: React.FC = () => {
       subtitle="Manage Your Portfolio"
       maxWidth="xl"
     >
-      <div className="">
-        <UnifiedAssets userAddress={stellarAddress} onAssetClick={handleAssetClick} />
-      </div>
+      <UnifiedAssets userAddress={stellarAddress} onAssetClick={handleAssetClick} />
     </PageLayout>
   );
 };

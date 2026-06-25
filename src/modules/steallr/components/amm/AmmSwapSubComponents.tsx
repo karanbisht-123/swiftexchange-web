@@ -51,7 +51,7 @@ export const TokenSelector = ({ selectedToken, onSelect, tokens }: TokenSelector
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-full mt-2 z-50 bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[180px] max-h-[300px] overflow-y-auto">
+          <div className="absolute right-0 top-full mt-2 z-50 bg-secondary rounded-lg border border-color py-1 min-w-[180px] max-h-[300px] overflow-y-auto">
             {tokens.map(token => {
               const icon = getTokenIcon(token.code, chainConfig, token.issuer);
               const isSelected = selectedToken.code === token.code;
@@ -122,7 +122,7 @@ export const SettingsPanel = ({
   return (
     <>
       <div className="fixed inset-0 bg-bg-overlay z-20" onClick={onClose} />
-      <div className="absolute card right-0 top-14 z-30 w-80 bg-secondary rounded-xl shadow-premium border border-color p-4 animate-slide-up">
+      <div className="absolute card right-0 top-14 z-30 w-80 bg-secondary rounded-xl border border-color p-4 animate-slide-up">
         <h3 className="heading-3 mb-4">Transaction Settings</h3>
 
         <div className="mb-4">

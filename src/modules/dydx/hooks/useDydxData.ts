@@ -51,6 +51,8 @@ interface UseDydxDataReturn {
   recentlyFilledCount: number;
 }
 
+const WS_FRESHNESS_MS = 30_000;
+
 export const useDydxData = (): UseDydxDataReturn => {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
@@ -86,13 +88,13 @@ export const useDydxData = (): UseDydxDataReturn => {
       }))
     ) ?? [];
     return raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
-  }, [parentData?.childSubaccounts, updateTrigger, parentKey]);
+  }, [parentData?.childSubaccounts, parentKey]);
 
   const assetPositions = useMemo(() => {
     return parentData?.childSubaccounts?.flatMap(child =>
       Object.values(child.assetPositions || {})
     ) ?? [];
-  }, [parentData?.childSubaccounts, updateTrigger]);
+  }, [parentData?.childSubaccounts]);
 
   const orders = useMemo<TrackedOrder[]>(() => {
     const all = parentData?.orders ?? [];
@@ -101,7 +103,7 @@ export const useDydxData = (): UseDydxDataReturn => {
       const tB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return tB - tA;
     });
-  }, [parentData?.orders, updateTrigger]);
+  }, [parentData?.orders]);
 
   const openOrders = useMemo<TrackedOrder[]>(
     () => selectOpenOrders(parentData),
@@ -116,18 +118,18 @@ export const useDydxData = (): UseDydxDataReturn => {
   const fills = useMemo(() => {
     const all = parentData?.fills ?? [];
     return [...all].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [parentData?.fills, updateTrigger]);
+  }, [parentData?.fills]);
 
   const openOrderCount = openOrders.length;
   const activePositionCount = positions.length;
   const fillCount = fills.length;
   const blockHeight = parentData?.blockHeight ?? '0';
   const lastUpdateTime = parentData?.lastUpdate ?? null;
-  const isReceivingUpdates = parentData ? Date.now() - parentData.lastUpdate < 30_000 : false;
+  const isReceivingUpdates = parentData ? Date.now() - parentData.lastUpdate < WS_FRESHNESS_MS : false;
 
   const recentlyFilledCount = useMemo(
     () => selectRecentlyTerminalOrders(parentData).filter(o => o.status === 'FILLED').length,
-    [parentData?.orders, updateTrigger]
+    [parentData?.orders]
   );
 
   const loadingPositions = false;

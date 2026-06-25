@@ -413,7 +413,6 @@ const Profile: React.FC = () => {
         ? new Date(indexerPoints[indexerPoints.length - 1].createdAt).getTime()
         : 0;
 
-      // 2. Gather recent events (transfers and fills) that occurred AFTER the latest indexer point
       const recentEvents: { time: number; createdAt: string; impact: number }[] = [];
 
       if (Array.isArray(filteredTransfers)) {
