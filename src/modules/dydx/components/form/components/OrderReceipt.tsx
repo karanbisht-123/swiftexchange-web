@@ -20,6 +20,7 @@ interface OrderReceiptProps {
   triggerPrice: string;
   leverage: number;
   orderType: OrderTypeEnum;
+  timeInForce?: string;
   currencyMode: CurrencyMode;
   marginMode: 'CROSS' | 'ISOLATED';
   onPlaceOrder: () => void;
@@ -35,6 +36,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
   price,
   leverage,
   orderType,
+  timeInForce,
   currencyMode,
   marginMode,
   onPlaceOrder,
@@ -110,7 +112,8 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     const requiredCollateral = initialMarginRequired * 1.02;
 
     const isMaker =
-      orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
+      (orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') &&
+      timeInForce !== 'IOC';
     const feeRate = marketData.zeroFees ? 0 : isMaker ? 0.0002 : 0.0005;
     const fee = notional * feeRate;
 
@@ -151,6 +154,7 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     price,
     leverage,
     orderType,
+    timeInForce,
     side,
     livePrice,
     currencyMode,

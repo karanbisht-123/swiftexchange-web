@@ -21,6 +21,7 @@ import {
   // Server,
 } from 'lucide-react';
 import { useWalletConnect, useWalletNetwork } from '../modules/walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 import { useProfilePortfolio, type PortfolioTab } from '../modules/walletconnect/hooks/useProfilePortfolio';
 import { portfolioUtils } from '../modules/walletconnect/utils/portfolioUtils';
 import { getChainLogoUrl } from '../modules/evm/utils/Chainregistry';
@@ -38,10 +39,24 @@ import { createChart, ColorType, AreaSeries, type IChartApi, LineType } from 'li
 import { fetchStellarPnl } from '../service/apiService';
 import { StellarCostBasisModal } from '../components/StellarCostBasisModal';
 
+const isValidDevicePayload = (payload: any): boolean => {
+  if (!payload || typeof payload !== 'object') return false;
+  return (
+    typeof payload.uniqueId === 'string' && payload.uniqueId.trim() !== '' &&
+    typeof payload.fcmToken === 'string' && payload.fcmToken.trim() !== ''
+  );
+};
+
 const Profile: React.FC = () => {
   const connectWithSwiftEx = true;
   const { connectedWallets, disconnect, openModal } = useWalletConnect();
   const { network } = useWalletNetwork();
+  const session = useWalletStore(state => state.session);
+
+  console.log(session, "================")
+
+  const devicePayload = session?.peer?.metadata?.userDevice;
+  const isSwiftExUser = isValidDevicePayload(devicePayload);
   const { isConnecting: dydxConnecting } = useDydxAutoConnect();
   const {
     isAnyWalletConnected,
@@ -194,7 +209,7 @@ const Profile: React.FC = () => {
   };
 
   const handleOpenCostBasis = async () => {
-    if (!connectedWallets.stellar?.address || loadingCostBasisDetails) return;
+    if (!isSwiftExUser || !connectedWallets.stellar?.address || loadingCostBasisDetails) return;
 
     if (stellarDetailedData?.positions && stellarDetailedData.positions.length > 0) {
       setIsCostBasisModalOpen(true);
@@ -276,7 +291,7 @@ const Profile: React.FC = () => {
     let isMounted = true;
     setStellarDetailedData(null);
 
-    if (connectWithSwiftEx && connectedWallets.stellar?.address && (activeTab === 'stellar' || activeTab === 'total')) {
+    if (isSwiftExUser && connectWithSwiftEx && connectedWallets.stellar?.address && (activeTab === 'stellar' || activeTab === 'total')) {
       const { fromStr, toStr } = getStellarDateRange();
 
       setLoadingStellarPnl(true);
@@ -301,7 +316,7 @@ const Profile: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [connectWithSwiftEx, connectedWallets.stellar?.address, stellarTimeframe, activeTab, getStellarDateRange]);
+  }, [connectWithSwiftEx, connectedWallets.stellar?.address, stellarTimeframe, activeTab, getStellarDateRange, isSwiftExUser]);
 
   useEffect(() => {
     if (!dydxDataService.isReady()) { setTransfers([]); return; }
@@ -398,7 +413,6 @@ const Profile: React.FC = () => {
         ? new Date(indexerPoints[indexerPoints.length - 1].createdAt).getTime()
         : 0;
 
-      // 2. Gather recent events (transfers and fills) that occurred AFTER the latest indexer point
       const recentEvents: { time: number; createdAt: string; impact: number }[] = [];
 
       if (Array.isArray(filteredTransfers)) {
@@ -1060,7 +1074,7 @@ const Profile: React.FC = () => {
   }, [visiblePnlPoints, transfers, isDateRangeActive, fromDate, toDate, timeframe]);
 
   const handleExportStellarReport = async () => {
-    if (!connectedWallets.stellar?.address || isExportingStellar) return;
+    if (!isSwiftExUser || !connectedWallets.stellar?.address || isExportingStellar) return;
 
     setIsExportingStellar(true);
     try {
@@ -1264,7 +1278,7 @@ const Profile: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold tracking-tight">SwiftEx Member</h2>
+                <h2 className="text-lg font-bold tracking-tight">{isSwiftExUser ? 'SwiftEx Member' : 'Standard Member'}</h2>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${isAnyWalletConnected
                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                   : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
@@ -1738,7 +1752,7 @@ const Profile: React.FC = () => {
 
                   {/* Stellar Performance */}
                   {(activeTab === 'stellar' || (activeTab === 'total' && connectWithSwiftEx && connectedWallets.stellar?.address)) && (
-                    !(connectWithSwiftEx && connectedWallets.stellar?.address) ? (
+                    !isSwiftExUser ? (
                       <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-6 shadow-premium text-center flex flex-col items-center justify-center min-h-[280px] relative overflow-hidden group">
                         <div className="absolute top-0 right-0 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl pointer-events-none group-hover:scale-110 transition-transform duration-500" />
                         <div className="w-16 h-16 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-4 shadow-sm">
@@ -1746,7 +1760,7 @@ const Profile: React.FC = () => {
                         </div>
                         <h4 className="font-extrabold text-base text-(--color-text-primary) tracking-tight mb-2">Stellar Performance</h4>
                         <p className="text-xs text-(--color-text-secondary) max-w-sm leading-relaxed mb-6">
-                          Connect with SwiftEx to view Stellar PnL.
+                          It seems like you are not connected with SwiftEx. Please connect with SwiftEx to access full features and see your Stellar portfolio.
                         </p>
                         <button
                           onClick={() => openModal()}

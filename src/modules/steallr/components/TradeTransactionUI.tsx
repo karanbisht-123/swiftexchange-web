@@ -21,9 +21,9 @@ const TradeTransactionUI = () => {
     completedTrades,
     activePagination,
     completedPagination,
-    isLoading,
+    isLoadingActive,
+    isLoadingCompleted,
     error,
-    // isStreaming,
     newOfferIds,
     removingOfferIds,
     fetchActiveOffers,
@@ -170,136 +170,127 @@ const TradeTransactionUI = () => {
         .trade-new { animation: trade-slide-in 0.3s ease; }
       `}</style>
 
-      <div className="bg-secondary min-h-screen p-4 lg:rounded-2xl border border-white/5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="heading-4">Trade Transactions</h2>
-            </div>
-            <p className="text-muted text-sm mt-1">Manage your offers and view history</p>
-          </div>
-          <div className="p-1 bg-muted/30 border border-white/5 rounded-full inline-flex">
+      <div className="bg-secondary min-h-screen lg:rounded-2xl border border-white/5 lg:p-6">
+        <div className="flex items-center justify-between px-4 pt-4 pb-3 lg:px-0 lg:pt-0 lg:pb-0 lg:mb-8 border-b border-white/5 lg:border-0">
+          <h2 className="text-base font-bold text-text-primary lg:text-lg">Trade Transactions</h2>
+          <div className="flex items-center gap-1 p-0.5 bg-primary rounded-lg lg:p-1">
             <button
               onClick={() => setActiveTab('active')}
-              className={`px-5 py-2 text-sm font-medium rounded-full transition-all duration-200 ${activeTab === 'active'
-                ? 'bg-primary text-text-inverse shadow-lg'
-                : 'text-muted hover:text-text-primary'
+              className={`px-3 py-1 lg:px-5 lg:py-2 text-xs font-semibold lg:text-sm rounded-md transition-all duration-200 ${activeTab === 'active'
+                ? 'bg-brand text-white text-text-inverse'
+                : 'text-muted'
                 }`}
             >
-              Active Offers
-              {activeOffers.length > 0 && (
-                <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-white/10">
-                  {activeOffers.length}
-                </span>
-              )}
+              Active
             </button>
             <button
               onClick={() => setActiveTab('completed')}
-              className={`px-5 py-2 text-sm font-medium rounded-full transition-all duration-200 ${activeTab === 'completed'
-                ? 'bg-primary text-text-inverse shadow-lg'
-                : 'text-muted hover:text-text-primary'
+              className={`px-3 py-1 lg:px-5 lg:py-2 text-xs font-semibold lg:text-sm rounded-md transition-all duration-200 ${activeTab === 'completed'
+                ? 'bg-brand text-white text-text-inverse'
+                : 'text-muted'
                 }`}
             >
-              Completed Trades
+              Completed
             </button>
           </div>
         </div>
 
         {(error || errorMessage) && (
-          <div className="mb-6 p-4 rounded-xl bg-danger/10 border border-danger/20 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
-            <p className="text-sm text-danger">{error || errorMessage}</p>
+          <div className="mx-4 mt-4 lg:mx-0 mb-4 p-3 rounded-xl bg-danger/10 border border-danger/20 flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
+            <p className="text-xs text-danger">{error || errorMessage}</p>
           </div>
         )}
 
-        <div className="bg-muted/10 rounded-xl border border-white/5 overflow-hidden scrollbar-hide">
-          {/* ADDED: Loading indicator when transactions are not loaded yet */}
-          {/* Shows centered spinner on initial load (when list is still empty) so user never sees blank UI */}
-          {/* Does NOT show on "Load More" to avoid hiding existing data */}
-          {isLoading &&
-            ((activeTab === 'active' && activeOffers.length === 0) ||
-              (activeTab === 'completed' && completedTrades.length === 0)) && (
-              <div className="flex flex-col items-center justify-center py-12 border-b border-white/5">
+        <div className="lg:bg-muted/10 lg:rounded-xl lg:border lg:border-white/5 lg:overflow-hidden scrollbar-hide">
+          {((activeTab === 'active' && isLoadingActive && activeOffers.length === 0) ||
+            (activeTab === 'completed' && isLoadingCompleted && completedTrades.length === 0)) && (
+              <div className="flex flex-col items-center justify-center py-16">
                 <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
-                <p className="text-muted text-sm">Loading transactions...</p>
+                <p className="text-muted text-sm">Loading...</p>
               </div>
             )}
 
           {activeTab === 'active' ? (
             <>
-              {/* Desktop Table */}
               <div className="hidden md:block overflow-x-auto scrollbar-hide">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-white/5 bg-white/5">
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Pair</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Amount</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Price</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Date</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider text-right">Action</th>
+                    <tr className="border-b border-color bg-primary">
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Pair</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Amount</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Price</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Date</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em] text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {activeOffers.length === 0 && !isLoading ? (
+                    {activeOffers.length === 0 && !isLoadingActive ? (
                       <tr>
                         <td colSpan={5} className="px-6 py-12 text-center text-muted">
-                          <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                          <p>{UI_STRINGS.NO_ACTIVE_OFFERS}</p>
+                          <Search className="w-8 h-8 mx-auto mb-3 opacity-30 text-muted" />
+                          <p className="text-xs uppercase tracking-widest font-black text-muted">{UI_STRINGS.NO_ACTIVE_OFFERS}</p>
                         </td>
                       </tr>
                     ) : (
                       activeOffers.map(offer => (
                         <tr
                           key={offer.id}
-                          className={`transition-colors ${removingOfferIds.has(offer.id)
+                          className={`transition-colors border-b border-color hover:bg-primary/10 ${removingOfferIds.has(offer.id)
                             ? 'opacity-40 pointer-events-none grayscale-[0.5]'
                             : newOfferIds.has(offer.id)
-                              ? 'offer-new hover:bg-white/5'
-                              : 'hover:bg-white/5'
+                              ? 'offer-new'
+                              : ''
                             }`}
                         >
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-text-primary">{offer.selling.code}</span>
+                          <td className="px-6 py-3">
+                            <div className="flex items-center gap-1.5 text-text-primary">
+                              <span className="font-bold text-sm">{offer.selling.code}</span>
                               <ArrowRight className="w-3 h-3 text-muted" />
-                              <span className="font-semibold text-text-primary">{offer.buying.code}</span>
+                              <span className="text-muted text-xs font-semibold">{offer.buying.code}</span>
                             </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <div className="text-xs text-success">Sell Offer</div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-[9px] font-black uppercase tracking-wider text-green-400 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded w-fit">
+                                Sell Offer
+                              </span>
                               {newOfferIds.has(offer.id) && (
-                                <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full border border-green-500/30 font-bold uppercase">
+                                <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded border border-green-500/30 font-bold uppercase">
                                   New
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4">
-                            <span className="text-text-primary font-medium">{parseFloat(offer.amount).toFixed(4)}</span>
-                            <span className="text-muted text-xs ml-1">{offer.selling.code}</span>
+                          <td className="px-6 py-3">
+                            <div className="text-sm font-bold text-text-primary">
+                              {parseFloat(offer.amount).toFixed(4)}
+                              <span className="text-muted text-[10px] font-bold ml-1">{offer.selling.code}</span>
+                            </div>
                           </td>
-                          <td className="px-6 py-4">
-                            <span className="text-text-primary font-medium">{parseFloat(offer.price).toFixed(7)}</span>
-                            <span className="text-muted text-xs ml-1">{offer.buying.code}</span>
+                          <td className="px-6 py-3">
+                            <div className="font-mono text-xs font-semibold text-text-primary">
+                              {parseFloat(offer.price).toFixed(7)}
+                              <span className="text-muted text-[10px] font-bold ml-1">{offer.buying.code}</span>
+                            </div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-muted">
+                          <td className="px-6 py-3 text-xs font-semibold text-muted">
                             {new Date(offer.lastModifiedTime).toLocaleDateString()}
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-6 py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => setEditingOffer(offer)}
-                                disabled={isLoading || removingOfferIds.has(offer.id)}
-                                className="text-xs px-3 py-1.5 rounded-lg border border-primary/20 text-primary hover:bg-primary/10 transition-colors bg-primary/5 disabled:opacity-40"
+                                disabled={isLoadingActive || removingOfferIds.has(offer.id)}
+                                className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md border border-brand/35 text-brand bg-brand/5 hover:bg-brand/10 transition-colors disabled:opacity-40"
                               >
                                 Edit
                               </button>
                               {cancelStatus[offer.id] === 'pending' || removingOfferIds.has(offer.id) ? (
-                                <div className="w-5 h-5 border-2 border-danger border-t-transparent rounded-full animate-spin ml-2" />
+                                <div className="w-4 h-4 border-2 border-danger border-t-transparent rounded-full animate-spin ml-2" />
                               ) : (
                                 <button
                                   onClick={() => handleCancelClick(offer)}
-                                  disabled={isLoading}
-                                  className="text-xs px-3 py-1.5 rounded-lg border border-danger/20 text-danger hover:bg-danger/10 transition-colors bg-danger/5"
+                                  disabled={isLoadingActive}
+                                  className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md border border-danger/30 text-danger bg-danger/5 hover:bg-danger/10 transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -313,71 +304,79 @@ const TradeTransactionUI = () => {
                 </table>
               </div>
 
-              {/* Mobile Cards */}
-              <div className="md:hidden space-y-3 p-3">
-                {activeOffers.length === 0 && !isLoading ? (
-                  <div className="text-center py-12 text-muted">
+              <div className="md:hidden">
+                {activeOffers.length === 0 && !isLoadingActive ? (
+                  <div className="text-center py-16 text-muted">
                     <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                    <p>{UI_STRINGS.NO_ACTIVE_OFFERS}</p>
+                    <p className="text-sm">{UI_STRINGS.NO_ACTIVE_OFFERS}</p>
                   </div>
                 ) : (
-                  activeOffers.map(offer => (
-                    <div
-                      key={offer.id}
-                      className={`rounded-xl p-4 border transition-all duration-300 ${removingOfferIds.has(offer.id)
-                        ? 'opacity-40 grayscale-[0.5] border-white/5 bg-white/5'
-                        : newOfferIds.has(offer.id)
-                          ? 'offer-new border-green-500/20 bg-green-500/5'
-                          : 'border-white/5 bg-white/5'
-                        }`}
-                    >
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-text-primary">{offer.selling.code}</span>
-                          <ArrowRight className="w-3 h-3 text-muted" />
-                          <span className="font-bold text-text-primary">{offer.buying.code}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {newOfferIds.has(offer.id) && (
-                            <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full border border-green-500/30 font-bold uppercase">
-                              New
+                  <div className="divide-y divide-white/5">
+                    {activeOffers.map(offer => (
+                      <div
+                        key={offer.id}
+                        className={`px-4 py-3.5 transition-all duration-300 ${removingOfferIds.has(offer.id)
+                          ? 'opacity-40 grayscale-[0.5]'
+                          : newOfferIds.has(offer.id)
+                            ? 'offer-new'
+                            : ''
+                          }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-sm text-text-primary">{offer.selling.code}</span>
+                            <ArrowRight className="w-3 h-3 text-muted" />
+                            <span className="font-bold text-sm text-text-primary">{offer.buying.code}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {newOfferIds.has(offer.id) && (
+                              <span className="text-[8px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full font-bold uppercase">
+                                New
+                              </span>
+                            )}
+                            <span className="text-[8px] bg-success/10 text-success px-1.5 py-0.5 rounded-full uppercase font-semibold tracking-wide">
+                              Sell
                             </span>
-                          )}
-                          <span className="text-[10px] bg-success/10 text-success px-2 py-0.5 rounded-full border border-success/20 uppercase font-semibold tracking-wide">
-                            Sell Limit
-                          </span>
+                          </div>
+                        </div>
+                        <div className="flex items-end justify-between mb-3">
+                          <div>
+                            <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Amount</p>
+                            <p className="text-sm font-semibold text-text-primary tabular-nums">
+                              {parseFloat(offer.amount).toFixed(4)}
+                              <span className="text-muted text-[10px] font-medium ml-1">{offer.selling.code}</span>
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Price</p>
+                            <p className="text-sm font-semibold text-text-primary font-mono tabular-nums">
+                              {parseFloat(offer.price).toFixed(7)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setEditingOffer(offer)}
+                            disabled={isLoadingActive || removingOfferIds.has(offer.id)}
+                            className="flex-1 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 active:scale-[0.97] transition-transform"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleCancelClick(offer)}
+                            disabled={isLoadingActive || removingOfferIds.has(offer.id)}
+                            className="flex-1 py-1.5 rounded-lg bg-danger/10 text-danger text-xs font-semibold disabled:opacity-40 active:scale-[0.97] transition-transform"
+                          >
+                            {cancelStatus[offer.id] === 'pending' || removingOfferIds.has(offer.id) ? (
+                              <span className="inline-block w-3 h-3 border-2 border-danger border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              'Cancel'
+                            )}
+                          </button>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Amount</p>
-                          <p className="text-sm font-medium text-text-primary">{parseFloat(offer.amount).toFixed(4)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Price</p>
-                          <p className="text-sm font-medium text-text-primary">{parseFloat(offer.price).toFixed(7)}</p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setEditingOffer(offer)}
-                          disabled={isLoading || removingOfferIds.has(offer.id)}
-                          className="flex-1 py-2 rounded-lg bg-primary/10 text-primary text-xs font-semibold border border-primary/20 disabled:opacity-40"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleCancelClick(offer)}
-                          disabled={isLoading || removingOfferIds.has(offer.id)}
-                          className="flex-1 py-2 rounded-lg bg-danger/10 text-danger text-xs font-semibold border border-danger/20 disabled:opacity-40"
-                        >
-                          {cancelStatus[offer.id] === 'pending' || removingOfferIds.has(offer.id)
-                            ? '...'
-                            : 'Cancel'}
-                        </button>
-                      </div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -385,83 +384,82 @@ const TradeTransactionUI = () => {
                 <div className="p-4 border-t border-white/5 text-center">
                   <button
                     onClick={loadMoreActive}
-                    disabled={isLoading}
+                    disabled={isLoadingActive}
                     className="text-primary text-sm font-medium hover:text-primary-light transition-colors"
                   >
-                    {isLoading ? 'Loading...' : 'Load More Offers'}
+                    {isLoadingActive ? 'Loading...' : 'Load More Offers'}
                   </button>
                 </div>
               )}
             </>
           ) : (
             <>
-              {/* Desktop Table */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-white/5 bg-white/5">
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Type</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Pair</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Filled Amount</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Price</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Time</th>
-                      <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider text-right">Hash</th>
+                    <tr className="border-b border-color bg-primary">
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Type</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Pair</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Filled Amount</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Price</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em]">Time</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-muted uppercase tracking-[0.15em] text-right">Hash</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {completedTrades.length === 0 && !isLoading ? (
+                    {completedTrades.length === 0 && !isLoadingCompleted ? (
                       <tr>
                         <td colSpan={6} className="px-6 py-12 text-center text-muted">
-                          <Timer className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                          <p>{UI_STRINGS.NO_COMPLETED_TRADES}</p>
+                          <Timer className="w-8 h-8 mx-auto mb-3 opacity-30 text-muted" />
+                          <p className="text-xs uppercase tracking-widest font-black text-muted">{UI_STRINGS.NO_COMPLETED_TRADES}</p>
                         </td>
                       </tr>
                     ) : (
                       completedTrades.map(trade => (
-                        <tr key={trade.id} className="hover:bg-white/5 transition-colors">
-                          <td className="px-6 py-4">
+                        <tr key={trade.id} className="border-b border-color hover:bg-primary/10 transition-colors">
+                          <td className="px-6 py-3">
                             <span
-                              className={`text-xs px-2 py-0.5 rounded border ${trade.isBuy
+                              className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase tracking-wider ${trade.isBuy
                                 ? 'border-success/20 text-success bg-success/5'
                                 : 'border-danger/20 text-danger bg-danger/5'
                                 }`}
                             >
                               {trade.isBuy ? 'Buy' : 'Sell'}
                             </span>
-                            <div className="text-[10px] text-muted mt-1 uppercase">
+                            <div className="text-[9px] font-bold text-muted uppercase tracking-wider mt-1">
                               {trade.trade_type === 'liquidity_pool' || trade.trade_type === 'path_payment' ? 'AMM Swap' : 'Order Book'}
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-3">
                             <div className="flex items-center gap-1.5 text-text-primary">
-                              <span className="font-semibold">{trade.baseAsset.code}</span>
-                              <span className="text-muted">/</span>
-                              <span>{trade.counterAsset.code}</span>
+                              <span className="font-bold text-sm">{trade.baseAsset.code}</span>
+                              <span className="text-muted text-xs">/</span>
+                              <span className="text-muted text-xs font-semibold">{trade.counterAsset.code}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-text-primary">
+                          <td className="px-6 py-3">
+                            <div className="font-bold text-sm text-text-primary">
                               {parseFloat(trade.baseAmount).toFixed(4)}{' '}
-                              <span className="text-muted text-xs">{trade.baseAsset.code}</span>
+                              <span className="text-muted text-[10px] font-bold ml-1">{trade.baseAsset.code}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-text-primary">
+                          <td className="px-6 py-3">
+                            <div className="font-mono text-xs font-semibold text-text-primary">
                               {parseFloat(trade.price).toFixed(7)}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-muted">
-                            <div className="flex flex-col">
-                              <span>{new Date(trade.ledgerCloseTime).toLocaleDateString()}</span>
-                              <span className="text-xs opacity-70">
-                                {new Date(trade.ledgerCloseTime).toLocaleTimeString()}
+                          <td className="px-6 py-3">
+                            <div className="flex flex-col text-xs">
+                              <span className="font-semibold text-text-primary">{new Date(trade.ledgerCloseTime).toLocaleDateString()}</span>
+                              <span className="text-[10px] text-muted font-medium mt-0.5">
+                                {new Date(trade.ledgerCloseTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-6 py-3 text-right">
                             <span
                               title={trade.id}
-                              className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary-light cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-brand bg-brand/10 border border-brand/20 rounded-md hover:bg-brand/20 transition-all cursor-pointer"
                               onClick={() => {
                                 if (trade.operationId) {
                                   window.open(getExplorerUrl('op', trade.operationId), '_blank');
@@ -472,8 +470,8 @@ const TradeTransactionUI = () => {
                                 }
                               }}
                             >
-                              <span className="hidden sm:inline">View</span>
-                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>View</span>
+                              <ExternalLink className="w-3 h-3" />
                             </span>
                           </td>
                         </tr>
@@ -483,71 +481,73 @@ const TradeTransactionUI = () => {
                 </table>
               </div>
 
-              {/* Mobile Cards */}
-              <div className="md:hidden space-y-3 p-3">
-                {completedTrades.length === 0 && !isLoading ? (
-                  <div className="text-center py-12 text-muted">
+              <div className="md:hidden">
+                {completedTrades.length === 0 && !isLoadingCompleted ? (
+                  <div className="text-center py-16 text-muted">
                     <Timer className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                    <p>{UI_STRINGS.NO_COMPLETED_TRADES}</p>
+                    <p className="text-sm">{UI_STRINGS.NO_COMPLETED_TRADES}</p>
                   </div>
                 ) : (
-                  completedTrades.map(trade => (
-                    <div key={trade.id} className="bg-white/5 rounded-xl p-4 border border-white/5">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-text-primary">{trade.baseAsset.code}</span>
-                          <span className="text-muted text-xs">/</span>
-                          <span className="font-bold text-text-primary">{trade.counterAsset.code}</span>
+                  <div className="divide-y divide-white/5">
+                    {completedTrades.map(trade => (
+                      <div key={trade.id} className="px-4 py-3.5">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-sm text-text-primary">{trade.baseAsset.code}</span>
+                            <span className="text-muted text-xs">/</span>
+                            <span className="font-bold text-sm text-text-primary">{trade.counterAsset.code}</span>
+                          </div>
+                          <span
+                            className={`text-[8px] px-1.5 py-0.5 rounded-full uppercase font-semibold tracking-wide ${trade.trade_type === 'path_payment'
+                              ? 'border-primary/20 text-primary bg-primary/10 border'
+                              : trade.isBuy
+                                ? 'border-success/20 text-success bg-success/10 border'
+                                : 'border-danger/20 text-danger bg-danger/10 border'
+                              }`}
+                          >
+                            {trade.trade_type === 'path_payment' ? 'Swap' : trade.isBuy ? 'Buy' : 'Sell'}
+                          </span>
                         </div>
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-semibold tracking-wide ${trade.trade_type === 'path_payment'
-                            ? 'border-primary/20 text-primary bg-primary/10'
-                            : trade.isBuy
-                              ? 'border-success/20 text-success bg-success/10'
-                              : 'border-danger/20 text-danger bg-danger/10'
-                            }`}
-                        >
-                          {trade.trade_type === 'path_payment' ? 'Swap' : trade.isBuy ? 'Buy' : 'Sell'}
-                        </span>
+                        <div className="flex items-end justify-between mb-2.5">
+                          <div>
+                            <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Filled</p>
+                            <p className="text-sm font-semibold text-text-primary tabular-nums">
+                              {parseFloat(trade.baseAmount).toFixed(4)}
+                              <span className="text-muted text-[10px] font-medium ml-1">{trade.baseAsset.code}</span>
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Price</p>
+                            <p className="text-sm font-semibold text-text-primary font-mono tabular-nums">
+                              {parseFloat(trade.price).toFixed(7)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-muted tabular-nums">
+                            {new Date(trade.ledgerCloseTime).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                          <button
+                            onClick={() => {
+                              if (trade.operationId) {
+                                window.open(getExplorerUrl('op', trade.operationId), '_blank');
+                              } else {
+                                const hash = trade.transactionHash || trade.id;
+                                const type = trade.transactionHash ? 'tx' : 'trade';
+                                window.open(getExplorerUrl(type, hash), '_blank');
+                              }
+                            }}
+                            className="flex items-center gap-1 text-xs text-primary font-semibold active:scale-[0.97] transition-transform"
+                          >
+                            View <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 mb-3">
-                        <div>
-                          <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Filled</p>
-                          <p className="text-sm font-medium text-text-primary">
-                            {parseFloat(trade.baseAmount).toFixed(4)}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Price</p>
-                          <p className="text-sm font-medium text-text-primary">
-                            {parseFloat(trade.price).toFixed(7)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between pt-3 border-t border-white/5">
-                        <div className="text-[10px] text-muted">
-                          {new Date(trade.ledgerCloseTime).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (trade.operationId) {
-                              window.open(getExplorerUrl('op', trade.operationId), '_blank');
-                            } else {
-                              const hash = trade.transactionHash || trade.id;
-                              const type = trade.transactionHash ? 'tx' : 'trade';
-                              window.open(getExplorerUrl(type, hash), '_blank');
-                            }
-                          }}
-                          className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 px-3 py-1.5 rounded-full hover:bg-primary/20 transition-colors"
-                        >
-                          View Hash <ExternalLink className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -555,10 +555,10 @@ const TradeTransactionUI = () => {
                 <div className="p-4 border-t border-white/5 text-center">
                   <button
                     onClick={loadMoreCompleted}
-                    disabled={isLoading}
+                    disabled={isLoadingCompleted}
                     className="text-primary text-sm font-medium hover:text-primary-light transition-colors"
                   >
-                    {isLoading ? 'Loading...' : 'Load More Trades'}
+                    {isLoadingCompleted ? 'Loading...' : 'Load More Trades'}
                   </button>
                 </div>
               )}
@@ -566,12 +566,11 @@ const TradeTransactionUI = () => {
           )}
         </div>
 
-        {/* Edit Offer Modal */}
         {editingOffer && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-secondary border border-white/10 p-6 w-full max-w-md rounded-2xl shadow-xl">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-text-primary">Edit Active Offer</h3>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50">
+            <div className="bg-secondary border-t sm:border border-white/10 p-5 w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-base font-bold text-text-primary">Edit Offer</h3>
                 <button
                   onClick={() => setEditingOffer(null)}
                   className="text-muted hover:text-text-primary transition-colors"
@@ -579,10 +578,10 @@ const TradeTransactionUI = () => {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-muted mb-1.5">
-                    Update Amount ({editingOffer.selling.code})
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Amount ({editingOffer.selling.code})
                   </label>
                   <input
                     type="number"
@@ -593,8 +592,8 @@ const TradeTransactionUI = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-muted mb-1.5">
-                    Update Price ({editingOffer.buying.code})
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Price ({editingOffer.buying.code})
                   </label>
                   <input
                     type="number"
@@ -605,7 +604,7 @@ const TradeTransactionUI = () => {
                   />
                 </div>
               </div>
-              <div className="flex gap-3 mt-8">
+              <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setEditingOffer(null)}
                   className="flex-1 py-3 px-4 rounded-xl text-sm font-medium border border-white/10 hover:bg-white/5 transition-all text-muted"
@@ -615,7 +614,7 @@ const TradeTransactionUI = () => {
                 <button
                   onClick={handleEditSubmit}
                   disabled={editStatus[editingOffer.id] === 'pending'}
-                  className="flex-1 py-3 px-4 rounded-xl text-sm font-medium bg-primary text-text-inverse hover:bg-primary-light transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+                  className="flex-1 py-3 px-4 rounded-xl text-sm font-medium bg-primary text-text-inverse hover:bg-primary-light transition-all flex items-center justify-center gap-2"
                 >
                   {editStatus[editingOffer.id] === 'pending' ? (
                     <>
@@ -623,13 +622,13 @@ const TradeTransactionUI = () => {
                       Updating...
                     </>
                   ) : (
-                    'Confirm Update'
+                    'Update'
                   )}
                 </button>
               </div>
               {editStatus[editingOffer.id] === 'error' && (
-                <div className="mt-4 p-3 bg-danger/10 border border-danger/20 rounded-lg text-danger text-xs text-center">
-                  Failed to update offer. Please try again.
+                <div className="mt-3 p-3 bg-danger/10 border border-danger/20 rounded-lg text-danger text-xs text-center">
+                  Failed to update. Try again.
                 </div>
               )}
             </div>

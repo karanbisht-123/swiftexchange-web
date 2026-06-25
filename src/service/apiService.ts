@@ -13,7 +13,7 @@ import {
 } from './apiCache';
 import { API_CONFIG } from './apiConfig';
 
-//Internal helpers
+
 
 async function fetchWithRetry(
   url: string,
@@ -53,7 +53,6 @@ function makeHeaders(extra?: Record<string, string>): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'x-auth-device-token': API_CONFIG.deviceAuth,
-    ...(API_CONFIG.userToken ? { Authorization: `Bearer ${API_CONFIG.userToken}` } : {}),
     ...extra,
   };
 }
@@ -154,6 +153,9 @@ export async function fetchStellarPnl(
   to: string,
   includeExcel: boolean = false
 ): Promise<unknown> {
+  const token = API_CONFIG.deviceJwt;
+  if (!token) return null;
+
   const key = `${address}_${from}_${to}_${includeExcel}`;
 
   const cached = getPnlCache(key);
@@ -168,8 +170,8 @@ export async function fetchStellarPnl(
     const res = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
-        'x-auth-device-token': API_CONFIG.deviceAuth,
-        Authorization: `Bearer ${API_CONFIG.deviceJwt}`,
+        'x-auth-device-token': token,
+        Authorization: `Bearer ${token}`,
       },
     });
 

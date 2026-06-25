@@ -2,6 +2,8 @@ import * as StellarSDK from '@stellar/stellar-sdk';
 import { getChainById } from '../../evm/utils/Chainregistry';
 import type { TokenInfo } from '../types/stellar.types';
 
+const accountCache = new Map<string, { data: StellarSDK.Horizon.AccountResponse; ts: number }>();
+
 export class StellarBaseService {
   protected server: StellarSDK.Horizon.Server;
   protected networkPassphrase: string;
@@ -24,7 +26,16 @@ export class StellarBaseService {
     }
 
     try {
-      const response = await this.server.loadAccount(address);
+      let response: StellarSDK.Horizon.AccountResponse;
+      const cacheKey = `${this.networkPassphrase}-${address}`;
+      const cached = accountCache.get(cacheKey);
+
+      if (cached && Date.now() - cached.ts < 10000) {
+        response = cached.data;
+      } else {
+        response = await this.server.loadAccount(address);
+        accountCache.set(cacheKey, { data: response, ts: Date.now() });
+      }
       const tokens: TokenInfo[] = [];
 
       for (const balance of response.balances) {

@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Plus, Search, Trash2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Search, Trash2 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
@@ -44,104 +44,6 @@ interface AssetClickPayload {
   name?: string;
 }
 
-const AssetIcon: React.FC<{ asset: DisplayAsset }> = ({ asset }) => (
-  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center overflow-hidden shrink-0 border-2 border-color">
-    {asset.iconUrl ? (
-      <img
-        src={asset.iconUrl}
-        alt={asset.code}
-        className="w-full h-full object-cover"
-        onError={e => {
-          e.currentTarget.style.display = 'none';
-          const parent = e.currentTarget.parentElement;
-          if (parent) {
-            parent.innerHTML = `<span class="font-bold text-lg text-primary">${asset.code[0]}</span>`;
-          }
-        }}
-      />
-    ) : (
-      <span className="font-bold text-lg text-primary">{asset.code[0]}</span>
-    )}
-  </div>
-);
-
-const AssetInfo: React.FC<{ asset: DisplayAsset }> = ({ asset }) => (
-  <div className="flex-1 min-w-0">
-    <div className="font-semibold text-base mb-1 truncate">{asset.name || asset.code}</div>
-    <div className="flex items-center gap-2 text-xs text-muted font-mono flex-wrap">
-      <span className="font-medium">{asset.code}</span>
-      {asset.issuer && (
-        <>
-          <span className="opacity-40">•</span>
-          <span className="opacity-70 truncate max-w-[150px]">{truncateAddress(asset.issuer)}</span>
-        </>
-      )}
-      {asset.isTrusted && (
-        <span className="text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 px-2 py-0.5 rounded-full font-medium border border-green-500/20 inline-flex items-center gap-1">
-          <CheckCircle2 size={10} />
-          Trusted
-        </span>
-      )}
-    </div>
-  </div>
-);
-
-const AssetBalance: React.FC<{ balance: string }> = ({ balance }) => (
-  <div className="text-right">
-    <div className="font-bold text-lg">{formatAssetBalance(balance)}</div>
-    <div className="text-xs text-muted uppercase tracking-wide">Balance</div>
-  </div>
-);
-
-const AddAssetButton: React.FC<{
-  isProcessing: boolean;
-  onClick: () => void;
-}> = ({ isProcessing, onClick }) => (
-  <button
-    onClick={e => {
-      e.stopPropagation();
-      onClick();
-    }}
-    disabled={isProcessing}
-    className="btn btn-sm gap-2 px-4 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 border-2 border-primary/30 hover:border-primary/50 text-primary font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
-  >
-    {isProcessing ? (
-      <>
-        <Loader2 size={16} className="animate-spin" />
-        Adding...
-      </>
-    ) : (
-      <>
-        <Plus size={16} />
-        Add Asset
-      </>
-    )}
-  </button>
-);
-
-const EmptyState: React.FC<{ isSearching: boolean }> = ({ isSearching }) => (
-  <div className="flex flex-col items-center justify-center py-16 gap-4">
-    <AlertCircle className="w-12 h-12 text-muted opacity-50" />
-    <div className="text-center">
-      <p className="text-lg font-medium mb-2">
-        {isSearching ? 'No results found' : 'No assets yet'}
-      </p>
-      <p className="text-sm text-muted">
-        {isSearching
-          ? 'Try a different search term like USDC or AQUA'
-          : 'Connect your wallet to view your assets'}
-      </p>
-    </div>
-  </div>
-);
-
-const LoadingState: React.FC = () => (
-  <div className="flex flex-col items-center justify-center py-16 gap-4">
-    <Loader2 className="w-10 h-10 text-primary animate-spin" />
-    <p className="text-muted">Loading your assets...</p>
-  </div>
-);
-
 const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick }) => {
   const { connectedWallets, getProvider } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
@@ -160,15 +62,18 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
 
   const allAssets = useMemo(() => {
     const assetsMap = new Map<string, DisplayAsset>();
-
+    const seenCodes = new Set<string>();
     const stellarChain = getChainById('pubnet');
 
     balances.forEach((b: any) => {
       const code = b.asset_type === 'native' ? 'XLM' : b.asset_code;
       const issuer = b.asset_type === 'native' ? '' : b.asset_issuer;
       const key = getAssetKey(code, issuer);
-      const registryAsset = stellarChain?.assets.find(a => a.symbol === code && (a.address === issuer || issuer === ''));
+      const registryAsset = stellarChain?.assets.find(
+        a => a.symbol === code && (a.address === issuer || issuer === '')
+      );
 
+      seenCodes.add(code);
       assetsMap.set(key, {
         code,
         issuer,
@@ -185,7 +90,8 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       const issuer = asset.address === 'native' ? '' : asset.address;
       const key = getAssetKey(code, issuer);
 
-      if (!assetsMap.has(key)) {
+      if (!assetsMap.has(key) && !seenCodes.has(code)) {
+        seenCodes.add(code);
         assetsMap.set(key, {
           code,
           issuer,
@@ -211,23 +117,25 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
     server,
   });
 
-  const handleAddTrustline = async (asset: DisplayAsset) => {
+  const handleTrustlineAction = async (asset: DisplayAsset, action: 'add' | 'remove') => {
     if (!server || !stellarAddress || !provider) return;
 
     setTrustlineProcessing(`${asset.code}-${asset.issuer}`);
 
     try {
-      const xdr = await buildTrustlineTransaction({
-        server,
-        stellarAddress,
-        assetCode: asset.code,
-        assetIssuer: asset.issuer,
-        currentNetwork,
-      });
+      const xdr = await buildTrustlineTransaction(
+        {
+          server,
+          stellarAddress,
+          assetCode: asset.code,
+          assetIssuer: asset.issuer,
+          currentNetwork,
+        },
+        action === 'remove' ? '0' : undefined
+      );
 
       const config = getStellarConfig(currentNetwork);
       const networkPassphrase = config?.networkPassphrase || '';
-
       const result = await signAndSubmitTrustline(xdr, currentNetwork, networkPassphrase, provider);
 
       if (result.success) {
@@ -236,7 +144,7 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
           chainId: 'pubnet',
           type: 'trustline',
           timestamp: Date.now(),
-          description: `Added trustline for ${asset.code}`,
+          description: `${action === 'add' ? 'Added' : 'Removed'} trustline for ${asset.code}`,
           status: 'success',
           from: stellarAddress,
           network: currentNetwork,
@@ -254,84 +162,19 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
         throw new Error(result.error);
       }
     } catch (err: any) {
-      console.error('Trustline error:', err);
       useTransactionModalStore.getState().openModal({
         status: 'error',
         type: 'Trustline',
-        error: err?.message || 'Failed to add trustline. Please try again.',
+        error: err?.message || `Failed to ${action} trustline. Please try again.`,
         isStellar: true,
       });
     } finally {
       setTrustlineProcessing(null);
     }
-  };
-
-  const handleRemoveTrustline = async (asset: DisplayAsset) => {
-    if (!server || !stellarAddress || !provider) return;
-
-    setTrustlineProcessing(`${asset.code}-${asset.issuer}`);
-
-    try {
-      const xdr = await buildTrustlineTransaction({
-        server,
-        stellarAddress,
-        assetCode: asset.code,
-        assetIssuer: asset.issuer,
-        currentNetwork,
-      }, "0"); // Limit 0 means remove
-
-      const config = getStellarConfig(currentNetwork);
-      const networkPassphrase = config?.networkPassphrase || '';
-
-      const result = await signAndSubmitTrustline(xdr, currentNetwork, networkPassphrase, provider);
-
-      if (result.success) {
-        addLocalTransaction({
-          hash: result.transactionHash || '',
-          chainId: 'pubnet',
-          type: 'trustline',
-          timestamp: Date.now(),
-          description: `Removed trustline for ${asset.code}`,
-          status: 'success',
-          from: stellarAddress,
-          network: currentNetwork,
-        });
-
-        useTransactionModalStore.getState().openModal({
-          status: 'success',
-          type: 'Trustline',
-          hash: result.transactionHash || undefined,
-          isStellar: true,
-        });
-
-        refetch();
-      } else {
-        throw new Error(result.error);
-      }
-    } catch (err: any) {
-      console.error('Trustline removal error:', err);
-      useTransactionModalStore.getState().openModal({
-        status: 'error',
-        type: 'Trustline',
-        error: err?.message || 'Failed to remove trustline. Please try again.',
-        isStellar: true,
-      });
-    } finally {
-      setTrustlineProcessing(null);
-    }
-  };
-
-  const openAddConfirmation = (asset: DisplayAsset) => {
-    setConfirmModal({ isOpen: true, type: 'add', asset });
-  };
-
-  const openRemoveConfirmation = (asset: DisplayAsset) => {
-    setConfirmModal({ isOpen: true, type: 'remove', asset });
   };
 
   const handleAssetClick = (asset: DisplayAsset) => {
     if (!asset.isTrusted) return;
-
     onAssetClick({
       ticker: asset.code,
       quantity: parseFloat(asset.balance),
@@ -344,37 +187,48 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
   };
 
   return (
-    <div className="bg-secondary w-full  flex flex-col  overflow-hidden ">
-      <div className="bg-linear-to-br from-tertiary to-secondary sticky top-0 z-10">
+    <div className="bg-secondary w-full flex flex-col overflow-hidden">
+      <div className="sticky top-0 z-10 bg-secondary/80 backdrop-blur-lg border-b border-white/5">
         <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted/50 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search assets or discover new ones..."
+            placeholder="Search assets..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="input input-md pl-12 pr-4 w-full bg-secondary border-2 border-color focus:border-primary transition-all rounded-xl"
+            className="w-full pl-9 pr-10 py-2.5 lg:py-3 bg-transparent text-sm focus:outline-none placeholder:text-muted/50"
           />
           {searchLoading && (
-            <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted animate-spin" />
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted animate-spin" />
           )}
         </div>
         {searchTerm && (
-          <p className="text-xs text-muted mt-2 ml-1">
-            {searchLoading
-              ? 'Searching Stellar network...'
-              : `Found ${displayedAssets.length} assets`}
+          <p className="text-[10px] text-muted/60 px-3 pb-1.5">
+            {searchLoading ? 'Searching...' : `${displayedAssets.length} found`}
           </p>
         )}
       </div>
 
       <div className="flex-1 overflow-auto">
         {loading && !displayedAssets.length ? (
-          <LoadingState />
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <Loader2 className="w-7 h-7 text-primary animate-spin" />
+            <p className="text-muted text-sm">Loading assets...</p>
+          </div>
         ) : displayedAssets.length === 0 ? (
-          <EmptyState isSearching={!!searchTerm} />
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <AlertCircle className="w-9 h-9 text-muted opacity-40" />
+            <div className="text-center">
+              <p className="text-sm font-medium mb-1">
+                {searchTerm ? 'No results' : 'No assets yet'}
+              </p>
+              <p className="text-xs text-muted">
+                {searchTerm ? 'Try USDC or AQUA' : 'Connect your wallet to view assets'}
+              </p>
+            </div>
+          </div>
         ) : (
-          <div className="">
+          <div className="divide-y divide-white/[0.04]">
             {displayedAssets.map((asset, i) => {
               const uniqueKey = `${getAssetKey(asset.code, asset.issuer)}-${i}`;
               const isProcessing = trustlineProcessing === `${asset.code}-${asset.issuer}`;
@@ -384,47 +238,97 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                   key={uniqueKey}
                   onClick={() => handleAssetClick(asset)}
                   className={`
-                                        flex items-center justify-between px-2 py-5 
-                                        transition-all duration-200
-                                        ${asset.isTrusted
-                      ? 'hover:bg-hover hover:shadow-sm cursor-pointer active:scale-[0.99]'
-                      : 'opacity-80'
+                    flex items-center gap-3 px-3 py-2.5 lg:px-4 lg:py-3.5
+                    transition-colors duration-100
+                    ${asset.isTrusted
+                      ? 'hover:bg-white/[0.03] cursor-pointer active:bg-white/[0.05]'
+                      : ''
                     }
-                                    `}
+                  `}
                 >
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <AssetIcon asset={asset} />
-                    <AssetInfo asset={asset} />
+                  <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center overflow-hidden shrink-0 border border-white/10">
+                    {asset.iconUrl ? (
+                      <img
+                        src={asset.iconUrl}
+                        alt={asset.code}
+                        className="w-full h-full object-cover"
+                        onError={e => {
+                          e.currentTarget.style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent) {
+                            parent.innerHTML = `<span class="font-bold text-xs text-primary">${asset.code[0]}</span>`;
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span className="font-bold text-xs text-primary">{asset.code[0]}</span>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-4 ml-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-px">
+                      <span className="font-semibold text-[13px] text-text-primary truncate">
+                        {asset.name || asset.code}
+                      </span>
+                      {asset.isTrusted && (
+                        <CheckCircle2 size={10} className="text-green-500 shrink-0" />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted/60 font-mono">
+                      <span>{asset.code}</span>
+                      {asset.issuer && (
+                        <>
+                          <span className="opacity-30">·</span>
+                          <span className="truncate max-w-[90px] lg:max-w-[140px]">
+                            {truncateAddress(asset.issuer)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
                     {asset.isTrusted ? (
                       <>
-                        <AssetBalance balance={asset.balance} />
-                        {parseFloat(asset.balance) === 0 && asset.type !== 'native' && (
+                        <div className="text-right mr-0.5">
+                          <div className="font-bold text-[13px] tabular-nums text-text-primary">
+                            {formatAssetBalance(asset.balance)}
+                          </div>
+                        </div>
+                        {parseFloat(asset.balance) === 0 && asset.type !== 'native' ? (
                           <button
-                            onClick={(e) => {
+                            onClick={e => {
                               e.stopPropagation();
-                              openRemoveConfirmation(asset);
+                              setConfirmModal({ isOpen: true, type: 'remove', asset });
                             }}
                             disabled={isProcessing}
-                            className="p-2 text-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-colors active:scale-95"
-                            title="Remove Trustline"
+                            className="p-1.5 text-muted/50 hover:text-danger hover:bg-danger/10 rounded-md transition-colors active:scale-95"
                           >
                             {isProcessing ? (
-                              <Loader2 size={18} className="animate-spin text-primary" />
+                              <Loader2 size={14} className="animate-spin text-primary" />
                             ) : (
-                              <Trash2 size={18} />
+                              <Trash2 size={14} />
                             )}
                           </button>
+                        ) : (
+                          <ChevronRight size={14} className="text-muted/30" />
                         )}
-                        <ChevronRight size={20} className="text-muted shrink-0" />
                       </>
                     ) : (
-                      <AddAssetButton
-                        isProcessing={isProcessing}
-                        onClick={() => openAddConfirmation(asset)}
-                      />
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setConfirmModal({ isOpen: true, type: 'add', asset });
+                        }}
+                        disabled={isProcessing}
+                        className="px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary text-[11px] font-semibold transition-colors disabled:opacity-50 active:scale-95"
+                      >
+                        {isProcessing ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          'Add'
+                        )}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -435,9 +339,9 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       </div>
 
       {!stellarAddress && (
-        <div className="p-4 bg-yellow-500/10 border-t border-yellow-500/20">
-          <p className="text-sm text-yellow-700 dark:text-yellow-400 text-center">
-            Connect your Stellar wallet to view and manage assets
+        <div className="p-2.5 bg-yellow-500/10 border-t border-yellow-500/20">
+          <p className="text-[11px] text-yellow-600 dark:text-yellow-400 text-center">
+            Connect your Stellar wallet to manage assets
           </p>
         </div>
       )}
@@ -449,22 +353,18 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
           <div className="space-y-2">
             <p>
               {confirmModal.type === 'add'
-                ? `You are about to add a trustline for ${confirmModal.asset?.code}. This will reserve 0.5 XLM in your account.`
-                : `You are about to remove the trustline for ${confirmModal.asset?.code}. This will reclaim the 0.5 XLM reserve.`
+                ? `Add a trustline for ${confirmModal.asset?.code}? This reserves 0.5 XLM.`
+                : `Remove the trustline for ${confirmModal.asset?.code}? This reclaims 0.5 XLM.`
               }
             </p>
-            <p className="text-xs opacity-60">You'll need to sign a transaction in your wallet.</p>
+            <p className="text-xs opacity-60">You'll need to sign in your wallet.</p>
           </div>
         }
         confirmText={confirmModal.type === 'add' ? 'Add Now' : 'Remove Now'}
         confirmButtonType={confirmModal.type === 'add' ? 'primary' : 'danger'}
         onConfirm={() => {
           if (confirmModal.asset) {
-            if (confirmModal.type === 'add') {
-              handleAddTrustline(confirmModal.asset);
-            } else {
-              handleRemoveTrustline(confirmModal.asset);
-            }
+            handleTrustlineAction(confirmModal.asset, confirmModal.type);
           }
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }}

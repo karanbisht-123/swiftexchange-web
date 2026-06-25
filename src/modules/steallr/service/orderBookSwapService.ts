@@ -150,31 +150,86 @@ export class OrderBookSwapService extends StellarBaseService {
     onError?: (error: any) => void
   ): () => void {
     let closeStream: (() => void) | null = null;
+    let retryCount = 0;
+    let reconnectTimeout: any = null;
+    let pollingInterval: any = null;
+    let stopped = false;
 
-    try {
-      closeStream = this.server
-        .orderbook(selling, buying)
-        .limit(20)
-        .stream({
-          onmessage: (orderbook: any) => {
-            onUpdate(orderbook);
-          },
-          onerror: (error: any) => {
-            console.error('[StellarOrderbook] Stream error:', error);
-            if (closeStream) closeStream();
-            if (onError) {
-              onError(error);
-            }
-          },
-        }) as unknown as () => void;
-    } catch (error) {
-      console.error('[StellarOrderbook] Failed to start stream:', error);
-      if (onError) {
-        onError(error);
+    const startPollingFallback = () => {
+      if (stopped) return;
+      console.log('[StellarOrderbook] Falling back to polling every 10s...');
+      pollingInterval = setInterval(async () => {
+        try {
+          const book = await this.getOrderBook(selling, buying);
+          if (!stopped) {
+            onUpdate(book);
+          }
+        } catch (err) {
+          console.error('[StellarOrderbook] Polling error:', err);
+          if (onError && !stopped) onError(err);
+        }
+      }, 10000);
+    };
+
+    const startStream = () => {
+      if (stopped) return;
+
+      try {
+        closeStream = this.server
+          .orderbook(selling, buying)
+          .limit(20)
+          .stream({
+            onmessage: (orderbook: any) => {
+              retryCount = 0; // reset on successful message
+              onUpdate(orderbook);
+            },
+            onerror: (error: any) => {
+              console.error('[StellarOrderbook] Stream error:', error);
+              if (closeStream) {
+                closeStream();
+                closeStream = null;
+              }
+              if (stopped) return;
+
+              if (retryCount < 3) {
+                retryCount++;
+                const delay = 2000 * retryCount;
+                console.log(`[StellarOrderbook] Retrying stream connection (${retryCount}/3) in ${delay}ms...`);
+                reconnectTimeout = setTimeout(() => {
+                  startStream();
+                }, delay);
+              } else {
+                console.warn('[StellarOrderbook] Reconnection failed 3 times. Initiating polling fallback.');
+                if (onError) onError(error);
+                startPollingFallback();
+              }
+            },
+          }) as unknown as () => void;
+      } catch (error) {
+        console.error('[StellarOrderbook] Failed to start stream:', error);
+        if (stopped) return;
+        if (retryCount < 3) {
+          retryCount++;
+          const delay = 2000 * retryCount;
+          reconnectTimeout = setTimeout(() => {
+            startStream();
+          }, delay);
+        } else {
+          startPollingFallback();
+        }
       }
-    }
+    };
+
+    startStream();
 
     return () => {
+      stopped = true;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
       if (closeStream && typeof closeStream === 'function') {
         closeStream();
       }

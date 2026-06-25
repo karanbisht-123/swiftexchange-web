@@ -4,7 +4,7 @@ import { useTransactionModalStore } from '../store/transactionModalStore';
 import { NotificationPanel } from './NotificationPanel';
 import { ToastContainer } from './ToastContainer';
 import { TransactionMonitor } from '../modules/evm/components/TransactionMonitor';
-import { EvmTransactionSuccessModal } from '../modules/evm/components/EvmTransactionSuccessModal';
+import { EvmTransactionModal } from '../modules/evm/components/EvmTransactionModal';
 import StellarTransactionModal from '../modules/steallr/components/modals/StellarTransactionModal';
 
 export const GlobalNotifications: React.FC = () => {
@@ -27,15 +27,17 @@ export const GlobalNotifications: React.FC = () => {
             hash={modalParams.hash}
             error={modalParams.error}
           />
-        ) : modalParams.status === 'success' && modalParams.hash ? (
-          <EvmTransactionSuccessModal
+        ) : (
+          <EvmTransactionModal
+            status={modalParams.status}
+            type={modalParams.type}
             txHash={modalParams.hash}
+            error={modalParams.error}
             explorerUrl={modalParams.explorerUrl || ''}
-            onDone={closeModal}
             networkName={modalParams.networkName}
-            title={`${modalParams.type} Successful!`}
+            onDone={closeModal}
           />
-        ) : null
+        )
       )}
     </>
   );

@@ -10,7 +10,6 @@ import { useAmmSwapStore } from '../../store/ammSwapStore';
 const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
 import { SettingsPanel, SwapDetails } from './AmmSwapSubComponents';
 import { XlmReserveButton } from './XlmReserveInfo';
-// import { addLocalTransaction } from '../../../evm/service/localTransactionService';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { useTransactionModalStore } from '../../../../store/transactionModalStore';
 import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
@@ -116,7 +115,6 @@ const AmmSwapUI = () => {
         setSearchParams(newParams, { replace: true });
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromToken?.code, toToken?.code]);
 
   useEffect(() => {
@@ -168,7 +166,6 @@ const AmmSwapUI = () => {
       });
 
       setSwapStatus('success');
-      // No reload needed; state updates naturally
       setTimeout(() => {
         setSwapStatus(null);
         reset();
@@ -188,7 +185,7 @@ const AmmSwapUI = () => {
   const canSwap = fromAmount && parseFloat(fromAmount) > 0 && !isLoading && quote && stellarWallet;
 
   const renderSwapForm = () => (
-    <div className="mx-auto space-y-6 px-2 sm:px-0 w-full max-w-lg">
+    <div className="mx-auto space-y-6  w-full max-w-lg">
       <div className="flex items-center justify-between mb-2">
         <h4 className="heading-4">Swap</h4>
         <div className="flex items-center gap-2 relative">
@@ -213,15 +210,15 @@ const AmmSwapUI = () => {
       </div>
 
       {/* Pay Card */}
-      <div className="bg-tertiary rounded-2xl p-4 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+      <div className="bg-tertiary rounded-2xl p-4 lg:p-6 relative overflow-hidden flex flex-col border border-color">
         <div className="flex justify-between items-center mb-4">
           <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Pay</label>
           <button
             onClick={() => {
               const balance = parseFloat(fromToken?.balance || '0');
-              const reserve = fromToken?.code === 'XLM' ? 2 : 0;
+              const reserve = fromToken?.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
               const maxAmount = Math.max(0, balance - reserve);
-              setFromAmount(maxAmount.toString());
+              setFromAmount(maxAmount.toFixed(7));
             }}
             className="text-[10px] font-black text-brand hover:scale-110 active:scale-95 transition-all px-3 py-1 bg-brand/10 border border-brand/20 rounded-full"
           >
@@ -242,7 +239,7 @@ const AmmSwapUI = () => {
                   <img
                     key={fromToken?.code ? `${fromToken.code}-${fromToken.issuer || 'native'}` : 'placeholder'}
                     src={icon || `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`}
-                    className="w-9 h-9 rounded-full bg-tertiary object-cover shadow-sm"
+                    className="w-9 h-9 rounded-full bg-tertiary object-cover"
                     alt=""
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`;
@@ -298,18 +295,16 @@ const AmmSwapUI = () => {
         </div>
       </div>
 
-      {/* Swap Middle Button */}
       <div className="flex justify-center -my-8 relative z-10">
         <button
           onClick={swapTokens}
-          className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center shadow-lg hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md border border-divider/50"
+          className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md border border-color"
         >
           <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500" />
         </button>
       </div>
 
-      {/* Receive Card */}
-      <div className="bg-tertiary rounded-2xl p-4 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50">
+      <div className="bg-tertiary rounded-2xl p-4 lg:p-6 relative overflow-hidden flex flex-col border border-color">
         <div className="flex justify-between items-center mb-4">
           <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
         </div>
@@ -327,7 +322,7 @@ const AmmSwapUI = () => {
                   <img
                     key={toToken?.code ? `${toToken.code}-${toToken.issuer || 'native'}` : 'placeholder'}
                     src={icon || `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`}
-                    className="w-9 h-9 rounded-full bg-tertiary object-cover shadow-sm"
+                    className="w-9 h-9 rounded-full bg-tertiary object-cover"
                     alt=""
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`;
@@ -436,22 +431,9 @@ const AmmSwapUI = () => {
       </div>
     );
   }
-
-  // if (availableTokens.length === 0 && !error) {
-  //   return (
-  //     <div className="bg-secondary h-full p-2 lg:p-6 lg:rounded-xl flex items-center justify-center">
-  //       <div className="w-full max-w-lg text-center space-y-4">
-  //         <RefreshCw className="w-16 h-16 text-brand animate-spin mx-auto" />
-  //         <h4 className="heading-4">Loading Your Tokens...</h4>
-  //         <p className="text-muted">Fetching your token balances from the network</p>
-  //       </div>
-  //     </div>
-  //   );
-  // }
-
   return (
     <div className="flex flex-col lg:flex-row gap-1  lg:gap-4 h-full lg:p-0 overflow-y-auto lg:overflow-visible">
-      <div className="w-full h-[300px] bg-secondary lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0">
+      <div className="w-full h-[300px] bg-secondary lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0 border border-color">
         <Suspense fallback={
           <div className="w-full h-full flex items-center justify-center bg-secondary">
             <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
@@ -460,7 +442,7 @@ const AmmSwapUI = () => {
           <StellarTradingChart />
         </Suspense>
       </div>
-      <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0">
+      <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0 border border-color">
         {renderSwapForm()}
       </div>
 

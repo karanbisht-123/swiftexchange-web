@@ -1,8 +1,8 @@
 import { ChevronRight } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
-import { type Fill, dydxDataService, normalizeFill } from '../../service/dydxOrderService';
+import { type Fill, dydxDataService } from '../../service/dydxOrderService';
 import { getTimeAgo } from '../../utils/timeUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { FillDetailPanel } from '../shared/FillDetailPanel';
@@ -16,119 +16,40 @@ import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
-  const { fills: storeFills, isConnected } = useDydxData();
+  const { fills: allFills, isConnected, loadingFills, fillsError } = useDydxData();
 
-  const cached = dydxDataService.getCachedFills(undefined, undefined);
-  const [allFills, setAllFills] = useState<Fill[]>(
-    cached ? cached.map(normalizeFill) : []
-  );
   const [currentPage, setCurrentPage] = useState(1);
-  const [loadingFills, setLoadingFills] = useState(false);
-  const [fillsError, setFillsError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreData, setHasMoreData] = useState(true);
-  const initialLoadDoneRef = useRef(false);
 
   const [selectedFill, setSelectedFill] = useState<Fill | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
     if (!isConnected) {
-      setAllFills([]);
       setCurrentPage(1);
       setHasMoreData(true);
-      initialLoadDoneRef.current = false;
-      return;
     }
-
-    if (initialLoadDoneRef.current) return;
-
-    let isMounted = true;
-    const fetchInitial = async () => {
-      const hasCache = dydxDataService.getCachedFills(undefined, undefined);
-      if (!hasCache) {
-        setLoadingFills(true);
-      }
-      setFillsError(null);
-      try {
-        const initialFills = await dydxDataService.getFills(undefined, undefined, true);
-        if (isMounted) {
-          setAllFills(initialFills.map(normalizeFill));
-          initialLoadDoneRef.current = true;
-        }
-      } catch (err: any) {
-        if (isMounted) setFillsError(err.message || 'Error loading fills');
-      } finally {
-        if (isMounted) setLoadingFills(false);
-      }
-    };
-    fetchInitial();
-
-    return () => {
-      isMounted = false;
-    };
   }, [isConnected]);
 
-  useEffect(() => {
-    const cacheKey = `fills_all_default`;
-    const unsubscribe = dydxDataService.subscribe((key, data) => {
-      if (key === cacheKey) {
-        setAllFills(data.map(normalizeFill));
-        initialLoadDoneRef.current = true;
-      }
-    });
-    return unsubscribe;
-  }, []);
-
-  useEffect(() => {
-    if (storeFills.length === 0) return;
-    setAllFills(prevFills => {
-      const fillsMap = new Map<string, Fill>();
-      prevFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
-      storeFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
-      return Array.from(fillsMap.values()).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-    });
-  }, [storeFills]);
-
   const totalPages = useMemo(() => {
-    const currentPages = Math.ceil(allFills.length / ITEMS_PER_PAGE);
-    return hasMoreData && allFills.length >= ITEMS_PER_PAGE
-      ? currentPages
-      : Math.max(currentPages, 1);
+    const pages = Math.ceil(allFills.length / ITEMS_PER_PAGE);
+    return hasMoreData && allFills.length >= ITEMS_PER_PAGE ? pages : Math.max(pages, 1);
   }, [allFills.length, hasMoreData]);
 
   const currentPageData = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    return allFills.slice(startIndex, endIndex);
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return allFills.slice(start, start + ITEMS_PER_PAGE);
   }, [allFills, currentPage]);
 
   const loadMoreData = useCallback(async () => {
-    if (loadingMore || !hasMoreData || !isConnected) return;
-
-    const lastFill = allFills[allFills.length - 1];
-    if (!lastFill) return;
-
+    if (loadingMore || !hasMoreData || !isConnected || allFills.length === 0) return;
     setLoadingMore(true);
     try {
       const moreFills = await dydxDataService.getFills(undefined, undefined, false);
-
       if (moreFills.length === 0) {
         setHasMoreData(false);
-        return;
-      }
-      setAllFills(prev => {
-        const fillsMap = new Map<string, Fill>();
-        prev.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
-        moreFills.forEach(f => fillsMap.set(f.id, normalizeFill(f)));
-
-        return Array.from(fillsMap.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-      });
-      if (moreFills.length < ITEMS_PER_PAGE) {
+      } else if (moreFills.length < ITEMS_PER_PAGE) {
         setHasMoreData(false);
       }
     } catch (error) {
@@ -136,13 +57,12 @@ const FillsPanel: React.FC = () => {
     } finally {
       setLoadingMore(false);
     }
-  }, [allFills, isConnected, loadingMore, hasMoreData]);
+  }, [allFills.length, isConnected, loadingMore, hasMoreData]);
 
   const handlePageChange = useCallback(
     (page: number) => {
       setCurrentPage(page);
-      const requiredItems = page * ITEMS_PER_PAGE;
-      if (allFills.length < requiredItems && hasMoreData && !loadingMore) {
+      if (allFills.length < page * ITEMS_PER_PAGE && hasMoreData && !loadingMore) {
         loadMoreData();
       }
     },

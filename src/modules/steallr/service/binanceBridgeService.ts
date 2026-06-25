@@ -2,19 +2,73 @@ import type { ChartDataPoint } from '../types/stellarChart.types';
 import type { RecentTrade } from './recentTradesService';
 
 const SUPPORTED_BINANCE_SYMBOLS = new Set([
-  'XLMUSDC', 'XLMUSDT', 'XLMBTC', 'XLMETH',
-  'USDCUSDT',
+  // XLM pairs
+  'XLMUSDT', 'XLMUSDC', 'XLMBTC', 'XLMETH',
+
+  // BTC pairs
   'BTCUSDT', 'BTCUSDC',
-  'ETHUSDT', 'ETHUSDC', 'ETHBTC'
+
+  // ETH pairs
+  'ETHUSDT', 'ETHUSDC', 'ETHBTC',
+
+  // SOL pairs
+  'SOLUSDT', 'SOLUSDC', 'SOLBTC', 'SOLETH',
+
+  // XRP pairs
+  'XRPUSDT', 'XRPUSDC', 'XRPBTC', 'XRPETH',
+
+  // ADA pairs
+  'ADAUSDT', 'ADAUSDC', 'ADABTC', 'ADAETH',
+
+  // DOT pairs
+  'DOTUSDT', 'DOTUSDC', 'DOTBTC', 'DOTETH',
+
+  // DOGE pairs
+  'DOGEUSDT', 'DOGEUSDC', 'DOGEBTC',
+
+  // AVAX pairs
+  'AVAXUSDT', 'AVAXUSDC', 'AVAXBTC', 'AVAXETH',
+
+  // LINK pairs
+  'LINKUSDT', 'LINKUSDC', 'LINKBTC', 'LINKETH',
+
+  // LTC pairs
+  'LTCUSDT', 'LTCUSDC', 'LTCBTC', 'LTCETH',
+
+  // NEAR pairs
+  'NEARUSDT', 'NEARUSDC', 'NEARBTC',
+
+  // ATOM pairs
+  'ATOMUSDT', 'ATOMUSDC', 'ATOMBTC', 'ATOMETH',
+
+  // UNI pairs
+  'UNIUSDT', 'UNIUSDC', 'UNIBTC', 'UNIETH',
+
+  // AAVE pairs
+  'AAVEUSDT', 'AAVEUSDC', 'AAVEBTC', 'AAVEETH',
+
+  // Stablecoin pairs
+  'USDCUSDT',
 ]);
 
-let binanceFailed = false;
+let binanceFailedAt: number | null = null;
+const BINANCE_RETRY_WINDOW = 5 * 60 * 1000;
+
+export function isBinanceFailed(): boolean {
+  if (binanceFailedAt === null) return false;
+  if (Date.now() - binanceFailedAt > BINANCE_RETRY_WINDOW) {
+    binanceFailedAt = null;
+    return false;
+  }
+  return true;
+}
+
 let connectionAttempts = 0;
 const MAX_ATTEMPTS = 2;
 
 export function getBinanceSymbol(base: string, counter: string): string | null {
-  if (binanceFailed) return null;
-  
+  if (isBinanceFailed()) return null;
+
   const b = base.toUpperCase() === 'NATIVE' ? 'XLM' : base.toUpperCase();
   const c = counter.toUpperCase() === 'NATIVE' ? 'XLM' : counter.toUpperCase();
 
@@ -28,14 +82,14 @@ export function getBinanceSymbol(base: string, counter: string): string | null {
 }
 
 export function isBinanceSupported(base: string, counter: string): boolean {
-  if (binanceFailed) return false;
+  if (isBinanceFailed()) return false;
   return getBinanceSymbol(base, counter) !== null;
 }
 
 export function isFlippedPair(base: string, counter: string): boolean {
   const symbol = getBinanceSymbol(base, counter);
   if (!symbol) return false;
-  
+
   const b = base.toUpperCase() === 'NATIVE' ? 'XLM' : base.toUpperCase();
   return !symbol.startsWith(b);
 }
@@ -58,7 +112,7 @@ class BinanceSocketManager {
   private listeners = new Map<string, Set<(data: any) => void>>();
   private activeStreams = new Set<string>();
 
-  private constructor() {}
+  private constructor() { }
 
   static getInstance(): BinanceSocketManager {
     if (!BinanceSocketManager.instance) {
@@ -69,21 +123,22 @@ class BinanceSocketManager {
 
   subscribe(stream: string, callback: (data: any) => void): () => void {
     const s = stream.toLowerCase();
-    
+
     if (!this.listeners.has(s)) {
       this.listeners.set(s, new Set());
     }
     this.listeners.get(s)!.add(callback);
 
-    if (!this.activeStreams.has(s) && !binanceFailed) {
+    if (!this.activeStreams.has(s) && !isBinanceFailed()) {
       this.activeStreams.add(s);
+
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({
           method: 'SUBSCRIBE',
           params: [s],
           id: Date.now()
         }));
-      } else {
+      } else if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
         this.reconnect();
       }
     }
@@ -105,7 +160,7 @@ class BinanceSocketManager {
           }
         }
       }
-      
+
       if (this.activeStreams.size === 0 && this.ws) {
         this.ws.close();
         this.ws = null;
@@ -114,7 +169,13 @@ class BinanceSocketManager {
   }
 
   private reconnect() {
-    if (binanceFailed) return;
+    if (isBinanceFailed()) return;
+
+    // Guard: never reconnect if already open or still connecting
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     if (this.ws) {
       this.ws.close();
     }
@@ -122,7 +183,7 @@ class BinanceSocketManager {
 
     const streamsParam = Array.from(this.activeStreams).join('/');
     const url = `wss://stream.binance.com:9443/stream?streams=${streamsParam}`;
-    
+
     let hasOpened = false;
     const ws = new WebSocket(url);
     this.ws = ws;
@@ -130,6 +191,16 @@ class BinanceSocketManager {
     ws.onopen = () => {
       hasOpened = true;
       connectionAttempts = 0;
+
+      // Bulk-subscribe to all streams that were queued while connecting
+      const streams = Array.from(this.activeStreams);
+      if (streams.length > 0) {
+        ws.send(JSON.stringify({
+          method: 'SUBSCRIBE',
+          params: streams,
+          id: Date.now()
+        }));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -155,13 +226,13 @@ class BinanceSocketManager {
           connectionAttempts++;
           if (connectionAttempts >= MAX_ATTEMPTS) {
             console.warn('[BinanceSocketManager] Failed to connect to Binance WebSocket. Falling back to Stellar Horizon.');
-            binanceFailed = true;
+            binanceFailedAt = Date.now();
             window.dispatchEvent(new CustomEvent('binance:connection-failed'));
             return;
           }
         }
 
-        if (this.activeStreams.size > 0 && !binanceFailed) {
+        if (this.activeStreams.size > 0 && !isBinanceFailed()) {
           setTimeout(() => this.reconnect(), 5000);
         }
       }
@@ -175,9 +246,9 @@ class BinanceSocketManager {
 
 export class BinanceBridgeService {
   private static handleFetchFailure(err: any) {
-    if (!binanceFailed) {
+    if (!isBinanceFailed()) {
       console.warn('[BinanceBridgeService] REST API call failed. Falling back to Stellar Horizon.', err);
-      binanceFailed = true;
+      binanceFailedAt = Date.now();
       window.dispatchEvent(new CustomEvent('binance:connection-failed'));
     }
   }
@@ -203,7 +274,7 @@ export class BinanceBridgeService {
     onError?: (err: any) => void
   ): () => void {
     const streamName = `${symbol.toLowerCase()}@depth20@100ms`;
-    
+
     return BinanceSocketManager.getInstance().subscribe(streamName, (data) => {
       try {
         const transformed = this.transformOrderBook(data, isFlipped);
@@ -267,7 +338,7 @@ export class BinanceBridgeService {
     onError?: (err: any) => void
   ): () => void {
     const streamName = `${symbol.toLowerCase()}@trade`;
-    
+
     return BinanceSocketManager.getInstance().subscribe(streamName, (data) => {
       try {
         const trade = this.transformRecentTradeStream(data, isFlipped);
@@ -355,7 +426,7 @@ export class BinanceBridgeService {
     onError?: (err: any) => void
   ): () => void {
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
-    
+
     return BinanceSocketManager.getInstance().subscribe(streamName, (data) => {
       try {
         if (data.k) {

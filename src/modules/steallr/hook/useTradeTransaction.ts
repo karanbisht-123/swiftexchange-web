@@ -8,16 +8,26 @@ import type { ActiveOffer, CompletedTrade, Pagination } from '../types/tradeTran
 interface UseTradeTransactionProps {
   userAddress?: string;
 }
+
 export function dispatchStellarOrderPlaced() {
   window.dispatchEvent(new CustomEvent('stellar:order-placed'));
 }
 
 export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
   const currentNetwork = useWalletStore(state => state.network);
-  const [service, setService] = useState(() => new TradeTransactionService());
+  const serviceRef = useRef<TradeTransactionService>(null as any);
+
+  if (!serviceRef.current) {
+    serviceRef.current = new TradeTransactionService();
+  }
+
+  const hasLoadedActiveRef = useRef(false);
+  const hasLoadedCompletedRef = useRef(false);
 
   useEffect(() => {
-    setService(new TradeTransactionService());
+    serviceRef.current = new TradeTransactionService();
+    hasLoadedActiveRef.current = false;
+    hasLoadedCompletedRef.current = false;
   }, [currentNetwork]);
 
   const [activeOffers, setActiveOffers] = useState<ActiveOffer[]>([]);
@@ -28,34 +38,38 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
   const [completedPagination, setCompletedPagination] = useState<Pagination>({
     hasMore: false,
   });
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoadingActive, setIsLoadingActive] = useState<boolean>(false);
+  const [isLoadingCompleted, setIsLoadingCompleted] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [isStreaming] = useState(false);
-
 
   const [newOfferIds, setNewOfferIds] = useState<Set<string>>(new Set());
   const [removingOfferIds, setRemovingOfferIds] = useState<Set<string>>(new Set());
 
-
   const mountedRef = useRef(true);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+
 
   const fetchActiveOffers = useCallback(
-    async (cursor?: string) => {
+    async (cursor?: string, isBackgroundRefresh = false) => {
       if (!userAddress) {
         setError(ERROR_MESSAGES.NO_WALLET_CONNECTED);
         return;
       }
 
-      setIsLoading(true);
+      if (!isBackgroundRefresh && !hasLoadedActiveRef.current) {
+        setIsLoadingActive(true);
+      }
       setError(null);
 
       try {
-        const { offers, nextCursor, hasMore } = await service.getActiveOffers(
+        const { offers, nextCursor, hasMore } = await serviceRef.current.getActiveOffers(
           userAddress,
           10,
           cursor
         );
         if (!mountedRef.current) return;
+        hasLoadedActiveRef.current = true;
         setActiveOffers(prev => {
           if (cursor) return [...prev, ...offers];
           const existingIds = new Set(prev.map(o => o.id));
@@ -81,29 +95,34 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
           console.error('Failed to fetch active offers:', err);
         }
       } finally {
-        if (mountedRef.current) setIsLoading(false);
+        if (mountedRef.current && !isBackgroundRefresh) {
+          setIsLoadingActive(false);
+        }
       }
     },
-    [userAddress, service]
+    [userAddress]
   );
 
   const fetchCompletedTrades = useCallback(
-    async (cursor?: string) => {
+    async (cursor?: string, isBackgroundRefresh = false) => {
       if (!userAddress) {
         setError(ERROR_MESSAGES.NO_WALLET_CONNECTED);
         return;
       }
 
-      setIsLoading(true);
+      if (!isBackgroundRefresh && !hasLoadedCompletedRef.current) {
+        setIsLoadingCompleted(true);
+      }
       setError(null);
 
       try {
-        const { trades, nextCursor, hasMore } = await service.getCompletedTrades(
+        const { trades, nextCursor, hasMore } = await serviceRef.current.getCompletedTrades(
           userAddress,
           10,
           cursor
         );
         if (!mountedRef.current) return;
+        hasLoadedCompletedRef.current = true;
         setCompletedTrades(prev => (cursor ? [...prev, ...trades] : trades));
         setCompletedPagination({ cursor: nextCursor, hasMore });
       } catch (err) {
@@ -112,21 +131,31 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
           console.error('Failed to fetch completed trades:', err);
         }
       } finally {
-        if (mountedRef.current) setIsLoading(false);
+        if (mountedRef.current && !isBackgroundRefresh) {
+          setIsLoadingCompleted(false);
+        }
       }
     },
-    [userAddress, service]
+    [userAddress]
   );
 
   useEffect(() => {
     const handler = () => {
-      setTimeout(() => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+      refreshTimeoutRef.current = setTimeout(() => {
         fetchActiveOffers();
         fetchCompletedTrades();
-      }, 1500);
+      }, 2000);
     };
     window.addEventListener('stellar:order-placed', handler);
-    return () => window.removeEventListener('stellar:order-placed', handler);
+    return () => {
+      window.removeEventListener('stellar:order-placed', handler);
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+    };
   }, [fetchActiveOffers, fetchCompletedTrades]);
 
   useEffect(() => {
@@ -142,11 +171,18 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
 
   useEffect(() => {
     if (!userAddress) return;
-    const interval = setInterval(() => {
-      fetchActiveOffers();
-      fetchCompletedTrades();
-    }, 6000);
-    return () => clearInterval(interval);
+    const activeInterval = setInterval(() => {
+      fetchActiveOffers(undefined, true);
+    }, 15000);
+
+    const completedInterval = setInterval(() => {
+      fetchCompletedTrades(undefined, true);
+    }, 30000);
+
+    return () => {
+      clearInterval(activeInterval);
+      clearInterval(completedInterval);
+    };
   }, [userAddress, fetchActiveOffers, fetchCompletedTrades]);
 
   const cancelOffer = useCallback(
@@ -158,8 +194,8 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
       setError(null);
 
       try {
-        const tx = await service.buildCancelOfferTransaction(userAddress, offer);
-        const txHash = await service.executeCancelOfferWithWalletConnect(tx, walletProvider);
+        const tx = await serviceRef.current.buildCancelOfferTransaction(userAddress, offer);
+        const txHash = await serviceRef.current.executeCancelOfferWithWalletConnect(tx, walletProvider);
 
         if (mountedRef.current) {
           setActiveOffers(prev => prev.filter(o => o.id !== offer.id));
@@ -185,7 +221,7 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
         throw err;
       }
     },
-    [userAddress, service, fetchActiveOffers]
+    [userAddress, fetchActiveOffers]
   );
 
   const editOffer = useCallback(
@@ -195,12 +231,12 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
       if (parseFloat(newAmount) <= 0 || parseFloat(newPrice) <= 0)
         throw new Error('Amount and price must be positive');
 
-      setIsLoading(true);
+      setIsLoadingActive(true);
       setError(null);
 
       try {
-        const tx = await service.buildEditOfferTransaction(userAddress, offer, newAmount, newPrice);
-        const txHash = await service.executeEditOfferWithWalletConnect(tx, walletProvider);
+        const tx = await serviceRef.current.buildEditOfferTransaction(userAddress, offer, newAmount, newPrice);
+        const txHash = await serviceRef.current.executeEditOfferWithWalletConnect(tx, walletProvider);
         setTimeout(() => fetchActiveOffers(), 2000);
         return txHash;
       } catch (err) {
@@ -208,10 +244,10 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
         console.error('Failed to edit offer:', err);
         throw err;
       } finally {
-        if (mountedRef.current) setIsLoading(false);
+        if (mountedRef.current) setIsLoadingActive(false);
       }
     },
-    [userAddress, service, fetchActiveOffers]
+    [userAddress, fetchActiveOffers]
   );
 
   const reset = useCallback(() => {
@@ -227,9 +263,10 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
     completedTrades,
     activePagination,
     completedPagination,
-    isLoading,
+    isLoadingActive,
+    isLoadingCompleted,
     error,
-    isStreaming,
+    isStreaming: false,
     newOfferIds,
     removingOfferIds,
     fetchActiveOffers,

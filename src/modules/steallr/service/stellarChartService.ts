@@ -185,7 +185,7 @@ export class StellarChartService {
   ): Promise<ChartDataPoint[]> {
     const { base, counter } = this.getAssetObjects(assetPair);
     const allData: ChartDataPoint[] = [];
-    let currentStartTime = timeRange.startTime;
+    let currentStartTime = Math.floor(timeRange.startTime / options.resolution) * options.resolution;
     const maxIterations = Math.ceil(maxPoints / MAX_DATA_POINTS);
     const timeStep = Math.floor((timeRange.endTime - timeRange.startTime) / maxIterations);
 
@@ -226,88 +226,41 @@ export class StellarChartService {
     return allData;
   }
 
-  async streamTradeAggregations(
+  async pollTradeAggregations(
     assetPair: ChartAssetPair,
     options: ChartOptions,
     onData: (dataPoint: ChartDataPoint) => void,
     onError?: (error: Error) => void
   ): Promise<() => void> {
-    try {
-      if (!SUPPORTED_RESOLUTIONS.includes(options.resolution)) {
-        throw new Error(
-          `Unsupported resolution: ${options.resolution}. Supported: ${SUPPORTED_RESOLUTIONS.join(', ')}`
+    let stopped = false;
+    let lastTimestamp = 0;
+
+    const poll = async () => {
+      if (stopped) return;
+      try {
+        const endTime = Date.now();
+        const startTime = endTime - Math.max(options.resolution * 4, 3600000);
+        const data = await this.fetchTradeAggregations(
+          assetPair,
+          { startTime, endTime },
+          { resolution: options.resolution, limit: 10, order: 'desc' }
         );
-      }
-
-      const { base, counter } = this.getAssetObjects(assetPair);
-
-      const endTime = Date.now();
-      const startTime = endTime - Math.max(3600000, options.resolution * 2);
-
-      const aggregationBuilder = this.server
-        .tradeAggregation(
-          base,
-          counter,
-          startTime,
-          endTime,
-          options.resolution,
-          options.offset || 0
-        )
-        .cursor('now');
-
-      let errorReported = false;
-
-      const closer = aggregationBuilder.stream({
-        onmessage: (record: any) => {
-          try {
-            const dataPoint = this.transformAggregation(record);
-            onData(dataPoint);
-          } catch (err) {
-            console.error('Error processing stream message:', err);
-            if (onError && !errorReported) {
-              errorReported = true;
-              onError(err instanceof Error ? err : new Error('Error processing stream message'));
-            }
+        for (const point of data) {
+          if (point.timestamp > lastTimestamp) {
+            lastTimestamp = point.timestamp;
+            onData(point);
           }
-        },
-        onerror: (error: any) => {
-          if (closer && typeof closer === 'function') {
-            try { closer(); } catch(e) {}
-          }
-          if (errorReported) return;
-
-          errorReported = true;
-          console.error('Stream error:', error);
-
-          if (onError) {
-            const is406 =
-              error?.target?.readyState === 2 ||
-              error?.message?.includes('406') ||
-              error?.message?.includes('Not Acceptable');
-
-            const errMessage = is406
-              ? 'No recent trades for this pair. Using polling instead.'
-              : error instanceof Error
-                ? error.message
-                : 'Stream connection error';
-
-            onError(new Error(errMessage));
-          }
-        },
-      });
-
-      return () => {
-        if (closer && typeof closer === 'function') {
-          closer();
         }
-      };
-    } catch (error) {
-      console.error('Failed to start streaming:', error);
-      if (onError) {
-        onError(error instanceof Error ? error : new Error('Failed to start streaming'));
+      } catch (err) {
+        onError?.(err instanceof Error ? err : new Error('Poll error'));
       }
-      return () => {};
-    }
+      if (!stopped) setTimeout(poll, 30000); // 30s interval
+    };
+
+    poll();
+    return () => {
+      stopped = true;
+    };
   }
 
   async getLatestPrice(assetPair: ChartAssetPair): Promise<string | null> {

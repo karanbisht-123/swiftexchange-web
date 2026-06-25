@@ -23,6 +23,10 @@ export interface SwapState {
   bridgePendingSignPhase: 'idle' | 'signing_swap' | 'signing_bridge' | 'signing_deposit' | 'signing_bridge_approve' | 'signing_bridge_send' | 'signing_deposit_approve' | 'signing_deposit_confirm';
   bridgePendingSignSessionId: string | null;
 
+  // Centralized execution progress details
+  executionApprovalRequired: boolean | null;
+  executionCurrentStep: 'preparing' | 'approving' | 'signing';
+
   setFromChainId: (id: number | string) => void;
   setToChainId: (id: number | string) => void;
   setSellAssetSymbol: (symbol: string) => void;
@@ -41,6 +45,9 @@ export interface SwapState {
   setPendingTxHash: (hash: string | null) => void;
   setPendingTxFromChainId: (id: number | string | null) => void;
   clearPendingTx: () => void;
+
+  setExecutionApprovalRequired: (val: boolean | null) => void;
+  setExecutionCurrentStep: (step: 'preparing' | 'approving' | 'signing') => void;
 
   // Bridge sign phase setters
   setBridgePendingSignPhase: (phase: SwapState['bridgePendingSignPhase'], sessionId?: string | null) => void;
@@ -70,6 +77,10 @@ export const useSwapStore = create<SwapState>((set) => ({
   bridgePendingSignPhase: 'idle',
   bridgePendingSignSessionId: null,
 
+  // Centralized execution progress initial state
+  executionApprovalRequired: null,
+  executionCurrentStep: 'preparing',
+
   setFromChainId: (id) => set({ fromChainId: id }),
   setToChainId: (id) => set({ toChainId: id }),
   setSellAssetSymbol: (symbol) => set({ sellAssetSymbol: symbol }),
@@ -97,7 +108,12 @@ export const useSwapStore = create<SwapState>((set) => ({
     pendingTxErrorMsg: null,
     pendingTxHash: null,
     pendingTxFromChainId: null,
+    executionApprovalRequired: null,
+    executionCurrentStep: 'preparing',
   }),
+
+  setExecutionApprovalRequired: (val) => set({ executionApprovalRequired: val }),
+  setExecutionCurrentStep: (step) => set({ executionCurrentStep: step }),
 
   setBridgePendingSignPhase: (phase, sessionId = null) => set({
     bridgePendingSignPhase: phase,

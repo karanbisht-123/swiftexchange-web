@@ -41,6 +41,7 @@ export interface WalletState {
   network: NetworkType;
   isRestoringSession: boolean;
   sessionLastPingAt: Partial<Record<WalletType, number>>;
+  session: any; // Raw WalletConnect session if connected
 }
 
 interface WalletActions {
@@ -79,6 +80,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     network: initialNetwork,
     isRestoringSession: false,
     sessionLastPingAt: {},
+    session: null,
 
     connectWallet: async (type, walletId) => {
       if (get().connectedWallets[type]) return;
@@ -119,6 +121,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         const keepModalOpen = type === 'evm' && !session.dydxAddress;
 
+        const rawSession = walletService.getProvider(type)?.session || null;
+
         set(state => ({
           connectedWallets: { ...state.connectedWallets, [type]: wallet },
           connectionStatus: {
@@ -126,6 +130,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             [type]: { state: 'connected' },
           },
           isModalOpen: keepModalOpen,
+          session: rawSession,
         }));
       } catch (error: any) {
         set(state => ({
@@ -184,10 +189,16 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         const keepModalOpen = !!result.evm && !result.evm.dydxAddress;
 
+        const rawSession =
+          walletService.getProvider('evm')?.session ||
+          walletService.getProvider('stellar')?.session ||
+          null;
+
         set(state => ({
           connectedWallets: { ...state.connectedWallets, ...walletUpdates },
           connectionStatus: { ...state.connectionStatus, ...statusUpdates },
           isModalOpen: keepModalOpen,
+          session: rawSession,
         }));
       } catch (error: any) {
         set(state => ({
@@ -247,10 +258,18 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         const { [type]: _wallet, ...remainingWallets } = state.connectedWallets;
         const { [type]: _status, ...remainingStatus } = state.connectionStatus;
         const { [type]: _ping, ...remainingPings } = state.sessionLastPingAt;
+        const hasWallets = Object.keys(remainingWallets).length > 0;
+        const nextRawSession = hasWallets
+          ? (walletService.getProvider('evm')?.session ||
+            walletService.getProvider('cosmos')?.session ||
+            walletService.getProvider('stellar')?.session ||
+            null)
+          : null;
         return {
           connectedWallets: remainingWallets,
           connectionStatus: remainingStatus,
           sessionLastPingAt: remainingPings,
+          session: nextRawSession,
         };
       });
 
@@ -279,6 +298,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         connectedWallets: {},
         connectionStatus: {},
         sessionLastPingAt: {},
+        session: null,
       });
 
       usePortfolioStore.getState().clearAssets();
@@ -332,7 +352,18 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           status[s.type] = { state: 'connected' };
         });
 
-        set({ connectedWallets: wallets, connectionStatus: status, isRestoringSession: false });
+        const rawSession =
+          walletService.getProvider('evm')?.session ||
+          walletService.getProvider('cosmos')?.session ||
+          walletService.getProvider('stellar')?.session ||
+          null;
+
+        set({
+          connectedWallets: wallets,
+          connectionStatus: status,
+          isRestoringSession: false,
+          session: rawSession,
+        });
       } catch (error: any) {
         console.error('[WalletStore] Failed to restore sessions or timed out:', error);
         set({ isRestoringSession: false });
@@ -383,10 +414,18 @@ export const initWalletListener = async () => {
             const { [type]: _wallet, ...remainingWallets } = prev.connectedWallets;
             const { [type]: _status, ...remainingStatus } = prev.connectionStatus;
             const { [type]: _ping, ...remainingPings } = prev.sessionLastPingAt;
+            const hasWallets = Object.keys(remainingWallets).length > 0;
+            const nextRawSession = hasWallets
+              ? (walletService.getProvider('evm')?.session ||
+                walletService.getProvider('cosmos')?.session ||
+                walletService.getProvider('stellar')?.session ||
+                null)
+              : null;
             return {
               connectedWallets: remainingWallets,
               connectionStatus: remainingStatus,
               sessionLastPingAt: remainingPings,
+              session: nextRawSession,
             };
           });
           // if (type === 'evm') {
@@ -434,9 +473,12 @@ export const initWalletListener = async () => {
 
           const pingAt = walletService.getLastPingAt(type);
 
+          const rawSession = walletService.getProvider(type)?.session || null;
+
           useWalletStore.setState(prev => ({
             connectedWallets: { ...prev.connectedWallets, [type]: updatedWallet },
             connectionStatus: { ...prev.connectionStatus, [type]: { state: 'connected' } },
+            session: rawSession,
             ...(pingAt !== null
               ? { sessionLastPingAt: { ...prev.sessionLastPingAt, [type]: pingAt } }
               : {}),

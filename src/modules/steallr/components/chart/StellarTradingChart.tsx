@@ -62,9 +62,11 @@ const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: Dropdow
   useLayoutEffect(() => {
     if (isOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      setMenuPos({ top: rect.bottom + window.scrollY, left: rect.left });
+      const menuHeight = options.length * 32 + 8;
+      const top = window.innerHeight - rect.bottom < 160 ? rect.top - menuHeight : rect.bottom;
+      setMenuPos({ top, left: rect.left });
     }
-  }, [isOpen]);
+  }, [isOpen, options.length]);
 
   return (
     <div className="relative">
@@ -83,8 +85,8 @@ const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: Dropdow
           <>
             <div className="fixed inset-0 z-[9998]" onClick={onToggle} />
             <div
-              className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[140px] z-[9999]"
-              style={{ position: 'absolute', top: menuPos.top, left: menuPos.left }}
+              className="fixed bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[140px] z-[9999]"
+              style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}
             >
               {options.map((opt: any) => (
                 <button
@@ -135,8 +137,10 @@ const SettingsDropdown = ({
   useLayoutEffect(() => {
     if (showSettingsMenu && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
+      const menuHeight = 3 * 36 + 8;
+      const top = window.innerHeight - rect.bottom < 160 ? rect.top - menuHeight : rect.bottom;
       setMenuPos({
-        top: rect.bottom + window.scrollY,
+        top,
         right: window.innerWidth - rect.right,
       });
     }
@@ -161,8 +165,8 @@ const SettingsDropdown = ({
           <>
             <div className="fixed inset-0 z-[9998]" onClick={() => setShowSettingsMenu(false)} />
             <div
-              className="absolute bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[160px] z-[9999]"
-              style={{ position: 'absolute', top: menuPos.top, right: menuPos.right }}
+              className="fixed bg-secondary rounded-lg shadow-lg border border-color py-1 min-w-[160px] z-[9999]"
+              style={{ position: 'fixed', top: menuPos.top, right: menuPos.right }}
             >
               <button
                 onClick={() => setShowVolume(!showVolume)}
@@ -214,9 +218,9 @@ export default function StellarTradingChart({
   onAssetPairChange: _onAssetPairChange,
 }: StellarTradingChartProps) {
   const isDark = useThemeStore(s => s.theme) === 'dark';
-  const [resolution, setResolution] = useState<ChartResolution>(CHART_RESOLUTIONS['1w']);
-  const [timeRangeKey, setTimeRangeKey] = useState<keyof typeof TIME_RANGES>('1Y');
-  const [chartType, setChartType] = useState<ChartType>('area');
+  const [resolution, setResolution] = useState<ChartResolution>(CHART_RESOLUTIONS['15m']);
+  const [timeRangeKey, setTimeRangeKey] = useState<keyof typeof TIME_RANGES>('1D');
+  const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [showCrosshair, setShowCrosshair] = useState(true);
@@ -231,6 +235,7 @@ export default function StellarTradingChart({
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<any>(null);
   const prevChartTypeRef = useRef<ChartType | null>(null);
+  const hasInitialDataRef = useRef(false);
 
   const timeRange = {
     startTime:
@@ -243,8 +248,6 @@ export default function StellarTradingChart({
   const {
     data: chartData,
     isLoading,
-    isStreaming,
-    lastUpdate,
     currentNetwork,
     currentAssetPair,
     setResolution: updateResolution,
@@ -261,6 +264,7 @@ export default function StellarTradingChart({
 
   useEffect(() => {
     if (selectedChartPair) {
+      hasInitialDataRef.current = false;
       updateAssetPair(selectedChartPair);
     }
   }, [selectedChartPair, updateAssetPair]);
@@ -388,6 +392,24 @@ export default function StellarTradingChart({
       }
     };
   }, []);
+
+  // Force resize on loading completion to avoid 0x0 rendering issues
+  useEffect(() => {
+    if (!isLoading && chartRef.current && chartContainerRef.current) {
+      const forceResize = () => {
+        if (chartRef.current && chartContainerRef.current) {
+          const width = chartContainerRef.current.clientWidth;
+          const height = chartContainerRef.current.clientHeight;
+          if (width > 0 && height > 0) {
+            chartRef.current.applyOptions({ width, height });
+          }
+        }
+      };
+      forceResize();
+      const timer = setTimeout(forceResize, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
 
   // 2. Chart Options & Theme Updates Effect
   useEffect(() => {
@@ -520,21 +542,14 @@ export default function StellarTradingChart({
     }
 
     // Fit content only if this is the first load of data
-    if (chartData.length > 0) {
+    if (chartData.length > 0 && !hasInitialDataRef.current) {
       chartRef.current.timeScale().fitContent();
+      hasInitialDataRef.current = true;
     }
   }, [chartData, chartType, showVolume, isDark]);
 
-  useEffect(() => {
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-      }
-    };
-  }, []);
-
   const handleResolutionChange = (newResolution: ChartResolution) => {
+    hasInitialDataRef.current = false;
     setResolution(newResolution);
     updateResolution(newResolution);
   };
@@ -642,14 +657,6 @@ export default function StellarTradingChart({
             </div>
           )}
         </div>
-
-        {isStreaming && lastUpdate && (
-          <div className="absolute top-16 right-4 flex items-center gap-2 bg-secondary/90 backdrop-blur border border-color px-3 py-1.5 rounded-lg text-xs z-10">
-            <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-            <span className="text-primary">Live</span>
-            <span className="text-secondary">{new Date(lastUpdate).toLocaleTimeString()}</span>
-          </div>
-        )}
       </div>
     </div>
   );

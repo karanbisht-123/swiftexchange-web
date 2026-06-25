@@ -191,6 +191,7 @@ const PortfolioView = ({
     }
 
     if (!hasInitializedRef.current) {
+      if (loadingOrders || loadingFills) return;
       prevCountsRef.current = {
         positions: positions.length,
         orders: openOrderCount,
@@ -230,7 +231,7 @@ const PortfolioView = ({
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, openOrderCount, fillCount, lastUpdateTime]);
+  }, [positions.length, openOrderCount, fillCount, lastUpdateTime, loadingOrders, loadingFills]);
 
   return (
     <div className="h-full flex flex-col max-w-full">
@@ -465,6 +466,7 @@ const MobilePortfolio = () => {
     }
 
     if (!hasInitializedRef.current) {
+      if (loadingOrders || loadingFills) return;
       prevCountsRef.current = {
         positions: positions.length,
         orders: openOrderCount,
@@ -504,7 +506,7 @@ const MobilePortfolio = () => {
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, openOrderCount, fillCount, lastUpdateTime]);
+  }, [positions.length, openOrderCount, fillCount, lastUpdateTime, loadingOrders, loadingFills]);
 
   return (
     <div className="h-full flex flex-col">
@@ -606,6 +608,7 @@ const BottomTabsSection = ({
     }
 
     if (!hasInitializedRef.current) {
+      if (loadingOrders || loadingFills) return;
       prevCountsRef.current = {
         positions: positions.length,
         orders: openOrderCount,
@@ -645,7 +648,7 @@ const BottomTabsSection = ({
     prevCountsRef.current = currentCounts;
 
     return () => clearTimeout(timer);
-  }, [positions.length, openOrderCount, fillCount, lastUpdateTime]);
+  }, [positions.length, openOrderCount, fillCount, lastUpdateTime, loadingOrders, loadingFills]);
 
   return (
     <>

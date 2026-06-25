@@ -13,7 +13,7 @@ import TradingintrFace from '../modules/dydx/components/tradedashbord/Tradingint
 import EvmTransactionHistory from '../modules/evm/components/EvmTransactionHistory';
 // import BridgePage from '../modules/evm/feature/bridge/BridgePage';
 // import WebSocketDebugger from '../modules/dydx/utils/WebSocketDebugger';
-import SwapAssets from '../modules/evm/feature/swap/SwapAssets';
+import SwapAssets from '../modules/evm/feature/swap/components/SwapAssets';
 import CryptoMarket from '../modules/market/CryptoMarket';
 // import TradeTransactionUI from '../modules/steallr/components/TradeTransactionUI';
 import StallerTradescreen from '../modules/steallr/components/tradescreen/StallerTradescreen';

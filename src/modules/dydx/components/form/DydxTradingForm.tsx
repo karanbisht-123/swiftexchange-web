@@ -130,6 +130,7 @@ export const DydxTradingForm: React.FC = () => {
   const [goodTilValue, setGoodTilValue] = useState(28);
   const [goodTilUnit, setGoodTilUnit] = useState<GoodTilUnit>('days');
   const [reduceOnly, setReduceOnly] = useState(false);
+  const [postOnly, setPostOnly] = useState(false);
 
   const [showTpSl, setShowTpSl] = useState(false);
   const [tpPrice, setTpPrice] = useState('');
@@ -327,11 +328,25 @@ export const DydxTradingForm: React.FC = () => {
   }, [orderError, clearOrderError]);
 
   useEffect(() => {
-    if (reduceOnly && (isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
+    if (reduceOnly && (isLimit || isConditional) && timeInForce === 'GTT') {
       setTimeInForce('IOC');
+      setPostOnly(false);
       addNotification('warning', 'Reduce-only orders must use IOC', 'Time-in-Force Changed');
     }
   }, [reduceOnly, isLimit, isConditional, timeInForce]);
+
+  useEffect(() => {
+    const isLimitLike = orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
+    const isMarketConditional = orderType === 'STOP_MARKET' || orderType === 'TAKE_PROFIT_MARKET';
+
+    if (isMarketConditional && timeInForce !== 'IOC') {
+      setTimeInForce('IOC');
+      setPostOnly(false);
+      addNotification('warning', 'Trigger market orders must use IOC execution', 'Time-in-Force Changed');
+    } else if (!isLimitLike && postOnly) {
+      setPostOnly(false);
+    }
+  }, [orderType, timeInForce, postOnly]);
 
   useEffect(() => {
     const handlePriceClick = (clickedPrice: string) => {
@@ -380,7 +395,7 @@ export const DydxTradingForm: React.FC = () => {
   }, [triggerPrice, orderType, marketData, side]);
 
   useEffect(() => {
-    if ((isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
+    if ((isLimit || isConditional) && timeInForce === 'GTT') {
       const error = validateGoodTil(goodTilValue, goodTilUnit, isConditional);
       setGoodTilError(error || '');
     } else {
@@ -475,11 +490,15 @@ export const DydxTradingForm: React.FC = () => {
     }
 
     let goodTilTimeInSeconds: number | undefined;
-    if ((isLimit || isConditional) && (timeInForce === 'GTT' || timeInForce === 'POST_ONLY')) {
+    if ((isLimit || isConditional) && timeInForce === 'GTT') {
       goodTilTimeInSeconds = convertToSeconds(goodTilValue, goodTilUnit);
     }
 
     if (marginMode === 'ISOLATED') {
+      // Fix #5: mirror exactly what the service does — only check if crossFreeCollateral
+      // can cover the *shortfall* (targetEquityWithBuffer - currentIsolatedEquity).
+      // The old check (crossFree + isolatedEquity < fullRequired) triggered false rejections
+      // when the isolated subaccount already held sufficient equity.
       const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
       const crossFreeCollateral = crossSub ? parseFloat(crossSub.freeCollateral || '0') : 0;
       const oraclePrice = parseFloat(marketData?.oraclePrice || '0');
@@ -492,28 +511,22 @@ export const DydxTradingForm: React.FC = () => {
         ? Math.max(requiredMargin, ISOLATED_EQUITY_TIER_MIN)
         : requiredMargin;
 
-      const requiredMarginWithBuffer = effectiveMargin * 1.02;
+      const targetEquityWithBuffer = effectiveMargin * (1 + 0.02); // matches ISOLATED_FEE_BUFFER
 
-      const totalAvailable = crossFreeCollateral + isolatedEquity;
-      if (totalAvailable < requiredMarginWithBuffer) {
+      // How much more does the isolated subaccount still need?
+      const shortfall = Math.max(0, targetEquityWithBuffer - isolatedEquity);
+
+      if (shortfall > 0 && crossFreeCollateral < shortfall) {
+        const totalAvailable = crossFreeCollateral + isolatedEquity;
         addNotification(
           'error',
           isLongTermOrder
-            ? `Insufficient collateral for isolated order. Requires $${requiredMarginWithBuffer.toFixed(2)} (incl. 5% buffer). Available: $${totalAvailable.toFixed(2)}`
-            : `Insufficient collateral for isolated market order. Requires $${requiredMarginWithBuffer.toFixed(2)}. Available: $${totalAvailable.toFixed(2)}`,
+            ? `Insufficient collateral for isolated order. Requires $${targetEquityWithBuffer.toFixed(2)} (incl. 2% buffer). Available: $${totalAvailable.toFixed(2)}`
+            : `Insufficient collateral for isolated market order. Requires $${targetEquityWithBuffer.toFixed(2)} (incl. 2% buffer). Available: $${totalAvailable.toFixed(2)}`,
           'Insufficient Margin'
         );
         return;
       }
-
-      // if (isolatedEquity < requiredMarginWithBuffer) {
-      //   const autoDepositAmount = requiredMarginWithBuffer - isolatedEquity;
-      //   addNotification(
-      //     'info',
-      //     `$${autoDepositAmount.toFixed(2)} will be auto-deposited from Cross Margin.`,
-      //     'Auto-Deposit'
-      //   );
-      // }
     }
 
     const result = await placeOrder(
@@ -524,10 +537,10 @@ export const DydxTradingForm: React.FC = () => {
         size: finalQuantity,
         price: finalPrice,
         triggerPrice: finalTriggerPrice,
-        timeInForce: timeInForce === 'POST_ONLY' ? 'GTT' : timeInForce,
+        timeInForce: timeInForce,
         reduceOnly,
         postOnly:
-          timeInForce === 'POST_ONLY' &&
+          postOnly &&
           (orderType === 'LIMIT' ||
             orderType === 'STOP_LIMIT' ||
             orderType === 'TAKE_PROFIT_LIMIT'),
@@ -736,11 +749,30 @@ export const DydxTradingForm: React.FC = () => {
               timeInForce={timeInForce}
               goodTilValue={goodTilValue}
               goodTilUnit={goodTilUnit}
+              postOnly={postOnly}
               reduceOnly={reduceOnly}
-              onTimeInForceChange={setTimeInForce}
+              onTimeInForceChange={tif => {
+                setTimeInForce(tif);
+                if (tif === 'IOC') {
+                  setPostOnly(false);
+                }
+              }}
               onGoodTilValueChange={setGoodTilValue}
               onGoodTilUnitChange={setGoodTilUnit}
-              onReduceOnlyChange={setReduceOnly}
+              onPostOnlyChange={checked => {
+                setPostOnly(checked);
+                if (checked) {
+                  setTimeInForce('GTT');
+                  setReduceOnly(false);
+                }
+              }}
+              onReduceOnlyChange={checked => {
+                setReduceOnly(checked);
+                if (checked) {
+                  setTimeInForce('IOC');
+                  setPostOnly(false);
+                }
+              }}
             />
           )}
 
@@ -789,6 +821,7 @@ export const DydxTradingForm: React.FC = () => {
             triggerPrice={triggerPrice}
             leverage={leverage}
             orderType={orderType}
+            timeInForce={timeInForce}
             currencyMode={currencyMode}
             marginMode={marginMode}
             onPlaceOrder={handlePlaceOrder}

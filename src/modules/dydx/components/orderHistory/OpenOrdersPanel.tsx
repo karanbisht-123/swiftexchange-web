@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, Clock, Loader2, RefreshCw, X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { metadataService } from '../../hooks/useMetadata';
@@ -7,26 +7,20 @@ import { type TrackedOrder, isMarketOrder } from '../../store/websocketStore';
 import { dydxTradingService } from '../../service/dydxTradingService';
 import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 
+const CANCEL_REFRESH_DELAY_MS = 1_500;
+
 const OpenOrdersPanel: React.FC = () => {
-  const { openOrders, loadingOrders, ordersError, refreshOrders, isConnected } = useDydxData();
+  const { openOrdersWithGrace, loadingOrders, ordersError, refreshOrders, isConnected } = useDydxData();
 
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const [orderToCancel, setOrderToCancel] = useState<TrackedOrder | null>(null);
   const [icons, setIcons] = useState<Record<string, string>>({});
 
-  const sortedOpenOrders = useMemo(() => {
-    return [...openOrders].sort((a, b) => {
-      const tA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-      const tB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-      return tB - tA;
-    });
-  }, [openOrders]);
-
   useEffect(() => {
-    if (openOrders.length === 0) return;
+    if (openOrdersWithGrace.length === 0) return;
 
     const fetchIcons = async () => {
-      const markets = [...new Set(openOrders.map(o => o.ticker).filter(Boolean))];
+      const markets = [...new Set(openOrdersWithGrace.map(o => o.ticker).filter(Boolean))];
       const results = await Promise.allSettled(
         markets.map(async market => {
           const meta = await metadataService.getMetadata(market!);
@@ -45,7 +39,7 @@ const OpenOrdersPanel: React.FC = () => {
     };
 
     fetchIcons();
-  }, [openOrders]);
+  }, [openOrdersWithGrace]);
 
   const handleCancel = useCallback((order: TrackedOrder) => {
     setOrderToCancel(order);
@@ -71,7 +65,7 @@ const OpenOrdersPanel: React.FC = () => {
       if (!result.success) {
         throw new Error(result.userMessage || result.error || 'Failed to cancel order');
       }
-      setTimeout(() => refreshOrders(), 1_500);
+      setTimeout(() => refreshOrders(), CANCEL_REFRESH_DELAY_MS);
     } catch (err: any) {
       console.error('[OpenOrdersPanel] Failed to cancel order:', err);
       alert(`Failed to cancel order: ${err.message || 'Unknown error'}`);
@@ -118,7 +112,6 @@ const OpenOrdersPanel: React.FC = () => {
     return <span className="text-primary text-xs font-bold">{baseAsset.slice(0, 3)}</span>;
   }, [icons]);
 
-  // ── UPDATED STATUS BADGE (ab undercollateralized order bhi dikhega)
   const getStatusBadge = useCallback((order: TrackedOrder) => {
     const status = order.status;
 
@@ -131,19 +124,31 @@ const OpenOrdersPanel: React.FC = () => {
           </div>
         );
       }
-      if (status === 'BEST_EFFORT_CANCELED') {
+      if (status === 'REJECTED') {
+        const reason = order.removalReason
+          ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
+          : 'Rejected';
         return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            <span>Canceling...</span>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
+              <X className="w-3 h-3" />
+              <span>Rejected</span>
+            </div>
+            <span className="text-[10px] text-red-400/70 px-2 leading-tight">{reason}</span>
           </div>
         );
       }
-      if (status === 'CANCELED') {
+      if (status === 'BEST_EFFORT_CANCELED' || status === 'CANCELED') {
+        const reason = order.removalReason
+          ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
+          : null;
         return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded text-xs">
-            <X className="w-3 h-3" />
-            <span>Canceled</span>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded text-xs">
+              <X className="w-3 h-3" />
+              <span>Canceled</span>
+            </div>
+            {reason && <span className="text-[10px] text-gray-400/70 px-2 leading-tight">{reason}</span>}
           </div>
         );
       }
@@ -201,7 +206,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (loadingOrders && openOrders.length === 0) {
+  if (loadingOrders && openOrdersWithGrace.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted">
         <Loader2 className="w-6 h-6 mr-2 animate-spin" />
@@ -210,7 +215,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (ordersError && openOrders.length === 0) {
+  if (ordersError && openOrdersWithGrace.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center">
         <h3 className="text-lg font-semibold text-red-400 mb-2">Error Loading Orders</h3>
@@ -223,7 +228,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (openOrders.length === 0) {
+  if (openOrdersWithGrace.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted">
         <h3 className="text-lg font-semibold text-primary mb-2">No Open Orders</h3>
@@ -252,7 +257,7 @@ const OpenOrdersPanel: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {sortedOpenOrders.map(order => {
+            {openOrdersWithGrace.map(order => {
               const isCancelling = cancelling.has(order.id);
               const filled = parseFloat(order.totalOptimisticFilled || '0');
               const size = parseFloat(order.size);
@@ -312,7 +317,7 @@ const OpenOrdersPanel: React.FC = () => {
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-1.5 p-2">
-        {sortedOpenOrders.map(order => {
+        {openOrdersWithGrace.map(order => {
           const isCancelling = cancelling.has(order.id);
           const filled = parseFloat(order.totalOptimisticFilled || '0');
           const size = parseFloat(order.size);

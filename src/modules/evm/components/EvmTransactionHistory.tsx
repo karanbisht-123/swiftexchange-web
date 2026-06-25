@@ -680,7 +680,7 @@ const EvmTransactionHistory: React.FC = () => {
         <>
           <button
             onClick={() => switchView('recent')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${selectedView === 'recent' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${selectedView === 'recent' ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-primary'}`}
           >
             Recent
             {hasPending && (
@@ -691,7 +691,7 @@ const EvmTransactionHistory: React.FC = () => {
             <button
               key={chain.chainId}
               onClick={() => switchView(chain.chainId as ViewType)}
-              className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
+              className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-primary'}`}
             >
               <img src={chain.imageUrl} alt={chain.nativeCurrency.symbol} className="w-4 h-4 rounded-full bg-secondary" />
               {chain.nativeCurrency.symbol}
@@ -702,7 +702,7 @@ const EvmTransactionHistory: React.FC = () => {
       {hasStellar && (
         <button
           onClick={() => switchView('stellar')}
-          className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar' ? 'bg-primary text-secondary shadow-sm' : 'text-muted hover:text-primary'}`}
+          className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar' ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-primary'}`}
         >
           <img src="https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png" className="w-4 h-4 rounded-full bg-secondary" alt="Stellar" />
           Stellar
@@ -962,19 +962,19 @@ const EvmTransactionHistory: React.FC = () => {
           key={tx.hash}
           onClick={() => handleLocalTxClick(tx)}
           className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${isSelected
-              ? 'bg-secondary border border-color shadow-sm'
-              : isPending
-                ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
-                : isFailed
-                  ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
-                  : 'bg-primary border border-transparent hover:border-color'
+            ? 'bg-secondary border border-color shadow-sm'
+            : isPending
+              ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
+              : isFailed
+                ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
+                : 'bg-primary border border-transparent hover:border-color'
             }`}
         >
           <div className="flex items-center gap-2.5">
 
-            {/* Icon section */}
+
             <div className="relative shrink-0" style={{ width: showDualIcon ? 52 : 32, height: 32 }}>
-              {/* From icon */}
+
               <div className="absolute left-0 top-0 w-8 h-8">
                 <div className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-primary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}>
                   {fromAssetLogo
@@ -1014,18 +1014,18 @@ const EvmTransactionHistory: React.FC = () => {
                 {isPending && <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />}
               </div>
 
-              {/* Chain/asset columns */}
+
               {showDualIcon ? (
                 <div className="flex items-start gap-2">
-                  {/* From column */}
+
                   <div className="flex flex-col min-w-0">
                     <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">From</span>
                     <span className="text-[9px] font-bold text-primary truncate leading-tight">{fromAssetSymbol || '—'}</span>
                     <span className="text-[8px] text-muted truncate leading-tight">{fromChainName}</span>
                   </div>
-                  {/* Divider */}
+
                   <span className="text-muted text-[9px] mt-2 shrink-0">›</span>
-                  {/* To column */}
+
                   <div className="flex flex-col min-w-0">
                     <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">To</span>
                     <span className="text-[9px] font-bold text-primary truncate leading-tight">{toAssetSymbol || '—'}</span>

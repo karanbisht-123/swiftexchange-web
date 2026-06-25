@@ -36,7 +36,7 @@ export const XlmReserveInfoModal = ({
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
-      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[400px] bg-secondary rounded-xl shadow-2xl z-50 animate-fade-in">
+      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[400px] bg-secondary rounded-xl border border-color z-50 animate-fade-in">
         <div className="flex items-center justify-between p-4 border-b border-color">
           <div className="flex items-center gap-2">
             <Info className="w-5 h-5 text-blue-500" />

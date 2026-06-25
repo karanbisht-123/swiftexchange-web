@@ -178,7 +178,10 @@ export const WalletListModal: React.FC = () => {
       return (
         <div className="space-y-2">
           <div
-            style={{ borderColor: 'var(--color-success)', background: 'var(--color-success-bg)' }}
+            style={{
+              borderColor: 'color-mix(in srgb, var(--color-success) 35%, var(--color-border))',
+              background: 'var(--color-bg-tertiary)',
+            }}
             className="flex items-center justify-between gap-3 p-3 md:p-4 rounded-xl border"
           >
             <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -456,6 +459,8 @@ export const WalletListModal: React.FC = () => {
           </button>
         </div>
 
+
+
         {error && (
           <div
             style={{
@@ -509,71 +514,128 @@ export const WalletListModal: React.FC = () => {
           )}
 
           {!bothConnected && (
-            <div style={{ borderColor: 'var(--color-border)' }} className="border-t pt-5 space-y-5">
+            <div className="space-y-5">
+              {/* Unified connection options (only if NEITHER is connected) */}
               {!evmConnected && !stellarConnected && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div>
                     <h3
-                      style={{ color: 'var(--color-text-primary)' }}
-                      className="text-sm font-semibold"
+
+                      className="text-sm font-semibold uppercase tracking-wider "
                     >
-                      Connect EVM + Stellar
+                      Unified Connection
                     </h3>
                     <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                      One QR code — connects both chains if your wallet supports them
+                      Connect both EVM & Stellar in a single step
                     </p>
                   </div>
-                  <button
-                    onClick={handleUnifiedConnect}
-                    disabled={isAnyActionInProgress}
-                    style={{
-                      borderColor: 'var(--color-border)',
-                      background: 'var(--color-bg-tertiary)',
-                    }}
-                    className="w-full flex items-center gap-3 p-3 md:p-4 rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] transition-all disabled:opacity-50 disabled:cursor-not-allowed relative"
-                  >
-                    {isUnifiedConnecting && (
-                      <div
-                        style={{
-                          background:
-                            'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
-                        }}
-                        className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
-                      >
+
+                  <div className="grid grid-cols-3 md:grid-cols-4 gap-2 md:gap-3">
+                    {/* SwiftEx Wallet (Recommended) */}
+                    <button
+                      onClick={handleUnifiedConnect}
+                      disabled={isAnyActionInProgress}
+                      style={{
+                        borderColor: 'var(--color-brand-primary)',
+                        background: 'color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-bg-tertiary))',
+                      }}
+                      className="flex flex-col items-center gap-2 p-3 rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_12%,var(--color-bg-tertiary))] transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative w-full"
+                    >
+                      {isUnifiedConnecting && (
                         <div
                           style={{
-                            borderColor: 'var(--color-brand-primary)',
-                            borderTopColor: 'transparent',
+                            background:
+                              'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
                           }}
-                          className="w-5 h-5 border-2 rounded-full animate-spin"
+                          className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
+                        >
+                          <div
+                            style={{
+                              borderColor: 'var(--color-brand-primary)',
+                              borderTopColor: 'transparent',
+                            }}
+                            className="w-5 h-5 border-2 rounded-full animate-spin"
+                          />
+                        </div>
+                      )}
+
+                      {/* Absolute positioned badges at the top */}
+                      <span className="absolute top-1 right-1.5 text-[6.5px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 whitespace-nowrap uppercase tracking-wider scale-95">
+                        REC
+                      </span>
+
+                      {/* Circular wallet icon wrapper like we give for other */}
+                      <div
+                        style={{ background: 'var(--color-bg-secondary)' }}
+                        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
+                      >
+                        <img
+                          src="/logo.avif"
+                          alt="SwiftEx"
+                          className="w-12 h-12 rounded-full object-contain"
                         />
                       </div>
-                    )}
-                    <div
-                      style={{ background: 'var(--color-bg-secondary)' }}
-                      className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                    >
-                      <img
-                        src={WALLETCONNECT_ICON}
-                        alt="WalletConnect"
-                        className="w-8 h-8 rounded-full object-contain"
-                      />
-                    </div>
-                    <div className="text-left">
-                      <p
+
+                      <span
                         style={{ color: 'var(--color-text-primary)' }}
-                        className="text-sm font-semibold"
+                        className="text-xs font-semibold text-center leading-tight line-clamp-2 mt-0.5"
+                      >
+                        SwiftEx Wallet
+                      </span>
+                    </button>
+
+                    {/* WalletConnect (Other Multichain) */}
+                    <button
+                      onClick={handleUnifiedConnect}
+                      disabled={isAnyActionInProgress}
+                      style={{
+                        borderColor: 'var(--color-border)',
+                        background: 'var(--color-bg-tertiary)',
+                      }}
+                      className="flex flex-col items-center gap-2 p-3  rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative w-full"
+                    >
+                      {isUnifiedConnecting && (
+                        <div
+                          style={{
+                            background:
+                              'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
+                          }}
+                          className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
+                        >
+                          <div
+                            style={{
+                              borderColor: 'var(--color-brand-primary)',
+                              borderTopColor: 'transparent',
+                            }}
+                            className="w-5 h-5 border-2 rounded-full animate-spin"
+                          />
+                        </div>
+                      )}
+
+                      {/* Circular wallet icon wrapper like we give for other */}
+                      <div
+                        style={{ background: 'var(--color-bg-secondary)' }}
+                        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
+                      >
+                        <img
+                          src={WALLETCONNECT_ICON}
+                          alt="WalletConnect"
+                          className="w-8 h-8 rounded-full object-contain"
+                        />
+                      </div>
+
+                      <span
+                        style={{ color: 'var(--color-text-primary)' }}
+                        className="text-xs font-semibold text-center leading-tight line-clamp-2 mt-0.5"
                       >
                         WalletConnect
-                      </p>
-                      <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
-                        Multichain — EVM + Stellar (if supported)
-                      </p>
-                    </div>
-                  </button>
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
 
+              {/* EVM Wallets section (if EVM is not connected) */}
               {!evmConnected && (
                 <div className="space-y-3">
                   <div>
@@ -591,6 +653,7 @@ export const WalletListModal: React.FC = () => {
                 </div>
               )}
 
+              {/* Stellar Wallets section (if Stellar is not connected) */}
               {!stellarConnected && (
                 <div className="space-y-3">
                   <div>

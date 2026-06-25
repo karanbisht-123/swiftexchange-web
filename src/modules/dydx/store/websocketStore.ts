@@ -390,7 +390,7 @@ function mergeOrders(
     if (!id) continue;
 
     const prev = next.get(id);
-    if (prev && prev._msgId > msgId) continue; // stale update, skip
+    if (prev && prev._msgId > msgId) continue;
 
     const isTerminal = TERMINAL_STATUSES.has(raw.status);
     const prevWasTerminal = prev ? TERMINAL_STATUSES.has(prev.status) : false;
@@ -402,7 +402,6 @@ function mergeOrders(
         ? prev!._terminalAt
         : now;
 
-    // Stamp _firstSeenAt only when we see an order for the first time
     const firstSeenAt = prev?._firstSeenAt ?? now;
 
     next.set(id, {
@@ -1334,16 +1333,20 @@ export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined)
   const now = Date.now();
   return data.orders.filter(o => {
     if (OPEN_STATUSES.has(o.status)) {
-      // Apply appearance delay to BEST_EFFORT_OPENED
       if (o.status === 'BEST_EFFORT_OPENED' && o._firstSeenAt) {
         if (now - o._firstSeenAt < ORDER_APPEARANCE_DELAY_MS) return false;
       }
       return true;
     }
-    if (o.status === 'FILLED' && isMarketOrder(o)) {
-      return now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS;
-    }
-    return false;
+    if (!isMarketOrder(o)) return false;
+    const age = now - (o._terminalAt ?? now);
+    if (age >= MARKET_ORDER_GRACE_MS) return false;
+    return (
+      // o.status === 'FILLED' ||
+      o.status === 'REJECTED' ||
+      o.status === 'BEST_EFFORT_CANCELED' ||
+      o.status === 'CANCELED'
+    );
   });
 }
 
