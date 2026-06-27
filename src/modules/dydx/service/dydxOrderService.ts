@@ -378,9 +378,10 @@ class DydxDataService {
     ticker?: string,
     limit?: number,
     returnLatestOrders = true,
-    useCache = true
+    useCache = true,
+    createdBeforeOrAt?: string
   ): Promise<Order[]> {
-    const cacheKey = `orders_${ticker || 'all'}_${limit || 'default'}_${returnLatestOrders}`;
+    const cacheKey = `orders_${ticker || 'all'}_${limit || 'default'}_${returnLatestOrders}_${createdBeforeOrAt || 'none'}`;
 
     if (useCache) {
       const entry = this.cache.get(cacheKey);
@@ -391,7 +392,7 @@ class DydxDataService {
           return entry.data as Order[];
         }
         if (!entry.isFetching) {
-          const fetchPromise = this.fetchOrdersRaw(ticker, limit, returnLatestOrders);
+          const fetchPromise = this.fetchOrdersRaw(ticker, limit, returnLatestOrders, createdBeforeOrAt);
           this.triggerBackgroundRevalidate(cacheKey, fetchPromise, (data) => {
             try {
               const address = dydxWalletService.getAddress();
@@ -415,7 +416,7 @@ class DydxDataService {
       }
     }
 
-    const sorted = await this.fetchOrdersRaw(ticker, limit, returnLatestOrders);
+    const sorted = await this.fetchOrdersRaw(ticker, limit, returnLatestOrders, createdBeforeOrAt);
     this.setCache(cacheKey, sorted);
     return sorted;
   }
@@ -423,7 +424,8 @@ class DydxDataService {
   private async fetchOrdersRaw(
     ticker?: string,
     limit?: number,
-    returnLatestOrders = true
+    returnLatestOrders = true,
+    createdBeforeOrAt?: string
   ): Promise<Order[]> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
@@ -438,7 +440,7 @@ class DydxDataService {
         undefined,
         limit,
         undefined,
-        undefined,
+        createdBeforeOrAt,
         returnLatestOrders
       );
 
@@ -455,8 +457,8 @@ class DydxDataService {
     }
   }
 
-  async getFills(ticker?: string, limit?: number, useCache = true): Promise<Fill[]> {
-    const cacheKey = `fills_${ticker || 'all'}_${limit || 'default'}`;
+  async getFills(ticker?: string, limit?: number, useCache = true, createdBeforeOrAt?: string): Promise<Fill[]> {
+    const cacheKey = `fills_${ticker || 'all'}_${limit || 'default'}_${createdBeforeOrAt || 'none'}`;
 
     if (useCache) {
       const entry = this.cache.get(cacheKey);
@@ -469,7 +471,7 @@ class DydxDataService {
 
         // Stale-While-Revalidate background fetch
         if (!entry.isFetching) {
-          const fetchPromise = this.fetchFillsRaw(ticker, limit);
+          const fetchPromise = this.fetchFillsRaw(ticker, limit, createdBeforeOrAt);
           this.triggerBackgroundRevalidate(cacheKey, fetchPromise, (data) => {
             // Update useWebSocketStore in the background so all subscribers get fresh data
             try {
@@ -493,12 +495,12 @@ class DydxDataService {
       }
     }
 
-    const sorted = await this.fetchFillsRaw(ticker, limit);
+    const sorted = await this.fetchFillsRaw(ticker, limit, createdBeforeOrAt);
     this.setCache(cacheKey, sorted);
     return sorted;
   }
 
-  private async fetchFillsRaw(ticker?: string, limit?: number): Promise<Fill[]> {
+  private async fetchFillsRaw(ticker?: string, limit?: number, createdBeforeOrAt?: string): Promise<Fill[]> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
 
@@ -510,7 +512,7 @@ class DydxDataService {
         TickerType.PERPETUAL,
         limit,
         undefined,
-        undefined
+        createdBeforeOrAt
       );
 
       const fills = ((response?.fills || []) as any[]).map(normalizeFill);
@@ -799,50 +801,25 @@ class DydxDataService {
     );
   }
 
-  async getTransfers(limit: number = 100, createdBeforeOrAt?: any): Promise<TransfersResponse> {
+  async getTransfers(limit: number = 100, createdBeforeOrAt?: string): Promise<TransfersResponse> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
 
     try {
-      let allTransfers: Transfer[] = [];
-      let currentBefore = createdBeforeOrAt;
-      let hasMore = true;
-      const MAX_PAGES = 10;
-      let pageCount = 0;
+      const response: any = await indexer.account.getParentSubaccountNumberTransfers(
+        address,
+        0,
+        limit,
+        undefined,
+        createdBeforeOrAt
+      );
 
-      while (hasMore && pageCount < MAX_PAGES) {
-        pageCount++;
-        const response: any = await indexer.account.getParentSubaccountNumberTransfers(
-          address,
-          0,
-          limit,
-          currentBefore
-        );
-
-        const items = (response.transfers || []) as Transfer[];
-        allTransfers = allTransfers.concat(items);
-
-        if (items.length < limit) {
-          hasMore = false;
-        } else {
-          const lastItem = items[items.length - 1];
-          currentBefore = lastItem.createdAt;
-        }
-      }
-      const uniqueTransfers: Transfer[] = [];
-      const seenIds = new Set();
-      for (const item of allTransfers) {
-        const uniqueKey = item.id || item.createdAt;
-        if (!seenIds.has(uniqueKey)) {
-          seenIds.add(uniqueKey);
-          uniqueTransfers.push(item);
-        }
-      }
+      const items = (response.transfers || []) as Transfer[];
 
       return {
-        transfers: uniqueTransfers,
+        transfers: items,
         limit: limit,
-        latestCreatedAt: uniqueTransfers.length > 0 ? uniqueTransfers[0].createdAt : '',
+        latestCreatedAt: items.length > 0 ? items[0].createdAt : '',
       };
     } catch (err) {
       console.error('[DydxDataService] getTransfers failed:', err);

@@ -16,17 +16,16 @@ const FundingPaymentsPanel: React.FC = () => {
   const { isConnected } = useDydxData();
 
   const [currentPage, setCurrentPage] = useState(1);
-  const getInitialState = () => {
+  const [{ payments, totalItems }] = useState(() => {
     const cached = dydxDataService.getCachedFundingPayments(undefined, ITEMS_PER_PAGE, 1);
     return {
       payments: cached?.fundingPayments ?? [],
       totalItems: cached?.totalResults ?? 0,
     };
-  };
-
-  const [payments, setPayments] = useState<FundingPayment[]>(() => getInitialState().payments);
-  const [totalItems, setTotalItems] = useState<number>(() => getInitialState().totalItems);
-  const [initialLoading, setInitialLoading] = useState(payments.length === 0);
+  });
+  const [paymentsState, setPayments] = useState<FundingPayment[]>(payments);
+  const [totalItemsState, setTotalItems] = useState<number>(totalItems);
+  const [initialLoading, setInitialLoading] = useState(paymentsState.length === 0);
   const [backgroundFetching, setBackgroundFetching] = useState(false);
 
   const initialLoadDoneRef = useRef(false);
@@ -47,7 +46,11 @@ const FundingPaymentsPanel: React.FC = () => {
       }
 
       try {
-        const response = await dydxDataService.getFundingPayments(undefined, ITEMS_PER_PAGE, page);
+        const response = await dydxDataService.getFundingPayments(
+          undefined,
+          ITEMS_PER_PAGE,
+          page,
+        );
         setPayments(response.fundingPayments);
         setTotalItems(response.totalResults);
         initialLoadDoneRef.current = true;
@@ -62,7 +65,7 @@ const FundingPaymentsPanel: React.FC = () => {
         setBackgroundFetching(false);
       }
     },
-    [isConnected]
+    [isConnected],
   );
 
   useEffect(() => {
@@ -83,7 +86,7 @@ const FundingPaymentsPanel: React.FC = () => {
   useEffect(() => {
     if (!isConnected || !initialLoadDoneRef.current) return;
     loadPage(currentPage, false);
-  }, [currentPage]);
+  }, [currentPage, isConnected, loadPage]);
 
   useEffect(() => {
     const cacheKey = `funding_payments_all_${ITEMS_PER_PAGE}_${currentPage}`;
@@ -101,17 +104,17 @@ const FundingPaymentsPanel: React.FC = () => {
     setCurrentPage(page);
   }, []);
 
-  const totalPages = Math.max(Math.ceil(totalItems / ITEMS_PER_PAGE), 1);
+  const totalPages = Math.max(Math.ceil(totalItemsState / ITEMS_PER_PAGE), 1);
 
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view funding payments" />;
   }
 
-  if (initialLoading && payments.length === 0) {
+  if (initialLoading && paymentsState.length === 0) {
     return <LoadingState message="Loading funding payments..." />;
   }
 
-  if (!initialLoading && !backgroundFetching && payments.length === 0) {
+  if (!initialLoading && !backgroundFetching && paymentsState.length === 0) {
     return (
       <EmptyState title="No Funding Payments" description="No funding payment history found" />
     );
@@ -133,7 +136,7 @@ const FundingPaymentsPanel: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {payments.map((payment, index) => {
+            {paymentsState.map((payment, index) => {
               const paymentVal = parseFloat(payment.payment);
               const rateVal = parseFloat(payment.rate);
               const priceVal = parseFloat(payment.oraclePrice);
@@ -184,7 +187,7 @@ const FundingPaymentsPanel: React.FC = () => {
       </div>
 
       <div className="md:hidden flex-1 overflow-auto space-y-0.5">
-        {payments.map((payment, index) => {
+        {paymentsState.map((payment, index) => {
           const paymentVal = parseFloat(payment.payment);
           const side = payment.side as 'LONG' | 'SHORT';
           const displaySide = side === 'LONG' ? 'BUY' : 'SELL';
@@ -229,7 +232,7 @@ const FundingPaymentsPanel: React.FC = () => {
           loading={false}
           hasMore={currentPage < totalPages}
           itemsPerPage={ITEMS_PER_PAGE}
-          totalItems={totalItems}
+          totalItems={totalItemsState}
         />
       </div>
     </div>

@@ -240,14 +240,23 @@ const MarketSwitcher: React.FC = () => {
         ? formatMarketPrice(snapshotPrice)
         : '--';
 
-  const priceChange = parseFloat(marketData.priceChange24H);
-  const oraclePrice = parseFloat(liveOraclePrice);
+  const priceChange = parseFloat(marketData.priceChange24H || '0');
+  const oraclePrice = parseFloat(liveOraclePrice || '0');
+  const price24hAgo = oraclePrice - priceChange;
   const priceChangePercentage =
-    oraclePrice > 0 && priceChange ? ((priceChange / oraclePrice) * 100).toFixed(2) : '0';
+    price24hAgo > 0 ? ((priceChange / price24hAgo) * 100).toFixed(2) : '0';
 
   const changePercentage = parseFloat(priceChangePercentage);
   const formattedPercentage =
     changePercentage >= 0 ? `+${priceChangePercentage}` : priceChangePercentage;
+
+  const absChange = Math.abs(priceChange);
+  const formattedChangeStr = priceChange >= 0
+    ? `+$${absChange.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `-$${absChange.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formattedPercentStr = priceChange >= 0
+    ? `(+${priceChangePercentage}%)`
+    : `(${priceChangePercentage}%)`;
 
   const fundingFormatted = formatFundingRate(marketData.nextFundingRate);
   const annualized = formatAnnualizedFundingRate(marketData.nextFundingRate);
@@ -346,9 +355,9 @@ const MarketSwitcher: React.FC = () => {
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Change</span>
-              <div className={`flex ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}>
-                <AnimatedValue value={`$${priceChange.toFixed(1)}`} className="font-medium text-xs" />
-                <AnimatedValue value={`${formattedPercentage}%`} className="font-medium text-xs" />
+              <div className={`flex items-center gap-1 font-medium ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}>
+                <AnimatedValue value={formattedChangeStr} className="font-semibold text-xs" />
+                <AnimatedValue value={formattedPercentStr} className="font-medium text-xs opacity-90" />
               </div>
             </div>
 

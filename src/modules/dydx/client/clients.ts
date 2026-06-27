@@ -10,33 +10,51 @@ import {
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { type MessageHandler, webSocketManager } from '../utils/WebSocketManager';
 
-let indexerClient: IndexerClient | null = null;
-let validatorClient: ValidatorClient | null = null;
-let compositeClient: CompositeClient | null = null;
-let currentNetwork: 'mainnet' | 'testnet' | null = null;
+interface ClientCache {
+  indexer: IndexerClient | null;
+  validator: ValidatorClient | null;
+  composite: CompositeClient | null;
+  validatorPromise: Promise<ValidatorClient> | null;
+  compositePromise: Promise<CompositeClient> | null;
+  network: 'mainnet' | 'testnet' | null;
+}
 
 let socketClientInstance: ReturnType<typeof createSocketClient> | null = null;
 let socketClientNetwork: string | null = null;
+
+const cache: ClientCache = {
+  indexer: null,
+  validator: null,
+  composite: null,
+  validatorPromise: null,
+  compositePromise: null,
+  network: null,
+};
 
 const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
   return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
 
+
 export const resetAllClients = (isLogout = false): void => {
-  indexerClient = null;
-  validatorClient = null;
-  compositeClient = null;
+  cache.indexer = null;
+  cache.validator = null;
+  cache.composite = null;
+  cache.validatorPromise = null;
+  cache.compositePromise = null;
   socketClientInstance = null;
   socketClientNetwork = null;
+  webSocketManager.shutdown();
 
   if (isLogout) {
-    currentNetwork = null;
-    webSocketManager.shutdown();
+    cache.network = null;
   }
 };
 
-const checkNetworkChange = (network: 'mainnet' | 'testnet'): boolean => {
-  if (currentNetwork && currentNetwork !== network) {
+const invalidateCacheForNetworkSwitch = (
+  newNetwork: 'mainnet' | 'testnet',
+): boolean => {
+  if (cache.network && cache.network !== newNetwork) {
     resetAllClients(false);
     return true;
   }
@@ -46,49 +64,65 @@ const checkNetworkChange = (network: 'mainnet' | 'testnet'): boolean => {
 export const getIndexerClient = (): IndexerClient => {
   const network = useWalletStore.getState().network;
 
-  if (indexerClient && currentNetwork === network) {
-    return indexerClient;
+  if (cache.indexer && cache.network === network) {
+    return cache.indexer;
   }
 
-  checkNetworkChange(network);
+  invalidateCacheForNetworkSwitch(network);
   const networkConfig = getNetworkConfig(network);
 
-  indexerClient = new IndexerClient(networkConfig.indexerConfig);
-  currentNetwork = network;
+  cache.indexer = new IndexerClient(networkConfig.indexerConfig);
+  cache.network = network;
 
-  return indexerClient;
+  return cache.indexer;
 };
 
 export const getValidatorClient = async (): Promise<ValidatorClient> => {
   const network = useWalletStore.getState().network;
 
-  if (validatorClient && currentNetwork === network) {
-    return validatorClient;
+  if (cache.validator && cache.network === network) {
+    return cache.validator;
+  }
+  if (cache.validatorPromise && cache.network === network) {
+    return cache.validatorPromise;
   }
 
-  checkNetworkChange(network);
+  invalidateCacheForNetworkSwitch(network);
   const networkConfig = getNetworkConfig(network);
 
-  validatorClient = await ValidatorClient.connect(networkConfig.validatorConfig);
-  currentNetwork = network;
-
-  return validatorClient;
+  cache.validatorPromise = ValidatorClient.connect(networkConfig.validatorConfig);
+  try {
+    const client = await cache.validatorPromise;
+    cache.validator = client;
+    cache.network = network;
+    return client;
+  } finally {
+    cache.validatorPromise = null;
+  }
 };
 
 export const getCompositeClient = async (): Promise<CompositeClient> => {
   const network = useWalletStore.getState().network;
 
-  if (compositeClient && currentNetwork === network) {
-    return compositeClient;
+  if (cache.composite && cache.network === network) {
+    return cache.composite;
+  }
+  if (cache.compositePromise && cache.network === network) {
+    return cache.compositePromise;
   }
 
-  checkNetworkChange(network);
+  invalidateCacheForNetworkSwitch(network);
   const networkConfig = getNetworkConfig(network);
 
-  compositeClient = await CompositeClient.connect(networkConfig);
-  currentNetwork = network;
-
-  return compositeClient;
+  cache.compositePromise = CompositeClient.connect(networkConfig);
+  try {
+    const client = await cache.compositePromise;
+    cache.composite = client;
+    cache.network = network;
+    return client;
+  } finally {
+    cache.compositePromise = null;
+  }
 };
 
 const createSocketClient = () => {
@@ -113,8 +147,9 @@ const createSocketClient = () => {
       market: string,
       resolution: string,
       handler: MessageHandler,
-      batched = true
-    ) => webSocketManager.subscribe('v4_candles', handler, `${market}/${resolution}`, batched),
+      batched = true,
+    ) =>
+      webSocketManager.subscribe('v4_candles', handler, `${market}/${resolution}`, batched),
 
     subscribeToOrderbook: (market: string, handler: MessageHandler, batched = true) =>
       webSocketManager.subscribe('v4_orderbook', handler, market, batched),
@@ -123,13 +158,13 @@ const createSocketClient = () => {
       address: string,
       subaccountNumber: number,
       handler: MessageHandler,
-      batched = true
+      batched = true,
     ) =>
       webSocketManager.subscribe(
         'v4_parent_subaccounts',
         handler,
         `${address}/${subaccountNumber}`,
-        batched
+        batched,
       ),
 
     subscribeToBlockHeight: (handler: MessageHandler, batched = true) =>
@@ -146,18 +181,14 @@ const createSocketClient = () => {
 
 export const getSocketClient = () => {
   const network = useWalletStore.getState().network;
-  const networkConfig = getNetworkConfig(network);
+
   if (socketClientInstance && socketClientNetwork === network) {
     return socketClientInstance;
   }
 
-  webSocketManager.connect(networkConfig.indexerConfig.websocketEndpoint).catch(error => {
-    console.error('[SocketClient] Connection failed:', error);
-  });
-
-  if (currentNetwork !== network) {
-    checkNetworkChange(network);
-    currentNetwork = network;
+  if (cache.network !== network) {
+    invalidateCacheForNetworkSwitch(network);
+    cache.network = network;
   }
 
   socketClientInstance = createSocketClient();
@@ -169,7 +200,7 @@ export type SocketClient = ReturnType<typeof createSocketClient>;
 
 export const useIndexerClient = (): IndexerClient => {
   const network = useWalletStore(s => s.network);
-  const [client, setClient] = useState<IndexerClient>(getIndexerClient());
+  const [client, setClient] = useState<IndexerClient>(getIndexerClient);
 
   useEffect(() => {
     setClient(getIndexerClient());
@@ -185,18 +216,17 @@ export const useValidatorClient = (): ValidatorClient | null => {
 
   useEffect(() => {
     mountedRef.current = true;
+    const targetNetwork = network;
 
     getValidatorClient()
       .then(validatorClient => {
-        if (mountedRef.current) {
-          setClient(validatorClient);
-        }
+        if (!mountedRef.current) return;
+        if (useWalletStore.getState().network !== targetNetwork) return;
+        setClient(validatorClient);
       })
       .catch(error => {
         console.error('[useValidatorClient] Connection failed:', error);
-        if (mountedRef.current) {
-          setClient(null);
-        }
+        if (mountedRef.current) setClient(null);
       });
 
     return () => {
@@ -207,6 +237,7 @@ export const useValidatorClient = (): ValidatorClient | null => {
   return client;
 };
 
+
 export const useCompositeClient = (): CompositeClient | null => {
   const network = useWalletStore(s => s.network);
   const [client, setClient] = useState<CompositeClient | null>(null);
@@ -214,18 +245,17 @@ export const useCompositeClient = (): CompositeClient | null => {
 
   useEffect(() => {
     mountedRef.current = true;
+    const targetNetwork = network;
 
     getCompositeClient()
       .then(compositeClient => {
-        if (mountedRef.current) {
-          setClient(compositeClient);
-        }
+        if (!mountedRef.current) return;
+        if (useWalletStore.getState().network !== targetNetwork) return;
+        setClient(compositeClient);
       })
       .catch(error => {
         console.error('[useCompositeClient] Connection failed:', error);
-        if (mountedRef.current) {
-          setClient(null);
-        }
+        if (mountedRef.current) setClient(null);
       });
 
     return () => {
@@ -255,11 +285,11 @@ export const getConnectionHealth = () => {
   return {
     socketStatus: webSocketManager.getConnectionStatus(),
     socketDebug: webSocketManager.getDebugInfo(),
-    currentNetwork,
+    currentNetwork: cache.network,
     clients: {
-      indexer: indexerClient !== null,
-      validator: validatorClient !== null,
-      composite: compositeClient !== null,
+      indexer: cache.indexer !== null,
+      validator: cache.validator !== null,
+      composite: cache.composite !== null,
     },
   };
 };
