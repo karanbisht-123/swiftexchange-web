@@ -6,6 +6,9 @@ import {
 } from '../config/chains';
 import { walletService } from '../services/walletService';
 import { usePortfolioStore } from '../store/portfolioStore';
+import type { ApiTradingKey } from '../services/apiTradingKeyService';
+import { WITHDRAW_PREF_KEY } from '../services/apiTradingKeyService';
+// import { ErrorCode } from '@allbridge/bridge-core-sdk';
 
 export type WalletType = 'evm' | 'cosmos' | 'stellar';
 
@@ -42,6 +45,14 @@ export interface WalletState {
   isRestoringSession: boolean;
   sessionLastPingAt: Partial<Record<WalletType, number>>;
   session: any; // Raw WalletConnect session if connected
+
+  // API Trading Keys 
+  apiTradingKeys: ApiTradingKey[];
+  isGeneratingApiKey: boolean;
+  revokingKeyId: string | null;
+  apiKeyError: string | null;
+  isApiKeyModalOpen: boolean;
+  restrictWithdrawalToWebsite: boolean;
 }
 
 interface WalletActions {
@@ -58,6 +69,14 @@ interface WalletActions {
   isConnected: (type: WalletType) => boolean;
   isConnecting: (type: WalletType) => boolean;
   updateSessionPing: (type: WalletType) => void;
+
+  // API Trading Keys 
+  generateApiTradingKey: (label?: string) => Promise<void>;
+  revokeApiTradingKey: (id: string) => Promise<void>;
+  loadApiTradingKeys: () => void;
+  openApiKeyModal: () => void;
+  closeApiKeyModal: () => void;
+  setRestrictWithdrawalToWebsite: (value: boolean) => void;
 }
 
 const getInitialNetwork = (): NetworkType => {
@@ -72,6 +91,15 @@ const getInitialNetwork = (): NetworkType => {
 
 const initialNetwork = getInitialNetwork();
 
+const getInitialRestrictWithdrawal = (): boolean => {
+  if (typeof window === 'undefined') return true;
+  try {
+    return localStorage.getItem(WITHDRAW_PREF_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
+
 export const useWalletStore = create<WalletState & WalletActions>()(
   subscribeWithSelector((set, get) => ({
     connectedWallets: {},
@@ -81,6 +109,14 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isRestoringSession: false,
     sessionLastPingAt: {},
     session: null,
+
+    // API Trading Keys initial state
+    apiTradingKeys: [],
+    isGeneratingApiKey: false,
+    revokingKeyId: null,
+    apiKeyError: null,
+    isApiKeyModalOpen: false,
+    restrictWithdrawalToWebsite: getInitialRestrictWithdrawal(),
 
     connectWallet: async (type, walletId) => {
       if (get().connectedWallets[type]) return;
@@ -394,8 +430,53 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     checkSessionHealth: async () => {
       return walletService.checkSessionHealth();
     },
+
+    // API Trading Key actions 
+
+    loadApiTradingKeys: () => {
+      set({ apiTradingKeys: walletService.listApiTradingKeys() });
+    },
+
+    generateApiTradingKey: async (label?: string) => {
+      if (get().isGeneratingApiKey) return;
+      set({ isGeneratingApiKey: true, apiKeyError: null });
+      try {
+        await walletService.generateApiTradingKey(label);
+        set({ apiTradingKeys: walletService.listApiTradingKeys() });
+      } catch (err: any) {
+        set({ apiKeyError: err instanceof Error ? err.message : 'Failed to generate API key.' });
+        throw err;
+      } finally {
+        set({ isGeneratingApiKey: false });
+      }
+    },
+
+    revokeApiTradingKey: async (id: string) => {
+      if (get().revokingKeyId) return;
+      set({ revokingKeyId: id, apiKeyError: null });
+      try {
+        await walletService.revokeApiTradingKey(id);
+        set({ apiTradingKeys: walletService.listApiTradingKeys() });
+      } catch (err: any) {
+        set({ apiKeyError: err instanceof Error ? err.message : 'Failed to revoke API key.' });
+        throw err;
+      } finally {
+        set({ revokingKeyId: null });
+      }
+    },
+
+    openApiKeyModal: () => set({ isApiKeyModalOpen: true, apiKeyError: null }),
+    closeApiKeyModal: () => set({ isApiKeyModalOpen: false }),
+
+    setRestrictWithdrawalToWebsite: (value: boolean) => {
+      try {
+        localStorage.setItem(WITHDRAW_PREF_KEY, value ? '1' : '0');
+      } catch (err) { console.error("--", err) }
+      set({ restrictWithdrawalToWebsite: value });
+    },
   }))
 );
+
 
 let listenerInitialized = false;
 

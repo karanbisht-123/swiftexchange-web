@@ -1,5 +1,7 @@
 import { type FC } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+import { useApiTradingKeys } from '../../walletconnect/hooks/useWalletConnect';
 
 interface TabItem {
   key: string;
@@ -10,6 +12,11 @@ const DydxTopBar: FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const activeTab = searchParams.get('view') || 'trade';
+
+  const hasDydx = useWalletStore(
+    state => !!(state.connectedWallets.evm?.dydxAddress || state.connectedWallets.cosmos?.dydxAddress)
+  );
+  const { openModal } = useApiTradingKeys();
 
   const tabs: TabItem[] = [
     {
@@ -32,27 +39,40 @@ const DydxTopBar: FC = () => {
 
   return (
     <div className="w-full bg-secondary border-b border-color hidden lg:block">
-      <div className="flex items-center gap-1  ">
-        {tabs.map(tab => {
-          const isActive = activeTab === tab.key;
+      <div className="flex items-center justify-between px-4">
+        <div className="flex items-center gap-1">
+          {tabs.map(tab => {
+            const isActive = activeTab === tab.key;
 
-          return (
+            return (
+              <button
+                key={tab.key}
+                onClick={() => handleTabClick(tab.key)}
+                className={`
+                  flex items-center gap-2 px-4 py-2 
+                  transition-all duration-150 font-medium text-sm
+                  ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
+                `}
+                style={{
+                  backgroundColor: isActive ? 'var(--color-brand-primary)' : 'transparent',
+                }}
+              >
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {hasDydx && (
+          <div className="flex items-center h-full">
             <button
-              key={tab.key}
-              onClick={() => handleTabClick(tab.key)}
-              className={`
-                flex items-center gap-2 px-4 py-1 
-                transition-all duration-150 font-medium text-sm
-                ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
-              `}
-              style={{
-                backgroundColor: isActive ? 'var(--color-brand-primary)' : 'transparent',
-              }}
+              onClick={openModal}
+              className="px-4 py-2 bg-brand text-white  text-xs font-bold hover:opacity-90 active:opacity-80 transition-all shadow-sm"
             >
-              <span>{tab.label}</span>
+              API Trading Keys
             </button>
-          );
-        })}
+          </div>
+        )}
       </div>
     </div>
   );

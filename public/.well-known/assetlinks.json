@@ -1,0 +1,16 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "org.app.swiftEx.wallet",
+      "sha256_cert_fingerprints": [
+        "B2:9E:F5:EE:D2:AF:27:0F:1F:8C:71:67:03:E7:BF:C4:BC:C9:49:0D:0F:88:6E:AD:F3:3A:93:C6:E2:23:67:36",
+        "BB:A3:0B:04:99:A9:7B:A3:81:B6:7F:F3:15:44:49:6E:48:FC:B2:27:F9:97:13:4E:6A:37:6A:B4:83:EF:A2:76"
+      ]
+    }
+  }
+]

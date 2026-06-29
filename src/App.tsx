@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NetworkMonitor } from './components/NetworkMonitor';
 import { WalletListModal } from './modules/walletconnect/components/WalletListModal';
+import { ApiTradingKeyModal } from './modules/walletconnect/components/ApiTradingKeyModal';
 import {
   initWalletListener,
   useWalletStore,
@@ -72,6 +73,7 @@ const App = () => {
     <ErrorBoundary>
       <NetworkMonitor />
       <WalletListModal />
+      <ApiTradingKeyModal />
       <RouterProvider router={router} />
     </ErrorBoundary>
   );
