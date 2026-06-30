@@ -1,5 +1,5 @@
-import { AlertCircle, CheckCircle, RefreshCw, X, ChevronDown, ArrowUpDown } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle, RefreshCw, ChevronDown, ArrowUpDown, Copy, ExternalLink, Check } from 'lucide-react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
@@ -14,30 +14,20 @@ import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
 import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
 import { getChainById } from '../../../evm/utils/Chainregistry';
 import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
+import { StellarChartService } from '../../service/stellarChartService';
+import { getStellarConfig } from '../../../walletconnect/config/chains';
+import { getBinanceSymbol, isFlippedPair } from '../../service/binanceBridgeService';
 
 const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
 const LastTrades = lazy(() => import('../tradescreen/LastTrades'));
-
-interface Toast {
-  id: number;
-  message: string;
-  type: 'success' | 'error' | 'info';
-}
 
 const OrderBookSwapUI = () => {
   const [orderStatus, setOrderStatus] = useState<'pending' | 'success' | 'error' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'orderBook' | 'trades'>('overview');
-  const [toasts, setToasts] = useState<Toast[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectingAssetFor, setSelectingAssetFor] = useState<'from' | 'to' | null>(null);
   const [orderRateType, setOrderRateType] = useState<'limit' | 'market'>('limit');
-
-  const pushToast = useCallback((message: string, type: Toast['type'] = 'info') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
-  }, []);
 
   const { connectedWallets, getProvider, openModal } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
@@ -68,6 +58,218 @@ const OrderBookSwapUI = () => {
     reset,
     subentryCount,
   } = useLargeOrder({ userAddress: stellarAddress });
+
+  const [marketStats, setMarketStats] = useState<{
+    lastPrice: string;
+    lastPriceUsd: string;
+    priceChangePercent: string;
+    priceChangePercentRaw: number;
+    volume: string;
+    volumeUsd: string;
+  } | null>(null);
+
+  const binanceActive = useMemo(() => {
+    if (!fromToken || !toToken) return false;
+    return getBinanceSymbol(fromToken.code, toToken.code) !== null;
+  }, [fromToken?.code, toToken?.code]);
+
+  const spreadStats = useMemo(() => {
+    const bids = orderBook?.bids || [];
+    const asks = orderBook?.asks || [];
+    if (bids.length === 0 || asks.length === 0) {
+      return { raw: '—', percent: '—' };
+    }
+    const bestBid = parseFloat(bids[0].price);
+    const bestAsk = parseFloat(asks[0].price);
+    if (isNaN(bestBid) || isNaN(bestAsk) || bestBid <= 0 || bestAsk <= 0) {
+      return { raw: '—', percent: '—' };
+    }
+    const raw = Math.abs(bestAsk - bestBid);
+    const percent = (raw / bestAsk) * 100;
+    return {
+      raw: raw.toFixed(7),
+      percent: percent.toFixed(4) + '%',
+    };
+  }, [orderBook]);
+
+  const isLowLiquidity = useMemo(() => {
+    const bids = orderBook?.bids || [];
+    const asks = orderBook?.asks || [];
+    const bidsCount = bids.length;
+    const asksCount = asks.length;
+    const totalBidsVol = bids.reduce((sum: number, b: any) => sum + (parseFloat(b.amount) || 0), 0);
+    const totalAsksVol = asks.reduce((sum: number, a: any) => sum + (parseFloat(a.amount) || 0), 0);
+
+    if (isLoading || !orderBook) return false;
+    return (bidsCount < 5 || asksCount < 5) || (totalBidsVol < 200 && totalAsksVol < 200);
+  }, [orderBook, isLoading]);
+
+  useEffect(() => {
+    if (!fromToken || !toToken) return;
+
+    let isMounted = true;
+
+    const fetchStats = async () => {
+      try {
+        const isToNative = toToken.asset.isNative();
+        const target = !isToNative ? toToken : fromToken;
+        const quote = !isToNative ? fromToken : toToken;
+
+        let xlmPriceInUsd = 0.18;
+        try {
+          const xlmRes = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=XLMUSDT');
+          if (xlmRes.ok) {
+            const xlmData = await xlmRes.json();
+            xlmPriceInUsd = parseFloat(xlmData.price) || 0.18;
+          }
+        } catch (err) {
+          console.warn('Failed to fetch XLM price from Binance', err);
+        }
+
+        const symbol = getBinanceSymbol(target.code, quote.code);
+
+        let lastPrice = 0;
+        let lastPriceUsd = 0;
+        let priceChangePercentRaw = 0;
+        let volumeInTarget = 0;
+
+        if (binanceActive && symbol) {
+          const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+          if (!res.ok) throw new Error('Binance ticker request failed');
+          const ticker = await res.json();
+
+          const binancePrice = parseFloat(ticker.lastPrice);
+          const binanceOpen = parseFloat(ticker.openPrice);
+          const binanceVol = parseFloat(ticker.volume);
+          const binanceQuoteVol = parseFloat(ticker.quoteVolume);
+
+          const isFlipped = isFlippedPair(target.code, quote.code);
+
+          if (!isFlipped) {
+            lastPrice = binancePrice;
+            const openPrice = binanceOpen;
+            priceChangePercentRaw = openPrice > 0 ? ((lastPrice - openPrice) / openPrice) * 100 : parseFloat(ticker.priceChangePercent);
+            volumeInTarget = binanceVol;
+          } else {
+            lastPrice = binancePrice > 0 ? 1 / binancePrice : 0;
+            const openPrice = binanceOpen > 0 ? 1 / binanceOpen : 0;
+            priceChangePercentRaw = openPrice > 0 ? ((lastPrice - openPrice) / openPrice) * 100 : -parseFloat(ticker.priceChangePercent);
+            volumeInTarget = binanceQuoteVol;
+          }
+        } else {
+          const config = getStellarConfig(currentNetwork);
+          const chartService = new StellarChartService(config.horizonUrl, config.networkPassphrase, config.chainId);
+
+          const endTime = Date.now();
+          const startTime = endTime - 24 * 60 * 60 * 1000;
+
+          const pair = {
+            base: fromToken.code,
+            counter: toToken.code,
+            baseIssuer: fromToken.issuer,
+            counterIssuer: toToken.issuer,
+          };
+
+          const records = await chartService.fetchTradeAggregations(
+            pair,
+            { startTime, endTime },
+            { resolution: 900000, limit: 100 }
+          );
+
+          if (records.length > 0) {
+            const firstRecord = records[0];
+            const lastRecord = records[records.length - 1];
+
+            const firstOpen = parseFloat(firstRecord.open);
+            const lastClose = parseFloat(lastRecord.close);
+
+            let totalBaseVol = 0;
+            let totalCounterVol = 0;
+            for (const r of records) {
+              totalBaseVol += parseFloat(r.baseVolume) || 0;
+              totalCounterVol += parseFloat(r.counterVolume) || 0;
+            }
+
+            const isTargetFrom = target.code === fromToken.code && target.issuer === fromToken.issuer;
+
+            if (isTargetFrom) {
+              lastPrice = lastClose;
+              priceChangePercentRaw = firstOpen > 0 ? ((lastClose - firstOpen) / firstOpen) * 100 : 0;
+              volumeInTarget = totalBaseVol;
+            } else {
+              lastPrice = lastClose > 0 ? 1 / lastClose : 0;
+              const initialPrice = firstOpen > 0 ? 1 / firstOpen : 0;
+              priceChangePercentRaw = initialPrice > 0 ? ((lastPrice - initialPrice) / initialPrice) * 100 : 0;
+              volumeInTarget = totalCounterVol;
+            }
+          } else {
+            const bids = orderBook?.bids || [];
+            const asks = orderBook?.asks || [];
+            if (bids.length > 0 && asks.length > 0) {
+              lastPrice = (parseFloat(bids[0].price) + parseFloat(asks[0].price)) / 2;
+            } else if (bids.length > 0) {
+              lastPrice = parseFloat(bids[0].price);
+            } else if (asks.length > 0) {
+              lastPrice = parseFloat(asks[0].price);
+            }
+            priceChangePercentRaw = 0;
+            volumeInTarget = 0;
+          }
+        }
+
+        if (target.code === 'USDC' || target.code === 'USDT') {
+          lastPriceUsd = 1.0;
+        } else if (target.code === 'XLM') {
+          lastPriceUsd = xlmPriceInUsd;
+        } else if (quote.code === 'XLM') {
+          lastPriceUsd = lastPrice * xlmPriceInUsd;
+        } else if (quote.code === 'USDC' || quote.code === 'USDT') {
+          lastPriceUsd = lastPrice * 1.0;
+        } else {
+          lastPriceUsd = lastPrice * xlmPriceInUsd;
+        }
+
+        const volumeInQuote = volumeInTarget * lastPrice;
+        let volumeUsdVal = 0;
+        if (quote.code === 'USDC' || quote.code === 'USDT') {
+          volumeUsdVal = volumeInQuote;
+        } else if (quote.code === 'XLM') {
+          volumeUsdVal = volumeInQuote * xlmPriceInUsd;
+        } else {
+          volumeUsdVal = volumeInTarget * lastPriceUsd;
+        }
+
+        if (isMounted) {
+          setMarketStats({
+            lastPrice: lastPrice.toFixed(7),
+            lastPriceUsd: lastPriceUsd.toFixed(4),
+            priceChangePercent: (priceChangePercentRaw >= 0 ? '+' : '') + priceChangePercentRaw.toFixed(2) + '%',
+            priceChangePercentRaw,
+            volume: volumeInQuote.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+            volumeUsd: volumeUsdVal.toLocaleString(undefined, { style: 'currency', currency: 'USD' }),
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching market stats:', err);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [
+    fromToken?.code,
+    fromToken?.issuer,
+    toToken?.code,
+    toToken?.issuer,
+    binanceActive,
+    currentNetwork,
+    orderBook
+  ]);
 
   useEffect(() => {
     if (orderRateType === 'market' && orderBook) {
@@ -177,11 +379,19 @@ const OrderBookSwapUI = () => {
         isStellar: true,
       });
     }
-  }, [fromToken, toToken, amount, price, stellarWallet, buildTransaction, getProvider, executeOrderWithWalletConnect, addTransaction, refreshOrderBook, reset, pushToast]);
+  }, [fromToken, toToken, amount, price, stellarWallet, buildTransaction, getProvider, executeOrderWithWalletConnect, addTransaction, refreshOrderBook, reset]);
 
   const canPlaceOrder = amount && parseFloat(amount) > 0 && price && parseFloat(price) > 0 && !isLoading && quote && stellarWallet;
   const fromBalance = fromToken?.balance ? parseFloat(fromToken.balance).toFixed(4) : '0.00';
   const toBalance = toToken?.balance ? parseFloat(toToken.balance).toFixed(4) : '0.00';
+
+  const spendableAmount = fromToken?.balance
+    ? portfolioUtils.formatBalance(
+      fromToken.code === 'XLM'
+        ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
+        : fromToken.balance
+    )
+    : '0.00';
 
   if (!stellarWallet) {
     return (
@@ -198,35 +408,6 @@ const OrderBookSwapUI = () => {
 
   return (
     <>
-      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
-        {toasts.map(t => (
-          <div
-            key={t.id}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium pointer-events-auto
-              ${t.type === 'success' ? 'bg-green-500/15 border-green-500/30 text-green-400' : ''}
-              ${t.type === 'error' ? 'bg-red-500/15 border-red-500/30 text-red-400' : ''}
-              ${t.type === 'info' ? 'bg-white/10 border-white/15 text-text-primary' : ''}
-            `}
-            style={{ animation: 'toast-in 0.25s ease' }}
-          >
-            {t.type === 'success' && <CheckCircle className="w-4 h-4 shrink-0" />}
-            {t.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0" />}
-            <span>{t.message}</span>
-            <button onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))} className="ml-2 opacity-60 hover:opacity-100">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <style>{`
-        @keyframes toast-in {
-          from { opacity: 0; transform: translateX(16px); }
-          to   { opacity: 1; transform: translateX(0); }
-        }
-      `}</style>
-
-
       <div className="flex sm:hidden bg-secondary border border-color lg:rounded-xl overflow-hidden mb-1 lg:mb-4">
         {(['overview', 'orderBook', 'trades'] as const).map(tab => (
           <button
@@ -267,39 +448,156 @@ const OrderBookSwapUI = () => {
           </Suspense>
         </div>
 
+        {/* ============ ORDER TRADE FORM ============ */}
         <div
-          className={`bg-secondary lg:rounded-xl border border-color p-3 lg:p-5 ${activeTab === 'overview' ? 'block' : 'hidden lg:block'
+          className={`bg-secondary lg:rounded-xl border border-color p-4 lg:p-6 ${activeTab === 'overview' ? 'block' : 'hidden lg:block'
             }`}
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-5 lg:mb-6">
             <div className="flex items-center gap-2.5">
-              <h2 className="text-sm lg:text-lg font-semibold text-primary">Order Trade</h2>
-              <div className="flex gap-0.5 bg-white/5 p-1 rounded-md border border-white/5">
+              <h2 className="text-base lg:text-lg font-bold text-primary tracking-tight">Order Trade</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 bg-white/5 p-1 rounded-lg border border-white/5">
                 {(['limit', 'market'] as const).map(type => (
                   <button
                     key={type}
                     onClick={() => handleRateTypeChange(type)}
                     disabled={isLoading}
-                    className={`px-2 py-0.5 rounded-sm text-[9px] lg:text-[10px] font-bold uppercase tracking-wider transition-all ${orderRateType === type
-                      ? 'bg-brand text-white border border-white/5'
-                      : 'text-muted'
+                    className={`px-2.5 lg:px-3 py-1.5 rounded-md text-[10px] lg:text-[11px] font-bold uppercase tracking-wider transition-all min-h-[28px] ${orderRateType === type
+                      ? 'bg-brand text-white'
+                      : 'text-muted hover:text-primary'
                       }`}
                   >
                     {type}
                   </button>
                 ))}
               </div>
+              <button
+                onClick={refreshOrderBook}
+                className="p-2 rounded-lg hover:bg-hover transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
+                disabled={isLoading}
+                aria-label="Refresh order book"
+              >
+                <RefreshCw className={`w-4 h-4 text-muted ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
             </div>
-            <button onClick={refreshOrderBook} className="p-1.5 rounded-lg hover:bg-hover transition-colors" disabled={isLoading}>
-              <RefreshCw className={`w-3.5 h-3.5 text-muted ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
           </div>
 
-          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-4">
+          {(() => {
+            const isToNative = toToken?.asset.isNative();
+            const targetToken = !isToNative ? toToken : fromToken;
+            const quoteToken = !isToNative ? fromToken : toToken;
+            const homeDomain = targetToken?.homeDomain || targetToken?.domain || (targetToken?.asset.isNative() ? 'stellar.org' : '—');
+            const hasIssuer = !!(targetToken && !targetToken.asset.isNative() && targetToken.issuer);
+            const issuerShort = (targetToken && targetToken.issuer)
+              ? `${targetToken.issuer.slice(0, 4)}...${targetToken.issuer.slice(-4)}`
+              : 'Native';
+
+            const [copied, setCopied] = useState(false);
+
+            const handleCopyIssuer = () => {
+              if (hasIssuer && targetToken.issuer) {
+                navigator.clipboard.writeText(targetToken.issuer);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }
+            };
+
+            const isPricePositive = marketStats ? marketStats.priceChangePercentRaw >= 0 : true;
+
+            return (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 p-3.5 mb-5 lg:mb-6 bg-white/[0.02] border border-white/5 rounded-2xl text-[11px] select-none">
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Asset Info</span>
+                    <div className="flex flex-col gap-0.5 truncate">
+                      <span className="text-primary font-medium truncate">{homeDomain}</span>
+                      <div className="flex items-center gap-1 text-muted">
+                        <span className="truncate">{issuerShort}</span>
+                        {hasIssuer && (
+                          <>
+                            <button
+                              onClick={handleCopyIssuer}
+                              className={`transition-colors focus:outline-none ${copied ? 'text-green-400' : 'hover:text-primary'}`}
+                              title={copied ? 'Copied!' : 'Copy Issuer Address'}
+                            >
+                              {copied ? <Check size={11} /> : <Copy size={11} />}
+                            </button>
+                            <a
+                              href={`https://stellar.expert/explorer/${isMainnet ? 'public' : 'testnet'}/account/${targetToken?.issuer || ''}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="hover:text-primary transition-colors focus:outline-none"
+                              title="View on Stellar.expert"
+                            >
+                              <ExternalLink size={11} />
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Last Price</span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-primary font-semibold truncate tabular-nums">
+                        {marketStats ? `${marketStats.lastPrice} ${quoteToken?.code}` : '—'}
+                      </span>
+                      <span className="text-muted tabular-nums">
+                        {marketStats ? `($${marketStats.lastPriceUsd})` : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider">24H Change</span>
+                    <span className={`font-semibold tabular-nums mt-1 ${isPricePositive ? 'text-green-500' : 'text-red-500'
+                      }`}>
+                      {marketStats ? marketStats.priceChangePercent : '—'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider">24H Volume</span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-primary font-semibold truncate tabular-nums">
+                        {marketStats ? `${marketStats.volume} ${quoteToken?.code}` : '—'}
+                      </span>
+                      <span className="text-muted tabular-nums">
+                        {marketStats ? marketStats.volumeUsd : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1 min-w-0 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Spread</span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-primary font-semibold tabular-nums">
+                        {spreadStats.percent}
+                      </span>
+                      <span className="text-muted truncate tabular-nums">
+                        {spreadStats.raw !== '—' ? `${spreadStats.raw} ${quoteToken?.code}` : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {isLowLiquidity && (
+                  <div className="mt-[-12px] mb-5 lg:mb-6 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl flex items-center gap-2 text-yellow-500 text-[10px] font-bold uppercase tracking-wider select-none">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>Warning: This asset pair has low liquidity. Orders may experience high price slippage.</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-5 lg:mb-6">
             <button
               onClick={() => !isBuy && setIsBuy()}
               disabled={isLoading}
-              className={`flex-1 py-3 lg:py-3.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all ${isBuy
+              className={`flex-1 py-3 lg:py-3.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all min-h-[44px] ${isBuy
                 ? 'bg-green-500 text-white shadow-sm'
                 : 'text-muted hover:text-primary'
                 }`}
@@ -309,7 +607,7 @@ const OrderBookSwapUI = () => {
             <button
               onClick={() => isBuy && setIsBuy()}
               disabled={isLoading}
-              className={`flex-1 py-3 lg:py-3.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all ${!isBuy
+              className={`flex-1 py-3 lg:py-3.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all min-h-[44px] ${!isBuy
                 ? 'bg-red-500 text-white shadow-sm'
                 : 'text-muted hover:text-primary'
                 }`}
@@ -318,140 +616,187 @@ const OrderBookSwapUI = () => {
             </button>
           </div>
 
-          <div className="bg-white/[0.03] rounded-xl p-2 lg:p-1 border border-white/5 mb-4">
-            <div className="flex flex-col md:flex-row items-center">
-              <div className="flex-1 w-full p-2.5 lg:p-5">
-                <label className="text-[10px] text-muted mb-2 block uppercase tracking-wider font-semibold">From</label>
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => setSelectingAssetFor('from')}
-                    className="flex items-center gap-2 bg-secondary/50 p-1.5 rounded-lg border border-divider/50 hover:bg-hover transition-all"
-                  >
+          <div className="flex flex-col md:flex-row items-stretch  md:gap-16 relative mb-5 lg:mb-6">
+            {/* Pay Card */}
+            <div className="flex-1 bg-tertiary rounded-2xl p-4 border border-color">
+              <div className="flex justify-between items-center mb-3">
+                <label className="text-[10px] lg:text-[11px] font-bold uppercase tracking-wider text-muted">From</label>
+                <span className="text-[10px] lg:text-[11px] font-bold uppercase tracking-wider text-muted">Balance</span>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  onClick={() => setSelectingAssetFor('from')}
+                  className="flex items-center gap-2 bg-secondary rounded-lg px-2 py-2 hover:bg-hover active:scale-[0.98] transition-all relative group min-w-0"
+                  style={{ width: 'clamp(120px, 38vw, 160px)' }}
+                >
+                  <div className="relative min-w-[32px] shrink-0">
                     <img
                       key={fromToken?.code ? `${fromToken.code}-${fromToken.issuer || 'native'}` : 'placeholder'}
                       src={fromToken?.icon || getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer) || `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`}
-                      alt={fromToken?.code}
-                      className="w-8 h-8 lg:w-9 lg:h-9 rounded-full"
+                      className="w-8 h-8 rounded-full bg-tertiary object-cover"
+                      alt=""
                       onError={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`; }}
                     />
-                    <span className="text-primary font-bold text-sm lg:text-base">{fromToken?.code || 'Select'}</span>
-                    <ChevronDown size={12} className="text-muted" />
-                  </button>
-                  <div className="text-right">
-                    <p className="text-sm lg:text-lg text-primary font-bold tabular-nums">{fromBalance}</p>
-                    <p className="text-[9px] text-muted uppercase font-medium">Balance</p>
+                    <img
+                      src={chainConfig?.nativeCurrency.logoURI}
+                      className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-secondary bg-secondary"
+                      alt=""
+                    />
                   </div>
-                </div>
-                <div className="flex justify-between items-center text-[10px] text-muted mt-1.5 px-0.5">
-                  <span>Spendable</span>
-                  <span className="text-primary tabular-nums">
-                    {fromToken?.balance
-                      ? portfolioUtils.formatBalance(
-                        fromToken.code === 'XLM'
-                          ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
-                          : fromToken.balance
-                      )
-                      : '0.00'}{' '}
-                    {fromToken?.code || ''}
-                  </span>
-                </div>
-              </div>
-
-              <div className="relative z-10 shrink-0 -my-1 md:my-0">
-                <button
-                  onClick={() => { const t = fromToken; setFromToken(toToken as any); setToToken(t as any); }}
-                  className="p-2 rounded-lg bg-secondary hover:bg-hover transition-colors border border-color"
-                  disabled={isLoading || !fromToken || !toToken}
-                >
-                  <ArrowUpDown className="w-4 h-4 text-muted md:rotate-90 transition-transform" />
+                  <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden text-left">
+                    <span className="font-bold text-[13px] leading-tight truncate w-full">
+                      {fromToken ? (fromToken.name || fromToken.code) : 'Select'}
+                    </span>
+                    <span className="text-[9px] text-muted font-medium tracking-tight truncate w-full">
+                      {fromToken ? (fromToken.homeDomain || (fromToken.asset.isNative() ? 'stellar.org' : 'Stellar')) : 'stellar'}
+                    </span>
+                  </div>
+                  <ChevronDown size={14} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
                 </button>
+
+                <div className="text-right flex flex-col items-end">
+                  <p className="text-base lg:text-lg text-primary font-bold tabular-nums leading-tight">{fromBalance}</p>
+                </div>
               </div>
 
-              <div className="flex-1 w-full p-2.5 lg:p-5">
-                <label className="text-[10px] text-muted mb-2 block uppercase tracking-wider font-semibold">To</label>
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => setSelectingAssetFor('to')}
-                    className="flex items-center gap-2 bg-secondary/50 p-1.5 rounded-lg border border-divider/50 hover:bg-hover transition-all"
-                  >
+              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+                <span className="text-[9px] lg:text-[10px] text-muted uppercase font-bold tracking-wider">Spendable</span>
+                <span className="text-[10px] lg:text-[11px] text-brand font-bold tabular-nums">{spendableAmount}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center md:absolute md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:z-10 -mt-4 md:mt-0">
+              <button
+                onClick={() => { const t = fromToken; setFromToken(toToken as any); setToToken(t as any); }}
+                className="w-11 h-11 lg:w-12 lg:h-12 rounded-full bg-secondary flex items-center justify-center hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md border border-color min-w-[44px] min-h-[44px]"
+                disabled={isLoading || !fromToken || !toToken}
+                aria-label="Swap tokens"
+              >
+                <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500 md:rotate-90" />
+              </button>
+            </div>
+
+            {/* Receive Card */}
+            <div className="flex-1 bg-tertiary rounded-2xl p-4 border border-color -mt-4 md:mt-0">
+              <div className="flex justify-between items-center mb-3">
+                <label className="text-[10px] lg:text-[11px] font-bold uppercase tracking-wider text-muted">To</label>
+                <span className="text-[10px] lg:text-[11px] font-bold uppercase tracking-wider text-muted">Balance</span>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  onClick={() => setSelectingAssetFor('to')}
+                  className="flex items-center gap-2 bg-secondary rounded-lg px-2 py-2 hover:bg-hover active:scale-[0.98] transition-all relative group min-w-0"
+                  style={{ width: 'clamp(120px, 38vw, 160px)' }}
+                >
+                  <div className="relative min-w-[32px] shrink-0">
                     <img
                       key={toToken?.code ? `${toToken.code}-${toToken.issuer || 'native'}` : 'placeholder'}
                       src={toToken?.icon || getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer) || `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`}
-                      alt={toToken?.code}
-                      className="w-8 h-8 lg:w-9 lg:h-9 rounded-full"
+                      className="w-8 h-8 rounded-full bg-tertiary object-cover"
+                      alt=""
                       onError={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`; }}
                     />
-                    <span className="text-primary font-bold text-sm lg:text-base">{toToken?.code || 'Select'}</span>
-                    <ChevronDown size={12} className="text-muted" />
-                  </button>
-                  <div className="text-right">
-                    <p className="text-sm lg:text-lg text-primary font-bold tabular-nums">{toBalance}</p>
-                    <p className="text-[9px] text-muted uppercase font-medium">Balance</p>
+                    <img
+                      src={chainConfig?.nativeCurrency.logoURI}
+                      className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-secondary bg-secondary"
+                      alt=""
+                    />
                   </div>
+                  <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden text-left">
+                    <span className="font-bold text-[13px] leading-tight truncate w-full">
+                      {toToken ? (toToken.name || toToken.code) : 'Select'}
+                    </span>
+                    <span className="text-[9px] text-muted font-medium tracking-tight truncate w-full">
+                      {toToken ? (toToken.homeDomain || (toToken.asset.isNative() ? 'stellar.org' : 'Stellar')) : 'stellar'}
+                    </span>
+                  </div>
+                  <ChevronDown size={14} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
+                </button>
+
+                <div className="text-right flex flex-col items-end">
+                  <p className="text-base lg:text-lg text-primary font-bold tabular-nums leading-tight">{toBalance}</p>
                 </div>
+              </div>
+
+              {/* Spacer row to match "Spendable" — keeps cards symmetric */}
+              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between opacity-0 select-none">
+                <span className="text-[9px] lg:text-[10px] uppercase font-bold tracking-wider">—</span>
+                <span className="text-[10px] lg:text-[11px] tabular-nums">—</span>
               </div>
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-tertiary rounded-xl p-3 lg:p-4 border border-color">
-                <label className="text-[9px] lg:text-[10px] font-black uppercase tracking-[0.1em] text-muted mb-1.5 block">Amount</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={e => { const v = e.target.value; if (v === '' || /^\d*\.?\d*$/.test(v)) setAmount(v); }}
-                  placeholder="0.00"
-                  className="w-full bg-transparent border-none p-0 text-primary text-lg lg:text-xl font-black focus:ring-0 focus:outline-none placeholder:text-muted/20"
-                  disabled={isLoading}
-                />
+          {/* ===== Inputs: Amount / Price ===== */}
+          <div className="grid grid-cols-2 gap-2 md:gap-16 mb-4 lg:mb-5">
+            <div className="bg-tertiary rounded-2xl p-4 border border-color">
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-[10px] lg:text-[11px] font-bold uppercase tracking-[0.08em] text-muted">Amount</label>
+                {fromToken && (
+                  <button
+                    onClick={setMaxAmount}
+                    className="text-[9px] lg:text-[10px] font-bold text-brand hover:underline uppercase tracking-widest"
+                  >
+                    Max
+                  </button>
+                )}
               </div>
-              <div className="bg-tertiary rounded-xl p-3 lg:p-4 border border-color">
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-[9px] lg:text-[10px] font-black uppercase tracking-[0.1em] text-muted block">Price</label>
-                  {orderRateType === 'market' && (
-                    <span className="text-[8px] px-1 py-0.5 rounded bg-brand/10 text-brand font-black uppercase tracking-wider">MKT</span>
-                  )}
-                </div>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={orderRateType === 'market' && !price ? 'Market' : price}
-                  onChange={e => {
-                    if (orderRateType === 'market') return;
-                    const v = e.target.value;
-                    if (v === '' || /^\d*\.?\d*$/.test(v)) setPrice(v);
-                  }}
-                  placeholder="0.00"
-                  className="w-full bg-transparent border-none p-0 text-primary text-lg lg:text-xl font-black focus:ring-0 focus:outline-none placeholder:text-muted/20 disabled:opacity-60"
-                  disabled={isLoading || orderRateType === 'market'}
-                />
-              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={e => { const v = e.target.value; if (v === '' || /^\d*\.?\d*$/.test(v)) setAmount(v); }}
+                placeholder="0.00"
+                className="w-full bg-transparent border-none p-0 text-right text-lg lg:text-xl font-bold tabular-nums focus:ring-0 focus:outline-none placeholder:text-muted/30"
+                disabled={isLoading}
+              />
             </div>
 
-            <div>
-              <div className="flex justify-between mb-1.5">
-                <label className="text-[9px] lg:text-[10px] font-black uppercase tracking-[0.1em] text-muted">Total</label>
-                <button onClick={setMaxAmount} className="text-[9px] lg:text-[10px] font-black text-brand hover:underline uppercase tracking-widest">Max</button>
+            <div className="bg-tertiary rounded-2xl p-4 border border-color">
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-[10px] lg:text-[11px] font-bold uppercase tracking-[0.08em] text-muted">Price</label>
+                {orderRateType === 'market' && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-brand/10 text-brand font-bold uppercase tracking-wider">MKT</span>
+                )}
               </div>
-              <div className="bg-tertiary rounded-xl p-3 lg:p-4 border border-color">
-                <span className="text-muted text-lg lg:text-xl font-black tabular-nums">{total || '0.00'}</span>
-              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={orderRateType === 'market' && !price ? 'Market' : price}
+                onChange={e => {
+                  if (orderRateType === 'market') return;
+                  const v = e.target.value;
+                  if (v === '' || /^\d*\.?\d*$/.test(v)) setPrice(v);
+                }}
+                placeholder="0.00"
+                className="w-full bg-transparent border-none p-0 text-right text-lg lg:text-xl font-bold tabular-nums focus:ring-0 focus:outline-none placeholder:text-muted/30 disabled:opacity-60 disabled:text-muted"
+                disabled={isLoading || orderRateType === 'market'}
+              />
             </div>
           </div>
+
+
+          <div className="bg-tertiary rounded-2xl p-4 border border-color mb-5 lg:mb-6">
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] lg:text-[11px] font-bold uppercase tracking-[0.08em] text-muted">Total</label>
+              <span className="text-lg lg:text-xl font-bold text-primary tabular-nums">{total || '0.00'}</span>
+            </div>
+          </div>
+
 
           {(error || errorMessage) && (
-            <div className="mt-3 p-2.5 bg-red-500/10 rounded-lg flex items-start gap-2">
-              <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
-              <p className="text-xs text-red-500">{error || errorMessage}</p>
+            <div className="mb-4 p-3 bg-red-500/10 rounded-xl flex items-start gap-2 border border-red-500/20">
+              <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-red-500 leading-relaxed">{error || errorMessage}</p>
             </div>
           )}
+
 
           <button
             onClick={handlePlaceOrder}
             disabled={!canPlaceOrder || orderStatus === 'pending'}
-            className={`w-full py-3.5 lg:py-4.5 rounded-2xl font-black text-xs uppercase tracking-[0.15em] transition-all mt-4 ${canPlaceOrder && orderStatus !== 'pending'
+            className={`w-full py-4 lg:py-5 rounded-2xl font-bold text-sm uppercase tracking-[0.15em] transition-all min-h-[52px] lg:min-h-[56px] ${canPlaceOrder && orderStatus !== 'pending'
               ? 'btn btn-primary'
               : 'bg-tertiary text-muted opacity-50 cursor-not-allowed border border-divider'
               }`}
@@ -473,6 +818,7 @@ const OrderBookSwapUI = () => {
             )}
           </button>
         </div>
+
         <div
           className={`bg-secondary lg:rounded-xl border border-color p-1 flex flex-col h-[440px] lg:h-auto lg:min-h-0 lg:overflow-hidden overflow-hidden ${activeTab === 'orderBook' ? '' : 'hidden lg:flex'
             }`}

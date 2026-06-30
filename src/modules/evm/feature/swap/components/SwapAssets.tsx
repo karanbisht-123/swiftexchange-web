@@ -934,7 +934,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           {/* Fusion Plus (1inch) */}
                           {activeQuote.source === 'fusion_plus' && (
                             <img
-                              src="https://raw.githubusercontent.com/1inch/1inch-contract-metadata/master/images/1inch.png"
+                              src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x111111111117dC0aa78b770fA6A738034120C302/logo.png"
                               className="w-4 h-4 rounded-full"
                               alt="1inch Fusion+"
                             />

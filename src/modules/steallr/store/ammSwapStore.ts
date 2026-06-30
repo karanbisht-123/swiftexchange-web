@@ -44,7 +44,12 @@ export const useAmmSwapStore = create<AmmSwapStore>()(
       favorites: [],
       defaultSlippage: 1,
       expertMode: false,
-      selectedChartPair: null,
+      selectedChartPair: {
+        base: 'XLM',
+        counter: 'USDC',
+        baseIssuer: undefined,
+        counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5',
+      },
       preSelectedToken: null,
 
       addTransaction: tx =>

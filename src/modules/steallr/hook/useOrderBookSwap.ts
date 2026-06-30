@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import * as StellarSDK from '@stellar/stellar-sdk';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
@@ -18,6 +19,7 @@ import type {
 } from '../types/orderBookSwap.types';
 
 const globalOrderBookCache = new Map<string, any>();
+const homeDomainCache = new Map<string, string>();
 
 const getCacheKey = (from?: TokenInfo | null, to?: TokenInfo | null, isBuy?: boolean) => {
   if (!from || !to) return '';
@@ -31,6 +33,7 @@ interface UseLargeOrderProps {
 export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [service, setService] = useState<OrderBookSwapService | null>(null);
   const [isBuy, setIsBuyState] = useState(true);
+  const hasSetDefaultPairRef = useRef(false);
   const [fromToken, setFromToken] = useState<TokenInfo | null>(null);
   const [toToken, setToToken] = useState<TokenInfo | null>(null);
   const [amount, setAmount] = useState<string>('');
@@ -99,41 +102,44 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         return;
       }
       setAvailableTokens(balances);
-      const currentPair = useAmmSwapStore.getState().selectedChartPair;
+      const currentPair = useAmmSwapStore.getState().selectedChartPair || {
+        base: 'XLM',
+        counter: 'USDC',
+        baseIssuer: undefined,
+        counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5'
+      };
 
-      setFromToken(prev => {
-        if (!prev) {
-          if (currentPair) {
-            const token = balances.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer);
-            return token || balances[0];
-          }
-          const xlm = balances.find(t => t.code === 'XLM');
-          const firstNonXlm = balances.find(t => t.code !== 'XLM');
-          return isBuy ? firstNonXlm || balances[0] : xlm || balances[0];
-        }
-        const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
-        if (!existing) return prev;
-        if (existing.balance === prev.balance) return prev;
-        return existing;
-      });
+      const targetFrom = balances.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer)
+        || balances.find(t => t.code === currentPair.base);
 
-      setToToken(prev => {
-        if (!prev) {
-          if (currentPair) {
-            const token = balances.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer);
-            if (token) return token;
-            const nonSelectedToken = balances.find(t => t.code !== (currentPair.base || balances[0].code));
-            return nonSelectedToken || balances[1] || balances[0];
+      const targetTo = balances.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer)
+        || balances.find(t => t.code === currentPair.counter);
+
+      if (!hasSetDefaultPairRef.current && targetFrom && targetTo) {
+        setFromToken(targetFrom);
+        setToToken(targetTo);
+        hasSetDefaultPairRef.current = true;
+      } else {
+        setFromToken(prev => {
+          if (!prev) {
+            return targetFrom || balances.find(t => t.code === 'XLM') || balances[0];
           }
-          const xlm = balances.find(t => t.code === 'XLM');
-          const firstNonXlm = balances.find(t => t.code !== 'XLM');
-          return isBuy ? xlm || balances[1] || balances[0] : firstNonXlm || balances[1] || balances[0];
-        }
-        const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
-        if (!existing) return prev;
-        if (existing.balance === prev.balance) return prev;
-        return existing;
-      });
+          const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+          if (!existing) return prev;
+          if (existing.balance === prev.balance) return prev;
+          return existing;
+        });
+
+        setToToken(prev => {
+          if (!prev) {
+            return targetTo || balances[1] || balances[0];
+          }
+          const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+          if (!existing) return prev;
+          if (existing.balance === prev.balance) return prev;
+          return existing;
+        });
+      }
       setSubentryCount(count);
 
       setError(null);
@@ -153,6 +159,60 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   useEffect(() => {
     fetchBalances();
   }, [fetchBalances]);
+
+  // Dynamically load home domains for selected tokens
+  useEffect(() => {
+    let active = true;
+    const fetchHomeDomains = async () => {
+      const config = currentStellarConfig;
+      const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+
+      if (fromToken && fromToken.issuer && !fromToken.homeDomain && !fromToken.domain) {
+        if (homeDomainCache.has(fromToken.issuer)) {
+          const cached = homeDomainCache.get(fromToken.issuer)!;
+          if (active) {
+            setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+          }
+        } else {
+          try {
+            const account = await server.loadAccount(fromToken.issuer);
+            const domainName = account.home_domain || '';
+            homeDomainCache.set(fromToken.issuer, domainName);
+            if (active) {
+              setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+            }
+          } catch (e) {
+            console.warn('Failed to load home domain for fromToken', e);
+          }
+        }
+      }
+
+      if (toToken && toToken.issuer && !toToken.homeDomain && !toToken.domain) {
+        if (homeDomainCache.has(toToken.issuer)) {
+          const cached = homeDomainCache.get(toToken.issuer)!;
+          if (active) {
+            setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+          }
+        } else {
+          try {
+            const account = await server.loadAccount(toToken.issuer);
+            const domainName = account.home_domain || '';
+            homeDomainCache.set(toToken.issuer, domainName);
+            if (active) {
+              setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+            }
+          } catch (e) {
+            console.warn('Failed to load home domain for toToken', e);
+          }
+        }
+      }
+    };
+
+    fetchHomeDomains();
+    return () => {
+      active = false;
+    };
+  }, [fromToken?.code, fromToken?.issuer, toToken?.code, toToken?.issuer, currentStellarConfig]);
 
   // Order book + streaming
   useEffect(() => {

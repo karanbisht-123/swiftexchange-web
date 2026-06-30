@@ -211,9 +211,8 @@ export const useDydxData = (): UseDydxDataReturn => {
         });
 
         newChildMap.forEach((child, subNum) => {
-          const apiPositions = apiBySubNum.get(subNum);
-          if (!apiPositions) return;
-          Object.assign(child.openPerpetualPositions, apiPositions);
+          const apiPositions = apiBySubNum.get(subNum) || {};
+          child.openPerpetualPositions = apiPositions;
         });
 
         const newMap = new Map(state.parentSubaccounts);
@@ -248,6 +247,8 @@ export const useDydxData = (): UseDydxDataReturn => {
 
         const newChildMap = new Map(existing.childSubaccounts.map(c => [c.subaccountNumber, { ...c }]));
 
+        const apiAssetsBySubNum = new Map<number, Record<string, any>>();
+
         assetData.forEach((asset: any) => {
           const subNum = asset.subaccountNumber ?? existing.parentSubaccountNumber ?? 0;
           if (!newChildMap.has(subNum)) {
@@ -264,8 +265,13 @@ export const useDydxData = (): UseDydxDataReturn => {
             });
           }
           const child = newChildMap.get(subNum)!;
+          if (!apiAssetsBySubNum.has(subNum)) apiAssetsBySubNum.set(subNum, {});
           const existingAsset = child.assetPositions[asset.symbol];
-          child.assetPositions[asset.symbol] = existingAsset ? { ...existingAsset, ...asset } : asset;
+          apiAssetsBySubNum.get(subNum)![asset.symbol] = existingAsset ? { ...existingAsset, ...asset } : asset;
+        });
+
+        newChildMap.forEach((child, subNum) => {
+          child.assetPositions = apiAssetsBySubNum.get(subNum) || {};
         });
 
         const newMap = new Map(state.parentSubaccounts);

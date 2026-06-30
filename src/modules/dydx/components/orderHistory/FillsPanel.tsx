@@ -3,20 +3,23 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Fill, dydxDataService } from '../../service/dydxOrderService';
-import { getTimeAgo } from '../../utils/timeUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { FillDetailPanel } from '../shared/FillDetailPanel';
 import { LoadingState } from '../shared/LoadingState';
 import { MarketBadge } from '../shared/MarketBadge';
 import { Pagination } from '../shared/Pagination';
-import { SideBadge } from '../shared/SideBadge';
 import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
+import useMarketStore from '../../store/marketStore';
+import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
+import { formatTimeAgoCompact, capitalizeFirst } from '../../utils/orderUtils';
+import { currencyService } from '../../utils/currencyService';
 
 const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
   const { fills: allFills, isConnected, loadingFills, fillsError } = useDydxData();
+  const marketCache = useMarketStore(state => state.marketCache);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -46,7 +49,9 @@ const FillsPanel: React.FC = () => {
     if (loadingMore || !hasMoreData || !isConnected || allFills.length === 0) return;
     setLoadingMore(true);
     try {
-      const moreFills = await dydxDataService.getFills(undefined, undefined, false);
+      const oldestFill = allFills[allFills.length - 1];
+      const cursor = oldestFill ? oldestFill.createdAt : undefined;
+      const moreFills = await dydxDataService.getFills(undefined, undefined, false, cursor);
       if (moreFills.length === 0) {
         setHasMoreData(false);
       } else if (moreFills.length < ITEMS_PER_PAGE) {
@@ -57,7 +62,7 @@ const FillsPanel: React.FC = () => {
     } finally {
       setLoadingMore(false);
     }
-  }, [allFills.length, isConnected, loadingMore, hasMoreData]);
+  }, [allFills, isConnected, loadingMore, hasMoreData]);
 
   const handlePageChange = useCallback(
     (page: number) => {
@@ -107,21 +112,30 @@ const FillsPanel: React.FC = () => {
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
             <tr className="text-muted text-xs">
               <th className="text-left px-4 py-3 font-medium">Market</th>
-              <th className="text-right px-4 py-3 font-medium">Time</th>
-              <th className="text-center px-4 py-3 font-medium">Type</th>
+              <th className="text-left px-4 py-3 font-medium">Date | Age</th>
+              <th className="text-left px-4 py-3 font-medium">Type</th>
               <th className="text-center px-4 py-3 font-medium">Side</th>
               <th className="text-right px-4 py-3 font-medium">Amount</th>
               <th className="text-right px-4 py-3 font-medium">Price</th>
               <th className="text-right px-4 py-3 font-medium">Total</th>
               <th className="text-right px-4 py-3 font-medium">Fee</th>
               <th className="text-right px-4 py-3 font-medium">Closed PNL</th>
-              <th className="text-center px-4 py-3 font-medium">Liquidity</th>
+              <th className="text-right px-4 py-3 font-medium">Liquidity</th>
             </tr>
           </thead>
           <tbody>
             {currentPageData.map(fill => {
-              const total = (parseFloat(fill.size) * parseFloat(fill.price)).toFixed(2);
-              const fee = Math.abs(parseFloat(fill.fee));
+              const marketTicker = fill.market || (fill as any).ticker || '';
+              const mkt = marketCache[marketTicker];
+              const stepSize = mkt?.stepSize || '0.0001';
+              const decimals = currencyService.getStepSizeDecimals(stepSize);
+
+              const priceStr = formatMarketPrice(fill.price, '$');
+              const totalVal = parseFloat(fill.size) * parseFloat(fill.price);
+              const totalStr = formatNumericWithCommas(totalVal, 2, '$');
+              const feeVal = Math.abs(parseFloat(fill.fee));
+              const feeStr = formatNumericWithCommas(feeVal, 2, '$');
+              const amountStr = formatNumericWithCommas(fill.size, decimals);
 
               let closedPnlStr = '—';
               let pnlClass = 'text-muted';
@@ -146,13 +160,13 @@ const FillsPanel: React.FC = () => {
                   const isNegative = closedPnl < 0;
                   const absValue = Math.abs(closedPnl);
                   closedPnlStr = isNegative
-                    ? `-$${absValue.toFixed(2)}`
-                    : `$${absValue.toFixed(2)}`;
+                    ? `-$${formatNumericWithCommas(absValue, 2)}`
+                    : `$${formatNumericWithCommas(absValue, 2)}`;
                   pnlClass = isNegative
                     ? 'text-red-400'
                     : closedPnl > 0
                       ? 'text-green-400'
-                      : 'text-primary';
+                      : 'text-muted';
                 }
               }
 
@@ -163,40 +177,32 @@ const FillsPanel: React.FC = () => {
                   className="border-b border-color hover:bg-hover transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3">
-                    <MarketBadge market={fill.market || (fill as any).ticker} />
+                    <MarketBadge market={marketTicker} />
                   </td>
-                  <td className="px-4 py-3 text-right text-muted text-xs">
-                    {getTimeAgo(fill.createdAt)}
+                  <td className="px-4 py-3 text-left text-muted text-xs">
+                    {formatTimeAgoCompact(fill.createdAt)}
+                  </td>
+                  <td className="px-4 py-3 text-left text-primary">
+                    {capitalizeFirst(fill.clientMetadata === '1' && fill.type === 'LIMIT' ? 'MARKET' : fill.type)}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
-                      {fill.clientMetadata === '1' && fill.type === 'LIMIT' ? 'MARKET' : fill.type}
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                      {capitalizeFirst(fill.side)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-center">
-                    <SideBadge side={fill.side as 'BUY' | 'SELL'} />
+                  <td className="px-4 py-3 text-right text-primary font-mono">
+                    {amountStr}
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">
-                    {parseFloat(fill.size).toFixed(4)}
+                    {priceStr}
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">
-                    ${parseFloat(fill.price).toLocaleString()}
+                    {totalStr}
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">
-                    ${parseFloat(total).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right text-red-400 font-mono">${fee.toFixed(4)}</td>
+                  <td className="px-4 py-3 text-right text-muted font-mono">{feeStr}</td>
                   <td className={`px-4 py-3 text-right font-mono ${pnlClass}`}>{closedPnlStr}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        fill.liquidity === 'MAKER'
-                          ? 'bg-blue-500/20 text-blue-400'
-                          : 'bg-purple-500/20 text-purple-400'
-                      }`}
-                    >
-                      {fill.liquidity}
-                    </span>
+                  <td className="px-4 py-3 text-right text-muted">
+                    {capitalizeFirst(fill.liquidity)}
                   </td>
                 </tr>
               );
@@ -205,9 +211,12 @@ const FillsPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto  space-y-0.5">
+      <div className="md:hidden flex-1 overflow-auto space-y-0.5">
         {currentPageData.map(fill => {
+          const marketTicker = fill.market || (fill as any).ticker || '';
+
           const total = parseFloat(fill.size) * parseFloat(fill.price);
+          const totalStr = formatNumericWithCommas(total, 2, '$');
 
           let closedPnlStr = '—';
           let pnlClass = 'text-muted';
@@ -231,12 +240,12 @@ const FillsPanel: React.FC = () => {
             if (closedPnl !== null) {
               const isNegative = closedPnl < 0;
               const absValue = Math.abs(closedPnl);
-              closedPnlStr = isNegative ? `-$${absValue.toFixed(2)}` : `$${absValue.toFixed(2)}`;
+              closedPnlStr = isNegative ? `-$${formatNumericWithCommas(absValue, 2)}` : `$${formatNumericWithCommas(absValue, 2)}`;
               pnlClass = isNegative
                 ? 'text-red-400'
                 : closedPnl > 0
                   ? 'text-green-400'
-                  : 'text-primary';
+                  : 'text-muted';
             }
           }
 
@@ -244,23 +253,25 @@ const FillsPanel: React.FC = () => {
             <div
               key={fill.id}
               onClick={() => handleFillClick(fill)}
-              className="bg-secondary border border-color  p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color p-3 flex items-center justify-between active:bg-hover transition-colors"
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <MarketBadge market={fill.market || (fill as any).ticker} />
+                <MarketBadge market={marketTicker} />
               </div>
-              <div className="flex itme-center">
+              <div className="flex items-center">
                 <div className="flex items-center gap-4">
-                  <SideBadge side={fill.side as 'BUY' | 'SELL'} />
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                    {capitalizeFirst(fill.side)}
+                  </span>
                   <span className="text-primary font-mono text-xs">
-                    ${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    {totalStr}
                   </span>
                   {closedPnlStr !== '—' && (
                     <span className={`font-mono text-xs ${pnlClass}`}>PNL: {closedPnlStr}</span>
                   )}
                 </div>
                 <span className="text-muted text-xs mx-2 truncate">
-                  {getTimeAgo(fill.createdAt)}
+                  {formatTimeAgoCompact(fill.createdAt)}
                 </span>
               </div>
               <ChevronRight size={16} className="text-muted flex-shrink-0" />

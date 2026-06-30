@@ -242,7 +242,12 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
   useEffect(() => {
     let timer: NodeJS.Timeout;
 
-    const shouldPauseTimer = isChainSwitching || showFusionScreen || isSameAssetSelected || isQuoteLoading || !!swapError || !!activeQuote.error || !!bridgeTxStatus;
+    const shouldPauseTimer =
+      isChainSwitching ||
+      showFusionScreen ||
+      isSameAssetSelected ||
+      isQuoteLoading ||
+      (bridgeTxStatus && bridgeTxStatus !== 'idle');
 
     if (sellAmount && parseFloat(sellAmount) > 0 && !shouldPauseTimer) {
       timer = setInterval(() => {
@@ -264,7 +269,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [sellAmount, isChainSwitching, showFusionScreen, isSameAssetSelected, isQuoteLoading, swapError, activeQuote.error, bridgeTxStatus]);
+  }, [sellAmount, isChainSwitching, showFusionScreen, isSameAssetSelected, isQuoteLoading, bridgeTxStatus]);
 
   useEffect(() => {
     if (timeLeft <= 0) {

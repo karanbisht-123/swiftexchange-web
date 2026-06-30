@@ -195,16 +195,17 @@ const EvmTransactionHistory: React.FC = () => {
   }, [hasPending]);
 
   const isCheckingOnChain = useRef<boolean>(false);
+  const isPollingSkip = useRef<boolean>(false);
   const checkingHashes = useRef<Set<string>>(new Set());
   const processedHashRef = useRef<string | null>(null);
 
   useEffect(() => {
     const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) =>
-      isBypassedProvider(order.provider) &&
+      (isBypassedProvider(order.provider) || order.txType === 'Token Approval') &&
       order.status === 'pending' &&
       !liveStatusOverrides[order.txHash.toLowerCase()]
     );
-    const ordersToCheck = [] as typeof pendingOrders;
+    const ordersToCheck = pendingOrders || [];
 
     if (!ordersToCheck || ordersToCheck.length === 0) return;
 
@@ -271,6 +272,7 @@ const EvmTransactionHistory: React.FC = () => {
   useEffect(() => {
     const pendingDydxOrders = backendOrders?.data?.filter((order: SwapOrder) =>
       order.provider?.toUpperCase() === 'DYDX' &&
+      order.txType === 'Bridge' &&
       order.status === 'pending' &&
       !liveStatusOverrides[order.txHash.toLowerCase()]
     );
@@ -278,46 +280,52 @@ const EvmTransactionHistory: React.FC = () => {
     if (!pendingDydxOrders || pendingDydxOrders.length === 0) return;
 
     const pollSkipStatuses = async () => {
-      for (const order of pendingDydxOrders) {
-        try {
-          const chainConfig = findChain(order.fromChain, currentNetwork);
-          const chainId = chainConfig?.chainId ?? order.fromChain;
-          const url = `https://api.skip.build/v2/tx/status?chain_id=${chainId}&tx_hash=${order.txHash}`;
-          const res = await fetch(url);
-          if (!res.ok) {
-            const errorData = await res.text();
-            if (errorData.includes('tx not found')) {
+      if (isPollingSkip.current) return;
+      isPollingSkip.current = true;
+      try {
+        for (const order of pendingDydxOrders) {
+          try {
+            const chainConfig = findChain(order.fromChain, currentNetwork);
+            const chainId = chainConfig?.chainId ?? order.fromChain;
+            const url = `https://api.skip.build/v2/tx/status?chain_id=${chainId}&tx_hash=${order.txHash}`;
+            const res = await fetch(url);
+            if (!res.ok) {
+              const errorData = await res.text();
+              if (errorData.includes('tx not found')) {
+                const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
+                if (timeElapsed > 60 * 60 * 1000) {
+                  setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
+                  updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
+                    .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+                }
+              }
+              continue;
+            }
+            const data = await res.json();
+            const state: string = data.state ?? 'STATE_UNKNOWN';
+
+            if (state === 'STATE_COMPLETED_SUCCESS') {
+              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'success' }));
+              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' })
+                .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+            } else if (state === 'STATE_COMPLETED_ERROR' || state === 'STATE_ABANDONED') {
+              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
+              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
+                .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+            }
+          } catch (err: any) {
+            console.error('Failed to poll Skip status for dYdX deposit:', err);
+            if (err?.message?.toLowerCase().includes('not found')) {
               const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
               if (timeElapsed > 60 * 60 * 1000) {
                 setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
-                  .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
               }
-            }
-            continue;
-          }
-          const data = await res.json();
-          const state: string = data.state ?? 'STATE_UNKNOWN';
-
-          if (state === 'STATE_COMPLETED_SUCCESS') {
-            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'success' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' })
-              .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
-          } else if (state === 'STATE_COMPLETED_ERROR' || state === 'STATE_ABANDONED') {
-            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
-              .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
-          }
-        } catch (err: any) {
-          console.error('Failed to poll Skip status for dYdX deposit:', err);
-          if (err?.message?.toLowerCase().includes('not found')) {
-            const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
-            if (timeElapsed > 60 * 60 * 1000) {
-              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
             }
           }
         }
+      } finally {
+        isPollingSkip.current = false;
       }
     };
 

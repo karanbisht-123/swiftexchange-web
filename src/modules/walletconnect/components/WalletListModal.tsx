@@ -21,6 +21,7 @@ export const WalletListModal: React.FC = () => {
     connectionStatus,
   } = useWalletStore();
 
+
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
@@ -515,7 +516,6 @@ export const WalletListModal: React.FC = () => {
 
           {!bothConnected && (
             <div className="space-y-5">
-              {/* Unified connection options (only if NEITHER is connected) */}
               {!evmConnected && !stellarConnected && (
                 <div className="space-y-2">
                   <div>
@@ -531,7 +531,7 @@ export const WalletListModal: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-3 md:grid-cols-4 gap-2 md:gap-3">
-                    {/* SwiftEx Wallet (Recommended) */}
+
                     <button
                       onClick={handleUnifiedConnect}
                       disabled={isAnyActionInProgress}
@@ -559,12 +559,10 @@ export const WalletListModal: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Absolute positioned badges at the top */}
                       <span className="absolute top-1 right-1.5 text-[6.5px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 whitespace-nowrap uppercase tracking-wider scale-95">
                         REC
                       </span>
 
-                      {/* Circular wallet icon wrapper like we give for other */}
                       <div
                         style={{ background: 'var(--color-bg-secondary)' }}
                         className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
@@ -584,7 +582,6 @@ export const WalletListModal: React.FC = () => {
                       </span>
                     </button>
 
-                    {/* WalletConnect (Other Multichain) */}
                     <button
                       onClick={handleUnifiedConnect}
                       disabled={isAnyActionInProgress}
@@ -634,8 +631,6 @@ export const WalletListModal: React.FC = () => {
                   </div>
                 </div>
               )}
-
-              {/* EVM Wallets section (if EVM is not connected) */}
               {!evmConnected && (
                 <div className="space-y-3">
                   <div>
@@ -653,7 +648,6 @@ export const WalletListModal: React.FC = () => {
                 </div>
               )}
 
-              {/* Stellar Wallets section (if Stellar is not connected) */}
               {!stellarConnected && (
                 <div className="space-y-3">
                   <div>

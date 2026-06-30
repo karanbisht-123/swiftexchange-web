@@ -340,3 +340,67 @@ export const useWalletConnectionStatus = (type: WalletType) => {
     [status, isConnected, isConnecting, type]
   );
 };
+
+export const useApiTradingKeys = () => {
+  const keys = useWalletStore(state => state.apiTradingKeys);
+  const isGenerating = useWalletStore(state => state.isGeneratingApiKey);
+  const revokingKeyId = useWalletStore(state => state.revokingKeyId);
+  const error = useWalletStore(state => state.apiKeyError);
+  const isModalOpen = useWalletStore(state => state.isApiKeyModalOpen);
+  const restrictWithdrawalToWebsite = useWalletStore(state => state.restrictWithdrawalToWebsite);
+
+  const _generate = useWalletStore(state => state.generateApiTradingKey);
+  const _revoke = useWalletStore(state => state.revokeApiTradingKey);
+  const _load = useWalletStore(state => state.loadApiTradingKeys);
+  const _open = useWalletStore(state => state.openApiKeyModal);
+  const _close = useWalletStore(state => state.closeApiKeyModal);
+  const _setRestrict = useWalletStore(state => state.setRestrictWithdrawalToWebsite);
+
+  const generate = useCallback(
+    async (label?: string) => {
+      try {
+        await _generate(label);
+      } catch (err) {
+        console.log(err, "[usewaelectconnect] => key genration error")
+      }
+    },
+    [_generate]
+  );
+
+  const revoke = useCallback(
+    async (id: string) => {
+      try {
+        await _revoke(id);
+      } catch (err) {
+        console.log(err, "[usewaelectconnect] => revoker id error")
+      }
+    },
+    [_revoke]
+  );
+
+  const openModal = useCallback(() => {
+    _load();
+    _open();
+  }, [_load, _open]);
+
+  const closeModal = useCallback(() => _close(), [_close]);
+
+  const setRestrictWithdrawalToWebsite = useCallback(
+    (v: boolean) => _setRestrict(v),
+    [_setRestrict]
+  );
+
+  return {
+    keys,
+    generate,
+    revoke,
+    isGenerating,
+    revokingKeyId,
+    error,
+    isModalOpen,
+    openModal,
+    closeModal,
+    restrictWithdrawalToWebsite,
+    setRestrictWithdrawalToWebsite,
+  };
+};

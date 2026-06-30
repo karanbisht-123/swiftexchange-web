@@ -3,13 +3,14 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
 import { type Transfer, dydxDataService } from '../../service/dydxOrderService';
+import { copyToClipboard, formatTimeAgoCompact } from '../../utils/orderUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { LoadingState } from '../shared/LoadingState';
 import { Pagination } from '../shared/Pagination';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
-
 const ITEMS_PER_PAGE = 10;
+const INITIAL_FETCH_LIMIT = 100;
 
 const TransferHistoryPanel: React.FC = () => {
   const { isConnected } = useDydxData();
@@ -19,65 +20,85 @@ const TransferHistoryPanel: React.FC = () => {
   const [localPage, setLocalPage] = useState(1);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-
-  const loadData = useCallback(async () => {
-    if (!isConnected) return;
-    setLoading(true);
-    try {
-      const response = await dydxDataService.getTransfers(100);
-      setTransfers(response.transfers);
-    } catch (error) {
-      console.error('[TransferHistoryPanel] Failed to load data:', error);
-      setTransfers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [isConnected]);
-
+  const loadData = useCallback(
+    async (limit: number, createdBeforeOrAt?: string): Promise<Transfer[]> => {
+      if (!isConnected) return [];
+      setLoading(true);
+      try {
+        const response = await dydxDataService.getTransfers(limit, createdBeforeOrAt);
+        return response.transfers ?? [];
+      } catch (error) {
+        console.error('[TransferHistoryPanel] Failed to load data:', error);
+        return [];
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isConnected],
+  );
 
   useEffect(() => {
-    if (isConnected) {
-      loadData();
-    } else {
+    if (!isConnected) {
       setTransfers([]);
+      setLocalPage(1);
+      return;
     }
+
+    let isMounted = true;
+    (async () => {
+      const firstPage = await loadData(INITIAL_FETCH_LIMIT);
+      if (isMounted) setTransfers(firstPage);
+    })();
+
+    return () => {
+      isMounted = false;
+    };
   }, [isConnected, loadData]);
 
-  const handlePageChange = (page: number) => {
-    setLocalPage(page);
-  };
+  const handlePageChange = useCallback(
+    async (page: number) => {
+      setLocalPage(page);
+      const neededCount = page * ITEMS_PER_PAGE;
+      if (neededCount > transfers.length && !loading) {
+        const oldestTransfer = transfers[transfers.length - 1];
+        const cursor = oldestTransfer ? oldestTransfer.createdAt : undefined;
+        const more = await loadData(INITIAL_FETCH_LIMIT, cursor);
+        if (more.length > 0) {
+          setTransfers(prev => {
+            const seen = new Set(prev.map(t => t.id));
+            const merged = [...prev, ...more.filter(t => !seen.has(t.id))];
+            return merged;
+          });
+        }
+      }
+    },
+    [transfers, loading, loadData],
+  );
 
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
+  const handleCopy = useCallback(
+    async (text: string, id: string) => {
+      const ok = await copyToClipboard(text);
+      if (ok) {
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 2000);
+      }
+    },
+    [],
+  );
 
   const truncateAddress = (address: string) => {
     if (!address) return '';
     return `${address.slice(0, 8)}...${address.slice(-4)}`;
   };
 
-  const formatTimeAgo = (date: Date) => {
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diffInSeconds < 60) return `${diffInSeconds}s`;
-    const diffInMinutes = Math.floor(diffInSeconds / 60);
-    if (diffInMinutes < 60) return `${diffInMinutes}m`;
-    const diffInHours = Math.floor(diffInMinutes / 60);
-    if (diffInHours < 24) return `${diffInHours}h`;
-    const diffInDays = Math.floor(diffInHours / 24);
-    if (diffInDays < 7) return `${diffInDays}d`;
-    const diffInWeeks = Math.floor(diffInDays / 7);
-    return `${diffInWeeks}w`;
-  };
-
   const paginatedTransfers = transfers.slice(
     (localPage - 1) * ITEMS_PER_PAGE,
-    localPage * ITEMS_PER_PAGE
+    localPage * ITEMS_PER_PAGE,
   );
-  const totalPages = Math.ceil(transfers.length / ITEMS_PER_PAGE) || 1;
+  const hasMore = transfers.length % INITIAL_FETCH_LIMIT === 0 && transfers.length > 0;
+  const totalPages = hasMore
+    ? localPage + 1
+    : Math.max(Math.ceil(transfers.length / ITEMS_PER_PAGE), 1);
 
   if (!isConnected) {
     return <WalletConnectPrompt description="Connect your wallet to view transfer history" />;
@@ -94,7 +115,6 @@ const TransferHistoryPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-primary">
       <div className="hidden md:block flex-1 overflow-auto">
-
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
             <tr className="text-muted text-xs">
@@ -112,10 +132,8 @@ const TransferHistoryPanel: React.FC = () => {
               const amountVal = parseFloat(transfer.size);
               const isDeposit = transfer.type === 'DEPOSIT';
               const date = new Date(transfer.createdAt);
-              const timeAgo = formatTimeAgo(date);
-
-              // Use provided ID or fallback to index for unique keys if ID is missing/duplicate
-              const uniqueKey = `${transfer.id || index}-${index}`;
+              const timeAgo = formatTimeAgoCompact(date);
+              const uniqueKey = transfer.id ?? `idx-${index}`;
 
               return (
                 <tr
@@ -142,7 +160,9 @@ const TransferHistoryPanel: React.FC = () => {
                           {truncateAddress(transfer.sender.address)}
                         </span>
                         <button
-                          onClick={() => handleCopy(transfer.sender.address, `sender-${uniqueKey}`)}
+                          onClick={() =>
+                            handleCopy(transfer.sender.address, `sender-${uniqueKey}`)
+                          }
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-primary"
                         >
                           {copiedId === `sender-${uniqueKey}` ? (
@@ -158,7 +178,10 @@ const TransferHistoryPanel: React.FC = () => {
                         </span>
                         <button
                           onClick={() =>
-                            handleCopy(transfer.recipient.address, `recipient-${uniqueKey}`)
+                            handleCopy(
+                              transfer.recipient.address,
+                              `recipient-${uniqueKey}`,
+                            )
                           }
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-primary"
                         >
@@ -203,7 +226,7 @@ const TransferHistoryPanel: React.FC = () => {
         {paginatedTransfers.map((transfer, index) => {
           const amountVal = parseFloat(transfer.size);
           const isDeposit = transfer.type === 'DEPOSIT';
-          const uniqueKey = `${transfer.id || index}-${index}`;
+          const uniqueKey = transfer.id ?? `idx-${index}`;
 
           return (
             <div
@@ -218,7 +241,7 @@ const TransferHistoryPanel: React.FC = () => {
                     {isDeposit ? 'Deposit' : 'Withdrawal'}
                   </span>
                   <span className="text-xs text-muted">
-                    {formatTimeAgo(new Date(transfer.createdAt))}
+                    {formatTimeAgoCompact(new Date(transfer.createdAt))}
                   </span>
                 </div>
                 <div className="flex items-center gap-1 text-xs text-muted">
@@ -249,7 +272,7 @@ const TransferHistoryPanel: React.FC = () => {
         totalPages={totalPages}
         onPageChange={handlePageChange}
         loading={loading}
-        hasMore={localPage < totalPages}
+        hasMore={hasMore}
         itemsPerPage={ITEMS_PER_PAGE}
         totalItems={transfers.length}
       />

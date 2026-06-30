@@ -63,14 +63,11 @@ async function parseBody<T>(res: Response): Promise<T> {
   try {
     return JSON.parse(text) as T;
   } catch (err) {
-    // If the server returns a 200 OK but the body is plaintext (e.g. an upstream error message),
-    // throw it so that parseSwapError can format it nicely instead of crashing the app.
     throw new Error(text);
   }
 }
 
 // Public API
-
 export async function fetchApiResponseFromProxy<T>(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' = 'POST',

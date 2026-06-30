@@ -20,6 +20,12 @@ const ALERT_THRESHOLD = 90; // Visibility threshold (retained for user testing)
 const CRITICAL_THRESHOLD = 10; // Hardcoded critical threshold (10%)
 const WARNING_THRESHOLD = 20; // Hardcoded warning threshold (20%)
 
+const formatUsd = (n: number) =>
+  n >= 1000
+    ? '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+
 interface RiskPosition {
   position: Position;
   liquidationPrice: number;
@@ -120,7 +126,7 @@ function useLiquidationRisk(): RiskPosition[] {
   }, [positions, marketCache, oraclePrices, isolatedEquityBySubaccount, childSubaccounts]);
 }
 
-// ─── Price track bar ────────────────────────────────────────────────────────
+//Price track bar 
 function PriceTrack({
   oracle,
   liqPrice,
@@ -143,14 +149,10 @@ function PriceTrack({
   const warnFill = Math.max(10, Math.min(35, 35 - distancePct * 0.3));
   const safeFill = 100 - dangerFill - warnFill;
 
-  const fmt = (n: number) =>
-    n >= 1000
-      ? '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 })
-      : '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const fmt = formatUsd;
 
   return (
     <div className="py-0.5">
-      {/* Callout labels */}
       <div className="relative h-4.5 mb-0.5 text-[9.5px]">
         <span
           className="absolute -translate-x-1/2 px-1.5 py-0.5 rounded bg-(--color-bg-tertiary) text-blue-400 border border-(--color-border) whitespace-nowrap font-medium font-mono"
@@ -160,8 +162,8 @@ function PriceTrack({
         </span>
         <span
           className={`absolute -translate-x-1/2 px-1.5 py-0.5 rounded border whitespace-nowrap font-medium font-mono ${isCritical
-            ? 'bg-red-500/10 border-red-500/20 text-red-400'
-            : 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+              ? 'bg-red-500/10 border-red-500/20 text-red-400'
+              : 'bg-amber-500/10 border-amber-500/20 text-amber-500'
             }`}
           style={{ left: '80%' }}
         >
@@ -169,18 +171,14 @@ function PriceTrack({
         </span>
       </div>
 
-      {/* Track */}
       <div className="relative h-2 rounded-full overflow-hidden flex bg-(--color-bg-tertiary) border border-(--color-border)">
         <div style={{ width: `${safeFill}%` }} className="bg-emerald-500" />
         <div style={{ width: `${warnFill}%` }} className="bg-amber-500" />
         <div style={{ width: `${dangerFill}%` }} className="bg-red-500" />
-        {/* Oracle pin */}
         <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400" style={{ left: '40%' }} />
-        {/* Liq pin */}
         <div className={`absolute top-0 bottom-0 w-0.5 ${isCritical ? 'bg-red-500' : 'bg-amber-500'}`} style={{ left: '80%' }} />
       </div>
 
-      {/* Bottom labels */}
       <div className="flex justify-between items-center mt-0.5 text-xs  text-(--color-text-muted) font-medium">
         <span>{fmt(entryPrice)} entry zone</span>
         <span className="text-blue-400">← oracle now</span>
@@ -189,7 +187,6 @@ function PriceTrack({
         </span>
       </div>
 
-      {/* Legend */}
       <div className="flex items-center gap-3.5 flex-wrap mt-1.5 text-xs  text-(--color-text-secondary) font-medium border-t border-(--color-border)/30 pt-1">
         <span className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block mr-1" />
@@ -216,7 +213,7 @@ function PriceTrack({
   );
 }
 
-// ─── Single risk card ────────────────────────────────────────────────────────
+// Single risk card
 function RiskCard({
   riskPos,
   onClose,
@@ -251,10 +248,7 @@ function RiskCard({
     msgBoxClass = 'bg-amber-500/5 dark:bg-amber-950/10 border-amber-500/20 text-amber-500';
   }
 
-  const fmt = (n: number) =>
-    n >= 1000
-      ? '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 })
-      : '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const fmt = formatUsd;
 
   const isShort = position.side === 'SHORT';
   const sizeNum = parseFloat(position.size || '0');
@@ -269,18 +263,15 @@ function RiskCard({
     ? '$' + dollarGap.toLocaleString(undefined, { maximumFractionDigits: 0 })
     : '$' + dollarGap.toFixed(2);
 
-  const message = isShort
-    ? `Price must rise ${gapFmt} to liquidate. You're short — add margin or close early if BTC rallies toward ${fmt(liquidationPrice)}.`
-    : `Price must fall ${gapFmt} to liquidate. You're long — add margin or close early if BTC drops toward ${fmt(liquidationPrice)}.`;
-
   const assetName = position.market.replace('-USD', '');
+
+  const message = isShort
+    ? `Price must rise ${gapFmt} to liquidate. You're short — add margin or close early if ${assetName} rallies toward ${fmt(liquidationPrice)}.`
+    : `Price must fall ${gapFmt} to liquidate. You're long — add margin or close early if ${assetName} drops toward ${fmt(liquidationPrice)}.`;
 
   return (
     <div className={`border rounded-xl p-3.5 flex flex-col md:flex-row gap-4 shadow-sm hover:shadow-md transition-all duration-300 ${bgClass} ${borderClass}`}>
-
-      {/* Left Column: Header Info & Metrics Panel */}
       <div className="flex flex-col gap-2.5 md:w-[250px] shrink-0 md:border-r md:border-(--color-border)/30 md:pr-4">
-        {/* Header Info */}
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 flex items-center justify-center overflow-hidden shrink-0">
             {marketIcon ? (
@@ -295,8 +286,8 @@ function RiskCard({
                 {position.market}
               </span>
               <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-bold ${isShort
-                ? 'bg-red-500/15 text-red-400 border border-red-500/20'
-                : 'bg-green-500/15 text-green-400 border border-green-500/20'
+                  ? 'bg-red-500/15 text-red-400 border border-red-500/20'
+                  : 'bg-green-500/15 text-green-400 border border-green-500/20'
                 }`}>
                 {position.side}
               </span>
@@ -310,7 +301,6 @@ function RiskCard({
           </div>
         </div>
 
-        {/* Separated metrics panel - 2x2 grid on mobile, 1x4 list on desktop */}
         <div className="grid grid-cols-2 md:grid-cols-1 gap-0 border border-(--color-border) bg-(--color-bg-tertiary) rounded-xl overflow-hidden mt-1 shrink-0">
           {[
             { label: 'Oracle Price', value: fmt(oraclePrice), className: 'text-(--color-text-primary)' },
@@ -322,7 +312,6 @@ function RiskCard({
             },
             { label: 'Margin', value: fmt(margin), className: 'text-(--color-text-primary)' },
           ].map((m, i) => {
-            // Precise cross-dividing borders for grid
             let borderStyle = 'py-1.5 px-3 flex flex-col gap-0.5 ';
             if (i < 2) borderStyle += 'border-b border-(--color-border) ';
             if (i % 2 === 0) borderStyle += 'border-r border-(--color-border) ';
@@ -340,17 +329,12 @@ function RiskCard({
         </div>
       </div>
 
-      {/* Right Column: Actions, Price Track, Warnings */}
       <div className="flex-1 flex flex-col gap-3 justify-between">
-
-        {/* Top Header Row of Right Column */}
         <div className="flex items-center justify-between flex-wrap gap-2">
-          {/* Embedded position warning info */}
           <div className="text-xs font-semibold text-(--color-text-secondary) leading-none">
             Liquidation risk — {isShort ? 'short' : 'long'} position · <span className={levelColor}>{distancePct.toFixed(1)}% away</span>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={onClose}
@@ -363,13 +347,12 @@ function RiskCard({
             <button
               onClick={onAddMargin}
               disabled={isClosing}
-              className={`flex items-center gap-1 px-3 py-2 rounded-md text font-bold text-sm  shadow-sm cursor-pointer transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed bg-teritray border`}
+              className="flex items-center gap-1 px-3 py-2 rounded-md text font-bold text-sm  shadow-sm cursor-pointer transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed bg-teritray border"
             >
               + Add margin
             </button>
           </div>
         </div>
-
 
         <PriceTrack
           oracle={oraclePrice}
@@ -380,19 +363,16 @@ function RiskCard({
           isCritical={isCritical}
         />
 
-        {/* Bottom Section: Message Box */}
         <div className={`border rounded-md px-2.5 py-3 text-xs leading-normal font-semibold flex items-center gap-1.5 ${msgBoxClass}`}>
           <AlertTriangle size={11} className="shrink-0 animate-pulse" />
           <span>{message}</span>
         </div>
-
       </div>
-
     </div>
   );
 }
 
-// ─── Main banner ─────────────────────────────────────────────────────────────
+// Main banner
 const LiquidationRiskBanner: React.FC = () => {
   const [addMarginPos, setAddMarginPos] = useState<Position | null>(null);
   const [closingMarket, setClosingMarket] = useState<string | null>(null);

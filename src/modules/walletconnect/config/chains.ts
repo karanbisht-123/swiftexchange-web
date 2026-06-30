@@ -159,7 +159,7 @@ export const getDydxConfig = (network: NetworkType): CosmosChainConfig => {
 };
 
 export const WALLETCONNECT_PROJECT_ID =
-  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'fe064714063c421e5cec1791c670bf57';
+  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
 
 export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',

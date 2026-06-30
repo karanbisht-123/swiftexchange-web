@@ -206,7 +206,7 @@ function shouldKeepGracePeriod(order: TrackedOrder): boolean {
 function recomputeChildEquity(child: ChildSubaccount): void {
   let childEquity = 0;
 
-  // 1. Calculate net collateral from asset positions (normally just USDC)
+  // 1. Net collateral from asset positions (normally just USDC)
   Object.values(child.assetPositions || {}).forEach(asset => {
     const size = parseFloat(asset.size || '0');
     const isShort = asset.side === 'SHORT';
@@ -216,26 +216,27 @@ function recomputeChildEquity(child: ChildSubaccount): void {
   const openPerps = Object.values(child.openPerpetualPositions);
 
   if (openPerps.length === 0) {
-    // No open positions: equity = freeCollateral = net USDC balance
-    const newEquity = Math.max(0, childEquity).toFixed(6);
-    child.equity = newEquity;
-    child.freeCollateral = newEquity;
+    child.equity = childEquity.toFixed(6);
+    child.freeCollateral = childEquity.toFixed(6);
     return;
   }
 
-  // 2. Add perp position value (notional value) to calculate total subaccount equity
-  // This matches the indexer/onchain definition: Equity = Signed Collateral + Σ (Size × Price)
   const state = useWebSocketStore.getState();
   const markets = state.markets;
 
+  let totalIMR = 0;
   openPerps.forEach(pos => {
     const mktData = markets.get(pos.market);
     const size = parseFloat(pos.size || '0');
     const price = mktData ? parseFloat(mktData.oraclePrice) : parseFloat(pos.entryPrice || '0');
     childEquity += size * price;
+
+    const imf = parseFloat(mktData?.initialMarginFraction ?? '0.05');
+    totalIMR += Math.abs(size * price * imf);
   });
 
-  child.equity = Math.max(0, childEquity).toFixed(6);
+  child.equity = childEquity.toFixed(6);
+  child.freeCollateral = Math.max(0, childEquity - totalIMR).toFixed(6);
 }
 
 interface WebSocketState {

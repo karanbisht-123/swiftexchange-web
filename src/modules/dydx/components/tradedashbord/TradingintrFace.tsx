@@ -24,6 +24,12 @@ import ResizablePanelHorizontal from './ResizablePanelHorizontal';
 import SubscriptionKeepAlive from './SubscriptionKeepAlive';
 import { GeolocationGuard } from '../../../commonfeature/components/GeolocationGuard';
 import { RESTRICTED_TRADING_LOCATIONS } from '../../../commonfeature/constants/compliance';
+import {
+  TradingChartSkeleton,
+  OrderbookSkeleton,
+  TradingFormSkeleton,
+  TablePanelSkeleton,
+} from './TradingSkeletons';
 
 
 const DepthChart = lazy(() => import('../DepthChart'));
@@ -90,7 +96,7 @@ const TradingintrFace = () => {
                     </div>
 
                     <div className="flex-1 relative">
-                      <Suspense fallback={<LoadingFallback />}>
+                      <Suspense fallback={<TradingChartSkeleton />}>
                         {activeChartTab === 'price' && (
                           <div className="absolute inset-0">
                             {/* <DyDxTradingChart /> */}
@@ -117,7 +123,7 @@ const TradingintrFace = () => {
                     position="left"
                     className="bg-secondary shrink-0 z-10"
                   >
-                    <Suspense fallback={<LoadingFallback />}>
+                    <Suspense fallback={<OrderbookSkeleton />}>
                       <OrderAndTrades />
                     </Suspense>
                   </ResizablePanelHorizontal>
@@ -132,7 +138,7 @@ const TradingintrFace = () => {
               </div>
 
               <div className="bg-secondary flex-shrink-0 h-full overflow-hidden">
-                <Suspense fallback={<LoadingFallback />}>
+                <Suspense fallback={<TradingFormSkeleton />}>
                   <DydxTradingForm />
                 </Suspense>
               </div>
@@ -276,7 +282,7 @@ const PortfolioView = ({
       </div>
 
       <div className="flex-1 overflow-auto relative">
-        <Suspense fallback={<LoadingFallback />}>
+        <Suspense fallback={<TablePanelSkeleton />}>
           <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
             <DydxWalletConnect />
           </div>
@@ -328,88 +334,99 @@ const MobileLayout = () => {
       </div>
       <div className="flex-1 overflow-hidden bg-secondary flex flex-col">
         <div className="flex-1 overflow-hidden relative">
-          <Suspense fallback={<LoadingFallback />}>
-            {activeTab === 'price' && (
-              <div className="h-full">
-                {/* <DyDxTradingChart /> */}
+          {activeTab === 'price' && (
+            <div className="h-full">
+              <Suspense fallback={<TradingChartSkeleton />}>
                 <TradingChart />
-              </div>
-            )}
-            {activeTab === 'depth' && (
-              <div className="h-full">
+              </Suspense>
+            </div>
+          )}
+          {activeTab === 'depth' && (
+            <div className="h-full">
+              <Suspense fallback={<TradingChartSkeleton />}>
                 <DepthChart />
-              </div>
-            )}
-            {activeTab === 'funding' && (
-              <div className="h-full">
+              </Suspense>
+            </div>
+          )}
+          {activeTab === 'funding' && (
+            <div className="h-full">
+              <Suspense fallback={<TradingChartSkeleton />}>
                 <FundingChart market={selectedMarket} />
-              </div>
-            )}
-            {activeTab === 'orderbook' && (
-              <div className="h-full overflow-hidden">
+              </Suspense>
+            </div>
+          )}
+          {activeTab === 'orderbook' && (
+            <div className="h-full overflow-hidden">
+              <Suspense fallback={<OrderbookSkeleton />}>
                 <OrderAndTrades />
-              </div>
-            )}
-            {activeTab === 'trade' && (
-              <div className="h-full overflow-hidden flex relative">
-                <div
-                  className={`transition-all duration-300 ease-in-out border-r border-color overflow-hidden flex flex-col ${tradeView === 'split' ? 'w-1/2' : tradeView === 'orderbook' ? 'w-full' : 'w-0'
-                    }`}
-                >
-                  <div className="flex-1 relative overflow-hidden group">
+              </Suspense>
+            </div>
+          )}
+          {activeTab === 'trade' && (
+            <div className="h-full overflow-hidden flex relative">
+              <div
+                className={`transition-all duration-300 ease-in-out border-r border-color overflow-hidden flex flex-col ${tradeView === 'split' ? 'w-1/2' : tradeView === 'orderbook' ? 'w-full' : 'w-0'
+                  }`}
+              >
+                <div className="flex-1 relative overflow-hidden group">
+                  <Suspense fallback={<OrderbookSkeleton />}>
                     <Orderbook />
-                    {tradeView === 'split' ? (
-                      <button
-                        onClick={() => setTradeView('orderbook')}
-                        className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                        title="Expand Orderbook"
-                      >
-                        <Maximize2 className="w-3.5 h-3.5" />
-                      </button>
-                    ) : tradeView === 'orderbook' ? (
-                      <button
-                        onClick={() => setTradeView('split')}
-                        className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                        title="Split View"
-                      >
-                        <Minimize2 className="w-3.5 h-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
+                  </Suspense>
+                  {tradeView === 'split' ? (
+                    <button
+                      onClick={() => setTradeView('orderbook')}
+                      className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                      title="Expand Orderbook"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                  ) : tradeView === 'orderbook' ? (
+                    <button
+                      onClick={() => setTradeView('split')}
+                      className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                      title="Split View"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null}
                 </div>
-                <div
-                  className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${tradeView === 'split' ? 'w-1/2' : tradeView === 'form' ? 'w-full' : 'w-0'
-                    }`}
-                >
-                  <div className="flex-1 relative overflow-hidden group">
+              </div>
+              <div
+                className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${tradeView === 'split' ? 'w-1/2' : tradeView === 'form' ? 'w-full' : 'w-0'
+                  }`}
+              >
+                <div className="flex-1 relative overflow-hidden group">
+                  <Suspense fallback={<TradingFormSkeleton />}>
                     <DydxTradingForm />
-                    {tradeView === 'split' ? (
-                      <button
-                        onClick={() => setTradeView('form')}
-                        className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                        title="Expand Form"
-                      >
-                        <Maximize2 className="w-3.5 h-3.5" />
-                      </button>
-                    ) : tradeView === 'form' ? (
-                      <button
-                        onClick={() => setTradeView('split')}
-                        className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                        title="Split View"
-                      >
-                        <Minimize2 className="w-3.5 h-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
+                  </Suspense>
+                  {tradeView === 'split' ? (
+                    <button
+                      onClick={() => setTradeView('form')}
+                      className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                      title="Expand Form"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                  ) : tradeView === 'form' ? (
+                    <button
+                      onClick={() => setTradeView('split')}
+                      className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
+                      title="Split View"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null}
                 </div>
               </div>
-            )}
-            {activeTab === 'portfolio' && (
-              <div className="h-full overflow-auto">
+            </div>
+          )}
+          {activeTab === 'portfolio' && (
+            <div className="h-full overflow-auto">
+              <Suspense fallback={<TablePanelSkeleton />}>
                 <MobilePortfolio />
-              </div>
-            )}
-          </Suspense>
+              </Suspense>
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-center gap-2 px-4 py-3 bg-secondary border-t border-color shrink-0">
           {tabs.map(tab => {
@@ -693,7 +710,7 @@ const BottomTabsSection = ({
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0 pb-6 relative">
-        <Suspense fallback={<LoadingFallback />}>
+        <Suspense fallback={<TablePanelSkeleton />}>
           <div style={{ display: activeBottomTab === 'positions' ? 'flex' : 'none' }} className="h-full flex-col flex overflow-hidden">
             <PositionsPanel />
           </div>

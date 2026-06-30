@@ -22,6 +22,7 @@ export interface ChainAsset {
     coingeckoId?: string;
     pairs?: AssetPair[];
     isNative?: boolean;
+    domain?: string;
 }
 
 export interface NativeCurrency {
@@ -340,6 +341,7 @@ export async function initDynamicTokenLists() {
                         symbol: asset.code,
                         decimals: asset.decimals,
                         logoURI: asset.icon,
+                        domain: asset.domain,
                     }));
 
                     const hasNative = dynamicAssets.some(a => a.symbol.toUpperCase() === chain.nativeCurrency.symbol.toUpperCase());

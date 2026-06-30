@@ -95,9 +95,8 @@ const Dropdown = ({ label, value, options, onChange, isOpen, onToggle }: Dropdow
                     onChange(opt.value);
                     onToggle();
                   }}
-                  className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${
-                    value === opt.label ? 'bg-hover text-brand' : 'text-primary'
-                  }`}
+                  className={`w-full text-left px-4 py-2 text-xs hover:bg-hover transition-colors ${value === opt.label ? 'bg-hover text-brand' : 'text-primary'
+                    }`}
                 >
                   {opt.label}
                 </button>
@@ -283,18 +282,17 @@ export default function StellarTradingChart({
       };
     }
     return {
-      background: '#f7f8fc',
+      background: '#fff',
       textColor: '#0f1729',
       gridColor: '#dce3ed',
       borderColor: '#e4e8f0',
       upColor: '#10b981',
       downColor: '#ef4444',
       volumeColor: 'rgba(107, 114, 128, 0.2)',
-      crosshairColor: '#8896b3',
+      crosshairColor: '#424a59ff',
     };
   };
 
-  // 1. Chart Creation and Resize Management Effect
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -393,7 +391,7 @@ export default function StellarTradingChart({
     };
   }, []);
 
-  // Force resize on loading completion to avoid 0x0 rendering issues
+
   useEffect(() => {
     if (!isLoading && chartRef.current && chartContainerRef.current) {
       const forceResize = () => {
@@ -411,7 +409,7 @@ export default function StellarTradingChart({
     }
   }, [isLoading]);
 
-  // 2. Chart Options & Theme Updates Effect
+
   useEffect(() => {
     if (!chartRef.current) return;
     const colors = getThemeColors();
@@ -472,6 +470,13 @@ export default function StellarTradingChart({
       }))
       .sort((a, b) => a.time - b.time);
 
+    // Determine overall direction: compare first open to last close
+    // Green = price is up vs open of the visible range, Red = down
+    const firstOpen = candleData.length > 0 ? candleData[0].open : 0;
+    const lastClose = candleData.length > 0 ? candleData[candleData.length - 1].close : 0;
+    const isUp = lastClose >= firstOpen;
+    const lineColor = isUp ? colors.upColor : colors.downColor;
+
     // If chartType has changed, clean up the old series
     if (seriesRef.current && prevChartTypeRef.current !== chartType) {
       chartRef.current.removeSeries(seriesRef.current);
@@ -492,19 +497,28 @@ export default function StellarTradingChart({
         });
       } else if (chartType === 'line') {
         seriesRef.current = chartRef.current.addSeries(LineSeries, {
-          color: '#3b82f6',
+          color: lineColor,
           lineWidth: 2,
           crosshairMarkerVisible: true,
           crosshairMarkerRadius: 4,
         });
       } else if (chartType === 'area') {
         seriesRef.current = chartRef.current.addSeries(AreaSeries, {
-          topColor: isDark ? '#3b82f666' : '#3b82f64D',
-          bottomColor: '#3b82f600',
-          lineColor: '#3b82f6',
+          topColor: lineColor + '55',
+          bottomColor: lineColor + '00',
+          lineColor: lineColor,
           lineWidth: 2,
         });
       }
+    } else if (chartType === 'line') {
+      // Series already exists — update color live as price direction changes
+      seriesRef.current.applyOptions({ color: lineColor });
+    } else if (chartType === 'area') {
+      seriesRef.current.applyOptions({
+        topColor: lineColor + '55',
+        bottomColor: lineColor + '00',
+        lineColor: lineColor,
+      });
     }
 
     // Set the data on the active series

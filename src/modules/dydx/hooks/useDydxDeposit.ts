@@ -9,6 +9,8 @@ import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
 import { walletService } from '../../walletconnect/services/walletService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getCurrentDepositTx, useTransactionStore } from '../hooks/useTransactionTracker';
+import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
+import { getChainById } from '../../evm/utils/Chainregistry';
 import { dydxWalletService } from '../service/dydxWalletService';
 import { skipApiService } from '../service/skipApiService';
 import { SUBACCOUNT_CONSTANTS } from '../types/trading.types';
@@ -267,27 +269,65 @@ export const useDydxDeposit = () => {
             bridgeTxHash = hash;
             setTxHash(hash);
 
-            // Step 3 => depositing phase (deposit tx is now on-chain)
-            currentPhase = 'depositing';
-            setDepositPhase('depositing');
-            setStep('pending_bridge');
+            const isApproval = currentPhase === 'approving';
 
-            const currentWallets = useWalletStore.getState().connectedWallets;
-            useTransactionStore.getState().setDepositTx({
-              txHash: hash,
-              chainId: String(cid),
-              startedAt: Date.now(),
-              status: 'pending',
-              amount: capturedAmount,
-              assetSymbol: capturedAssetSymbol,
-              stepLabel: 'Deposit tx broadcast...',
-              estimatedTime: estTime,
-              requiredWallets: {
-                evm: currentWallets.evm?.address,
-                dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
-                cosmos: currentWallets.cosmos?.address,
-              },
-            });
+            if (!isApproval) {
+              // Step 3 => depositing phase (deposit tx is now on-chain)
+              currentPhase = 'depositing';
+              setDepositPhase('depositing');
+              setStep('pending_bridge');
+
+              const currentWallets = useWalletStore.getState().connectedWallets;
+              useTransactionStore.getState().setDepositTx({
+                txHash: hash,
+                chainId: String(cid),
+                startedAt: Date.now(),
+                status: 'pending',
+                amount: capturedAmount,
+                assetSymbol: capturedAssetSymbol,
+                stepLabel: 'Deposit tx broadcast...',
+                estimatedTime: estTime,
+                requiredWallets: {
+                  evm: currentWallets.evm?.address,
+                  dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
+                  cosmos: currentWallets.cosmos?.address,
+                },
+              });
+            }
+
+            // Store swap/bridge or approval order in backend so it appears in recent transactions
+            const fromChainSymbol = getChainById(cid)?.symbol || 'unknown';
+            if (isApproval) {
+              storeSwapOrder({
+                txHash: hash,
+                walletAddress: evmAddress!,
+                provider: 'DYDX',
+                fromChain: fromChainSymbol,
+                fromToken: capturedAssetSymbol,
+                toChain: fromChainSymbol,
+                toToken: capturedAssetSymbol,
+                amountIn: capturedAmount,
+                amountOut: capturedAmount,
+                txType: 'Token Approval',
+              }).catch(err => console.error('Failed to store dYdX deposit approval order:', err));
+            } else {
+              const confirmedReceiveAmount = rawRoute.amountOut
+                ? (Number.parseInt(rawRoute.amountOut, 10) / 10 ** 6).toString()
+                : capturedAmount;
+
+              storeSwapOrder({
+                txHash: hash,
+                walletAddress: evmAddress!,
+                provider: 'DYDX',
+                fromChain: fromChainSymbol,
+                fromToken: capturedAssetSymbol,
+                toChain: 'SRB',
+                toToken: 'USDC',
+                amountIn: capturedAmount,
+                amountOut: confirmedReceiveAmount,
+                txType: 'Bridge',
+              }).catch(err => console.error('Failed to store dYdX deposit order:', err));
+            }
 
             if (onTransactionBroadcast) onTransactionBroadcast(hash);
           },

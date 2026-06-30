@@ -110,8 +110,14 @@ const StellarAssetSelectorModal: React.FC<StellarAssetSelectorModalProps> = ({
                           <span className="font-black text-[14px] text-primary">{token.code}</span>
                           {isSelected && <CheckCircle2 size={14} className="text-brand" />}
                         </div>
-                        <div className="text-[10px] text-muted font-bold truncate max-w-[150px]">
-                          {token.asset.isNative() ? 'Native XLM' : token.name || (token.issuer?.slice(0, 8) + '...' + token.issuer?.slice(-8))}
+                        <div className="text-[10px] text-muted font-bold truncate max-w-[185px] normal-case">
+                          {token.asset.isNative()
+                            ? 'stellar.org'
+                            : (token.homeDomain || token.domain
+                                ? `${token.name || token.code} (${token.homeDomain || token.domain})`
+                                : (token.name || (token.issuer?.slice(0, 8) + '...' + token.issuer?.slice(-8)))
+                              )
+                          }
                         </div>
                       </div>
                     </div>

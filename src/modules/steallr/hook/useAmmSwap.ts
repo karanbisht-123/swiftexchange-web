@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import * as StellarSDK from '@stellar/stellar-sdk';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
@@ -6,12 +7,15 @@ import { AmmSwapService } from '../service/ammSwapService';
 import { useAmmSwapStore } from '../store/ammSwapStore';
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
 
+const homeDomainCache = new Map<string, string>();
+
 interface UseAmmSwapProps {
   userAddress: string;
 }
 
 export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
   const [service, setService] = useState<AmmSwapService | null>(null);
+  const hasSetDefaultPairRef = useRef(false);
   const [fromToken, setFromToken] = useState<TokenInfo | null>(null);
   const [toToken, setToToken] = useState<TokenInfo | null>(null);
   const [fromAmount, setFromAmount] = useState('');
@@ -22,6 +26,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
   const [slippageTolerance, setSlippageTolerance] = useState(1);
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
   const [subentryCount, setSubentryCount] = useState<number>(0);
+  const [timeLeft, setTimeLeft] = useState(30);
 
   const network = useWalletStore(state => state.network);
   const currentStellarConfig = getStellarConfig(network);
@@ -57,31 +62,37 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
 
         setAvailableTokens(userTokens);
         setSubentryCount(count);
-        const currentPair = useAmmSwapStore.getState().selectedChartPair;
+        const currentPair = useAmmSwapStore.getState().selectedChartPair || {
+          base: 'XLM',
+          counter: 'USDC',
+          baseIssuer: undefined,
+          counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5'
+        };
 
-        if (!fromToken && userTokens.length > 0) {
-          if (currentPair) {
-            const token = userTokens.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer);
-            setFromToken(token || userTokens[0]);
-          } else {
-            const xlmToken = userTokens.find(t => t.code === 'XLM');
-            setFromToken(xlmToken || userTokens[0]);
+        const targetFrom = userTokens.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer)
+          || userTokens.find(t => t.code === currentPair.base);
+
+        const targetTo = userTokens.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer)
+          || userTokens.find(t => t.code === currentPair.counter);
+
+        if (!hasSetDefaultPairRef.current && targetFrom && targetTo) {
+          setFromToken(targetFrom);
+          setToToken(targetTo);
+          hasSetDefaultPairRef.current = true;
+        } else {
+          if (!fromToken && userTokens.length > 0) {
+            setFromToken(targetFrom || userTokens.find(t => t.code === 'XLM') || userTokens[0]);
           }
-        }
 
-        if (!toToken && userTokens.length > 1) {
-          if (currentPair) {
-            const token = userTokens.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer);
-            if (token) setToToken(token);
-            else {
-              const nonSelectedToken = userTokens.find(t => t.code !== (currentPair.base || userTokens[0].code));
+          if (!toToken && userTokens.length > 1) {
+            if (targetTo) {
+              setToToken(targetTo);
+            } else {
+              const nonSelectedToken = userTokens.find(
+                t => t.code !== (fromToken?.code || currentPair.base || userTokens[0].code)
+              );
               setToToken(nonSelectedToken || userTokens[1]);
             }
-          } else {
-            const nonSelectedToken = userTokens.find(
-              t => t.code !== (fromToken?.code || userTokens[0].code)
-            );
-            setToToken(nonSelectedToken || userTokens[1]);
           }
         }
 
@@ -96,6 +107,60 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
 
     loadTokens();
   }, [service, userAddress]);
+
+  // Dynamically load home domains for selected tokens
+  useEffect(() => {
+    let active = true;
+    const fetchHomeDomains = async () => {
+      const config = currentStellarConfig;
+      const server = new StellarSDK.Horizon.Server(config.horizonUrl);
+
+      if (fromToken && fromToken.issuer && !fromToken.homeDomain && !fromToken.domain) {
+        if (homeDomainCache.has(fromToken.issuer)) {
+          const cached = homeDomainCache.get(fromToken.issuer)!;
+          if (active) {
+            setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+          }
+        } else {
+          try {
+            const account = await server.loadAccount(fromToken.issuer);
+            const domainName = account.home_domain || '';
+            homeDomainCache.set(fromToken.issuer, domainName);
+            if (active) {
+              setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+            }
+          } catch (e) {
+            console.warn('Failed to load home domain for fromToken', e);
+          }
+        }
+      }
+
+      if (toToken && toToken.issuer && !toToken.homeDomain && !toToken.domain) {
+        if (homeDomainCache.has(toToken.issuer)) {
+          const cached = homeDomainCache.get(toToken.issuer)!;
+          if (active) {
+            setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+          }
+        } else {
+          try {
+            const account = await server.loadAccount(toToken.issuer);
+            const domainName = account.home_domain || '';
+            homeDomainCache.set(toToken.issuer, domainName);
+            if (active) {
+              setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+            }
+          } catch (e) {
+            console.warn('Failed to load home domain for toToken', e);
+          }
+        }
+      }
+    };
+
+    fetchHomeDomains();
+    return () => {
+      active = false;
+    };
+  }, [fromToken?.code, fromToken?.issuer, toToken?.code, toToken?.issuer, currentStellarConfig]);
 
   useEffect(() => {
     if (!service || !fromToken || !toToken || !fromAmount || parseFloat(fromAmount) <= 0) {
@@ -184,6 +249,43 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
       .finally(() => setIsLoading(false));
   }, [service, fromToken, toToken, fromAmount, slippageTolerance]);
 
+  useEffect(() => {
+    setTimeLeft(30);
+  }, [fromToken?.code, fromToken?.issuer, toToken?.code, toToken?.issuer, fromAmount, slippageTolerance]);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const canCountdown =
+      fromAmount &&
+      parseFloat(fromAmount) > 0 &&
+      quote &&
+      !isLoading;
+
+    if (canCountdown) {
+      timer = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setTimeLeft(30);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [fromAmount, quote, isLoading]);
+
+  useEffect(() => {
+    if (timeLeft === 0) {
+      setTimeLeft(30);
+      refreshQuote();
+    }
+  }, [timeLeft, refreshQuote]);
+
   const buildTransaction = useCallback(async () => {
     if (!service || !quote || !userAddress) {
       throw new Error('Missing required parameters for transaction');
@@ -245,5 +347,6 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     buildTransaction,
     executeSwapWithWalletConnect,
     reset,
+    timeLeft,
   };
 };

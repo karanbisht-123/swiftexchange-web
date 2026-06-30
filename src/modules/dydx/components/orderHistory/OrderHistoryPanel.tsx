@@ -1,45 +1,49 @@
 import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
 import { useDydxData } from '../../hooks/useDydxData';
 import { type TrackedOrder } from '../../store/websocketStore';
 import { type Order, dydxDataService, normalizeOrder } from '../../service/dydxOrderService';
-import { getTimeAgo } from '../../utils/timeUtils';
+import { getDisplayOrderType, formatTimeAgoCompact, capitalizeFirst } from '../../utils/orderUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { LoadingState } from '../shared/LoadingState';
 import { MarketBadge } from '../shared/MarketBadge';
 import { OrderDetailPanel } from '../shared/OrderDetailPanel';
 import { Pagination } from '../shared/Pagination';
-import { SideBadge, StatusIndicator } from '../shared/SideBadge';
+import { StatusIndicator } from '../shared/SideBadge';
 import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
+import useMarketStore from '../../store/marketStore';
+import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
+import { currencyService } from '../../utils/currencyService';
 
 type AnyOrder = Order & Partial<TrackedOrder>;
 
 const ITEMS_PER_PAGE = 10;
 
+const getOrderTime = (order: AnyOrder): number => {
+  const timeStr = order.updatedAt || order.goodTilBlockTime;
+  return timeStr ? new Date(timeStr).getTime() : (order as any)._firstSeenAt || 0;
+};
+
 const OrderHistoryPanel: React.FC = () => {
   const { orders: storeOrders, isConnected } = useDydxData();
-
-  const cached = dydxDataService.getCachedOrders(undefined, undefined, true);
-  const [allOrders, setAllOrders] = useState<AnyOrder[]>(
-    cached ? (cached.map(normalizeOrder) as AnyOrder[]) : []
-  );
+  const marketCache = useMarketStore(state => state.marketCache);
+  const [allOrders, setAllOrders] = useState<AnyOrder[]>(() => {
+    const cached = dydxDataService.getCachedOrders(undefined, undefined, true);
+    return cached ? (cached.map(normalizeOrder) as AnyOrder[]) : [];
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMoreData, setHasMoreData] = useState(true);
+
+
+  const [hasMoreData, setHasMoreData] = useState(() => allOrders.length >= ITEMS_PER_PAGE);
 
   const [selectedOrder, setSelectedOrder] = useState<AnyOrder | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
   const initialLoadDoneRef = useRef(false);
-
-  const getOrderTime = (order: AnyOrder): number => {
-    const timeStr = order.updatedAt || order.goodTilBlockTime;
-    return timeStr ? new Date(timeStr).getTime() : ((order as any)._firstSeenAt || 0);
-  };
 
   useEffect(() => {
     if (!isConnected) {
@@ -63,6 +67,7 @@ const OrderHistoryPanel: React.FC = () => {
         const initialOrders = await dydxDataService.getOrders(undefined, undefined, true, true);
         if (isMounted) {
           setAllOrders(initialOrders.map(normalizeOrder) as AnyOrder[]);
+          setHasMoreData(initialOrders.length >= ITEMS_PER_PAGE);
           initialLoadDoneRef.current = true;
         }
       } catch (err: any) {
@@ -73,7 +78,9 @@ const OrderHistoryPanel: React.FC = () => {
     };
     fetchInitial();
 
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, [isConnected]);
 
   useEffect(() => {
@@ -100,8 +107,11 @@ const OrderHistoryPanel: React.FC = () => {
 
   const totalPages = useMemo(() => {
     const pages = Math.ceil(allOrders.length / ITEMS_PER_PAGE);
-    return hasMoreData && allOrders.length >= ITEMS_PER_PAGE ? pages : Math.max(pages, 1);
-  }, [allOrders.length, hasMoreData]);
+    if (hasMoreData && allOrders.length >= currentPage * ITEMS_PER_PAGE) {
+      return Math.max(pages, currentPage + 1);
+    }
+    return Math.max(pages, 1);
+  }, [allOrders.length, hasMoreData, currentPage]);
 
   const currentPageData = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -109,31 +119,27 @@ const OrderHistoryPanel: React.FC = () => {
   }, [allOrders, currentPage]);
 
   const loadMoreData = useCallback(async () => {
-    if (loadingMore || !hasMoreData || !isConnected) return;
+    if (loadingMore || !hasMoreData || !isConnected || allOrders.length === 0) return;
 
     setLoadingMore(true);
     try {
-      const moreOrders = await dydxDataService.getOrders(undefined, undefined, true, false);
+      const oldestOrder = allOrders[allOrders.length - 1];
+      const cursorTime = oldestOrder ? getOrderTime(oldestOrder) : 0;
+      const cursor = cursorTime > 0 ? new Date(cursorTime).toISOString() : undefined;
+
+      const moreOrders = await dydxDataService.getOrders(undefined, undefined, true, false, cursor);
 
       if (moreOrders.length === 0) {
         setHasMoreData(false);
         return;
       }
-
-      const normalizedMore = moreOrders.map(normalizeOrder);
-      const oldestTime = allOrders.length
-        ? getOrderTime(allOrders[allOrders.length - 1])
-        : Date.now();
-      const olderOrders = normalizedMore.filter(o => getOrderTime(o as AnyOrder) < oldestTime);
-
-      if (olderOrders.length === 0) {
-        setHasMoreData(false);
-        return;
-      }
+      const normalizedMore = moreOrders.map(normalizeOrder) as AnyOrder[];
 
       setAllOrders(prev => {
-        const map = new Map<string, AnyOrder>(prev.map(o => [o.id, normalizeOrder(o) as AnyOrder]));
-        olderOrders.forEach(o => map.set(o.id, o as AnyOrder));
+        const map = new Map<string, AnyOrder>(
+          prev.map(o => [o.id, normalizeOrder(o) as AnyOrder]),
+        );
+        normalizedMore.forEach(o => map.set(o.id, o));
         return Array.from(map.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
       });
 
@@ -152,7 +158,7 @@ const OrderHistoryPanel: React.FC = () => {
         loadMoreData();
       }
     },
-    [allOrders.length, hasMoreData, loadingMore, loadMoreData]
+    [allOrders.length, hasMoreData, loadingMore, loadMoreData],
   );
 
   const handleOrderClick = useCallback((order: AnyOrder) => {
@@ -187,7 +193,7 @@ const OrderHistoryPanel: React.FC = () => {
               <th className="text-left px-4 py-3 font-medium">Market</th>
               <th className="text-center px-4 py-3 font-medium">Status</th>
               <th className="text-center px-4 py-3 font-medium">Side</th>
-              <th className="text-center px-4 py-3 font-medium">Type</th>
+              <th className="text-left px-4 py-3 font-medium">Type</th>
               <th className="text-right px-4 py-3 font-medium">Amount</th>
               <th className="text-right px-4 py-3 font-medium">Filled</th>
               <th className="text-right px-4 py-3 font-medium">Price</th>
@@ -197,9 +203,23 @@ const OrderHistoryPanel: React.FC = () => {
           </thead>
           <tbody>
             {currentPageData.map(order => {
-              const filled = parseFloat((order as any).totalFilled || order.totalOptimisticFilled || '0');
+              const filled = parseFloat(
+                (order as any).totalFilled || order.totalOptimisticFilled || '0',
+              );
               const size = parseFloat(order.size);
               const fillPercent = size > 0 ? (filled / size) * 100 : 0;
+              const displayType = getDisplayOrderType(order);
+
+              const marketTicker = order.ticker ?? '';
+              const mkt = marketCache[marketTicker];
+              const stepSize = mkt?.stepSize || '0.0001';
+              const decimals = currencyService.getStepSizeDecimals(stepSize);
+
+              const sizeStr = formatNumericWithCommas(size, decimals);
+              const filledStr = formatNumericWithCommas(filled, decimals);
+              const priceStr = displayType === 'MARKET'
+                ? 'Market'
+                : formatMarketPrice(order.price, '$');
 
               return (
                 <tr
@@ -208,36 +228,36 @@ const OrderHistoryPanel: React.FC = () => {
                   className="border-b border-color hover:bg-hover transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3">
-                    <MarketBadge market={order.ticker ?? ''} />
+                    <MarketBadge market={marketTicker} />
                   </td>
                   <td className="px-4 py-3 text-center">
                     <StatusIndicator status={order.status} />
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <SideBadge side={order.side as 'BUY' | 'SELL'} />
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="px-2 py-0.5 bg-[#2a2a2a] text-gray-300 rounded text-xs">
-                      {order.clientMetadata === '1' && order.type === 'LIMIT' ? 'MARKET' : order.type}
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                      {capitalizeFirst(order.side)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{size.toFixed(4)}</td>
+                  <td className="px-4 py-3 text-left">
+                    <span className="text-primary text-xs">
+                      {capitalizeFirst(displayType)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{sizeStr}</td>
                   <td className="px-4 py-3 text-right">
-                    <div className="text-primary font-mono">{filled.toFixed(4)}</div>
+                    <div className="text-primary font-mono">{filledStr}</div>
                     {fillPercent > 0 && fillPercent < 100 && (
                       <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">
-                    {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT')
-                      ? 'Market'
-                      : `$${parseFloat(order.price).toLocaleString()}`}
+                    {priceStr}
                   </td>
                   <td className="px-4 py-3 text-center text-gray-400 text-xs">
                     {order.timeInForce || 'GTT'}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs">
-                    {getTimeAgo(order.updatedAt || '')}
+                    {formatTimeAgoCompact(order.updatedAt || order.goodTilBlockTime || '')}
                   </td>
                 </tr>
               );
@@ -249,7 +269,17 @@ const OrderHistoryPanel: React.FC = () => {
       <div className="md:hidden flex-1 overflow-auto space-y-0.5">
         {currentPageData.map(order => {
           const size = parseFloat(order.size);
-          const price = parseFloat(order.price);
+          const displayType = getDisplayOrderType(order);
+
+          const marketTicker = order.ticker ?? '';
+          const mkt = marketCache[marketTicker];
+          const stepSize = mkt?.stepSize || '0.0001';
+          const decimals = currencyService.getStepSizeDecimals(stepSize);
+
+          const sizeStr = formatNumericWithCommas(size, decimals);
+          const priceStr = displayType === 'MARKET'
+            ? 'Market'
+            : formatMarketPrice(order.price, '$');
 
           return (
             <div
@@ -258,21 +288,21 @@ const OrderHistoryPanel: React.FC = () => {
               className="bg-secondary border border-color p-3 flex items-center justify-between active:bg-hover transition-colors"
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <MarketBadge market={order.ticker ?? ''} />
+                <MarketBadge market={marketTicker} />
                 <div className="flex min-w-0">
                   <div className="flex items-center gap-4">
-                    <SideBadge side={order.side as 'BUY' | 'SELL'} />
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                      {capitalizeFirst(order.side)}
+                    </span>
                     <span className="text-primary font-mono text-xs">
-                      {order.type === 'MARKET' || (order.clientMetadata === '1' && order.type === 'LIMIT')
-                        ? 'Market'
-                        : `$${price.toLocaleString()}`}
+                      {priceStr}
                     </span>
                   </div>
                 </div>
               </div>
               <div className="flex items-start flex-col mr-2">
                 <StatusIndicator status={order.status} />
-                <span className="text-muted text-xs">{size.toFixed(4)}</span>
+                <span className="text-muted text-xs font-mono">{sizeStr}</span>
               </div>
               <ChevronRight size={16} className="text-muted flex-shrink-0" />
             </div>

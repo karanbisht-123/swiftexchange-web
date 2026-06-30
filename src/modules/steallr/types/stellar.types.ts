@@ -11,6 +11,8 @@ export interface TokenInfo {
   isPopular?: boolean;
   decimals?: number;
   hasTrustline?: boolean;
+  homeDomain?: string;
+  domain?: string;
 }
 
 export interface PriceInfo {

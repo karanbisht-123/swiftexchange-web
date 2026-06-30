@@ -48,6 +48,7 @@ const AmmSwapUI = () => {
     executeSwapWithWalletConnect,
     reset,
     subentryCount,
+    timeLeft,
   } = useAmmSwap({
     userAddress: stellarAddress,
   });
@@ -186,7 +187,7 @@ const AmmSwapUI = () => {
 
   const renderSwapForm = () => (
     <div className="mx-auto space-y-6  w-full max-w-lg">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-4">
         <h4 className="heading-4">Swap</h4>
         <div className="flex items-center gap-2 relative">
           <XlmReserveButton xlmBalance={xlmBalance} trustlineCount={subentryCount} />
@@ -254,8 +255,12 @@ const AmmSwapUI = () => {
               />
             </div>
             <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden text-left">
-              <span className="font-bold text-[13px] leading-tight truncate w-full">{fromToken?.code || 'Select'}</span>
-              <span className="text-[8px] text-muted font-bold tracking-tight truncate w-full uppercase">Stellar</span>
+              <span className="font-bold text-[13px] leading-tight truncate w-full">
+                {fromToken ? (fromToken.name || fromToken.code) : 'Select'}
+              </span>
+              <span className="text-[8px] text-muted font-bold tracking-tight truncate w-full lowercase normal-case">
+                {fromToken ? (fromToken.homeDomain || (fromToken.asset.isNative() ? 'stellar.org' : 'Stellar')) : 'stellar'}
+              </span>
             </div>
             <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
           </button>
@@ -295,7 +300,7 @@ const AmmSwapUI = () => {
         </div>
       </div>
 
-      <div className="flex justify-center -my-8 relative z-10">
+      <div className="flex justify-center -mt-10 relative z-10">
         <button
           onClick={swapTokens}
           className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md border border-color"
@@ -304,7 +309,7 @@ const AmmSwapUI = () => {
         </button>
       </div>
 
-      <div className="bg-tertiary rounded-2xl p-4 lg:p-6 relative overflow-hidden flex flex-col border border-color">
+      <div className="bg-tertiary rounded-2xl -mt-10 p-4 lg:p-6 relative overflow-hidden flex flex-col border border-color">
         <div className="flex justify-between items-center mb-4">
           <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
         </div>
@@ -337,8 +342,12 @@ const AmmSwapUI = () => {
               />
             </div>
             <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden text-left">
-              <span className="font-bold text-[13px] leading-tight truncate w-full">{toToken?.code || 'Select'}</span>
-              <span className="text-[8px] text-muted font-bold tracking-tight truncate w-full uppercase">Stellar</span>
+              <span className="font-bold text-[13px] leading-tight truncate w-full">
+                {toToken ? (toToken.name || toToken.code) : 'Select'}
+              </span>
+              <span className="text-[8px] text-muted font-bold tracking-tight truncate w-full lowercase normal-case">
+                {toToken ? (toToken.homeDomain || (toToken.asset.isNative() ? 'stellar.org' : 'Stellar')) : 'stellar'}
+              </span>
             </div>
             <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
           </button>
@@ -411,7 +420,7 @@ const AmmSwapUI = () => {
       {quote && (
         <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-muted uppercase tracking-[0.1em] mt-4">
           <Clock size={12} />
-          {UI_STRINGS.QUOTE_EXPIRY}
+          {isLoading ? 'Refreshing...' : `Quote expires in ${timeLeft}s`}
         </div>
       )}
     </div>

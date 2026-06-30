@@ -11,6 +11,8 @@ import { useOraclePrices } from '../../hooks/useOraclePrices';
 import { metadataService } from '../../hooks/useMetadata';
 import useMarketStore from '../../store/marketStore';
 import { useWebSocketStore } from '../../store/websocketStore';
+import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
+import { currencyService } from '../../utils/currencyService';
 import { dydxWalletService } from '../../service/dydxWalletService';
 import { type Position } from '../../types/trading.types';
 import {
@@ -24,13 +26,12 @@ const ISOLATED_SUBACCOUNT_START = 128;
 
 interface OraclePriceCellProps {
   oraclePrice: number | null;
-  formatPrice: (value: string | number) => string;
 }
 
-const OraclePriceCell = React.memo(function OraclePriceCell({ oraclePrice, formatPrice }: OraclePriceCellProps) {
+const OraclePriceCell = React.memo(function OraclePriceCell({ oraclePrice }: OraclePriceCellProps) {
   return (
     <span className="text-blue-400 font-mono">
-      {oraclePrice !== null ? `$${formatPrice(oraclePrice)}` : '—'}
+      {oraclePrice !== null ? formatMarketPrice(oraclePrice, '$') : '—'}
     </span>
   );
 });
@@ -49,22 +50,27 @@ const PnlCell = React.memo(function PnlCell({ oraclePrice, margin, entryPrice, s
     : 0;
 
   const pnlPercentage = margin > 0 ? (unrealizedPnl / margin) * 100 : 0;
-  const isPositive = unrealizedPnl >= 0;
-  const formatted = unrealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const isPositive = unrealizedPnl > 0;
+  const isNegative = unrealizedPnl < 0;
+  const absPnl = Math.abs(unrealizedPnl);
+  const formatted = formatNumericWithCommas(absPnl, 2, isPositive ? '+$' : isNegative ? '-$' : '$');
+  const pnlClass = isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-muted';
+  const percentSign = isPositive ? '+' : '';
+  const percentStr = `(${percentSign}${pnlPercentage.toFixed(2)}%)`;
 
   if (mobile) {
     return (
-      <div className={`font-medium font-mono ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
-        <div>{isPositive ? '+' : ''}${formatted}</div>
-        <div className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</div>
+      <div className={`font-medium font-mono ${pnlClass}`}>
+        <div>{formatted}</div>
+        <div className="text-[9px] opacity-80">{percentStr}</div>
       </div>
     );
   }
 
   return (
-    <div className={`flex flex-col font-mono ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
-      <span>{isPositive ? '+' : ''}${formatted}</span>
-      <span className="text-[9px] opacity-80">({pnlPercentage.toFixed(2)}%)</span>
+    <div className={`flex flex-col font-mono ${pnlClass}`}>
+      <span>{formatted}</span>
+      <span className="text-[9px] opacity-80">{percentStr}</span>
     </div>
   );
 });
@@ -140,7 +146,7 @@ interface PositionRowProps {
   onClose: (position: Position) => void;
   onAddMargin: (position: Position) => void;
   getMarketIcon: (market: string) => React.ReactNode;
-  formatPrice: (value: string | number) => string;
+  decimals: number;
 }
 
 const PositionRow = React.memo(function PositionRow({
@@ -152,7 +158,7 @@ const PositionRow = React.memo(function PositionRow({
   onClose,
   onAddMargin,
   getMarketIcon,
-  formatPrice,
+  decimals,
 }: PositionRowProps) {
   const isIsolated = (position.subaccountNumber ?? 0) >= ISOLATED_SUBACCOUNT_START;
 
@@ -180,11 +186,11 @@ const PositionRow = React.memo(function PositionRow({
       </td>
 
       <td className="p-3 text-right text-primary font-mono">
-        {metrics.absSize.toFixed(4)}
+        {formatNumericWithCommas(metrics.absSize, decimals)}
       </td>
 
       <td className="p-3 text-right text-primary font-mono">
-        ${formatPrice(metrics.notional)}
+        {formatNumericWithCommas(metrics.notional, 2, '$')}
       </td>
 
       <td className="p-3 text-right">
@@ -198,7 +204,7 @@ const PositionRow = React.memo(function PositionRow({
 
       <td className="p-3 text-right font-mono">
         <div className="flex items-center justify-end gap-1.5 text-primary">
-          <span>${formatPrice(metrics.margin)}</span>
+          <span>{formatNumericWithCommas(metrics.margin, 2, '$')}</span>
           {isIsolated && (
             <button
               onClick={() => onAddMargin(position)}
@@ -213,19 +219,19 @@ const PositionRow = React.memo(function PositionRow({
       </td>
 
       <td className="p-3 text-right text-muted font-mono">
-        ${formatPrice(metrics.entryPrice)}
+        {formatMarketPrice(metrics.entryPrice, '$')}
       </td>
 
       <td className="p-3 text-right">
-        <OraclePriceCell oraclePrice={oraclePrice} formatPrice={formatPrice} />
+        <OraclePriceCell oraclePrice={oraclePrice} />
       </td>
 
       <td className="p-3 text-right text-orange-400 font-mono">
-        ${metrics.liquidationPrice ? formatPrice(metrics.liquidationPrice) : '—'}
+        {metrics.liquidationPrice ? formatMarketPrice(metrics.liquidationPrice, '$') : '—'}
       </td>
 
       <td className="p-3 text-right text-muted font-mono">
-        {parseFloat(position.netFunding || '0').toFixed(4)}
+        {formatNumericWithCommas(parseFloat(position.netFunding || '0'), 4)}
       </td>
 
       <td className="p-3 text-center">
@@ -265,7 +271,7 @@ interface PositionCardProps {
   onClose: (position: Position) => void;
   onAddMargin: (position: Position) => void;
   getMarketIcon: (market: string) => React.ReactNode;
-  formatPrice: (value: string | number) => string;
+  decimals: number;
 }
 
 const PositionCard = React.memo(function PositionCard({
@@ -277,7 +283,7 @@ const PositionCard = React.memo(function PositionCard({
   onClose,
   onAddMargin,
   getMarketIcon,
-  formatPrice,
+  decimals,
 }: PositionCardProps) {
   const isShort = position.side === 'SHORT';
   const isIsolated = (position.subaccountNumber ?? 0) >= ISOLATED_SUBACCOUNT_START;
@@ -327,28 +333,28 @@ const PositionCard = React.memo(function PositionCard({
       <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Size</span>
-          <span className="text-primary font-medium font-mono">{metrics.absSize.toFixed(4)}</span>
+          <span className="text-primary font-medium font-mono">{formatNumericWithCommas(metrics.absSize, decimals)}</span>
         </div>
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Value</span>
-          <span className="text-primary font-medium font-mono">${formatPrice(metrics.notional)}</span>
+          <span className="text-primary font-medium font-mono">{formatNumericWithCommas(metrics.notional, 2, '$')}</span>
         </div>
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Avg Open</span>
-          <span className="text-primary font-medium font-mono">${formatPrice(metrics.entryPrice)}</span>
+          <span className="text-primary font-medium font-mono">{formatMarketPrice(metrics.entryPrice, '$')}</span>
         </div>
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Oracle</span>
-          <OraclePriceCell oraclePrice={oraclePrice} formatPrice={formatPrice} />
+          <OraclePriceCell oraclePrice={oraclePrice} />
         </div>
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Margin</span>
           <div className="flex items-center gap-1 font-medium font-mono">
-            <span className="text-primary">${formatPrice(metrics.margin)}</span>
+            <span className="text-primary">{formatNumericWithCommas(metrics.margin, 2, '$')}</span>
             {isIsolated && (
               <button
                 onClick={() => onAddMargin(position)}
@@ -365,7 +371,7 @@ const PositionCard = React.memo(function PositionCard({
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Liq Price</span>
           <span className="text-orange-400 font-medium font-mono">
-            ${metrics.liquidationPrice ? formatPrice(metrics.liquidationPrice) : '—'}
+            {metrics.liquidationPrice ? formatMarketPrice(metrics.liquidationPrice, '$') : '—'}
           </span>
         </div>
 
@@ -385,7 +391,7 @@ const PositionCard = React.memo(function PositionCard({
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Funding</span>
           <span className="text-primary font-medium font-mono">
-            {parseFloat(position.netFunding || '0').toFixed(4)}
+            {formatNumericWithCommas(parseFloat(position.netFunding || '0'), 4)}
           </span>
         </div>
       </div>
@@ -728,12 +734,6 @@ const PositionsPanel: React.FC = () => {
       setIsClosingAll(false);
     }
   }, [positions, marketCache, closeAllPositions, refreshPositions, showNotification]);
-
-  const formatPrice = useCallback((value: string | number) => {
-    const num = typeof value === 'string' ? parseFloat(value) : value;
-    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }, []);
-
   const getMarketIcon = useCallback(
     (market: string) => {
       const icon = icons[market];
@@ -901,6 +901,10 @@ const PositionsPanel: React.FC = () => {
               const metrics = positionMetrics.get(position.market);
               if (!metrics) return null;
 
+              const mkt = marketCache[position.market];
+              const stepSize = mkt?.stepSize || '0.0001';
+              const decimals = currencyService.getStepSizeDecimals(stepSize);
+
               return (
                 <PositionRow
                   key={position.market}
@@ -912,7 +916,7 @@ const PositionsPanel: React.FC = () => {
                   onClose={handleClose}
                   onAddMargin={handleAddMargin}
                   getMarketIcon={getMarketIcon}
-                  formatPrice={formatPrice}
+                  decimals={decimals}
                 />
               );
             })}
@@ -943,6 +947,10 @@ const PositionsPanel: React.FC = () => {
           const metrics = positionMetrics.get(position.market);
           if (!metrics) return null;
 
+          const mkt = marketCache[position.market];
+          const stepSize = mkt?.stepSize || '0.0001';
+          const decimals = currencyService.getStepSizeDecimals(stepSize);
+
           return (
             <PositionCard
               key={position.market}
@@ -954,7 +962,7 @@ const PositionsPanel: React.FC = () => {
               onClose={handleClose}
               onAddMargin={handleAddMargin}
               getMarketIcon={getMarketIcon}
-              formatPrice={formatPrice}
+              decimals={decimals}
             />
           );
         })}
