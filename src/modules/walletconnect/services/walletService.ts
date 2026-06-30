@@ -13,7 +13,7 @@ import {
   getEVMChains,
   getStellarConfig,
 } from '../config/chains';
-import { decryptAndRestore, encryptAndStore, hasEncryptedBlob, purge } from './dydxKeyManager';
+import { decryptAndRestore, encryptAndStore, hasEncryptedBlob, purge, decryptStoredMnemonic } from './dydxKeyManager';
 import { sessionVault } from './sessionVault';
 import { sendCustomNotification } from '../../../service/notificationService';
 import { WALLET_METADATA_MAP } from '../constants/Wallet';
@@ -1890,6 +1890,10 @@ class WalletService {
 
   listApiTradingKeys(): ApiTradingKey[] {
     return _listApiTradingKeys();
+  }
+
+  async getOwnerSecretPhrase(): Promise<string | null> {
+    return decryptStoredMnemonic();
   }
 
 

@@ -53,6 +53,7 @@ export interface WalletState {
   apiKeyError: string | null;
   isApiKeyModalOpen: boolean;
   restrictWithdrawalToWebsite: boolean;
+  isExportPhraseModalOpen: boolean;
 }
 
 interface WalletActions {
@@ -77,6 +78,8 @@ interface WalletActions {
   openApiKeyModal: () => void;
   closeApiKeyModal: () => void;
   setRestrictWithdrawalToWebsite: (value: boolean) => void;
+  openExportPhraseModal: () => void;
+  closeExportPhraseModal: () => void;
 }
 
 const getInitialNetwork = (): NetworkType => {
@@ -117,6 +120,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     apiKeyError: null,
     isApiKeyModalOpen: false,
     restrictWithdrawalToWebsite: getInitialRestrictWithdrawal(),
+    isExportPhraseModalOpen: false,
 
     connectWallet: async (type, walletId) => {
       if (get().connectedWallets[type]) return;
@@ -467,6 +471,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
     openApiKeyModal: () => set({ isApiKeyModalOpen: true, apiKeyError: null }),
     closeApiKeyModal: () => set({ isApiKeyModalOpen: false }),
+
+    openExportPhraseModal: () => set({ isExportPhraseModalOpen: true }),
+    closeExportPhraseModal: () => set({ isExportPhraseModalOpen: false }),
 
     setRestrictWithdrawalToWebsite: (value: boolean) => {
       try {

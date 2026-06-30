@@ -101,7 +101,7 @@ const KeyRow: React.FC<{
       </p>
     </div>
 
-
+    {/* Right Side: Action Button */}
     <div className="flex-shrink-0">
       {!apiKey.revoked ? (
         <button
@@ -123,8 +123,6 @@ const KeyRow: React.FC<{
           ) : (
             <span>Delete</span>
           )}
-
-
         </button>
       ) : (
         <span
@@ -228,7 +226,6 @@ export const ApiTradingKeyModal: React.FC = () => {
           </div>
         )}
 
-
         <div
           style={{ borderColor: 'var(--color-border)' }}
           className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
@@ -252,7 +249,6 @@ export const ApiTradingKeyModal: React.FC = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-4 space-y-4">
-
           <p style={{ color: 'var(--color-text-secondary)' }} className="text-sm leading-relaxed">
             API wallets perform actions on behalf of your account without withdrawal
             permissions. You must still use your account&apos;s public address for info

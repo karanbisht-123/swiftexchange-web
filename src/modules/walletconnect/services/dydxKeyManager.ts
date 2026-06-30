@@ -119,6 +119,33 @@ export async function decryptAndRestore(): Promise<boolean> {
   }
 }
 
+export async function decryptStoredMnemonic(): Promise<string | null> {
+  const raw = localStorage.getItem(BLOB_KEY);
+  if (!raw) return null;
+
+  const aesKey = await retrieveAESKey();
+  if (!aesKey) return null;
+
+  let parsed: { ciphertext: string; iv: string };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  let decryptedBytes: Uint8Array | null = null;
+  try {
+    decryptedBytes = await decryptBytes(parsed.ciphertext, parsed.iv, aesKey);
+    const decoder = new TextDecoder();
+    const mnemonic = decoder.decode(decryptedBytes);
+    decryptedBytes.fill(0);
+    return mnemonic;
+  } catch {
+    if (decryptedBytes) decryptedBytes.fill(0);
+    return null;
+  }
+}
+
 export function getStoredAddress(): string | null {
   return localStorage.getItem(ADDR_KEY);
 }

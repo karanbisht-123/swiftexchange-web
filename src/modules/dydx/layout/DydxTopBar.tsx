@@ -17,6 +17,7 @@ const DydxTopBar: FC = () => {
     state => !!(state.connectedWallets.evm?.dydxAddress || state.connectedWallets.cosmos?.dydxAddress)
   );
   const { openModal } = useApiTradingKeys();
+  const openExportPhraseModal = useWalletStore(state => state.openExportPhraseModal);
 
   const tabs: TabItem[] = [
     {
@@ -64,12 +65,22 @@ const DydxTopBar: FC = () => {
         </div>
 
         {hasDydx && (
-          <div className="flex items-center h-full">
+          <div className="flex items-center gap-1 h-full py-1">
             <button
               onClick={openModal}
-              className="px-4 py-2 bg-brand text-white  text-xs font-bold hover:opacity-90 active:opacity-80 transition-all shadow-sm"
+              className="px-4 py-2 bg-brand text-white text-xs font-bold hover:opacity-90 active:opacity-80 transition-all shadow-sm "
             >
               API Trading Keys
+            </button>
+            <button
+              onClick={openExportPhraseModal}
+              style={{
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text-primary)',
+              }}
+              className="px-4 py-2 border text-xs font-bold hover:bg-[var(--color-bg-hover)] active:opacity-80 transition-all shadow-sm "
+            >
+              Export Phrase
             </button>
           </div>
         )}

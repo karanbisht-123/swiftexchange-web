@@ -37,6 +37,7 @@ function toBase64(buf: Uint8Array): string {
   return btoa(s);
 }
 
+
 async function encryptMnemonic(
   mnemonic: string,
   aesKey: CryptoKey
@@ -215,7 +216,6 @@ export async function revokeApiTradingKey(
   localStorage.removeItem(API_KEY_BLOB_PREFIX + id);
 }
 
-//  Read all API trading keys from local storage, newest-first.
 export function listApiTradingKeys(): ApiTradingKey[] {
   return readList();
 }
