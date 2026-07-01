@@ -1,16 +1,34 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { dydxTradingService } from '../service/dydxTradingService';
+import type { SetTriggersResult } from '../service/dydxTradingService';
 import { dydxWalletService } from '../service/dydxWalletService';
 import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
 import {
+  type MarketData,
   type OpenOrder,
   type OrderResult,
   type PlaceOrderParams,
   type Position,
   type TriggerParams,
 } from '../types/trading.types';
+
+interface CloseAllResult {
+  success: boolean;
+  partialSuccess?: boolean;
+  closed: number;
+  failed: number;
+  results: Array<{
+    market: string;
+    success: boolean;
+    result: Awaited<ReturnType<typeof dydxTradingService.closePosition>> | null;
+    error: string | null;
+  }>;
+  error?: string;
+  userMessage?: string;
+  retryable?: boolean;
+}
 
 const TRADE_EVENT = 'dydx-trade-action';
 
@@ -20,7 +38,7 @@ export const triggerTradeRefresh = (action: 'order' | 'cancel' | 'close' | 'trig
 
 export const useTradeEvents = (callback: (action: string) => void) => {
   useEffect(() => {
-    const handler = (e: any) => callback(e.detail?.action);
+    const handler = (e: Event) => callback((e as CustomEvent<{ action: string }>).detail?.action);
     window.addEventListener(TRADE_EVENT, handler);
     return () => window.removeEventListener(TRADE_EVENT, handler);
   }, [callback]);
@@ -62,8 +80,9 @@ export const useDydxTrading = () => {
         }
 
         return result;
-      } catch (err: any) {
-        const msg = err.message || 'Place order failed';
+      } catch (err: unknown) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        const msg = e.message || 'Place order failed';
         setOrderError(msg);
         return { success: false, error: msg, userMessage: msg, retryable: true };
       } finally {
@@ -92,8 +111,9 @@ export const useDydxTrading = () => {
         }
 
         return result;
-      } catch (err: any) {
-        const msg = err.message || 'Cancel failed';
+      } catch (err: unknown) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        const msg = e.message || 'Cancel failed';
         setOrderError(msg);
         return { success: false, error: msg, userMessage: msg, retryable: true };
       } finally {
@@ -126,8 +146,9 @@ export const useDydxTrading = () => {
         }
 
         return result;
-      } catch (err: any) {
-        const msg = err.message || 'Close position failed';
+      } catch (err: unknown) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        const msg = e.message || 'Close position failed';
         setOrderError(msg);
         return { success: false, error: msg, userMessage: msg, retryable: true };
       }
@@ -136,37 +157,57 @@ export const useDydxTrading = () => {
   );
 
   const closeAllPositions = useCallback(
-    async (positions: Position[], marketInfoMap?: Record<string, any>): Promise<any> => {
+    async (
+      positions: Position[],
+      marketInfoMap?: Record<string, MarketData>
+    ): Promise<CloseAllResult> => {
       if (!canTrade || !address) {
         const msg = 'Not ready to trade';
         setOrderError(msg);
-        return { success: false, error: msg, userMessage: msg, retryable: false, closed: 0, failed: positions.length, results: [] };
+        return {
+          success: false,
+          error: msg,
+          userMessage: msg,
+          retryable: false,
+          closed: 0,
+          failed: positions.length,
+          results: [],
+        };
       }
 
       try {
         const cache = marketInfoMap || useMarketStore.getState().marketCache;
-        const result = await dydxTradingService.closeAllPositions(positions, cache as any);
+        const result = await dydxTradingService.closeAllPositions(positions, cache);
 
         if (result.closed > 0 || result.success) {
           triggerTradeRefresh('close');
         }
 
         return result;
-      } catch (err: any) {
-        const msg = err.message || 'Close all positions failed';
+      } catch (err: unknown) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        const msg = e.message || 'Close all positions failed';
         setOrderError(msg);
-        return { success: false, error: msg, userMessage: msg, retryable: true, closed: 0, failed: positions.length, results: [] };
+        return {
+          success: false,
+          error: msg,
+          userMessage: msg,
+          retryable: true,
+          closed: 0,
+          failed: positions.length,
+          results: [],
+        };
       }
     },
     [canTrade, address]
   );
 
   const setTriggers = useCallback(
-    async (position: Position, triggers: TriggerParams): Promise<any> => {
+    async (position: Position, triggers: TriggerParams): Promise<SetTriggersResult> => {
       if (!canTrade || !address) {
         const msg = 'Not ready to trade';
         setOrderError(msg);
-        return { success: false, error: msg };
+        return { success: false, results: {}, error: msg };
       }
 
       setIsSettingTriggers(true);
@@ -183,8 +224,9 @@ export const useDydxTrading = () => {
         }
 
         return result;
-      } catch (err: any) {
-        const msg = err.message || 'Set triggers failed';
+      } catch (err: unknown) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        const msg = e.message || 'Set triggers failed';
         setOrderError(msg);
         throw err;
       } finally {

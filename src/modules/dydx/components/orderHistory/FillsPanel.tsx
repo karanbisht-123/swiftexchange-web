@@ -2,7 +2,11 @@ import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useDydxData } from '../../hooks/useDydxData';
-import { type Fill, dydxDataService } from '../../service/dydxOrderService';
+import { type Fill } from '../../service/dydxOrderService';
+import useMarketStore from '../../store/marketStore';
+import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
+import { currencyService } from '../../utils/currencyService';
+import { capitalizeFirst, formatTimeAgoCompact } from '../../utils/orderUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { FillDetailPanel } from '../shared/FillDetailPanel';
 import { LoadingState } from '../shared/LoadingState';
@@ -10,15 +14,11 @@ import { MarketBadge } from '../shared/MarketBadge';
 import { Pagination } from '../shared/Pagination';
 import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
-import useMarketStore from '../../store/marketStore';
-import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
-import { formatTimeAgoCompact, capitalizeFirst } from '../../utils/orderUtils';
-import { currencyService } from '../../utils/currencyService';
 
 const ITEMS_PER_PAGE = 10;
 
 const FillsPanel: React.FC = () => {
-  const { fills: allFills, isConnected, loadingFills, fillsError } = useDydxData();
+  const { fills: allFills, isConnected, loadingFills, fillsError, loadMoreFills } = useDydxData();
   const marketCache = useMarketStore(state => state.marketCache);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -49,10 +49,8 @@ const FillsPanel: React.FC = () => {
     if (loadingMore || !hasMoreData || !isConnected || allFills.length === 0) return;
     setLoadingMore(true);
     try {
-      const oldestFill = allFills[allFills.length - 1];
-      const cursor = oldestFill ? oldestFill.createdAt : undefined;
-      const moreFills = await dydxDataService.getFills(undefined, undefined, false, cursor);
-      if (moreFills.length === 0) {
+      const moreFills = await loadMoreFills();
+      if (!moreFills || moreFills.length === 0) {
         setHasMoreData(false);
       } else if (moreFills.length < ITEMS_PER_PAGE) {
         setHasMoreData(false);
@@ -62,7 +60,7 @@ const FillsPanel: React.FC = () => {
     } finally {
       setLoadingMore(false);
     }
-  }, [allFills, isConnected, loadingMore, hasMoreData]);
+  }, [allFills, isConnected, loadingMore, hasMoreData, loadMoreFills]);
 
   const handlePageChange = useCallback(
     (page: number) => {
@@ -183,22 +181,20 @@ const FillsPanel: React.FC = () => {
                     {formatTimeAgoCompact(fill.createdAt)}
                   </td>
                   <td className="px-4 py-3 text-left text-primary">
-                    {capitalizeFirst(fill.clientMetadata === '1' && fill.type === 'LIMIT' ? 'MARKET' : fill.type)}
+                    {capitalizeFirst(
+                      fill.clientMetadata === '1' && fill.type === 'LIMIT' ? 'MARKET' : fill.type
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                    >
                       {capitalizeFirst(fill.side)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">
-                    {amountStr}
-                  </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">
-                    {priceStr}
-                  </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">
-                    {totalStr}
-                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{amountStr}</td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{priceStr}</td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{totalStr}</td>
                   <td className="px-4 py-3 text-right text-muted font-mono">{feeStr}</td>
                   <td className={`px-4 py-3 text-right font-mono ${pnlClass}`}>{closedPnlStr}</td>
                   <td className="px-4 py-3 text-right text-muted">
@@ -240,7 +236,9 @@ const FillsPanel: React.FC = () => {
             if (closedPnl !== null) {
               const isNegative = closedPnl < 0;
               const absValue = Math.abs(closedPnl);
-              closedPnlStr = isNegative ? `-$${formatNumericWithCommas(absValue, 2)}` : `$${formatNumericWithCommas(absValue, 2)}`;
+              closedPnlStr = isNegative
+                ? `-$${formatNumericWithCommas(absValue, 2)}`
+                : `$${formatNumericWithCommas(absValue, 2)}`;
               pnlClass = isNegative
                 ? 'text-red-400'
                 : closedPnl > 0
@@ -260,12 +258,12 @@ const FillsPanel: React.FC = () => {
               </div>
               <div className="flex items-center">
                 <div className="flex items-center gap-4">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                  >
                     {capitalizeFirst(fill.side)}
                   </span>
-                  <span className="text-primary font-mono text-xs">
-                    {totalStr}
-                  </span>
+                  <span className="text-primary font-mono text-xs">{totalStr}</span>
                   {closedPnlStr !== '—' && (
                     <span className={`font-mono text-xs ${pnlClass}`}>PNL: {closedPnlStr}</span>
                   )}

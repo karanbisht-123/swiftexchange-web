@@ -83,7 +83,13 @@ export const DydxWalletConnect: React.FC = () => {
         checkPendingDeposit();
       }
     }
-  }, [pendingDydxQuantums, isRecovering, lastAttemptedQuantums, checkPendingDeposit]);
+  }, [
+    pendingDydxQuantums,
+    isRecovering,
+    lastAttemptedQuantums,
+    checkPendingDeposit,
+    MIN_SUBACCOUNT_DEPOSIT_UUSDC,
+  ]);
 
   useEffect(() => {
     if (
@@ -106,7 +112,7 @@ export const DydxWalletConnect: React.FC = () => {
           setIsConnecting(false);
         });
     }
-  }, [hasDydxAddress, network]);
+  }, [hasDydxAddress, network, isConnecting, connectionError]);
 
   useEffect(() => {
     if (!hasDydxAddress && isConnected) {
@@ -120,8 +126,9 @@ export const DydxWalletConnect: React.FC = () => {
     setConnectionError(null);
     try {
       await deriveDydx();
-    } catch (err: any) {
-      setConnectionError(err.message);
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      setConnectionError(e.message);
     } finally {
       setIsDeriving(false);
     }
@@ -140,8 +147,9 @@ export const DydxWalletConnect: React.FC = () => {
     setConnectionError(null);
     try {
       await dydxWalletService.connect(network, 0);
-    } catch (err: any) {
-      setConnectionError(err.message);
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      setConnectionError(e.message);
     } finally {
       setIsConnecting(false);
     }
@@ -152,17 +160,13 @@ export const DydxWalletConnect: React.FC = () => {
     handleConnect();
   }, [handleConnect]);
 
-  const updateTrigger = useWebSocketStore(s => s.updateTrigger);
   const optimisticDelta = useWebSocketStore(s => s.optimisticFreeCollateralDelta);
   // Subscribe to live market data so selectPortfolioMetrics can compute real
   // per-market IMF margin usage instead of falling back to a hardcoded value.
   const marketsMap = useWebSocketStore(s => s.markets);
   const parentKey = address ? `parent_subaccount_${address}_0` : null;
   const parentData = useWebSocketStore(
-    useCallback(
-      s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined),
-      [parentKey, updateTrigger]
-    )
+    useCallback(s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined), [parentKey])
   );
 
   // const activeSubaccountNumber = useMemo(() => {
@@ -191,7 +195,7 @@ export const DydxWalletConnect: React.FC = () => {
       });
     });
     return map;
-  }, [parentData, updateTrigger]);
+  }, [parentData]);
 
   // const activeSubaccountNumber = 0;
 

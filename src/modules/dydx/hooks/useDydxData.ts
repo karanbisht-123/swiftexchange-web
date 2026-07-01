@@ -39,6 +39,8 @@ interface UseDydxDataReturn {
   loadingFills: boolean;
   fillsError: string | null;
   refreshFills: () => Promise<void>;
+  loadMoreFills: () => Promise<any[]>;
+  parentKey: string | null;
 
   openOrderCount: number;
   activePositionCount: number;
@@ -81,19 +83,21 @@ export const useDydxData = (): UseDydxDataReturn => {
   );
 
   const positions = useMemo(() => {
-    const raw = parentData?.childSubaccounts?.flatMap(child =>
-      Object.values(child.openPerpetualPositions || {}).map(pos => ({
-        ...pos,
-        subaccountNumber: child.subaccountNumber,
-      }))
-    ) ?? [];
+    const raw =
+      parentData?.childSubaccounts?.flatMap(child =>
+        Object.values(child.openPerpetualPositions || {}).map(pos => ({
+          ...pos,
+          subaccountNumber: child.subaccountNumber,
+        }))
+      ) ?? [];
     return raw.filter(p => Math.abs(parseFloat(p.size || '0')) > 0);
-  }, [parentData?.childSubaccounts, parentKey]);
+  }, [parentData?.childSubaccounts]);
 
   const assetPositions = useMemo(() => {
-    return parentData?.childSubaccounts?.flatMap(child =>
-      Object.values(child.assetPositions || {})
-    ) ?? [];
+    return (
+      parentData?.childSubaccounts?.flatMap(child => Object.values(child.assetPositions || {})) ??
+      []
+    );
   }, [parentData?.childSubaccounts]);
 
   const orders = useMemo<TrackedOrder[]>(() => {
@@ -107,17 +111,19 @@ export const useDydxData = (): UseDydxDataReturn => {
 
   const openOrders = useMemo<TrackedOrder[]>(
     () => selectOpenOrders(parentData),
-    [parentData?.orders, updateTrigger]
+    [parentData, updateTrigger]
   );
 
   const openOrdersWithGrace = useMemo<TrackedOrder[]>(
     () => selectOpenAndGraceOrders(parentData),
-    [parentData?.orders, updateTrigger]
+    [parentData, updateTrigger]
   );
 
   const fills = useMemo(() => {
     const all = parentData?.fills ?? [];
-    return [...all].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return [...all].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }, [parentData?.fills]);
 
   const openOrderCount = openOrders.length;
@@ -125,11 +131,13 @@ export const useDydxData = (): UseDydxDataReturn => {
   const fillCount = fills.length;
   const blockHeight = parentData?.blockHeight ?? '0';
   const lastUpdateTime = parentData?.lastUpdate ?? null;
-  const isReceivingUpdates = parentData ? Date.now() - parentData.lastUpdate < WS_FRESHNESS_MS : false;
+  const isReceivingUpdates = parentData
+    ? Date.now() - parentData.lastUpdate < WS_FRESHNESS_MS
+    : false;
 
   const recentlyFilledCount = useMemo(
     () => selectRecentlyTerminalOrders(parentData).filter(o => o.status === 'FILLED').length,
-    [parentData?.orders]
+    [parentData]
   );
 
   const loadingPositions = false;
@@ -139,7 +147,9 @@ export const useDydxData = (): UseDydxDataReturn => {
 
   useEffect(() => {
     isMountedRef.current = true;
-    return () => { isMountedRef.current = false; };
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const refreshOrders = useCallback(async (): Promise<void> => {
@@ -152,11 +162,9 @@ export const useDydxData = (): UseDydxDataReturn => {
       const data: Order[] = await dydxDataService.refreshOrders(undefined, undefined);
 
       if (isMountedRef.current && parentKey) {
-        useWebSocketStore.getState().updateParentSubaccount(
-          parentKey,
-          { orders: data as any, lastUpdate: Date.now() },
-          0
-        );
+        useWebSocketStore
+          .getState()
+          .updateParentSubaccount(parentKey, { orders: data as any, lastUpdate: Date.now() }, 0);
       }
     } catch (err: any) {
       console.error('[useDydxData] Orders refresh failed:', err);
@@ -175,7 +183,9 @@ export const useDydxData = (): UseDydxDataReturn => {
     try {
       const data = await dydxDataService.refreshFills(undefined, undefined);
       if (isMountedRef.current && parentKey) {
-        useWebSocketStore.getState().updateParentSubaccount(parentKey, { fills: data, lastUpdate: Date.now() });
+        useWebSocketStore
+          .getState()
+          .updateParentSubaccount(parentKey, { fills: data as any, lastUpdate: Date.now() });
       }
     } catch (err: any) {
       console.error('[useDydxData] Fills refresh failed:', err);
@@ -184,6 +194,32 @@ export const useDydxData = (): UseDydxDataReturn => {
       if (isMountedRef.current) setLoadingFills(false);
     }
   }, [parentKey]);
+
+  const loadMoreFills = useCallback(async (): Promise<any[]> => {
+    if (!dydxDataService.isReady() || !parentKey || loadingFills || !fills.length) return [];
+
+    setLoadingFills(true);
+    setFillsError(null);
+
+    try {
+      const oldestFill = fills[fills.length - 1];
+      const cursor = oldestFill ? oldestFill.createdAt : undefined;
+      const moreFills = await dydxDataService.getFills(undefined, undefined, false, cursor);
+
+      if (isMountedRef.current && parentKey && moreFills.length > 0) {
+        useWebSocketStore
+          .getState()
+          .updateParentSubaccount(parentKey, { fills: moreFills as any, lastUpdate: Date.now() });
+      }
+      return moreFills;
+    } catch (err: any) {
+      console.error('[useDydxData] loadMoreFills failed:', err);
+      if (isMountedRef.current) setFillsError(err.message || 'Failed to load more fills');
+      throw err;
+    } finally {
+      if (isMountedRef.current) setLoadingFills(false);
+    }
+  }, [parentKey, fills, loadingFills]);
 
   const refreshPositions = useCallback(async (): Promise<void> => {
     if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
@@ -245,7 +281,9 @@ export const useDydxData = (): UseDydxDataReturn => {
         const existing = state.parentSubaccounts.get(parentKey);
         if (!existing) return state;
 
-        const newChildMap = new Map(existing.childSubaccounts.map(c => [c.subaccountNumber, { ...c }]));
+        const newChildMap = new Map(
+          existing.childSubaccounts.map(c => [c.subaccountNumber, { ...c }])
+        );
 
         const apiAssetsBySubNum = new Map<number, Record<string, any>>();
 
@@ -267,7 +305,9 @@ export const useDydxData = (): UseDydxDataReturn => {
           const child = newChildMap.get(subNum)!;
           if (!apiAssetsBySubNum.has(subNum)) apiAssetsBySubNum.set(subNum, {});
           const existingAsset = child.assetPositions[asset.symbol];
-          apiAssetsBySubNum.get(subNum)![asset.symbol] = existingAsset ? { ...existingAsset, ...asset } : asset;
+          apiAssetsBySubNum.get(subNum)![asset.symbol] = existingAsset
+            ? { ...existingAsset, ...asset }
+            : asset;
         });
 
         newChildMap.forEach((child, subNum) => {
@@ -301,7 +341,9 @@ export const useDydxData = (): UseDydxDataReturn => {
       refreshFills().catch(e => console.warn('[useDydxData] Initial fills fetch failed:', e));
     } else if (wsJustReconnected) {
       hasInitializedRef.current = true;
-      refreshOrders().catch(e => console.warn('[useDydxData] Reconnection orders fetch failed:', e));
+      refreshOrders().catch(e =>
+        console.warn('[useDydxData] Reconnection orders fetch failed:', e)
+      );
       refreshFills().catch(e => console.warn('[useDydxData] Reconnection fills fetch failed:', e));
     }
 
@@ -310,7 +352,15 @@ export const useDydxData = (): UseDydxDataReturn => {
       isFirstMountRef.current = true;
       prevWsConnectedRef.current = false;
     };
-  }, [dydxAddress, subaccountNumber, isConnected, subscribeToParentSubaccount, unsubscribeFromParentSubaccount, refreshOrders, refreshFills]);
+  }, [
+    dydxAddress,
+    subaccountNumber,
+    isConnected,
+    subscribeToParentSubaccount,
+    unsubscribeFromParentSubaccount,
+    refreshOrders,
+    refreshFills,
+  ]);
 
   useEffect(() => {
     const unsubscribe = dydxWalletService.onStatusChange(status => {
@@ -351,6 +401,8 @@ export const useDydxData = (): UseDydxDataReturn => {
     loadingFills,
     fillsError,
     refreshFills,
+    loadMoreFills,
+    parentKey,
 
     openOrderCount,
     activePositionCount,
