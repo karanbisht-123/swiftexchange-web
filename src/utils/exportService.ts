@@ -1,5 +1,11 @@
-import { zipSync, strToU8 } from 'fflate';
-import { type HistoricalPnl, type Fill, type Order } from '../modules/dydx/service/dydxOrderService';
+import { strToU8, zipSync } from 'fflate';
+
+import {
+  type Fill,
+  type FundingPayment,
+  type HistoricalPnl,
+  type Order,
+} from '../modules/dydx/service/dydxOrderService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -8,6 +14,7 @@ export interface DydxExportData {
   fills: Fill[];
   orders: Order[];
   transfers: any[];
+  fundingPayments: FundingPayment[];
   period: string;
 }
 
@@ -84,26 +91,34 @@ function buildZipFromParts(parts: Record<string, Uint8Array>): Uint8Array {
 
 function xe(v: string | number | null | undefined): string {
   return String(v ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function colLetter(n: number): string {
   let s = '';
   while (n > 0) {
-    s = String.fromCharCode(64 + ((n - 1) % 26 + 1)) + s;
+    s = String.fromCharCode(64 + (((n - 1) % 26) + 1)) + s;
     n = Math.floor((n - 1) / 26);
   }
   return s;
 }
-function ref(r: number, c: number) { return `${colLetter(c)}${r}`; }
+function ref(r: number, c: number) {
+  return `${colLetter(c)}${r}`;
+}
 
 // ── Shared string store ──────────────────────────────────────────────────────
 function makeSST() {
-  const list: string[] = [], map: Record<string, number> = {};
+  const list: string[] = [],
+    map: Record<string, number> = {};
   const add = (v: string | number | null | undefined): number => {
     const k = String(v ?? '');
-    if (map[k] === undefined) { map[k] = list.length; list.push(k); }
+    if (map[k] === undefined) {
+      map[k] = list.length;
+      list.push(k);
+    }
     return map[k];
   };
   const xml = () =>
@@ -121,8 +136,9 @@ const sc = (r: number, c: number, v: string | number | null | undefined, sId: nu
   `<c r="${ref(r, c)}" t="s" s="${sId}"><v>${sst.add(v)}</v></c>`;
 
 const nc = (r: number, c: number, v: number | null | undefined, sId: number) =>
-  v == null ? `<c r="${ref(r, c)}" s="${sId}"/>` :
-    `<c r="${ref(r, c)}" t="n" s="${sId}"><v>${Number(v)}</v></c>`;
+  v == null
+    ? `<c r="${ref(r, c)}" s="${sId}"/>`
+    : `<c r="${ref(r, c)}" t="n" s="${sId}"><v>${Number(v)}</v></c>`;
 
 // formula cell — string formula
 const fc = (r: number, c: number, formula: string, sId: number, cachedVal?: number) =>
@@ -134,9 +150,10 @@ const row = (r: number, ht: number, cells: string) =>
 
 // ── Sheet wrapper ─────────────────────────────────────────────────────────────
 function sheet(rowsXml: string, colsXml: string, mergesXml = '', freezeRow = 0): string {
-  const freeze = freezeRow > 0
-    ? `<sheetView showGridLines="0" workbookViewId="0"><pane ySplit="${freezeRow}" topLeftCell="A${freezeRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView>`
-    : `<sheetView showGridLines="0" workbookViewId="0"/>`;
+  const freeze =
+    freezeRow > 0
+      ? `<sheetView showGridLines="0" workbookViewId="0"><pane ySplit="${freezeRow}" topLeftCell="A${freezeRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView>`
+      : `<sheetView showGridLines="0" workbookViewId="0"/>`;
   return [
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
     `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"`,
@@ -156,29 +173,29 @@ function sheet(rowsXml: string, colsXml: string, mergesXml = '', freezeRow = 0):
 // Style IDs — keep in sync with stylesXml() order
 const S = Object.freeze({
   DEFAULT: 0,
-  TITLE: 1,   // white bold on navy
-  SUBTITLE: 2,   // grey on light bg, centered
-  HDR_NAVY: 3,   // white bold on dark-navy, centered
-  HDR_BLUE: 4,   // white bold on blue, centered
-  KPI_LBL: 5,   // blue label cell, centered
-  KPI_BLUE: 6,   // blue value, $format, centered
-  KPI_GREEN: 7,   // green value, $format, centered
-  KPI_RED: 8,   // red value, $format, centered
-  CELL: 9,   // white bg, bordered
-  CELL_ALT: 10,  // light-grey bg, bordered
-  NUM: 11,  // number, white bg
-  NUM_ALT: 12,  // number, grey bg
-  PNL_GREEN: 13,  // green highlight
-  PNL_RED: 14,  // red highlight
-  WARN_BG: 15,  // amber warning row
-  FORMULA_NUM: 16,  // formula number, white
-  FORMULA_G: 17,  // formula number, green
-  FORMULA_R: 18,  // formula number, red
-  TOTAL_LBL: 19,  // total label row
-  NUM_RIGHT: 20,  // number right-aligned
-  EDITABLE: 21,  // yellow editable cell
-  EDITABLE_N: 22,  // yellow editable number cell
-  SECTION: 23,  // section separator header
+  TITLE: 1, // white bold on navy
+  SUBTITLE: 2, // grey on light bg, centered
+  HDR_NAVY: 3, // white bold on dark-navy, centered
+  HDR_BLUE: 4, // white bold on blue, centered
+  KPI_LBL: 5, // blue label cell, centered
+  KPI_BLUE: 6, // blue value, $format, centered
+  KPI_GREEN: 7, // green value, $format, centered
+  KPI_RED: 8, // red value, $format, centered
+  CELL: 9, // white bg, bordered
+  CELL_ALT: 10, // light-grey bg, bordered
+  NUM: 11, // number, white bg
+  NUM_ALT: 12, // number, grey bg
+  PNL_GREEN: 13, // green highlight
+  PNL_RED: 14, // red highlight
+  WARN_BG: 15, // amber warning row
+  FORMULA_NUM: 16, // formula number, white
+  FORMULA_G: 17, // formula number, green
+  FORMULA_R: 18, // formula number, red
+  TOTAL_LBL: 19, // total label row
+  NUM_RIGHT: 20, // number right-aligned
+  EDITABLE: 21, // yellow editable cell
+  EDITABLE_N: 22, // yellow editable number cell
+  SECTION: 23, // section separator header
 });
 
 function stylesXml(): string {
@@ -304,26 +321,43 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
   rows += row(3, 8, '');
 
   // R4 — Warning notice (yellow)
-  rows += row(4, 32, sc(4, 1,
-    '⚠  All positions start with $0 cost basis from the period start. Go to the "Cost Basis" sheet to enter your opening balances once per asset. The Disposals sheet and this summary will update automatically.',
-    S.WARN_BG, sst));
+  rows += row(
+    4,
+    32,
+    sc(
+      4,
+      1,
+      '⚠  All positions start with $0 cost basis from the period start. Go to the "Cost Basis" sheet to enter your opening balances once per asset. The Disposals sheet and this summary will update automatically.',
+      S.WARN_BG,
+      sst
+    )
+  );
 
   // R5 — spacer
   rows += row(5, 8, '');
 
   // R6 — KPI headers
-  const kpiHeaders = ['Total Realized P&L', 'Total Unrealized P&L', 'Total P&L', 'USDC Spent', 'USDC Received', 'Net USDC Flow'];
+  const kpiHeaders = [
+    'Total Realized P&L',
+    'Total Unrealized P&L',
+    'Total P&L',
+    'USDC Spent',
+    'USDC Received',
+    'Net USDC Flow',
+  ];
   rows += row(6, 20, kpiHeaders.map((h, i) => sc(6, i + 1, h, S.KPI_LBL, sst)).join(''));
 
   // R7 — KPI values
-  const pnlS = (v: number) => v >= 0 ? S.KPI_GREEN : S.KPI_RED;
-  rows += row(7, 32,
+  const pnlS = (v: number) => (v >= 0 ? S.KPI_GREEN : S.KPI_RED);
+  rows += row(
+    7,
+    32,
     nc(7, 1, d.totalRealized, pnlS(d.totalRealized)) +
-    nc(7, 2, d.totalUnrealized, pnlS(d.totalUnrealized)) +
-    nc(7, 3, d.totalPnL, pnlS(d.totalPnL)) +
-    nc(7, 4, d.usdcSpent, S.KPI_BLUE) +
-    nc(7, 5, d.usdcReceived, S.KPI_BLUE) +
-    nc(7, 6, d.netUSDCFlow, pnlS(d.netUSDCFlow))
+      nc(7, 2, d.totalUnrealized, pnlS(d.totalUnrealized)) +
+      nc(7, 3, d.totalPnL, pnlS(d.totalPnL)) +
+      nc(7, 4, d.usdcSpent, S.KPI_BLUE) +
+      nc(7, 5, d.usdcReceived, S.KPI_BLUE) +
+      nc(7, 6, d.netUSDCFlow, pnlS(d.netUSDCFlow))
   );
 
   // R8
@@ -333,11 +367,17 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
   const cbPositions = d.positions?.length ?? 0;
   const cbDataStart = 5;
   const cbTotalRow = cbDataStart + Math.max(cbPositions, 1);
-  const totalOpeningCostBasis = d.positions?.reduce((sum, pos) => sum + (pos.openingAmount ?? 0) * (pos.openingCostPerUnit ?? 0), 0) ?? 0;
+  const totalOpeningCostBasis =
+    d.positions?.reduce(
+      (sum, pos) => sum + (pos.openingAmount ?? 0) * (pos.openingCostPerUnit ?? 0),
+      0
+    ) ?? 0;
   const adjustedTotalPnl = d.totalRealized + totalOpeningCostBasis;
-  rows += row(9, 22,
+  rows += row(
+    9,
+    22,
     sc(9, 1, 'Adjusted Total P&L (fill Cost Basis sheet to activate)', S.SECTION, sst) +
-    fc(9, 6, `${d.totalRealized}+'Cost Basis'!F${cbTotalRow}`, S.FORMULA_NUM, adjustedTotalPnl)
+      fc(9, 6, `${d.totalRealized}+'Cost Basis'!F${cbTotalRow}`, S.FORMULA_NUM, adjustedTotalPnl)
   );
 
   // R10 — spacer
@@ -356,9 +396,11 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
   stats.forEach(([label, val], i) => {
     const r = 12 + i;
     const alt = i % 2 === 0;
-    rows += row(r, 17,
+    rows += row(
+      r,
+      17,
       sc(r, 1, label, alt ? S.CELL : S.CELL_ALT, sst) +
-      nc(r, 2, val, alt ? S.NUM_RIGHT : S.NUM_RIGHT)
+        nc(r, 2, val, alt ? S.NUM_RIGHT : S.NUM_RIGHT)
     );
   });
 
@@ -374,8 +416,19 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
 
   // Position column headers
   const posColHdr = posHdrRow + 1;
-  const posHdrs = ['Asset', 'Remaining', 'Avg Cost', 'Current Price', 'Unrealized P&L', 'Realized P&L'];
-  rows += row(posColHdr, 18, posHdrs.map((h, i) => sc(posColHdr, i + 1, h, S.HDR_BLUE, sst)).join(''));
+  const posHdrs = [
+    'Asset',
+    'Remaining',
+    'Avg Cost',
+    'Current Price',
+    'Unrealized P&L',
+    'Realized P&L',
+  ];
+  rows += row(
+    posColHdr,
+    18,
+    posHdrs.map((h, i) => sc(posColHdr, i + 1, h, S.HDR_BLUE, sst)).join('')
+  );
 
   // Positions data
   const positions = d.positions ?? [];
@@ -386,13 +439,15 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
     const nbg = alt ? S.NUM : S.NUM_ALT;
     const unrS = (pos.unrealized ?? 0) >= 0 ? S.PNL_GREEN : S.PNL_RED;
     const rzS = pos.realizedPnL >= 0 ? S.PNL_GREEN : S.PNL_RED;
-    rows += row(r, 17,
+    rows += row(
+      r,
+      17,
       sc(r, 1, pos.asset, bg, sst) +
-      nc(r, 2, pos.remaining, nbg) +
-      nc(r, 3, pos.avgCost, nbg) +
-      nc(r, 4, pos.currentPrice, nbg) +
-      nc(r, 5, pos.unrealized, unrS) +
-      nc(r, 6, pos.realizedPnL, rzS)
+        nc(r, 2, pos.remaining, nbg) +
+        nc(r, 3, pos.avgCost, nbg) +
+        nc(r, 4, pos.currentPrice, nbg) +
+        nc(r, 5, pos.unrealized, unrS) +
+        nc(r, 6, pos.realizedPnL, rzS)
     );
   });
 
@@ -405,13 +460,15 @@ function buildSummarySheet(d: StellarExportData, sst: SST): string {
   const posTotalRow = posColHdr + 1 + Math.max(positions.length, 1);
   const posDataStart = posColHdr + 1;
   const posDataEnd = posColHdr + Math.max(positions.length, 1);
-  rows += row(posTotalRow, 20,
+  rows += row(
+    posTotalRow,
+    20,
     sc(posTotalRow, 1, 'TOTAL', S.TOTAL_LBL, sst) +
-    sc(posTotalRow, 2, '', S.TOTAL_LBL, sst) +
-    sc(posTotalRow, 3, '', S.TOTAL_LBL, sst) +
-    sc(posTotalRow, 4, '', S.TOTAL_LBL, sst) +
-    fc(posTotalRow, 5, `SUM(E${posDataStart}:E${posDataEnd})`, S.KPI_GREEN) +
-    fc(posTotalRow, 6, `SUM(F${posDataStart}:F${posDataEnd})`, S.KPI_GREEN)
+      sc(posTotalRow, 2, '', S.TOTAL_LBL, sst) +
+      sc(posTotalRow, 3, '', S.TOTAL_LBL, sst) +
+      sc(posTotalRow, 4, '', S.TOTAL_LBL, sst) +
+      fc(posTotalRow, 5, `SUM(E${posDataStart}:E${posDataEnd})`, S.KPI_GREEN) +
+      fc(posTotalRow, 6, `SUM(F${posDataStart}:F${posDataEnd})`, S.KPI_GREEN)
   );
 
   const cols = [
@@ -444,15 +501,31 @@ function buildCostBasisSheet(d: StellarExportData, sst: SST): string {
   rows += row(1, 36, sc(1, 1, 'Cost Basis — Fill In This Sheet (Yellow Cells)', S.TITLE, sst));
 
   // R2 — instruction
-  rows += row(2, 40, sc(2, 1,
-    '✏️  INSTRUCTIONS: For each asset held BEFORE this report period, enter how many tokens you held (Column D) and what you paid per token in USD (Column E). Leave blank if you only bought inside the report period. Disposals & Summary update automatically.',
-    S.WARN_BG, sst));
+  rows += row(
+    2,
+    40,
+    sc(
+      2,
+      1,
+      '✏️  INSTRUCTIONS: For each asset held BEFORE this report period, enter how many tokens you held (Column D) and what you paid per token in USD (Column E). Leave blank if you only bought inside the report period. Disposals & Summary update automatically.',
+      S.WARN_BG,
+      sst
+    )
+  );
 
   // R3 — spacer
   rows += row(3, 8, '');
 
   // R4 — Headers: Asset | Issuer | Current Holdings | ← Opening Amount (editable) | ← Cost Per Unit (editable) | Total Opening Cost Basis (formula) | Unrealized P&L (formula)
-  const hdrs = ['Asset', 'Issuer', 'Current Holdings\n(from wallet)', '← Opening Amount\n(tokens held before)', '← Cost Per Unit\n(USD you paid)', 'Total Opening\nCost Basis ($)', 'Unrealized P&L\n(approx)'];
+  const hdrs = [
+    'Asset',
+    'Issuer',
+    'Current Holdings\n(from wallet)',
+    '← Opening Amount\n(tokens held before)',
+    '← Cost Per Unit\n(USD you paid)',
+    'Total Opening\nCost Basis ($)',
+    'Unrealized P&L\n(approx)',
+  ];
   rows += row(4, 40, hdrs.map((h, i) => sc(4, i + 1, h, S.HDR_NAVY, sst)).join(''));
 
   // Pre-populate from API positions data
@@ -467,57 +540,85 @@ function buildCostBasisSheet(d: StellarExportData, sst: SST): string {
     const pos = positions[i];
     const r = dataStart + i;
     const numS = i % 2 === 0 ? S.NUM : S.NUM_ALT;
-    const openingAmountVal = pos.openingAmount !== undefined && pos.openingAmount !== null ? pos.openingAmount : null;
-    const openingCostVal = pos.openingCostPerUnit !== undefined && pos.openingCostPerUnit !== null ? pos.openingCostPerUnit : null;
-    const openingTotalVal = (openingAmountVal !== null && openingCostVal !== null) ? openingAmountVal * openingCostVal : 0;
+    const openingAmountVal =
+      pos.openingAmount !== undefined && pos.openingAmount !== null ? pos.openingAmount : null;
+    const openingCostVal =
+      pos.openingCostPerUnit !== undefined && pos.openingCostPerUnit !== null
+        ? pos.openingCostPerUnit
+        : null;
+    const openingTotalVal =
+      openingAmountVal !== null && openingCostVal !== null ? openingAmountVal * openingCostVal : 0;
     const currentPriceVal = pos.currentPrice ?? 0;
 
     totalOpeningCost += openingTotalVal;
-    const cachedUnrealized = openingAmountVal !== null && openingCostVal !== null
-      ? (pos.remaining * currentPriceVal) - openingTotalVal
-      : 0;
+    const cachedUnrealized =
+      openingAmountVal !== null && openingCostVal !== null
+        ? pos.remaining * currentPriceVal - openingTotalVal
+        : 0;
     totalUnrealizedCostBasis += cachedUnrealized;
 
     // Col G: unrealized = current holdings × currentPrice − opening amount × cost per unit
     const unrealFormula = `IFERROR(C${r}*${currentPriceVal.toFixed(6)}-D${r}*E${r},"—")`;
-    rows += row(r, 22,
+    rows += row(
+      r,
+      22,
       sc(r, 1, pos.asset, i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
-      sc(r, 2, pos.issuer ? `${pos.issuer.slice(0, 10)}...${pos.issuer.slice(-6)}` : 'Native / Stellar', i % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
-      nc(r, 3, pos.remaining, numS) +            // read-only: current holdings from API
-      nc(r, 4, openingAmountVal, S.EDITABLE) +   // ← user types: opening amount
-      nc(r, 5, openingCostVal, S.EDITABLE_N) +   // ← user types: cost per unit
-      fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, openingTotalVal) +
-      fc(r, 7, unrealFormula, S.FORMULA_NUM, cachedUnrealized)
+        sc(
+          r,
+          2,
+          pos.issuer ? `${pos.issuer.slice(0, 10)}...${pos.issuer.slice(-6)}` : 'Native / Stellar',
+          i % 2 === 0 ? S.CELL : S.CELL_ALT,
+          sst
+        ) +
+        nc(r, 3, pos.remaining, numS) + // read-only: current holdings from API
+        nc(r, 4, openingAmountVal, S.EDITABLE) + // ← user types: opening amount
+        nc(r, 5, openingCostVal, S.EDITABLE_N) + // ← user types: cost per unit
+        fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, openingTotalVal) +
+        fc(r, 7, unrealFormula, S.FORMULA_NUM, cachedUnrealized)
     );
   }
 
   if (minRows === 0) {
     const r = dataStart;
-    rows += row(r, 22,
+    rows += row(
+      r,
+      22,
       sc(r, 1, 'No positions available', S.CELL, sst) +
-      sc(r, 2, '', S.CELL, sst) +
-      sc(r, 3, '', S.CELL, sst) +
-      nc(r, 4, null, S.EDITABLE) +
-      nc(r, 5, null, S.EDITABLE_N) +
-      fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, 0) +
-      fc(r, 7, `0`, S.FORMULA_NUM, 0)
+        sc(r, 2, '', S.CELL, sst) +
+        sc(r, 3, '', S.CELL, sst) +
+        nc(r, 4, null, S.EDITABLE) +
+        nc(r, 5, null, S.EDITABLE_N) +
+        fc(r, 6, `IFERROR(D${r}*E${r},0)`, S.FORMULA_NUM, 0) +
+        fc(r, 7, `0`, S.FORMULA_NUM, 0)
     );
   }
 
   const dataEnd = dataStart + Math.max(minRows, 1) - 1;
   const totalRow = dataEnd + 1;
-  rows += row(totalRow, 22,
+  rows += row(
+    totalRow,
+    22,
     sc(totalRow, 1, 'TOTAL', S.TOTAL_LBL, sst) +
-    sc(totalRow, 2, '', S.TOTAL_LBL, sst) + sc(totalRow, 3, '', S.TOTAL_LBL, sst) +
-    sc(totalRow, 4, '', S.TOTAL_LBL, sst) + sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
-    fc(totalRow, 6, `SUM(F${dataStart}:F${dataEnd})`, S.KPI_BLUE, totalOpeningCost) +
-    fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, totalUnrealizedCostBasis)
+      sc(totalRow, 2, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 3, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 4, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
+      fc(totalRow, 6, `SUM(F${dataStart}:F${dataEnd})`, S.KPI_BLUE, totalOpeningCost) +
+      fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, totalUnrealizedCostBasis)
   );
 
   const noteRow = totalRow + 2;
-  rows += row(noteRow, 16, sc(noteRow, 1,
-    '📌  Columns D & E are editable (yellow). All other cells auto-calculate. Disposals sheet uses VLOOKUP on Col A + E for adjusted P&L per trade.',
-    S.SECTION, sst));
+  rows += row(
+    noteRow,
+    16,
+    sc(
+      noteRow,
+      1,
+      '📌  Columns D & E are editable (yellow). All other cells auto-calculate. Disposals sheet uses VLOOKUP on Col A + E for adjusted P&L per trade.',
+      S.SECTION,
+      sst
+    )
+  );
 
   const cols = [
     `<col min="1" max="1" width="12" customWidth="1"/>`,
@@ -538,8 +639,6 @@ function buildCostBasisSheet(d: StellarExportData, sst: SST): string {
   return sheet(rows, cols, merges, 4);
 }
 
-
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // SHEET 3 — DISPOSALS (tax report, auto-links to Cost Basis via VLOOKUP formula)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -551,15 +650,32 @@ function buildDisposalsSheet(d: StellarExportData, sst: SST): string {
   rows += row(1, 36, sc(1, 1, 'Disposals — Tax Report', S.TITLE, sst));
 
   // R2 — notice
-  rows += row(2, 30, sc(2, 1,
-    'Yellow rows = cost basis unknown. Cost per unit is pulled automatically from the "Cost Basis" sheet. Update the Cost Basis sheet to correct all rows at once.',
-    S.WARN_BG, sst));
+  rows += row(
+    2,
+    30,
+    sc(
+      2,
+      1,
+      'Yellow rows = cost basis unknown. Cost per unit is pulled automatically from the "Cost Basis" sheet. Update the Cost Basis sheet to correct all rows at once.',
+      S.WARN_BG,
+      sst
+    )
+  );
 
   // R3 — spacer
   rows += row(3, 8, '');
 
   // R4 — headers: Date, Asset, Amount Sold, Proceeds($), API P&L($), Cost Per Unit (from CB), Cost Basis($), Adjusted P&L($)
-  const hdrs = ['Date', 'Asset', 'Amount Sold', 'Proceeds ($)', 'API P&L ($)', 'Cost Per Unit\n(from Cost Basis)', 'Cost Basis ($)', 'Adjusted P&L ($)'];
+  const hdrs = [
+    'Date',
+    'Asset',
+    'Amount Sold',
+    'Proceeds ($)',
+    'API P&L ($)',
+    'Cost Per Unit\n(from Cost Basis)',
+    'Cost Basis ($)',
+    'Adjusted P&L ($)',
+  ];
   rows += row(4, 36, hdrs.map((h, i) => sc(4, i + 1, h, S.HDR_NAVY, sst)).join(''));
 
   // Cost Basis sheet lookup range: assets in col A rows 5+, cost per unit in col D
@@ -599,15 +715,17 @@ function buildDisposalsSheet(d: StellarExportData, sst: SST): string {
     const cbFormula = `C${r}*F${r}`;
     const adjFormula = `D${r}-G${r}`;
 
-    rows += row(r, 20,
+    rows += row(
+      r,
+      20,
       sc(r, 1, t.date, useStyle, sst) +
-      sc(r, 2, assetSymbol, useStyle, sst) +
-      nc(r, 3, amountSold, numS) +
-      nc(r, 4, proceeds, numS) +
-      nc(r, 5, apiPnl, pnlS) +
-      fc(r, 6, cpuFormula, S.FORMULA_NUM, cpuCached) +
-      fc(r, 7, cbFormula, S.FORMULA_NUM, cbCached) +
-      fc(r, 8, adjFormula, adjCached >= 0 ? S.FORMULA_G : S.FORMULA_R, adjCached)
+        sc(r, 2, assetSymbol, useStyle, sst) +
+        nc(r, 3, amountSold, numS) +
+        nc(r, 4, proceeds, numS) +
+        nc(r, 5, apiPnl, pnlS) +
+        fc(r, 6, cpuFormula, S.FORMULA_NUM, cpuCached) +
+        fc(r, 7, cbFormula, S.FORMULA_NUM, cbCached) +
+        fc(r, 8, adjFormula, adjCached >= 0 ? S.FORMULA_G : S.FORMULA_R, adjCached)
     );
   });
 
@@ -631,21 +749,38 @@ function buildDisposalsSheet(d: StellarExportData, sst: SST): string {
     const cpu = posObj?.openingCostPerUnit ?? 0;
     const cb = amountSold * cpu;
     totalDisposalsCostBasis += cb;
-    totalAdjustedPnl += (proceeds - cb);
+    totalAdjustedPnl += proceeds - cb;
   });
 
-  rows += row(totalRow, 22,
+  rows += row(
+    totalRow,
+    22,
     sc(totalRow, 1, 'TOTAL', S.TOTAL_LBL, sst) +
-    sc(totalRow, 2, '', S.TOTAL_LBL, sst) +
-    fc(totalRow, 3, `SUM(C${dataStart}:C${dataEnd})`, S.KPI_BLUE,
-      disposals.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0)) +
-    fc(totalRow, 4, `SUM(D${dataStart}:D${dataEnd})`, S.KPI_BLUE,
-      disposals.reduce((s, t) => s + (parseFloat(t.usdc.replace(/[^0-9.-]/g, '')) || 0), 0)) +
-    fc(totalRow, 5, `SUM(E${dataStart}:E${dataEnd})`, S.KPI_BLUE,
-      disposals.reduce((s, t) => s + (t.pnlNum ?? 0), 0)) +
-    sc(totalRow, 6, '', S.TOTAL_LBL, sst) +
-    fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, totalDisposalsCostBasis) +
-    fc(totalRow, 8, `SUM(H${dataStart}:H${dataEnd})`, S.KPI_BLUE, totalAdjustedPnl)
+      sc(totalRow, 2, '', S.TOTAL_LBL, sst) +
+      fc(
+        totalRow,
+        3,
+        `SUM(C${dataStart}:C${dataEnd})`,
+        S.KPI_BLUE,
+        disposals.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0)
+      ) +
+      fc(
+        totalRow,
+        4,
+        `SUM(D${dataStart}:D${dataEnd})`,
+        S.KPI_BLUE,
+        disposals.reduce((s, t) => s + (parseFloat(t.usdc.replace(/[^0-9.-]/g, '')) || 0), 0)
+      ) +
+      fc(
+        totalRow,
+        5,
+        `SUM(E${dataStart}:E${dataEnd})`,
+        S.KPI_BLUE,
+        disposals.reduce((s, t) => s + (t.pnlNum ?? 0), 0)
+      ) +
+      sc(totalRow, 6, '', S.TOTAL_LBL, sst) +
+      fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, totalDisposalsCostBasis) +
+      fc(totalRow, 8, `SUM(H${dataStart}:H${dataEnd})`, S.KPI_BLUE, totalAdjustedPnl)
   );
 
   const cols = [
@@ -691,15 +826,17 @@ function buildTradeLogSheet(d: StellarExportData, sst: SST): string {
 
     const typeStyle = t.type === 'BUY' ? S.PNL_GREEN : t.type === 'SELL' ? S.PNL_RED : S.KPI_BLUE;
 
-    rows += row(r, 16,
+    rows += row(
+      r,
+      16,
       sc(r, 1, t.date, bg, sst) +
-      sc(r, 2, t.type, typeStyle, sst) +
-      sc(r, 3, t.action, bg, sst) +
-      sc(r, 4, t.amount, bg, sst) +
-      sc(r, 5, t.price, nbg, sst) +
-      sc(r, 6, t.usdc, nbg, sst) +
-      sc(r, 7, t.pnl ?? '', pnlS, sst) +
-      sc(r, 8, t.source ?? '', bg, sst)
+        sc(r, 2, t.type, typeStyle, sst) +
+        sc(r, 3, t.action, bg, sst) +
+        sc(r, 4, t.amount, bg, sst) +
+        sc(r, 5, t.price, nbg, sst) +
+        sc(r, 6, t.usdc, nbg, sst) +
+        sc(r, 7, t.pnl ?? '', pnlS, sst) +
+        sc(r, 8, t.source ?? '', bg, sst)
     );
   });
 
@@ -711,9 +848,7 @@ function buildTradeLogSheet(d: StellarExportData, sst: SST): string {
   const dataStart = 3;
   const dataEnd = dataStart + Math.max(trades.length, 1) - 1;
   const totalRow = dataEnd + 1;
-  rows += row(totalRow, 22,
-    sc(totalRow, 1, `TOTAL (${trades.length} trades)`, S.TOTAL_LBL, sst)
-  );
+  rows += row(totalRow, 22, sc(totalRow, 1, `TOTAL (${trades.length} trades)`, S.TOTAL_LBL, sst));
 
   const cols = [
     `<col min="1" max="1" width="14" customWidth="1"/>`,
@@ -819,7 +954,6 @@ function downloadBlob(data: Uint8Array, filename: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // PUBLIC API — Stellar Report (real XLSX with 4 sheets + cross-sheet formulas)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -839,33 +973,65 @@ export function exportStellarReport(stellar: StellarExportData): void {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function usdFmt(n: number): string {
-  const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const abs = Math.abs(n).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
   return n < 0 ? `-$${abs}` : `$${abs}`;
 }
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '';
-  try { return new Date(iso).toLocaleString(); } catch { return String(iso); }
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return String(iso);
+  }
 }
 
 function calcDydxStats(dydx: DydxExportData) {
-  let closedCount = 0, profitCount = 0, totalPnl = 0;
+  let closedCount = 0,
+    profitCount = 0,
+    totalPnl = 0;
   dydx.fills.forEach(f => {
     if (f.positionSideBefore && f.positionSizeBefore && f.entryPriceBefore) {
       const sizeBefore = parseFloat(f.positionSizeBefore);
       const entry = parseFloat(f.entryPriceBefore);
-      const fp = parseFloat(f.price), fs = parseFloat(f.size);
+      const fp = parseFloat(f.price),
+        fs = parseFloat(f.size);
       let pnl: number | null = null;
-      if (f.positionSideBefore === 'LONG' && f.side === 'SELL') pnl = (fp - entry) * Math.min(sizeBefore, fs);
-      if (f.positionSideBefore === 'SHORT' && f.side === 'BUY') pnl = (entry - fp) * Math.min(sizeBefore, fs);
-      if (pnl !== null) { closedCount++; totalPnl += pnl; if (pnl > 0) profitCount++; }
+      if (f.positionSideBefore === 'LONG' && f.side === 'SELL')
+        pnl = (fp - entry) * Math.min(sizeBefore, fs);
+      if (f.positionSideBefore === 'SHORT' && f.side === 'BUY')
+        pnl = (entry - fp) * Math.min(sizeBefore, fs);
+      if (pnl !== null) {
+        closedCount++;
+        totalPnl += pnl;
+        if (pnl > 0) profitCount++;
+      }
     }
   });
-  const deposits = dydx.transfers.filter(t => t.type === 'DEPOSIT').reduce((s, t) => s + parseFloat(t.size || '0'), 0);
-  const withdrawals = dydx.transfers.filter(t => t.type === 'WITHDRAWAL').reduce((s, t) => s + parseFloat(t.size || '0'), 0);
+  const deposits = dydx.transfers
+    .filter(t => t.type === 'DEPOSIT')
+    .reduce((s, t) => s + parseFloat(t.size || '0'), 0);
+  const withdrawals = dydx.transfers
+    .filter(t => t.type === 'WITHDRAWAL')
+    .reduce((s, t) => s + parseFloat(t.size || '0'), 0);
   const startEquity = dydx.pnlHistory.length > 0 ? parseFloat(dydx.pnlHistory[0].equity || '0') : 0;
-  const endEquity = dydx.pnlHistory.length > 0 ? parseFloat(dydx.pnlHistory[dydx.pnlHistory.length - 1].equity || '0') : 0;
-  return { closedCount, profitCount, totalPnl, deposits, withdrawals, netCapital: deposits - withdrawals, startEquity, endEquity };
+  const endEquity =
+    dydx.pnlHistory.length > 0
+      ? parseFloat(dydx.pnlHistory[dydx.pnlHistory.length - 1].equity || '0')
+      : 0;
+  return {
+    closedCount,
+    profitCount,
+    totalPnl,
+    deposits,
+    withdrawals,
+    netCapital: deposits - withdrawals,
+    startEquity,
+    endEquity,
+  };
 }
 
 function buildDydxSummarySheet(dydx: DydxExportData, sst: SST): string {
@@ -873,11 +1039,31 @@ function buildDydxSummarySheet(dydx: DydxExportData, sst: SST): string {
   const winRate = st.closedCount > 0 ? (st.profitCount / st.closedCount) * 100 : 0;
   let rows = '';
 
+  const fundingPayments = dydx.fundingPayments || [];
+  let totalFundingReceived = 0;
+  let totalFundingPaid = 0;
+  fundingPayments.forEach(p => {
+    const val = parseFloat(p.payment || '0');
+    if (val > 0) {
+      totalFundingReceived += val;
+    } else {
+      totalFundingPaid += Math.abs(val);
+    }
+  });
+  const netFundingPnl = totalFundingReceived - totalFundingPaid;
+
   rows += row(1, 40, sc(1, 1, 'SwiftEx — dYdX Perpetuals P&L Report', S.TITLE, sst));
   rows += row(2, 14, sc(2, 1, `Period: ${dydx.period}`, S.SUBTITLE, sst));
   rows += row(3, 8, '');
 
-  const kvRow = (r: number, label: string, val: string | number, isCurrency = false, isPnl = false, pnlVal = 0) => {
+  const kvRow = (
+    r: number,
+    label: string,
+    val: string | number,
+    isCurrency = false,
+    isPnl = false,
+    pnlVal = 0
+  ) => {
     let valCell = '';
     const alt = r % 2 === 0;
     const bg = alt ? S.CELL : S.CELL_ALT;
@@ -898,41 +1084,79 @@ function buildDydxSummarySheet(dydx: DydxExportData, sst: SST): string {
     return row(r, 18, sc(r, 1, label, bg, sst) + valCell);
   };
 
+  const mergeRows: number[] = [1, 2];
+
   let r = 4;
+  mergeRows.push(r);
   rows += row(r++, 20, sc(r - 1, 1, 'Trading metrics', S.HDR_NAVY, sst));
   rows += kvRow(r++, 'Total Fills (Trades Count)', dydx.fills.length);
   rows += kvRow(r++, 'Closed Trades Count', st.closedCount);
   rows += kvRow(r++, 'Realized Trade PnL', st.totalPnl, true, true, st.totalPnl);
 
-  const successStr = st.closedCount > 0
-    ? `${winRate.toFixed(1)}% (${st.profitCount} of ${st.closedCount} profitable)`
-    : 'N/A';
-  rows += row(r, 18, sc(r, 1, 'Trade Success Rate (%)', r % 2 === 0 ? S.CELL : S.CELL_ALT, sst) + sc(r, 2, successStr, S.NUM_RIGHT, sst));
+  const successStr =
+    st.closedCount > 0
+      ? `${winRate.toFixed(1)}% (${st.profitCount} of ${st.closedCount} profitable)`
+      : 'N/A';
+  rows += row(
+    r,
+    18,
+    sc(r, 1, 'Trade Success Rate (%)', r % 2 === 0 ? S.CELL : S.CELL_ALT, sst) +
+      sc(r, 2, successStr, S.NUM_RIGHT, sst)
+  );
   r++;
 
   rows += row(r++, 12, '');
+  mergeRows.push(r);
+  rows += row(r++, 20, sc(r - 1, 1, 'Funding Payments', S.HDR_NAVY, sst));
+  rows += kvRow(
+    r++,
+    'Total Funding Received',
+    totalFundingReceived,
+    true,
+    true,
+    totalFundingReceived
+  );
+  rows += kvRow(r++, 'Total Funding Paid', totalFundingPaid, true, true, -totalFundingPaid);
+  rows += kvRow(r++, 'Net Funding PnL', netFundingPnl, true, true, netFundingPnl);
+
+  rows += row(r++, 12, '');
+  mergeRows.push(r);
   rows += row(r++, 20, sc(r - 1, 1, 'Financial Performance', S.HDR_NAVY, sst));
   rows += kvRow(r++, 'Starting Account Value (Equity)', st.startEquity, true);
   rows += kvRow(r++, 'Ending Account Value (Equity)', st.endEquity, true);
   rows += kvRow(r++, 'Total Deposited', st.deposits, true);
   rows += kvRow(r++, 'Total Withdrawn', st.withdrawals, true);
   rows += kvRow(r++, 'Net Capital Funded', st.netCapital, true, true, st.netCapital);
-  rows += kvRow(r++, 'Net Period Gain/Loss (PnL)', st.totalPnl, true, true, st.totalPnl);
+  rows += kvRow(
+    r++,
+    'Net Period Gain/Loss (PnL)',
+    st.totalPnl + netFundingPnl,
+    true,
+    true,
+    st.totalPnl + netFundingPnl
+  );
 
   rows += row(r++, 12, '');
-  rows += row(r++, 20, sc(r - 1, 1, '📌  See "Trade Log" sheet for all fills · "Transaction History" for deposits & withdrawals', S.SECTION, sst));
+  mergeRows.push(r);
+  rows += row(
+    r++,
+    20,
+    sc(
+      r - 1,
+      1,
+      '📌  See "Trade Log" sheet for all fills · "Transaction History" for deposits & withdrawals · "Funding Payments" for all payments',
+      S.SECTION,
+      sst
+    )
+  );
 
   const cols = [
     `<col min="1" max="1" width="34" customWidth="1"/>`,
     `<col min="2" max="2" width="40" customWidth="1"/>`,
   ].join('');
 
-  const merges = `<mergeCells count="5">
-    <mergeCell ref="A1:B1"/>
-    <mergeCell ref="A2:B2"/>
-    <mergeCell ref="A4:B4"/>
-    <mergeCell ref="A9:B9"/>
-    <mergeCell ref="A${r - 1}:B${r - 1}"/>
+  const merges = `<mergeCells count="${mergeRows.length}">
+    ${mergeRows.map(rowNum => `<mergeCell ref="A${rowNum}:B${rowNum}"/>`).join('\n    ')}
   </mergeCells>`;
 
   return sheet(rows, cols, merges, 0);
@@ -943,7 +1167,18 @@ function buildDydxTradeLogSheet(dydx: DydxExportData, sst: SST): string {
 
   rows += row(1, 36, sc(1, 1, 'dYdX Trade Log — Fills & Closed PnLs', S.TITLE, sst));
 
-  const hdrs = ['Date', 'Market', 'Side', 'Type', 'Size', 'Price ($)', 'Total Value ($)', 'Fee ($)', 'Liquidity', 'Closed PnL ($)'];
+  const hdrs = [
+    'Date',
+    'Market',
+    'Side',
+    'Type',
+    'Size',
+    'Price ($)',
+    'Total Value ($)',
+    'Fee ($)',
+    'Liquidity',
+    'Closed PnL ($)',
+  ];
   rows += row(2, 22, hdrs.map((h, i) => sc(2, i + 1, h, S.HDR_NAVY, sst)).join(''));
 
   const fills = dydx.fills;
@@ -963,23 +1198,29 @@ function buildDydxTradeLogSheet(dydx: DydxExportData, sst: SST): string {
     let closedPnl: number | null = null;
     if (f.positionSideBefore && f.positionSizeBefore && f.entryPriceBefore) {
       const sizeBefore = parseFloat(f.positionSizeBefore);
-      const entry = parseFloat(f.entryPriceBefore), fp = parseFloat(f.price), fs = parseFloat(f.size);
-      if (f.positionSideBefore === 'LONG' && f.side === 'SELL') closedPnl = (fp - entry) * Math.min(sizeBefore, fs);
-      if (f.positionSideBefore === 'SHORT' && f.side === 'BUY') closedPnl = (entry - fp) * Math.min(sizeBefore, fs);
+      const entry = parseFloat(f.entryPriceBefore),
+        fp = parseFloat(f.price),
+        fs = parseFloat(f.size);
+      if (f.positionSideBefore === 'LONG' && f.side === 'SELL')
+        closedPnl = (fp - entry) * Math.min(sizeBefore, fs);
+      if (f.positionSideBefore === 'SHORT' && f.side === 'BUY')
+        closedPnl = (entry - fp) * Math.min(sizeBefore, fs);
     }
     const pnlS = closedPnl == null ? nbg : closedPnl >= 0 ? S.PNL_GREEN : S.PNL_RED;
 
-    rows += row(r, 16,
+    rows += row(
+      r,
+      16,
       sc(r, 1, fmtDate(f.createdAt), bg, sst) +
-      sc(r, 2, f.market || (f as any).ticker || '', bg, sst) +
-      sc(r, 3, f.side, sideS, sst) +
-      sc(r, 4, f.type || '', bg, sst) +
-      nc(r, 5, size, nbg) +
-      nc(r, 6, price, nbg) +
-      nc(r, 7, total, nbg) +
-      nc(r, 8, fee, nbg) +
-      sc(r, 9, f.liquidity || '', bg, sst) +
-      nc(r, 10, closedPnl, pnlS)
+        sc(r, 2, f.market || (f as any).ticker || '', bg, sst) +
+        sc(r, 3, f.side, sideS, sst) +
+        sc(r, 4, f.type || '', bg, sst) +
+        nc(r, 5, size, nbg) +
+        nc(r, 6, price, nbg) +
+        nc(r, 7, total, nbg) +
+        nc(r, 8, fee, nbg) +
+        sc(r, 9, f.liquidity || '', bg, sst) +
+        nc(r, 10, closedPnl, pnlS)
     );
   });
 
@@ -990,15 +1231,31 @@ function buildDydxTradeLogSheet(dydx: DydxExportData, sst: SST): string {
   const dataStart = 3;
   const dataEnd = dataStart + Math.max(fills.length, 1) - 1;
   const totalRow = dataEnd + 1;
-  rows += row(totalRow, 22,
+  rows += row(
+    totalRow,
+    22,
     sc(totalRow, 1, `TOTAL (${fills.length} fills)`, S.TOTAL_LBL, sst) +
-    sc(totalRow, 2, '', S.TOTAL_LBL, sst) + sc(totalRow, 3, '', S.TOTAL_LBL, sst) +
-    sc(totalRow, 4, '', S.TOTAL_LBL, sst) + sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
-    sc(totalRow, 6, '', S.TOTAL_LBL, sst) +
-    fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, fills.reduce((s, f) => s + parseFloat(f.size) * parseFloat(f.price), 0)) +
-    fc(totalRow, 8, `SUM(H${dataStart}:H${dataEnd})`, S.KPI_BLUE, fills.reduce((s, f) => s + Math.abs(parseFloat(f.fee || '0')), 0)) +
-    sc(totalRow, 9, '', S.TOTAL_LBL, sst) +
-    fc(totalRow, 10, `SUM(J${dataStart}:J${dataEnd})`, S.KPI_BLUE, 0)
+      sc(totalRow, 2, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 3, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 4, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 6, '', S.TOTAL_LBL, sst) +
+      fc(
+        totalRow,
+        7,
+        `SUM(G${dataStart}:G${dataEnd})`,
+        S.KPI_BLUE,
+        fills.reduce((s, f) => s + parseFloat(f.size) * parseFloat(f.price), 0)
+      ) +
+      fc(
+        totalRow,
+        8,
+        `SUM(H${dataStart}:H${dataEnd})`,
+        S.KPI_BLUE,
+        fills.reduce((s, f) => s + Math.abs(parseFloat(f.fee || '0')), 0)
+      ) +
+      sc(totalRow, 9, '', S.TOTAL_LBL, sst) +
+      fc(totalRow, 10, `SUM(J${dataStart}:J${dataEnd})`, S.KPI_BLUE, 0)
   );
 
   const cols = [
@@ -1037,13 +1294,15 @@ function buildDydxTransferSheet(dydx: DydxExportData, sst: SST): string {
     const typeS = isDeposit ? S.PNL_GREEN : S.PNL_RED;
     const amount = parseFloat(t.size || '0');
 
-    rows += row(r, 16,
+    rows += row(
+      r,
+      16,
       sc(r, 1, fmtDate(t.createdAt), bg, sst) +
-      sc(r, 2, t.type, typeS, sst) +
-      nc(r, 3, amount, nbg) +
-      sc(r, 4, t.sender?.address || '', bg, sst) +
-      sc(r, 5, t.recipient?.address || '', bg, sst) +
-      sc(r, 6, t.transactionHash || '', bg, sst)
+        sc(r, 2, t.type, typeS, sst) +
+        nc(r, 3, amount, nbg) +
+        sc(r, 4, t.sender?.address || '', bg, sst) +
+        sc(r, 5, t.recipient?.address || '', bg, sst) +
+        sc(r, 6, t.transactionHash || '', bg, sst)
     );
   });
 
@@ -1054,15 +1313,33 @@ function buildDydxTransferSheet(dydx: DydxExportData, sst: SST): string {
   const dataStart = 3;
   const dataEnd = dataStart + Math.max(transfers.length, 1) - 1;
   const totalRow = dataEnd + 1;
-  const totalDeposits = transfers.filter(t => t.type === 'DEPOSIT').reduce((s, t) => s + parseFloat(t.size || '0'), 0);
-  const totalWithdrawals = transfers.filter(t => t.type === 'WITHDRAWAL').reduce((s, t) => s + parseFloat(t.size || '0'), 0);
-  rows += row(totalRow, 22,
+  const totalDeposits = transfers
+    .filter(t => t.type === 'DEPOSIT')
+    .reduce((s, t) => s + parseFloat(t.size || '0'), 0);
+  const totalWithdrawals = transfers
+    .filter(t => t.type === 'WITHDRAWAL')
+    .reduce((s, t) => s + parseFloat(t.size || '0'), 0);
+  rows += row(
+    totalRow,
+    22,
     sc(totalRow, 1, `TOTAL (${transfers.length} transactions)`, S.TOTAL_LBL, sst) +
-    sc(totalRow, 2, `↑ ${usdFmt(totalDeposits)}  ↓ ${usdFmt(totalWithdrawals)}`, S.TOTAL_LBL, sst) +
-    fc(totalRow, 3, `SUM(C${dataStart}:C${dataEnd})`, S.KPI_BLUE, totalDeposits - totalWithdrawals) +
-    sc(totalRow, 4, '', S.TOTAL_LBL, sst) +
-    sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
-    sc(totalRow, 6, '', S.TOTAL_LBL, sst)
+      sc(
+        totalRow,
+        2,
+        `↑ ${usdFmt(totalDeposits)}  ↓ ${usdFmt(totalWithdrawals)}`,
+        S.TOTAL_LBL,
+        sst
+      ) +
+      fc(
+        totalRow,
+        3,
+        `SUM(C${dataStart}:C${dataEnd})`,
+        S.KPI_BLUE,
+        totalDeposits - totalWithdrawals
+      ) +
+      sc(totalRow, 4, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 6, '', S.TOTAL_LBL, sst)
   );
 
   const cols = [
@@ -1078,11 +1355,96 @@ function buildDydxTransferSheet(dydx: DydxExportData, sst: SST): string {
   return sheet(rows, cols, merges, 2);
 }
 
+function buildDydxFundingSheet(dydx: DydxExportData, sst: SST): string {
+  let rows = '';
+
+  rows += row(1, 36, sc(1, 1, 'dYdX Funding Payments History', S.TITLE, sst));
+
+  const hdrs = [
+    'Date',
+    'Market',
+    'Side',
+    'Oracle Price ($)',
+    'Position Size',
+    'Rate (%)',
+    'Payment ($)',
+  ];
+  rows += row(2, 22, hdrs.map((h, i) => sc(2, i + 1, h, S.HDR_NAVY, sst)).join(''));
+
+  const payments = dydx.fundingPayments || [];
+
+  payments.forEach((p, i) => {
+    const r = i + 3;
+    const alt = i % 2 === 0;
+    const bg = alt ? S.CELL : S.CELL_ALT;
+    const nbg = alt ? S.NUM : S.NUM_ALT;
+    const paymentVal = parseFloat(p.payment || '0');
+    const rateVal = parseFloat(p.rate || '0');
+    const oraclePrice = parseFloat(p.oraclePrice || '0');
+    const size = parseFloat(p.size || '0');
+
+    const paymentS = paymentVal >= 0 ? S.PNL_GREEN : S.PNL_RED;
+    const rateS = rateVal >= 0 ? S.PNL_GREEN : S.PNL_RED;
+
+    rows += row(
+      r,
+      16,
+      sc(r, 1, fmtDate(p.createdAt), bg, sst) +
+        sc(r, 2, p.ticker || '', bg, sst) +
+        sc(r, 3, p.side || '', bg, sst) +
+        nc(r, 4, oraclePrice, nbg) +
+        nc(r, 5, size, nbg) +
+        nc(r, 6, rateVal * 100, rateS) +
+        nc(r, 7, paymentVal, paymentS)
+    );
+  });
+
+  if (!payments.length) {
+    rows += row(3, 18, sc(3, 1, 'No funding payments recorded in this period.', S.CELL, sst));
+  }
+
+  const dataStart = 3;
+  const dataEnd = dataStart + Math.max(payments.length, 1) - 1;
+  const totalRow = dataEnd + 1;
+  const totalReceived = payments
+    .filter(p => parseFloat(p.payment) > 0)
+    .reduce((s, p) => s + parseFloat(p.payment), 0);
+  const totalPaid = payments
+    .filter(p => parseFloat(p.payment) < 0)
+    .reduce((s, p) => s + Math.abs(parseFloat(p.payment)), 0);
+
+  rows += row(
+    totalRow,
+    22,
+    sc(totalRow, 1, `TOTAL (${payments.length} payments)`, S.TOTAL_LBL, sst) +
+      sc(totalRow, 2, `↑ ${usdFmt(totalReceived)}  ↓ ${usdFmt(totalPaid)}`, S.TOTAL_LBL, sst) +
+      sc(totalRow, 3, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 4, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 5, '', S.TOTAL_LBL, sst) +
+      sc(totalRow, 6, '', S.TOTAL_LBL, sst) +
+      fc(totalRow, 7, `SUM(G${dataStart}:G${dataEnd})`, S.KPI_BLUE, totalReceived - totalPaid)
+  );
+
+  const cols = [
+    `<col min="1" max="1" width="20" customWidth="1"/>`,
+    `<col min="2" max="2" width="14" customWidth="1"/>`,
+    `<col min="3" max="3" width="10" customWidth="1"/>`,
+    `<col min="4" max="4" width="16" customWidth="1"/>`,
+    `<col min="5" max="5" width="16" customWidth="1"/>`,
+    `<col min="6" max="6" width="14" customWidth="1"/>`,
+    `<col min="7" max="7" width="18" customWidth="1"/>`,
+  ].join('');
+
+  const merges = `<mergeCells count="1"><mergeCell ref="A1:G1"/></mergeCells>`;
+  return sheet(rows, cols, merges, 2);
+}
+
 function buildDydxXlsx(dydx: DydxExportData): Uint8Array {
   const sst = makeSST();
   const s1 = buildDydxSummarySheet(dydx, sst);
   const s2 = buildDydxTradeLogSheet(dydx, sst);
   const s3 = buildDydxTransferSheet(dydx, sst);
+  const s4 = buildDydxFundingSheet(dydx, sst);
   const sstXml = sst.xml();
 
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1093,6 +1455,7 @@ function buildDydxXlsx(dydx: DydxExportData): Uint8Array {
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet4.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/sharedStrings.xml"     ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
   <Override PartName="/xl/styles.xml"            ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`;
@@ -1109,6 +1472,7 @@ function buildDydxXlsx(dydx: DydxExportData): Uint8Array {
     <sheet name="Summary"             sheetId="1" r:id="rId1"/>
     <sheet name="Trade Log"           sheetId="2" r:id="rId2"/>
     <sheet name="Transaction History" sheetId="3" r:id="rId3"/>
+    <sheet name="Funding Payments"     sheetId="4" r:id="rId4"/>
   </sheets>
 </workbook>`;
 
@@ -1117,8 +1481,9 @@ function buildDydxXlsx(dydx: DydxExportData): Uint8Array {
   ${rel('rId1', 'worksheet', 'worksheets/sheet1.xml')}
   ${rel('rId2', 'worksheet', 'worksheets/sheet2.xml')}
   ${rel('rId3', 'worksheet', 'worksheets/sheet3.xml')}
-  ${rel('rId4', 'styles', 'styles.xml')}
-  ${rel('rId5', 'sharedStrings', 'sharedStrings.xml')}
+  ${rel('rId4', 'worksheet', 'worksheets/sheet4.xml')}
+  ${rel('rId5', 'styles', 'styles.xml')}
+  ${rel('rId6', 'sharedStrings', 'sharedStrings.xml')}
 </Relationships>`;
 
   return buildZipFromParts({
@@ -1131,6 +1496,7 @@ function buildDydxXlsx(dydx: DydxExportData): Uint8Array {
     'xl/worksheets/sheet1.xml': strToU8(s1),
     'xl/worksheets/sheet2.xml': strToU8(s2),
     'xl/worksheets/sheet3.xml': strToU8(s3),
+    'xl/worksheets/sheet4.xml': strToU8(s4),
   });
 }
 

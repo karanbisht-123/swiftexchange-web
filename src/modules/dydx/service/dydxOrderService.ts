@@ -1,7 +1,7 @@
 import { PositionStatus, TickerType } from '@dydxprotocol/v4-client-js';
 
-import { dydxWalletService } from './dydxWalletService';
 import { useWebSocketStore } from '../store/websocketStore';
+import { dydxWalletService } from './dydxWalletService';
 
 export interface Position {
   market: string;
@@ -225,11 +225,7 @@ class DydxDataService {
     return this.getCachedValueWithoutSideEffects<FundingPaymentsResponse>(cacheKey);
   }
 
-  getCachedOrders(
-    ticker?: string,
-    limit?: number,
-    returnLatestOrders = true
-  ): Order[] | null {
+  getCachedOrders(ticker?: string, limit?: number, returnLatestOrders = true): Order[] | null {
     const cacheKey = `orders_${ticker || 'all'}_${limit || 'default'}_${returnLatestOrders}`;
     return this.getCachedValueWithoutSideEffects<Order[]>(cacheKey);
   }
@@ -284,7 +280,11 @@ class DydxDataService {
         entry.isFetching = false;
         this.notifyListeners(key, data);
         if (onSuccess) {
-          try { onSuccess(data); } catch (e) { console.error('[DydxDataService] onSuccess callback failed:', e); }
+          try {
+            onSuccess(data);
+          } catch (e) {
+            console.error('[DydxDataService] onSuccess callback failed:', e);
+          }
         }
       })
       .catch(err => {
@@ -392,18 +392,25 @@ class DydxDataService {
           return entry.data as Order[];
         }
         if (!entry.isFetching) {
-          const fetchPromise = this.fetchOrdersRaw(ticker, limit, returnLatestOrders, createdBeforeOrAt);
-          this.triggerBackgroundRevalidate(cacheKey, fetchPromise, (data) => {
+          const fetchPromise = this.fetchOrdersRaw(
+            ticker,
+            limit,
+            returnLatestOrders,
+            createdBeforeOrAt
+          );
+          this.triggerBackgroundRevalidate(cacheKey, fetchPromise, data => {
             try {
               const address = dydxWalletService.getAddress();
               const subaccountNumber = dydxWalletService.getSubaccountNumber();
               const parentKey = address ? `parent_subaccount_${address}_${subaccountNumber}` : null;
               if (parentKey) {
-                useWebSocketStore.getState().updateParentSubaccount(
-                  parentKey,
-                  { orders: data as any, lastUpdate: Date.now() },
-                  0
-                );
+                useWebSocketStore
+                  .getState()
+                  .updateParentSubaccount(
+                    parentKey,
+                    { orders: data as any, lastUpdate: Date.now() },
+                    0
+                  );
               }
             } catch (err) {
               console.error('[DydxDataService] Failed to update websocket store for orders:', err);
@@ -457,7 +464,12 @@ class DydxDataService {
     }
   }
 
-  async getFills(ticker?: string, limit?: number, useCache = true, createdBeforeOrAt?: string): Promise<Fill[]> {
+  async getFills(
+    ticker?: string,
+    limit?: number,
+    useCache = true,
+    createdBeforeOrAt?: string
+  ): Promise<Fill[]> {
     const cacheKey = `fills_${ticker || 'all'}_${limit || 'default'}_${createdBeforeOrAt || 'none'}`;
 
     if (useCache) {
@@ -472,17 +484,19 @@ class DydxDataService {
         // Stale-While-Revalidate background fetch
         if (!entry.isFetching) {
           const fetchPromise = this.fetchFillsRaw(ticker, limit, createdBeforeOrAt);
-          this.triggerBackgroundRevalidate(cacheKey, fetchPromise, (data) => {
+          this.triggerBackgroundRevalidate(cacheKey, fetchPromise, data => {
             // Update useWebSocketStore in the background so all subscribers get fresh data
             try {
               const address = dydxWalletService.getAddress();
               const subaccountNumber = dydxWalletService.getSubaccountNumber();
               const parentKey = address ? `parent_subaccount_${address}_${subaccountNumber}` : null;
               if (parentKey) {
-                useWebSocketStore.getState().updateParentSubaccount(
-                  parentKey,
-                  { fills: data as any, lastUpdate: Date.now() }
-                );
+                useWebSocketStore
+                  .getState()
+                  .updateParentSubaccount(parentKey, {
+                    fills: data as any,
+                    lastUpdate: Date.now(),
+                  });
               }
             } catch (err) {
               console.error('[DydxDataService] Failed to update websocket store for fills:', err);
@@ -500,7 +514,11 @@ class DydxDataService {
     return sorted;
   }
 
-  private async fetchFillsRaw(ticker?: string, limit?: number, createdBeforeOrAt?: string): Promise<Fill[]> {
+  private async fetchFillsRaw(
+    ticker?: string,
+    limit?: number,
+    createdBeforeOrAt?: string
+  ): Promise<Fill[]> {
     this.stats.restCalls++;
     const { indexer, address } = this.getContext();
 
@@ -563,7 +581,7 @@ class DydxDataService {
         netTransfers: item.netTransfers,
         createdAt: item.createdAt,
         blockHeight: item.createdAtHeight,
-        blockTime: item.createdAt
+        blockTime: item.createdAt,
       })) as HistoricalPnl[];
 
       // Deduplicate by createdAt
@@ -738,6 +756,59 @@ class DydxDataService {
     }
   }
 
+  async getFundingPaymentsByDateRange(fromDate: string, toDate: string): Promise<FundingPayment[]> {
+    const cacheKey = `funding_payments_range_${fromDate}_${toDate}`;
+    const cached = this.getCached<FundingPayment[]>(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const fromTime = new Date(fromDate).getTime();
+      const toISO = new Date(toDate);
+      toISO.setHours(23, 59, 59, 999);
+      const toTime = toISO.getTime();
+
+      const allPayments: FundingPayment[] = [];
+      let page = 1;
+      const limit = 100;
+      let hasMore = true;
+
+      while (hasMore) {
+        const response = await this.getFundingPayments(undefined, limit, page, false);
+        const payments = response.fundingPayments || [];
+        if (payments.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        let reachedBeforeFromDate = false;
+        for (const p of payments) {
+          const t = new Date(p.createdAt).getTime();
+          if (t >= fromTime && t <= toTime) {
+            allPayments.push(p);
+          } else if (t < fromTime) {
+            reachedBeforeFromDate = true;
+          }
+        }
+
+        if (
+          reachedBeforeFromDate ||
+          payments.length < limit ||
+          allPayments.length >= response.totalResults
+        ) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+
+      allPayments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      this.setCache(cacheKey, allPayments);
+      return allPayments;
+    } catch (err) {
+      console.error('[DydxDataService] getFundingPaymentsByDateRange failed:', err);
+      return [];
+    }
+  }
 
   async getOrdersByDateRange(fromDate: string, toDate: string): Promise<Order[]> {
     const cacheKey = `orders_range_${fromDate}_${toDate}`;
