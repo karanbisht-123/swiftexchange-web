@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 
+import InfoBanner from '../../../../../components/common/InfoBanner';
 import { Tooltip } from '../../../../../components/common/Tooltip';
 import { useDydxWallet } from '../../../hooks/useDydxWallet';
 import { useTrades } from '../../../hooks/useTrades';
@@ -182,6 +183,13 @@ export const OrderReceipt: React.FC<OrderReceiptProps> = ({
     <div className="flex flex-col px-2">
       {calculations && (
         <div className=" rounded-lg rounded-b-none bg-secondary overflow-hidden border border-color border-b-0">
+          <InfoBanner
+            variant="warning"
+            label="Beta:"
+            message={"This feature is currently in Beta. We're actively testing and improving it."}
+            margin="mx-0 mt-0 mb-2"
+          />
+
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="w-full flex items-center justify-between p-3 text-xs font-medium text-muted hover:text-primary transition-colors bg-primary"

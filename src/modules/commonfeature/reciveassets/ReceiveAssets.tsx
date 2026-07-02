@@ -1,14 +1,15 @@
+import { AlertCircle, ChevronRight, Copy, Loader2, Plus, QrCode } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
-import { Copy, ChevronRight, QrCode, AlertCircle, Plus, Loader2 } from 'lucide-react';
+
 import QRCode from 'qrcode';
 
-import PageLayout from '../../../components/layout/PageLayout';
-import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
-import { useReceiveAssets } from '../hook/useReceiveassets';
-import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
-import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
-import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { ConfirmationModal } from '../../../components/common/ConfirmationModal';
+import PageLayout from '../../../components/layout/PageLayout';
+import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
+import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
+import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
+import { useReceiveAssets } from '../hook/useReceiveassets';
 
 interface QRCardProps {
   walletAddress: string;
@@ -20,7 +21,16 @@ interface QRCardProps {
   isAddingTrustline?: boolean;
   onAddTrustlineClick?: () => void;
 }
-const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handleShare, hasTrustline, isAddingTrustline, onAddTrustlineClick }: QRCardProps) => {
+const QRCard = ({
+  walletAddress,
+  isAddressValid,
+  currentAsset,
+  handleCopy,
+  handleShare,
+  hasTrustline,
+  isAddingTrustline,
+  onAddTrustlineClick,
+}: QRCardProps) => {
   const canInteract = !!walletAddress && isAddressValid;
 
   const canvasCallbackRef = useCallback(
@@ -42,7 +52,9 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
           errorCorrectionLevel: 'H',
           color: { dark: '#000000', light: '#ffffff' },
         },
-        err => { if (err) console.error('QR error:', err); }
+        err => {
+          if (err) console.error('QR error:', err);
+        }
       );
     },
     [walletAddress, isAddressValid]
@@ -84,7 +96,7 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
             </p>
             <div className="bg-bg-secondary rounded-xl p-4 relative group">
               <div className="text-xs font-mono text-text-primary whitespace-nowrap overflow-x-auto hide-scrollbar leading-relaxed pr-8 pb-1">
-                {walletAddress || "Address not available"}
+                {walletAddress || 'Address not available'}
               </div>
               <button
                 onClick={handleCopy}
@@ -95,7 +107,9 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
               </button>
             </div>
             {!isAddressValid && walletAddress && (
-              <p className="text-[10px] text-danger font-bold mt-2">Invalid {currentAsset?.network} Address</p>
+              <p className="text-[10px] text-danger font-bold mt-2">
+                Invalid {currentAsset?.network} Address
+              </p>
             )}
           </div>
 
@@ -106,7 +120,11 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
                 disabled={!canInteract || isAddingTrustline}
                 className="flex-1 btn-primary text-white py-4 rounded-xl text-sm font-black shadow-lg transition-all disabled:opacity-30 flex items-center justify-center gap-2"
               >
-                {isAddingTrustline ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                {isAddingTrustline ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Plus size={16} />
+                )}
                 Add Trustline
               </button>
             ) : (
@@ -135,7 +153,9 @@ const QRCard = ({ walletAddress, isAddressValid, currentAsset, handleCopy, handl
             <AlertCircle size={14} className="text-warning" />
           </div>
           <p className="text-[10px] text-text-secondary leading-tight font-medium">
-            Send only <span className="font-black text-text-primary">{currentAsset?.symbol}</span> via the <span className="font-black text-text-primary">{currentAsset?.network}</span> network to avoid permanent loss of funds.
+            Send only <span className="font-black text-text-primary">{currentAsset?.symbol}</span>{' '}
+            via the <span className="font-black text-text-primary">{currentAsset?.network}</span>{' '}
+            network to avoid permanent loss of funds.
           </p>
         </div>
       </div>
@@ -177,7 +197,7 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
     handleShare,
     hasTrustline,
     isAddingTrustline,
-    onAddTrustlineClick: () => setIsConfirmModalOpen(true)
+    onAddTrustlineClick: () => setIsConfirmModalOpen(true),
   };
 
   return (
@@ -188,6 +208,8 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
       showBackButton={!!onClose}
       maxWidth="lg"
       hasFooter={false}
+      isBeta
+      betaMessage="This feature is in Beta. Please double-check the network and address crypto transactions can't be reversed."
     >
       <div className=" mx-auto space-y-5">
         {copyFeedback && (
@@ -200,7 +222,9 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
           <StellarActiveGuard onSkip={onClose} bypass={currentAsset?.isNative}>
             <div className="space-y-5">
               <div className="space-y-2">
-                <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Receiving Asset</label>
+                <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">
+                  Receiving Asset
+                </label>
                 <button
                   onClick={() => openAssetSelector('RECEIVE')}
                   className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-2xl p-4 transition-all active:scale-[0.99] text-left"
@@ -209,7 +233,11 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                     <div className="flex items-center gap-4">
                       <div className="relative">
                         {currentAsset?.image ? (
-                          <img src={currentAsset.image} alt="" className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary" />
+                          <img
+                            src={currentAsset.image}
+                            alt=""
+                            className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary"
+                          />
                         ) : (
                           <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center text-sm font-bold text-text-secondary border border-divider">
                             {currentAsset?.symbol.slice(0, 2)}
@@ -217,18 +245,27 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                         )}
                         {currentChainLogo && (
                           <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-lg border border-divider overflow-hidden">
-                            <img src={currentChainLogo} alt="" className="w-full h-full object-contain" />
+                            <img
+                              src={currentChainLogo}
+                              alt=""
+                              className="w-full h-full object-contain"
+                            />
                           </div>
                         )}
                       </div>
                       <div>
-                        <div className="font-black text-lg text-text-primary leading-none mb-1">{currentAsset?.symbol || "Select Asset"}</div>
+                        <div className="font-black text-lg text-text-primary leading-none mb-1">
+                          {currentAsset?.symbol || 'Select Asset'}
+                        </div>
                         <div className="text-[10px] text-brand-primary font-black uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded-md inline-block">
-                          {currentAsset?.network || "All"}
+                          {currentAsset?.network || 'All'}
                         </div>
                       </div>
                     </div>
-                    <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight
+                      size={18}
+                      className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5"
+                    />
                   </div>
                 </button>
               </div>
@@ -240,7 +277,9 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
           <EvmActionGuard>
             <div className="space-y-5">
               <div className="space-y-2">
-                <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">Receiving Asset</label>
+                <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider px-1">
+                  Receiving Asset
+                </label>
                 <button
                   onClick={() => openAssetSelector('RECEIVE')}
                   className="group relative w-full bg-bg-tertiary hover:bg-bg-hover rounded-2xl p-4 transition-all active:scale-[0.99] text-left"
@@ -249,7 +288,11 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                     <div className="flex items-center gap-4">
                       <div className="relative">
                         {currentAsset?.image ? (
-                          <img src={currentAsset.image} alt="" className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary" />
+                          <img
+                            src={currentAsset.image}
+                            alt=""
+                            className="w-12 h-12 rounded-full shadow-md border-2 border-bg-secondary"
+                          />
                         ) : (
                           <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center text-sm font-bold text-text-secondary border border-divider">
                             {currentAsset?.symbol.slice(0, 2)}
@@ -257,18 +300,27 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
                         )}
                         {currentChainLogo && (
                           <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-lg border border-divider overflow-hidden">
-                            <img src={currentChainLogo} alt="" className="w-full h-full object-contain" />
+                            <img
+                              src={currentChainLogo}
+                              alt=""
+                              className="w-full h-full object-contain"
+                            />
                           </div>
                         )}
                       </div>
                       <div>
-                        <div className="font-black text-lg text-text-primary leading-none mb-1">{currentAsset?.symbol || "Select Asset"}</div>
+                        <div className="font-black text-lg text-text-primary leading-none mb-1">
+                          {currentAsset?.symbol || 'Select Asset'}
+                        </div>
                         <div className="text-[10px] text-brand-primary font-black uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded-md inline-block">
-                          {currentAsset?.network || "All"}
+                          {currentAsset?.network || 'All'}
                         </div>
                       </div>
                     </div>
-                    <ChevronRight size={18} className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight
+                      size={18}
+                      className="text-text-muted group-hover:text-brand-primary transition-transform group-hover:translate-x-0.5"
+                    />
                   </div>
                 </button>
               </div>
@@ -284,7 +336,11 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
         title="Add Trustline"
         message={
           <div className="space-y-2">
-            <p>You are about to add a trustline for <span className="font-bold text-brand-primary">{currentAsset?.symbol}</span>. This will reserve 0.5 XLM in your account.</p>
+            <p>
+              You are about to add a trustline for{' '}
+              <span className="font-bold text-brand-primary">{currentAsset?.symbol}</span>. This
+              will reserve 0.5 XLM in your account.
+            </p>
             <p className="text-xs opacity-60">You'll need to sign a transaction in your wallet.</p>
           </div>
         }
@@ -300,4 +356,3 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
 };
 
 export default ReceiveAssets;
-

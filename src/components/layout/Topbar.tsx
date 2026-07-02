@@ -37,7 +37,15 @@ const Topbar: React.FC = () => {
 
   return (
     <header className="h-16 bg-(--color-bg-secondary) border-b border-(--color-border) flex items-center justify-between px-2">
-      <h1 className="text-lg font-semibold text-(--color-text-primary)"></h1>
+      <div className="flex items-center gap-2.5 px-2 ml-14 lg:ml-2 select-none">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md  text-sm lg:text-md font-bold tracking-widest bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 dark:border-amber-500/30 transition-all duration-300 hover:scale-105 hover:bg-amber-500/20 hover:border-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.12)]">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-md bg-amber-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-sm h-1.5 w-1.5 bg-amber-500"></span>
+          </span>
+          BETA
+        </span>
+      </div>
 
       <div className="flex items-center gap-4">
         <NetworkSwitch />
