@@ -43,6 +43,8 @@ const AlchemyPayIntegration = () => {
       maxWidth="lg"
       hasFooter
       footerContent={footerContent}
+      isBeta
+      betaMessage="This feature is in Beta. Please double-check the network and address crypto transactions can't be reversed."
     >
       <div className="max-w-5xl mx-auto space-y-4">
         <div className="p-2 rounded-lg bg-primary">
@@ -54,12 +56,13 @@ const AlchemyPayIntegration = () => {
                   key={tab.id}
                   disabled={isTransactionActive && !isActive}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative py-1 lg:py-2 px-2 text-sm font-semibold rounded-lg transition-all duration-200 ${isActive
+                  className={`relative py-1 lg:py-2 px-2 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                    isActive
                       ? tab.id === 'buy'
                         ? 'bg-green-500 text-white shadow-md'
                         : 'bg-red-500 text-white shadow-md'
                       : 'bg-transparent text-secondary hover:bg-hover'
-                    } ${isTransactionActive && !isActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  } ${isTransactionActive && !isActive ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span className="flex items-center justify-center gap-2">
                     <span className="text-lg">{tab.icon}</span>

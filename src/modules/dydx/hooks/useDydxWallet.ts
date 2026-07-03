@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { dydxWalletService } from '../service/dydxWalletService';
@@ -33,6 +33,14 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     }, [])
   );
 
+  const [status, setStatus] = useState(() => dydxWalletService.getStatus());
+
+  useEffect(() => {
+    return dydxWalletService.onStatusChange(newStatus => {
+      setStatus(newStatus);
+    });
+  }, []);
+
   const hasDydxWallet = !!dydxAddress;
 
   const isFirstMountRef = useRef(true);
@@ -53,11 +61,8 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     )
   );
 
-  // Subscribe to WS parent subaccount when wallet is connected.
-  // We intentionally subscribe on every (address, subaccountNumber) change —
-  // the store's ref-counting de-dupes repeated calls.
   useEffect(() => {
-    if (!dydxAddress || !dydxWalletService.isConnected()) return;
+    if (!dydxAddress || !dydxWalletService.isReadyForTrading()) return;
 
     subscribeToParentSubaccount(dydxAddress, subaccountNumber);
     isFirstMountRef.current = false;
@@ -66,34 +71,33 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
       unsubscribeFromParentSubaccount(dydxAddress, subaccountNumber);
       isFirstMountRef.current = true;
     };
-  }, [dydxAddress, subaccountNumber, subscribeToParentSubaccount, unsubscribeFromParentSubaccount]);
+  }, [
+    dydxAddress,
+    subaccountNumber,
+    status,
+    subscribeToParentSubaccount,
+    unsubscribeFromParentSubaccount,
+  ]);
 
-  // Derive balance entirely from WS parentData
   const balance: AccountBalance | null = parentData
     ? {
-      totalEquity: parentData.equity || '0',
-      crossEquity:
-        parentData.childSubaccounts?.find(c => c.subaccountNumber === 0)?.equity || '0',
-      freeCollateral: parentData.freeCollateral || '0',
-    }
+        totalEquity: parentData.equity || '0',
+        crossEquity:
+          parentData.childSubaccounts?.find(c => c.subaccountNumber === 0)?.equity || '0',
+        freeCollateral: parentData.freeCollateral || '0',
+      }
     : null;
 
   const lastUpdateTime = parentData?.lastUpdate ?? null;
   // dataLoaded = WS snapshot has arrived at least once (lastUpdate > 0)
   const dataLoaded = parentData !== undefined && parentData.lastUpdate > 0;
 
-  // isReceivingUpdates reflects whether the WebSocket itself is alive and we
-  // have loaded the initial subaccount snapshot.  We deliberately do NOT use
-  // the last subaccount message timestamp here, because the subaccount channel
-  // is silent when there is no account activity (no trades, no orders, no
-  // funding) — that is EXPECTED behaviour, not a broken connection.
-  // True connection health is maintained by the browser's native RFC-6455
-  // ping/pong frames + our application-level ping every 30 s (see WebSocketManager).
   const wsIsConnected = useWebSocketStore(s => s.isConnected);
-  const isReceivingUpdates = hasDydxWallet && dydxWalletService.isConnected() && wsIsConnected && dataLoaded;
+  const isReceivingUpdates =
+    hasDydxWallet && dydxWalletService.isConnected() && wsIsConnected && dataLoaded;
 
   return {
-    isConnected: hasDydxWallet && dydxWalletService.isConnected(),
+    isConnected: hasDydxWallet && (status === 'connected' || status === 'no_subaccount'),
     address: dydxAddress,
     balance,
     dataLoaded,

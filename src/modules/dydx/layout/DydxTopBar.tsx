@@ -1,7 +1,8 @@
 import { type FC } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
+
 import { useApiTradingKeys } from '../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
 interface TabItem {
   key: string;
@@ -14,7 +15,8 @@ const DydxTopBar: FC = () => {
   const activeTab = searchParams.get('view') || 'trade';
 
   const hasDydx = useWalletStore(
-    state => !!(state.connectedWallets.evm?.dydxAddress || state.connectedWallets.cosmos?.dydxAddress)
+    state =>
+      !!(state.connectedWallets.evm?.dydxAddress || state.connectedWallets.cosmos?.dydxAddress)
   );
   const { openModal } = useApiTradingKeys();
   const openExportPhraseModal = useWalletStore(state => state.openExportPhraseModal);
@@ -39,8 +41,8 @@ const DydxTopBar: FC = () => {
   };
 
   return (
-    <div className="w-full bg-secondary border-b border-color hidden lg:block">
-      <div className="flex items-center justify-between px-4">
+    <div className="w-full bg-secondary hidden lg:block mb-1 overflow-x-auto scrollbar-hide">
+      <div className="flex items-center justify-between gap-4  min-w-max">
         <div className="flex items-center gap-1">
           {tabs.map(tab => {
             const isActive = activeTab === tab.key;

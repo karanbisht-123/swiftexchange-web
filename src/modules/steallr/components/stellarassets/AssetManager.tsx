@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+
 import PageLayout from '../../../../components/layout/PageLayout';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
@@ -19,6 +20,8 @@ const AssetManager: React.FC = () => {
       title="Assets"
       subtitle="Manage Your Portfolio"
       maxWidth="xl"
+      isBeta
+      betaMessage="This feature is currently in Beta. We're actively testing and improving it."
     >
       <UnifiedAssets userAddress={stellarAddress} onAssetClick={handleAssetClick} />
     </PageLayout>

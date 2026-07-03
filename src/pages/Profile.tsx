@@ -2,6 +2,7 @@ import { Activity, Globe, RefreshCw, User, Wallet } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { StellarCostBasisModal } from '../components/StellarCostBasisModal';
+import PageLayout from '../components/layout/PageLayout';
 import LiquidationRiskBanner from '../modules/dydx/components/LiquidationRiskBanner';
 import PositionsPanel from '../modules/dydx/components/orderHistory/PositionsPanel';
 import { useDydxAutoConnect } from '../modules/dydx/hooks/useDydxAutoConnect';
@@ -1211,8 +1212,7 @@ const Profile: React.FC = () => {
   const connectedCount = Object.values(connectedWallets).filter(w => w?.address).length;
 
   return (
-    <div className="bg-secondary p-4 md:p-6 lg:rounded-xl lg:max-w-7xl w-full max-w-[100vw] mx-auto space-y-6 my-4">
-      {/* ========== COMPACT HEADER ========== */}
+    <PageLayout title="Portfolio" maxWidth="7xl" isBeta>
       <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-4 relative overflow-hidden shadow-md">
         <div className="absolute top-0 right-0 w-48 h-48 bg-brand-primary/10 rounded-full blur-3xl -mr-12 -mt-12 pointer-events-none" />
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 relative z-10">
@@ -1519,7 +1519,7 @@ const Profile: React.FC = () => {
           handleStartExport(exportTimeframe, exportFromDate, exportToDate, exportIsCustom)
         }
       />
-    </div>
+    </PageLayout>
   );
 };
 

@@ -55,7 +55,9 @@ export const DydxWalletConnect: React.FC = () => {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [lastAttemptedQuantums, setLastAttemptedQuantums] = useState<string | null>(null);
-  const [stableNoFunds, setStableNoFunds] = useState(false);
+  const [stableNoFunds, setStableNoFunds] = useState(
+    () => dydxWalletService.getStatus() === 'no_subaccount'
+  );
   const noFundsTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { isConnected, address, balance, dataLoaded, error } = useDydxWallet();
@@ -97,7 +99,8 @@ export const DydxWalletConnect: React.FC = () => {
       !isConnecting &&
       !connectionError &&
       dydxWalletService.getStatus() !== 'connecting' &&
-      dydxWalletService.getStatus() !== 'connected'
+      dydxWalletService.getStatus() !== 'connected' &&
+      dydxWalletService.getStatus() !== 'no_subaccount'
     ) {
       setIsConnecting(true);
       setConnectionError(null);
@@ -227,15 +230,19 @@ export const DydxWalletConnect: React.FC = () => {
     balance !== null && Number(balance.totalEquity) === 0 && Number(balance.crossEquity) === 0;
 
   const noFundsCandidate =
-    dataLoaded &&
     !connectionError &&
     !!hasEvmWallet &&
     !needsDydxDerivation &&
     !isConnecting &&
-    (isSubaccountNotFound || hasZeroBalance);
+    (dydxWalletService.getStatus() === 'no_subaccount' ||
+      (dataLoaded && (isSubaccountNotFound || hasZeroBalance)));
 
   useEffect(() => {
     if (noFundsCandidate) {
+      if (dydxWalletService.getStatus() === 'no_subaccount') {
+        setStableNoFunds(true);
+        return;
+      }
       if (noFundsTimerRef.current === null) {
         noFundsTimerRef.current = setTimeout(() => {
           noFundsTimerRef.current = null;
@@ -271,21 +278,16 @@ export const DydxWalletConnect: React.FC = () => {
               {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
             </p>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted leading-relaxed min-w-0">
-              Add funds to start trading on dYdX
-            </p>
-            <button
-              onClick={() => setShowDepositModal(true)}
-              className="text-xs font-medium py-1.5 px-3 rounded flex-shrink-0 transition-colors"
-              style={{
-                backgroundColor: 'var(--color-brand-accent)',
-                color: 'var(--color-text-inverse)',
-              }}
-            >
-              Add Funds
-            </button>
-          </div>
+          <button
+            onClick={() => setShowDepositModal(true)}
+            className="text-xs w-full font-medium py-2.5 px-3 rounded flex-shrink-0 transition-colors"
+            style={{
+              backgroundColor: 'var(--color-brand-accent)',
+              color: 'var(--color-text-inverse)',
+            }}
+          >
+            Add funds to start trading
+          </button>
         </div>
         <DydxDepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
       </>

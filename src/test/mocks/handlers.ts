@@ -1,9 +1,5 @@
 // import { http, HttpResponse } from 'msw';
 
-/**
- * Define industry-standard mock request handlers for Mock Service Worker (MSW).
- * Add your API mock endpoints here.
- */
 export const handlers = [
   // Example handler:
   // http.get('https://api.example.com/user', () => {

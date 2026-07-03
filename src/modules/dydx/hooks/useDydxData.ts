@@ -367,14 +367,14 @@ export const useDydxData = (): UseDydxDataReturn => {
       if (!isMountedRef.current) return;
       if (status === 'connected') {
         setIsConnected(true);
-      } else if (status === 'disconnected') {
+      } else if (status === 'disconnected' || status === 'no_subaccount') {
         setIsConnected(false);
         hasInitializedRef.current = false;
         isFetchingRef.current = false;
       }
     });
 
-    if (dydxWalletService.isConnected()) setIsConnected(true);
+    if (dydxWalletService.isReadyForTrading()) setIsConnected(true);
 
     return unsubscribe;
   }, []);
