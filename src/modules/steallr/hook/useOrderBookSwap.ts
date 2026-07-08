@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import * as StellarSDK from '@stellar/stellar-sdk';
 
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
-import { useAmmSwapStore } from '../store/ammSwapStore';
-import { OrderBookSwapService } from '../service/orderBookSwapService';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import {
   BinanceBridgeService,
+  getBinanceSymbol,
   isBinanceSupported,
   isFlippedPair,
-  getBinanceSymbol,
 } from '../service/binanceBridgeService';
+import { OrderBookSwapService } from '../service/orderBookSwapService';
+import { useAmmSwapStore } from '../store/ammSwapStore';
 import type {
   LargeOrderOptions,
   LargeOrderQuote,
@@ -68,7 +69,6 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const currentStellarConfig = getStellarConfig(network);
   const mountedRef = useRef(true);
 
-
   useEffect(() => {
     try {
       const config = currentStellarConfig;
@@ -85,19 +85,19 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
   }, [currentStellarConfig]);
 
-
   const fetchBalances = useCallback(async () => {
-    if (!service || !userAddress) {
-      if (!userAddress) setError('No wallet address provided');
+    if (!service) {
       return;
     }
     setIsLoading(true);
     try {
-      const { tokens: balances, subentryCount: count } = await service.getAssetsWithBalances(userAddress);
+      const { tokens: balances, subentryCount: count } = await service.getAssetsWithBalances(
+        userAddress || ''
+      );
       if (!mountedRef.current) return;
 
       if (balances.length === 0) {
-        setError('No tokens found in your account. Please add tokens first.');
+        setError(userAddress ? 'No tokens found in your account. Please add tokens first.' : null);
         setAvailableTokens([]);
         return;
       }
@@ -106,14 +106,17 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         base: 'XLM',
         counter: 'USDC',
         baseIssuer: undefined,
-        counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5'
+        counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5',
       };
 
-      const targetFrom = balances.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer)
-        || balances.find(t => t.code === currentPair.base);
+      const targetFrom =
+        balances.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer) ||
+        balances.find(t => t.code === currentPair.base);
 
-      const targetTo = balances.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer)
-        || balances.find(t => t.code === currentPair.counter);
+      const targetTo =
+        balances.find(
+          t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer
+        ) || balances.find(t => t.code === currentPair.counter);
 
       if (!hasSetDefaultPairRef.current && targetFrom && targetTo) {
         setFromToken(targetFrom);
@@ -153,7 +156,9 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -171,7 +176,11 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         if (homeDomainCache.has(fromToken.issuer)) {
           const cached = homeDomainCache.get(fromToken.issuer)!;
           if (active) {
-            setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+            setFromToken(prev =>
+              prev && prev.issuer === fromToken.issuer
+                ? { ...prev, homeDomain: cached, domain: cached }
+                : prev
+            );
           }
         } else {
           try {
@@ -179,7 +188,11 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
             const domainName = account.home_domain || '';
             homeDomainCache.set(fromToken.issuer, domainName);
             if (active) {
-              setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+              setFromToken(prev =>
+                prev && prev.issuer === fromToken.issuer
+                  ? { ...prev, homeDomain: domainName, domain: domainName }
+                  : prev
+              );
             }
           } catch (e) {
             console.warn('Failed to load home domain for fromToken', e);
@@ -191,7 +204,11 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         if (homeDomainCache.has(toToken.issuer)) {
           const cached = homeDomainCache.get(toToken.issuer)!;
           if (active) {
-            setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+            setToToken(prev =>
+              prev && prev.issuer === toToken.issuer
+                ? { ...prev, homeDomain: cached, domain: cached }
+                : prev
+            );
           }
         } else {
           try {
@@ -199,7 +216,11 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
             const domainName = account.home_domain || '';
             homeDomainCache.set(toToken.issuer, domainName);
             if (active) {
-              setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+              setToToken(prev =>
+                prev && prev.issuer === toToken.issuer
+                  ? { ...prev, homeDomain: domainName, domain: domainName }
+                  : prev
+              );
             }
           } catch (e) {
             console.warn('Failed to load home domain for toToken', e);
@@ -243,8 +264,12 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
 
           if (!price) {
             const bestPrice = isBuy
-              ? (book.asks.length > 0 ? book.asks[0].price : null)
-              : (book.bids.length > 0 ? book.bids[0].price : null);
+              ? book.asks.length > 0
+                ? book.asks[0].price
+                : null
+              : book.bids.length > 0
+                ? book.bids[0].price
+                : null;
             if (bestPrice && isMounted) {
               setPrice(bestPrice);
             }
@@ -298,7 +323,8 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
               console.error('[useOrderBookSwap] Stream error, falling back to polling:', err);
               if (isMounted && !pollingInterval) {
                 pollingInterval = setInterval(() => {
-                  service.getOrderBook(fromToken.asset!, toToken.asset!, 20)
+                  service
+                    .getOrderBook(fromToken.asset!, toToken.asset!, 20)
                     .then(book => {
                       if (isMounted) {
                         setOrderBook(book);
@@ -348,7 +374,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     toToken?.issuer,
     isBuy,
     service,
-    binanceActive
+    binanceActive,
   ]);
 
   // Calculate quote
@@ -390,7 +416,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
       }
 
       const balance = parseFloat(fromToken.balance);
-      const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
+      const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
       const availableBalance = Math.max(0, balance - reserve);
       const newAmount = ((availableBalance * percentage) / 100).toFixed(7);
       setAmount(newAmount);
@@ -405,7 +431,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
 
     const balance = parseFloat(fromToken.balance);
-    const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
+    const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
     const maxAmount = Math.max(0, balance - reserve);
     setAmount(maxAmount.toFixed(7));
   }, [fromToken, subentryCount]);

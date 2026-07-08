@@ -34,7 +34,7 @@ const TransferHistoryPanel: React.FC = () => {
         setLoading(false);
       }
     },
-    [isConnected],
+    [isConnected]
   );
 
   useEffect(() => {
@@ -72,19 +72,16 @@ const TransferHistoryPanel: React.FC = () => {
         }
       }
     },
-    [transfers, loading, loadData],
+    [transfers, loading, loadData]
   );
 
-  const handleCopy = useCallback(
-    async (text: string, id: string) => {
-      const ok = await copyToClipboard(text);
-      if (ok) {
-        setCopiedId(id);
-        setTimeout(() => setCopiedId(null), 2000);
-      }
-    },
-    [],
-  );
+  const handleCopy = useCallback(async (text: string, id: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  }, []);
 
   const truncateAddress = (address: string) => {
     if (!address) return '';
@@ -93,7 +90,7 @@ const TransferHistoryPanel: React.FC = () => {
 
   const paginatedTransfers = transfers.slice(
     (localPage - 1) * ITEMS_PER_PAGE,
-    localPage * ITEMS_PER_PAGE,
+    localPage * ITEMS_PER_PAGE
   );
   const hasMore = transfers.length % INITIAL_FETCH_LIMIT === 0 && transfers.length > 0;
   const totalPages = hasMore
@@ -113,7 +110,7 @@ const TransferHistoryPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-primary">
+    <div className="h-full flex flex-col bg-secondary overflow-hidden">
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
@@ -160,9 +157,7 @@ const TransferHistoryPanel: React.FC = () => {
                           {truncateAddress(transfer.sender.address)}
                         </span>
                         <button
-                          onClick={() =>
-                            handleCopy(transfer.sender.address, `sender-${uniqueKey}`)
-                          }
+                          onClick={() => handleCopy(transfer.sender.address, `sender-${uniqueKey}`)}
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-primary"
                         >
                           {copiedId === `sender-${uniqueKey}` ? (
@@ -178,10 +173,7 @@ const TransferHistoryPanel: React.FC = () => {
                         </span>
                         <button
                           onClick={() =>
-                            handleCopy(
-                              transfer.recipient.address,
-                              `recipient-${uniqueKey}`,
-                            )
+                            handleCopy(transfer.recipient.address, `recipient-${uniqueKey}`)
                           }
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-primary"
                         >

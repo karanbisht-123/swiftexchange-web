@@ -97,7 +97,7 @@
 //     v4_parent_subaccounts: 0,
 //   };
 
-//   // ── Stale-channel detection 
+//   // ── Stale-channel detection
 //   private readonly CHANNEL_STALE_THRESHOLDS: Record<string, number> = {
 //     v4_trades: 60_000,
 //     v4_orderbook: 60_000,
@@ -811,9 +811,6 @@
 
 // export const webSocketManager = WebSocketManager.getInstance();
 
-
-
-
 export interface WebSocketSubscription {
   type: 'subscribe' | 'unsubscribe';
   channel: string;
@@ -1195,7 +1192,6 @@ class WebSocketManager {
     });
   }
 
-  // O(1) duplicate check via messageQueueKeys Set
   private queueMessage(message: WebSocketSubscription): void {
     const dedupeKey = `${message.type}_${message.channel}_${message.id ?? ''}_${message.batched ?? ''}`;
     if (this.messageQueueKeys.has(dedupeKey)) return;
@@ -1204,7 +1200,8 @@ class WebSocketManager {
     this.messageQueueKeys.add(dedupeKey);
 
     if (!this.flushTimer) {
-      this.flushTimer = setTimeout(() => this.flushMessageQueue(), this.FLUSH_INTERVAL);
+      const delay = this.isConnected() ? 0 : this.FLUSH_INTERVAL;
+      this.flushTimer = setTimeout(() => this.flushMessageQueue(), delay);
     }
   }
 
@@ -1350,7 +1347,11 @@ class WebSocketManager {
         this.microtaskScheduled = false;
         const calls = this.pendingHighPriorityCalls.splice(0, this.MAX_BATCH_SIZE);
         calls.forEach(({ handler, data }) => {
-          try { handler(data); } catch (e) { console.error(e); }
+          try {
+            handler(data);
+          } catch (e) {
+            console.error(e);
+          }
         });
         // Drain any remaining high-priority calls
         if (this.pendingHighPriorityCalls.length > 0) this.scheduleHandlerExecution(true);
@@ -1364,7 +1365,11 @@ class WebSocketManager {
       this.rafId = null;
       const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
       calls.forEach(({ handler, data }) => {
-        try { handler(data); } catch (e) { console.error(e); }
+        try {
+          handler(data);
+        } catch (e) {
+          console.error(e);
+        }
       });
       if (this.pendingHandlerCalls.length > 0) this.scheduleHandlerExecution();
     });
@@ -1391,7 +1396,11 @@ class WebSocketManager {
       if (tabIsHidden) return;
 
       if (now - this.lastMessageTime > this.CONNECTION_TIMEOUT) {
-        console.warn('[WS] Health check: no messages for', now - this.lastMessageTime, 'ms — closing');
+        console.warn(
+          '[WS] Health check: no messages for',
+          now - this.lastMessageTime,
+          'ms — closing'
+        );
         this.ws?.close();
         return;
       }
@@ -1442,13 +1451,21 @@ class WebSocketManager {
 
   private notifyConnectionHandlers(): void {
     this.connectionHandlers.forEach(handler => {
-      try { handler(); } catch (e) { console.error('[WS] Connection handler error:', e); }
+      try {
+        handler();
+      } catch (e) {
+        console.error('[WS] Connection handler error:', e);
+      }
     });
   }
 
   private notifyDisconnectionHandlers(): void {
     this.disconnectionHandlers.forEach(handler => {
-      try { handler(); } catch (e) { console.error('[WS] Disconnection handler error:', e); }
+      try {
+        handler();
+      } catch (e) {
+        console.error('[WS] Disconnection handler error:', e);
+      }
     });
   }
 
@@ -1459,11 +1476,15 @@ class WebSocketManager {
   getConnectionStatus(): 'connecting' | 'connected' | 'disconnected' | 'error' {
     if (!this.ws) return 'disconnected';
     switch (this.ws.readyState) {
-      case WebSocket.CONNECTING: return 'connecting';
-      case WebSocket.OPEN: return 'connected';
+      case WebSocket.CONNECTING:
+        return 'connecting';
+      case WebSocket.OPEN:
+        return 'connected';
       case WebSocket.CLOSING:
-      case WebSocket.CLOSED: return 'disconnected';
-      default: return 'error';
+      case WebSocket.CLOSED:
+        return 'disconnected';
+      default:
+        return 'error';
     }
   }
 

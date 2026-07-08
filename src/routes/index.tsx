@@ -18,8 +18,9 @@ import CryptoMarket from '../modules/market/CryptoMarket';
 // import TradeTransactionUI from '../modules/steallr/components/TradeTransactionUI';
 import StallerTradescreen from '../modules/steallr/components/tradescreen/StallerTradescreen';
 import Dashboard from '../pages/Dashboard';
-import Home from '../pages/Home';
+// import Home from '../pages/Home';
 import Profile from '../pages/Profile';
+import { HomeRedirect } from './HomeRedirect';
 import ProtectedRoute from './ProtectedRoute';
 
 const router = createBrowserRouter([
@@ -29,7 +30,25 @@ const router = createBrowserRouter([
     children: [
       {
         path: ROUTES.HOME,
-        element: <Home />,
+        element: <HomeRedirect />,
+      },
+      {
+        path: ROUTES.TRADING_DYDX_FUTURES,
+        element: (
+          <Layout>
+            <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
+              <TradingintrFace />
+            </GeolocationGuard>
+          </Layout>
+        ),
+      },
+      {
+        path: ROUTES.TRADING_STEALLR,
+        element: (
+          <Layout>
+            <StallerTradescreen />
+          </Layout>
+        ),
       },
       {
         element: <ProtectedRoute />,
@@ -58,14 +77,7 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-          {
-            path: ROUTES.TRADING_STEALLR,
-            element: (
-              <Layout>
-                <StallerTradescreen />
-              </Layout>
-            ),
-          },
+
           {
             path: ROUTES.TRANSACTIONS,
             element: (
@@ -99,19 +111,7 @@ const router = createBrowserRouter([
           //     </Layout>
           //   ),
           // },
-          {
-            path: ROUTES.TRADING_DYDX_FUTURES,
-            element: (
-              <Layout>
-                <GeolocationGuard
-                  restrictedLocations={RESTRICTED_TRADING_LOCATIONS}
-                  blocking={true}
-                >
-                  <TradingintrFace />
-                </GeolocationGuard>
-              </Layout>
-            ),
-          },
+
           {
             path: ROUTES.MARKETS,
             element: (

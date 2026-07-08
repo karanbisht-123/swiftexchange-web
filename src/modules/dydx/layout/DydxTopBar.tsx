@@ -1,6 +1,7 @@
 import { type FC } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { ROUTES } from '../../../constants/routes';
 import { useApiTradingKeys } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
@@ -37,11 +38,11 @@ const DydxTopBar: FC = () => {
   ];
 
   const handleTabClick = (tabKey: string) => {
-    navigate(`/trading/dydx/futures?view=${tabKey}`);
+    navigate(`${ROUTES.TRADING_DYDX_FUTURES}?view=${tabKey}`);
   };
 
   return (
-    <div className="w-full bg-secondary hidden lg:block mb-1 overflow-x-auto scrollbar-hide">
+    <div className="w-full bg-secondary hidden lg:block my-1.5 overflow-x-auto scrollbar-hide rounded-md py-1  px-2">
       <div className="flex items-center justify-between gap-4  min-w-max">
         <div className="flex items-center gap-1">
           {tabs.map(tab => {
@@ -52,7 +53,7 @@ const DydxTopBar: FC = () => {
                 key={tab.key}
                 onClick={() => handleTabClick(tab.key)}
                 className={`
-                  flex items-center gap-2 px-4 py-2 
+                  flex items-center gap-2 px-4 py-2 rounded-md
                   transition-all duration-150 font-medium text-sm
                   ${isActive ? 'text-white' : 'text-primary hover:bg-tertiary'}
                 `}
@@ -70,7 +71,7 @@ const DydxTopBar: FC = () => {
           <div className="flex items-center gap-1 h-full py-1">
             <button
               onClick={openModal}
-              className="px-4 py-2 bg-brand text-white text-xs font-bold hover:opacity-90 active:opacity-80 transition-all shadow-sm "
+              className="px-4 rounded-md py-2 bg-brand text-white text-xs font-bold hover:opacity-90 active:opacity-80 transition-all shadow-sm "
             >
               API Trading Keys
             </button>
@@ -80,7 +81,7 @@ const DydxTopBar: FC = () => {
                 borderColor: 'var(--color-border)',
                 color: 'var(--color-text-primary)',
               }}
-              className="px-4 py-2 border text-xs font-bold hover:bg-[var(--color-bg-hover)] active:opacity-80 transition-all shadow-sm "
+              className="px-4 py-2 rounded-md border text-xs font-bold hover:bg-[var(--color-bg-hover)] active:opacity-80 transition-all shadow-sm "
             >
               Export Phrase
             </button>

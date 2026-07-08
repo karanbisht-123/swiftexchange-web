@@ -35,7 +35,6 @@ const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
   return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
 
-
 export const resetAllClients = (isLogout = false): void => {
   cache.indexer = null;
   cache.validator = null;
@@ -51,9 +50,7 @@ export const resetAllClients = (isLogout = false): void => {
   }
 };
 
-const invalidateCacheForNetworkSwitch = (
-  newNetwork: 'mainnet' | 'testnet',
-): boolean => {
+const invalidateCacheForNetworkSwitch = (newNetwork: 'mainnet' | 'testnet'): boolean => {
   if (cache.network && cache.network !== newNetwork) {
     resetAllClients(false);
     return true;
@@ -147,9 +144,8 @@ const createSocketClient = () => {
       market: string,
       resolution: string,
       handler: MessageHandler,
-      batched = true,
-    ) =>
-      webSocketManager.subscribe('v4_candles', handler, `${market}/${resolution}`, batched),
+      batched = true
+    ) => webSocketManager.subscribe('v4_candles', handler, `${market}/${resolution}`, batched),
 
     subscribeToOrderbook: (market: string, handler: MessageHandler, batched = true) =>
       webSocketManager.subscribe('v4_orderbook', handler, market, batched),
@@ -158,13 +154,13 @@ const createSocketClient = () => {
       address: string,
       subaccountNumber: number,
       handler: MessageHandler,
-      batched = true,
+      batched = true
     ) =>
       webSocketManager.subscribe(
         'v4_parent_subaccounts',
         handler,
         `${address}/${subaccountNumber}`,
-        batched,
+        batched
       ),
 
     subscribeToBlockHeight: (handler: MessageHandler, batched = true) =>
@@ -237,7 +233,6 @@ export const useValidatorClient = (): ValidatorClient | null => {
   return client;
 };
 
-
 export const useCompositeClient = (): CompositeClient | null => {
   const network = useWalletStore(s => s.network);
   const [client, setClient] = useState<CompositeClient | null>(null);
@@ -297,3 +292,12 @@ export const getConnectionHealth = () => {
 export const logoutAndShutdown = () => {
   resetAllClients(true);
 };
+
+// Eagerly initialize socket client to start WebSocket connection ASAP on app startup
+setTimeout(() => {
+  try {
+    getSocketClient();
+  } catch (err) {
+    console.error('[SocketClient] Eager connection failed:', err);
+  }
+}, 0);

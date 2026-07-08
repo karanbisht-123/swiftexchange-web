@@ -108,9 +108,8 @@ const Profile: React.FC = () => {
   const [exportToDate, setExportToDate] = useState<string | null>(null);
   const [exportIsCustom, setExportIsCustom] = useState<boolean>(false);
 
-  // Stellar PNL state variables
   const [stellarPnlData, setStellarPnlData] = useState<any>(null);
-  const [loadingStellarPnl, setLoadingStellarPnl] = useState(false);
+  const [loadingStellarPnl, setLoadingStellarPnl] = useState(true);
   const [stellarPnlError, setStellarPnlError] = useState<string | null>(null);
   const [stellarTimeframe, setStellarTimeframe] = useState<'1w' | '1m' | '2m' | '3m'>('1m');
   const [stellarSubTab, setStellarSubTab] = useState<'overview' | 'highlights' | 'stats'>(
@@ -333,6 +332,8 @@ const Profile: React.FC = () => {
             setLoadingStellarPnl(false);
           }
         });
+    } else {
+      setLoadingStellarPnl(false);
     }
 
     return () => {

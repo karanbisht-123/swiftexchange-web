@@ -1,22 +1,22 @@
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import { Tooltip } from '../../../../components/common/Tooltip';
 import { useMarkets } from '../../hooks/useMarkets';
 import { tradesState } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
 import { useLivePriceStore } from '../../store/useLivePriceStore';
 import { useWebSocketStore } from '../../store/websocketStore';
-import MarketSelectorModal from './MarketSelectorModal';
-import { Tooltip } from '../../../../components/common/Tooltip';
-import {
-  formatFundingRate,
-  formatAnnualizedFundingRate,
-  fetchDydxServerTime,
-  getNextFundingTimestamp,
-  formatFundingCountdown,
-} from '../../utils/FundingUtils';
 import { formatMarketPrice } from '../../utils/BigNumberUtils';
+import {
+  fetchDydxServerTime,
+  formatAnnualizedFundingRate,
+  formatFundingCountdown,
+  formatFundingRate,
+  getNextFundingTimestamp,
+} from '../../utils/FundingUtils';
 import { currencyService } from '../../utils/currencyService';
+import MarketSelectorModal from './MarketSelectorModal';
 
 interface AnimatedPriceProps {
   price: string | number;
@@ -47,7 +47,9 @@ const AnimatedPrice: React.FC<AnimatedPriceProps> = ({ price, tradeSide, classNa
   }, [price]);
 
   return (
-    <span className={`${className} ${getPriceColor()} transition-colors duration-300 font-bold tabular-nums`}>
+    <span
+      className={`${className} ${getPriceColor()} transition-colors duration-300 font-bold tabular-nums`}
+    >
       {displayPrice}
     </span>
   );
@@ -76,11 +78,13 @@ function useFundingCountdown(): string {
   const offsetRef = useRef<number>(0);
 
   useEffect(() => {
-    fetchDydxServerTime().then(serverMs => {
-      offsetRef.current = serverMs - Date.now();
-    }).catch(() => {
-      offsetRef.current = 0;
-    });
+    fetchDydxServerTime()
+      .then(serverMs => {
+        offsetRef.current = serverMs - Date.now();
+      })
+      .catch(() => {
+        offsetRef.current = 0;
+      });
 
     const interval = setInterval(() => {
       const serverNow = Date.now() + offsetRef.current;
@@ -107,16 +111,23 @@ interface MarketStatsProps {
   };
 }
 
-export const OpenInterestDisplay: React.FC<{ openInterest: string; oraclePrice: string; ticker: string; wrapperClassName?: string; valueClassName?: string }> = ({ openInterest, oraclePrice, ticker, wrapperClassName = '', valueClassName = '' }) => {
+export const OpenInterestDisplay: React.FC<{
+  openInterest: string;
+  oraclePrice: string;
+  ticker: string;
+  wrapperClassName?: string;
+  valueClassName?: string;
+}> = ({ openInterest, oraclePrice, ticker, wrapperClassName = '', valueClassName = '' }) => {
   const [mode, setMode] = useState<'USD' | 'BASE'>('USD');
 
   const baseAmount = parseFloat(openInterest || '0');
   const price = parseFloat(oraclePrice || '0');
   const usdAmount = currencyService.convertToUsd(baseAmount, price);
 
-  const displayValue = mode === 'USD'
-    ? `${usdAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-    : `${baseAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const displayValue =
+    mode === 'USD'
+      ? `${usdAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : `${baseAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
   const baseSymbol = ticker ? ticker.split('-')[0] : 'BASE';
   const displayLabel = mode === 'USD' ? 'USD' : baseSymbol;
@@ -134,7 +145,7 @@ export const OpenInterestDisplay: React.FC<{ openInterest: string; oraclePrice: 
       </div>
       <AnimatedValue
         value={displayValue}
-        className={valueClassName || "font-medium text-primary text-sm"}
+        className={valueClassName || 'font-medium text-primary text-sm'}
       />
     </div>
   );
@@ -207,10 +218,7 @@ const MarketSwitcher: React.FC = () => {
   const livePrice = livePriceData?.price || null;
   const livePriceSide = livePriceData?.side || null;
 
-
-  const wsOraclePrice = useWebSocketStore(
-    state => state.markets.get(selectedMarket)?.oraclePrice
-  );
+  const wsOraclePrice = useWebSocketStore(state => state.markets.get(selectedMarket)?.oraclePrice);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -226,7 +234,6 @@ const MarketSwitcher: React.FC = () => {
     initialMarginFraction: '0.05',
     maintenanceMarginFraction: '0',
   };
-
 
   const liveOraclePrice = wsOraclePrice ?? marketData.oraclePrice;
 
@@ -251,12 +258,12 @@ const MarketSwitcher: React.FC = () => {
     changePercentage >= 0 ? `+${priceChangePercentage}` : priceChangePercentage;
 
   const absChange = Math.abs(priceChange);
-  const formattedChangeStr = priceChange >= 0
-    ? `+$${absChange.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : `-$${absChange.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const formattedPercentStr = priceChange >= 0
-    ? `(+${priceChangePercentage}%)`
-    : `(${priceChangePercentage}%)`;
+  const formattedChangeStr =
+    priceChange >= 0
+      ? `+$${absChange.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : `-$${absChange.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formattedPercentStr =
+    priceChange >= 0 ? `(+${priceChangePercentage}%)` : `(${priceChangePercentage}%)`;
 
   const fundingFormatted = formatFundingRate(marketData.nextFundingRate);
   const annualized = formatAnnualizedFundingRate(marketData.nextFundingRate);
@@ -264,7 +271,8 @@ const MarketSwitcher: React.FC = () => {
 
   const imf = Number(marketData.initialMarginFraction);
   const maxLeverage = imf > 0 ? `${(1 / imf).toFixed(2)}×` : '-';
-  const leverageTooltip = "Maximum allowed leverage for this market. To limit risk, maximum leverage decreases linearly with position size after a certain threshold.";
+  const leverageTooltip =
+    'Maximum allowed leverage for this market. To limit risk, maximum leverage decreases linearly with position size after a certain threshold.';
 
   return (
     <>
@@ -279,13 +287,12 @@ const MarketSwitcher: React.FC = () => {
               src={marketData.coinIcon}
               alt={selectedMarket}
               className="w-6 h-6 rounded-full"
-              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              onError={e => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
             />
           ) : (
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-              style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}
-            >
+            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold">
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
           )}
@@ -306,23 +313,28 @@ const MarketSwitcher: React.FC = () => {
         </div>
       </div>
 
-      <div className="hidden lg:flex bg-secondary items-center w-full text-sm text-primary border-b border-color">
+      <div className="hidden  py-0.5 px-2 mb-1.5 lg:flex bg-secondary items-center w-full text-sm text-primary  rounded-lg">
         <button
           onClick={() => setIsModalOpen(true)}
           disabled={isLoading}
-          className="flex items-center gap-2 px-2 py-2.5 bg-tertiary hover:bg-hover transition-colors disabled:opacity-50 min-w-[140px]"
+          className="flex items-center gap-2 px-2 py-2.5  hover:bg-hover transition-colors disabled:opacity-50 min-w-[140px]"
         >
           {'coinIcon' in marketData && marketData.coinIcon ? (
             <img
               src={marketData.coinIcon}
               alt={selectedMarket}
               className="w-6 h-6 rounded-full"
-              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              onError={e => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
             />
           ) : (
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-              style={{ background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))' }}
+              style={{
+                background:
+                  'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-accent))',
+              }}
             >
               {selectedMarket.split('-')[0].slice(0, 2)}
             </div>
@@ -343,7 +355,6 @@ const MarketSwitcher: React.FC = () => {
 
         <div className="hide-scrollbar flex items-center overflow-x-auto px-2 flex-1">
           <div className="flex divide-x divide-divider whitespace-nowrap">
-
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Oracle Price</span>
               {/* liveOraclePrice comes from websocketStore — live WS updates applied */}
@@ -355,9 +366,14 @@ const MarketSwitcher: React.FC = () => {
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Change</span>
-              <div className={`flex items-center gap-1 font-medium ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}>
+              <div
+                className={`flex items-center gap-1 font-medium ${changePercentage >= 0 ? 'price-up' : 'price-down'}`}
+              >
                 <AnimatedValue value={formattedChangeStr} className="font-semibold text-xs" />
-                <AnimatedValue value={formattedPercentStr} className="font-medium text-xs opacity-90" />
+                <AnimatedValue
+                  value={formattedPercentStr}
+                  className="font-medium text-xs opacity-90"
+                />
               </div>
             </div>
 
@@ -371,7 +387,10 @@ const MarketSwitcher: React.FC = () => {
 
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">24h Trades</span>
-              <AnimatedValue value={marketData.trades24H.toLocaleString()} className="font-medium text-primary" />
+              <AnimatedValue
+                value={marketData.trades24H.toLocaleString()}
+                className="font-medium text-primary"
+              />
             </div>
 
             <OpenInterestDisplay
@@ -400,13 +419,9 @@ const MarketSwitcher: React.FC = () => {
             <div className="flex flex-col px-3">
               <span className="text-muted text-xs">Maximum Leverage</span>
               <Tooltip content={leverageTooltip} position="bottom">
-                <AnimatedValue
-                  value={maxLeverage}
-                  className="font-medium text-primary"
-                />
+                <AnimatedValue value={maxLeverage} className="font-medium text-primary" />
               </Tooltip>
             </div>
-
           </div>
         </div>
       </div>

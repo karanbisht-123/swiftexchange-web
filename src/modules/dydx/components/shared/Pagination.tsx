@@ -97,25 +97,25 @@ export const Pagination: React.FC<PaginationProps> = ({
 
   return (
     <div className="border-t border-color bg-secondary">
-      <div className="hidden md:flex items-center justify-between gap-4 px-4 py-3">
-        <div className="flex items-center gap-2 min-w-[140px]">
+      <div className="hidden md:flex items-center justify-between gap-4 px-4 py-2">
+        <div className="flex items-center gap-2 min-w-[180px]">
           {totalItems !== undefined && (
             <span className="text-xs text-muted">
-              {startItem}-{endItem} of {totalItems}
+              Showing {startItem} - {endItem} out of {totalItems}
               {hasMore && '+'}
             </span>
           )}
           {loading && <Loader2 className="w-3 h-3 text-muted animate-spin" />}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={handlePrevious}
             disabled={isFirstPage || loading}
-            className="p-1.5 rounded hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-hover text-muted hover:text-primary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted disabled:cursor-not-allowed transition-colors"
             aria-label="Previous page"
           >
-            <ChevronLeft className="w-4 h-4 text-muted" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
 
           <div className="flex items-center gap-1">
@@ -135,10 +135,10 @@ export const Pagination: React.FC<PaginationProps> = ({
                   key={page}
                   onClick={() => handlePageClick(page)}
                   disabled={loading}
-                  className={`min-w-[32px] px-2 py-2 rounded  text-xs font-medium transition-colors ${
+                  className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-semibold transition-all ${
                     isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'text-muted bg-primary hover:bg-hover hover:text-primary'
+                      ? 'bg-hover text-primary border border-color'
+                      : 'text-muted bg-transparent hover:text-primary hover:bg-hover'
                   } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   {page}
@@ -150,27 +150,39 @@ export const Pagination: React.FC<PaginationProps> = ({
           <button
             onClick={handleNext}
             disabled={isLastPage || loading}
-            className="p-1.5 rounded hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-hover text-muted hover:text-primary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted disabled:cursor-not-allowed transition-colors"
             aria-label="Next page"
           >
-            <ChevronRight className="w-4 h-4 text-muted" />
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="min-w-[100px] text-right">
-          <span className="text-xs text-muted">
-            Page {currentPage} of {totalPages}
-            {hasMore && '+'}
-          </span>
+        <div className="flex items-center gap-2 min-w-[180px] justify-end">
+          <span className="text-xs text-muted font-medium">Show</span>
+          <div className="relative">
+            <select
+              value={itemsPerPage}
+              disabled
+              className="bg-primary border border-color rounded-lg px-2.5 py-1 text-primary text-xs outline-none cursor-not-allowed appearance-none pr-6 font-semibold"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%237888a5' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E")`,
+                backgroundPosition: 'right 0.5rem center',
+                backgroundRepeat: 'no-repeat',
+                backgroundSize: '1em 1em',
+              }}
+            >
+              <option value={itemsPerPage}>{itemsPerPage}</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      <div className="md:hidden flex items-center justify-between px-3 py-2.5">
+      <div className="md:hidden flex items-center justify-between px-3 py-2">
         <div>
           <button
             onClick={handlePrevious}
             disabled={isFirstPage || loading}
-            className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium text-primary"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-transparent hover:bg-hover text-muted hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
             aria-label="Previous page"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
@@ -178,7 +190,7 @@ export const Pagination: React.FC<PaginationProps> = ({
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           {getMobilePageNumbers().map((page, index) => {
             const isActive = page === currentPage;
 
@@ -187,10 +199,10 @@ export const Pagination: React.FC<PaginationProps> = ({
                 key={`${page}-${index}`}
                 onClick={() => handlePageClick(page)}
                 disabled={loading}
-                className={`min-w-[32px] px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-semibold transition-all ${
                   isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-primary text-muted hover:bg-hover hover:text-primary'
+                    ? 'bg-hover text-primary border border-color'
+                    : 'text-muted bg-transparent hover:text-primary hover:bg-hover'
                 } ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
               >
                 {page}
@@ -204,7 +216,7 @@ export const Pagination: React.FC<PaginationProps> = ({
           <button
             onClick={handleNext}
             disabled={isLastPage || loading}
-            className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium text-primary"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-transparent hover:bg-hover text-muted hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
             aria-label="Next page"
           >
             Next

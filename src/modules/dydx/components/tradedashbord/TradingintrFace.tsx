@@ -52,11 +52,30 @@ const LoadingFallback = () => (
   </div>
 );
 
+const useIsDesktop = () => {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const listener = (e: MediaQueryListEvent) => {
+      setIsDesktop(e.matches);
+    };
+    mq.addEventListener('change', listener);
+    return () => mq.removeEventListener('change', listener);
+  }, []);
+
+  return isDesktop;
+};
+
 const TradingintrFace = () => {
   const [searchParams] = useSearchParams();
   const [activeChartTab, setActiveChartTab] = useState<'price' | 'depth' | 'funding'>('price');
   const view = searchParams.get('view') || 'trade';
   const { selectedMarket } = useMarketStore();
+  const isDesktop = useIsDesktop();
 
   const [activeBottomTab, setActiveBottomTab] = useState('positions');
 
@@ -68,88 +87,94 @@ const TradingintrFace = () => {
 
         {view === 'trade' && (
           <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="hidden lg:grid lg:grid-cols-[1fr_auto] flex-1 overflow-hidden">
-              <div className="flex flex-col overflow-hidden min-w-0">
-                <div className="flex overflow-hidden flex-1">
-                  <div className="flex-1 bg-secondary overflow-hidden flex flex-col">
-                    <MarketSwitcher />
-                    <div className="flex border-b border-color bg-secondary">
-                      {(['price', 'depth', 'funding'] as const).map(tab => (
-                        <button
-                          key={tab}
-                          onClick={() => setActiveChartTab(tab)}
-                          className="relative px-4 py-2 text-sm font-medium transition-all duration-200 capitalize"
-                        >
-                          <span
-                            className={
-                              activeChartTab === tab
-                                ? 'text-primary'
-                                : 'text-muted hover:text-primary'
-                            }
+            {isDesktop ? (
+              <div className="hidden lg:grid lg:grid-cols-[1fr_auto] flex-1 overflow-hidden">
+                <div className="flex flex-col overflow-hidden min-w-0">
+                  <div className="flex overflow-hidden flex-1">
+                    <div className="flex-1 overflow-hidden flex flex-col mr-1.5 rounded-lg">
+                      <MarketSwitcher />
+                      <div className="flex border-b border-color bg-secondary  rounded-t-lg">
+                        {(['price', 'depth', 'funding'] as const).map(tab => (
+                          <button
+                            key={tab}
+                            onClick={() => setActiveChartTab(tab)}
+                            className="relative px-4 py-2 text-sm font-medium transition-all duration-200 capitalize"
                           >
-                            {tab === 'price'
-                              ? 'Price Chart'
-                              : tab === 'depth'
-                                ? 'Depth'
-                                : 'Funding'}
-                          </span>
-                          {activeChartTab === tab && (
-                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-all duration-300" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                            <span
+                              className={
+                                activeChartTab === tab
+                                  ? 'text-primary'
+                                  : 'text-muted hover:text-primary'
+                              }
+                            >
+                              {tab === 'price'
+                                ? 'Price Chart'
+                                : tab === 'depth'
+                                  ? 'Depth'
+                                  : 'Funding'}
+                            </span>
+                            {activeChartTab === tab && (
+                              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-all duration-300" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
 
-                    <div className="flex-1 relative">
-                      <Suspense fallback={<TradingChartSkeleton />}>
-                        {activeChartTab === 'price' && (
-                          <div className="absolute inset-0">
-                            {/* <DyDxTradingChart /> */}
-                            <TradingChart />
-                          </div>
-                        )}
-                        {activeChartTab === 'depth' && (
-                          <div className="absolute inset-0">
-                            <DepthChart />
-                          </div>
-                        )}
-                        {activeChartTab === 'funding' && selectedMarket && (
-                          <div className="absolute inset-0">
-                            <FundingChart market={selectedMarket} />
-                          </div>
-                        )}
-                      </Suspense>
+                      <div className="flex-1 relative">
+                        <Suspense fallback={<TradingChartSkeleton />}>
+                          {activeChartTab === 'price' && (
+                            <div className="absolute inset-0">
+                              <TradingChart />
+                            </div>
+                          )}
+                          {activeChartTab === 'depth' && (
+                            <div className="absolute inset-0">
+                              <DepthChart />
+                            </div>
+                          )}
+                          {activeChartTab === 'funding' && selectedMarket && (
+                            <div className="absolute inset-0">
+                              <FundingChart market={selectedMarket} />
+                            </div>
+                          )}
+                        </Suspense>
+                      </div>
                     </div>
+                    <ResizablePanelHorizontal
+                      defaultWidth={300}
+                      minWidth={250}
+                      maxWidth={500}
+                      position="left"
+                      className="bg-secondary shrink-0 z-10 rounded-lg pb-1 px-1"
+                    >
+                      <Suspense fallback={<OrderbookSkeleton />}>
+                        <OrderAndTrades />
+                      </Suspense>
+                    </ResizablePanelHorizontal>
                   </div>
-                  <ResizablePanelHorizontal
-                    defaultWidth={300}
-                    minWidth={250}
-                    maxWidth={500}
-                    position="left"
-                    className="bg-secondary shrink-0 z-10"
+
+                  <ResizablePanel
+                    defaultHeight={32}
+                    minHeight={15}
+                    maxHeight={60}
+                    className="my-1.5 rounded-lg "
                   >
-                    <Suspense fallback={<OrderbookSkeleton />}>
-                      <OrderAndTrades />
-                    </Suspense>
-                  </ResizablePanelHorizontal>
+                    <BottomTabsSection
+                      activeBottomTab={activeBottomTab}
+                      setActiveBottomTab={setActiveBottomTab}
+                    />
+                  </ResizablePanel>
                 </div>
 
-                <ResizablePanel defaultHeight={32} minHeight={15} maxHeight={60}>
-                  <BottomTabsSection
-                    activeBottomTab={activeBottomTab}
-                    setActiveBottomTab={setActiveBottomTab}
-                  />
-                </ResizablePanel>
+                <div className="bg-secondary flex-shrink-0 h-full overflow-hidden mb-1.5 ml-1.5 rounded-lg">
+                  <Suspense fallback={<TradingFormSkeleton />}>
+                    <DydxTradingForm />
+                  </Suspense>
+                </div>
               </div>
-
-              <div className="bg-secondary flex-shrink-0 h-full overflow-hidden">
-                <Suspense fallback={<TradingFormSkeleton />}>
-                  <DydxTradingForm />
-                </Suspense>
-              </div>
-            </div>
-
-            <MobileLayout />
+            ) : (
+              <MobileLayout />
+            )}
           </div>
         )}
 
@@ -774,7 +799,7 @@ const BottomTabsSection = ({
         })}
       </div>
 
-      <div className="flex-1 overflow-hidden flex flex-col min-h-0 pb-6 relative">
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0 relative">
         <Suspense fallback={<TablePanelSkeleton />}>
           <div
             style={{ display: activeBottomTab === 'positions' ? 'flex' : 'none' }}

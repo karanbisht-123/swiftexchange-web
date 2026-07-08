@@ -149,7 +149,7 @@ const AmmSwapUI = () => {
     }
 
     if (!stellarWallet) {
-      alert('Please connect your Stellar wallet first');
+      openModal();
       return;
     }
 
@@ -439,14 +439,18 @@ const AmmSwapUI = () => {
 
       <button
         onClick={handleSwap}
-        disabled={!canSwap || swapStatus === 'pending'}
+        disabled={stellarWallet ? !canSwap || swapStatus === 'pending' : false}
         className={`w-full py-4 sm:py-5 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] transition-all duration-500 mt-6 ${
-          canSwap && swapStatus !== 'pending'
-            ? 'btn btn-primary'
-            : 'bg-tertiary text-muted opacity-50 cursor-not-allowed border border-divider'
+          !stellarWallet
+            ? 'btn btn-primary bg-brand hover:bg-brand-hover text-white cursor-pointer'
+            : canSwap && swapStatus !== 'pending'
+              ? 'btn btn-primary'
+              : 'bg-tertiary text-muted opacity-50 cursor-not-allowed border border-divider'
         }`}
       >
-        {swapStatus === 'pending' ? (
+        {!stellarWallet ? (
+          'Connect Wallet'
+        ) : swapStatus === 'pending' ? (
           <span className="flex items-center justify-center gap-2">
             <RefreshCw className="w-5 h-5 animate-spin" />
             SWAPPING...
@@ -476,20 +480,6 @@ const AmmSwapUI = () => {
     </div>
   );
 
-  if (!stellarWallet) {
-    return (
-      <div className="bg-secondary h-full p-4 lg:p-6 rounded-xl flex items-center justify-center">
-        <div className="w-full max-w-lg text-center space-y-4">
-          <AlertCircle className="w-16 h-16 text-warning mx-auto" />
-          <h4 className="heading-4">Stellar Wallet Not Connected</h4>
-          <p className="text-muted">Please connect your Stellar wallet to start swapping tokens</p>
-          <button onClick={openModal} className="btn btn-primary btn-lg w-full font-semibold mt-4">
-            Connect Wallet
-          </button>
-        </div>
-      </div>
-    );
-  }
   return (
     <div className="flex flex-col lg:flex-row gap-1  lg:gap-4 h-full lg:p-0 overflow-y-auto lg:overflow-visible">
       <div className="w-full h-[300px] bg-secondary lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0 border border-color">

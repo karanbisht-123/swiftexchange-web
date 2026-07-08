@@ -472,7 +472,7 @@ export default function MarketsDisplay() {
 
   return (
     <div className="min-h-screen bg-primary text-primary">
-      <div className="bg-secondary sticky top-0 z-30 border-b border-color">
+      <div className="bg-secondary  sticky top-0 z-30 border-b border-color">
         <div className=" mx-auto ">
           <div className="relative rounded-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
@@ -498,7 +498,7 @@ export default function MarketsDisplay() {
         </div>
       </div>
 
-      <div className=" mx-auto ">
+      <div className=" mx-auto rounded-lg  ">
         {/* Overview cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3  pb-1">
           {/* Card 1: 24h Volume */}

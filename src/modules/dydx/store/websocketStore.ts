@@ -1405,22 +1405,6 @@ export function selectPortfolioMetrics(
     }
   });
 
-  const openCrossOrders = (data.orders || []).filter(
-    (o: TrackedOrder) =>
-      o.subaccountNumber === 0 && (o.status === 'OPEN' || o.status === 'BEST_EFFORT_OPENED')
-  );
-  for (const order of openCrossOrders) {
-    const pair = order.ticker || order.clobPairId;
-    if (!pair) continue;
-    const indexPair = pair.replace('-', '');
-    const mktData = marketsSnapshot?.get(pair) || marketsSnapshot?.get(indexPair);
-    if (!mktData) continue;
-    const absSize = Math.abs(parseFloat(order.size || '0'));
-    const oraclePrice = parseFloat(mktData.oraclePrice || '0');
-    const imf = parseFloat(mktData.initialMarginFraction || '0.05');
-    crossMarginUsed += absSize * oraclePrice * imf;
-  }
-
   const availableBalance = Math.max(0, crossEquityValue - crossMarginUsed - optimisticDelta);
   const marginUsagePercent =
     crossEquityValue > 0

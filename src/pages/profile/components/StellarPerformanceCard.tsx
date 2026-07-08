@@ -105,6 +105,27 @@ export const StellarPerformanceCard: React.FC<StellarPerformanceCardProps> = ({
     );
   }
 
+  if (
+    connectedWallets.stellar?.address &&
+    !loadingStellarPnl &&
+    (stellarPnlError || !stellarPnlData || Object.keys(stellarPnlData).length === 0)
+  ) {
+    return (
+      <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-6 shadow-premium text-center flex flex-col items-center justify-center min-h-[280px] relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl pointer-events-none group-hover:scale-110 transition-transform duration-500" />
+        <div className="w-16 h-16 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-4 shadow-sm">
+          <Compass size={28} className="text-purple-400 animate-pulse" />
+        </div>
+        <h4 className="font-extrabold text-base text-(--color-text-primary) tracking-tight mb-2">
+          Stellar Performance
+        </h4>
+        <p className="text-xs text-(--color-text-secondary) max-w-sm leading-relaxed mb-6">
+          Something went wrong at this moment. We are not able to provide Stellar service.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-4 shadow-md flex flex-col space-y-3">
       <div

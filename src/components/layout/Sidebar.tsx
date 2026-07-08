@@ -6,7 +6,6 @@ import {
   History,
   Landmark,
   LayoutDashboard,
-  Menu,
   QrCode,
   Repeat2,
   SendHorizontal,
@@ -63,16 +62,10 @@ const Sidebar: FC = () => {
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen]);
+    const handleToggle = () => setIsOpen(v => !v);
+    window.addEventListener('sidebar:toggle', handleToggle);
+    return () => window.removeEventListener('sidebar:toggle', handleToggle);
+  }, []);
 
   const navItems: NavItem[] = [
     {
@@ -145,15 +138,6 @@ const Sidebar: FC = () => {
 
   return (
     <>
-      <button
-        id="hamburger-btn"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`lg:hidden fixed top-4 left-4 z-50 p-2 rounded-xl transition-all duration-300 shadow-lg ${
-          isOpen ? 'bg-secondary text-primary translate-x-[56px]' : 'bg-secondary text'
-        }`}
-      >
-        {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-      </button>
       {isOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/30 z-40 transition-opacity"
@@ -171,10 +155,11 @@ const Sidebar: FC = () => {
           ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
-        <div className="h-14 flex items-center justify-center border-b border-color">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold">
+        <div className="h-16 py-1 flex flex-col items-center justify-center border-b border-color">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
             <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>
+          <h2 className="text-sm font-semibold">BETA</h2>
         </div>
         <nav className="flex-1 p-1 pb-4 overflow-y-auto hide-scrollbar">
           <div className="space-y-0.5">
