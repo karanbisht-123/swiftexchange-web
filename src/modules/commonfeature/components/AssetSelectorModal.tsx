@@ -1,15 +1,16 @@
-import { Search, X, Copy, SearchX, Check } from 'lucide-react';
-import { type FC, useMemo, useState, useEffect, useCallback } from 'react';
+import { Check, Copy, Search, SearchX, X } from 'lucide-react';
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FixedSizeList } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
+import { FixedSizeList } from 'react-window';
+
+import { getTokensForChain } from '../../evm/service/tokenListService';
+import { CHAIN_REGISTRY, getChainById } from '../../evm/utils/Chainregistry';
+import { getDydxConfig, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { getEVMChains, getStellarConfig, getDydxConfig } from '../../walletconnect/config/chains';
-import { CHAIN_REGISTRY, getChainById } from '../../evm/utils/Chainregistry';
-import { useAssetSelectorModal } from './useAssetSelectorModal';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
-import { getTokensForChain } from '../../evm/service/tokenListService';
+import { useAssetSelectorModal } from './useAssetSelectorModal';
 
 const ROW_HEIGHT = 72;
 const STELLAR_CHAIN_ID = 'pubnet';
@@ -27,13 +28,26 @@ interface NetworkOption {
 
 const AssetSelectorModal: FC = () => {
   const navigate = useNavigate();
-  const { isOpen, actionType, defaultNetwork, forceNetwork, pairedChainId, showAllStellarAssets, onSelect, closeAssetSelector } = useAssetSelectorModal();
+  const {
+    isOpen,
+    actionType,
+    defaultNetwork,
+    forceNetwork,
+    pairedChainId,
+    showAllStellarAssets,
+    onSelect,
+    closeAssetSelector,
+  } = useAssetSelectorModal();
   const { network: currentNetwork, connectedWallets } = useWalletStore();
   const { assets: walletAssets } = useWalletAssets(currentNetwork);
 
   const isStellarConnected = !!connectedWallets.stellar?.address;
   const isEvmConnected = !!connectedWallets.evm?.address;
-  const isDydxConnected = !!(connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress || localStorage.getItem('sx_dkm_addr'));
+  const isDydxConnected = !!(
+    connectedWallets.evm?.dydxAddress ||
+    connectedWallets.cosmos?.dydxAddress ||
+    localStorage.getItem('_sx_dkm_addr')
+  );
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNetwork, setSelectedNetwork] = useState<string | number>('all');
@@ -61,18 +75,34 @@ const AssetSelectorModal: FC = () => {
 
   const networks = useMemo(() => {
     const allNetworks: NetworkOption[] = [
-      { id: 'all', name: 'All Networks', sendEnable: true, receiveEnable: true, bridgeEnable: true, swapEnable: true },
-      ...getEVMChains(currentNetwork).map(c => ({
-        id: c.chainId, name: c.name, logo: c.logoUrl,
-        ...getChainById(c.chainId)
-      } as any)),
       {
-        id: STELLAR_CHAIN_ID, name: 'Stellar', logo: getStellarConfig(currentNetwork).logoUrl,
-        ...getChainById(STELLAR_CHAIN_ID)
+        id: 'all',
+        name: 'All Networks',
+        sendEnable: true,
+        receiveEnable: true,
+        bridgeEnable: true,
+        swapEnable: true,
+      },
+      ...getEVMChains(currentNetwork).map(
+        c =>
+          ({
+            id: c.chainId,
+            name: c.name,
+            logo: c.logoUrl,
+            ...getChainById(c.chainId),
+          }) as any
+      ),
+      {
+        id: STELLAR_CHAIN_ID,
+        name: 'Stellar',
+        logo: getStellarConfig(currentNetwork).logoUrl,
+        ...getChainById(STELLAR_CHAIN_ID),
       } as any,
       {
-        id: DYDX_CHAIN_ID, name: 'dYdX', logo: getDydxConfig(currentNetwork).logoUrl,
-        ...getChainById(DYDX_CHAIN_ID)
+        id: DYDX_CHAIN_ID,
+        name: 'dYdX',
+        logo: getDydxConfig(currentNetwork).logoUrl,
+        ...getChainById(DYDX_CHAIN_ID),
       } as any,
     ];
 
@@ -80,7 +110,13 @@ const AssetSelectorModal: FC = () => {
       if (forceNetwork && net.id !== forceNetwork) return false;
       if (net.id === STELLAR_CHAIN_ID && !isStellarConnected) return false;
       if (net.id === DYDX_CHAIN_ID && !isDydxConnected) return false;
-      if (net.id !== STELLAR_CHAIN_ID && net.id !== DYDX_CHAIN_ID && net.id !== 'all' && !isEvmConnected) return false;
+      if (
+        net.id !== STELLAR_CHAIN_ID &&
+        net.id !== DYDX_CHAIN_ID &&
+        net.id !== 'all' &&
+        !isEvmConnected
+      )
+        return false;
       if (net.id === 'all' && forceNetwork) return false;
       if (net.id === 'all') return true;
       if (actionType === 'SEND') return net.sendEnable;
@@ -113,27 +149,43 @@ const AssetSelectorModal: FC = () => {
       for (const config of CHAIN_REGISTRY) {
         if (config.chainId === STELLAR_CHAIN_ID && !isStellarConnected) continue;
         if (config.chainId === DYDX_CHAIN_ID && !isDydxConnected) continue;
-        if (config.chainId !== STELLAR_CHAIN_ID && config.chainId !== DYDX_CHAIN_ID && !isEvmConnected) continue;
+        if (
+          config.chainId !== STELLAR_CHAIN_ID &&
+          config.chainId !== DYDX_CHAIN_ID &&
+          !isEvmConnected
+        )
+          continue;
         if (config.receiveEnable) {
           result.push({
-            id: `receive-${config.chainId}-native`, symbol: config.nativeCurrency.symbol, name: config.nativeCurrency.name, image: config.nativeCurrency.logoURI, chainId: config.chainId, isNative: true
+            id: `receive-${config.chainId}-native`,
+            symbol: config.nativeCurrency.symbol,
+            name: config.nativeCurrency.name,
+            image: config.nativeCurrency.logoURI,
+            chainId: config.chainId,
+            isNative: true,
           });
           config.assets.forEach(asset => {
             if (asset.symbol === config.nativeCurrency.symbol) return;
             result.push({
-              id: `receive-${config.chainId}-${asset.symbol}`, symbol: asset.symbol, name: asset.name, image: asset.logoURI, chainId: config.chainId, address: asset.address
+              id: `receive-${config.chainId}-${asset.symbol}`,
+              symbol: asset.symbol,
+              name: asset.name,
+              image: asset.logoURI,
+              chainId: config.chainId,
+              address: asset.address,
             });
           });
         }
       }
     } else if (effectiveActionType === 'SWAP' || effectiveActionType === 'BRIDGE') {
-      const targetChains = selectedNetwork === 'all'
-        ? [
-          ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
-          ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
-          ...(isDydxConnected ? [DYDX_CHAIN_ID] : [])
-        ]
-        : [selectedNetwork];
+      const targetChains =
+        selectedNetwork === 'all'
+          ? [
+              ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
+              ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
+              ...(isDydxConnected ? [DYDX_CHAIN_ID] : []),
+            ]
+          : [selectedNetwork];
 
       targetChains.forEach(activeChainId => {
         if (activeChainId === STELLAR_CHAIN_ID && !isStellarConnected) return;
@@ -143,18 +195,26 @@ const AssetSelectorModal: FC = () => {
         let validTokens = registryTokens;
 
         if (effectiveActionType === 'BRIDGE') {
-          const isStellarInvolved = activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
+          const isStellarInvolved =
+            activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
           if (isStellarInvolved && !showAllStellarAssets) {
             const chainConfig = getChainById(activeChainId);
-            const supportedSymbols = chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
-            validTokens = registryTokens.filter(t => supportedSymbols.includes(t.symbol.toUpperCase()));
+            const supportedSymbols =
+              chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
+            validTokens = registryTokens.filter(t =>
+              supportedSymbols.includes(t.symbol.toUpperCase())
+            );
           }
         }
 
         validTokens.forEach(t => {
-          const isTNative = !!t.isNative || !t.address || t.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || t.address.toLowerCase() === 'native';
+          const isTNative =
+            !!t.isNative ||
+            !t.address ||
+            t.address.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
+            t.address.toLowerCase() === 'native';
           result.push({
-            id: `${effectiveActionType.toLowerCase()}-${activeChainId}-${t.symbol}-${isTNative ? 'native' : (t.address || '')}`,
+            id: `${effectiveActionType.toLowerCase()}-${activeChainId}-${t.symbol}-${isTNative ? 'native' : t.address || ''}`,
             symbol: t.symbol,
             name: t.name,
             image: t.logoURI,
@@ -162,30 +222,40 @@ const AssetSelectorModal: FC = () => {
             address: t.address,
             decimals: t.decimals,
             isNative: t.isNative,
-            balance: walletAssets.find(w => {
-              if (w.chainId !== activeChainId) return false;
-              const wIsNative = !!w.isNative || (w.address && w.address.toLowerCase() === '0x0000000000000000000000000000000000000000');
-              if (wIsNative !== isTNative) return false;
-              if (wIsNative && isTNative) {
-                return w.symbol.toUpperCase() === t.symbol.toUpperCase();
-              }
-              return w.address?.toLowerCase() === t.address?.toLowerCase();
-            })?.balance || 0
+            balance:
+              walletAssets.find(w => {
+                if (w.chainId !== activeChainId) return false;
+                const wIsNative =
+                  !!w.isNative ||
+                  (w.address &&
+                    w.address.toLowerCase() === '0x0000000000000000000000000000000000000000');
+                if (wIsNative !== isTNative) return false;
+                if (wIsNative && isTNative) {
+                  return w.symbol.toUpperCase() === t.symbol.toUpperCase();
+                }
+                return w.address?.toLowerCase() === t.address?.toLowerCase();
+              })?.balance || 0,
           });
         });
       });
     }
 
     if (selectedNetwork !== 'all') {
-      result = result.filter(a => a.chainId === selectedNetwork || (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar') || (selectedNetwork === DYDX_CHAIN_ID && a.chainType === 'cosmos'));
+      result = result.filter(
+        a =>
+          a.chainId === selectedNetwork ||
+          (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar') ||
+          (selectedNetwork === DYDX_CHAIN_ID && a.chainType === 'cosmos')
+      );
     }
 
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
-      result = result.filter(a =>
-        a.symbol.toLowerCase().includes(q) ||
-        a.name?.toLowerCase().includes(q) ||
-        (a.address && a.address.toLowerCase().includes(q))
+      result = result.filter(
+        a =>
+          a.symbol.toLowerCase().includes(q) ||
+          a.name?.toLowerCase().includes(q) ||
+          (a.address && a.address.toLowerCase().includes(q))
       );
     }
 
@@ -194,27 +264,63 @@ const AssetSelectorModal: FC = () => {
       if (!a.isNative && b.isNative) return 1;
       return a.symbol.toLowerCase().localeCompare(b.symbol.toLowerCase());
     });
-  }, [walletAssets, selectedNetwork, debouncedSearch, effectiveActionType, isStellarConnected, isEvmConnected, registryVersion]);
+  }, [
+    walletAssets,
+    selectedNetwork,
+    debouncedSearch,
+    effectiveActionType,
+    isStellarConnected,
+    isEvmConnected,
+    registryVersion,
+  ]);
 
-  const handleSelect = useCallback((asset: any) => {
-    const isAssetNative = !!asset.isNative || !asset.address || asset.address.toLowerCase() === '0x0000000000000000000000000000000000000000' || asset.address.toLowerCase() === 'native';
-    const addressVal = isAssetNative ? 'native' : asset.address;
+  const handleSelect = useCallback(
+    (asset: any) => {
+      const isAssetNative =
+        !!asset.isNative ||
+        !asset.address ||
+        asset.address.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
+        asset.address.toLowerCase() === 'native';
+      const addressVal = isAssetNative ? 'native' : asset.address;
 
-    if (onSelect) {
-      onSelect(asset);
-      closeAssetSelector();
-      if (actionType === 'SEND' || actionType === 'RECEIVE') {
-        const path = actionType === 'SEND' ? '/send' : '/receive';
-        const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId === DYDX_CHAIN_ID ? 'dydx' : asset.chainId;
-        navigate(`${path}?asset=${asset.symbol}&chainId=${cId}&address=${addressVal}`, { replace: true });
+      if (onSelect) {
+        onSelect(asset);
+        closeAssetSelector();
+        if (actionType === 'SEND' || actionType === 'RECEIVE') {
+          const path = actionType === 'SEND' ? '/send' : '/receive';
+          const cId =
+            asset.chainId === STELLAR_CHAIN_ID
+              ? 'stellar'
+              : asset.chainId === DYDX_CHAIN_ID
+                ? 'dydx'
+                : asset.chainId;
+          navigate(`${path}?asset=${asset.symbol}&chainId=${cId}&address=${addressVal}`, {
+            replace: true,
+          });
+        }
+        return;
       }
-      return;
-    }
-    const cId = asset.chainId === STELLAR_CHAIN_ID ? 'stellar' : asset.chainId === DYDX_CHAIN_ID ? 'dydx' : asset.chainId;
-    const path = actionType === 'SEND' ? '/send' : actionType === 'RECEIVE' ? '/receive' : actionType === 'BRIDGE' ? '/bridge' : '/swap';
-    navigate(`${path}?asset=${asset.symbol}&chainId=${cId}&address=${addressVal}`, { replace: true });
-    closeAssetSelector();
-  }, [actionType, navigate, closeAssetSelector, onSelect]);
+      const cId =
+        asset.chainId === STELLAR_CHAIN_ID
+          ? 'stellar'
+          : asset.chainId === DYDX_CHAIN_ID
+            ? 'dydx'
+            : asset.chainId;
+      const path =
+        actionType === 'SEND'
+          ? '/send'
+          : actionType === 'RECEIVE'
+            ? '/receive'
+            : actionType === 'BRIDGE'
+              ? '/bridge'
+              : '/swap';
+      navigate(`${path}?asset=${asset.symbol}&chainId=${cId}&address=${addressVal}`, {
+        replace: true,
+      });
+      closeAssetSelector();
+    },
+    [actionType, navigate, closeAssetSelector, onSelect]
+  );
 
   const handleCopyAddress = useCallback((e: React.MouseEvent, asset: any) => {
     e.stopPropagation();
@@ -224,60 +330,79 @@ const AssetSelectorModal: FC = () => {
     setTimeout(() => setCopiedId(null), 2000);
   }, []);
 
-  const AssetRow = useCallback(({ index, style }: any) => {
-    const asset = filteredAssets[index];
-    const chainConfig = getChainById(asset.chainId || 0);
-    const showBalance = actionType === 'SEND' || actionType === 'SWAP' || actionType === 'BRIDGE';
+  const AssetRow = useCallback(
+    ({ index, style }: any) => {
+      const asset = filteredAssets[index];
+      const chainConfig = getChainById(asset.chainId || 0);
+      const showBalance = actionType === 'SEND' || actionType === 'SWAP' || actionType === 'BRIDGE';
 
-    return (
-      <div style={{ ...style, padding: '0 16px' }}>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => handleSelect(asset)}
-          onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleSelect(asset)}
-          className="group flex w-full items-center justify-between px-3 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left cursor-pointer"
-        >
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="relative flex-shrink-0">
-              <img src={asset.image || asset.logoURI} alt="" className="w-10 h-10 rounded-full bg-bg-tertiary object-cover" />
-              {chainConfig?.logoURI && (
-                <img src={chainConfig.logoURI} alt="" className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-bg-secondary" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[15px] font-bold text-text-primary">{asset.symbol}</span>
-                {asset.isNative ? (
-                  <span className="text-[10px] bg-primary text-brand-primary px-1.5 py-1 rounded-md font-black uppercase">Native</span>
-                ) : (
-                  <span className="text-[10px] bg-bg-tertiary text-text-secondary px-1.5 py-0.5 rounded-md font-bold uppercase overflow-hidden text-ellipsis whitespace-nowrap max-w-[80px]">
-                    {asset.address?.slice(0, 6)}...{asset.address?.slice(-4)}
-                  </span>
-                )}
-                {asset.address && !asset.isNative && (
-                  <button
-                    onClick={(e) => handleCopyAddress(e, asset)}
-                    className="p-1 hover:bg-bg-tertiary rounded-md text-text-muted transition-colors"
-                  >
-                    {copiedId === asset.id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-                  </button>
+      return (
+        <div style={{ ...style, padding: '0 16px' }}>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => handleSelect(asset)}
+            onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleSelect(asset)}
+            className="group flex w-full items-center justify-between px-3 py-3 rounded-2xl hover:bg-bg-hover transition-all text-left cursor-pointer"
+          >
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="relative flex-shrink-0">
+                <img
+                  src={asset.image || asset.logoURI}
+                  alt=""
+                  className="w-10 h-10 rounded-full bg-bg-tertiary object-cover"
+                />
+                {chainConfig?.logoURI && (
+                  <img
+                    src={chainConfig.logoURI}
+                    alt=""
+                    className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-bg-secondary"
+                  />
                 )}
               </div>
-              <div className="text-xs text-text-secondary truncate">{asset.name || asset.symbol}</div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[15px] font-bold text-text-primary">{asset.symbol}</span>
+                  {asset.isNative ? (
+                    <span className="text-[10px] bg-primary text-brand-primary px-1.5 py-1 rounded-md font-black uppercase">
+                      Native
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-bg-tertiary text-text-secondary px-1.5 py-0.5 rounded-md font-bold uppercase overflow-hidden text-ellipsis whitespace-nowrap max-w-[80px]">
+                      {asset.address?.slice(0, 6)}...{asset.address?.slice(-4)}
+                    </span>
+                  )}
+                  {asset.address && !asset.isNative && (
+                    <button
+                      onClick={e => handleCopyAddress(e, asset)}
+                      className="p-1 hover:bg-bg-tertiary rounded-md text-text-muted transition-colors"
+                    >
+                      {copiedId === asset.id ? (
+                        <Check size={12} className="text-green-500" />
+                      ) : (
+                        <Copy size={12} />
+                      )}
+                    </button>
+                  )}
+                </div>
+                <div className="text-xs text-text-secondary truncate">
+                  {asset.name || asset.symbol}
+                </div>
+              </div>
             </div>
+            {showBalance && (
+              <div className="text-right ml-4">
+                <div className="text-[14px] font-bold text-text-primary">
+                  {portfolioUtils.formatBalance(asset.balance || 0)}
+                </div>
+              </div>
+            )}
           </div>
-          {showBalance && (
-            <div className="text-right ml-4">
-              <div className="text-[14px] font-bold text-text-primary">
-                {portfolioUtils.formatBalance(asset.balance || 0)}
-              </div>
-            </div>
-          )}
         </div>
-      </div>
-    );
-  }, [filteredAssets, handleSelect, actionType, copiedId, handleCopyAddress]);
+      );
+    },
+    [filteredAssets, handleSelect, actionType, copiedId, handleCopyAddress]
+  );
 
   if (!isOpen) return null;
 
@@ -303,7 +428,10 @@ const AssetSelectorModal: FC = () => {
 
         <div className="px-5 pb-3">
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
+            <Search
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted"
+              size={16}
+            />
             <input
               type="text"
               placeholder="Search tokens"
@@ -321,7 +449,11 @@ const AssetSelectorModal: FC = () => {
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all"
                 style={
                   selectedNetwork === 'all'
-                    ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                    ? {
+                        backgroundColor: '#3b4fd9',
+                        color: '#fff',
+                        boxShadow: '0 4px 12px #3b4fd940',
+                      }
                     : undefined
                 }
               >
@@ -341,7 +473,11 @@ const AssetSelectorModal: FC = () => {
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0"
                   style={
                     selectedNetwork === net.id
-                      ? { backgroundColor: '#3b4fd9', color: '#fff', boxShadow: '0 4px 12px #3b4fd940' }
+                      ? {
+                          backgroundColor: '#3b4fd9',
+                          color: '#fff',
+                          boxShadow: '0 4px 12px #3b4fd940',
+                        }
                       : undefined
                   }
                 >

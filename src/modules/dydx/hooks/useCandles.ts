@@ -86,13 +86,30 @@ export function useRealtimeChart(
       const indexerClient = getIndexerClient();
       const toISO = isInitial ? undefined : oldestTimestampRef.current;
 
-      const data = await indexerClient.markets.getPerpetualMarketCandles(
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+      const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 10000);
+
+      const fetchPromise = indexerClient.markets.getPerpetualMarketCandles(
         market,
         resolution,
         undefined, // fromISO
         toISO || undefined, // toISO
         enforcedLimit
       );
+
+      const data = await Promise.race([
+        fetchPromise,
+        new Promise<any>((_, reject) => {
+          signal.addEventListener('abort', () => {
+            const err = new Error('AbortError');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+      ]);
+
+      clearTimeout(timeoutId);
 
       if (!mountedRef.current) return;
 

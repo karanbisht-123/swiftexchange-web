@@ -5,7 +5,7 @@ export const ROUTES = {
   SEND: '/send',
   RECEIVE: '/receive',
   BRIDGE: '/bridge',
-  TRADING_STEALLR: '/trading/steallr',
+  TRADING_STELLAR: '/trading/stellar',
   TRANSACTIONS: '/transactions',
   TRADING_EVM_SWAP: '/trading/evm/swap',
   TRADING_EVM_FIAT: '/trading/evm/fiat',

@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { validateAddress } from '../../../validator/AddressValidator';
-import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { WalletType } from '../../walletconnect/constants/Wallet';
-import { CHAIN_REGISTRY } from '../../evm/utils/Chainregistry';
 
-import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { buildAddTrustlineTransaction, checkTrustlineExists } from '../../steallr/service/stellarService';
+import { validateAddress } from '../../../validator/AddressValidator';
 import { addLocalTransaction } from '../../evm/service/localTransactionService';
+import { CHAIN_REGISTRY } from '../../evm/utils/Chainregistry';
+import {
+  buildAddTrustlineTransaction,
+  checkTrustlineExists,
+} from '../../stellar/service/stellarService';
+import { useTransactionRouter } from '../../transaction/hook/useTransactionRouter';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
 export const useReceiveAssets = () => {
   const { connectedWallets } = useWalletConnect();
@@ -26,9 +29,13 @@ export const useReceiveAssets = () => {
       if (config.receiveEnable) {
         const isStellar = config.chainId === 'pubnet';
         const isDydx = String(config.chainId).startsWith('dydx');
-        const chainPrefix = isStellar ? 'stellar' : (isDydx ? 'cosmos' : 'evm');
-        const walletType = isStellar ? WalletType.STELLAR : (isDydx ? WalletType.EVM : WalletType.EVM);
-        const addressType = isStellar ? 'stellar' : (isDydx ? 'cosmos' : 'evm');
+        const chainPrefix = isStellar ? 'stellar' : isDydx ? 'cosmos' : 'evm';
+        const walletType = isStellar
+          ? WalletType.STELLAR
+          : isDydx
+            ? WalletType.EVM
+            : WalletType.EVM;
+        const addressType = isStellar ? 'stellar' : isDydx ? 'cosmos' : 'evm';
 
         const nativeId = `${chainPrefix}-${config.chainId}-native`;
         list.push({
@@ -45,7 +52,7 @@ export const useReceiveAssets = () => {
           decimals: config.nativeCurrency.decimals,
           tokenAddress: config.nativeCurrency.address,
           addressType,
-          isNative: true
+          isNative: true,
         });
 
         config.assets.forEach(asset => {
@@ -65,7 +72,7 @@ export const useReceiveAssets = () => {
             decimals: asset.decimals,
             tokenAddress: asset.address,
             addressType,
-            isNative: false
+            isNative: false,
           });
         });
       }
@@ -88,8 +95,14 @@ export const useReceiveAssets = () => {
         if (a.symbol !== assetParam || aChainIdStr !== paramIdStr) return false;
 
         if (addressParam) {
-          const aIsNative = !!a.isNative || !a.tokenAddress || a.tokenAddress.toLowerCase() === '0x0000000000000000000000000000000000000000' || a.tokenAddress.toLowerCase() === 'native';
-          const paramIsNative = addressParam.toLowerCase() === 'native' || addressParam.toLowerCase() === '0x0000000000000000000000000000000000000000';
+          const aIsNative =
+            !!a.isNative ||
+            !a.tokenAddress ||
+            a.tokenAddress.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
+            a.tokenAddress.toLowerCase() === 'native';
+          const paramIsNative =
+            addressParam.toLowerCase() === 'native' ||
+            addressParam.toLowerCase() === '0x0000000000000000000000000000000000000000';
           if (aIsNative !== paramIsNative) return false;
           if (!aIsNative && !paramIsNative) {
             return a.tokenAddress?.toLowerCase() === addressParam.toLowerCase();
@@ -107,7 +120,11 @@ export const useReceiveAssets = () => {
     const connectedFirst = assets.find(a => {
       const isDydx = a.chainId && String(a.chainId).startsWith('dydx');
       if (isDydx) {
-        return !!(connectedWallets.evm as any)?.dydxAddress || !!(connectedWallets.cosmos as any)?.dydxAddress || !!localStorage.getItem('sx_dkm_addr');
+        return (
+          !!(connectedWallets.evm as any)?.dydxAddress ||
+          !!(connectedWallets.cosmos as any)?.dydxAddress ||
+          !!localStorage.getItem('_sx_dkm_addr')
+        );
       }
       return !!connectedWallets[a.walletType as WalletType];
     });
@@ -116,13 +133,17 @@ export const useReceiveAssets = () => {
     const targetChainId = fallback.chainId === 'pubnet' ? 'stellar' : String(fallback.chainId);
 
     const isCurrentDydx = currentAsset?.chainId && String(currentAsset.chainId).startsWith('dydx');
-    const isCurrentDydxAvailable = isCurrentDydx && (
-      !!(connectedWallets.evm as any)?.dydxAddress ||
-      !!(connectedWallets.cosmos as any)?.dydxAddress ||
-      !!localStorage.getItem('sx_dkm_addr')
-    );
+    const isCurrentDydxAvailable =
+      isCurrentDydx &&
+      (!!(connectedWallets.evm as any)?.dydxAddress ||
+        !!(connectedWallets.cosmos as any)?.dydxAddress ||
+        !!localStorage.getItem('_sx_dkm_addr'));
 
-    const selectedWalletMissing = currentAsset && (isCurrentDydx ? !isCurrentDydxAvailable : !connectedWallets[currentAsset.walletType as WalletType]);
+    const selectedWalletMissing =
+      currentAsset &&
+      (isCurrentDydx
+        ? !isCurrentDydxAvailable
+        : !connectedWallets[currentAsset.walletType as WalletType]);
 
     if (!currentAsset || selectedWalletMissing) {
       if (assetParam !== fallback.symbol || chainIdParam !== targetChainId) {
@@ -135,8 +156,9 @@ export const useReceiveAssets = () => {
     if (!currentAsset) return '';
     const walletType = currentAsset.walletType as WalletType;
     if (currentAsset.chainId && String(currentAsset.chainId).startsWith('dydx')) {
-      const addr = (connectedWallets.evm as any)?.dydxAddress || (connectedWallets.cosmos as any)?.dydxAddress;
-      return addr || localStorage.getItem('sx_dkm_addr') || '';
+      const addr =
+        (connectedWallets.evm as any)?.dydxAddress || (connectedWallets.cosmos as any)?.dydxAddress;
+      return addr || localStorage.getItem('_sx_dkm_addr') || '';
     }
     return connectedWallets[walletType]?.address || '';
   }, [connectedWallets, currentAsset]);
@@ -154,7 +176,11 @@ export const useReceiveAssets = () => {
       if (currentAsset?.chainType === 'stellar' && !currentAsset.isNative && walletAddress) {
         setHasTrustline(null);
         try {
-          const exists = await checkTrustlineExists(walletAddress, currentAsset.symbol, currentAsset.tokenAddress);
+          const exists = await checkTrustlineExists(
+            walletAddress,
+            currentAsset.symbol,
+            currentAsset.tokenAddress
+          );
           setHasTrustline(exists);
         } catch (e) {
           console.error('Trustline check error:', e);
@@ -171,7 +197,11 @@ export const useReceiveAssets = () => {
     if (!currentAsset || !walletAddress || isAddingTrustline) return;
     setIsAddingTrustline(true);
     try {
-      const xdr = await buildAddTrustlineTransaction(walletAddress, currentAsset.symbol, currentAsset.tokenAddress);
+      const xdr = await buildAddTrustlineTransaction(
+        walletAddress,
+        currentAsset.symbol,
+        currentAsset.tokenAddress
+      );
       const res = await sendTransaction({
         type: 'stellar',
         network: currentAsset.network,
@@ -179,7 +209,7 @@ export const useReceiveAssets = () => {
         from: walletAddress,
         to: '',
         amount: '0',
-        data: { xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' }
+        data: { xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBLIC' },
       });
 
       if (res.status === 'success') {
@@ -191,7 +221,7 @@ export const useReceiveAssets = () => {
           status: 'success',
           from: walletAddress,
           network: currentNetwork,
-          description: `Add trustline for ${currentAsset.symbol}`
+          description: `Add trustline for ${currentAsset.symbol}`,
         });
         setHasTrustline(true);
       } else {
@@ -208,7 +238,13 @@ export const useReceiveAssets = () => {
 
   useEffect(() => {
     // Auto-trigger trustline addition ONLY if it's missing AND we haven't tried for THIS asset in this session
-    if (hasTrustline === false && currentAsset && walletAddress && !isAddingTrustline && lastAutoEnbaledAsset !== currentAsset.id) {
+    if (
+      hasTrustline === false &&
+      currentAsset &&
+      walletAddress &&
+      !isAddingTrustline &&
+      lastAutoEnbaledAsset !== currentAsset.id
+    ) {
       setLastAutoEnabledAsset(currentAsset.id);
       // Wait a bit to avoid flashing when switching assets
       const timer = setTimeout(() => {
@@ -216,7 +252,14 @@ export const useReceiveAssets = () => {
       }, 800);
       return () => clearTimeout(timer);
     }
-  }, [hasTrustline, currentAsset, walletAddress, isAddingTrustline, lastAutoEnbaledAsset, handleAddTrustline]);
+  }, [
+    hasTrustline,
+    currentAsset,
+    walletAddress,
+    isAddingTrustline,
+    lastAutoEnbaledAsset,
+    handleAddTrustline,
+  ]);
 
   const handleCopy = useCallback(async () => {
     if (!walletAddress || !isAddressValid) return;
@@ -234,13 +277,19 @@ export const useReceiveAssets = () => {
     const symbol = currentAsset?.symbol || 'asset';
     const text = `Send ${symbol} to my wallet:\n\nAddress: ${walletAddress}\nNetwork: ${currentAsset?.network}`;
     if (navigator.share) {
-      try { await navigator.share({ title: `My ${symbol} address`, text }); } catch { }
+      try {
+        await navigator.share({ title: `My ${symbol} address`, text });
+      } catch (err) {
+        console.error('Share failed:', err);
+      }
     } else {
       try {
         await navigator.clipboard.writeText(text);
         setCopyFeedback('Copied!');
         setTimeout(() => setCopyFeedback(null), 2000);
-      } catch { }
+      } catch (err) {
+        console.error('Share failed:', err);
+      }
     }
   }, [walletAddress, isAddressValid, currentAsset]);
 
@@ -250,11 +299,13 @@ export const useReceiveAssets = () => {
     walletAddress,
     isAddressValid,
     isConnected: Object.keys(connectedWallets).length > 0,
-    isWalletTypeConnected: !!currentAsset && (
-      currentAsset.chainId && String(currentAsset.chainId).startsWith('dydx')
-        ? (!!(connectedWallets.evm as any)?.dydxAddress || !!(connectedWallets.cosmos as any)?.dydxAddress || !!localStorage.getItem('sx_dkm_addr'))
-        : !!connectedWallets[currentAsset.walletType as WalletType]
-    ),
+    isWalletTypeConnected:
+      !!currentAsset &&
+      (currentAsset.chainId && String(currentAsset.chainId).startsWith('dydx')
+        ? !!(connectedWallets.evm as any)?.dydxAddress ||
+          !!(connectedWallets.cosmos as any)?.dydxAddress ||
+          !!localStorage.getItem('_sx_dkm_addr')
+        : !!connectedWallets[currentAsset.walletType as WalletType]),
     handleCopy,
     handleShare,
     copyFeedback,

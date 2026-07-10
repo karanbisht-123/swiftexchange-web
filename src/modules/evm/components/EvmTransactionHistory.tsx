@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import PageLayout from '../../../components/layout/PageLayout';
-import AllTransactionsUI from '../../steallr/components/AllTransactionsUI';
+import AllTransactionsUI from '../../stellar/components/AllTransactionsUI';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useEvmTransaction } from '../hook/useEvmTransaction';
