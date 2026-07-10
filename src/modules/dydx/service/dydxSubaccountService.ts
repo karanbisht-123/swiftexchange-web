@@ -1,5 +1,5 @@
 import { LocalWallet, SubaccountInfo } from '@dydxprotocol/v4-client-js';
-import Long from 'long';
+import { Long } from '@dydxprotocol/v4-proto/src/codegen/helpers';
 
 import { walletService } from '../../walletconnect/services/walletService';
 import { type MarginMode, SUBACCOUNT_CONSTANTS, type TransferResult } from '../types/trading.types';
@@ -14,20 +14,24 @@ interface SubaccountBalanceCache {
 
 const BALANCE_CACHE_TTL = 10_000;
 const MIN_SWEEP_THRESHOLD = 0.01;
-const MAINTENANCE_MARGIN_SAFETY_FACTOR = 1.10;
+const MAINTENANCE_MARGIN_SAFETY_FACTOR = 1.1;
 const USDC_QUANTUM_FACTOR = 1e6;
 
 class DydxSubaccountService {
   private balanceCache: SubaccountBalanceCache | null = null;
 
-  async fetchSubaccountBalance(address: string, subaccountNumber: number): Promise<SubaccountBalanceCache> {
+  async fetchSubaccountBalance(
+    address: string,
+    subaccountNumber: number
+  ): Promise<SubaccountBalanceCache> {
     const now = Date.now();
     if (this.balanceCache && now - this.balanceCache.timestamp < BALANCE_CACHE_TTL) {
       return this.balanceCache;
     }
 
     const indexerClient = dydxWalletService.getIndexerClient();
-    const subaccountResp = await indexerClient.account.getSubaccount(address, subaccountNumber)
+    const subaccountResp = await indexerClient.account
+      .getSubaccount(address, subaccountNumber)
       .catch(() => ({ subaccount: null }));
 
     const equity = parseFloat(subaccountResp.subaccount?.equity || '0');
@@ -364,7 +368,9 @@ class DydxSubaccountService {
       subPositions.forEach(p => {
         const mktData = marketCache[p.market];
         const oraclePrice = mktData ? parseFloat(mktData.oraclePrice) : parseFloat(p.entryPrice);
-        const mmf = mktData?.maintenanceMarginFraction ? parseFloat(mktData.maintenanceMarginFraction) : 0.03;
+        const mmf = mktData?.maintenanceMarginFraction
+          ? parseFloat(mktData.maintenanceMarginFraction)
+          : 0.03;
         const size = Math.abs(parseFloat(p.size));
         const notional = size * oraclePrice;
         totalMinRequired += notional * mmf * MAINTENANCE_MARGIN_SAFETY_FACTOR;
@@ -401,7 +407,10 @@ class DydxSubaccountService {
         return directResult;
       }
 
-      console.warn('[dydxSubaccountService] Direct isolated transfer failed, attempting 2-hop routing', directResult.error);
+      console.warn(
+        '[dydxSubaccountService] Direct isolated transfer failed, attempting 2-hop routing',
+        directResult.error
+      );
 
       const toCrossResult = await this.transfer(fromSubaccount, 0, amount);
       if (!toCrossResult.success) {
@@ -412,7 +421,7 @@ class DydxSubaccountService {
       if (!toDestResult.success) {
         return {
           ...toDestResult,
-          error: `Partial transfer failure: Funds moved to Cross but failed to reach destination. ${toDestResult.error}`
+          error: `Partial transfer failure: Funds moved to Cross but failed to reach destination. ${toDestResult.error}`,
         };
       }
 
@@ -421,7 +430,7 @@ class DydxSubaccountService {
         transactionHash: toDestResult.transactionHash,
         fromSubaccount,
         toSubaccount,
-        amount
+        amount,
       };
     } catch (error: any) {
       console.error('[dydxSubaccountService] transferMarginBetweenSubaccounts failed:', error);
@@ -430,7 +439,7 @@ class DydxSubaccountService {
         error: error.message || 'Transfer failed',
         fromSubaccount,
         toSubaccount,
-        amount
+        amount,
       };
     }
   }

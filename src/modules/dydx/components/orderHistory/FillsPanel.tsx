@@ -17,6 +17,32 @@ import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
 
 const ITEMS_PER_PAGE = 10;
 
+// Pure helper — avoids duplicating PnL math in both desktop and mobile render paths
+function computeClosedPnl(fill: Fill): { str: string; cls: string } {
+  if (!fill.positionSideBefore || !fill.positionSizeBefore || !fill.entryPriceBefore) {
+    return { str: '—', cls: 'text-muted' };
+  }
+  const sizeBefore = parseFloat(fill.positionSizeBefore);
+  const entryPrice = parseFloat(fill.entryPriceBefore);
+  const fillPrice = parseFloat(fill.price);
+  const fillSize = parseFloat(fill.size);
+
+  let closedPnl: number | null = null;
+  if (fill.positionSideBefore === 'LONG' && fill.side === 'SELL') {
+    closedPnl = (fillPrice - entryPrice) * Math.min(sizeBefore, fillSize);
+  } else if (fill.positionSideBefore === 'SHORT' && fill.side === 'BUY') {
+    closedPnl = (entryPrice - fillPrice) * Math.min(sizeBefore, fillSize);
+  }
+
+  if (closedPnl === null) return { str: '—', cls: 'text-muted' };
+  const neg = closedPnl < 0;
+  const abs = Math.abs(closedPnl);
+  return {
+    str: neg ? `-$${formatNumericWithCommas(abs, 2)}` : `$${formatNumericWithCommas(abs, 2)}`,
+    cls: neg ? 'text-red-400' : closedPnl > 0 ? 'text-green-400' : 'text-muted',
+  };
+}
+
 const FillsPanel: React.FC = () => {
   const { fills: allFills, isConnected, loadingFills, fillsError, loadMoreFills } = useDydxData();
   const marketCache = useMarketStore(state => state.marketCache);
@@ -135,38 +161,7 @@ const FillsPanel: React.FC = () => {
               const feeStr = formatNumericWithCommas(feeVal, 2, '$');
               const amountStr = formatNumericWithCommas(fill.size, decimals);
 
-              let closedPnlStr = '—';
-              let pnlClass = 'text-muted';
-
-              if (fill.positionSideBefore && fill.positionSizeBefore && fill.entryPriceBefore) {
-                const sizeBefore = parseFloat(fill.positionSizeBefore);
-                const entryPrice = parseFloat(fill.entryPriceBefore);
-                const fillPrice = parseFloat(fill.price);
-                const fillSize = parseFloat(fill.size);
-
-                let closedPnl: number | null = null;
-
-                if (fill.positionSideBefore === 'LONG' && fill.side === 'SELL') {
-                  const sizeClosed = Math.min(sizeBefore, fillSize);
-                  closedPnl = (fillPrice - entryPrice) * sizeClosed;
-                } else if (fill.positionSideBefore === 'SHORT' && fill.side === 'BUY') {
-                  const sizeClosed = Math.min(sizeBefore, fillSize);
-                  closedPnl = (entryPrice - fillPrice) * sizeClosed;
-                }
-
-                if (closedPnl !== null) {
-                  const isNegative = closedPnl < 0;
-                  const absValue = Math.abs(closedPnl);
-                  closedPnlStr = isNegative
-                    ? `-$${formatNumericWithCommas(absValue, 2)}`
-                    : `$${formatNumericWithCommas(absValue, 2)}`;
-                  pnlClass = isNegative
-                    ? 'text-red-400'
-                    : closedPnl > 0
-                      ? 'text-green-400'
-                      : 'text-muted';
-                }
-              }
+              const { str: closedPnlStr, cls: pnlClass } = computeClosedPnl(fill);
 
               return (
                 <tr
@@ -214,38 +209,7 @@ const FillsPanel: React.FC = () => {
           const total = parseFloat(fill.size) * parseFloat(fill.price);
           const totalStr = formatNumericWithCommas(total, 2, '$');
 
-          let closedPnlStr = '—';
-          let pnlClass = 'text-muted';
-
-          if (fill.positionSideBefore && fill.positionSizeBefore && fill.entryPriceBefore) {
-            const sizeBefore = parseFloat(fill.positionSizeBefore);
-            const entryPrice = parseFloat(fill.entryPriceBefore);
-            const fillPrice = parseFloat(fill.price);
-            const fillSize = parseFloat(fill.size);
-
-            let closedPnl: number | null = null;
-
-            if (fill.positionSideBefore === 'LONG' && fill.side === 'SELL') {
-              const sizeClosed = Math.min(sizeBefore, fillSize);
-              closedPnl = (fillPrice - entryPrice) * sizeClosed;
-            } else if (fill.positionSideBefore === 'SHORT' && fill.side === 'BUY') {
-              const sizeClosed = Math.min(sizeBefore, fillSize);
-              closedPnl = (entryPrice - fillPrice) * sizeClosed;
-            }
-
-            if (closedPnl !== null) {
-              const isNegative = closedPnl < 0;
-              const absValue = Math.abs(closedPnl);
-              closedPnlStr = isNegative
-                ? `-$${formatNumericWithCommas(absValue, 2)}`
-                : `$${formatNumericWithCommas(absValue, 2)}`;
-              pnlClass = isNegative
-                ? 'text-red-400'
-                : closedPnl > 0
-                  ? 'text-green-400'
-                  : 'text-muted';
-            }
-          }
+          const { str: closedPnlStr, cls: pnlClass } = computeClosedPnl(fill);
 
           return (
             <div

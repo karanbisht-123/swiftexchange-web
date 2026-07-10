@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import { ColorType, LineSeries, createChart } from 'lightweight-charts';
+import {
+  ColorType,
+  type IChartApi,
+  type ISeriesApi,
+  LineSeries,
+  createChart,
+} from 'lightweight-charts';
 
 import { dydxDataService } from '../../service/dydxOrderService';
 import { LoadingState } from '../shared/LoadingState';
@@ -14,6 +20,11 @@ type TimeFrame = '1h' | '8h' | '1y';
 const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const toolTipRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  // Shared with crosshair handler so tooltip always uses current timeframe values
+  const dataMapRef = useRef<Map<number, any>>(new Map());
+
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('1h');
@@ -24,7 +35,6 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
       setLoading(true);
       try {
         const historicalData = await dydxDataService.getHistoricalFunding(market, 500);
-
         const sorted = historicalData.sort(
           (a, b) => new Date(a.effectiveAt).getTime() - new Date(b.effectiveAt).getTime()
         );
@@ -39,6 +49,8 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
     fetchData();
   }, [market]);
 
+  // Effect 1: create the chart instance once when data is ready.
+  // Does NOT depend on timeFrame — switching timeframes reuses the same chart.
   useEffect(() => {
     if (!chartContainerRef.current || data.length === 0) return;
 
@@ -61,26 +73,11 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
       },
       rightPriceScale: {
         borderColor: '#2B2B43',
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
-        },
+        scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       crosshair: {
-        vertLine: {
-          labelVisible: false,
-          color: '#495057',
-          width: 1,
-          style: 3,
-          visible: true,
-        },
-        horzLine: {
-          labelVisible: false,
-          color: '#495057',
-          width: 1,
-          style: 3,
-          visible: true,
-        },
+        vertLine: { labelVisible: false, color: '#495057', width: 1, style: 3, visible: true },
+        horzLine: { labelVisible: false, color: '#495057', width: 1, style: 3, visible: true },
       },
     });
 
@@ -97,27 +94,8 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
       },
     });
 
-    const dataMap = new Map<number, any>();
-
-    const chartData = data.map(item => {
-      let value = parseFloat(item.rate) * 100;
-      if (timeFrame === '8h') value *= 8;
-      if (timeFrame === '1y') value *= 24 * 365;
-
-      const time = (new Date(item.effectiveAt).getTime() / 1000) as any;
-      dataMap.set(time, { ...item, displayValue: value });
-
-      return {
-        time: time,
-        value: value,
-      };
-    });
-
-    series.setData(chartData);
-
-    if (chartData.length > 0) {
-      setCurrentRate(chartData[chartData.length - 1].value);
-    }
+    chartRef.current = chart;
+    seriesRef.current = series;
 
     if (toolTipRef.current) {
       const toolTip = toolTipRef.current;
@@ -135,7 +113,7 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
           return;
         }
 
-        const item = dataMap.get(param.time as number);
+        const item = dataMapRef.current.get(param.time as number);
         if (!item) {
           toolTip.style.display = 'none';
           return;
@@ -149,23 +127,22 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
         });
         const rate = item.displayValue.toFixed(6);
         const date = new Date(item.effectiveAt).toLocaleString();
-
         const isPositive = item.displayValue >= 0;
         const rateColor = isPositive ? '#22c55e' : '#ef4444';
 
         toolTip.innerHTML = `
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FFFFFF;">
-                        <div style="margin-bottom: 4px; color: #9CA3AF;">${date}</div>
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-                            <span style="color: #9CA3AF;">Rate</span>
-                            <span style="color: ${rateColor};">${rate}%</span>
-                        </div>
-                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-                            <span style="color: #9CA3AF;">Price</span>
-                            <span>$${price}</span>
-                        </div>
-                    </div>
-                `;
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FFFFFF;">
+            <div style="margin-bottom: 4px; color: #9CA3AF;">${date}</div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <span style="color: #9CA3AF;">Rate</span>
+              <span style="color: ${rateColor};">${rate}%</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <span style="color: #9CA3AF;">Price</span>
+              <span>$${price}</span>
+            </div>
+          </div>
+        `;
 
         let shiftedCoordinate = param.point.x - 50;
         if (param.point.x - 50 < 0) {
@@ -179,10 +156,7 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
 
         const y = param.point.y;
         let top = y - toolTip.clientHeight - 10;
-        if (top < 0) {
-          top = y + 10;
-        }
-
+        if (top < 0) top = y + 10;
         toolTip.style.left = shiftedCoordinate + 'px';
         toolTip.style.top = top + 'px';
       });
@@ -193,22 +167,45 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
         chart.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
     };
-
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
     };
+  }, [data]); // NOT timeFrame — chart is reused across timeframe switches
+
+  // Effect 2: update series data when timeFrame changes.
+  // Lightweight — just calls series.setData(), no DOM teardown.
+  useEffect(() => {
+    if (!seriesRef.current || data.length === 0) return;
+
+    const newDataMap = new Map<number, any>();
+    const chartData = data.map(item => {
+      let value = parseFloat(item.rate) * 100;
+      if (timeFrame === '8h') value *= 8;
+      if (timeFrame === '1y') value *= 24 * 365;
+
+      const time = (new Date(item.effectiveAt).getTime() / 1000) as any;
+      newDataMap.set(time, { ...item, displayValue: value });
+      return { time, value };
+    });
+
+    dataMapRef.current = newDataMap;
+    seriesRef.current.setData(chartData);
+
+    if (chartData.length > 0) {
+      setCurrentRate(chartData[chartData.length - 1].value);
+    }
   }, [data, timeFrame]);
 
   if (loading && data.length === 0) {
     return <LoadingState message="Loading funding chart..." />;
   }
 
-  const formatRate = (rate: number) => {
-    return `${rate.toFixed(6)}%`;
-  };
+  const formatRate = (rate: number) => `${rate.toFixed(6)}%`;
 
   return (
     <div className="flex flex-col h-full w-full bg-secondary text-primary relative group">
@@ -243,10 +240,7 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
         <div
           ref={toolTipRef}
           className="absolute z-20 pointer-events-none rounded-lg bg-secondary/95 backdrop-blur-sm border border-color shadow-xl p-3"
-          style={{
-            display: 'none',
-            minWidth: '160px',
-          }}
+          style={{ display: 'none', minWidth: '160px' }}
         />
       </div>
     </div>

@@ -49,6 +49,8 @@ interface NotificationState {
 }
 
 const PRICE_REQUIRED_TYPES = ['LIMIT', 'STOP_LIMIT', 'TAKE_PROFIT_LIMIT'] as const;
+const sessionClientIds = new Set<string>();
+
 const TRIGGER_REQUIRED_TYPES = [
   'STOP_MARKET',
   'STOP_LIMIT',
@@ -224,16 +226,6 @@ export const DydxTradingForm: React.FC = () => {
 
     let baseAmount = targetUsd / price;
 
-    // if (marginMode === 'ISOLATED' && orderType !== 'MARKET' && targetUsd > 0) {
-    //   const margin = targetUsd / leverage;
-    //   if (margin < 20) {
-    //     // Option A: Adjust targetUsd to hit at least $20 margin
-    //     // const minUsd = 20 * leverage;
-    //     // baseAmount = minUsd / price;
-    //     // But for now, we just let the validation catch it or provide a warning.
-    //   }
-    // }
-
     if (marketData.stepSize) {
       baseAmount = currencyService.roundToStepSize(baseAmount, marketData.stepSize);
     }
@@ -256,7 +248,7 @@ export const DydxTradingForm: React.FC = () => {
       if (!order.ticker || order.ticker !== selectedMarket) return false;
       if (order.subaccountNumber !== undefined && order.subaccountNumber !== targetSubaccount)
         return false;
-
+      if (order.clientId == null || !sessionClientIds.has(order.clientId.toString())) return false;
       return (
         order.status === 'REJECTED' ||
         (order.status === 'BEST_EFFORT_CANCELED' && order.removalReason)
@@ -281,9 +273,6 @@ export const DydxTradingForm: React.FC = () => {
     }
   }, [recentlyTerminalOrders, selectedMarket, targetSubaccount, addNotification]);
 
-  useEffect(() => {
-    shownRejectionsRef.current.clear();
-  }, [selectedMarket]);
   useEffect(() => {
     if (leverage > maxLeverage) setLeverage(maxLeverage);
   }, [maxLeverage, leverage]);
@@ -483,44 +472,24 @@ export const DydxTradingForm: React.FC = () => {
       ? parseFloat(price)
       : undefined;
 
-    if (finalPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalPrice = roundToTickSize(finalPrice, tickSize);
-    }
-
     let finalTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(
       orderType as (typeof TRIGGER_REQUIRED_TYPES)[number]
     )
       ? parseFloat(triggerPrice)
       : undefined;
 
-    if (finalTriggerPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalTriggerPrice = roundToTickSize(finalTriggerPrice, tickSize);
-    }
-
     let finalTpPrice = showTpSl && tpPrice ? parseFloat(tpPrice) : undefined;
-    if (finalTpPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalTpPrice = roundToTickSize(finalTpPrice, tickSize);
-    }
-
     let finalSlPrice = showTpSl && slPrice ? parseFloat(slPrice) : undefined;
-    if (finalSlPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalSlPrice = roundToTickSize(finalSlPrice, tickSize);
+
+    // Parse tickSize once — used for price rounding below
+    const tickSizeParsed = marketData.tickSize ? parseFloat(marketData.tickSize as string) : 0;
+
+    if (tickSizeParsed > 0) {
+      if (finalPrice !== undefined) finalPrice = roundToTickSize(finalPrice, tickSizeParsed);
+      if (finalTriggerPrice !== undefined)
+        finalTriggerPrice = roundToTickSize(finalTriggerPrice, tickSizeParsed);
+      if (finalTpPrice !== undefined) finalTpPrice = roundToTickSize(finalTpPrice, tickSizeParsed);
+      if (finalSlPrice !== undefined) finalSlPrice = roundToTickSize(finalSlPrice, tickSizeParsed);
     }
 
     let goodTilTimeInSeconds: number | undefined;
@@ -529,10 +498,6 @@ export const DydxTradingForm: React.FC = () => {
     }
 
     if (marginMode === 'ISOLATED') {
-      // Fix #5: mirror exactly what the service does — only check if crossFreeCollateral
-      // can cover the *shortfall* (targetEquityWithBuffer - currentIsolatedEquity).
-      // The old check (crossFree + isolatedEquity < fullRequired) triggered false rejections
-      // when the isolated subaccount already held sufficient equity.
       const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
       const crossFreeCollateral = crossSub ? parseFloat(crossSub.freeCollateral || '0') : 0;
       const oraclePrice = parseFloat(marketData?.oraclePrice || '0');
@@ -546,8 +511,6 @@ export const DydxTradingForm: React.FC = () => {
         : requiredMargin;
 
       const targetEquityWithBuffer = effectiveMargin * (1 + 0.02); // matches ISOLATED_FEE_BUFFER
-
-      // How much more does the isolated subaccount still need?
       const shortfall = Math.max(0, targetEquityWithBuffer - isolatedEquity);
 
       if (shortfall > 0 && crossFreeCollateral < shortfall) {
@@ -588,6 +551,8 @@ export const DydxTradingForm: React.FC = () => {
     );
 
     if (result.success) {
+      // Record this clientId so rejection notifications only fire for our session's orders
+      if (result.clientId != null) sessionClientIds.add(result.clientId.toString());
       addNotification(
         'success',
         `${side} ${finalQuantity} ${marketData.baseAsset}`,

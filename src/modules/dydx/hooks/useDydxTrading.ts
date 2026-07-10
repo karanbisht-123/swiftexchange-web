@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { getConnectionHealth } from '../client/clients';
 import { dydxTradingService } from '../service/dydxTradingService';
 import type { SetTriggersResult } from '../service/dydxTradingService';
 import { dydxWalletService } from '../service/dydxWalletService';
@@ -63,6 +64,14 @@ export const useDydxTrading = () => {
         return { success: false, error: msg, userMessage: msg, retryable: false };
       }
 
+      // Guard: block order submission if WebSocket feed is down
+      const { socketStatus, clients } = getConnectionHealth();
+      if (socketStatus !== 'connected' || !clients.composite) {
+        const msg = 'Cannot place order: network disconnected. Please wait for reconnection.';
+        setOrderError(msg);
+        return { success: false, error: msg, userMessage: msg, retryable: false };
+      }
+
       setIsPlacingOrder(true);
       setOrderError(null);
 
@@ -84,6 +93,10 @@ export const useDydxTrading = () => {
         const e = err instanceof Error ? err : new Error(String(err));
         const msg = e.message || 'Place order failed';
         setOrderError(msg);
+        console.error('[useDydxTrading] placeOrder failed', {
+          error: e.message,
+          connectionHealth: getConnectionHealth(),
+        });
         return { success: false, error: msg, userMessage: msg, retryable: true };
       } finally {
         setIsPlacingOrder(false);
@@ -115,6 +128,10 @@ export const useDydxTrading = () => {
         const e = err instanceof Error ? err : new Error(String(err));
         const msg = e.message || 'Cancel failed';
         setOrderError(msg);
+        console.error('[useDydxTrading] cancelOrder failed', {
+          error: e.message,
+          connectionHealth: getConnectionHealth(),
+        });
         return { success: false, error: msg, userMessage: msg, retryable: true };
       } finally {
         setIsCancelling(false);
@@ -150,6 +167,10 @@ export const useDydxTrading = () => {
         const e = err instanceof Error ? err : new Error(String(err));
         const msg = e.message || 'Close position failed';
         setOrderError(msg);
+        console.error('[useDydxTrading] closePosition failed', {
+          error: e.message,
+          connectionHealth: getConnectionHealth(),
+        });
         return { success: false, error: msg, userMessage: msg, retryable: true };
       }
     },

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { getCompositeClient } from '../client/clients';
 import coinsList from '../data/coins.json';
 import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
 import type { MarketData as WsMarketData } from '../store/websocketStore';
 import type { MarketData } from '../types/trading.types';
-import { getValidatorClient } from '../client/clients';
 import { metadataService } from './useMetadata';
 
 export type { MarketData };
@@ -92,7 +92,7 @@ export function useMarkets(): UseMarketsReturn {
 
     const fetchFeeDiscounts = async () => {
       try {
-        const validatorClient = await getValidatorClient();
+        const validatorClient = (await getCompositeClient()).validatorClient;
         const feeDiscountsResponse = await validatorClient.get
           .getAllPerpMarketFeeDiscounts()
           .catch((err: any) => {
@@ -138,13 +138,12 @@ export function useMarkets(): UseMarketsReturn {
 
       for (const [ticker, ws] of marketsSnapshot.entries()) {
         const baseAsset = ticker.split('-')[0];
-        const staticCoin = (coinsList as any[]).find(
-          c => c.symbol?.toUpperCase() === baseAsset
-        );
+        const staticCoin = (coinsList as any[]).find(c => c.symbol?.toUpperCase() === baseAsset);
         const coinIcon = metadataService.getCoinIcon(ticker) || staticCoin?.image || '';
         const coinName = staticCoin?.name ?? baseAsset;
         const marketCap = staticCoin?.market_cap?.toString() ?? '0';
-        const isZeroFee = ws.clobPairId !== undefined && zeroFeeClobPairIds.has(Number(ws.clobPairId));
+        const isZeroFee =
+          ws.clobPairId !== undefined && zeroFeeClobPairIds.has(Number(ws.clobPairId));
 
         marketsMap[ticker] = buildMarketData(ticker, ws, coinIcon, coinName, marketCap, isZeroFee);
       }

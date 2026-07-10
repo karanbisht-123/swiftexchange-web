@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 
 import {
   type AssetPosition,
@@ -65,7 +64,10 @@ export const useDydxData = (): UseDydxDataReturn => {
   const isMountedRef = useRef(true);
   const hasInitializedRef = useRef(false);
   const isFirstMountRef = useRef(true);
-  const isFetchingRef = useRef(false);
+  const isFetchingOrdersRef = useRef(false);
+  const isFetchingFillsRef = useRef(false);
+  const isFetchingPositionsRef = useRef(false);
+  const isFetchingAssetPositionsRef = useRef(false);
   const prevWsConnectedRef = useRef(false);
 
   const subscribeToParentSubaccount = useWebSocketStore(s => s.subscribeToParentSubaccount);
@@ -75,11 +77,8 @@ export const useDydxData = (): UseDydxDataReturn => {
   const subaccountNumber = dydxWalletService.getSubaccountNumber();
   const parentKey = dydxAddress ? `parent_subaccount_${dydxAddress}_${subaccountNumber}` : null;
 
-  const { parentData, updateTrigger } = useWebSocketStore(
-    useShallow(state => ({
-      parentData: parentKey ? state.parentSubaccounts.get(parentKey) : undefined,
-      updateTrigger: state.updateTrigger,
-    }))
+  const parentData = useWebSocketStore(
+    useCallback(s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined), [parentKey])
   );
 
   const positions = useMemo(() => {
@@ -109,14 +108,11 @@ export const useDydxData = (): UseDydxDataReturn => {
     });
   }, [parentData?.orders]);
 
-  const openOrders = useMemo<TrackedOrder[]>(
-    () => selectOpenOrders(parentData),
-    [parentData, updateTrigger]
-  );
+  const openOrders = useMemo<TrackedOrder[]>(() => selectOpenOrders(parentData), [parentData]);
 
   const openOrdersWithGrace = useMemo<TrackedOrder[]>(
     () => selectOpenAndGraceOrders(parentData),
-    [parentData, updateTrigger]
+    [parentData]
   );
 
   const fills = useMemo(() => {
@@ -153,8 +149,9 @@ export const useDydxData = (): UseDydxDataReturn => {
   }, []);
 
   const refreshOrders = useCallback(async (): Promise<void> => {
-    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+    if (!dydxDataService.isReady() || !parentKey || isFetchingOrdersRef.current) return;
 
+    isFetchingOrdersRef.current = true;
     setLoadingOrders(true);
     setOrdersError(null);
 
@@ -170,13 +167,15 @@ export const useDydxData = (): UseDydxDataReturn => {
       console.error('[useDydxData] Orders refresh failed:', err);
       if (isMountedRef.current) setOrdersError(err.message || 'Failed to refresh orders');
     } finally {
+      isFetchingOrdersRef.current = false;
       if (isMountedRef.current) setLoadingOrders(false);
     }
   }, [parentKey]);
 
   const refreshFills = useCallback(async (): Promise<void> => {
-    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+    if (!dydxDataService.isReady() || !parentKey || isFetchingFillsRef.current) return;
 
+    isFetchingFillsRef.current = true;
     setLoadingFills(true);
     setFillsError(null);
 
@@ -191,6 +190,7 @@ export const useDydxData = (): UseDydxDataReturn => {
       console.error('[useDydxData] Fills refresh failed:', err);
       if (isMountedRef.current) setFillsError(err.message || 'Failed to refresh fills');
     } finally {
+      isFetchingFillsRef.current = false;
       if (isMountedRef.current) setLoadingFills(false);
     }
   }, [parentKey]);
@@ -222,8 +222,9 @@ export const useDydxData = (): UseDydxDataReturn => {
   }, [parentKey, fills, loadingFills]);
 
   const refreshPositions = useCallback(async (): Promise<void> => {
-    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+    if (!dydxDataService.isReady() || !parentKey || isFetchingPositionsRef.current) return;
 
+    isFetchingPositionsRef.current = true;
     try {
       const positionsData = await dydxDataService.refreshPositions('OPEN');
 
@@ -266,12 +267,15 @@ export const useDydxData = (): UseDydxDataReturn => {
       });
     } catch (err) {
       console.error('[useDydxData] Positions refresh failed:', err);
+    } finally {
+      isFetchingPositionsRef.current = false;
     }
   }, [parentKey]);
 
   const refreshAssetPositions = useCallback(async (): Promise<void> => {
-    if (!dydxDataService.isReady() || !parentKey || isFetchingRef.current) return;
+    if (!dydxDataService.isReady() || !parentKey || isFetchingAssetPositionsRef.current) return;
 
+    isFetchingAssetPositionsRef.current = true;
     try {
       const assetData = await dydxDataService.getAssetPositions('OPEN', undefined, false);
 
@@ -324,6 +328,8 @@ export const useDydxData = (): UseDydxDataReturn => {
       });
     } catch (err) {
       console.error('[useDydxData] Asset positions refresh failed:', err);
+    } finally {
+      isFetchingAssetPositionsRef.current = false;
     }
   }, [parentKey]);
 
@@ -370,7 +376,10 @@ export const useDydxData = (): UseDydxDataReturn => {
       } else if (status === 'disconnected' || status === 'no_subaccount') {
         setIsConnected(false);
         hasInitializedRef.current = false;
-        isFetchingRef.current = false;
+        isFetchingOrdersRef.current = false;
+        isFetchingFillsRef.current = false;
+        isFetchingPositionsRef.current = false;
+        isFetchingAssetPositionsRef.current = false;
       }
     });
 

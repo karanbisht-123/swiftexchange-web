@@ -59,7 +59,7 @@ export const formatPriceByTickSize = (
   prefix: string = '$'
 ): string => {
   if (value === null || value === undefined || value === '') return '—';
-  
+
   try {
     const bnValue = new BigNumber(value);
     if (bnValue.isNaN()) return '—';
@@ -73,6 +73,7 @@ export const formatPriceByTickSize = (
     }
 
     return bnValue.toFormat(decimals, BigNumber.ROUND_HALF_UP, {
+      ...BigNumber.config().FORMAT,
       prefix,
     });
   } catch (error) {
@@ -95,13 +96,13 @@ export const formatMarketPrice = (
   prefix: string = ''
 ): string => {
   if (value === null || value === undefined || value === '') return '—';
-  
+
   try {
     const bn = new BigNumber(value);
     if (bn.isNaN()) return '—';
 
     const num = Math.abs(bn.toNumber());
-    
+
     let decimals = 2;
     if (num >= 10000) decimals = 0;
     else if (num >= 1000) decimals = 1;
@@ -111,7 +112,7 @@ export const formatMarketPrice = (
 
     const rounded = bn.decimalPlaces(decimals, BigNumber.ROUND_HALF_UP);
     const formatted = rounded.toFormat();
-    
+
     const parts = formatted.split('.');
     if (parts.length === 2 && parts[0] === '0') {
       const fractional = parts[1];
@@ -119,7 +120,7 @@ export const formatMarketPrice = (
       while (zeroCount < fractional.length && fractional[zeroCount] === '0') {
         zeroCount++;
       }
-      
+
       if (zeroCount >= 4) {
         const remainingArgs = fractional.slice(zeroCount);
         return `${prefix}0.0${toSubscript(zeroCount)}${remainingArgs}`;

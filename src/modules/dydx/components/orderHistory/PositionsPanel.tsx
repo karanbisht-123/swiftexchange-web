@@ -432,7 +432,8 @@ function computePositionMetrics(
   childSubaccounts: any[],
   positions: Position[],
   isolatedEquityBySubaccount: Map<number, number>,
-  liveOraclePrice?: number
+  liveOraclePrice?: number,
+  storedLeverage = 5.0
 ): PositionMetrics {
   const rawSize = parseFloat(position.size);
   const absSize = Math.abs(rawSize);
@@ -460,13 +461,7 @@ function computePositionMetrics(
     leverage = margin > 0 ? Math.min(notional / margin, maxLeverage) : maxLeverage;
   } else {
     const apiLeverage = position.leverage ? parseFloat(position.leverage) : 0;
-    const storedLeverage = (() => {
-      const raw =
-        localStorage.getItem(`dydx_leverage_${position.market}`) ??
-        localStorage.getItem('dydx_leverage');
-      const parsed = raw ? parseFloat(raw) : 5.0;
-      return parsed > 0 ? parsed : 5.0;
-    })();
+    // storedLeverage is passed in — caller reads localStorage once outside the hot path
     leverage = Math.min(
       apiLeverage > 0 ? apiLeverage : storedLeverage > 0 ? storedLeverage : maxLeverage,
       maxLeverage
@@ -546,12 +541,10 @@ const PositionsPanel: React.FC = () => {
     return address ? `parent_subaccount_${address}_${subNum}` : null;
   }, []);
 
-  const updateTrigger = useWebSocketStore(s => s.updateTrigger);
-
   const parentData = useWebSocketStore(
     useCallback(
       s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined),
-      [parentKey, updateTrigger]
+      [parentKey] // parentSubaccounts is a new Map on each WS update — no need for updateTrigger
     )
   );
 
@@ -563,7 +556,17 @@ const PositionsPanel: React.FC = () => {
       map.set(child.subaccountNumber, parseFloat(child.equity || '0'));
     });
     return map;
-  }, [childSubaccounts, updateTrigger]);
+  }, [childSubaccounts]);
+
+  // Read localStorage once here (not inside the per-tick useMemo) so the hot path stays I/O-free.
+  const storedLeverageRef = useRef<Record<string, number>>({});
+  positions.forEach(p => {
+    if (storedLeverageRef.current[p.market] === undefined) {
+      const raw =
+        localStorage.getItem(`dydx_leverage_${p.market}`) ?? localStorage.getItem('dydx_leverage');
+      storedLeverageRef.current[p.market] = raw ? parseFloat(raw) || 5.0 : 5.0;
+    }
+  });
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
@@ -790,7 +793,8 @@ const PositionsPanel: React.FC = () => {
             childSubaccounts,
             positions,
             isolatedEquityBySubaccount,
-            liveOracle
+            liveOracle,
+            storedLeverageRef.current[position.market] ?? 5.0
           )
         );
       }

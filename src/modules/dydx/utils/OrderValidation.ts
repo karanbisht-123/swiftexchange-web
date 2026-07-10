@@ -73,6 +73,9 @@ export function validateOrderSize(
     if (!balanceValidation.isValid) {
       return balanceValidation;
     }
+    if (balanceValidation.warning) {
+      return balanceValidation;
+    }
   }
 
   return { isValid: true };
@@ -154,7 +157,8 @@ function validateAccountBalance(
   if (requiredMargin > freeCollateral * 0.8) {
     return {
       isValid: true,
-      warning: 'Using >80% of free collateral. Higher leverage increases the risk of on-chain rejection.',
+      warning:
+        'Using >80% of free collateral. Higher leverage increases the risk of on-chain rejection.',
     };
   }
 
@@ -307,7 +311,7 @@ export function validateIsolatedPosition(
     const difference = TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY - subaccountEquity;
     return createError(
       `Isolated positions require minimum $${TRADING_CONSTRAINTS.MIN_ISOLATED_MARGIN_EQUITY} equity. ` +
-      `Need $${difference.toFixed(2)} more. Transfer funds to this subaccount first.`
+        `Need $${difference.toFixed(2)} more. Transfer funds to this subaccount first.`
     );
   }
 

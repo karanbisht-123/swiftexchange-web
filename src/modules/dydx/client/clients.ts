@@ -5,6 +5,7 @@ import {
   IndexerClient,
   Network,
   ValidatorClient,
+  ValidatorConfig,
 } from '@dydxprotocol/v4-client-js';
 
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
@@ -12,11 +13,10 @@ import { type MessageHandler, webSocketManager } from '../utils/WebSocketManager
 
 interface ClientCache {
   indexer: IndexerClient | null;
-  validator: ValidatorClient | null;
   composite: CompositeClient | null;
-  validatorPromise: Promise<ValidatorClient> | null;
   compositePromise: Promise<CompositeClient> | null;
   network: 'mainnet' | 'testnet' | null;
+  activeEndpoint: 'oegs' | 'fallback' | null;
 }
 
 let socketClientInstance: ReturnType<typeof createSocketClient> | null = null;
@@ -24,23 +24,77 @@ let socketClientNetwork: string | null = null;
 
 const cache: ClientCache = {
   indexer: null,
-  validator: null,
   composite: null,
-  validatorPromise: null,
   compositePromise: null,
   network: null,
+  activeEndpoint: null,
+};
+
+// OEGS config
+const OEGS_ENDPOINTS: Record<'mainnet' | 'testnet', string> = {
+  mainnet: process.env.NEXT_PUBLIC_OEGS_MAINNET_URL || 'https://oegs.dydx.trade',
+  testnet: process.env.NEXT_PUBLIC_OEGS_TESTNET_URL || 'https://oegs-testnet.dydx.exchange',
+};
+const OEGS_ENABLED = process.env.NEXT_PUBLIC_OEGS_ENABLED !== 'false';
+const OEGS_CONNECT_TIMEOUT_MS = 3000;
+
+const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
 };
 
 const getNetworkConfig = (network: 'mainnet' | 'testnet') => {
   return network === 'mainnet' ? Network.mainnet() : Network.testnet();
 };
 
+// OEGS config built from the base network, only the validator endpoint swapped
+const getOegsNetworkConfig = (network: 'mainnet' | 'testnet') => {
+  const base = getNetworkConfig(network);
+  const oegsValidatorConfig = new ValidatorConfig(
+    OEGS_ENDPOINTS[network],
+    base.validatorConfig.chainId,
+    base.validatorConfig.denoms
+  );
+  return new Network(`${network}-oegs`, base.indexerConfig, oegsValidatorConfig);
+};
+
+// Tries OEGS first, falls back to the default node on timeout/error
+const connectCompositeWithFallback = async (
+  network: 'mainnet' | 'testnet'
+): Promise<{ client: CompositeClient; endpoint: 'oegs' | 'fallback' }> => {
+  if (OEGS_ENABLED) {
+    try {
+      const oegsNetwork = getOegsNetworkConfig(network);
+      const client = await withTimeout(
+        CompositeClient.connect(oegsNetwork),
+        OEGS_CONNECT_TIMEOUT_MS,
+        'OEGS composite connect'
+      );
+      console.info(`[dydxClients] CompositeClient connected via OEGS (${network})`);
+      return { client, endpoint: 'oegs' };
+    } catch (err) {
+      console.warn(
+        `[dydxClients] OEGS connect failed for ${network}, falling back to default node:`,
+        (err as Error).message
+      );
+    }
+  }
+
+  const base = getNetworkConfig(network);
+  const client = await CompositeClient.connect(base);
+  console.info(`[dydxClients] CompositeClient connected via fallback node (${network})`);
+  return { client, endpoint: 'fallback' };
+};
+
 export const resetAllClients = (isLogout = false): void => {
   cache.indexer = null;
-  cache.validator = null;
   cache.composite = null;
-  cache.validatorPromise = null;
   cache.compositePromise = null;
+  cache.activeEndpoint = null;
   socketClientInstance = null;
   socketClientNetwork = null;
   webSocketManager.shutdown();
@@ -75,27 +129,8 @@ export const getIndexerClient = (): IndexerClient => {
 };
 
 export const getValidatorClient = async (): Promise<ValidatorClient> => {
-  const network = useWalletStore.getState().network;
-
-  if (cache.validator && cache.network === network) {
-    return cache.validator;
-  }
-  if (cache.validatorPromise && cache.network === network) {
-    return cache.validatorPromise;
-  }
-
-  invalidateCacheForNetworkSwitch(network);
-  const networkConfig = getNetworkConfig(network);
-
-  cache.validatorPromise = ValidatorClient.connect(networkConfig.validatorConfig);
-  try {
-    const client = await cache.validatorPromise;
-    cache.validator = client;
-    cache.network = network;
-    return client;
-  } finally {
-    cache.validatorPromise = null;
-  }
+  const composite = await getCompositeClient();
+  return composite.validatorClient;
 };
 
 export const getCompositeClient = async (): Promise<CompositeClient> => {
@@ -109,14 +144,17 @@ export const getCompositeClient = async (): Promise<CompositeClient> => {
   }
 
   invalidateCacheForNetworkSwitch(network);
-  const networkConfig = getNetworkConfig(network);
 
-  cache.compositePromise = CompositeClient.connect(networkConfig);
-  try {
-    const client = await cache.compositePromise;
+  // now routes through OEGS-with-fallback instead of connecting directly
+  cache.compositePromise = connectCompositeWithFallback(network).then(({ client, endpoint }) => {
     cache.composite = client;
     cache.network = network;
+    cache.activeEndpoint = endpoint;
     return client;
+  });
+
+  try {
+    return await cache.compositePromise;
   } finally {
     cache.compositePromise = null;
   }
@@ -206,31 +244,8 @@ export const useIndexerClient = (): IndexerClient => {
 };
 
 export const useValidatorClient = (): ValidatorClient | null => {
-  const network = useWalletStore(s => s.network);
-  const [client, setClient] = useState<ValidatorClient | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    const targetNetwork = network;
-
-    getValidatorClient()
-      .then(validatorClient => {
-        if (!mountedRef.current) return;
-        if (useWalletStore.getState().network !== targetNetwork) return;
-        setClient(validatorClient);
-      })
-      .catch(error => {
-        console.error('[useValidatorClient] Connection failed:', error);
-        if (mountedRef.current) setClient(null);
-      });
-
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [network]);
-
-  return client;
+  const composite = useCompositeClient();
+  return composite?.validatorClient ?? null;
 };
 
 export const useCompositeClient = (): CompositeClient | null => {
@@ -262,18 +277,9 @@ export const useCompositeClient = (): CompositeClient | null => {
 };
 
 export const useSocketClient = (): SocketClient => {
-  const network = useWalletStore(s => s.network);
-  const [client, setClient] = useState<SocketClient>(() => getSocketClient());
-  const networkRef = useRef(network);
-
-  useEffect(() => {
-    if (networkRef.current !== network) {
-      networkRef.current = network;
-      setClient(getSocketClient());
-    }
-  }, [network]);
-
-  return client;
+  // getSocketClient() is a singleton keyed by network; subscribe just for re-renders on switch.
+  useWalletStore(s => s.network);
+  return getSocketClient();
 };
 
 export const getConnectionHealth = () => {
@@ -281,9 +287,10 @@ export const getConnectionHealth = () => {
     socketStatus: webSocketManager.getConnectionStatus(),
     socketDebug: webSocketManager.getDebugInfo(),
     currentNetwork: cache.network,
+    activeValidatorEndpoint: cache.activeEndpoint,
+    oegsEnabled: OEGS_ENABLED,
     clients: {
       indexer: cache.indexer !== null,
-      validator: cache.validator !== null,
       composite: cache.composite !== null,
     },
   };

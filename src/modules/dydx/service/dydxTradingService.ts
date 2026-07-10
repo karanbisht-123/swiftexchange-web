@@ -247,28 +247,26 @@ class DydxTradingService {
     const targetEquityWithBuffer = targetEquity * (1 + TRADING_CONFIG.ISOLATED_FEE_BUFFER);
 
     const indexer = dydxWalletService.getIndexerClient();
-    let currentEquity = 0;
-    try {
-      const subaccountResponse = await indexer.account.getSubaccount(address, subaccountNumber);
-      currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
-    } catch {
-      currentEquity = 0;
-    }
+
+    // Both calls are independent — run in parallel to save one RTT
+    const [isoResult, crossResult] = await Promise.allSettled([
+      indexer.account.getSubaccount(address, subaccountNumber),
+      indexer.account.getSubaccount(address, SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT),
+    ]);
+
+    const currentEquity =
+      isoResult.status === 'fulfilled' ? parseFloat(isoResult.value.subaccount?.equity || '0') : 0;
 
     if (currentEquity >= targetEquityWithBuffer) return null;
 
     const shortfall = targetEquityWithBuffer - currentEquity;
 
-    let crossFreeCollateral = 0;
-    try {
-      const crossSubResponse = await indexer.account.getSubaccount(
-        address,
-        SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
+    if (crossResult.status === 'rejected') {
+      throw new Error(
+        `Failed to read cross margin balance: ${(crossResult.reason as Error).message}`
       );
-      crossFreeCollateral = parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
-    } catch (e: any) {
-      throw new Error(`Failed to read cross margin balance: ${e.message}`);
     }
+    const crossFreeCollateral = parseFloat(crossResult.value.subaccount?.freeCollateral || '0');
 
     if (crossFreeCollateral < shortfall) {
       throw new Error(
@@ -276,9 +274,6 @@ class DydxTradingService {
       );
     }
 
-    console.log(
-      `[atomic] Transfer needed: $${shortfall.toFixed(2)} cross→isolated(${subaccountNumber})`
-    );
     return shortfall;
   }
 
@@ -530,9 +525,7 @@ class DydxTradingService {
   }
 
   private async getFreshBlockHeight(client: any): Promise<number> {
-    const height = await client.validatorClient.get.latestBlockHeight();
-    console.log(`[fresh-height] Latest block: ${height}`);
-    return height;
+    return client.validatorClient.get.latestBlockHeight();
   }
 
   async closePosition(position: Position, marketInfo?: MarketData) {

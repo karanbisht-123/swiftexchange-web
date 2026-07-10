@@ -3,9 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Tooltip } from '../../../../components/common/Tooltip';
 import { useMarkets } from '../../hooks/useMarkets';
-import { tradesState } from '../../hooks/useTrades';
+import { useMidMarketPrice } from '../../hooks/useOrderbook';
 import useMarketStore from '../../store/marketStore';
-import { useLivePriceStore } from '../../store/useLivePriceStore';
 import { useWebSocketStore } from '../../store/websocketStore';
 import { formatMarketPrice } from '../../utils/BigNumberUtils';
 import {
@@ -214,9 +213,10 @@ export const MarketStats: React.FC<MarketStatsProps> = ({ marketData }) => {
 const MarketSwitcher: React.FC = () => {
   const { selectedMarket } = useMarketStore();
   const { getMarket, isLoading } = useMarkets();
-  const livePriceData = useLivePriceStore(state => state.prices[selectedMarket]);
-  const livePrice = livePriceData?.price || null;
-  const livePriceSide = livePriceData?.side || null;
+
+  // Mid-market price: (best bid + best ask) / 2 — same approach as dYdX's own UI.
+  // Reacts to every orderbook update; direction drives AnimatedPrice color.
+  const { formatted: currentPrice, side: livePriceSide } = useMidMarketPrice(selectedMarket);
 
   const wsOraclePrice = useWebSocketStore(state => state.markets.get(selectedMarket)?.oraclePrice);
 
@@ -238,14 +238,6 @@ const MarketSwitcher: React.FC = () => {
   const liveOraclePrice = wsOraclePrice ?? marketData.oraclePrice;
 
   const countdown = useFundingCountdown();
-
-  const snapshotPrice = tradesState.get(selectedMarket)?.trades[0]?.price;
-  const currentPrice =
-    livePrice && livePrice > 0
-      ? formatMarketPrice(livePrice)
-      : snapshotPrice
-        ? formatMarketPrice(snapshotPrice)
-        : '--';
 
   const priceChange = parseFloat(marketData.priceChange24H || '0');
   const oraclePrice = parseFloat(liveOraclePrice || '0');

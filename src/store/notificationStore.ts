@@ -1,16 +1,10 @@
-import React from 'react';
+import type React from 'react';
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type NotificationType =
-  | 'EVM_SWAP'
-  | 'SEND'
-  | 'RECEIVE'
-  | 'BRIDGE'
-  | 'STELLAR'
-  | 'DYDX'
-  | 'SYSTEM';
+  'EVM_SWAP' | 'SEND' | 'RECEIVE' | 'BRIDGE' | 'STELLAR' | 'DYDX' | 'SYSTEM';
 
 export interface AppNotification {
   id: string;
@@ -22,7 +16,7 @@ export interface AppNotification {
   dontSave?: boolean;
 }
 
-export interface ToastNotification extends AppNotification {}
+export type ToastNotification = AppNotification;
 
 interface NotificationState {
   notifications: AppNotification[];
@@ -59,7 +53,10 @@ export const useNotificationStore = create<NotificationState>()(
         SYSTEM: true,
       },
       isGlobalPanelOpen: false,
-      permission: typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default',
+      permission:
+        typeof window !== 'undefined' && 'Notification' in window
+          ? Notification.permission
+          : 'default',
 
       requestPermission: async () => {
         if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -78,7 +75,8 @@ export const useNotificationStore = create<NotificationState>()(
         if (typeof window === 'undefined' || !('Notification' in window)) return;
 
         let currentPerm = get().permission;
-        if (currentPerm !== 'granted') {
+
+        if (currentPerm === 'default') {
           const requested = await get().requestPermission();
           if (requested) currentPerm = requested;
         }
@@ -113,15 +111,18 @@ export const useNotificationStore = create<NotificationState>()(
             notifications: [newNotif, ...state.notifications],
           }));
 
-          const bodyText = typeof notif.message === 'string' 
-            ? notif.message 
-            : 'Update regarding your wallet transfer/swap status.';
-          
-          get().showBrowserNotification(notif.title, {
-            body: bodyText,
-            icon: '/favicon.ico',
-            tag: notif.type,
-          }).catch(() => {});
+          const bodyText =
+            typeof notif.message === 'string'
+              ? notif.message
+              : 'Update regarding your wallet transfer/swap status.';
+
+          get()
+            .showBrowserNotification(notif.title, {
+              body: bodyText,
+              icon: '/favicon.ico',
+              tag: notif.type,
+            })
+            .catch(() => {});
         }
       },
 
@@ -185,15 +186,18 @@ export const useNotificationStore = create<NotificationState>()(
         });
 
         if (!notif.dontSave) {
-          const bodyText = typeof notif.message === 'string' 
-            ? notif.message 
-            : 'Update regarding your wallet transfer/swap status.';
-          
-          get().showBrowserNotification(notif.title, {
-            body: bodyText,
-            icon: '/favicon.ico',
-            tag: notif.type,
-          }).catch(() => {});
+          const bodyText =
+            typeof notif.message === 'string'
+              ? notif.message
+              : 'Update regarding your wallet transfer/swap status.';
+
+          get()
+            .showBrowserNotification(notif.title, {
+              body: bodyText,
+              icon: '/favicon.ico',
+              tag: notif.type,
+            })
+            .catch(() => {});
         }
 
         setTimeout(() => {
