@@ -1,4 +1,5 @@
 import {
+  CompositeClient,
   LocalWallet,
   OrderExecution,
   OrderSide,
@@ -6,20 +7,21 @@ import {
   OrderType,
   SubaccountInfo,
 } from '@dydxprotocol/v4-client-js';
-import Long from "long"
+import { Order_TimeInForce } from '@dydxprotocol/v4-proto/src/codegen/dydxprotocol/clob/order';
+import { Long } from '@dydxprotocol/v4-proto/src/codegen/helpers';
 
 import { walletService } from '../../walletconnect/services/walletService';
+import { useWebSocketStore } from '../store/websocketStore';
 import {
   type MarketData,
   type OrderSideEnum,
   type PlaceOrderParams,
   type Position,
-  type TriggerParams,
   SUBACCOUNT_CONSTANTS,
+  type TriggerParams,
 } from '../types/trading.types';
 import { dydxSubaccountService } from './dydxSubaccountService';
 import { dydxWalletService } from './dydxWalletService';
-import { useWebSocketStore } from '../store/websocketStore';
 
 const TRADING_CONFIG = {
   DEFAULT_SLIPPAGE: 0.05,
@@ -32,6 +34,7 @@ const TRADING_CONFIG = {
   ISOLATED_FEE_BUFFER: 0.02,
   TRANSFER_CONFIRM_POLL_MS: 400,
   TRANSFER_CONFIRM_MAX_ATTEMPTS: 37,
+  TRANSFER_WS_GRACE_MS: 2500,
 } as const;
 
 const CONDITIONAL_ORDER_TYPES = new Set([
@@ -48,11 +51,57 @@ const SHORT_TERM_FLAG = 0;
 type OrderCategory = {
   isMarket: boolean;
   isConditional: boolean;
+  isMarketConditional: boolean;
   isLimit: boolean;
 };
 
+interface IsolatedTransferContext {
+  client: CompositeClient;
+  address: string;
+  subaccountNumber: number;
+  size: number;
+  marketInfo: MarketData;
+  params: PlaceOrderParams;
+  orderCategory: OrderCategory;
+}
+
+interface AtomicTransferOrderContext {
+  client: CompositeClient;
+  subaccount: SubaccountInfo;
+  localWallet: LocalWallet;
+  params: PlaceOrderParams;
+  clientId: number;
+  price: number;
+  size: number;
+  triggerPrice?: number;
+  orderCategory: OrderCategory;
+  transferAmount: number;
+  address?: string;
+  subaccountNumber: number;
+  marketInfo: MarketData;
+}
+
+interface TriggerOrderResult {
+  success: boolean;
+  clientId?: string;
+  transactionHash?: string;
+  error?: string;
+  userMessage?: string;
+  retryable?: boolean;
+}
+
+export interface SetTriggersResult {
+  success: boolean;
+  results: {
+    takeProfit?: TriggerOrderResult;
+    stopLoss?: TriggerOrderResult;
+  };
+  error?: string;
+}
+
 class DydxTradingService {
   private clientIdCounter = Math.floor(Math.random() * 0x7fffffff);
+  private sweepingSubaccounts = new Set<number>();
 
   private async getClientAndWallet() {
     const client = await dydxWalletService.getCompositeClient();
@@ -76,35 +125,29 @@ class DydxTradingService {
       const size = typeof params.size === 'string' ? parseFloat(params.size) : params.size;
       const orderCategory = this.categorizeOrder(params.type);
 
-      this.validateReduceOnlyConstraints(params, orderCategory);
+      this.validateReduceOnlyConstraints(params);
       this.validatePostOnlyConstraints(params);
 
-      let price = params.price ?? 0;
+      const needsTransferCheck = subaccountNumber >= 128 && !!params.leverage;
 
-      const isIsolatedMarket = orderCategory.isMarket && (subaccountNumber ?? 0) >= 128 && !!params.leverage;
+      const [price, transferAmount] = await Promise.all([
+        this.resolveOrderPrice(params, marketInfo, orderCategory),
+        needsTransferCheck
+          ? this.getRequiredTransferAmount({
+              client,
+              address,
+              subaccountNumber,
+              size,
+              marketInfo,
+              params,
+              orderCategory,
+            })
+          : Promise.resolve(null),
+      ]);
 
-      if (!isIsolatedMarket) {
-        if (orderCategory.isMarket || !price) {
-          price = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
-        }
-        price = this.roundPrice(price, marketInfo.tickSize!);
-      }
       const triggerPrice = params.triggerPrice
         ? this.roundPrice(params.triggerPrice, marketInfo.tickSize!)
         : undefined;
-
-      let transferAmount: number | null = null;
-      if (subaccountNumber >= 128 && params.leverage) {
-        transferAmount = await this.getRequiredTransferAmount({
-          client,
-          address,
-          subaccountNumber,
-          size,
-          marketInfo,
-          params,
-          orderCategory,
-        });
-      }
 
       let result: any;
 
@@ -124,16 +167,20 @@ class DydxTradingService {
           subaccountNumber,
           marketInfo,
         });
+      } else if (orderCategory.isMarket) {
+        result = await this.placeMarketOrder(client, subaccount, params, clientId, price, size);
+      } else if (orderCategory.isConditional) {
+        result = await this.placeConditionalOrder(
+          client,
+          subaccount,
+          params,
+          clientId,
+          price,
+          size,
+          triggerPrice
+        );
       } else {
-        if (orderCategory.isMarket) {
-          result = await this.placeMarketOrder(client, subaccount, params, clientId, price, size);
-        } else if (orderCategory.isConditional) {
-          result = await this.placeConditionalOrder(
-            client, subaccount, params, clientId, price, size, triggerPrice
-          );
-        } else {
-          result = await this.placeLimitOrder(client, subaccount, params, clientId, price, size);
-        }
+        result = await this.placeLimitOrder(client, subaccount, params, clientId, price, size);
       }
 
       return {
@@ -161,32 +208,36 @@ class DydxTradingService {
         this.sweepIsolatedSubaccountAsync(subaccountNumber);
       }
 
+      const { userMessage, retryable } = this.classifyError(error);
       return {
         success: false,
         error: error.message || 'Unknown error',
-        userMessage: this.getUserFriendlyError(error),
-        retryable: this.isRetryableError(error),
+        userMessage,
+        retryable,
       };
     }
   }
 
+  private async resolveOrderPrice(
+    params: PlaceOrderParams,
+    marketInfo: MarketData,
+    orderCategory: OrderCategory
+  ): Promise<number> {
+    let price = params.price ?? 0;
+    if (orderCategory.isMarket || !price) {
+      price = await this.getSlippagePrice(params.market, params.side, params.slippageTolerance);
+    }
+    return this.roundPrice(price, marketInfo.tickSize!);
+  }
+
   private async getRequiredTransferAmount({
-    client: _client,
     address,
     subaccountNumber,
     size,
     marketInfo,
     params,
     orderCategory,
-  }: {
-    client: any;
-    address: string;
-    subaccountNumber: number;
-    size: number;
-    marketInfo: MarketData;
-    params: PlaceOrderParams;
-    orderCategory: OrderCategory;
-  }): Promise<number | null> {
+  }: IsolatedTransferContext): Promise<number | null> {
     const oraclePrice = parseFloat(marketInfo.oraclePrice);
     const notionalValue = size * oraclePrice;
     const requiredMargin = notionalValue / params.leverage!;
@@ -196,28 +247,26 @@ class DydxTradingService {
     const targetEquityWithBuffer = targetEquity * (1 + TRADING_CONFIG.ISOLATED_FEE_BUFFER);
 
     const indexer = dydxWalletService.getIndexerClient();
-    let currentEquity = 0;
-    try {
-      const subaccountResponse = await indexer.account.getSubaccount(address, subaccountNumber);
-      currentEquity = parseFloat(subaccountResponse.subaccount?.equity || '0');
-    } catch {
-      currentEquity = 0;
-    }
+
+    // Both calls are independent — run in parallel to save one RTT
+    const [isoResult, crossResult] = await Promise.allSettled([
+      indexer.account.getSubaccount(address, subaccountNumber),
+      indexer.account.getSubaccount(address, SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT),
+    ]);
+
+    const currentEquity =
+      isoResult.status === 'fulfilled' ? parseFloat(isoResult.value.subaccount?.equity || '0') : 0;
 
     if (currentEquity >= targetEquityWithBuffer) return null;
 
     const shortfall = targetEquityWithBuffer - currentEquity;
 
-    let crossFreeCollateral = 0;
-    try {
-      const crossSubResponse = await indexer.account.getSubaccount(
-        address,
-        SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
+    if (crossResult.status === 'rejected') {
+      throw new Error(
+        `Failed to read cross margin balance: ${(crossResult.reason as Error).message}`
       );
-      crossFreeCollateral = parseFloat(crossSubResponse.subaccount?.freeCollateral || '0');
-    } catch (e: any) {
-      throw new Error(`Failed to read cross margin balance: ${e.message}`);
     }
+    const crossFreeCollateral = parseFloat(crossResult.value.subaccount?.freeCollateral || '0');
 
     if (crossFreeCollateral < shortfall) {
       throw new Error(
@@ -225,7 +274,6 @@ class DydxTradingService {
       );
     }
 
-    console.log(`[atomic] Transfer needed: $${shortfall.toFixed(2)} cross→isolated(${subaccountNumber})`);
     return shortfall;
   }
 
@@ -235,7 +283,6 @@ class DydxTradingService {
     localWallet,
     params,
     clientId,
-    price,
     size,
     triggerPrice,
     orderCategory,
@@ -243,23 +290,11 @@ class DydxTradingService {
     address,
     subaccountNumber,
     marketInfo,
-  }: {
-    client: any;
-    subaccount: any;
-    localWallet: any;
-    params: PlaceOrderParams;
-    clientId: number;
-    price: number;
-    size: number;
-    triggerPrice?: number;
-    orderCategory: OrderCategory;
-    transferAmount: number;
-    address?: string;
-    subaccountNumber: number;
-    marketInfo: MarketData;
-  }) {
+  }: AtomicTransferOrderContext) {
     if (orderCategory.isMarket) {
-      console.log(`[atomic] Market+isolated: sending transfer tx first ($${transferAmount.toFixed(2)} → subaccount ${subaccountNumber})`);
+      console.log(
+        `[atomic] Market+isolated: sending transfer tx first ($${transferAmount.toFixed(2)} → subaccount ${subaccountNumber})`
+      );
 
       const sourceSubaccountNumber = SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT;
       const sourceSubaccount = SubaccountInfo.forLocalWallet(localWallet, sourceSubaccountNumber);
@@ -286,18 +321,18 @@ class DydxTradingService {
         SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
       );
 
-
       const oraclePrice = parseFloat(marketInfo.oraclePrice);
       const slippage = params.slippageTolerance ?? TRADING_CONFIG.DEFAULT_SLIPPAGE;
       const normalizedSide = params.side.toUpperCase().trim();
-      let freshPrice = normalizedSide === 'BUY'
-        ? oraclePrice * (1 + slippage)
-        : oraclePrice * (1 - slippage);
+      let freshPrice =
+        normalizedSide === 'BUY' ? oraclePrice * (1 + slippage) : oraclePrice * (1 - slippage);
       freshPrice = this.roundPrice(freshPrice, marketInfo.tickSize!);
       const height = await this.getFreshBlockHeight(client);
       const goodTilBlock = height + TRADING_CONFIG.SHORT_BLOCK_FORWARD;
 
-      console.log(`[atomic] Transfer confirmed → placing short-term order at block ${height} | goodTilBlock = ${goodTilBlock} | freshPrice = ${freshPrice}`);
+      console.log(
+        `[atomic] Transfer confirmed → placing short-term order at block ${height} | goodTilBlock = ${goodTilBlock} | freshPrice = ${freshPrice}`
+      );
 
       return client.placeShortTermOrder(
         subaccount,
@@ -307,7 +342,7 @@ class DydxTradingService {
         size,
         clientId,
         goodTilBlock,
-        OrderTimeInForce.IOC,
+        Order_TimeInForce.TIME_IN_FORCE_IOC,
         params.reduceOnly || false
       );
     }
@@ -316,22 +351,21 @@ class DydxTradingService {
       params.goodTilTimeInSeconds || TRADING_CONFIG.DEFAULT_STATEFUL_EXPIRY_SECONDS,
       TRADING_CONFIG.MAX_STATEFUL_EXPIRY_SECONDS
     );
-    const isMarketConditional = MARKET_CONDITIONAL_TYPES.has(params.type.toUpperCase());
     let timeInForce = OrderTimeInForce.GTT;
     if (params.timeInForce === 'IOC') timeInForce = OrderTimeInForce.IOC;
-    if (params.reduceOnly || isMarketConditional) timeInForce = OrderTimeInForce.IOC;
+    if (params.reduceOnly || orderCategory.isMarketConditional) timeInForce = OrderTimeInForce.IOC;
 
     const orderPayload = {
       subaccountNumber,
       marketId: params.market,
       type: this.mapOrderType(params.type),
       side: this.normalizeToOrderSide(params.side),
-      price,
+      price: this.roundPrice(params.price ?? triggerPrice ?? 0, marketInfo.tickSize!),
       size,
       clientId,
       timeInForce,
       goodTilTimeInSeconds: safeDuration,
-      execution: isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT,
+      execution: orderCategory.isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT,
       postOnly: params.postOnly || false,
       reduceOnly: params.reduceOnly || false,
       triggerPrice: triggerPrice ?? 0,
@@ -354,9 +388,7 @@ class DydxTradingService {
   }
 
   private decodeQuantumsToUSD(quantums: Uint8Array): number {
-    if (!quantums || quantums.length <= 1) {
-      return 0;
-    }
+    if (!quantums || quantums.length <= 1) return 0;
     const negated = (quantums[0] & 1) === 1;
     const hex = Array.from(quantums.slice(1))
       .map((b: any) => b.toString(16).padStart(2, '0'))
@@ -374,7 +406,8 @@ class DydxTradingService {
     minEquity: number,
     parentSubaccountNumber: number = 0
   ): Promise<void> {
-    const { TRANSFER_CONFIRM_POLL_MS, TRANSFER_CONFIRM_MAX_ATTEMPTS } = TRADING_CONFIG;
+    const { TRANSFER_CONFIRM_POLL_MS, TRANSFER_CONFIRM_MAX_ATTEMPTS, TRANSFER_WS_GRACE_MS } =
+      TRADING_CONFIG;
     const maxWaitMs = TRANSFER_CONFIRM_MAX_ATTEMPTS * TRANSFER_CONFIRM_POLL_MS;
 
     const parentKey = `parent_subaccount_${address}_${parentSubaccountNumber}`;
@@ -389,43 +422,46 @@ class DydxTradingService {
 
       const equity = parseFloat(child.equity || '0');
       const freeCollateral = parseFloat(child.freeCollateral || '0');
-
-      //buffer to account for minor precision differences
       return equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99;
     };
 
-    // Immediate check before subscribing
     if (isConditionMet(useWebSocketStore.getState())) {
       console.log(`[atomic] [reflection] Transfer already reflected in store state`);
       return;
     }
 
-    console.log(`[atomic] [reflection] Waiting up to ${maxWaitMs / 1000}s for transfer ($${minEquity.toFixed(2)}) via WS/Polling`);
+    console.log(
+      `[atomic] [reflection] Waiting up to ${maxWaitMs / 1000}s for transfer ($${minEquity.toFixed(2)}) via WS/Polling`
+    );
 
     return new Promise((resolve, reject) => {
       let resolved = false;
+      let validatorPollInterval: ReturnType<typeof setInterval> | null = null;
+      let pollInterval: ReturnType<typeof setInterval> | null = null;
 
       const timeoutId = setTimeout(() => {
         if (!resolved) {
           resolved = true;
           cleanup();
-          reject(new Error(
-            `Transfer of $${minEquity.toFixed(2)} to isolated subaccount ${subaccountNumber} did not confirm within ` +
-            `${(maxWaitMs / 1000).toFixed(0)}s. Please check your transaction history.`
-          ));
+          reject(
+            new Error(
+              `Transfer of $${minEquity.toFixed(2)} to isolated subaccount ${subaccountNumber} did not confirm within ` +
+                `${(maxWaitMs / 1000).toFixed(0)}s. Please check your transaction history.`
+            )
+          );
         }
       }, maxWaitMs);
 
       const cleanup = () => {
         resolved = true;
         unsubscribe();
-        clearInterval(pollInterval);
-        clearInterval(validatorPollInterval);
+        if (validatorPollInterval) clearInterval(validatorPollInterval);
+        if (pollInterval) clearInterval(pollInterval);
+        clearTimeout(graceTimeoutId);
         clearTimeout(timeoutId);
       };
 
-      // WebSocket Subscription 
-      const unsubscribe = useWebSocketStore.subscribe((state) => {
+      const unsubscribe = useWebSocketStore.subscribe(state => {
         if (isConditionMet(state)) {
           console.log(`[atomic] [reflection] Transfer confirmed via WebSocket update`);
           cleanup();
@@ -433,60 +469,64 @@ class DydxTradingService {
         }
       });
 
-      const validatorPollInterval = setInterval(async () => {
+      const indexer = dydxWalletService.getIndexerClient();
+      let pollAttempt = 0;
+
+      const startPolling = () => {
         if (resolved) return;
-        try {
-          const subaccountResp = await client.validatorClient.get.getSubaccount(address, subaccountNumber);
+
+        validatorPollInterval = setInterval(async () => {
           if (resolved) return;
-          if (subaccountResp?.subaccount?.assetPositions) {
-            const usdcPosition = subaccountResp.subaccount.assetPositions.find(
+          try {
+            const subaccountResp = await client.validatorClient.get.getSubaccount(
+              address,
+              subaccountNumber
+            );
+            if (resolved) return;
+            const usdcPosition = subaccountResp?.subaccount?.assetPositions?.find(
               (p: any) => p.assetId === 0
             );
             if (usdcPosition) {
               const usdVal = this.decodeQuantumsToUSD(usdcPosition.quantums);
-              console.log(`[atomic] [reflection] Validator USDC balance: $${usdVal.toFixed(2)} (target: $${(minEquity * 0.99).toFixed(2)})`);
               if (usdVal >= minEquity * 0.99) {
                 console.log(`[atomic] [reflection] Transfer confirmed via Validator polling!`);
                 cleanup();
                 resolve();
               }
             }
+          } catch (e: any) {
+            console.log(`[atomic] [reflection] Validator poll error: ${e.message}`);
           }
-        } catch (e: any) {
-          console.log(`[atomic] [reflection] Validator poll error: ${e.message}`);
-        }
-      }, 400);
-      const indexer = dydxWalletService.getIndexerClient();
-      let pollAttempt = 0;
-      const INDEXER_POLL_MS = TRANSFER_CONFIRM_POLL_MS * 2;
+        }, TRANSFER_CONFIRM_POLL_MS);
 
-      const pollInterval = setInterval(async () => {
-        if (resolved) return;
-        pollAttempt++;
-        try {
-          const resp = await indexer.account.getSubaccount(address, subaccountNumber);
+        pollInterval = setInterval(async () => {
           if (resolved) return;
-
-          const equity = parseFloat(resp.subaccount?.equity || '0');
-          const freeCollateral = parseFloat(resp.subaccount?.freeCollateral || '0');
-
-          if (equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99) {
-            console.log(`[atomic] [reflection] Transfer confirmed via REST fallback (Poll ${pollAttempt})`);
-            cleanup();
-            resolve();
+          pollAttempt++;
+          try {
+            const resp = await indexer.account.getSubaccount(address, subaccountNumber);
+            if (resolved) return;
+            const equity = parseFloat(resp.subaccount?.equity || '0');
+            const freeCollateral = parseFloat(resp.subaccount?.freeCollateral || '0');
+            if (equity >= minEquity * 0.99 || freeCollateral >= minEquity * 0.99) {
+              console.log(
+                `[atomic] [reflection] Transfer confirmed via REST fallback (Poll ${pollAttempt})`
+              );
+              cleanup();
+              resolve();
+            }
+          } catch (e: any) {
+            console.log(`[atomic] [reflection] Transfer poll failed: ${e.message}`);
           }
-        } catch (e: any) {
-          console.log(`[atomic] [reflection] Transfer poll failed: ${e.message}`);
-        }
-      }, INDEXER_POLL_MS);
+        }, TRANSFER_CONFIRM_POLL_MS * 2);
+      };
+
+      const graceTimeoutId = setTimeout(startPolling, TRANSFER_WS_GRACE_MS);
     });
   }
-  private async getFreshBlockHeight(client: any): Promise<number> {
-    const height = await client.validatorClient.get.latestBlockHeight();
-    console.log(`[fresh-height] Latest block: ${height}`);
-    return height;
-  }
 
+  private async getFreshBlockHeight(client: any): Promise<number> {
+    return client.validatorClient.get.latestBlockHeight();
+  }
 
   async closePosition(position: Position, marketInfo?: MarketData) {
     try {
@@ -506,29 +546,42 @@ class DydxTradingService {
         marketInfo
       );
 
-      if (result.success && position.subaccountNumber !== undefined && position.subaccountNumber >= 128) {
+      if (
+        result.success &&
+        position.subaccountNumber !== undefined &&
+        position.subaccountNumber >= 128
+      ) {
         this.sweepIsolatedSubaccountAsync(position.subaccountNumber);
       }
 
       return result;
     } catch (error: any) {
       console.error('Close position error:', error);
+      const { userMessage, retryable } = this.classifyError(error);
       return {
         success: false,
         error: error.message || 'Failed to close position',
-        userMessage: this.getUserFriendlyError(error),
-        retryable: this.isRetryableError(error),
+        userMessage,
+        retryable,
       };
     }
   }
 
   private sweepIsolatedSubaccountAsync(subaccountNumber: number): void {
+    if (this.sweepingSubaccounts.has(subaccountNumber)) return;
+    this.sweepingSubaccounts.add(subaccountNumber);
+
     (async () => {
       try {
         await new Promise(resolve => setTimeout(resolve, 3000));
         await dydxSubaccountService.sweepSubaccountToCross(subaccountNumber);
       } catch (err: any) {
-        console.error(`[dydxTradingService] Post-close sweep failed for subaccount ${subaccountNumber}:`, err.message);
+        console.error(
+          `[dydxTradingService] Post-close sweep failed for subaccount ${subaccountNumber}:`,
+          err.message
+        );
+      } finally {
+        this.sweepingSubaccounts.delete(subaccountNumber);
       }
     })();
   }
@@ -579,10 +632,11 @@ class DydxTradingService {
       };
     } catch (error: any) {
       console.error('Cancel order error:', error);
+      const { userMessage } = this.classifyError(error);
       return {
         success: false,
         error: error.message,
-        userMessage: this.getUserFriendlyError(error),
+        userMessage,
       };
     }
   }
@@ -633,9 +687,7 @@ class DydxTradingService {
           });
         } catch (err: any) {
           console.warn('Batch cancel failed, falling back to individual cancels:', err.message);
-          const fallbacks = await Promise.allSettled(
-            shortTermOrders.map(o => this.cancelOrder(o))
-          );
+          const fallbacks = await Promise.allSettled(shortTermOrders.map(o => this.cancelOrder(o)));
           fallbacks.forEach((r, i) => {
             results.push({
               type: 'short_term_fallback',
@@ -646,18 +698,21 @@ class DydxTradingService {
         }
       })();
 
-      const statefulPromises = statefulOrders.map(order =>
-        this.cancelOrder(order)
-          .then(r => results.push({ type: 'stateful', clientId: order.clientId, ...r }))
-          .catch(err => results.push({ type: 'stateful', clientId: order.clientId, success: false, error: err.message }))
-      );
+      const statefulPromise = Promise.allSettled(statefulOrders.map(o => this.cancelOrder(o)));
 
-      await Promise.all([shortTermPromise, ...statefulPromises]);
+      const [, statefulResults] = await Promise.all([shortTermPromise, statefulPromise]);
+
+      statefulResults.forEach((r, i) => {
+        results.push({
+          type: 'stateful',
+          clientId: statefulOrders[i].clientId,
+          success: r.status === 'fulfilled' && r.value.success,
+          error: r.status === 'rejected' ? r.reason?.message : undefined,
+        });
+      });
 
       const isolatedSubaccounts = new Set(
-        orders
-          .map(o => o.subaccountNumber)
-          .filter((n): n is number => n != null && n >= 128)
+        orders.map(o => o.subaccountNumber).filter((n): n is number => n != null && n >= 128)
       );
       for (const subaccountNumber of isolatedSubaccounts) {
         this.sweepIsolatedSubaccountAsync(subaccountNumber);
@@ -675,10 +730,11 @@ class DydxTradingService {
       };
     } catch (error: any) {
       console.error('Cancel all orders error:', error);
+      const { userMessage } = this.classifyError(error);
       return {
         success: false,
         error: error.message,
-        userMessage: this.getUserFriendlyError(error),
+        userMessage,
         cancelled: 0,
         failed: orders.length,
         results: [],
@@ -686,16 +742,11 @@ class DydxTradingService {
     }
   }
 
-  async closeAllPositions(
-    positions: Position[],
-    marketInfoMap: Record<string, MarketData> = {}
-  ) {
+  async closeAllPositions(positions: Position[], marketInfoMap: Record<string, MarketData> = {}) {
     if (!positions.length) return { success: true, results: [], closed: 0, failed: 0 };
 
     const settlements = await Promise.allSettled(
-      positions.map(position =>
-        this.closePosition(position, marketInfoMap[position.market])
-      )
+      positions.map(position => this.closePosition(position, marketInfoMap[position.market]))
     );
 
     const results = settlements.map((s, i) => ({
@@ -724,41 +775,52 @@ class DydxTradingService {
     const results: any = {};
 
     try {
+      const jobs: Array<Promise<void>> = [];
+
       if (triggers.takeProfit?.enabled && triggers.takeProfit?.price) {
         const type =
           triggers.takeProfit.type === 'MARKET' ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT_LIMIT';
-        results.takeProfit = await this.placeOrder(
-          {
-            market: position.market,
-            side: closingSide,
-            type,
-            size,
-            price: triggers.takeProfit.price,
-            triggerPrice: triggers.takeProfit.price,
-            reduceOnly: false,
-            subaccountNumber: position.subaccountNumber,
-          },
-          marketInfo
+        jobs.push(
+          this.placeOrder(
+            {
+              market: position.market,
+              side: closingSide,
+              type,
+              size,
+              price: triggers.takeProfit.price,
+              triggerPrice: triggers.takeProfit.price,
+              reduceOnly: false,
+              subaccountNumber: position.subaccountNumber,
+            },
+            marketInfo
+          ).then(r => {
+            results.takeProfit = r;
+          })
         );
       }
 
       if (triggers.stopLoss?.enabled && triggers.stopLoss?.price) {
         const type = triggers.stopLoss.type === 'MARKET' ? 'STOP_MARKET' : 'STOP_LIMIT';
-        results.stopLoss = await this.placeOrder(
-          {
-            market: position.market,
-            side: closingSide,
-            type,
-            size,
-            price: triggers.stopLoss.price,
-            triggerPrice: triggers.stopLoss.price,
-            reduceOnly: false,
-            subaccountNumber: position.subaccountNumber,
-          },
-          marketInfo
+        jobs.push(
+          this.placeOrder(
+            {
+              market: position.market,
+              side: closingSide,
+              type,
+              size,
+              price: triggers.stopLoss.price,
+              triggerPrice: triggers.stopLoss.price,
+              reduceOnly: false,
+              subaccountNumber: position.subaccountNumber,
+            },
+            marketInfo
+          ).then(r => {
+            results.stopLoss = r;
+          })
         );
       }
 
+      await Promise.all(jobs);
       return { success: true, results };
     } catch (error: any) {
       console.error('Error setting triggers:', error);
@@ -786,7 +848,7 @@ class DydxTradingService {
       size,
       clientId,
       goodTilBlock,
-      OrderTimeInForce.IOC,
+      Order_TimeInForce.TIME_IN_FORCE_IOC,
       params.reduceOnly || false
     );
   }
@@ -808,12 +870,14 @@ class DydxTradingService {
     );
 
     const side = this.normalizeToOrderSide(params.side);
-    const isMarketConditional = MARKET_CONDITIONAL_TYPES.has(params.type.toUpperCase());
-    const execution = isMarketConditional ? OrderExecution.IOC : OrderExecution.DEFAULT;
+    const orderCategory = this.categorizeOrder(params.type);
+    const execution = orderCategory.isMarketConditional
+      ? OrderExecution.IOC
+      : OrderExecution.DEFAULT;
 
     let timeInForce = OrderTimeInForce.GTT;
     if (params.timeInForce === 'IOC') timeInForce = OrderTimeInForce.IOC;
-    if (params.reduceOnly || isMarketConditional) timeInForce = OrderTimeInForce.IOC;
+    if (params.reduceOnly || orderCategory.isMarketConditional) timeInForce = OrderTimeInForce.IOC;
 
     return client.placeOrder(
       subaccount,
@@ -868,7 +932,7 @@ class DydxTradingService {
     );
   }
 
-  private validateReduceOnlyConstraints(params: PlaceOrderParams, _orderCategory: any) {
+  private validateReduceOnlyConstraints(params: PlaceOrderParams) {
     if (!params.reduceOnly) return;
     if (params.postOnly) throw new Error('Reduce-Only and Post-Only cannot be combined');
   }
@@ -880,15 +944,18 @@ class DydxTradingService {
       params.type === 'STOP_LIMIT' ||
       params.type === 'TAKE_PROFIT_LIMIT';
     if (!isLimitLike) {
-      throw new Error('Post-Only is only valid for Limit, Stop Limit, and Take Profit Limit orders');
+      throw new Error(
+        'Post-Only is only valid for Limit, Stop Limit, and Take Profit Limit orders'
+      );
     }
   }
 
-  private categorizeOrder(type: string) {
+  private categorizeOrder(type: string): OrderCategory {
     const t = type.toUpperCase();
     return {
       isMarket: t === 'MARKET',
       isConditional: CONDITIONAL_ORDER_TYPES.has(t),
+      isMarketConditional: MARKET_CONDITIONAL_TYPES.has(t),
       isLimit: t === 'LIMIT',
     };
   }
@@ -932,9 +999,7 @@ class DydxTradingService {
         ? parseFloat(orderbook.asks[0].price)
         : parseFloat(orderbook.bids[0].price);
 
-    return normalized === 'BUY'
-      ? basePrice * (1 + tolerance)
-      : basePrice * (1 - tolerance);
+    return normalized === 'BUY' ? basePrice * (1 + tolerance) : basePrice * (1 - tolerance);
   }
 
   private roundPrice(value: number, tickSize: string): number {
@@ -969,32 +1034,38 @@ class DydxTradingService {
     return wallet;
   }
 
-  private getUserFriendlyError(error: any): string {
-    const msg = error.message || error.toString();
-    if (msg.includes('NewlyUndercollateralized'))
-      return 'Stateful order collateralization check failed. Order size might be too large, please try again with a smaller order or lower leverage.';
-    if (msg.includes('insufficient')) return 'Insufficient balance';
-    if (msg.includes('9003') || msg.includes('reduce-only') || msg.includes('Reduce-only'))
-      return 'Reduce-only is currently disabled on dYdX. Using regular market orders instead.';
-    if (msg.includes('network') || msg.includes('timeout')) return 'Network error - please try again';
-    if (msg.includes('Wallet not connected')) return 'Please connect your wallet';
-    if (msg.includes('Mnemonic not found')) return 'Wallet session expired - please reconnect';
-    if (msg.includes('StatefulOrderTimeWindow'))
-      return 'Order expiry time is too far in the future. Maximum is 28 days.';
-    if (msg.includes('did not confirm within'))
-      return 'Transfer took too long to confirm. Please try again.';
-    return msg;
-  }
+  private classifyError(error: any): { userMessage: string; retryable: boolean } {
+    const msg = error?.message || String(error);
 
-  private isRetryableError(error: any): boolean {
-    const msg = error.message || error.toString();
-    return (
+    let userMessage = msg;
+    if (msg.includes('NewlyUndercollateralized')) {
+      userMessage =
+        'Stateful order collateralization check failed. Order size might be too large, please try again with a smaller order or lower leverage.';
+    } else if (msg.includes('insufficient')) {
+      userMessage = 'Insufficient balance';
+    } else if (msg.includes('9003') || msg.includes('reduce-only') || msg.includes('Reduce-only')) {
+      userMessage =
+        'Reduce-only is currently disabled on dYdX. Using regular market orders instead.';
+    } else if (msg.includes('network') || msg.includes('timeout')) {
+      userMessage = 'Network error - please try again';
+    } else if (msg.includes('Wallet not connected')) {
+      userMessage = 'Please connect your wallet';
+    } else if (msg.includes('Mnemonic not found')) {
+      userMessage = 'Wallet session expired - please reconnect';
+    } else if (msg.includes('StatefulOrderTimeWindow')) {
+      userMessage = 'Order expiry time is too far in the future. Maximum is 28 days.';
+    } else if (msg.includes('did not confirm within')) {
+      userMessage = 'Transfer took too long to confirm. Please try again.';
+    }
+
+    const retryable =
       msg.includes('network') ||
       msg.includes('timeout') ||
       msg.includes('connection') ||
       msg.includes('Indexer not available') ||
-      msg.includes('did not confirm within')
-    );
+      msg.includes('did not confirm within');
+
+    return { userMessage, retryable };
   }
 
   private getOrderSubaccountNumber(order: any): number {

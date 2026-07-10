@@ -1,21 +1,31 @@
-import { AlertCircle, CheckCircle, RefreshCw, Settings, ChevronDown, ArrowUpDown, Clock } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowUpDown,
+  CheckCircle,
+  ChevronDown,
+  Clock,
+  RefreshCw,
+  Settings,
+} from 'lucide-react';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import InfoBanner from '../../../../components/common/InfoBanner';
+import { useTransactionModalStore } from '../../../../store/transactionModalStore';
+import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
+import { getChainById } from '../../../evm/utils/Chainregistry';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
+import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
 import { SUCCESS_MESSAGES, UI_STRINGS } from '../../constants/ammSwapConstants';
 import { useAmmSwap } from '../../hook/useAmmSwap';
 import { useAmmSwapStore } from '../../store/ammSwapStore';
-const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
+import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
 import { SettingsPanel, SwapDetails } from './AmmSwapSubComponents';
 import { XlmReserveButton } from './XlmReserveInfo';
-import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
-import { useTransactionModalStore } from '../../../../store/transactionModalStore';
-import StellarAssetSelectorModal from '../modals/StellarAssetSelectorModal';
-import { getChainById } from '../../../evm/utils/Chainregistry';
-import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
-import { portfolioUtils } from '../../../walletconnect/utils/portfolioUtils';
+
+const StellarTradingChart = lazy(() => import('../chart/StellarTradingChart'));
 
 const AmmSwapUI = () => {
   const [showSettings, setShowSettings] = useState(false);
@@ -53,13 +63,8 @@ const AmmSwapUI = () => {
     userAddress: stellarAddress,
   });
 
-
-  const {
-    setDefaultSlippage,
-    setSelectedChartPair,
-    preSelectedToken,
-    setPreSelectedToken,
-  } = useAmmSwapStore();
+  const { setDefaultSlippage, setSelectedChartPair, preSelectedToken, setPreSelectedToken } =
+    useAmmSwapStore();
 
   const isMainnet = currentNetwork === 'mainnet';
   const stellarChainId = isMainnet ? 'pubnet' : 'testnet';
@@ -144,7 +149,7 @@ const AmmSwapUI = () => {
     }
 
     if (!stellarWallet) {
-      alert('Please connect your Stellar wallet first');
+      openModal();
       return;
     }
 
@@ -213,11 +218,13 @@ const AmmSwapUI = () => {
       {/* Pay Card */}
       <div className="bg-tertiary rounded-2xl p-4 lg:p-6 relative overflow-hidden flex flex-col border border-color">
         <div className="flex justify-between items-center mb-4">
-          <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Pay</label>
+          <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">
+            You Pay
+          </label>
           <button
             onClick={() => {
               const balance = parseFloat(fromToken?.balance || '0');
-              const reserve = fromToken?.code === 'XLM' ? (1 + subentryCount * 0.5) : 0;
+              const reserve = fromToken?.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
               const maxAmount = Math.max(0, balance - reserve);
               setFromAmount(maxAmount.toFixed(7));
             }}
@@ -235,15 +242,25 @@ const AmmSwapUI = () => {
           >
             <div className="relative min-w-[36px]">
               {(() => {
-                const icon = fromToken?.icon || getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
+                const icon =
+                  fromToken?.icon ||
+                  getTokenIcon(fromToken?.code || '', chainConfig, fromToken?.issuer);
                 return (
                   <img
-                    key={fromToken?.code ? `${fromToken.code}-${fromToken.issuer || 'native'}` : 'placeholder'}
-                    src={icon || `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`}
+                    key={
+                      fromToken?.code
+                        ? `${fromToken.code}-${fromToken.issuer || 'native'}`
+                        : 'placeholder'
+                    }
+                    src={
+                      icon ||
+                      `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`
+                    }
                     className="w-9 h-9 rounded-full bg-tertiary object-cover"
                     alt=""
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`;
+                    onError={e => {
+                      (e.target as HTMLImageElement).src =
+                        `https://ui-avatars.com/api/?name=${fromToken?.code || 'S'}&background=random`;
                     }}
                   />
                 );
@@ -256,13 +273,18 @@ const AmmSwapUI = () => {
             </div>
             <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden text-left">
               <span className="font-bold text-[13px] leading-tight truncate w-full">
-                {fromToken ? (fromToken.name || fromToken.code) : 'Select'}
+                {fromToken ? fromToken.name || fromToken.code : 'Select'}
               </span>
               <span className="text-[8px] text-muted font-bold tracking-tight truncate w-full lowercase normal-case">
-                {fromToken ? (fromToken.homeDomain || (fromToken.asset.isNative() ? 'stellar.org' : 'Stellar')) : 'stellar'}
+                {fromToken
+                  ? fromToken.homeDomain || (fromToken.asset.isNative() ? 'stellar.org' : 'Stellar')
+                  : 'stellar'}
               </span>
             </div>
-            <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
+            <ChevronDown
+              size={13}
+              className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0"
+            />
           </button>
 
           <div className="flex-1 min-w-0 relative">
@@ -290,11 +312,15 @@ const AmmSwapUI = () => {
             <span className="text-primary font-black">
               {fromToken?.balance
                 ? portfolioUtils.formatBalance(
-                  fromToken.code === 'XLM'
-                    ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
-                    : fromToken.balance
-                )
-                : '0.0000'} {fromToken?.code}
+                    fromToken.code === 'XLM'
+                      ? Math.max(
+                          0,
+                          parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)
+                        ).toString()
+                      : fromToken.balance
+                  )
+                : '0.0000'}{' '}
+              {fromToken?.code}
             </span>
           </div>
         </div>
@@ -305,13 +331,18 @@ const AmmSwapUI = () => {
           onClick={swapTokens}
           className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center hover:scale-110 active:scale-90 transition-all duration-300 text-brand group backdrop-blur-md border border-color"
         >
-          <ArrowUpDown size={18} className="group-hover:rotate-180 transition-transform duration-500" />
+          <ArrowUpDown
+            size={18}
+            className="group-hover:rotate-180 transition-transform duration-500"
+          />
         </button>
       </div>
 
       <div className="bg-tertiary rounded-2xl -mt-10 p-4 lg:p-6 relative overflow-hidden flex flex-col border border-color">
         <div className="flex justify-between items-center mb-4">
-          <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">You Receive</label>
+          <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">
+            You Receive
+          </label>
         </div>
 
         <div className="flex items-center gap-3">
@@ -322,15 +353,24 @@ const AmmSwapUI = () => {
           >
             <div className="relative min-w-[36px]">
               {(() => {
-                const icon = toToken?.icon || getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
+                const icon =
+                  toToken?.icon || getTokenIcon(toToken?.code || '', chainConfig, toToken?.issuer);
                 return (
                   <img
-                    key={toToken?.code ? `${toToken.code}-${toToken.issuer || 'native'}` : 'placeholder'}
-                    src={icon || `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`}
+                    key={
+                      toToken?.code
+                        ? `${toToken.code}-${toToken.issuer || 'native'}`
+                        : 'placeholder'
+                    }
+                    src={
+                      icon ||
+                      `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`
+                    }
                     className="w-9 h-9 rounded-full bg-tertiary object-cover"
                     alt=""
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`;
+                    onError={e => {
+                      (e.target as HTMLImageElement).src =
+                        `https://ui-avatars.com/api/?name=${toToken?.code || 'S'}&background=random`;
                     }}
                   />
                 );
@@ -343,13 +383,18 @@ const AmmSwapUI = () => {
             </div>
             <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden text-left">
               <span className="font-bold text-[13px] leading-tight truncate w-full">
-                {toToken ? (toToken.name || toToken.code) : 'Select'}
+                {toToken ? toToken.name || toToken.code : 'Select'}
               </span>
               <span className="text-[8px] text-muted font-bold tracking-tight truncate w-full lowercase normal-case">
-                {toToken ? (toToken.homeDomain || (toToken.asset.isNative() ? 'stellar.org' : 'Stellar')) : 'stellar'}
+                {toToken
+                  ? toToken.homeDomain || (toToken.asset.isNative() ? 'stellar.org' : 'Stellar')
+                  : 'stellar'}
               </span>
             </div>
-            <ChevronDown size={13} className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0" />
+            <ChevronDown
+              size={13}
+              className="text-muted group-hover:text-primary transition-all ml-auto flex-shrink-0"
+            />
           </button>
 
           <div className="flex-1 text-right min-w-0">
@@ -369,11 +414,15 @@ const AmmSwapUI = () => {
             <span className="text-primary font-black">
               {toToken?.balance
                 ? portfolioUtils.formatBalance(
-                  toToken.code === 'XLM'
-                    ? Math.max(0, parseFloat(toToken.balance) - (1 + subentryCount * 0.5)).toString()
-                    : toToken.balance
-                )
-                : '0.0000'} {toToken?.code}
+                    toToken.code === 'XLM'
+                      ? Math.max(
+                          0,
+                          parseFloat(toToken.balance) - (1 + subentryCount * 0.5)
+                        ).toString()
+                      : toToken.balance
+                  )
+                : '0.0000'}{' '}
+              {toToken?.code}
             </span>
           </div>
         </div>
@@ -390,13 +439,18 @@ const AmmSwapUI = () => {
 
       <button
         onClick={handleSwap}
-        disabled={!canSwap || swapStatus === 'pending'}
-        className={`w-full py-4 sm:py-5 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] transition-all duration-500 mt-6 ${canSwap && swapStatus !== 'pending'
-          ? 'btn btn-primary'
-          : 'bg-tertiary text-muted opacity-50 cursor-not-allowed border border-divider'
-          }`}
+        disabled={stellarWallet ? !canSwap || swapStatus === 'pending' : false}
+        className={`w-full py-4 sm:py-5 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] transition-all duration-500 mt-6 ${
+          !stellarWallet
+            ? 'btn btn-primary bg-brand hover:bg-brand-hover text-white cursor-pointer'
+            : canSwap && swapStatus !== 'pending'
+              ? 'btn btn-primary'
+              : 'bg-tertiary text-muted opacity-50 cursor-not-allowed border border-divider'
+        }`}
       >
-        {swapStatus === 'pending' ? (
+        {!stellarWallet ? (
+          'Connect Wallet'
+        ) : swapStatus === 'pending' ? (
           <span className="flex items-center justify-center gap-2">
             <RefreshCw className="w-5 h-5 animate-spin" />
             SWAPPING...
@@ -426,32 +480,28 @@ const AmmSwapUI = () => {
     </div>
   );
 
-  if (!stellarWallet) {
-    return (
-      <div className="bg-secondary h-full p-4 lg:p-6 rounded-xl flex items-center justify-center">
-        <div className="w-full max-w-lg text-center space-y-4">
-          <AlertCircle className="w-16 h-16 text-warning mx-auto" />
-          <h4 className="heading-4">Stellar Wallet Not Connected</h4>
-          <p className="text-muted">Please connect your Stellar wallet to start swapping tokens</p>
-          <button onClick={openModal} className="btn btn-primary btn-lg w-full font-semibold mt-4">
-            Connect Wallet
-          </button>
-        </div>
-      </div>
-    );
-  }
   return (
     <div className="flex flex-col lg:flex-row gap-1  lg:gap-4 h-full lg:p-0 overflow-y-auto lg:overflow-visible">
       <div className="w-full h-[300px] bg-secondary lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0 border border-color">
-        <Suspense fallback={
-          <div className="w-full h-full flex items-center justify-center bg-secondary">
-            <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        }>
+        <Suspense
+          fallback={
+            <div className="w-full h-full flex items-center justify-center bg-secondary">
+              <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          }
+        >
           <StellarTradingChart />
         </Suspense>
       </div>
+
       <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0 border border-color">
+        <InfoBanner
+          variant="warning"
+          label="Beta:"
+          message={"This feature is currently in Beta. We're actively testing and improving it."}
+          margin="mx-0 mt-0 mb-2"
+        />
+
         {renderSwapForm()}
       </div>
 
@@ -460,7 +510,7 @@ const AmmSwapUI = () => {
         onClose={() => setSelectingAssetFor(null)}
         tokens={availableTokens}
         selectedToken={selectingAssetFor === 'from' ? fromToken : toToken}
-        onSelect={(token) => {
+        onSelect={token => {
           if (selectingAssetFor === 'from') {
             setFromToken(token);
           } else {

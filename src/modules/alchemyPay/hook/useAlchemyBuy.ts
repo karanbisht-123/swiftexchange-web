@@ -240,10 +240,12 @@ export const useAlchemyBuy = () => {
       return;
     }
 
+    console.log(defaultAddress, 'defulat address to use -----');
+    console.log(selectedCryptoOption, '------- selectCryto');
     const addressToUse =
       selectedCryptoOption.network === 'XLM'
-        ? defaultAddress || stellarAddress || evmAddress
-        : evmAddress || defaultAddress || stellarAddress;
+        ? defaultAddress || stellarAddress
+        : evmAddress || defaultAddress;
 
     const orderRequest: AlchemyBuyOrderRequest = {
       side: 'BUY',

@@ -1,12 +1,7 @@
 export type OrderSideEnum = 'BUY' | 'SELL';
 
 export type OrderTypeEnum =
-  | 'MARKET'
-  | 'LIMIT'
-  | 'STOP_MARKET'
-  | 'STOP_LIMIT'
-  | 'TAKE_PROFIT_MARKET'
-  | 'TAKE_PROFIT_LIMIT';
+  'MARKET' | 'LIMIT' | 'STOP_MARKET' | 'STOP_LIMIT' | 'TAKE_PROFIT_MARKET' | 'TAKE_PROFIT_LIMIT';
 
 export type TimeInForceEnum = 'GTT' | 'IOC' | 'POST_ONLY';
 export interface PlaceOrderParams {
@@ -68,7 +63,17 @@ export interface OrderResult {
   error?: string;
   userMessage?: string;
   retryable?: boolean;
-  optimisticOrder?: any;
+  optimisticOrder?: {
+    clientId: string;
+    ticker: string;
+    side: OrderSideEnum;
+    size: string;
+    price: string;
+    status: string;
+    type: OrderTypeEnum;
+    createdAt: string;
+    id: string;
+  };
 }
 
 export interface TriggerParams {

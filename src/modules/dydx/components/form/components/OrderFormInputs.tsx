@@ -63,8 +63,12 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
   onSetMax,
   marketData,
 }) => {
-  const showPrice = PRICE_REQUIRED_TYPES.includes(orderType as any);
-  const showTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(orderType as any);
+  const showPrice = PRICE_REQUIRED_TYPES.includes(
+    orderType as (typeof PRICE_REQUIRED_TYPES)[number]
+  );
+  const showTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(
+    orderType as (typeof TRIGGER_REQUIRED_TYPES)[number]
+  );
 
   const handleToggleCurrency = () => {
     if (onCurrencyModeChange) {
@@ -91,7 +95,9 @@ export const OrderFormInputs: React.FC<OrderFormInputsProps> = ({
 
   const parsedSize = parseFloat(size || '0');
   const parsedPrice = parseFloat(currentPrice || '1');
-  const stepSizeDecimals = marketData?.stepSize ? currencyService.getStepSizeDecimals(marketData.stepSize) : 4;
+  const stepSizeDecimals = marketData?.stepSize
+    ? currencyService.getStepSizeDecimals(marketData.stepSize)
+    : 4;
 
   const cryptoEquivalent =
     currencyMode === 'USD'

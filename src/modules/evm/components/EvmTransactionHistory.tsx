@@ -1,31 +1,30 @@
-import {
-  Clock,
-  Loader2,
-  RefreshCw,
-  SearchX,
-  ExternalLink,
-} from 'lucide-react';
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { Clock, ExternalLink, Loader2, RefreshCw, SearchX } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import PageLayout from '../../../components/layout/PageLayout';
 import AllTransactionsUI from '../../steallr/components/AllTransactionsUI';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { useSearchParams } from 'react-router-dom';
+import { useEvmTransaction } from '../hook/useEvmTransaction';
 import {
   type LocalTransactionWithStatus,
   useLocalTransactions,
 } from '../hook/useLocalTransactions';
-import { useEvmTransaction } from '../hook/useEvmTransaction';
+import { type TransactionItem, getEvmTransactionHistory } from '../service/EvmTransactionService';
 import { type SwapOrder, updateSwapOrderStatus } from '../service/evmTransactionStatusService';
 import {
-  type TransactionItem,
-  getEvmTransactionHistory,
-} from '../service/EvmTransactionService';
+  findChain,
+  getAssetByAddress,
+  getChainLogoUrl,
+  getChainName,
+  getEvmChainsForNetwork,
+  getExplorerUrl,
+  getGlobalAssetMetadata,
+} from '../utils/Chainregistry';
 import { formatBlockNumber } from '../utils/blockNumber';
-import { getEvmChainsForNetwork, getChainName, findChain, getExplorerUrl, getChainLogoUrl, getGlobalAssetMetadata, getAssetByAddress } from '../utils/Chainregistry';
+import { formatAssetName, formatTxAmount, getDisplayAmountWithSign } from '../utils/formatAmount';
 import { rpcManager } from '../utils/rpcProvider';
-import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
 import TransactionDetailsSheet from './TransactionDetailsSheet';
 import TransactionDetailsView from './TransactionDetailsView';
 import { checkTxStatus } from './TransactionMonitor';
@@ -39,7 +38,10 @@ const STATUS_STYLES: Record<LocalTransactionWithStatus['status'], string> = {
 };
 
 const formatRecentTime = (timestamp: number): string => {
-  const timeStr = new Date(timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const timeStr = new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
   return `${timeStr} (${formatRelativeTime(timestamp)})`;
 };
 
@@ -59,7 +61,13 @@ const resolveOrderStatus = (status: string | undefined): 'success' | 'failed' | 
   if (s === 'completed' || s === 'executed' || s === 'success' || s === 'filled') {
     return 'success';
   }
-  if (s === 'failed' || s === 'cancelled' || s === 'expired' || s === 'invalid' || s === 'refunded') {
+  if (
+    s === 'failed' ||
+    s === 'cancelled' ||
+    s === 'expired' ||
+    s === 'invalid' ||
+    s === 'refunded'
+  ) {
     return 'failed';
   }
   return 'pending';
@@ -133,13 +141,14 @@ const EvmTransactionHistory: React.FC = () => {
 
   const defaultView: ViewType = 'recent';
   const tabParam = searchParams.get('tab');
-  const initialView: ViewType = tabParam === 'stellar'
-    ? 'stellar'
-    : tabParam === 'recent'
-      ? 'recent'
-      : tabParam && !isNaN(Number(tabParam))
-        ? Number(tabParam)
-        : defaultView;
+  const initialView: ViewType =
+    tabParam === 'stellar'
+      ? 'stellar'
+      : tabParam === 'recent'
+        ? 'recent'
+        : tabParam && !isNaN(Number(tabParam))
+          ? Number(tabParam)
+          : defaultView;
 
   const [selectedView, setSelectedView] = useState<ViewType>(initialView);
   const [historyData, setHistoryData] = useState<TransactionItem[]>([]);
@@ -154,7 +163,9 @@ const EvmTransactionHistory: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [ordersPage, setOrdersPage] = useState(1);
   const [loadingMoreOrders, setLoadingMoreOrders] = useState(false);
-  const [liveStatusOverrides, setLiveStatusOverrides] = useState<Record<string, 'success' | 'failed'>>({});
+  const [liveStatusOverrides, setLiveStatusOverrides] = useState<
+    Record<string, 'success' | 'failed'>
+  >({});
   const [showPendingOnly, setShowPendingOnly] = useState(false);
 
   const {
@@ -162,7 +173,7 @@ const EvmTransactionHistory: React.FC = () => {
     loading: ordersLoading,
     statusData,
     getTransactionStatus,
-    getSwapOrdersByWallet: refreshOrders
+    getSwapOrdersByWallet: refreshOrders,
   } = useEvmTransaction();
 
   const { transactions: localTransactions } = useLocalTransactions();
@@ -180,7 +191,7 @@ const EvmTransactionHistory: React.FC = () => {
     const hasBackendPending = backendOrders?.data?.some(order => {
       const isLocalCheckable = isBypassedProvider(order.provider);
       const resolvedStatus = isLocalCheckable
-        ? (liveStatusOverrides[order.txHash.toLowerCase()] || resolveOrderStatus(order.status))
+        ? liveStatusOverrides[order.txHash.toLowerCase()] || resolveOrderStatus(order.status)
         : resolveOrderStatus(order.status);
       return resolvedStatus === 'pending';
     });
@@ -200,10 +211,11 @@ const EvmTransactionHistory: React.FC = () => {
   const processedHashRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const pendingOrders = backendOrders?.data?.filter((order: SwapOrder) =>
-      (isBypassedProvider(order.provider) || order.txType === 'Token Approval') &&
-      order.status === 'pending' &&
-      !liveStatusOverrides[order.txHash.toLowerCase()]
+    const pendingOrders = backendOrders?.data?.filter(
+      (order: SwapOrder) =>
+        (isBypassedProvider(order.provider) || order.txType === 'Token Approval') &&
+        order.status === 'pending' &&
+        !liveStatusOverrides[order.txHash.toLowerCase()]
     );
     const ordersToCheck = pendingOrders || [];
 
@@ -235,7 +247,7 @@ const EvmTransactionHistory: React.FC = () => {
               const receipt = await rpcManager.fetchWithFallback(
                 chainConfig.chainId,
                 chainConfig.rpcUrls,
-                async (provider) => provider.getTransactionReceipt(order.txHash)
+                async provider => provider.getTransactionReceipt(order.txHash)
               );
 
               if (receipt) {
@@ -248,11 +260,11 @@ const EvmTransactionHistory: React.FC = () => {
               const newStatus = isSuccess ? 'success' : 'failed';
               setLiveStatusOverrides(prev => ({
                 ...prev,
-                [order.txHash.toLowerCase()]: newStatus
+                [order.txHash.toLowerCase()]: newStatus,
               }));
               await updateSwapOrderStatus({
                 txHash: order.txHash,
-                orderStatus: isSuccess ? 'completed' : 'failed'
+                orderStatus: isSuccess ? 'completed' : 'failed',
               }).catch(err => console.error('Failed to update status in DB:', err));
             }
           } catch (err) {
@@ -270,11 +282,12 @@ const EvmTransactionHistory: React.FC = () => {
   }, [backendOrders?.data, currentNetwork, liveStatusOverrides]);
 
   useEffect(() => {
-    const pendingDydxOrders = backendOrders?.data?.filter((order: SwapOrder) =>
-      order.provider?.toUpperCase() === 'DYDX' &&
-      order.txType === 'Bridge' &&
-      order.status === 'pending' &&
-      !liveStatusOverrides[order.txHash.toLowerCase()]
+    const pendingDydxOrders = backendOrders?.data?.filter(
+      (order: SwapOrder) =>
+        order.provider?.toUpperCase() === 'DYDX' &&
+        order.txType === 'Bridge' &&
+        order.status === 'pending' &&
+        !liveStatusOverrides[order.txHash.toLowerCase()]
     );
 
     if (!pendingDydxOrders || pendingDydxOrders.length === 0) return;
@@ -294,9 +307,13 @@ const EvmTransactionHistory: React.FC = () => {
               if (errorData.includes('tx not found')) {
                 const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
                 if (timeElapsed > 60 * 60 * 1000) {
-                  setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-                  updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
-                    .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+                  setLiveStatusOverrides(prev => ({
+                    ...prev,
+                    [order.txHash.toLowerCase()]: 'failed',
+                  }));
+                  updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
+                    err => console.error('Failed to update dYdX deposit status in DB:', err)
+                  );
                 }
               }
               continue;
@@ -305,21 +322,31 @@ const EvmTransactionHistory: React.FC = () => {
             const state: string = data.state ?? 'STATE_UNKNOWN';
 
             if (state === 'STATE_COMPLETED_SUCCESS') {
-              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'success' }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' })
-                .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+              setLiveStatusOverrides(prev => ({
+                ...prev,
+                [order.txHash.toLowerCase()]: 'success',
+              }));
+              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' }).catch(err =>
+                console.error('Failed to update dYdX deposit status in DB:', err)
+              );
             } else if (state === 'STATE_COMPLETED_ERROR' || state === 'STATE_ABANDONED') {
               setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' })
-                .catch(err => console.error('Failed to update dYdX deposit status in DB:', err));
+              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(err =>
+                console.error('Failed to update dYdX deposit status in DB:', err)
+              );
             }
           } catch (err: any) {
             console.error('Failed to poll Skip status for dYdX deposit:', err);
             if (err?.message?.toLowerCase().includes('not found')) {
               const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
               if (timeElapsed > 60 * 60 * 1000) {
-                setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
+                setLiveStatusOverrides(prev => ({
+                  ...prev,
+                  [order.txHash.toLowerCase()]: 'failed',
+                }));
+                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
+                  console.error
+                );
               }
             }
           }
@@ -335,10 +362,11 @@ const EvmTransactionHistory: React.FC = () => {
   }, [backendOrders?.data, currentNetwork, liveStatusOverrides]);
 
   useEffect(() => {
-    const pendingSrbOrders = backendOrders?.data?.filter((order: SwapOrder) =>
-      order.provider?.toUpperCase() === 'SRBTODYDX' &&
-      order.status === 'pending' &&
-      !liveStatusOverrides[order.txHash.toLowerCase()]
+    const pendingSrbOrders = backendOrders?.data?.filter(
+      (order: SwapOrder) =>
+        order.provider?.toUpperCase() === 'SRBTODYDX' &&
+        order.status === 'pending' &&
+        !liveStatusOverrides[order.txHash.toLowerCase()]
     );
 
     if (!pendingSrbOrders || pendingSrbOrders.length === 0) return;
@@ -354,10 +382,14 @@ const EvmTransactionHistory: React.FC = () => {
 
           if (res.receive && res.receive.txId) {
             setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'success' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' }).catch(console.error);
+            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' }).catch(
+              console.error
+            );
           } else if (res.isSuspended) {
             setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
+            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
+              console.error
+            );
           }
         } catch (err: any) {
           console.error('Failed to poll Allbridge status for SRBTODYDX:', err);
@@ -365,7 +397,9 @@ const EvmTransactionHistory: React.FC = () => {
             const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
             if (timeElapsed > 60 * 60 * 1000) {
               setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(console.error);
+              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
+                console.error
+              );
             }
           }
         }
@@ -376,7 +410,6 @@ const EvmTransactionHistory: React.FC = () => {
     const interval = setInterval(pollSrbStatuses, 20000);
     return () => clearInterval(interval);
   }, [backendOrders?.data, liveStatusOverrides]);
-
 
   const activeAddresses = useMemo(() => {
     return [evmWallet?.address, stellarWallet?.address].filter(Boolean) as string[];
@@ -390,11 +423,14 @@ const EvmTransactionHistory: React.FC = () => {
   }, [activeAddresses]);
 
   const clearTxHashFromUrl = () => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.delete('hash');
-      return next;
-    }, { replace: true });
+    setSearchParams(
+      prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('hash');
+        return next;
+      },
+      { replace: true }
+    );
   };
 
   const handleCloseDetails = () => {
@@ -495,11 +531,14 @@ const EvmTransactionHistory: React.FC = () => {
     const currentTab = searchParams.get('tab');
     const newTabStr = String(selectedView);
     if (currentTab !== newTabStr) {
-      setSearchParams(prev => {
-        const next = new URLSearchParams(prev);
-        next.set('tab', newTabStr);
-        return next;
-      }, { replace: true });
+      setSearchParams(
+        prev => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', newTabStr);
+          return next;
+        },
+        { replace: true }
+      );
     }
   }, [selectedView, setSearchParams, searchParams]);
 
@@ -539,7 +578,7 @@ const EvmTransactionHistory: React.FC = () => {
         selectedView,
         currentNetwork,
         sentPageKey ?? undefined,
-        receivedPageKey ?? undefined,
+        receivedPageKey ?? undefined
       );
       setHistoryData(prev => [...prev, ...response.data]);
       setSentPageKey(response.pagination.nextSentPageKey);
@@ -569,22 +608,34 @@ const EvmTransactionHistory: React.FC = () => {
   const handleTxClick = (tx: TransactionItem) => {
     setSelectedTx(tx);
     setSelectedLocalTx(null);
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.set('hash', tx.hash);
-      return next;
-    }, { replace: true });
+    setSearchParams(
+      prev => {
+        const next = new URLSearchParams(prev);
+        next.set('hash', tx.hash);
+        return next;
+      },
+      { replace: true }
+    );
     if (window.innerWidth < 1024) setIsSheetOpen(true);
   };
 
-  const handleLocalTxClick = (tx: LocalTransactionWithStatus & { provider?: string; isBackendOrder?: boolean; fromChainSymbol?: string }) => {
+  const handleLocalTxClick = (
+    tx: LocalTransactionWithStatus & {
+      provider?: string;
+      isBackendOrder?: boolean;
+      fromChainSymbol?: string;
+    }
+  ) => {
     setSelectedLocalTx(tx);
     setSelectedTx(null);
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.set('hash', tx.hash);
-      return next;
-    }, { replace: true });
+    setSearchParams(
+      prev => {
+        const next = new URLSearchParams(prev);
+        next.set('hash', tx.hash);
+        return next;
+      },
+      { replace: true }
+    );
     if (window.innerWidth < 1024) setIsSheetOpen(true);
 
     if (tx.isBackendOrder && tx.provider) {
@@ -594,7 +645,11 @@ const EvmTransactionHistory: React.FC = () => {
       if (isBypassed && pollOnChain) {
         const hashLower = tx.hash.toLowerCase();
 
-        if (checkingHashes.current.has(hashLower) || liveStatusOverrides[hashLower] || tx.status !== 'pending') {
+        if (
+          checkingHashes.current.has(hashLower) ||
+          liveStatusOverrides[hashLower] ||
+          tx.status !== 'pending'
+        ) {
           return;
         }
 
@@ -621,7 +676,7 @@ const EvmTransactionHistory: React.FC = () => {
                 const receipt = await rpcManager.fetchWithFallback(
                   chainConfig.chainId,
                   chainConfig.rpcUrls,
-                  async (provider) => provider.getTransactionReceipt(tx.hash)
+                  async provider => provider.getTransactionReceipt(tx.hash)
                 );
                 if (receipt) {
                   isConfirmed = true;
@@ -634,11 +689,11 @@ const EvmTransactionHistory: React.FC = () => {
               const newStatus = isSuccess ? 'success' : 'failed';
               setLiveStatusOverrides(prev => ({
                 ...prev,
-                [tx.hash.toLowerCase()]: newStatus
+                [tx.hash.toLowerCase()]: newStatus,
               }));
               await updateSwapOrderStatus({
                 txHash: tx.hash,
-                orderStatus: isSuccess ? 'completed' : 'failed'
+                orderStatus: isSuccess ? 'completed' : 'failed',
               }).catch(err => console.error('Failed to update status in DB:', err));
             }
           } catch (err) {
@@ -652,7 +707,7 @@ const EvmTransactionHistory: React.FC = () => {
         getTransactionStatus({
           walletType: tx.fromChainSymbol || 'ETH',
           txHash: tx.hash,
-          provider: tx.provider === 'SRBTODYDX' ? 'ALLBRIDGE' : tx.provider
+          provider: tx.provider === 'SRBTODYDX' ? 'ALLBRIDGE' : tx.provider,
         }).catch((err: any) => console.error('Failed to refresh backend order status:', err));
       }
     }
@@ -662,12 +717,15 @@ const EvmTransactionHistory: React.FC = () => {
     setSelectedView(view);
     setSelectedTx(null);
     setSelectedLocalTx(null);
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.delete('hash');
-      next.set('tab', String(view));
-      return next;
-    }, { replace: true });
+    setSearchParams(
+      prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('hash');
+        next.set('tab', String(view));
+        return next;
+      },
+      { replace: true }
+    );
   };
 
   if (!hasEvm && !hasStellar) {
@@ -691,9 +749,7 @@ const EvmTransactionHistory: React.FC = () => {
             className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${selectedView === 'recent' ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-primary'}`}
           >
             Recent
-            {hasPending && (
-              <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
-            )}
+            {hasPending && <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />}
           </button>
           {availableChains.map(chain => (
             <button
@@ -701,7 +757,11 @@ const EvmTransactionHistory: React.FC = () => {
               onClick={() => switchView(chain.chainId as ViewType)}
               className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === chain.chainId ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-primary'}`}
             >
-              <img src={chain.imageUrl} alt={chain.nativeCurrency.symbol} className="w-4 h-4 rounded-full bg-secondary" />
+              <img
+                src={chain.imageUrl}
+                alt={chain.nativeCurrency.symbol}
+                className="w-4 h-4 rounded-full bg-secondary"
+              />
               {chain.nativeCurrency.symbol}
             </button>
           ))}
@@ -712,7 +772,11 @@ const EvmTransactionHistory: React.FC = () => {
           onClick={() => switchView('stellar')}
           className={`px-3 py-1.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all ${selectedView === 'stellar' ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-primary'}`}
         >
-          <img src="https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png" className="w-4 h-4 rounded-full bg-secondary" alt="Stellar" />
+          <img
+            src="https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png"
+            className="w-4 h-4 rounded-full bg-secondary"
+            alt="Stellar"
+          />
           Stellar
         </button>
       )}
@@ -722,7 +786,7 @@ const EvmTransactionHistory: React.FC = () => {
   const renderRecentTransactions = () => {
     const combinedRecent = (() => {
       const mergedMap = new Map<string, LocalTransactionWithStatus>();
-      localTransactions?.forEach((tx) => {
+      localTransactions?.forEach(tx => {
         const isStellarNativeTx =
           tx.chainId === 'pubnet' ||
           tx.chainId === 'testnet' ||
@@ -747,13 +811,11 @@ const EvmTransactionHistory: React.FC = () => {
         mergedMap.set(tx.hash.toLowerCase(), normalized);
       });
 
-
       backendOrders?.data?.forEach((order: SwapOrder) => {
         const isLocalCheckable = isBypassedProvider(order.provider);
         const resolvedStatus = isLocalCheckable
-          ? (liveStatusOverrides[order.txHash.toLowerCase()] || resolveOrderStatus(order.status))
+          ? liveStatusOverrides[order.txHash.toLowerCase()] || resolveOrderStatus(order.status)
           : resolveOrderStatus(order.status);
-
 
         const fromChainId = resolveChainId(order.fromChain, currentNetwork);
         const isBridge = order.fromChain !== order.toChain;
@@ -848,7 +910,7 @@ const EvmTransactionHistory: React.FC = () => {
       groups[groupMap[dateString]].transactions.push(tx);
     });
 
-    const renderTransactionRow = (tx: typeof combinedRecent[0]) => {
+    const renderTransactionRow = (tx: (typeof combinedRecent)[0]) => {
       const isSelected = selectedLocalTx?.hash === tx.hash;
       const isPending = tx.status === 'pending';
       const isFailed = tx.status === 'failed';
@@ -859,19 +921,16 @@ const EvmTransactionHistory: React.FC = () => {
       const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
 
       const rawLabel =
-        tx.description ||
-        `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
+        tx.description || `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
 
-      const cleanLabel = rawLabel
-        .replace(/\s*\(Step \d+\/\d+\)/i, '')
-        .replace(/\s*for Swap/i, '');
+      const cleanLabel = rawLabel.replace(/\s*\(Step \d+\/\d+\)/i, '').replace(/\s*for Swap/i, '');
 
       let topAmount = '';
       let bottomToken = '';
       if ((tx as any).isBackendOrder) {
         const num = Number((tx as any).amountIn);
         topAmount = isNaN(num)
-          ? ((tx as any).amountIn || '')
+          ? (tx as any).amountIn || ''
           : num < 0.000001
             ? '< 0.000001'
             : num.toFixed(4).replace(/\.?0+$/, '');
@@ -885,7 +944,7 @@ const EvmTransactionHistory: React.FC = () => {
         }
       }
 
-      const getTransactionAssetSymbol = (t: typeof combinedRecent[0]): string => {
+      const getTransactionAssetSymbol = (t: (typeof combinedRecent)[0]): string => {
         if ((t as any).isBackendOrder) {
           return (t as any).fromToken || '';
         }
@@ -918,23 +977,35 @@ const EvmTransactionHistory: React.FC = () => {
           fromChainId = tx.chainId;
           toChainId = tx.chainId;
         } else {
-          const bridgeMatch = desc.match(/Bridge\s+(?:[\d.]+\s+)?([A-Za-z0-9]+)\s+to\s+([A-Za-z0-9\s]+)/i);
+          const bridgeMatch = desc.match(
+            /Bridge\s+(?:[\d.]+\s+)?([A-Za-z0-9]+)\s+to\s+([A-Za-z0-9\s]+)/i
+          );
           if (bridgeMatch) {
             fromAssetSymbol = bridgeMatch[1];
             toAssetSymbol = bridgeMatch[1];
             fromChainId = tx.chainId;
             const dstChainName = bridgeMatch[2].trim();
-            const dstChain = getEvmChainsForNetwork(currentNetwork).find(c => c.name.toLowerCase() === dstChainName.toLowerCase() || c.symbol?.toLowerCase() === dstChainName.toLowerCase());
+            const dstChain = getEvmChainsForNetwork(currentNetwork).find(
+              c =>
+                c.name.toLowerCase() === dstChainName.toLowerCase() ||
+                c.symbol?.toLowerCase() === dstChainName.toLowerCase()
+            );
             if (dstChain) {
               toChainId = dstChain.chainId;
             }
           } else {
-            const depositMatch = desc.match(/Deposit\s+(?:[\d.]+\s+)?([A-Za-z0-9]+)\s+to\s+dYdX\s+from\s+([A-Za-z0-9\s]+)/i);
+            const depositMatch = desc.match(
+              /Deposit\s+(?:[\d.]+\s+)?([A-Za-z0-9]+)\s+to\s+dYdX\s+from\s+([A-Za-z0-9\s]+)/i
+            );
             if (depositMatch) {
               fromAssetSymbol = depositMatch[1];
               toAssetSymbol = depositMatch[1];
               const srcChainName = depositMatch[2].trim();
-              const srcChain = getEvmChainsForNetwork(currentNetwork).find(c => c.name.toLowerCase() === srcChainName.toLowerCase() || c.symbol?.toLowerCase() === srcChainName.toLowerCase());
+              const srcChain = getEvmChainsForNetwork(currentNetwork).find(
+                c =>
+                  c.name.toLowerCase() === srcChainName.toLowerCase() ||
+                  c.symbol?.toLowerCase() === srcChainName.toLowerCase()
+              );
               if (srcChain) {
                 fromChainId = srcChain.chainId;
               }
@@ -953,8 +1024,12 @@ const EvmTransactionHistory: React.FC = () => {
       const fromChainName = resolveChainDisplayName(fromChainId);
       const toChainName = toChainId !== undefined ? resolveChainDisplayName(toChainId) : undefined;
 
-      const fromAssetLogo = fromAssetSymbol ? getGlobalAssetMetadata(fromAssetSymbol)?.logoURI : undefined;
-      const toAssetLogo = toAssetSymbol ? getGlobalAssetMetadata(toAssetSymbol)?.logoURI : undefined;
+      const fromAssetLogo = fromAssetSymbol
+        ? getGlobalAssetMetadata(fromAssetSymbol)?.logoURI
+        : undefined;
+      const toAssetLogo = toAssetSymbol
+        ? getGlobalAssetMetadata(toAssetSymbol)?.logoURI
+        : undefined;
 
       const fromFallbackLetter = fromAssetSymbol ? fromAssetSymbol.slice(0, 2).toUpperCase() : 'TX';
       const toFallbackLetter = toAssetSymbol ? toAssetSymbol.slice(0, 2).toUpperCase() : 'TX';
@@ -969,40 +1044,65 @@ const EvmTransactionHistory: React.FC = () => {
         <div
           key={tx.hash}
           onClick={() => handleLocalTxClick(tx)}
-          className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${isSelected
-            ? 'bg-secondary border border-color shadow-sm'
-            : isPending
-              ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
-              : isFailed
-                ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
-                : 'bg-primary border border-transparent hover:border-color'
-            }`}
+          className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${
+            isSelected
+              ? 'bg-secondary border border-color shadow-sm'
+              : isPending
+                ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
+                : isFailed
+                  ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
+                  : 'bg-primary border border-transparent hover:border-color'
+          }`}
         >
           <div className="flex items-center gap-2.5">
-
-
-            <div className="relative shrink-0" style={{ width: showDualIcon ? 52 : 32, height: 32 }}>
-
+            <div
+              className="relative shrink-0"
+              style={{ width: showDualIcon ? 52 : 32, height: 32 }}
+            >
               <div className="absolute left-0 top-0 w-8 h-8">
-                <div className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-primary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}>
-                  {fromAssetLogo
-                    ? <img src={fromAssetLogo} alt={fromAssetSymbol} className="w-full h-full object-cover rounded-full" />
-                    : <span className="text-[9px] font-bold text-primary">{fromFallbackLetter}</span>}
+                <div
+                  className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-primary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
+                >
+                  {fromAssetLogo ? (
+                    <img
+                      src={fromAssetLogo}
+                      alt={fromAssetSymbol}
+                      className="w-full h-full object-cover rounded-full"
+                    />
+                  ) : (
+                    <span className="text-[9px] font-bold text-primary">{fromFallbackLetter}</span>
+                  )}
                 </div>
                 {fromChainLogo && (
-                  <img src={fromChainLogo} alt="" className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary" />
+                  <img
+                    src={fromChainLogo}
+                    alt=""
+                    className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
+                  />
                 )}
               </div>
 
               {showDualIcon && (
                 <div className="absolute right-0 top-0 w-8 h-8">
-                  <div className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-secondary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}>
-                    {toAssetLogo
-                      ? <img src={toAssetLogo} alt={toAssetSymbol} className="w-full h-full object-cover rounded-full" />
-                      : <span className="text-[9px] font-bold text-primary">{toFallbackLetter}</span>}
+                  <div
+                    className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-secondary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
+                  >
+                    {toAssetLogo ? (
+                      <img
+                        src={toAssetLogo}
+                        alt={toAssetSymbol}
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                    ) : (
+                      <span className="text-[9px] font-bold text-primary">{toFallbackLetter}</span>
+                    )}
                   </div>
                   {toChainLogo && (
-                    <img src={toChainLogo} alt="" className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary" />
+                    <img
+                      src={toChainLogo}
+                      alt=""
+                      className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
+                    />
                   )}
                 </div>
               )}
@@ -1011,39 +1111,59 @@ const EvmTransactionHistory: React.FC = () => {
             <div className="flex-1 min-w-0">
               {/* Label row */}
               <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-xs font-semibold text-primary truncate leading-tight">{cleanLabel}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}>
+                <span className="text-xs font-semibold text-primary truncate leading-tight">
+                  {cleanLabel}
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}
+                >
                   {tx.status === 'pending' && (txProvider === 'SKIP' || txProvider === 'SRBTODYDX')
                     ? 'Bridging'
                     : tx.status === 'pending' && txProvider === 'DYDX'
                       ? 'Settling'
                       : tx.status}
                 </span>
-                {isPending && <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />}
+                {isPending && (
+                  <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />
+                )}
               </div>
-
 
               {showDualIcon ? (
                 <div className="flex items-start gap-2">
-
                   <div className="flex flex-col min-w-0">
-                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">From</span>
-                    <span className="text-[9px] font-bold text-primary truncate leading-tight">{fromAssetSymbol || '—'}</span>
-                    <span className="text-[8px] text-muted truncate leading-tight">{fromChainName}</span>
+                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
+                      From
+                    </span>
+                    <span className="text-[9px] font-bold text-primary truncate leading-tight">
+                      {fromAssetSymbol || '—'}
+                    </span>
+                    <span className="text-[8px] text-muted truncate leading-tight">
+                      {fromChainName}
+                    </span>
                   </div>
 
                   <span className="text-muted text-[9px] mt-2 shrink-0">›</span>
 
                   <div className="flex flex-col min-w-0">
-                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">To</span>
-                    <span className="text-[9px] font-bold text-primary truncate leading-tight">{toAssetSymbol || '—'}</span>
-                    <span className="text-[8px] text-muted truncate leading-tight">{toChainName || fromChainName}</span>
+                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
+                      To
+                    </span>
+                    <span className="text-[9px] font-bold text-primary truncate leading-tight">
+                      {toAssetSymbol || '—'}
+                    </span>
+                    <span className="text-[8px] text-muted truncate leading-tight">
+                      {toChainName || fromChainName}
+                    </span>
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-col min-w-0">
-                  <span className="text-[9px] font-bold text-primary truncate leading-tight">{fromAssetSymbol || '—'}</span>
-                  <span className="text-[8px] text-muted truncate leading-tight">{fromChainName}</span>
+                  <span className="text-[9px] font-bold text-primary truncate leading-tight">
+                    {fromAssetSymbol || '—'}
+                  </span>
+                  <span className="text-[8px] text-muted truncate leading-tight">
+                    {fromChainName}
+                  </span>
                 </div>
               )}
             </div>
@@ -1057,10 +1177,16 @@ const EvmTransactionHistory: React.FC = () => {
                 </div>
               )}
               <div className="flex items-center gap-1">
-                <span className="text-sm text-muted font-mono opacity-70">{formatRecentTime(tx.timestamp)}</span>
+                <span className="text-sm text-muted font-mono opacity-70">
+                  {formatRecentTime(tx.timestamp)}
+                </span>
                 {!isFusion && (
                   <a
-                    href={isAllbridge ? `https://core.allbridge.io/explorer?search=${tx.hash}` : getExplorerUrl(tx.chainId, 'tx', tx.hash)}
+                    href={
+                      isAllbridge
+                        ? `https://core.allbridge.io/explorer?search=${tx.hash}`
+                        : getExplorerUrl(tx.chainId, 'tx', tx.hash)
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={e => e.stopPropagation()}
@@ -1071,7 +1197,9 @@ const EvmTransactionHistory: React.FC = () => {
                   </a>
                 )}
               </div>
-              <span className="text-sm text-muted/50 font-mono">{tx.hash.slice(0, 5)}…{tx.hash.slice(-3)}</span>
+              <span className="text-sm text-muted/50 font-mono">
+                {tx.hash.slice(0, 5)}…{tx.hash.slice(-3)}
+              </span>
             </div>
           </div>
         </div>
@@ -1091,19 +1219,21 @@ const EvmTransactionHistory: React.FC = () => {
               <div className="flex bg-tertiary rounded-lg p-0.5 gap-0.5 border border-color">
                 <button
                   onClick={() => setShowPendingOnly(false)}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${!showPendingOnly
-                    ? 'bg-primary text-secondary shadow-sm'
-                    : 'text-muted hover:text-primary'
-                    }`}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${
+                    !showPendingOnly
+                      ? 'bg-primary text-secondary shadow-sm'
+                      : 'text-muted hover:text-primary'
+                  }`}
                 >
                   All
                 </button>
                 <button
                   onClick={() => setShowPendingOnly(true)}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 ${showPendingOnly
-                    ? 'bg-primary text-yellow-500 shadow-sm border border-yellow-500/10'
-                    : 'text-muted hover:text-primary'
-                    }`}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 ${
+                    showPendingOnly
+                      ? 'bg-primary text-yellow-500 shadow-sm border border-yellow-500/10'
+                      : 'text-muted hover:text-primary'
+                  }`}
                 >
                   Pending
                   <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" />
@@ -1168,7 +1298,6 @@ const EvmTransactionHistory: React.FC = () => {
     );
   };
 
-
   const renderHistoryTransactions = () => {
     if (loading) {
       return (
@@ -1199,8 +1328,9 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<SearchX size={32} />}
           title="No Transactions Found"
-          description={`No transactions found for ${typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
-            }.`}
+          description={`No transactions found for ${
+            typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
+          }.`}
         />
       );
     }
@@ -1223,7 +1353,11 @@ const EvmTransactionHistory: React.FC = () => {
         } else if (date.toDateString() === yesterday.toDateString()) {
           dateString = 'Yesterday';
         } else {
-          dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+          dateString = date.toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          });
         }
       }
 
@@ -1245,7 +1379,9 @@ const EvmTransactionHistory: React.FC = () => {
             </h4>
             {group.transactions.map(tx => {
               const isSelf = Boolean(tx.from.toLowerCase() === tx.to.toLowerCase());
-              const incoming = !isSelf && Boolean(walletAddress && tx.to.toLowerCase() === walletAddress.toLowerCase());
+              const incoming =
+                !isSelf &&
+                Boolean(walletAddress && tx.to.toLowerCase() === walletAddress.toLowerCase());
 
               let actionLabel = 'Sent';
               if (isSelf) {
@@ -1257,7 +1393,9 @@ const EvmTransactionHistory: React.FC = () => {
               const isSelected = selectedTx?.uniqueId === tx.uniqueId;
 
               const assetSymbol = formatAssetName(tx);
-              let assetLogo = assetSymbol ? getGlobalAssetMetadata(assetSymbol)?.logoURI : undefined;
+              let assetLogo = assetSymbol
+                ? getGlobalAssetMetadata(assetSymbol)?.logoURI
+                : undefined;
               if (!assetLogo && tx.rawContract?.address) {
                 assetLogo = getAssetByAddress(selectedView, tx.rawContract.address)?.logoURI;
               }
@@ -1268,14 +1406,19 @@ const EvmTransactionHistory: React.FC = () => {
                 <button
                   key={tx.uniqueId}
                   onClick={() => handleTxClick(tx)}
-                  className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${isSelected ? 'border' : 'hover:bg-tertiary/50'
-                    }`}
+                  className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${
+                    isSelected ? 'border' : 'hover:bg-tertiary/50'
+                  }`}
                 >
                   <div className="flex items-center gap-4">
                     <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0">
                       <div className="w-full h-full rounded-full flex items-center justify-center border border-color overflow-hidden bg-primary">
                         {assetLogo ? (
-                          <img src={assetLogo} alt={assetSymbol} className="w-full h-full object-cover rounded-full" />
+                          <img
+                            src={assetLogo}
+                            alt={assetSymbol}
+                            className="w-full h-full object-cover rounded-full"
+                          />
                         ) : (
                           <div className="w-full h-full bg-tertiary flex items-center justify-center text-[10px] lg:text-xs font-bold text-primary rounded-full">
                             {fallbackLetter}
@@ -1300,29 +1443,33 @@ const EvmTransactionHistory: React.FC = () => {
                       {(() => {
                         const formattedTime = tx.metadata?.blockTimestamp
                           ? new Date(tx.metadata.blockTimestamp).toLocaleTimeString(undefined, {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
                           : '';
                         return (
                           <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
                             {formattedTime && (
                               <>
-                                <span className="text-muted/80 font-sans shrink-0 font-medium">{formattedTime}</span>
+                                <span className="text-muted/80 font-sans shrink-0 font-medium">
+                                  {formattedTime}
+                                </span>
                                 <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
                               </>
                             )}
                             <span className="hidden lg:inline opacity-75 shrink-0">
-                              {tx.blockNum
-                                ? `Block #${formatBlockNumber(tx.blockNum)}`
-                                : 'Pending'}
+                              {tx.blockNum ? `Block #${formatBlockNumber(tx.blockNum)}` : 'Pending'}
                             </span>
                             <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
                             <span className="truncate max-w-[80px] lg:max-w-[120px]">
                               {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
                             </span>
                             <a
-                              href={getExplorerUrl(typeof selectedView === 'number' ? selectedView : 1, 'tx', tx.hash)}
+                              href={getExplorerUrl(
+                                typeof selectedView === 'number' ? selectedView : 1,
+                                'tx',
+                                tx.hash
+                              )}
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={e => e.stopPropagation()}
@@ -1373,21 +1520,34 @@ const EvmTransactionHistory: React.FC = () => {
 
   const isStellarView = selectedView === 'stellar';
 
-  const isTxSelf = Boolean(selectedTx && selectedTx.from.toLowerCase() === selectedTx.to.toLowerCase());
-  const isTxIncoming = !isTxSelf && Boolean(walletAddress && selectedTx?.to.toLowerCase() === walletAddress.toLowerCase());
+  const isTxSelf = Boolean(
+    selectedTx && selectedTx.from.toLowerCase() === selectedTx.to.toLowerCase()
+  );
+  const isTxIncoming =
+    !isTxSelf &&
+    Boolean(walletAddress && selectedTx?.to.toLowerCase() === walletAddress.toLowerCase());
 
   return (
-    <PageLayout title="Transactions" headerActions={HeaderActions} maxWidth="7xl">
+    <PageLayout
+      title="Transactions"
+      headerActions={HeaderActions}
+      maxWidth="7xl"
+      isBeta
+      betaMessage="This feature is currently in Beta. We're actively testing and improving it."
+    >
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative items-start">
         <div
-          className={`${isStellarView ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'
-            } flex flex-col`}
+          className={`${
+            isStellarView ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'
+          } flex flex-col`}
         >
-          {isStellarView
-            ? <AllTransactionsUI embedded />
-            : selectedView === 'recent'
-              ? renderRecentTransactions()
-              : renderHistoryTransactions()}
+          {isStellarView ? (
+            <AllTransactionsUI embedded />
+          ) : selectedView === 'recent' ? (
+            renderRecentTransactions()
+          ) : (
+            renderHistoryTransactions()
+          )}
         </div>
 
         {!isStellarView && (
@@ -1399,31 +1559,45 @@ const EvmTransactionHistory: React.FC = () => {
                   chainId={selectedLocalTx.chainId}
                   onClose={handleCloseDetails}
                   onRefresh={() => {
-                    if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
+                    if (
+                      (selectedLocalTx as any).isBackendOrder &&
+                      (selectedLocalTx as any).provider
+                    ) {
                       const providerUpper = (selectedLocalTx as any).provider.toUpperCase();
                       const isBypassed = isBypassedProvider(providerUpper);
                       const pollOnChain = false;
 
                       if (isBypassed && pollOnChain) {
-                        const chainConfig = findChain((selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId), currentNetwork);
+                        const chainConfig = findChain(
+                          (selectedLocalTx as any).fromChainSymbol ||
+                            String(selectedLocalTx.chainId),
+                          currentNetwork
+                        );
                         if (chainConfig && chainConfig.rpcUrls?.length) {
-                          rpcManager.fetchWithFallback(
-                            chainConfig.chainId,
-                            chainConfig.rpcUrls,
-                            async (provider) => provider.getTransactionReceipt(selectedLocalTx.hash)
-                          ).then(receipt => {
-                            if (receipt) {
-                              const newStatus = receipt.status === 1 ? 'success' : 'failed';
-                              setLiveStatusOverrides(prev => ({
-                                ...prev,
-                                [selectedLocalTx.hash.toLowerCase()]: newStatus
-                              }));
-                              updateSwapOrderStatus({
-                                txHash: selectedLocalTx.hash,
-                                orderStatus: receipt.status === 1 ? 'completed' : 'failed'
-                              }).catch(err => console.error('Failed to update Uniswap status in DB:', err));
-                            }
-                          }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
+                          rpcManager
+                            .fetchWithFallback(
+                              chainConfig.chainId,
+                              chainConfig.rpcUrls,
+                              async provider => provider.getTransactionReceipt(selectedLocalTx.hash)
+                            )
+                            .then(receipt => {
+                              if (receipt) {
+                                const newStatus = receipt.status === 1 ? 'success' : 'failed';
+                                setLiveStatusOverrides(prev => ({
+                                  ...prev,
+                                  [selectedLocalTx.hash.toLowerCase()]: newStatus,
+                                }));
+                                updateSwapOrderStatus({
+                                  txHash: selectedLocalTx.hash,
+                                  orderStatus: receipt.status === 1 ? 'completed' : 'failed',
+                                }).catch(err =>
+                                  console.error('Failed to update Uniswap status in DB:', err)
+                                );
+                              }
+                            })
+                            .catch(err =>
+                              console.error('Failed to verify UNISWAP order on-chain:', err)
+                            );
                         }
                       } else if (isBypassed) {
                         if (activeAddresses.length > 0) {
@@ -1433,7 +1607,10 @@ const EvmTransactionHistory: React.FC = () => {
                         getTransactionStatus({
                           walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
                           txHash: selectedLocalTx.hash,
-                          provider: (selectedLocalTx as any).provider === 'SRBTODYDX' ? 'ALLBRIDGE' : (selectedLocalTx as any).provider
+                          provider:
+                            (selectedLocalTx as any).provider === 'SRBTODYDX'
+                              ? 'ALLBRIDGE'
+                              : (selectedLocalTx as any).provider,
                         });
                       }
                     }
@@ -1474,46 +1651,66 @@ const EvmTransactionHistory: React.FC = () => {
           chainId={selectedTx?.chainId || selectedLocalTx!.chainId}
           incoming={isTxIncoming}
           isSelf={isTxSelf}
-          onRefresh={selectedLocalTx ? () => {
-            if ((selectedLocalTx as any).isBackendOrder && (selectedLocalTx as any).provider) {
-              const providerUpper = (selectedLocalTx as any).provider.toUpperCase();
-              const isBypassed = isBypassedProvider(providerUpper);
-              const pollOnChain = false;
+          onRefresh={
+            selectedLocalTx
+              ? () => {
+                  if (
+                    (selectedLocalTx as any).isBackendOrder &&
+                    (selectedLocalTx as any).provider
+                  ) {
+                    const providerUpper = (selectedLocalTx as any).provider.toUpperCase();
+                    const isBypassed = isBypassedProvider(providerUpper);
+                    const pollOnChain = false;
 
-              if (isBypassed && pollOnChain) {
-                const chainConfig = findChain((selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId), currentNetwork);
-                if (chainConfig && chainConfig.rpcUrls?.length) {
-                  rpcManager.fetchWithFallback(
-                    chainConfig.chainId,
-                    chainConfig.rpcUrls,
-                    async (provider) => provider.getTransactionReceipt(selectedLocalTx.hash)
-                  ).then(receipt => {
-                    if (receipt) {
-                      const newStatus = receipt.status === 1 ? 'success' : 'failed';
-                      setLiveStatusOverrides(prev => ({
-                        ...prev,
-                        [selectedLocalTx.hash.toLowerCase()]: newStatus
-                      }));
-                      updateSwapOrderStatus({
+                    if (isBypassed && pollOnChain) {
+                      const chainConfig = findChain(
+                        (selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId),
+                        currentNetwork
+                      );
+                      if (chainConfig && chainConfig.rpcUrls?.length) {
+                        rpcManager
+                          .fetchWithFallback(
+                            chainConfig.chainId,
+                            chainConfig.rpcUrls,
+                            async provider => provider.getTransactionReceipt(selectedLocalTx.hash)
+                          )
+                          .then(receipt => {
+                            if (receipt) {
+                              const newStatus = receipt.status === 1 ? 'success' : 'failed';
+                              setLiveStatusOverrides(prev => ({
+                                ...prev,
+                                [selectedLocalTx.hash.toLowerCase()]: newStatus,
+                              }));
+                              updateSwapOrderStatus({
+                                txHash: selectedLocalTx.hash,
+                                orderStatus: receipt.status === 1 ? 'completed' : 'failed',
+                              }).catch(err =>
+                                console.error('Failed to update Uniswap status in DB:', err)
+                              );
+                            }
+                          })
+                          .catch(err =>
+                            console.error('Failed to verify UNISWAP order on-chain:', err)
+                          );
+                      }
+                    } else if (isBypassed) {
+                      if (activeAddresses.length > 0) {
+                        refreshOrders(activeAddresses, 1, 10, false);
+                      }
+                    } else {
+                      getTransactionStatus({
+                        walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
                         txHash: selectedLocalTx.hash,
-                        orderStatus: receipt.status === 1 ? 'completed' : 'failed'
-                      }).catch(err => console.error('Failed to update Uniswap status in DB:', err));
+                        provider:
+                          (selectedLocalTx as any).provider === 'SRBTODYDX'
+                            ? 'ALLBRIDGE'
+                            : (selectedLocalTx as any).provider,
+                      });
                     }
-                  }).catch(err => console.error('Failed to verify UNISWAP order on-chain:', err));
+                  }
                 }
-              } else if (isBypassed) {
-                if (activeAddresses.length > 0) {
-                  refreshOrders(activeAddresses, 1, 10, false);
-                }
-              } else {
-                getTransactionStatus({
-                  walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
-                  txHash: selectedLocalTx.hash,
-                  provider: (selectedLocalTx as any).provider === 'SRBTODYDX' ? 'ALLBRIDGE' : (selectedLocalTx as any).provider
-                });
-              }
-            }
-          } : undefined}
+              : undefined
+          }
           backendStatus={statusData}
         />
       )}

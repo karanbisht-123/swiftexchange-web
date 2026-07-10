@@ -1,5 +1,5 @@
 import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
-import Long from 'long';
+import { Long } from '@dydxprotocol/v4-proto/src/codegen/helpers';
 
 import { walletService } from '../../walletconnect/services/walletService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
@@ -22,7 +22,12 @@ export interface DydxConnection {
 }
 
 export type DydxStatus = 'disconnected' | 'connecting' | 'connected' | 'no_subaccount' | 'error';
-type StatusCallback = (status: DydxStatus, payload?: any) => void;
+
+interface StatusErrorPayload {
+  error: string;
+}
+
+type StatusCallback = (status: DydxStatus, payload?: StatusErrorPayload) => void;
 
 class DydxWalletService {
   private address = '';
@@ -35,7 +40,7 @@ class DydxWalletService {
   private readonly BALANCE_CACHE_TTL = 10_000;
   private isConnecting = false;
 
-  async connect(networkType: NetworkType, subaccountNumber: number = 0): Promise<DydxConnection> {
+  async connect(networkType: NetworkType, subaccountNumber = 0): Promise<DydxConnection> {
     if (this.isConnecting) {
       throw new Error('Connection already in progress');
     }
@@ -66,7 +71,7 @@ class DydxWalletService {
       this.chainId = compositeClient.validatorClient.config.chainId;
 
       const hasSubaccount = await this.checkSubaccountExists();
-      const balance = hasSubaccount ? await this.fetchBalance(true) : undefined;
+      const balance = hasSubaccount ? await this.fetchBalance() : undefined;
 
       this.setStatus(hasSubaccount ? 'connected' : 'no_subaccount');
 
@@ -77,10 +82,11 @@ class DydxWalletService {
         hasSubaccount,
         balance,
       };
-    } catch (error: any) {
-      console.error('[dydxWalletService] Connection error:', error);
-      this.setStatus('error', { error: error.message });
-      throw error;
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error('[dydxWalletService] Connection error:', err);
+      this.setStatus('error', { error: err.message });
+      throw err;
     } finally {
       this.isConnecting = false;
     }
@@ -99,7 +105,7 @@ class DydxWalletService {
   }
 
   async getCompositeClient() {
-    return await getCompositeClient();
+    return getCompositeClient();
   }
 
   async getBalance(forceRefresh = false): Promise<AccountBalance> {
@@ -109,10 +115,10 @@ class DydxWalletService {
         return this.balanceCache.data;
       }
     }
-    return this.fetchBalance(forceRefresh);
+    return this.fetchBalance();
   }
 
-  private async fetchBalance(_forceRefresh = false): Promise<AccountBalance> {
+  private async fetchBalance(): Promise<AccountBalance> {
     const address = this.address || this.getAddressFromStore();
     if (!address) {
       throw new Error('Not connected - address missing');
@@ -133,14 +139,15 @@ class DydxWalletService {
 
       this.balanceCache = { data: balance, timestamp: Date.now() };
       return balance;
-    } catch (error: any) {
-      throw new Error(`Failed to fetch balance: ${error.message}`);
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to fetch balance: ${err.message}`);
     }
   }
 
   async depositToSubaccount(
     quantumsString: string,
-    subaccountNumber: number = 0
+    subaccountNumber = 0
   ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
     try {
       const client = await this.getCompositeClient();
@@ -156,20 +163,11 @@ class DydxWalletService {
 
       const result = await client.validatorClient.post.deposit(subaccount, 0, quantums);
 
-      let txHash = typeof result.hash === 'string' ? result.hash : 'unknown';
-      if (result.hash && typeof result.hash !== 'string') {
-        const data = (result.hash as any).data || result.hash;
-        if (Array.isArray(data) || data instanceof Uint8Array) {
-          txHash = Array.from(data as any[])
-            .map((b: any) => b.toString(16).padStart(2, '0'))
-            .join('');
-        }
-      }
-
-      return { success: true, transactionHash: txHash };
-    } catch (error: any) {
-      console.error('[dydxWalletService] depositToSubaccount failed:', error);
-      return { success: false, error: error.message || 'Deposit failed' };
+      return { success: true, transactionHash: this.extractHash(result.hash) };
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error('[dydxWalletService] depositToSubaccount failed:', err);
+      return { success: false, error: err.message || 'Deposit failed' };
     }
   }
 
@@ -210,26 +208,11 @@ class DydxWalletService {
         recipient
       );
 
-      let txHash = typeof result.hash === 'string' ? result.hash : 'unknown';
-      if (result.hash && typeof result.hash !== 'string') {
-        const data = (result.hash as any).data || result.hash;
-        if (Array.isArray(data) || data instanceof Uint8Array) {
-          txHash = Array.from(data)
-            .map((b: any) => b.toString(16).padStart(2, '0'))
-            .join('');
-        }
-      }
-
-      return {
-        success: true,
-        transactionHash: txHash,
-      };
-    } catch (error: any) {
-      console.error('[dydxWalletService] Withdraw failed:', error);
-      return {
-        success: false,
-        error: error.message || 'Withdraw failed',
-      };
+      return { success: true, transactionHash: this.extractHash(result.hash) };
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error('[dydxWalletService] Withdraw failed:', err);
+      return { success: false, error: err.message || 'Withdraw failed' };
     }
   }
 
@@ -271,32 +254,30 @@ class DydxWalletService {
         false
       );
 
-      let txHash = typeof result.hash === 'string' ? result.hash : 'unknown';
-      if (result.hash && typeof result.hash !== 'string') {
-        const data = (result.hash as any).data || result.hash;
-        if (Array.isArray(data) || data instanceof Uint8Array) {
-          txHash = Array.from(data)
-            .map((b: any) => b.toString(16).padStart(2, '0'))
-            .join('');
-        }
-      }
-
-      return {
-        success: true,
-        transactionHash: txHash,
-      };
-    } catch (error: any) {
-      console.error('[dydxWalletService] Send failed:', error);
-      return {
-        success: false,
-        error: error.message || 'Send failed',
-      };
+      return { success: true, transactionHash: this.extractHash(result.hash) };
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error('[dydxWalletService] Send failed:', err);
+      return { success: false, error: err.message || 'Send failed' };
     }
+  }
+
+  private extractHash(
+    hash: string | Uint8Array | { data?: Uint8Array } | null | undefined
+  ): string {
+    if (typeof hash === 'string') return hash;
+    const data = (hash as { data?: Uint8Array })?.data ?? hash;
+    if (Array.isArray(data) || data instanceof Uint8Array) {
+      return Array.from(data as Uint8Array)
+        .map((b: number) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+    return 'unknown';
   }
 
   isConnected = () => this.status === 'connected' || this.status === 'no_subaccount';
   isReadyForTrading = () => this.status === 'connected';
-  getAddress = () => this.address || this.getAddressFromStore();
+  getAddress = (): string | null => this.address || this.getAddressFromStore();
   getSubaccountNumber = () => this.subaccountNumber;
   getActiveSubaccountNumber = () => this.activeSubaccountNumber;
   getChainId = () => this.chainId;
@@ -346,7 +327,7 @@ class DydxWalletService {
     };
   }
 
-  private setStatus(status: DydxStatus, payload?: any): void {
+  private setStatus(status: DydxStatus, payload?: StatusErrorPayload): void {
     this.status = status;
     this.listeners.forEach(cb => cb(status, payload));
   }

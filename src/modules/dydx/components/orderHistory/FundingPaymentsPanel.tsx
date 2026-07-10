@@ -46,11 +46,7 @@ const FundingPaymentsPanel: React.FC = () => {
       }
 
       try {
-        const response = await dydxDataService.getFundingPayments(
-          undefined,
-          ITEMS_PER_PAGE,
-          page,
-        );
+        const response = await dydxDataService.getFundingPayments(undefined, ITEMS_PER_PAGE, page);
         setPayments(response.fundingPayments);
         setTotalItems(response.totalResults);
         initialLoadDoneRef.current = true;
@@ -65,7 +61,7 @@ const FundingPaymentsPanel: React.FC = () => {
         setBackgroundFetching(false);
       }
     },
-    [isConnected],
+    [isConnected]
   );
 
   useEffect(() => {
@@ -121,7 +117,7 @@ const FundingPaymentsPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-primary">
+    <div className="h-full flex flex-col bg-secondary overflow-hidden">
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">

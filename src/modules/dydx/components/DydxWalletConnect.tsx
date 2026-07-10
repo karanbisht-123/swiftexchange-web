@@ -55,7 +55,9 @@ export const DydxWalletConnect: React.FC = () => {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [lastAttemptedQuantums, setLastAttemptedQuantums] = useState<string | null>(null);
-  const [stableNoFunds, setStableNoFunds] = useState(false);
+  const [stableNoFunds, setStableNoFunds] = useState(
+    () => dydxWalletService.getStatus() === 'no_subaccount'
+  );
   const noFundsTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { isConnected, address, balance, dataLoaded, error } = useDydxWallet();
@@ -83,7 +85,13 @@ export const DydxWalletConnect: React.FC = () => {
         checkPendingDeposit();
       }
     }
-  }, [pendingDydxQuantums, isRecovering, lastAttemptedQuantums, checkPendingDeposit]);
+  }, [
+    pendingDydxQuantums,
+    isRecovering,
+    lastAttemptedQuantums,
+    checkPendingDeposit,
+    MIN_SUBACCOUNT_DEPOSIT_UUSDC,
+  ]);
 
   useEffect(() => {
     if (
@@ -91,7 +99,8 @@ export const DydxWalletConnect: React.FC = () => {
       !isConnecting &&
       !connectionError &&
       dydxWalletService.getStatus() !== 'connecting' &&
-      dydxWalletService.getStatus() !== 'connected'
+      dydxWalletService.getStatus() !== 'connected' &&
+      dydxWalletService.getStatus() !== 'no_subaccount'
     ) {
       setIsConnecting(true);
       setConnectionError(null);
@@ -106,7 +115,7 @@ export const DydxWalletConnect: React.FC = () => {
           setIsConnecting(false);
         });
     }
-  }, [hasDydxAddress, network]);
+  }, [hasDydxAddress, network, isConnecting, connectionError]);
 
   useEffect(() => {
     if (!hasDydxAddress && isConnected) {
@@ -120,8 +129,9 @@ export const DydxWalletConnect: React.FC = () => {
     setConnectionError(null);
     try {
       await deriveDydx();
-    } catch (err: any) {
-      setConnectionError(err.message);
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      setConnectionError(e.message);
     } finally {
       setIsDeriving(false);
     }
@@ -140,8 +150,9 @@ export const DydxWalletConnect: React.FC = () => {
     setConnectionError(null);
     try {
       await dydxWalletService.connect(network, 0);
-    } catch (err: any) {
-      setConnectionError(err.message);
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      setConnectionError(e.message);
     } finally {
       setIsConnecting(false);
     }
@@ -152,17 +163,13 @@ export const DydxWalletConnect: React.FC = () => {
     handleConnect();
   }, [handleConnect]);
 
-  const updateTrigger = useWebSocketStore(s => s.updateTrigger);
   const optimisticDelta = useWebSocketStore(s => s.optimisticFreeCollateralDelta);
   // Subscribe to live market data so selectPortfolioMetrics can compute real
   // per-market IMF margin usage instead of falling back to a hardcoded value.
   const marketsMap = useWebSocketStore(s => s.markets);
   const parentKey = address ? `parent_subaccount_${address}_0` : null;
   const parentData = useWebSocketStore(
-    useCallback(
-      s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined),
-      [parentKey, updateTrigger]
-    )
+    useCallback(s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined), [parentKey])
   );
 
   // const activeSubaccountNumber = useMemo(() => {
@@ -191,7 +198,7 @@ export const DydxWalletConnect: React.FC = () => {
       });
     });
     return map;
-  }, [parentData, updateTrigger]);
+  }, [parentData]);
 
   // const activeSubaccountNumber = 0;
 
@@ -223,15 +230,19 @@ export const DydxWalletConnect: React.FC = () => {
     balance !== null && Number(balance.totalEquity) === 0 && Number(balance.crossEquity) === 0;
 
   const noFundsCandidate =
-    dataLoaded &&
     !connectionError &&
     !!hasEvmWallet &&
     !needsDydxDerivation &&
     !isConnecting &&
-    (isSubaccountNotFound || hasZeroBalance);
+    (dydxWalletService.getStatus() === 'no_subaccount' ||
+      (dataLoaded && (isSubaccountNotFound || hasZeroBalance)));
 
   useEffect(() => {
     if (noFundsCandidate) {
+      if (dydxWalletService.getStatus() === 'no_subaccount') {
+        setStableNoFunds(true);
+        return;
+      }
       if (noFundsTimerRef.current === null) {
         noFundsTimerRef.current = setTimeout(() => {
           noFundsTimerRef.current = null;
@@ -267,21 +278,16 @@ export const DydxWalletConnect: React.FC = () => {
               {address ? `${address.slice(0, 12)}...${address.slice(-8)}` : '...'}
             </p>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted leading-relaxed min-w-0">
-              Add funds to start trading on dYdX
-            </p>
-            <button
-              onClick={() => setShowDepositModal(true)}
-              className="text-xs font-medium py-1.5 px-3 rounded flex-shrink-0 transition-colors"
-              style={{
-                backgroundColor: 'var(--color-brand-accent)',
-                color: 'var(--color-text-inverse)',
-              }}
-            >
-              Add Funds
-            </button>
-          </div>
+          <button
+            onClick={() => setShowDepositModal(true)}
+            className="text-xs w-full font-medium py-2.5 px-3 rounded flex-shrink-0 transition-colors"
+            style={{
+              backgroundColor: 'var(--color-brand-accent)',
+              color: 'var(--color-text-inverse)',
+            }}
+          >
+            Add funds to start trading
+          </button>
         </div>
         <DydxDepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
       </>

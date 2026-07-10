@@ -1,9 +1,13 @@
 import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { useDydxData } from '../../hooks/useDydxData';
-import { type TrackedOrder } from '../../store/websocketStore';
 import { type Order, dydxDataService, normalizeOrder } from '../../service/dydxOrderService';
-import { getDisplayOrderType, formatTimeAgoCompact, capitalizeFirst } from '../../utils/orderUtils';
+import useMarketStore from '../../store/marketStore';
+import { type TrackedOrder } from '../../store/websocketStore';
+import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
+import { currencyService } from '../../utils/currencyService';
+import { capitalizeFirst, formatTimeAgoCompact, getDisplayOrderType } from '../../utils/orderUtils';
 import { EmptyState } from '../shared/EmptyState';
 import { LoadingState } from '../shared/LoadingState';
 import { MarketBadge } from '../shared/MarketBadge';
@@ -12,9 +16,6 @@ import { Pagination } from '../shared/Pagination';
 import { StatusIndicator } from '../shared/SideBadge';
 import { SidePanel } from '../shared/SidePanel';
 import { WalletConnectPrompt } from '../shared/WalletConnectPrompt';
-import useMarketStore from '../../store/marketStore';
-import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
-import { currencyService } from '../../utils/currencyService';
 
 type AnyOrder = Order & Partial<TrackedOrder>;
 
@@ -36,7 +37,6 @@ const OrderHistoryPanel: React.FC = () => {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-
 
   const [hasMoreData, setHasMoreData] = useState(() => allOrders.length >= ITEMS_PER_PAGE);
 
@@ -136,9 +136,7 @@ const OrderHistoryPanel: React.FC = () => {
       const normalizedMore = moreOrders.map(normalizeOrder) as AnyOrder[];
 
       setAllOrders(prev => {
-        const map = new Map<string, AnyOrder>(
-          prev.map(o => [o.id, normalizeOrder(o) as AnyOrder]),
-        );
+        const map = new Map<string, AnyOrder>(prev.map(o => [o.id, normalizeOrder(o) as AnyOrder]));
         normalizedMore.forEach(o => map.set(o.id, o));
         return Array.from(map.values()).sort((a, b) => getOrderTime(b) - getOrderTime(a));
       });
@@ -158,7 +156,7 @@ const OrderHistoryPanel: React.FC = () => {
         loadMoreData();
       }
     },
-    [allOrders.length, hasMoreData, loadingMore, loadMoreData],
+    [allOrders.length, hasMoreData, loadingMore, loadMoreData]
   );
 
   const handleOrderClick = useCallback((order: AnyOrder) => {
@@ -185,7 +183,7 @@ const OrderHistoryPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-primary">
+    <div className="h-full flex flex-col bg-secondary overflow-hidden">
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
@@ -204,7 +202,7 @@ const OrderHistoryPanel: React.FC = () => {
           <tbody>
             {currentPageData.map(order => {
               const filled = parseFloat(
-                (order as any).totalFilled || order.totalOptimisticFilled || '0',
+                (order as any).totalFilled || order.totalOptimisticFilled || '0'
               );
               const size = parseFloat(order.size);
               const fillPercent = size > 0 ? (filled / size) * 100 : 0;
@@ -217,9 +215,8 @@ const OrderHistoryPanel: React.FC = () => {
 
               const sizeStr = formatNumericWithCommas(size, decimals);
               const filledStr = formatNumericWithCommas(filled, decimals);
-              const priceStr = displayType === 'MARKET'
-                ? 'Market'
-                : formatMarketPrice(order.price, '$');
+              const priceStr =
+                displayType === 'MARKET' ? 'Market' : formatMarketPrice(order.price, '$');
 
               return (
                 <tr
@@ -234,14 +231,14 @@ const OrderHistoryPanel: React.FC = () => {
                     <StatusIndicator status={order.status} />
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                    >
                       {capitalizeFirst(order.side)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-left">
-                    <span className="text-primary text-xs">
-                      {capitalizeFirst(displayType)}
-                    </span>
+                    <span className="text-primary text-xs">{capitalizeFirst(displayType)}</span>
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">{sizeStr}</td>
                   <td className="px-4 py-3 text-right">
@@ -250,9 +247,7 @@ const OrderHistoryPanel: React.FC = () => {
                       <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">
-                    {priceStr}
-                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{priceStr}</td>
                   <td className="px-4 py-3 text-center text-gray-400 text-xs">
                     {order.timeInForce || 'GTT'}
                   </td>
@@ -277,9 +272,8 @@ const OrderHistoryPanel: React.FC = () => {
           const decimals = currencyService.getStepSizeDecimals(stepSize);
 
           const sizeStr = formatNumericWithCommas(size, decimals);
-          const priceStr = displayType === 'MARKET'
-            ? 'Market'
-            : formatMarketPrice(order.price, '$');
+          const priceStr =
+            displayType === 'MARKET' ? 'Market' : formatMarketPrice(order.price, '$');
 
           return (
             <div
@@ -291,12 +285,12 @@ const OrderHistoryPanel: React.FC = () => {
                 <MarketBadge market={marketTicker} />
                 <div className="flex min-w-0">
                   <div className="flex items-center gap-4">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                    >
                       {capitalizeFirst(order.side)}
                     </span>
-                    <span className="text-primary font-mono text-xs">
-                      {priceStr}
-                    </span>
+                    <span className="text-primary font-mono text-xs">{priceStr}</span>
                   </div>
                 </div>
               </div>

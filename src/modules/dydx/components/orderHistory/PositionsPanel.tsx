@@ -1,20 +1,20 @@
-import { Edit2, Loader2, RefreshCw, TrendingDown, TrendingUp, X, PlusCircle } from 'lucide-react';
+import { Edit2, Loader2, PlusCircle, RefreshCw, TrendingDown, TrendingUp, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { Notification } from '../../../../components/common/Notification';
 import { Tooltip } from '../../../../components/common/Tooltip';
-import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { getIndexerClient } from '../../client/clients';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useDydxTrading } from '../../hooks/useDydxTrading';
-import { useOraclePrices } from '../../hooks/useOraclePrices';
 import { metadataService } from '../../hooks/useMetadata';
+import { useOraclePrices } from '../../hooks/useOraclePrices';
+import { dydxWalletService } from '../../service/dydxWalletService';
 import useMarketStore from '../../store/marketStore';
 import { useWebSocketStore } from '../../store/websocketStore';
+import { type Position } from '../../types/trading.types';
 import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
 import { currencyService } from '../../utils/currencyService';
-import { dydxWalletService } from '../../service/dydxWalletService';
-import { type Position } from '../../types/trading.types';
 import {
   calculateCrossLiquidationPrice,
   calculateIsolatedLiquidationPrice,
@@ -44,10 +44,15 @@ interface PnlCellProps {
   mobile?: boolean;
 }
 
-const PnlCell = React.memo(function PnlCell({ oraclePrice, margin, entryPrice, size, mobile = false }: PnlCellProps) {
-  const unrealizedPnl = oraclePrice !== null && entryPrice > 0
-    ? size * (oraclePrice - entryPrice)
-    : 0;
+const PnlCell = React.memo(function PnlCell({
+  oraclePrice,
+  margin,
+  entryPrice,
+  size,
+  mobile = false,
+}: PnlCellProps) {
+  const unrealizedPnl =
+    oraclePrice !== null && entryPrice > 0 ? size * (oraclePrice - entryPrice) : 0;
 
   const pnlPercentage = margin > 0 ? (unrealizedPnl / margin) * 100 : 0;
   const isPositive = unrealizedPnl > 0;
@@ -80,7 +85,10 @@ interface RefreshAllButtonProps {
   label?: boolean;
 }
 
-const RefreshAllButton = React.memo(function RefreshAllButton({ markets, label = false }: RefreshAllButtonProps) {
+const RefreshAllButton = React.memo(function RefreshAllButton({
+  markets,
+  label = false,
+}: RefreshAllButtonProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const marketsRef = useRef(markets);
   marketsRef.current = markets;
@@ -105,7 +113,7 @@ const RefreshAllButton = React.memo(function RefreshAllButton({ markets, label =
                 lastUpdate: Date.now(),
               });
             })
-            .catch(() => { })
+            .catch(() => {})
         )
       );
     } finally {
@@ -250,11 +258,7 @@ const PositionRow = React.memo(function PositionRow({
             className="p-1.5 bg-secondary hover:bg-red-900/40 rounded text-muted hover:text-red-400 transition-all disabled:opacity-50"
             title="Close Position"
           >
-            {isClosing ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <X size={12} />
-            )}
+            {isClosing ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
           </button>
         </div>
       </td>
@@ -333,17 +337,25 @@ const PositionCard = React.memo(function PositionCard({
       <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Size</span>
-          <span className="text-primary font-medium font-mono">{formatNumericWithCommas(metrics.absSize, decimals)}</span>
+          <span className="text-primary font-medium font-mono">
+            {formatNumericWithCommas(metrics.absSize, decimals)}
+          </span>
         </div>
 
         <div className="flex flex-col gap-0.5">
           <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Value</span>
-          <span className="text-primary font-medium font-mono">{formatNumericWithCommas(metrics.notional, 2, '$')}</span>
+          <span className="text-primary font-medium font-mono">
+            {formatNumericWithCommas(metrics.notional, 2, '$')}
+          </span>
         </div>
 
         <div className="flex flex-col gap-0.5">
-          <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Avg Open</span>
-          <span className="text-primary font-medium font-mono">{formatMarketPrice(metrics.entryPrice, '$')}</span>
+          <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+            Avg Open
+          </span>
+          <span className="text-primary font-medium font-mono">
+            {formatMarketPrice(metrics.entryPrice, '$')}
+          </span>
         </div>
 
         <div className="flex flex-col gap-0.5">
@@ -369,7 +381,9 @@ const PositionCard = React.memo(function PositionCard({
         </div>
 
         <div className="flex flex-col gap-0.5">
-          <span className="text-muted text-[9px] uppercase tracking-wide font-medium">Liq Price</span>
+          <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+            Liq Price
+          </span>
           <span className="text-orange-400 font-medium font-mono">
             {metrics.liquidationPrice ? formatMarketPrice(metrics.liquidationPrice, '$') : '—'}
           </span>
@@ -419,13 +433,15 @@ function computePositionMetrics(
   positions: Position[],
   isolatedEquityBySubaccount: Map<number, number>,
   liveOraclePrice?: number,
+  storedLeverage = 5.0
 ): PositionMetrics {
   const rawSize = parseFloat(position.size);
   const absSize = Math.abs(rawSize);
   const entryPrice = parseFloat(position.entryPrice);
   const mktData = marketCache[position.market];
   const cachedOraclePrice = mktData ? parseFloat(mktData.oraclePrice) : entryPrice;
-  const oraclePrice = liveOraclePrice != null && liveOraclePrice > 0 ? liveOraclePrice : cachedOraclePrice;
+  const oraclePrice =
+    liveOraclePrice != null && liveOraclePrice > 0 ? liveOraclePrice : cachedOraclePrice;
   const imf = mktData?.initialMarginFraction ? parseFloat(mktData.initialMarginFraction) : 0.05;
   const mmf = mktData?.maintenanceMarginFraction
     ? parseFloat(mktData.maintenanceMarginFraction)
@@ -445,13 +461,7 @@ function computePositionMetrics(
     leverage = margin > 0 ? Math.min(notional / margin, maxLeverage) : maxLeverage;
   } else {
     const apiLeverage = position.leverage ? parseFloat(position.leverage) : 0;
-    const storedLeverage = (() => {
-      const raw =
-        localStorage.getItem(`dydx_leverage_${position.market}`) ??
-        localStorage.getItem('dydx_leverage');
-      const parsed = raw ? parseFloat(raw) : 5.0;
-      return parsed > 0 ? parsed : 5.0;
-    })();
+    // storedLeverage is passed in — caller reads localStorage once outside the hot path
     leverage = Math.min(
       apiLeverage > 0 ? apiLeverage : storedLeverage > 0 ? storedLeverage : maxLeverage,
       maxLeverage
@@ -471,9 +481,7 @@ function computePositionMetrics(
     const crossEquity = parseFloat(subaccount?.equity || '0');
 
     const otherPositionsMMR = positions
-      .filter(
-        p => p.subaccountNumber === position.subaccountNumber && p.market !== position.market
-      )
+      .filter(p => p.subaccountNumber === position.subaccountNumber && p.market !== position.market)
       .reduce((sum, p) => {
         const pMkt = marketCache[p.market];
         const pPrice = pMkt ? parseFloat(pMkt.oraclePrice) : parseFloat(p.entryPrice);
@@ -482,8 +490,6 @@ function computePositionMetrics(
           : 0.03;
         return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
       }, 0);
-
-
 
     liquidationPrice = calculateCrossLiquidationPrice(
       absSize,
@@ -516,11 +522,18 @@ const PositionsPanel: React.FC = () => {
     positionsError,
     refreshPositions,
     isConnected,
-    isReceivingUpdates,
+    // isReceivingUpdates,
   } = useDydxData();
 
   const positions = rawPositions as Position[];
-  const { closePosition, closeAllPositions, setTriggers, isSettingTriggers, orderError, clearOrderError } = useDydxTrading();
+  const {
+    closePosition,
+    closeAllPositions,
+    setTriggers,
+    isSettingTriggers,
+    orderError,
+    clearOrderError,
+  } = useDydxTrading();
   const marketCache = useMarketStore(state => state.marketCache);
   const parentKey = useMemo(() => {
     const address = dydxWalletService.getAddress();
@@ -528,14 +541,10 @@ const PositionsPanel: React.FC = () => {
     return address ? `parent_subaccount_${address}_${subNum}` : null;
   }, []);
 
-  const updateTrigger = useWebSocketStore(s => s.updateTrigger);
-
-
-
   const parentData = useWebSocketStore(
     useCallback(
       s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined),
-      [parentKey, updateTrigger]
+      [parentKey] // parentSubaccounts is a new Map on each WS update — no need for updateTrigger
     )
   );
 
@@ -547,7 +556,17 @@ const PositionsPanel: React.FC = () => {
       map.set(child.subaccountNumber, parseFloat(child.equity || '0'));
     });
     return map;
-  }, [childSubaccounts, updateTrigger]);
+  }, [childSubaccounts]);
+
+  // Read localStorage once here (not inside the per-tick useMemo) so the hot path stays I/O-free.
+  const storedLeverageRef = useRef<Record<string, number>>({});
+  positions.forEach(p => {
+    if (storedLeverageRef.current[p.market] === undefined) {
+      const raw =
+        localStorage.getItem(`dydx_leverage_${p.market}`) ?? localStorage.getItem('dydx_leverage');
+      storedLeverageRef.current[p.market] = raw ? parseFloat(raw) || 5.0 : 5.0;
+    }
+  });
 
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showPriceTriggers, setShowPriceTriggers] = useState(false);
@@ -572,10 +591,7 @@ const PositionsPanel: React.FC = () => {
     setNotification({ message, type });
   }, []);
 
-  const activeMarkets = useMemo(
-    () => [...new Set(positions.map(p => p.market))],
-    [positions]
-  );
+  const activeMarkets = useMemo(() => [...new Set(positions.map(p => p.market))], [positions]);
 
   const oraclePrices = useOraclePrices(activeMarkets);
 
@@ -652,7 +668,10 @@ const PositionsPanel: React.FC = () => {
 
         const result = await setTriggers(selectedPosition, params);
 
-        const successCount = [result.takeProfit?.success, result.stopLoss?.success].filter(Boolean).length;
+        const successCount = [
+          result.results.takeProfit?.success,
+          result.results.stopLoss?.success,
+        ].filter(Boolean).length;
 
         if (successCount > 0) {
           const triggerText = successCount === 2 ? 'Take Profit & Stop Loss' : 'Trigger';
@@ -660,7 +679,12 @@ const PositionsPanel: React.FC = () => {
           setShowPriceTriggers(false);
           setTimeout(refreshPositions, 1500);
         } else {
-          showNotification(result.takeProfit?.error || result.stopLoss?.error || 'Failed to set triggers', 'error');
+          showNotification(
+            result.results.takeProfit?.error ||
+              result.results.stopLoss?.error ||
+              'Failed to set triggers',
+            'error'
+          );
         }
       } catch (error: any) {
         showNotification(error.message || 'Failed to set triggers', 'error');
@@ -669,12 +693,9 @@ const PositionsPanel: React.FC = () => {
     [selectedPosition, setTriggers, refreshPositions, showNotification]
   );
 
-  const handleClose = useCallback(
-    (position: Position) => {
-      setPositionToClose(position);
-    },
-    []
-  );
+  const handleClose = useCallback((position: Position) => {
+    setPositionToClose(position);
+  }, []);
 
   const executeClose = useCallback(async () => {
     const position = positionToClose;
@@ -712,17 +733,21 @@ const PositionsPanel: React.FC = () => {
 
     try {
       const marketInfoMap = Object.fromEntries(
-        positions
-          .map(p => [p.market, marketCache[p.market]])
-          .filter(([, v]) => v != null)
+        positions.map(p => [p.market, marketCache[p.market]]).filter(([, v]) => v != null)
       );
 
       const result = await closeAllPositions(positions, marketInfoMap);
 
       if (result.success) {
-        showNotification(`All ${result.closed} position${result.closed > 1 ? 's' : ''} closed successfully!`, 'success');
+        showNotification(
+          `All ${result.closed} position${result.closed > 1 ? 's' : ''} closed successfully!`,
+          'success'
+        );
       } else if (result.partialSuccess) {
-        showNotification(`${result.closed} closed, ${result.failed} failed — check individual positions`, 'error');
+        showNotification(
+          `${result.closed} closed, ${result.failed} failed — check individual positions`,
+          'error'
+        );
       } else {
         showNotification('Failed to close positions', 'error');
       }
@@ -769,6 +794,7 @@ const PositionsPanel: React.FC = () => {
             positions,
             isolatedEquityBySubaccount,
             liveOracle,
+            storedLeverageRef.current[position.market] ?? 5.0
           )
         );
       }
@@ -825,7 +851,7 @@ const PositionsPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full bg-primary overflow-auto relative">
+    <div className="h-full bg-secondary overflow-auto relative">
       {notification && (
         <Notification
           type={notification.type}
@@ -849,12 +875,12 @@ const PositionsPanel: React.FC = () => {
               <th className="p-3 border-b border-color">
                 <div className="flex text-[10px] items-center gap-2">
                   Market
-                  {!isReceivingUpdates && (
+                  {/* {!isReceivingUpdates && (
                     <div
                       className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"
                       title="Reconnecting..."
                     />
-                  )}
+                  )} */}
                 </div>
               </th>
               <th className="p-2 border-b border-color text-[10px]">Leverage</th>
@@ -932,11 +958,7 @@ const PositionsPanel: React.FC = () => {
               disabled={isClosingAll || !!closingMarket}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-800/40 text-red-400 hover:text-red-300 rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {isClosingAll ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <X size={12} />
-              )}
+              {isClosingAll ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
               {isClosingAll ? 'Closing...' : `Close All (${positions.length})`}
             </button>
           )}

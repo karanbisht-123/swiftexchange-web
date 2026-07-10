@@ -13,10 +13,10 @@ const OrderAndTrades = () => {
   return (
     <>
       <div
-        className="hidden lg:flex lg:flex-col h-full  overflow-hidden border-l border-color"
+        className="hidden lg:flex lg:flex-col h-full  overflow-hidden "
         style={{ borderRadius: 0, padding: 0 }}
       >
-        <div className="flex bg-tertiary  flex-shrink-0">
+        <div className="flex  flex-shrink-0">
           <button
             onClick={() => setActiveTab('order')}
             className={`flex-1 px-4 py-3 text-sm font-medium transition-all duration-200 relative ${

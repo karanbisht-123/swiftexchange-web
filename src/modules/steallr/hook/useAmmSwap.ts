@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import * as StellarSDK from '@stellar/stellar-sdk';
 
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getStellarConfig } from '../../walletconnect/config/chains';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { AmmSwapService } from '../service/ammSwapService';
 import { useAmmSwapStore } from '../store/ammSwapStore';
 import type { SwapQuote, TokenInfo } from '../types/ammSwap.types';
@@ -47,15 +48,19 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     }
   }, [currentStellarConfig]);
   useEffect(() => {
-    if (!service || !userAddress) return;
+    if (!service) return;
 
     const loadTokens = async () => {
       setIsLoading(true);
       try {
-        const { tokens: userTokens, subentryCount: count } = await service.getAssetsWithBalances(userAddress);
+        const { tokens: userTokens, subentryCount: count } = await service.getAssetsWithBalances(
+          userAddress || ''
+        );
 
         if (userTokens.length === 0) {
-          setError('No tokens found in your account. Please add tokens first.');
+          setError(
+            userAddress ? 'No tokens found in your account. Please add tokens first.' : null
+          );
           setAvailableTokens([]);
           return;
         }
@@ -66,14 +71,18 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
           base: 'XLM',
           counter: 'USDC',
           baseIssuer: undefined,
-          counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5'
+          counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5',
         };
 
-        const targetFrom = userTokens.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer)
-          || userTokens.find(t => t.code === currentPair.base);
+        const targetFrom =
+          userTokens.find(
+            t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer
+          ) || userTokens.find(t => t.code === currentPair.base);
 
-        const targetTo = userTokens.find(t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer)
-          || userTokens.find(t => t.code === currentPair.counter);
+        const targetTo =
+          userTokens.find(
+            t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer
+          ) || userTokens.find(t => t.code === currentPair.counter);
 
         if (!hasSetDefaultPairRef.current && targetFrom && targetTo) {
           setFromToken(targetFrom);
@@ -119,7 +128,11 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
         if (homeDomainCache.has(fromToken.issuer)) {
           const cached = homeDomainCache.get(fromToken.issuer)!;
           if (active) {
-            setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+            setFromToken(prev =>
+              prev && prev.issuer === fromToken.issuer
+                ? { ...prev, homeDomain: cached, domain: cached }
+                : prev
+            );
           }
         } else {
           try {
@@ -127,7 +140,11 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
             const domainName = account.home_domain || '';
             homeDomainCache.set(fromToken.issuer, domainName);
             if (active) {
-              setFromToken(prev => prev && prev.issuer === fromToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+              setFromToken(prev =>
+                prev && prev.issuer === fromToken.issuer
+                  ? { ...prev, homeDomain: domainName, domain: domainName }
+                  : prev
+              );
             }
           } catch (e) {
             console.warn('Failed to load home domain for fromToken', e);
@@ -139,7 +156,11 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
         if (homeDomainCache.has(toToken.issuer)) {
           const cached = homeDomainCache.get(toToken.issuer)!;
           if (active) {
-            setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: cached, domain: cached } : prev);
+            setToToken(prev =>
+              prev && prev.issuer === toToken.issuer
+                ? { ...prev, homeDomain: cached, domain: cached }
+                : prev
+            );
           }
         } else {
           try {
@@ -147,7 +168,11 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
             const domainName = account.home_domain || '';
             homeDomainCache.set(toToken.issuer, domainName);
             if (active) {
-              setToToken(prev => prev && prev.issuer === toToken.issuer ? { ...prev, homeDomain: domainName, domain: domainName } : prev);
+              setToToken(prev =>
+                prev && prev.issuer === toToken.issuer
+                  ? { ...prev, homeDomain: domainName, domain: domainName }
+                  : prev
+              );
             }
           } catch (e) {
             console.warn('Failed to load home domain for toToken', e);
@@ -186,14 +211,14 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     // Validate sufficient balance
     const availableBalance = parseFloat(fromToken.balance || '0');
     const requestedAmount = parseFloat(fromAmount);
-    
+
     // Instead of hardcoding 2 XLM, we use the actual calculated reserve.
     // The native balance from Stellar SDK is total balance. Spendable = total - reserve.
-    const reserve = fromToken.code === 'XLM' ? (1 + subentryCount * 0.5) : 0; 
+    const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
 
     if (requestedAmount > availableBalance - reserve) {
       setError(
-        `Insufficient ${fromToken.code} balance. Available: ${(Math.max(0, availableBalance - reserve)).toFixed(7)}`
+        `Insufficient ${fromToken.code} balance. Available: ${Math.max(0, availableBalance - reserve).toFixed(7)}`
       );
       setQuote(null);
       setToAmount('');
@@ -251,19 +276,22 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
 
   useEffect(() => {
     setTimeLeft(30);
-  }, [fromToken?.code, fromToken?.issuer, toToken?.code, toToken?.issuer, fromAmount, slippageTolerance]);
+  }, [
+    fromToken?.code,
+    fromToken?.issuer,
+    toToken?.code,
+    toToken?.issuer,
+    fromAmount,
+    slippageTolerance,
+  ]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    const canCountdown =
-      fromAmount &&
-      parseFloat(fromAmount) > 0 &&
-      quote &&
-      !isLoading;
+    const canCountdown = fromAmount && parseFloat(fromAmount) > 0 && quote && !isLoading;
 
     if (canCountdown) {
       timer = setInterval(() => {
-        setTimeLeft((prev) => {
+        setTimeLeft(prev => {
           if (prev <= 1) {
             return 0;
           }

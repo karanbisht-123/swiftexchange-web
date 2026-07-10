@@ -1,12 +1,15 @@
 import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Search, Trash2 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+
 import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
+import { useTransactionModalStore } from '../../../../store/transactionModalStore';
+import { addLocalTransaction } from '../../../evm/service/localTransactionService';
+import * as ChainUrlHelpers from '../../../evm/utils/ChainUrlHelpers';
+import { getAssetsForChain, getChainById } from '../../../evm/utils/Chainregistry';
 import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
-import { getAssetsForChain, getChainById } from '../../../evm/utils/Chainregistry';
-import * as ChainUrlHelpers from '../../../evm/utils/ChainUrlHelpers';
 import { useAssetSearch } from '../../hook/useAssetSearch';
 import { useStellarBalances } from '../../hook/useStellarBalances';
 import {
@@ -16,8 +19,6 @@ import {
   signAndSubmitTrustline,
   truncateAddress,
 } from '../../utils/assetUtils/assetUtils';
-import { addLocalTransaction } from '../../../evm/service/localTransactionService';
-import { useTransactionModalStore } from '../../../../store/transactionModalStore';
 
 interface UnifiedAssetsProps {
   userAddress?: string;
@@ -35,8 +36,6 @@ interface DisplayAsset {
   domain?: string;
   isLowLiquidity?: boolean;
 }
-
-
 
 interface AssetClickPayload {
   ticker: string;
@@ -108,12 +107,11 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       }
     });
 
-    return Array.from(assetsMap.values())
-      .sort((a, b) => {
-        if (a.isTrusted !== b.isTrusted) return a.isTrusted ? -1 : 1;
-        if (a.code !== b.code) return a.code.localeCompare(b.code);
-        return a.issuer.localeCompare(b.issuer);
-      });
+    return Array.from(assetsMap.values()).sort((a, b) => {
+      if (a.isTrusted !== b.isTrusted) return a.isTrusted ? -1 : 1;
+      if (a.code !== b.code) return a.code.localeCompare(b.code);
+      return a.issuer.localeCompare(b.issuer);
+    });
   }, [balances]);
 
   const { displayedAssets, searchLoading } = useAssetSearch({
@@ -245,9 +243,10 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                   className={`
                     flex items-center gap-3 px-3 py-2.5 lg:px-4 lg:py-3.5
                     transition-colors duration-100
-                    ${asset.isTrusted
-                      ? 'hover:bg-white/[0.03] cursor-pointer active:bg-white/[0.05]'
-                      : ''
+                    ${
+                      asset.isTrusted
+                        ? 'hover:bg-white/[0.03] cursor-pointer active:bg-white/[0.05]'
+                        : ''
                     }
                   `}
                 >
@@ -324,22 +323,18 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                           <ChevronRight size={14} className="text-muted/30" />
                         )}
                       </>
-                    ) : (
+                    ) : stellarAddress ? (
                       <button
                         onClick={e => {
                           e.stopPropagation();
                           setConfirmModal({ isOpen: true, type: 'add', asset });
                         }}
                         disabled={isProcessing}
-                        className="px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary text-[11px] font-semibold transition-colors disabled:opacity-50 active:scale-95"
+                        className="px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary text-[11px] font-semibold transition-colors disabled:opacity-50 active:scale-95 cursor-pointer"
                       >
-                        {isProcessing ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          'Add'
-                        )}
+                        {isProcessing ? <Loader2 size={12} className="animate-spin" /> : 'Add'}
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               );
@@ -364,8 +359,7 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
             <p>
               {confirmModal.type === 'add'
                 ? `Add a trustline for ${confirmModal.asset?.code}? This reserves 0.5 XLM.`
-                : `Remove the trustline for ${confirmModal.asset?.code}? This reclaims 0.5 XLM.`
-              }
+                : `Remove the trustline for ${confirmModal.asset?.code}? This reclaims 0.5 XLM.`}
             </p>
             <p className="text-xs opacity-60">You'll need to sign in your wallet.</p>
           </div>

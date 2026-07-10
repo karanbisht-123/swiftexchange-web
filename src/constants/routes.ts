@@ -9,7 +9,7 @@ export const ROUTES = {
   TRANSACTIONS: '/transactions',
   TRADING_EVM_SWAP: '/trading/evm/swap',
   TRADING_EVM_FIAT: '/trading/evm/fiat',
-  TRADING_DYDX_FUTURES: '/trading/dydx/futures',
+  TRADING_DYDX_FUTURES: '/trade/perpetuals',
   MARKETS: '/markets',
   PORTFOLIO: '/portfolio',
   SETTINGS: '/settings',

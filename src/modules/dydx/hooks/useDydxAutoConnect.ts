@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { dydxWalletService } from '../service/dydxWalletService';
 
@@ -17,7 +18,8 @@ export function useDydxAutoConnect() {
       hasDydxAddress &&
       !isConnecting &&
       dydxWalletService.getStatus() !== 'connecting' &&
-      dydxWalletService.getStatus() !== 'connected'
+      dydxWalletService.getStatus() !== 'connected' &&
+      dydxWalletService.getStatus() !== 'no_subaccount'
     ) {
       setIsConnecting(true);
 

@@ -127,10 +127,10 @@ const MarketRow = memo(function MarketRow({
       onClick={() => onSelect(market.ticker, market)}
       className="border-b border-color hover:bg-hover transition-colors group cursor-pointer"
     >
-      <td className="py-3 px-4 sticky left-0 bg-secondary group-hover:bg-hover z-10">
+      <td className="py-3  sticky left-0 bg-secondary group-hover:bg-hover z-10">
         <div className="flex items-center gap-3">
           <button
-            onClick={(e) => {
+            onClick={e => {
               e.stopPropagation();
               setIsFavorite(!isFavorite);
             }}
@@ -195,8 +195,9 @@ const MarketRow = memo(function MarketRow({
         <div className="flex items-center justify-end gap-2">
           <PriceChart change={priceChange} />
           <span
-            className={`inline-flex items-center gap-1 text-sm font-medium ${isPositive ? 'price-up' : 'price-down'
-              }`}
+            className={`inline-flex items-center gap-1 text-sm font-medium ${
+              isPositive ? 'price-up' : 'price-down'
+            }`}
           >
             {isPositive ? '+' : ''}
             {formatPercent(market.priceChange24H)}%
@@ -214,7 +215,9 @@ const MarketRow = memo(function MarketRow({
       <td className="py-3 px-4 text-right">
         <span className="text-secondary text-sm">
           {oiMode === 'USD'
-            ? formatVolume((parseFloat(market.openInterest) * parseFloat(market.oraclePrice)).toString())
+            ? formatVolume(
+                (parseFloat(market.openInterest) * parseFloat(market.oraclePrice)).toString()
+              )
             : formatVolume(market.openInterest, '')}
         </span>
       </td>
@@ -275,7 +278,9 @@ export default function MarketsDisplay() {
   const [sortField, setSortField] = useState<SortField>('volume');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [currentPage, setCurrentPage] = useState(1);
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
   const [oiMode, setOiMode] = useState<'USD' | 'BASE'>('USD');
 
   React.useEffect(() => {
@@ -328,7 +333,7 @@ export default function MarketsDisplay() {
   }, []);
 
   const filteredAndSortedMarkets = useMemo(() => {
-    let filtered = marketsList.filter(
+    const filtered = marketsList.filter(
       m =>
         m.ticker.toLowerCase().includes(searchTerm.toLowerCase()) ||
         m.coinName?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -467,7 +472,7 @@ export default function MarketsDisplay() {
 
   return (
     <div className="min-h-screen bg-primary text-primary">
-      <div className="bg-secondary mx-4 sticky top-0 z-30 border-b border-color">
+      <div className="bg-secondary  sticky top-0 z-30 border-b border-color">
         <div className=" mx-auto ">
           <div className="relative rounded-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
@@ -493,16 +498,22 @@ export default function MarketsDisplay() {
         </div>
       </div>
 
-      <div className=" mx-auto px-4">
+      <div className=" mx-auto rounded-lg  ">
         {/* Overview cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3  pb-1">
           {/* Card 1: 24h Volume */}
           <div className="bg-secondary border border-color  p-4 sm:p-5 flex flex-col justify-between shadow-lg backdrop-blur-sm relative overflow-hidden group hover:border-blue-500/30 transition-all duration-300">
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-all duration-500" />
             <div>
-              <span className="text-muted text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">Trading Volume 24h</span>
+              <span className="text-muted text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">
+                Trading Volume 24h
+              </span>
               <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary mt-1 font-mono tracking-tight">
-                ${stats.totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                $
+                {stats.totalVolume.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </h2>
             </div>
           </div>
@@ -511,9 +522,15 @@ export default function MarketsDisplay() {
           <div className="bg-secondary border border-color p-4 sm:p-5 flex flex-col justify-between shadow-lg backdrop-blur-sm relative overflow-hidden group hover:border-cyan-500/30 transition-all duration-300">
             <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl group-hover:bg-cyan-500/10 transition-all duration-500" />
             <div>
-              <span className="text-muted text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">Open Interest Current</span>
+              <span className="text-muted text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">
+                Open Interest Current
+              </span>
               <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary mt-1 font-mono tracking-tight">
-                ${stats.totalOpenInterest.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                $
+                {stats.totalOpenInterest.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </h2>
             </div>
           </div>
@@ -522,9 +539,15 @@ export default function MarketsDisplay() {
           <div className="bg-secondary border border-color  p-4 sm:p-5 flex flex-col justify-between shadow-lg backdrop-blur-sm relative overflow-hidden group hover:border-emerald-500/30 transition-all duration-300">
             <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-all duration-500" />
             <div>
-              <span className="text-muted text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">Fees Generated 24h</span>
+              <span className="text-muted text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">
+                Fees Generated 24h
+              </span>
               <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-emerald-400 mt-1 font-mono tracking-tight">
-                ${stats.totalFees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                $
+                {stats.totalFees.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </h2>
             </div>
           </div>
@@ -603,11 +626,17 @@ export default function MarketsDisplay() {
                         <SortIcon field="marketCap" />
                       </th>
                       <th className="py-3 px-4 text-right text-xs font-medium text-muted hover:text-secondary group/th">
-                        <div className="flex items-center justify-end gap-1.5 cursor-pointer" onClick={() => handleSort('openInterest')}>
+                        <div
+                          className="flex items-center justify-end gap-1.5 cursor-pointer"
+                          onClick={() => handleSort('openInterest')}
+                        >
                           Open Interest
                           <SortIcon field="openInterest" />
                           <button
-                            onClick={(e) => { e.stopPropagation(); setOiMode(oiMode === 'USD' ? 'BASE' : 'USD'); }}
+                            onClick={e => {
+                              e.stopPropagation();
+                              setOiMode(oiMode === 'USD' ? 'BASE' : 'USD');
+                            }}
                             className="text-[9px] font-medium bg-tertiary text-muted hover:text-primary px-1 rounded uppercase transition-colors ml-1"
                           >
                             {oiMode}
@@ -668,10 +697,11 @@ export default function MarketsDisplay() {
                       <button
                         key={page}
                         onClick={() => handlePageChange(page as number)}
-                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${currentPage === page
-                          ? 'text-white font-medium shadow-lg'
-                          : 'hover:bg-hover text-muted'
-                          }`}
+                        className={`${isMobile ? 'min-w-[36px]' : 'min-w-[40px]'} h-9 rounded-lg text-sm transition-all active:scale-95 ${
+                          currentPage === page
+                            ? 'text-white font-medium shadow-lg'
+                            : 'hover:bg-hover text-muted'
+                        }`}
                         style={
                           currentPage === page
                             ? { backgroundColor: 'var(--color-brand-accent)' }

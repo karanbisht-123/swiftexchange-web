@@ -7,6 +7,7 @@ export type CandleResolution = '1MIN' | '5MINS' | '15MINS' | '30MINS' | '1HOUR' 
 
 export interface Candle {
   startedAt: string;
+  startedAtTime: number;
   ticker: string;
   resolution: string;
   low: string;
@@ -50,6 +51,7 @@ export function useRealtimeChart(
 
   const mountedRef = useRef(true);
   const loadIdRef = useRef(0);
+  const isFirstRenderRef = useRef(true);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const candleKey = `candles_${market}_${resolution}`;
@@ -63,7 +65,7 @@ export function useRealtimeChart(
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      debounceTimerRef.current && clearTimeout(debounceTimerRef.current);
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       abortControllerRef.current?.abort();
     };
   }, []);
@@ -83,7 +85,7 @@ export function useRealtimeChart(
     try {
       const indexerClient = getIndexerClient();
       const toISO = isInitial ? undefined : oldestTimestampRef.current;
-      
+
       const data = await indexerClient.markets.getPerpetualMarketCandles(
         market,
         resolution,
@@ -96,6 +98,7 @@ export function useRealtimeChart(
 
       const fetched: Candle[] = (data.candles || []).map((c: any) => ({
         startedAt: c.startedAt,
+        startedAtTime: new Date(c.startedAt).getTime(),
         ticker: c.ticker || market,
         resolution: c.resolution || resolution,
         low: c.low || '0',
@@ -115,9 +118,7 @@ export function useRealtimeChart(
       }
 
       // Update oldest timestamp for next fetch
-      const sortedFetched = [...fetched].sort(
-        (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
-      );
+      const sortedFetched = [...fetched].sort((a, b) => a.startedAtTime - b.startedAtTime);
       oldestTimestampRef.current = sortedFetched[0].startedAt;
 
       // If we got fewer candles than requested, we likely hit the end of history
@@ -127,15 +128,13 @@ export function useRealtimeChart(
 
       setHistoricalCandles(prev => {
         if (isInitial) return sortedFetched;
-        
+
         // Merge and deduplicate
         const candleMap = new Map<string, Candle>();
         prev.forEach(c => candleMap.set(c.startedAt, c));
         sortedFetched.forEach(c => candleMap.set(c.startedAt, c));
-        
-        return Array.from(candleMap.values()).sort(
-          (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
-        );
+
+        return Array.from(candleMap.values()).sort((a, b) => a.startedAtTime - b.startedAtTime);
       });
 
       setError(null);
@@ -161,39 +160,47 @@ export function useRealtimeChart(
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
-    
+
     loadIdRef.current += 1;
     const myLoadId = loadIdRef.current;
 
-    debounceTimerRef.current = setTimeout(async () => {
-      if (!mountedRef.current || myLoadId !== loadIdRef.current) return;
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
       fetchCandles(true);
-    }, FETCH_DEBOUNCE_MS);
+    } else {
+      debounceTimerRef.current = setTimeout(async () => {
+        if (!mountedRef.current || myLoadId !== loadIdRef.current) return;
+        fetchCandles(true);
+      }, FETCH_DEBOUNCE_MS);
+    }
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, [market, resolution, enforcedLimit]);
+
   useEffect(() => {
     subscribeToCandles(market, resolution);
     return () => {
       unsubscribeFromCandles(market, resolution);
     };
   }, [market, resolution, subscribeToCandles, unsubscribeFromCandles]);
+
   const mergedCandles = useMemo(() => {
     const liveCandles = storeCandlesData?.candles || [];
 
     if (liveCandles.length === 0 && historicalCandles.length === 0) return [];
 
     const candleMap = new Map<string, Candle>();
-    
+
     // Add historical candles first
     historicalCandles.forEach(c => candleMap.set(c.startedAt, c));
-    
+
     // Merge with live candles from socket
     liveCandles.forEach((c: any) => {
       candleMap.set(c.startedAt, {
         startedAt: c.startedAt,
+        startedAtTime: new Date(c.startedAt).getTime(),
         ticker: c.ticker || market,
         resolution: c.resolution || resolution,
         low: c.low || '0',
@@ -209,8 +216,8 @@ export function useRealtimeChart(
     });
 
     const merged = Array.from(candleMap.values());
-    merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
-    
+    merged.sort((a, b) => a.startedAtTime - b.startedAtTime);
+
     // Safety cap to prevent memory issues in extremely long sessions
     return merged.slice(-5000);
   }, [historicalCandles, storeCandlesData, market, resolution]);

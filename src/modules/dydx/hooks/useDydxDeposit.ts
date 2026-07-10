@@ -1,16 +1,16 @@
 import { useCallback, useState } from 'react';
 
 import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
+import { Long } from '@dydxprotocol/v4-proto/src/codegen/helpers';
 import { executeRoute, route as fetchSkipRoute } from '@skip-go/client';
-import Long from 'long';
 
 import { type NotificationType } from '../../../components/common/Notification';
+import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
+import { getChainById } from '../../evm/utils/Chainregistry';
 import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
 import { walletService } from '../../walletconnect/services/walletService';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { getCurrentDepositTx, useTransactionStore } from '../hooks/useTransactionTracker';
-import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
-import { getChainById } from '../../evm/utils/Chainregistry';
 import { dydxWalletService } from '../service/dydxWalletService';
 import { skipApiService } from '../service/skipApiService';
 import { SUBACCOUNT_CONSTANTS } from '../types/trading.types';
@@ -37,13 +37,7 @@ const GAS_RESERVE_UUSDC = Math.round(NATIVE_WALLET_GAS_RESERVE_USD * 1_000_000);
 let isAutoDepositingGlobal = false;
 
 export type DepositStep =
-  | 'idle'
-  | 'routing'
-  | 'signing_evm'
-  | 'pending_bridge'
-  | 'transferring'
-  | 'success'
-  | 'error';
+  'idle' | 'routing' | 'signing_evm' | 'pending_bridge' | 'transferring' | 'success' | 'error';
 
 export type DepositPhase =
   | 'idle'
@@ -377,7 +371,10 @@ export const useDydxDeposit = () => {
           setStep('success');
 
           const currentTx = getCurrentDepositTx();
-          if (currentTx && (currentTx.status === 'pending' || currentTx.status === 'awaiting-signature')) {
+          if (
+            currentTx &&
+            (currentTx.status === 'pending' || currentTx.status === 'awaiting-signature')
+          ) {
             useTransactionStore.getState().setDepositTx({ ...currentTx, status: 'success' });
           }
           return { success: true, txHash: bridgeTxHash };
@@ -410,13 +407,22 @@ export const useDydxDeposit = () => {
         });
 
         const currentTx = getCurrentDepositTx();
-        if (currentTx && (currentTx.status === 'pending' || currentTx.status === 'awaiting-signature')) {
+        if (
+          currentTx &&
+          (currentTx.status === 'pending' || currentTx.status === 'awaiting-signature')
+        ) {
           useTransactionStore.getState().setDepositTx({ ...currentTx, status: 'success' });
         }
 
         currentPhase = 'success';
         setDepositPhase('success');
         setStep('success');
+
+        // Reconnect to transition status from 'no_subaccount' to 'connected' now that the subaccount is created
+        const net = useWalletStore.getState().network;
+        dydxWalletService.connect(net, 0).catch(err => {
+          console.error('[deposit] Failed to reconnect after deposit:', err);
+        });
 
         return { success: true, txHash: bridgeTxHash };
       } catch (err: any) {
@@ -512,6 +518,12 @@ export const useDydxDeposit = () => {
                   message: `${(Number(amountToDeposit) / 1e6).toFixed(2)} USDC from your wallet has been credited to your trading account.`,
                 });
                 setPendingDydxQuantums(null);
+
+                // Reconnect to transition status from 'no_subaccount' to 'connected' now that the subaccount is created
+                const net = useWalletStore.getState().network;
+                dydxWalletService.connect(net, 0).catch(err => {
+                  console.error('[deposit] Failed to reconnect after auto-deposit:', err);
+                });
               } catch (autoErr: any) {
                 console.error('[deposit] Auto-deposit execution error:', autoErr);
               } finally {

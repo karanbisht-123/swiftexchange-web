@@ -1,16 +1,104 @@
 import { AlertCircle, CheckCircle, Clock, Loader2, RefreshCw, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { useDydxData } from '../../hooks/useDydxData';
 import { metadataService } from '../../hooks/useMetadata';
-import { type TrackedOrder, isMarketOrder } from '../../store/websocketStore';
 import { dydxTradingService } from '../../service/dydxTradingService';
-import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
-import { getDisplayOrderType, formatTimeAgoCompact, capitalizeFirst } from '../../utils/orderUtils';
-import { CANCEL_REFRESH_DELAY_MS } from '../../utils/orderUtils';
 import useMarketStore from '../../store/marketStore';
+import { type TrackedOrder, isMarketOrder } from '../../store/websocketStore';
 import { formatMarketPrice, formatNumericWithCommas } from '../../utils/BigNumberUtils';
 import { currencyService } from '../../utils/currencyService';
+import { capitalizeFirst, formatTimeAgoCompact, getDisplayOrderType } from '../../utils/orderUtils';
+import { CANCEL_REFRESH_DELAY_MS } from '../../utils/orderUtils';
+
+// Module-level pure function — no deps, no need for useCallback inside the component
+function getStatusBadge(order: TrackedOrder) {
+  const status = order.status;
+
+  if (isMarketOrder(order)) {
+    if (status === 'FILLED') {
+      return (
+        <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">
+          <CheckCircle className="w-3 h-3" />
+          <span>Filled</span>
+        </div>
+      );
+    }
+    if (status === 'REJECTED') {
+      const reason = order.removalReason
+        ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
+        : 'Rejected';
+      return (
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
+            <X className="w-3 h-3" />
+            <span>Rejected</span>
+          </div>
+          <span className="text-[10px] text-red-400/70 px-2 leading-tight">{reason}</span>
+        </div>
+      );
+    }
+    if (status === 'BEST_EFFORT_CANCELED' || status === 'CANCELED') {
+      const reason = order.removalReason
+        ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
+        : null;
+      return (
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded text-xs">
+            <X className="w-3 h-3" />
+            <span>Canceled</span>
+          </div>
+          {reason && (
+            <span className="text-[10px] text-gray-400/70 px-2 leading-tight">{reason}</span>
+          )}
+        </div>
+      );
+    }
+  }
+
+  if (status === 'REJECTED') {
+    return (
+      <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
+        <X className="w-3 h-3" />
+        <span>Rejected</span>
+      </div>
+    );
+  }
+
+  switch (status) {
+    case 'BEST_EFFORT_OPENED':
+      return (
+        <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs">
+          <Clock className="w-3 h-3 animate-spin" />
+          <span>Pending</span>
+        </div>
+      );
+    case 'OPEN':
+      return (
+        <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">
+          <CheckCircle className="w-3 h-3" />
+          <span>Open</span>
+        </div>
+      );
+    case 'PARTIALLY_FILLED':
+      return (
+        <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs">
+          <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+          <span>Filling</span>
+        </div>
+      );
+    case 'UNTRIGGERED':
+      return (
+        <div className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
+          <AlertCircle className="w-3 h-3" />
+          <span>Trigger</span>
+        </div>
+      );
+    default:
+      return <span className="px-2 py-0.5 bg-secondary text-muted rounded text-xs">{status}</span>;
+  }
+}
 
 const OpenOrdersPanel: React.FC = () => {
   const { openOrdersWithGrace, loadingOrders, ordersError, refreshOrders, isConnected } =
@@ -28,7 +116,9 @@ const OpenOrdersPanel: React.FC = () => {
     if (openOrdersWithGrace.length === 0) return;
 
     const fetchIcons = async () => {
-      const markets = [...new Set(openOrdersWithGrace.map(o => o.ticker).filter(Boolean))] as string[];
+      const markets = [
+        ...new Set(openOrdersWithGrace.map(o => o.ticker).filter(Boolean)),
+      ] as string[];
       const newMarkets = markets.filter(m => !requestedIconsRef.current.has(m));
       if (newMarkets.length === 0) return;
       newMarkets.forEach(m => requestedIconsRef.current.add(m));
@@ -37,7 +127,7 @@ const OpenOrdersPanel: React.FC = () => {
         newMarkets.map(async market => {
           const meta = await metadataService.getMetadata(market!);
           return { market: market!, icon: meta?.image };
-        }),
+        })
       );
 
       const newIcons: Record<string, string> = {};
@@ -118,97 +208,10 @@ const OpenOrdersPanel: React.FC = () => {
           />
         );
       }
-      return (
-        <span className="text-primary text-xs font-bold">{baseAsset.slice(0, 3)}</span>
-      );
+      return <span className="text-primary text-xs font-bold">{baseAsset.slice(0, 3)}</span>;
     },
-    [icons, failedIcons],
+    [icons, failedIcons]
   );
-
-  const getStatusBadge = useCallback((order: TrackedOrder) => {
-    const status = order.status;
-
-    if (isMarketOrder(order)) {
-      if (status === 'FILLED') {
-        return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">
-            <CheckCircle className="w-3 h-3" />
-            <span>Filled</span>
-          </div>
-        );
-      }
-      if (status === 'REJECTED') {
-        const reason = order.removalReason
-          ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
-          : 'Rejected';
-        return (
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
-              <X className="w-3 h-3" />
-              <span>Rejected</span>
-            </div>
-            <span className="text-[10px] text-red-400/70 px-2 leading-tight">{reason}</span>
-          </div>
-        );
-      }
-      if (status === 'BEST_EFFORT_CANCELED' || status === 'CANCELED') {
-        const reason = order.removalReason
-          ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
-          : null;
-        return (
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded text-xs">
-              <X className="w-3 h-3" />
-              <span>Canceled</span>
-            </div>
-            {reason && <span className="text-[10px] text-gray-400/70 px-2 leading-tight">{reason}</span>}
-          </div>
-        );
-      }
-    }
-
-    if (status === 'REJECTED') {
-      return (
-        <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
-          <X className="w-3 h-3" />
-          <span>Rejected</span>
-        </div>
-      );
-    }
-
-    switch (status) {
-      case 'BEST_EFFORT_OPENED':
-        return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs">
-            <Clock className="w-3 h-3 animate-spin" />
-            <span>Pending</span>
-          </div>
-        );
-      case 'OPEN':
-        return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">
-            <CheckCircle className="w-3 h-3" />
-            <span>Open</span>
-          </div>
-        );
-      case 'PARTIALLY_FILLED':
-        return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs">
-            <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-            <span>Filling</span>
-          </div>
-        );
-      case 'UNTRIGGERED':
-        return (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
-            <AlertCircle className="w-3 h-3" />
-            <span>Trigger</span>
-          </div>
-        );
-      default:
-        return <span className="px-2 py-0.5 bg-secondary text-muted rounded text-xs">{status}</span>;
-    }
-  }, []);
 
   if (!isConnected) {
     return (
@@ -254,9 +257,9 @@ const OpenOrdersPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-primary overflow-auto">
+    <div className="h-full flex flex-col bg-secondary overflow-hidden">
       {/* Desktop table */}
-      <div className="hidden md:block">
+      <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
             <tr className="text-muted text-xs">
@@ -309,23 +312,23 @@ const OpenOrdersPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-center">{getStatusBadge(order)}</td>
                   <td className="px-4 py-3 text-left">
-                    <span className="text-primary text-xs">
-                      {capitalizeFirst(displayType)}
-                    </span>
+                    <span className="text-primary text-xs">{capitalizeFirst(displayType)}</span>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                    >
                       {capitalizeFirst(order.side)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-primary font-mono">{sizeStr}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="text-primary font-mono">{filledStr}</div>
-                    {fillPercent > 0 && <div className="text-xs text-muted">{fillPercent.toFixed(0)}%</div>}
+                    {fillPercent > 0 && (
+                      <div className="text-xs text-muted">{fillPercent.toFixed(0)}%</div>
+                    )}
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">
-                    {priceStr}
-                  </td>
+                  <td className="px-4 py-3 text-right text-primary font-mono">{priceStr}</td>
                   <td className="px-4 py-3 text-center text-muted text-xs">
                     {order.timeInForce || 'GTT'}
                   </td>
@@ -355,7 +358,7 @@ const OpenOrdersPanel: React.FC = () => {
       </div>
 
       {/* Mobile cards */}
-      <div className="md:hidden space-y-1.5 p-2">
+      <div className="md:hidden flex-1 overflow-auto space-y-1.5 p-2">
         {openOrdersWithGrace.map(order => {
           const isCancelling = cancelling.has(order.id);
           const filled = parseFloat(order.totalOptimisticFilled || '0');
@@ -389,10 +392,10 @@ const OpenOrdersPanel: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-primary text-[10px]">
-                    {capitalizeFirst(displayType)}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                  <span className="text-primary text-[10px]">{capitalizeFirst(displayType)}</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                  >
                     {capitalizeFirst(order.side)}
                   </span>
                   {!isMarket && (
@@ -433,9 +436,7 @@ const OpenOrdersPanel: React.FC = () => {
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
                     Price
                   </span>
-                  <span className="text-primary font-medium font-mono">
-                    {priceStr}
-                  </span>
+                  <span className="text-primary font-medium font-mono">{priceStr}</span>
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
@@ -447,9 +448,7 @@ const OpenOrdersPanel: React.FC = () => {
                   <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
                     Created
                   </span>
-                  <span className="text-primary font-medium">
-                    {formatTimeAgoCompact(timeStr)}
-                  </span>
+                  <span className="text-primary font-medium">{formatTimeAgoCompact(timeStr)}</span>
                 </div>
               </div>
             </div>

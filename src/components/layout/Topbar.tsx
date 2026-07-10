@@ -1,4 +1,4 @@
-import { Bell } from 'lucide-react';
+import { Bell, Menu } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -36,17 +36,32 @@ const Topbar: React.FC = () => {
   }, [disconnectAll, navigate]);
 
   return (
-    <header className="h-16 bg-(--color-bg-secondary) border-b border-(--color-border) flex items-center justify-between px-2">
-      <h1 className="text-lg font-semibold text-(--color-text-primary)"></h1>
+    <header className="sticky top-0 z-50 h-16 bg-(--color-bg-secondary)/95 backdrop-blur-md flex items-center justify-between px-2">
+      <div className="flex items-center gap-2 px-1 select-none">
+        <button
+          id="hamburger-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent('sidebar:toggle'))}
+          className="lg:hidden p-2 rounded-xl text-(--color-text-secondary) hover:text-(--color-text-primary) hover:bg-(--color-bg-tertiary) transition-colors mr-1 cursor-pointer"
+        >
+          <Menu size={20} />
+        </button>
+        {/* <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] lg:text-xs font-black tracking-widest bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 dark:border-amber-500/30 transition-all duration-300 hover:scale-105 shadow-[0_0_12px_rgba(245,158,11,0.08)]">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-md bg-amber-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-sm h-1.5 w-1.5 bg-amber-500"></span>
+          </span>
+          BETA
+        </span> */}
+      </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 lg:gap-4">
         <NetworkSwitch />
         {isAnyWalletConnected ? (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 lg:gap-2">
             <ConnectWalletButton />
             <button
               onClick={handleDisconnectAll}
-              className="hidden lg:block px-3 py-1.5 rounded-sm bg-(--color-danger) text-white text-sm hover:opacity-90 transition"
+              className="hidden lg:block px-3 py-1.5 rounded-md bg-(--color-danger) text-white text-sm hover:opacity-90 transition cursor-pointer"
             >
               Disconnect All
             </button>
@@ -60,7 +75,7 @@ const Topbar: React.FC = () => {
         {isAnyWalletConnected && (
           <button
             onClick={() => setGlobalPanelOpen(true)}
-            className="relative rounded-full p-2 text-(--color-text-secondary) hover:bg-(--color-bg-tertiary) hover:text-(--color-text-primary) transition-colors"
+            className="relative rounded-full p-2 text-(--color-text-secondary) hover:bg-(--color-bg-tertiary) hover:text-(--color-text-primary) transition-colors cursor-pointer"
           >
             <Bell size={20} />
             {unreadCount > 0 && (

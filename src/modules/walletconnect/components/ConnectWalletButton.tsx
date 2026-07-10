@@ -30,7 +30,9 @@ export const ConnectWalletButton: React.FC = () => {
       await navigator.clipboard.writeText(address);
       setCopiedAddress(address);
       setTimeout(() => setCopiedAddress(null), 2000);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleDisconnectAll = async () => {
@@ -57,12 +59,7 @@ export const ConnectWalletButton: React.FC = () => {
     return (
       <button
         onClick={openModal}
-        style={{
-          background: 'var(--color-brand-primary)',
-          color: '#fff',
-          borderRadius: '9999px',
-        }}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold hover:opacity-90 transition-opacity"
+        className="flex items-center text-white gap-2 shadow bg-brand rounded-md px-4 py-2 text-sm font-semibold hover:opacity-90 transition-opacity"
       >
         Connect Wallet
       </button>
@@ -73,13 +70,8 @@ export const ConnectWalletButton: React.FC = () => {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setShowDropdown(v => !v)}
-        style={{
-          background: 'var(--color-bg-tertiary)',
-          border: '1px solid var(--color-border)',
-          borderRadius: '9999px',
-          color: 'var(--color-text-primary)',
-        }}
-        className="flex items-center gap-2 pl-1.5 pr-3 py-1.5 hover:border-[var(--color-brand-primary)] transition-colors"
+
+        className="flex items-center bg-tertiary shadow rounded-lg gap-2 pl-1.5 pr-3 py-1.5 transition-colors cursor-pointer"
       >
         <div className="flex items-center -space-x-2">
           {validConnectedWallets.slice(0, 3).map(([type, conn]) => (

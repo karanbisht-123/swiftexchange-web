@@ -1,14 +1,15 @@
+/// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react';
+
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import removeConsole from 'vite-plugin-remove-console';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   define: {
-    global: 'globalThis',
+    ...(process.env.VITEST ? {} : { global: 'globalThis' }),
   },
-
 
   server: {
     port: 8081,
@@ -17,7 +18,6 @@ export default defineConfig({
       '/pnl': {
         target: 'https://folioapi.swiftexwallet.com',
         changeOrigin: true,
-
       },
     },
   },
@@ -25,12 +25,12 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    removeConsole(),
+    command === 'build' && removeConsole(),
     nodePolyfills({
       globals: { Buffer: true, global: true },
       protocolImports: true,
     }),
-  ],
+  ].filter(Boolean),
 
   optimizeDeps: {
     include: [
@@ -43,25 +43,27 @@ export default defineConfig({
     exclude: ['buffer', 'process', 'vm-browserify', 'node-stdlib-browser'],
     esbuildOptions: {
       target: 'esnext',
-      define: { global: 'globalThis' },
+      define: {
+        ...(process.env.VITEST ? {} : { global: 'globalThis' }),
+      },
     },
   },
 
   build: {
     target: 'esnext',
     sourcemap: false,
-    minify: 'esbuild',        // explicit esbuild minifier
-    modulePreload: false,     //tops import-analysis from re-parsing chunks
+    minify: 'esbuild',
+    modulePreload: false,
     reportCompressedSize: false,
     chunkSizeWarningLimit: 2000,
 
     rollupOptions: {
       output: {
         manualChunks(id) {
-          //isolate SDK chunks so they aren't merged into the main bundle
           if (id.includes('@dydxprotocol')) return 'vendor-dydx';
-          if (id.includes('@stellar')) return 'vendor-stellar';
-          if (id.includes('@allbridge')) return 'vendor-allbridge';
+          if (id.includes('@stellar') || id.includes('@allbridge')) {
+            return 'vendor-bridge-stellar';
+          }
           if (id.includes('@cosmjs')) return 'vendor-cosmjs';
           if (id.includes('@skip-go')) return 'vendor-skip';
           if (id.includes('node_modules')) return 'vendor';
@@ -69,7 +71,6 @@ export default defineConfig({
       },
       onwarn(warning, warn) {
         if (warning.code === 'EVAL') return;
-        if (warning.code === 'CIRCULAR_DEPENDENCY') return;
         if (warning.code === 'THIS_IS_UNDEFINED') return;
         if (warning.code === 'INVALID_ANNOTATION') return;
         warn(warning);
@@ -81,4 +82,22 @@ export default defineConfig({
     legalComments: 'none',
     target: 'esnext',
   },
-});
+
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    globals: true,
+    css: false,
+    server: {
+      deps: {
+        inline: ['html-encoding-sniffer', '@exodus/bytes'],
+        external: [/@dydxprotocol/, /@cosmjs/, /protobufjs/],
+      },
+    },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'lcov'],
+      exclude: ['**/*.d.ts', '**/*.config.*', '**/node_modules/**', 'src/test/**'],
+    },
+  },
+}));

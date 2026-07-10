@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo } from 'react';
+
 import { useTrades } from '../../hooks/useTrades';
 import useMarketStore from '../../store/marketStore';
 
@@ -18,28 +19,35 @@ interface TradeRowProps {
   formatTime: (t: string) => string;
 }
 
-const TradeRow = memo(function TradeRow({ trade, depthPct, formatPrice, formatSize, formatTime }: TradeRowProps) {
-  const isBuy = trade.side === 'BUY';
-  return (
-    <div className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 ${
-      isBuy ? 'animate-trade-enter-buy' : 'animate-trade-enter-sell'
-    }`}>
+const TradeRow = memo(
+  function TradeRow({ trade, depthPct, formatPrice, formatSize, formatTime }: TradeRowProps) {
+    const isBuy = trade.side === 'BUY';
+    return (
       <div
-        className={`absolute inset-y-0 right-0 origin-right transition-transform duration-200 ease-out ${isBuy ? 'bg-success/10' : 'bg-danger/10'}`}
-        style={{ width: '100%', transform: `scaleX(${depthPct})` }}
-      />
-      <div className={`relative font-medium text-xs lg:text-[13px] tabular-nums text-left ${isBuy ? 'text-success' : 'text-danger'}`}>
-        {formatSize(trade.size)}
+        className={`grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 hover:bg-hover relative overflow-hidden transition-colors duration-150 ${
+          isBuy ? 'animate-trade-enter-buy' : 'animate-trade-enter-sell'
+        }`}
+      >
+        <div
+          className={`absolute inset-y-0 right-0 origin-right transition-transform duration-200 ease-out ${isBuy ? 'bg-success/10' : 'bg-danger/10'}`}
+          style={{ width: '100%', transform: `scaleX(${depthPct})` }}
+        />
+        <div
+          className={`relative font-medium text-xs lg:text-[13px] tabular-nums text-left ${isBuy ? 'text-success' : 'text-danger'}`}
+        >
+          {formatSize(trade.size)}
+        </div>
+        <div className="relative text-xs lg:text-[13px] text-primary tabular-nums text-center">
+          ${formatPrice(trade.price)}
+        </div>
+        <div className="relative text-xs lg:text-[13px] text-muted tabular-nums text-right">
+          {formatTime(trade.createdAt)}
+        </div>
       </div>
-      <div className="relative text-xs lg:text-[13px] text-primary tabular-nums text-center">
-        ${formatPrice(trade.price)}
-      </div>
-      <div className="relative text-xs lg:text-[13px] text-muted tabular-nums text-right">
-        {formatTime(trade.createdAt)}
-      </div>
-    </div>
-  );
-}, (p, n) => p.trade.id === n.trade.id && p.depthPct === n.depthPct);
+    );
+  },
+  (p, n) => p.trade.id === n.trade.id && p.depthPct === n.depthPct
+);
 
 const SkeletonTradeRow = memo(function SkeletonTradeRow({ index }: { index: number }) {
   const widths = [
@@ -52,7 +60,9 @@ const SkeletonTradeRow = memo(function SkeletonTradeRow({ index }: { index: numb
   const isBuy = index % 3 !== 0;
   return (
     <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-1.5 relative overflow-hidden">
-      <div className={`skeleton-shimmer rounded h-[13px] ${w1} ${isBuy ? 'bg-success/15' : 'bg-danger/15'}`} />
+      <div
+        className={`skeleton-shimmer rounded h-[13px] ${w1} ${isBuy ? 'bg-success/15' : 'bg-danger/15'}`}
+      />
       <div className={`skeleton-shimmer rounded h-[13px] ${w2} bg-primary/10 mx-auto`} />
       <div className={`skeleton-shimmer rounded h-[13px] ${w3} bg-primary/8 ml-auto`} />
     </div>
@@ -65,14 +75,30 @@ export default function TradesDisplay() {
 
   const maxTradeSize = useMemo(() => {
     if (!trades.length) return 1;
-    return Math.max(...trades.map(t => parseFloat(t.size) || 0));
+    return trades.reduce((max, t) => Math.max(max, parseFloat(t.size) || 0), 1);
   }, [trades]);
 
-  const formatPrice = useCallback((p: string) => parseFloat(p).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
+  const formatPrice = useCallback(
+    (p: string) =>
+      parseFloat(p).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    []
+  );
   const formatSize = useCallback((s: string) => parseFloat(s).toFixed(4), []);
-  const formatTime = useCallback((t: string) => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }), []);
+  const formatTime = useCallback(
+    (t: string) =>
+      new Date(t).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }),
+    []
+  );
 
-  const [baseCurrency, quoteCurrency] = selectedMarket.split('-');
+  const [baseCurrency, quoteCurrency] = useMemo(
+    () => selectedMarket.split('-') as [string, string],
+    [selectedMarket]
+  );
 
   const showSkeleton = isLoading && trades.length === 0;
 
@@ -84,7 +110,9 @@ export default function TradesDisplay() {
           <span className="text-primary font-semibold">{baseCurrency}</span>
           <span className="text-muted">/</span>
           <span className="text-muted">{quoteCurrency}</span>
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success animate-pulse' : 'bg-warning'}`} />
+          <div
+            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success animate-pulse' : 'bg-warning'}`}
+          />
         </div>
       </div>
 
@@ -98,16 +126,15 @@ export default function TradesDisplay() {
         {showSkeleton
           ? Array.from({ length: 20 }).map((_, i) => <SkeletonTradeRow key={i} index={i} />)
           : trades.map(t => (
-            <TradeRow
-              key={t.id}
-              trade={t}
-              depthPct={maxTradeSize > 0 ? (parseFloat(t.size) || 0) / maxTradeSize : 0}
-              formatPrice={formatPrice}
-              formatSize={formatSize}
-              formatTime={formatTime}
-            />
-          ))
-        }
+              <TradeRow
+                key={t.id}
+                trade={t}
+                depthPct={maxTradeSize > 0 ? (parseFloat(t.size) || 0) / maxTradeSize : 0}
+                formatPrice={formatPrice}
+                formatSize={formatSize}
+                formatTime={formatTime}
+              />
+            ))}
       </div>
 
       <style>{`

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { Notification, type NotificationType } from '../../../../components/common/Notification';
@@ -7,14 +7,21 @@ import { useDydxTrading } from '../../hooks/useDydxTrading';
 import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useMarkets } from '../../hooks/useMarkets';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
+// NEW IMPORTS
+import { dydxWalletService } from '../../service/dydxWalletService';
 import useMarketStore from '../../store/marketStore';
 import useOrderPreviewStore from '../../store/orderPreviewStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
+import {
+  type TrackedOrder,
+  selectRecentlyTerminalOrders,
+  useWebSocketStore,
+} from '../../store/websocketStore';
 import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
 import {
-  getSafeMaxBuyingPower,
   getMaxBuyingPower,
   getPriceDecimals,
+  getSafeMaxBuyingPower,
   roundToTickSize,
   validateOrderPrice,
   validateOrderSize,
@@ -34,14 +41,6 @@ import { OrderReceipt } from './components/OrderReceipt';
 import { OrderTypeSelector } from './components/OrderTypeSelector';
 import { TpSlInputs } from './components/TpSlInputs';
 
-// NEW IMPORTS
-import { dydxWalletService } from '../../service/dydxWalletService';
-import {
-  useWebSocketStore,
-  selectRecentlyTerminalOrders,
-  type TrackedOrder,
-} from '../../store/websocketStore';
-
 interface NotificationState {
   id: number;
   type: NotificationType;
@@ -50,6 +49,8 @@ interface NotificationState {
 }
 
 const PRICE_REQUIRED_TYPES = ['LIMIT', 'STOP_LIMIT', 'TAKE_PROFIT_LIMIT'] as const;
+const sessionClientIds = new Set<string>();
+
 const TRIGGER_REQUIRED_TYPES = [
   'STOP_MARKET',
   'STOP_LIMIT',
@@ -75,11 +76,7 @@ const convertToSeconds = (value: number, unit: GoodTilUnit): number => {
   return value * multipliers[unit];
 };
 
-const validateGoodTil = (
-  value: number,
-  unit: GoodTilUnit,
-  _isConditional: boolean
-): string | null => {
+const validateGoodTil = (value: number, unit: GoodTilUnit): string | null => {
   const seconds = convertToSeconds(value, unit);
   const maxSeconds = 95 * 86400;
 
@@ -97,7 +94,7 @@ export const DydxTradingForm: React.FC = () => {
   const { placeOrder, isPlacingOrder, orderError, clearOrderError, canTrade } = useDydxTrading();
   const { activeSubaccountNumber, getNextIsolatedSubaccount, childSubaccounts } = useSubaccounts();
 
-  const pendingMarginRequired = useOrderPreviewStore((s) => s.pendingMarginRequired);
+  const pendingMarginRequired = useOrderPreviewStore(s => s.pendingMarginRequired);
 
   // Parent Subaccount Key
   const address = dydxWalletService.getAddress();
@@ -106,7 +103,7 @@ export const DydxTradingForm: React.FC = () => {
 
   // Get parentData from Zustand
   const parentData = useWebSocketStore(
-    useShallow((state) => (parentKey ? state.parentSubaccounts.get(parentKey) : undefined))
+    useShallow(state => (parentKey ? state.parentSubaccounts.get(parentKey) : undefined))
   );
   const recentlyTerminalOrders = useMemo(
     () => selectRecentlyTerminalOrders(parentData),
@@ -145,13 +142,22 @@ export const DydxTradingForm: React.FC = () => {
   const [goodTilError, setGoodTilError] = useState<string>('');
 
   const [notifications, setNotifications] = useState<NotificationState[]>([]);
-  const [notificationCounter, setNotificationCounter] = useState(0);
+
   const [localPercentage, setLocalPercentage] = useState<number>(0);
+
+  const addNotification = useCallback((type: NotificationType, message: string, title?: string) => {
+    const id = Date.now() + Math.random();
+    setNotifications(prev => [...prev, { id, type, message, title }]);
+  }, []);
+
+  const removeNotification = useCallback((id: number) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
 
   const shownRejectionsRef = useRef<Set<string>>(new Set());
   const sizeFromSliderRef = useRef(false);
 
-  const isConditional = CONDITIONAL_TYPES.includes(orderType as any);
+  const isConditional = CONDITIONAL_TYPES.includes(orderType as (typeof CONDITIONAL_TYPES)[number]);
   const isLimit = orderType === 'LIMIT';
 
   const maxLeverage = useMemo(() => {
@@ -175,7 +181,7 @@ export const DydxTradingForm: React.FC = () => {
 
   const isolatedEquity = useMemo(() => {
     if (marginMode !== 'ISOLATED') return 0;
-    const subaccount = childSubaccounts.find((c) => c.subaccountNumber === targetSubaccount);
+    const subaccount = childSubaccounts.find(c => c.subaccountNumber === targetSubaccount);
     return subaccount ? parseFloat(subaccount.equity || '0') : 0;
   }, [marginMode, targetSubaccount, childSubaccounts]);
 
@@ -220,16 +226,6 @@ export const DydxTradingForm: React.FC = () => {
 
     let baseAmount = targetUsd / price;
 
-    if (marginMode === 'ISOLATED' && orderType !== 'MARKET' && targetUsd > 0) {
-      const margin = targetUsd / leverage;
-      if (margin < 20) {
-        // Option A: Adjust targetUsd to hit at least $20 margin
-        // const minUsd = 20 * leverage;
-        // baseAmount = minUsd / price;
-        // But for now, we just let the validation catch it or provide a warning.
-      }
-    }
-
     if (marketData.stepSize) {
       baseAmount = currencyService.roundToStepSize(baseAmount, marketData.stepSize);
     }
@@ -250,8 +246,9 @@ export const DydxTradingForm: React.FC = () => {
 
     const recentRejections = recentlyTerminalOrders.filter((order: TrackedOrder) => {
       if (!order.ticker || order.ticker !== selectedMarket) return false;
-      if (order.subaccountNumber !== undefined && order.subaccountNumber !== targetSubaccount) return false;
-
+      if (order.subaccountNumber !== undefined && order.subaccountNumber !== targetSubaccount)
+        return false;
+      if (order.clientId == null || !sessionClientIds.has(order.clientId.toString())) return false;
       return (
         order.status === 'REJECTED' ||
         (order.status === 'BEST_EFFORT_CANCELED' && order.removalReason)
@@ -274,11 +271,8 @@ export const DydxTradingForm: React.FC = () => {
         'Order Rejected'
       );
     }
-  }, [recentlyTerminalOrders, selectedMarket, targetSubaccount]);
+  }, [recentlyTerminalOrders, selectedMarket, targetSubaccount, addNotification]);
 
-  useEffect(() => {
-    shownRejectionsRef.current.clear();
-  }, [selectedMarket]);
   useEffect(() => {
     if (leverage > maxLeverage) setLeverage(maxLeverage);
   }, [maxLeverage, leverage]);
@@ -287,10 +281,11 @@ export const DydxTradingForm: React.FC = () => {
     setSize('');
     setPrice('');
     setTriggerPrice('');
-    if (showTpSl) {
-      setTpPrice('');
-      setSlPrice('');
-    }
+    setTpPrice('');
+    setSlPrice('');
+  }, [selectedMarket]);
+
+  useEffect(() => {
     const marketKey = selectedMarket ? `dydx_leverage_${selectedMarket}` : 'dydx_leverage';
     const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
     if (saved) {
@@ -299,10 +294,11 @@ export const DydxTradingForm: React.FC = () => {
     } else {
       setLeverage(Math.min(5.0, maxLeverage));
     }
-  }, [selectedMarket]);
+  }, [selectedMarket, maxLeverage]);
 
   useEffect(() => {
-    if (selectedMarket) localStorage.setItem(`dydx_leverage_${selectedMarket}`, leverage.toString());
+    if (selectedMarket)
+      localStorage.setItem(`dydx_leverage_${selectedMarket}`, leverage.toString());
     localStorage.setItem('dydx_leverage', leverage.toString());
   }, [leverage, selectedMarket]);
 
@@ -318,14 +314,12 @@ export const DydxTradingForm: React.FC = () => {
     }
   }, [marketData?.oraclePrice, price, marketData?.tickSize]);
 
-
-
   useEffect(() => {
     if (orderError) {
       addNotification('error', orderError, 'Order Failed');
       clearOrderError();
     }
-  }, [orderError, clearOrderError]);
+  }, [orderError, clearOrderError, addNotification]);
 
   useEffect(() => {
     if (reduceOnly && (isLimit || isConditional) && timeInForce === 'GTT') {
@@ -333,28 +327,39 @@ export const DydxTradingForm: React.FC = () => {
       setPostOnly(false);
       addNotification('warning', 'Reduce-only orders must use IOC', 'Time-in-Force Changed');
     }
-  }, [reduceOnly, isLimit, isConditional, timeInForce]);
+  }, [reduceOnly, isLimit, isConditional, timeInForce, addNotification]);
 
   useEffect(() => {
-    const isLimitLike = orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
+    const isLimitLike =
+      orderType === 'LIMIT' || orderType === 'STOP_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT';
     const isMarketConditional = orderType === 'STOP_MARKET' || orderType === 'TAKE_PROFIT_MARKET';
 
     if (isMarketConditional && timeInForce !== 'IOC') {
       setTimeInForce('IOC');
       setPostOnly(false);
-      addNotification('warning', 'Trigger market orders must use IOC execution', 'Time-in-Force Changed');
+      addNotification(
+        'warning',
+        'Trigger market orders must use IOC execution',
+        'Time-in-Force Changed'
+      );
     } else if (!isLimitLike && postOnly) {
       setPostOnly(false);
     }
-  }, [orderType, timeInForce, postOnly]);
+  }, [orderType, timeInForce, postOnly, addNotification]);
 
   useEffect(() => {
     const handlePriceClick = (clickedPrice: string) => {
-      if (PRICE_REQUIRED_TYPES.includes(orderType as any)) {
+      if (PRICE_REQUIRED_TYPES.includes(orderType as (typeof PRICE_REQUIRED_TYPES)[number])) {
         setPrice(clickedPrice);
-      } else if (TRIGGER_REQUIRED_TYPES.includes(orderType as any)) {
+      } else if (
+        TRIGGER_REQUIRED_TYPES.includes(orderType as (typeof TRIGGER_REQUIRED_TYPES)[number])
+      ) {
         if (!triggerPrice) setTriggerPrice(clickedPrice);
-        else if (PRICE_REQUIRED_TYPES.includes(orderType as any) && !price) setPrice(clickedPrice);
+        else if (
+          PRICE_REQUIRED_TYPES.includes(orderType as (typeof PRICE_REQUIRED_TYPES)[number]) &&
+          !price
+        )
+          setPrice(clickedPrice);
       }
     };
     setOnPriceClick(handlePriceClick);
@@ -363,7 +368,15 @@ export const DydxTradingForm: React.FC = () => {
 
   useEffect(() => {
     if (size && marketData) {
-      const validation = validateOrderSize(marketData, size, currencyMode, balance, leverage, orderType, marginMode);
+      const validation = validateOrderSize(
+        marketData,
+        size,
+        currencyMode,
+        balance,
+        leverage,
+        orderType,
+        marginMode
+      );
       setSizeError(validation.isValid ? '' : validation.error || '');
       setSizeWarning(validation.warning || '');
     } else {
@@ -373,7 +386,10 @@ export const DydxTradingForm: React.FC = () => {
   }, [size, marketData, currencyMode, balance, leverage, orderType, marginMode]);
 
   useEffect(() => {
-    if (PRICE_REQUIRED_TYPES.includes(orderType as any) && price) {
+    if (
+      PRICE_REQUIRED_TYPES.includes(orderType as (typeof PRICE_REQUIRED_TYPES)[number]) &&
+      price
+    ) {
       const validation = validateOrderPrice(marketData, price);
       setPriceError(validation.isValid ? '' : validation.error || '');
       setPriceWarning(validation.warning || '');
@@ -384,7 +400,10 @@ export const DydxTradingForm: React.FC = () => {
   }, [price, orderType, marketData]);
 
   useEffect(() => {
-    if (TRIGGER_REQUIRED_TYPES.includes(orderType as any) && triggerPrice) {
+    if (
+      TRIGGER_REQUIRED_TYPES.includes(orderType as (typeof TRIGGER_REQUIRED_TYPES)[number]) &&
+      triggerPrice
+    ) {
       const validation = validateTriggerPrice(marketData, triggerPrice, side, orderType);
       setTriggerError(validation.isValid ? '' : validation.error || '');
       setTriggerWarning(validation.warning || '');
@@ -396,7 +415,7 @@ export const DydxTradingForm: React.FC = () => {
 
   useEffect(() => {
     if ((isLimit || isConditional) && timeInForce === 'GTT') {
-      const error = validateGoodTil(goodTilValue, goodTilUnit, isConditional);
+      const error = validateGoodTil(goodTilValue, goodTilUnit);
       setGoodTilError(error || '');
     } else {
       setGoodTilError('');
@@ -447,46 +466,30 @@ export const DydxTradingForm: React.FC = () => {
       finalQuantity = currencyService.roundToStepSize(finalQuantity, marketData.stepSize);
     }
 
-    let finalPrice = PRICE_REQUIRED_TYPES.includes(orderType as any)
+    let finalPrice = PRICE_REQUIRED_TYPES.includes(
+      orderType as (typeof PRICE_REQUIRED_TYPES)[number]
+    )
       ? parseFloat(price)
       : undefined;
 
-    if (finalPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalPrice = roundToTickSize(finalPrice, tickSize);
-    }
-
-    let finalTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(orderType as any)
+    let finalTriggerPrice = TRIGGER_REQUIRED_TYPES.includes(
+      orderType as (typeof TRIGGER_REQUIRED_TYPES)[number]
+    )
       ? parseFloat(triggerPrice)
       : undefined;
 
-    if (finalTriggerPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalTriggerPrice = roundToTickSize(finalTriggerPrice, tickSize);
-    }
-
     let finalTpPrice = showTpSl && tpPrice ? parseFloat(tpPrice) : undefined;
-    if (finalTpPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalTpPrice = roundToTickSize(finalTpPrice, tickSize);
-    }
-
     let finalSlPrice = showTpSl && slPrice ? parseFloat(slPrice) : undefined;
-    if (finalSlPrice !== undefined && marketData.tickSize) {
-      const tickSize =
-        typeof marketData.tickSize === 'string'
-          ? parseFloat(marketData.tickSize)
-          : marketData.tickSize;
-      finalSlPrice = roundToTickSize(finalSlPrice, tickSize);
+
+    // Parse tickSize once — used for price rounding below
+    const tickSizeParsed = marketData.tickSize ? parseFloat(marketData.tickSize as string) : 0;
+
+    if (tickSizeParsed > 0) {
+      if (finalPrice !== undefined) finalPrice = roundToTickSize(finalPrice, tickSizeParsed);
+      if (finalTriggerPrice !== undefined)
+        finalTriggerPrice = roundToTickSize(finalTriggerPrice, tickSizeParsed);
+      if (finalTpPrice !== undefined) finalTpPrice = roundToTickSize(finalTpPrice, tickSizeParsed);
+      if (finalSlPrice !== undefined) finalSlPrice = roundToTickSize(finalSlPrice, tickSizeParsed);
     }
 
     let goodTilTimeInSeconds: number | undefined;
@@ -495,10 +498,6 @@ export const DydxTradingForm: React.FC = () => {
     }
 
     if (marginMode === 'ISOLATED') {
-      // Fix #5: mirror exactly what the service does — only check if crossFreeCollateral
-      // can cover the *shortfall* (targetEquityWithBuffer - currentIsolatedEquity).
-      // The old check (crossFree + isolatedEquity < fullRequired) triggered false rejections
-      // when the isolated subaccount already held sufficient equity.
       const crossSub = childSubaccounts.find(c => c.subaccountNumber === 0);
       const crossFreeCollateral = crossSub ? parseFloat(crossSub.freeCollateral || '0') : 0;
       const oraclePrice = parseFloat(marketData?.oraclePrice || '0');
@@ -512,8 +511,6 @@ export const DydxTradingForm: React.FC = () => {
         : requiredMargin;
 
       const targetEquityWithBuffer = effectiveMargin * (1 + 0.02); // matches ISOLATED_FEE_BUFFER
-
-      // How much more does the isolated subaccount still need?
       const shortfall = Math.max(0, targetEquityWithBuffer - isolatedEquity);
 
       if (shortfall > 0 && crossFreeCollateral < shortfall) {
@@ -554,6 +551,8 @@ export const DydxTradingForm: React.FC = () => {
     );
 
     if (result.success) {
+      // Record this clientId so rejection notifications only fire for our session's orders
+      if (result.clientId != null) sessionClientIds.add(result.clientId.toString());
       addNotification(
         'success',
         `${side} ${finalQuantity} ${marketData.baseAsset}`,
@@ -571,18 +570,8 @@ export const DydxTradingForm: React.FC = () => {
     }
   };
 
-  const addNotification = (type: NotificationType, message: string, title?: string) => {
-    const id = notificationCounter;
-    setNotificationCounter(prev => prev + 1);
-    setNotifications(prev => [...prev, { id, type, message, title }]);
-  };
-
-  const removeNotification = (id: number) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
-
   return (
-    <div className="flex flex-col max-w-[100vw] lg:max-w-[300px] h-full border-l border-color bg-secondary overflow-hidden">
+    <div className="flex flex-col max-w-[100vw] lg:max-w-[300px] h-full  bg-secondary overflow-hidden">
       {notifications.map(notif => (
         <Notification
           key={notif.id}
@@ -606,7 +595,11 @@ export const DydxTradingForm: React.FC = () => {
               <div className="flex flex-col">
                 <span className="text-[8px] uppercase tracking-wider text-gray-500">Portfolio</span>
                 <span className="text-base text-sm font-semibold text-white">
-                  ${Number(balance.totalEquity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  $
+                  {Number(balance.totalEquity).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               </div>
               <div className="w-px h-8 bg-gray-700/50" />
@@ -615,16 +608,31 @@ export const DydxTradingForm: React.FC = () => {
                 {pendingMarginRequired > 0 ? (
                   <div className="flex items-center gap-1">
                     <span className="text-xs font-medium text-gray-400 line-through opacity-60">
-                      ${Number(balance.freeCollateral).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      $
+                      {Number(balance.freeCollateral).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </span>
                     <span className="text-xs text-gray-400">→</span>
                     <span className="text-sm font-semibold text-emerald-400">
-                      ${Math.max(0, Number(balance.freeCollateral) - pendingMarginRequired).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      $
+                      {Math.max(
+                        0,
+                        Number(balance.freeCollateral) - pendingMarginRequired
+                      ).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </span>
                   </div>
                 ) : (
                   <span className="text-base text-sm font-semibold text-emerald-400">
-                    ${Number(balance.freeCollateral).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    $
+                    {Number(balance.freeCollateral).toLocaleString('en-US', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </span>
                 )}
               </div>
@@ -634,13 +642,28 @@ export const DydxTradingForm: React.FC = () => {
           <div className="flex items-center justify-between py-1">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gray-700/50 flex items-center justify-center">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                <svg
+                  className="w-4 h-4 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                  />
                 </svg>
               </div>
               <span className="text-xs text-gray-400">Connect wallet to trade</span>
             </div>
-            <a href="https://trade.dydx.exchange/portfolio/deposit" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-semibold rounded-lg transition-colors">
+            <a
+              href="https://trade.dydx.exchange/portfolio/deposit"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-semibold rounded-lg transition-colors"
+            >
               Deposit
             </a>
           </div>
@@ -658,7 +681,6 @@ export const DydxTradingForm: React.FC = () => {
           onLeverageChange={setLeverage}
           marketTicker={selectedMarket}
           MarketIcon={marketData?.coinIcon}
-
         />
         <OrderTypeSelector selected={orderType} onChange={setOrderType} />
       </div>
@@ -701,7 +723,9 @@ export const DydxTradingForm: React.FC = () => {
                 if (currencyMode === 'USD') {
                   setSize(finalUsdVal > 0 ? finalUsdVal.toFixed(2) : '');
                 } else {
-                  const decimals = currencyService.getStepSizeDecimals(marketData.stepSize || '0.00000001');
+                  const decimals = currencyService.getStepSizeDecimals(
+                    marketData.stepSize || '0.00000001'
+                  );
                   setSize(baseAmount > 0 ? baseAmount.toFixed(decimals) : '');
                 }
               }
@@ -712,10 +736,17 @@ export const DydxTradingForm: React.FC = () => {
           <div className="px-1 lg:px-4 space-y-3 mt-4">
             <div className="flex items-center gap-4">
               <div className="relative flex-1 flex items-center h-6">
-                <div className="absolute left-0 right-0 h-2 rounded-full pointer-events-none opacity-40"
-                  style={{ backgroundImage: 'repeating-linear-gradient(to right, var(--color-text-muted), var(--color-text-muted) 3px, transparent 3px, transparent 6px)' }} />
-                <div className="absolute left-0 h-2 bg-brand-primary rounded-l-full pointer-events-none transition-all duration-150 ease-out"
-                  style={{ width: `${currentPercentage}%` }} />
+                <div
+                  className="absolute left-0 right-0 h-2 rounded-full pointer-events-none opacity-40"
+                  style={{
+                    backgroundImage:
+                      'repeating-linear-gradient(to right, var(--color-text-muted), var(--color-text-muted) 3px, transparent 3px, transparent 6px)',
+                  }}
+                />
+                <div
+                  className="absolute left-0 h-2 bg-brand-primary rounded-l-full pointer-events-none transition-all duration-150 ease-out"
+                  style={{ width: `${currentPercentage}%` }}
+                />
                 <input
                   type="range"
                   min="0"
@@ -738,7 +769,9 @@ export const DydxTradingForm: React.FC = () => {
                   placeholder="0"
                   className="relative w-full bg-transparent text-primary rounded-lg pl-2 pr-5 py-2 text-sm font-semibold text-right focus:outline-none focus:ring-1 focus:ring-brand-primary/50 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none z-10"
                 />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted pointer-events-none z-20">%</span>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted pointer-events-none z-20">
+                  %
+                </span>
               </div>
             </div>
           </div>
@@ -787,11 +820,24 @@ export const DydxTradingForm: React.FC = () => {
                     className="peer absolute inset-0 opacity-0 cursor-pointer"
                   />
                   <div className="absolute inset-0 bg-brand-primary rounded opacity-0 peer-checked:opacity-100 transition-opacity" />
-                  <svg className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity z-10" viewBox="0 0 12 12" fill="none">
-                    <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <svg
+                    className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity z-10"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <path
+                      d="M10 3L4.5 8.5L2 6"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 </div>
-                <Tooltip content="Automatically close your position when it reaches a specific price" position="top">
+                <Tooltip
+                  content="Automatically close your position when it reaches a specific price"
+                  position="top"
+                >
                   <span className="text-[12px] font-medium text-primary group-hover:text-brand-primary transition-colors">
                     Take Profit / Stop Loss
                   </span>

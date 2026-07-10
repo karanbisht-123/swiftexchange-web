@@ -1,7 +1,6 @@
-
 import { useEffect, useRef, useState } from 'react';
+
 import { getSocketClient } from '../client/clients';
-import { useLivePriceStore } from '../store/useLivePriceStore';
 import { useWebSocketStore } from '../store/websocketStore';
 
 export interface Trade {
@@ -59,13 +58,8 @@ function handleTradeUpdate(market: string, data: any): void {
   const state = getOrCreateState(market, 50);
   const rawTrades: any[] = Array.isArray(contents)
     ? contents.flatMap((c: any) => c?.trades || (c?.id ? [c] : []))
-    : (contents.trades || []);
+    : contents.trades || [];
   if (rawTrades.length === 0) return;
-
-  const latestRaw = rawTrades[0];
-  if (latestRaw?.price) {
-    useLivePriceStore.getState().setLivePrice(market, parseFloat(latestRaw.price), latestRaw.side as 'BUY' | 'SELL');
-  }
 
   const existingIds = new Set(state.trades.map(t => t.id));
   const newTrades: Trade[] = rawTrades
@@ -92,7 +86,9 @@ function subscribeToMarket(market: string): void {
   const state = getOrCreateState(market, 50);
   if (state.isSubscribed) return;
   try {
-    state.unsubscribe = getSocketClient().subscribeToTrades(market, data => handleTradeUpdate(market, data));
+    state.unsubscribe = getSocketClient().subscribeToTrades(market, data =>
+      handleTradeUpdate(market, data)
+    );
     state.isSubscribed = true;
   } catch (err) {
     console.error(err);
@@ -103,7 +99,11 @@ function resetSubscription(market: string, clearData = false): void {
   const state = tradesState.get(market);
   if (!state) return;
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { }
+    try {
+      state.unsubscribe();
+    } catch {
+      /* ignore */
+    }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
@@ -117,7 +117,11 @@ function unsubscribeFromMarket(market: string): void {
   const state = tradesState.get(market);
   if (!state || state.listeners.size > 0) return;
   if (state.unsubscribe) {
-    try { state.unsubscribe(); } catch { }
+    try {
+      state.unsubscribe();
+    } catch {
+      /* ignore */
+    }
     state.unsubscribe = null;
   }
   state.isSubscribed = false;
@@ -134,7 +138,9 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -145,7 +151,8 @@ export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
     }
     const state = getOrCreateState(market, limit);
     const isMarketChange = prevMarketRef.current !== null && prevMarketRef.current !== market;
-    const isReconnect = !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
+    const isReconnect =
+      !prevConnectedRef.current && isConnected && prevMarketRef.current === market;
 
     if (isMarketChange) {
       resetSubscription(prevMarketRef.current!, true);

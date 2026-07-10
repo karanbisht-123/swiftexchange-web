@@ -21,6 +21,8 @@ const ResizablePanel: React.FC<ResizablePanelProps> = ({
   const panelRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
+  // Holds the latest height during drag without triggering re-renders
+  const pendingHeightRef = useRef<number | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -37,36 +39,36 @@ const ResizablePanel: React.FC<ResizablePanelProps> = ({
   };
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-
-      const deltaY = startYRef.current - e.clientY;
-      const viewportHeight = window.innerHeight;
-      const deltaPercent = (deltaY / viewportHeight) * 100;
+    const applyHeight = (clientY: number) => {
+      const deltaY = startYRef.current - clientY;
+      const deltaPercent = (deltaY / window.innerHeight) * 100;
       const newHeight = Math.min(
         Math.max(startHeightRef.current + deltaPercent, minHeight),
         maxHeight
       );
+      pendingHeightRef.current = newHeight;
+      // Direct DOM mutation — bypasses React reconciler during drag
+      if (panelRef.current) {
+        panelRef.current.style.height = `${newHeight}vh`;
+      }
+    };
 
-      setHeight(newHeight);
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      applyHeight(e.clientY);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       if (!isDragging) return;
-
-      const deltaY = startYRef.current - e.touches[0].clientY;
-      const viewportHeight = window.innerHeight;
-      const deltaPercent = (deltaY / viewportHeight) * 100;
-      const newHeight = Math.min(
-        Math.max(startHeightRef.current + deltaPercent, minHeight),
-        maxHeight
-      );
-
-      setHeight(newHeight);
+      applyHeight(e.touches[0].clientY);
     };
 
     const handleMouseUp = () => {
       setIsDragging(false);
+      if (pendingHeightRef.current !== null) {
+        setHeight(pendingHeightRef.current);
+        pendingHeightRef.current = null;
+      }
     };
 
     if (isDragging) {
