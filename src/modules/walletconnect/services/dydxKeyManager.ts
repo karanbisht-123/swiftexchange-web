@@ -1,10 +1,14 @@
 import { BECH32_PREFIX, LocalWallet } from '@dydxprotocol/v4-client-js';
 
+import { assertUserGesture } from './actionGate';
 import { destroyAESKey, generateAndStoreAESKey, retrieveAESKey } from './keyVaultIndexedDB';
 import { sessionVault } from './sessionVault';
 
 const BLOB_KEY = '_sx_dkm_0xa7e3';
 const ADDR_KEY = '_sx_dkm_addr';
+const EXPIRY_KEY = '_sx_dkm_exp';
+
+const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function toBase64(buffer: Uint8Array): string {
   let binary = '';
@@ -57,7 +61,18 @@ async function decryptBytes(
   return result;
 }
 
-export async function encryptAndStore(mnemonic: string): Promise<string> {
+function isExpired(): boolean {
+  const raw = localStorage.getItem(EXPIRY_KEY);
+  if (!raw) return true;
+  const expiry = Number(raw);
+  if (Number.isNaN(expiry)) return true;
+  return Date.now() > expiry;
+}
+
+export async function encryptAndStore(
+  mnemonic: string,
+  ttlMs: number = DEFAULT_SESSION_TTL_MS
+): Promise<string> {
   let aesKey = await retrieveAESKey();
   if (!aesKey) {
     aesKey = await generateAndStoreAESKey();
@@ -76,18 +91,23 @@ export async function encryptAndStore(mnemonic: string): Promise<string> {
 
   localStorage.setItem(BLOB_KEY, JSON.stringify(blob));
   localStorage.setItem(ADDR_KEY, address);
+  localStorage.setItem(EXPIRY_KEY, String(Date.now() + ttlMs));
 
   return address;
 }
 
 export async function decryptAndRestore(): Promise<boolean> {
+  if (isExpired()) {
+    await purge();
+    return false;
+  }
+
   const raw = localStorage.getItem(BLOB_KEY);
   if (!raw) return false;
 
   const aesKey = await retrieveAESKey();
   if (!aesKey) {
-    localStorage.removeItem(BLOB_KEY);
-    localStorage.removeItem(ADDR_KEY);
+    await purge();
     return false;
   }
 
@@ -95,8 +115,7 @@ export async function decryptAndRestore(): Promise<boolean> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    localStorage.removeItem(BLOB_KEY);
-    localStorage.removeItem(ADDR_KEY);
+    await purge();
     return false;
   }
 
@@ -110,16 +129,23 @@ export async function decryptAndRestore(): Promise<boolean> {
     sessionVault.store(wallet);
 
     decryptedBytes.fill(0);
+    localStorage.setItem(EXPIRY_KEY, String(Date.now() + DEFAULT_SESSION_TTL_MS));
     return true;
   } catch {
     if (decryptedBytes) decryptedBytes.fill(0);
-    localStorage.removeItem(BLOB_KEY);
-    localStorage.removeItem(ADDR_KEY);
+    await purge();
     return false;
   }
 }
 
 export async function decryptStoredMnemonic(): Promise<string | null> {
+  assertUserGesture();
+
+  if (isExpired()) {
+    await purge();
+    return null;
+  }
+
   const raw = localStorage.getItem(BLOB_KEY);
   if (!raw) return null;
 
@@ -151,7 +177,7 @@ export function getStoredAddress(): string | null {
 }
 
 export function hasEncryptedBlob(): boolean {
-  return !!localStorage.getItem(BLOB_KEY);
+  return !!localStorage.getItem(BLOB_KEY) && !isExpired();
 }
 
 export async function purge(): Promise<void> {
@@ -159,4 +185,5 @@ export async function purge(): Promise<void> {
   await destroyAESKey();
   localStorage.removeItem(BLOB_KEY);
   localStorage.removeItem(ADDR_KEY);
+  localStorage.removeItem(EXPIRY_KEY);
 }

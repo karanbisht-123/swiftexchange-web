@@ -1,26 +1,22 @@
-import {
-  CompositeClient,
-  tradingKeyUtils,
-} from '@dydxprotocol/v4-client-js';
+import { CompositeClient, tradingKeyUtils } from '@dydxprotocol/v4-client-js';
 import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
 
-const { createNewRandomDydxWallet, getAuthorizeNewTradingKeyArguments } = tradingKeyUtils;
-
+import { assertUserGesture } from './actionGate';
 import { decryptAndRestore } from './dydxKeyManager';
 import { generateAndStoreAESKey, retrieveAESKey } from './keyVaultIndexedDB';
 import { sessionVault } from './sessionVault';
 
-// Storage keys
+const { createNewRandomDydxWallet, getAuthorizeNewTradingKeyArguments } = tradingKeyUtils;
+
 export const API_KEYS_LIST_KEY = '_sx_dkm_api_keys';
 export const API_KEY_BLOB_PREFIX = '_sx_dkm_apk_';
 export const WITHDRAW_PREF_KEY = '_sx_withdraw_pref';
 
-// Types
 export interface ApiTradingKey {
   id: string;
   address: string;
   label: string;
-  authenticatorId: string
+  authenticatorId: string;
   createdAt: string;
   revoked: boolean;
   scope: string[];
@@ -37,11 +33,7 @@ function toBase64(buf: Uint8Array): string {
   return btoa(s);
 }
 
-
-async function encryptMnemonic(
-  mnemonic: string,
-  aesKey: CryptoKey
-): Promise<EncryptedBlob> {
+async function encryptMnemonic(mnemonic: string, aesKey: CryptoKey): Promise<EncryptedBlob> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plainBytes = new TextEncoder().encode(mnemonic);
   const encrypted = await crypto.subtle.encrypt(
@@ -55,8 +47,8 @@ async function encryptMnemonic(
 
 function generateUUID(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
-  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant bits
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
@@ -89,8 +81,7 @@ async function resolveNewAuthenticatorId(
       await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt - 1]));
     }
     try {
-      const { accountAuthenticators } =
-        await compositeClient.getAuthenticators(ownerAddress);
+      const { accountAuthenticators } = await compositeClient.getAuthenticators(ownerAddress);
       for (const auth of accountAuthenticators) {
         const idStr = auth.id.toString();
         if (!knownIdsBefore.has(idStr)) {
@@ -103,8 +94,8 @@ async function resolveNewAuthenticatorId(
   }
   throw new Error(
     'Could not resolve on-chain authenticator ID after broadcast. ' +
-    'The key was registered on-chain but its ID could not be confirmed. ' +
-    'Please check your dYdX account authenticators and revoke manually if needed.'
+      'The key was registered on-chain but its ID could not be confirmed. ' +
+      'Please check your dYdX account authenticators and revoke manually if needed.'
   );
 }
 
@@ -135,19 +126,17 @@ export async function generateApiTradingKey(
   label: string | undefined,
   compositeClient: CompositeClient
 ): Promise<ApiTradingKey> {
-  // Ensure owner wallet is in session vault
+  assertUserGesture();
+
   const ownerWallet = await requireOwnerWallet();
   const ownerAddress = ownerWallet.address;
   if (!ownerAddress) throw new Error('Owner wallet has no address.');
 
-  //Snapshot current authenticators (before broadcast)
   let knownIdsBefore: Set<string>;
   try {
-    const { accountAuthenticators } =
-      await compositeClient.getAuthenticators(ownerAddress);
+    const { accountAuthenticators } = await compositeClient.getAuthenticators(ownerAddress);
     knownIdsBefore = new Set(accountAuthenticators.map(a => a.id.toString()));
   } catch {
-    // If the account has no authenticators yet, treat as empty
     knownIdsBefore = new Set();
   }
 
@@ -167,7 +156,6 @@ export async function generateApiTradingKey(
     knownIdsBefore
   );
 
-  // Encrypt session mnemonic with the shared AES key
   const aesKey = await requireAESKey();
   const id = generateUUID();
   let mnemonicCopy = mnemonic;
@@ -189,12 +177,12 @@ export async function generateApiTradingKey(
   return keyMetadata;
 }
 
-//  Revoke an API trading key by removing its on-chain authenticator.
-
 export async function revokeApiTradingKey(
   id: string,
   compositeClient: CompositeClient
 ): Promise<void> {
+  assertUserGesture();
+
   const list = readList();
   const key = list.find(k => k.id === id);
   if (!key) throw new Error(`API trading key "${id}" not found in local storage.`);
@@ -203,16 +191,11 @@ export async function revokeApiTradingKey(
   const ownerWallet = await requireOwnerWallet();
   const ownerSubaccount = SubaccountInfo.forLocalWallet(ownerWallet, 0);
 
-  // MsgRemoveAuthenticator — only touches this key's authenticatorId
   await compositeClient.removeAuthenticator(ownerSubaccount, key.authenticatorId);
 
-  // Mark revoked in local list — keep the row for audit trail
-  const updated = list.map(k =>
-    k.id === id ? { ...k, revoked: true } : k
-  );
+  const updated = list.map(k => (k.id === id ? { ...k, revoked: true } : k));
   writeList(updated);
 
-  // Remove encrypted mnemonic blob (no longer needed)
   localStorage.removeItem(API_KEY_BLOB_PREFIX + id);
 }
 
@@ -220,14 +203,8 @@ export function listApiTradingKeys(): ApiTradingKey[] {
   return readList();
 }
 
-/**
- * Wipe ALL api trading key data from local storage.
- * Called by walletService.clearAppData() on full disconnect.
- */
 export function purgeApiTradingKeys(): void {
-  const blobKeys = Object.keys(localStorage).filter(k =>
-    k.startsWith(API_KEY_BLOB_PREFIX)
-  );
+  const blobKeys = Object.keys(localStorage).filter(k => k.startsWith(API_KEY_BLOB_PREFIX));
   for (const k of blobKeys) localStorage.removeItem(k);
   localStorage.removeItem(API_KEYS_LIST_KEY);
 }

@@ -1,16 +1,16 @@
-import { X, Copy, Check } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import { Check, Copy, X } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { useWalletStore } from '../store/walletConnectStore';
 import { walletService } from '../services/walletService';
+import { useWalletStore } from '../store/walletConnectStore';
 
 export const ExportDydxSecretPhraseModal: React.FC = () => {
   const isModalOpen = useWalletStore(state => state.isExportPhraseModalOpen);
   const closeModal = useWalletStore(state => state.closeExportPhraseModal);
 
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
   const [mnemonic, setMnemonic] = useState<string | null>(null);
   const [showPhrase, setShowPhrase] = useState(false);
@@ -22,10 +22,11 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
   const [isCheckboxChecked, setIsCheckboxChecked] = useState(false);
   const [countdown, setCountdown] = useState(8);
 
+  const clipboardClearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   useEffect(() => {
     if (isModalOpen) {
       document.body.style.overflow = 'hidden';
-      handleLoadPhrase();
     } else {
       document.body.style.overflow = 'unset';
       setShowPhrase(false);
@@ -35,9 +36,18 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
       setStep('consent');
       setIsCheckboxChecked(false);
       setCountdown(8);
+      if (clipboardClearTimer.current) clearTimeout(clipboardClearTimer.current);
     }
-    return () => { document.body.style.overflow = 'unset'; };
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
   }, [isModalOpen]);
+
+  useEffect(() => {
+    if (isModalOpen && step === 'display' && mnemonic === null && !error) {
+      handleLoadPhrase();
+    }
+  }, [isModalOpen, step]);
 
   useEffect(() => {
     if (isModalOpen && step === 'consent') {
@@ -61,6 +71,13 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      setMnemonic(null);
+      if (clipboardClearTimer.current) clearTimeout(clipboardClearTimer.current);
+    };
+  }, []);
+
   const handleLoadPhrase = async () => {
     setIsDecrypting(true);
     setError(null);
@@ -71,7 +88,11 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
       }
       setMnemonic(phrase);
     } catch (err: any) {
-      setError(err.message || 'Failed to decrypt secret phrase.');
+      if (err?.message === 'GESTURE_REQUIRED') {
+        setError('Please try again — this action needs a direct click.');
+      } else {
+        setError(err?.message || 'Failed to decrypt secret phrase.');
+      }
     } finally {
       setIsDecrypting(false);
     }
@@ -83,17 +104,18 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
       await navigator.clipboard.writeText(mnemonic);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+
+      if (clipboardClearTimer.current) clearTimeout(clipboardClearTimer.current);
+      clipboardClearTimer.current = setTimeout(async () => {
+        try {
+          const current = await navigator.clipboard.readText();
+          if (current === mnemonic) await navigator.clipboard.writeText('');
+        } catch (err) {
+          console.log(err);
+        }
+      }, 30000);
     } catch {
-      const el = document.createElement('textarea');
-      el.value = mnemonic;
-      el.style.position = 'fixed';
-      el.style.opacity = '0';
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setError('Could not copy automatically. Please write down the phrase instead.');
     }
   }, [mnemonic]);
 
@@ -111,8 +133,9 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
     >
       <div
         style={{ background: 'var(--color-bg-secondary)' }}
-        className={`w-full md:w-[520px] rounded-t-2xl md:rounded-xl shadow-2xl max-h-[88vh] flex flex-col ${isMobile ? 'animate-slide-up' : 'animate-fade-in'
-          }`}
+        className={`w-full md:w-[520px] rounded-t-2xl md:rounded-xl shadow-2xl max-h-[88vh] flex flex-col ${
+          isMobile ? 'animate-slide-up' : 'animate-fade-in'
+        }`}
         onClick={e => e.stopPropagation()}
       >
         {isMobile && (
@@ -130,10 +153,7 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
               style={{ borderColor: 'var(--color-border)' }}
               className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
             >
-              <h2
-                style={{ color: 'var(--color-text-primary)' }}
-                className="text-lg font-bold"
-              >
+              <h2 style={{ color: 'var(--color-text-primary)' }} className="text-lg font-bold">
                 Reveal secret phrase
               </h2>
               <button
@@ -147,8 +167,12 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-6 space-y-6">
-              <p style={{ color: 'var(--color-text-secondary)' }} className="text-sm leading-relaxed">
-                Your secret phrase is a set of 12 or 24 words used to backup and access your account.
+              <p
+                style={{ color: 'var(--color-text-secondary)' }}
+                className="text-sm leading-relaxed"
+              >
+                Your secret phrase is a set of 12 or 24 words used to backup and access your
+                account.
               </p>
 
               <div
@@ -162,8 +186,12 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
                 <div className="flex-shrink-0 w-5 h-5 rounded-full border-2 border-red-500 flex items-center justify-center text-red-500 font-bold text-xs mt-0.5 select-none">
                   !
                 </div>
-                <p style={{ color: 'var(--color-text-primary)' }} className="text-xs font-semibold leading-relaxed">
-                  Anyone with your secret phrase has access to your wallet, putting your assets at risk.
+                <p
+                  style={{ color: 'var(--color-text-primary)' }}
+                  className="text-xs font-semibold leading-relaxed"
+                >
+                  Anyone with your secret phrase has access to your wallet, putting your assets at
+                  risk.
                 </p>
               </div>
 
@@ -174,7 +202,10 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
                   onChange={e => setIsCheckboxChecked(e.target.checked)}
                   className="w-4.5 h-4.5 rounded border-color text-brand bg-secondary mt-0.5 cursor-pointer flex-shrink-0"
                 />
-                <span style={{ color: 'var(--color-text-secondary)' }} className="text-xs font-semibold leading-relaxed">
+                <span
+                  style={{ color: 'var(--color-text-secondary)' }}
+                  className="text-xs font-semibold leading-relaxed"
+                >
                   I understand the risks and I will never share my secret phrase with anyone.
                 </span>
               </label>
@@ -217,10 +248,7 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
               style={{ borderColor: 'var(--color-border)' }}
               className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
             >
-              <h2
-                style={{ color: 'var(--color-text-primary)' }}
-                className="text-lg font-bold"
-              >
+              <h2 style={{ color: 'var(--color-text-primary)' }} className="text-lg font-bold">
                 Export secret phrase
               </h2>
               <button
@@ -235,8 +263,12 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-5 space-y-5">
-              <p style={{ color: 'var(--color-text-secondary)' }} className="text-sm leading-relaxed">
-                Your secret phrase is a set of 12 or 24 words used to backup and access your account.
+              <p
+                style={{ color: 'var(--color-text-secondary)' }}
+                className="text-sm leading-relaxed"
+              >
+                Your secret phrase is a set of 12 or 24 words used to backup and access your
+                account.
               </p>
 
               <div
@@ -251,7 +283,10 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between">
-                <span style={{ color: 'var(--color-text-secondary)' }} className="text-sm font-semibold">
+                <span
+                  style={{ color: 'var(--color-text-secondary)' }}
+                  className="text-sm font-semibold"
+                >
                   Ready to scan?
                 </span>
                 <button
@@ -276,26 +311,48 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
                   minHeight: '160px',
                 }}
                 className={`rounded-lg border p-4 flex items-center justify-center relative overflow-hidden transition-all ${
-                  !showPhrase && !isDecrypting && !error && mnemonic ? 'cursor-pointer hover:bg-[var(--color-bg-hover)]' : ''
+                  !showPhrase && !isDecrypting && !error && mnemonic
+                    ? 'cursor-pointer hover:bg-[var(--color-bg-hover)]'
+                    : ''
                 }`}
               >
                 {isDecrypting ? (
                   <div className="flex flex-col items-center gap-2">
                     <div
                       className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin"
-                      style={{ borderColor: 'var(--color-brand-primary) transparent var(--color-brand-primary) var(--color-brand-primary)' }}
+                      style={{
+                        borderColor:
+                          'var(--color-brand-primary) transparent var(--color-brand-primary) var(--color-brand-primary)',
+                      }}
                     />
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">Decrypting phrase...</p>
+                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
+                      Decrypting phrase...
+                    </p>
                   </div>
                 ) : error ? (
-                  <p style={{ color: 'var(--color-danger)' }} className="text-xs text-center font-medium px-4">
-                    {error}
-                  </p>
+                  <div className="flex flex-col items-center gap-3">
+                    <p
+                      style={{ color: 'var(--color-danger)' }}
+                      className="text-xs text-center font-medium px-4"
+                    >
+                      {error}
+                    </p>
+                    <button
+                      onClick={handleLoadPhrase}
+                      style={{ color: 'var(--color-brand-primary)' }}
+                      className="text-xs font-bold hover:opacity-85"
+                    >
+                      Try again
+                    </button>
+                  </div>
                 ) : !showPhrase ? (
                   <div className="flex flex-col items-center justify-center h-full w-full select-none">
                     <div className="filter blur-[5px] grid grid-cols-3 gap-2 w-full opacity-35 px-2">
                       {Array.from({ length: 12 }).map((_, i) => (
-                        <div key={i} className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] h-8 rounded-lg" />
+                        <div
+                          key={i}
+                          className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] h-8 rounded-lg"
+                        />
                       ))}
                     </div>
                     <div className="absolute inset-0 flex items-center justify-center bg-black/10">
@@ -322,10 +379,16 @@ export const ExportDydxSecretPhraseModal: React.FC = () => {
                         }}
                         className="flex items-center px-3 py-2 rounded-lg border text-xs min-w-0"
                       >
-                        <span style={{ color: 'var(--color-text-muted)' }} className="mr-1.5 font-mono select-none">
+                        <span
+                          style={{ color: 'var(--color-text-muted)' }}
+                          className="mr-1.5 font-mono select-none"
+                        >
                           {index + 1}.
                         </span>
-                        <span style={{ color: 'var(--color-text-primary)' }} className="font-semibold truncate">
+                        <span
+                          style={{ color: 'var(--color-text-primary)' }}
+                          className="font-semibold truncate"
+                        >
                           {word}
                         </span>
                       </div>

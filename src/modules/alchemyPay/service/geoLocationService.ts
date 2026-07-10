@@ -4,68 +4,81 @@ export interface GeoLocationData {
   currency?: string;
 }
 
-let cachedGeoData: GeoLocationData | null = null;
+interface CachedGeo {
+  data: GeoLocationData;
+  fetchedAt: number;
+}
 
-export const getUserGeoLocation = async (): Promise<GeoLocationData | null> => {
-  if (cachedGeoData) {
-    return cachedGeoData;
-  }
+const TTL_MS = 15 * 60 * 1000;
+let cachedGeoData: CachedGeo | null = null;
+let inFlight: Promise<GeoLocationData | null> | null = null;
 
-  try {
-    const response = await fetch('http://ip-api.com/json/?fields=country,countryCode,currency', {
+const PROVIDERS: Array<() => Promise<GeoLocationData>> = [
+  async () => {
+    const response = await fetch('https://ipapi.co/json/', {
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
+      headers: { Accept: 'application/json' },
     });
-
-    if (!response.ok) {
-      throw new Error('Geolocation API request failed');
-    }
-
+    if (!response.ok) throw new Error('ipapi.co failed');
     const data = await response.json();
+    if (!data.country_code) throw new Error('ipapi.co missing country_code');
+    return {
+      country: data.country_code,
+      countryName: data.country_name,
+      currency: data.currency || undefined,
+    };
+  },
+  async () => {
+    const response = await fetch('https://ipwho.is/', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error('ipwho.is failed');
+    const data = await response.json();
+    if (!data.success || !data.country_code) throw new Error('ipwho.is missing country_code');
+    return {
+      country: data.country_code,
+      countryName: data.country,
+      currency: data.currency?.code || undefined,
+    };
+  },
+];
 
-    if (data.countryCode) {
-      cachedGeoData = {
-        country: data.countryCode,
-        countryName: data.country,
-        currency: data.currency || undefined,
-      };
-      return cachedGeoData;
-    }
-
-    return null;
-  } catch (error) {
-    console.warn('Failed to fetch geolocation:', error);
+const resolveGeo = async (): Promise<GeoLocationData | null> => {
+  for (const provider of PROVIDERS) {
     try {
-      const fallbackResponse = await fetch('https://ipapi.co/json/', {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-
-      if (fallbackResponse.ok) {
-        const fallbackData = await fallbackResponse.json();
-        if (fallbackData.country_code) {
-          cachedGeoData = {
-            country: fallbackData.country_code,
-            countryName: fallbackData.country_name,
-            currency: fallbackData.currency,
-          };
-          return cachedGeoData;
-        }
-      }
-    } catch (fallbackError) {
-      console.warn('Fallback geolocation also failed:', fallbackError);
+      return await provider();
+    } catch {
+      continue;
     }
-
-    return null;
   }
+  return null;
+};
+
+export const getUserGeoLocation = async (force = false): Promise<GeoLocationData | null> => {
+  if (!force && cachedGeoData && Date.now() - cachedGeoData.fetchedAt < TTL_MS) {
+    return cachedGeoData.data;
+  }
+
+  if (inFlight) return inFlight;
+
+  inFlight = (async () => {
+    const data = await resolveGeo();
+    if (data) {
+      cachedGeoData = { data, fetchedAt: Date.now() };
+    } else {
+      cachedGeoData = null;
+    }
+    inFlight = null;
+    return data;
+  })();
+
+  return inFlight;
 };
 
 export const clearGeoLocationCache = (): void => {
   cachedGeoData = null;
+  inFlight = null;
 };
 
 export const getCountryCurrencyMap = (): Record<string, string> => ({
