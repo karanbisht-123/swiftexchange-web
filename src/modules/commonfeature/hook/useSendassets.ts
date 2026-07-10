@@ -1,27 +1,34 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
-import { SendErcAbi } from '../../../abi/SendErcAbi';
-import { validateAddress } from '../../../validator/AddressValidator';
-import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
-import { checkTrustlineExists, estimateStellarFees, sendCryptoStellarBuild, getStellarBalance } from '../../steallr/service/stellarService';
-import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
-import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
-import { rpcManager } from '../../evm/utils/rpcProvider';
-import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
-import { getChainById, getExplorerUrl } from '../../evm/utils/Chainregistry';
-import { useTransactionModalStore } from '../../../store/transactionModalStore';
-import { useNotificationStore } from '../../../store/notificationStore';
-import type { StellarSendTransaction } from '../../steallr/types/stellarTransaction.types';
-import { useTransactionRouter } from '../../transction/hook/useTransactionRouter';
-import type { TransactionRequest } from '../../transction/router/transactionRouter';
-import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
-import { WalletType } from '../../walletconnect/constants/Wallet';
-import { ethers } from 'ethers';
-import { parseSwapError } from '../../evm/utils/swapErrorHandler';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
 import BigNumber from 'bignumber.js';
+import { ethers } from 'ethers';
+
+import { SendErcAbi } from '../../../abi/SendErcAbi';
+import { useNotificationStore } from '../../../store/notificationStore';
+import { useTransactionModalStore } from '../../../store/transactionModalStore';
+import { validateAddress } from '../../../validator/AddressValidator';
+import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
+import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
+import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
+import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
+import { getChainById, getExplorerUrl } from '../../evm/utils/Chainregistry';
+import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
+import { rpcManager } from '../../evm/utils/rpcProvider';
+import { parseSwapError } from '../../evm/utils/swapErrorHandler';
+import {
+  checkTrustlineExists,
+  estimateStellarFees,
+  getStellarBalance,
+  sendCryptoStellarBuild,
+} from '../../stellar/service/stellarService';
+import type { StellarSendTransaction } from '../../stellar/types/stellarTransaction.types';
+import { useTransactionRouter } from '../../transaction/hook/useTransactionRouter';
+import type { TransactionRequest } from '../../transaction/router/transactionRouter';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
+import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
 interface TransactionState {
   txHash: string | null;
@@ -49,9 +56,7 @@ export interface EnhancedSendAsset {
   blockExplorerUrl?: string;
 }
 
-
-
-const formatErrorMessage = (error: any, _context: string): string => {
+const formatErrorMessage = (error: any): string => {
   return parseSwapError(error);
 };
 
@@ -68,7 +73,11 @@ export const useSendAsset = (onBack?: () => void) => {
   const [memo, setMemo] = useState('');
   const [balance, setBalance] = useState('0');
   const [isFetchingBalance, setIsFetchingBalance] = useState(false);
-  const [transactionState, setTransactionState] = useState<TransactionState>({ txHash: null, step: 'form', error: null });
+  const [transactionState, setTransactionState] = useState<TransactionState>({
+    txHash: null,
+    step: 'form',
+    error: null,
+  });
   const [isEstimatingFees, setIsEstimatingFees] = useState(false);
   const [estimatedFees, setEstimatedFees] = useState<any>(null);
   const [hasTrustline, setHasTrustline] = useState<boolean | null>(null);
@@ -80,15 +89,30 @@ export const useSendAsset = (onBack?: () => void) => {
     return storeAssets
       .filter(a => (a.balance || 0) > 0)
       .map(asset => {
-        const type = asset.chainType === 'stellar' ? 'stellar' : (asset.chainType === 'dydx' ? 'dydx' : 'evm' as const);
+        const type =
+          asset.chainType === 'stellar'
+            ? 'stellar'
+            : asset.chainType === 'dydx'
+              ? 'dydx'
+              : ('evm' as const);
         const chainId = asset.chainId || (type === 'stellar' ? 'pubnet' : 0);
         return {
-          value: asset.id, symbol: asset.symbol, label: `${asset.symbol} (${asset.chainName})`, logo: asset.image,
-          network: asset.chainName, chainId, addressType: type === 'dydx' ? 'cosmos' : type, walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
-          tokenAddress: asset.address, decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
-          isNative: asset.isNative || false, type, networkKey: chainId,
-          baseFee: type === 'stellar' ? 0.00001 : (type === 'dydx' ? 0.0001 : 0.001), balance: asset.balance || 0,
-          blockExplorerUrl: asset.blockExplorerUrl
+          value: asset.id,
+          symbol: asset.symbol,
+          label: `${asset.symbol} (${asset.chainName})`,
+          logo: asset.image,
+          network: asset.chainName,
+          chainId,
+          addressType: type === 'dydx' ? 'cosmos' : type,
+          walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
+          tokenAddress: asset.address,
+          decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
+          isNative: asset.isNative || false,
+          type,
+          networkKey: chainId,
+          baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+          balance: asset.balance || 0,
+          blockExplorerUrl: asset.blockExplorerUrl,
         };
       });
   }, [storeAssets]);
@@ -105,8 +129,14 @@ export const useSendAsset = (onBack?: () => void) => {
         if (a.symbol !== assetParam || aChainIdStr !== paramIdStr) return false;
 
         if (addressParam) {
-          const aIsNative = !!a.isNative || !a.tokenAddress || a.tokenAddress.toLowerCase() === '0x0000000000000000000000000000000000000000' || a.tokenAddress.toLowerCase() === 'native';
-          const paramIsNative = addressParam.toLowerCase() === 'native' || addressParam.toLowerCase() === '0x0000000000000000000000000000000000000000';
+          const aIsNative =
+            !!a.isNative ||
+            !a.tokenAddress ||
+            a.tokenAddress.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
+            a.tokenAddress.toLowerCase() === 'native';
+          const paramIsNative =
+            addressParam.toLowerCase() === 'native' ||
+            addressParam.toLowerCase() === '0x0000000000000000000000000000000000000000';
           if (aIsNative !== paramIsNative) return false;
           if (!aIsNative && !paramIsNative) {
             return a.tokenAddress?.toLowerCase() === addressParam.toLowerCase();
@@ -131,48 +161,64 @@ export const useSendAsset = (onBack?: () => void) => {
   const senderAddress = useMemo(() => {
     if (!currentAsset) return null;
     if (currentAsset.type === 'dydx') {
-      return (connectedWallets.evm as any)?.dydxAddress || (connectedWallets.cosmos as any)?.dydxAddress || localStorage.getItem('sx_dkm_addr');
+      return (
+        (connectedWallets.evm as any)?.dydxAddress ||
+        (connectedWallets.cosmos as any)?.dydxAddress ||
+        localStorage.getItem('_sx_dkm_addr')
+      );
     }
     return connectedWallets[currentAsset.walletType]?.address || null;
   }, [connectedWallets, currentAsset]);
 
-  const fetchBalance = useCallback(async (isManual = false) => {
-    if (!currentAsset || !senderAddress) return;
+  const fetchBalance = useCallback(
+    async (isManual = false) => {
+      if (!currentAsset || !senderAddress) return;
 
-    const storeAssets = usePortfolioStore.getState().assets;
-    const storeItem = storeAssets.find(a => a.id === currentAsset.value);
-    if (storeItem) setBalance(toPlainString(storeItem.balance));
+      const storeAssets = usePortfolioStore.getState().assets;
+      const storeItem = storeAssets.find(a => a.id === currentAsset.value);
+      if (storeItem) setBalance(toPlainString(storeItem.balance));
 
-    const shouldShowLoading = isManual || !storeItem;
-    if (shouldShowLoading) {
-      setIsFetchingBalance(true);
-    }
-
-    try {
-      let balStr: string;
-      if (currentAsset.type === 'evm') {
-        const config = getEVMNetworkConfig(Number(currentAsset.networkKey));
-        balStr = await rpcManager.fetchWithFallback(
-          Number(currentAsset.networkKey),
-          config.rpcUrls,
-          async (provider) => fetchSingleTokenBalance(senderAddress, provider, currentAsset.tokenAddress || '', currentAsset.isNative, currentAsset.decimals)
-        );
-      } else if (currentAsset.type === 'stellar') {
-        const key = currentAsset.isNative ? 'native' : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
-        balStr = await getStellarBalance(key, senderAddress);
-      } else {
-        // dydx balance is already in storeAssets, but we can refresh via service if needed
-        balStr = toPlainString(currentAsset.balance);
-      }
-      setBalance(balStr);
-    } catch (e) {
-      console.error('Balance error:', e);
-    } finally {
+      const shouldShowLoading = isManual || !storeItem;
       if (shouldShowLoading) {
-        setTimeout(() => setIsFetchingBalance(false), 500);
+        setIsFetchingBalance(true);
       }
-    }
-  }, [currentAsset, senderAddress]);
+
+      try {
+        let balStr: string;
+        if (currentAsset.type === 'evm') {
+          const config = getEVMNetworkConfig(Number(currentAsset.networkKey));
+          balStr = await rpcManager.fetchWithFallback(
+            Number(currentAsset.networkKey),
+            config.rpcUrls,
+            async provider =>
+              fetchSingleTokenBalance(
+                senderAddress,
+                provider,
+                currentAsset.tokenAddress || '',
+                currentAsset.isNative,
+                currentAsset.decimals
+              )
+          );
+        } else if (currentAsset.type === 'stellar') {
+          const key = currentAsset.isNative
+            ? 'native'
+            : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
+          balStr = await getStellarBalance(key, senderAddress);
+        } else {
+          // dydx balance is already in storeAssets, but we can refresh via service if needed
+          balStr = toPlainString(currentAsset.balance);
+        }
+        setBalance(balStr);
+      } catch (e) {
+        console.error('Balance error:', e);
+      } finally {
+        if (shouldShowLoading) {
+          setTimeout(() => setIsFetchingBalance(false), 500);
+        }
+      }
+    },
+    [currentAsset, senderAddress]
+  );
 
   useEffect(() => {
     fetchBalance();
@@ -182,9 +228,13 @@ export const useSendAsset = (onBack?: () => void) => {
     const checkTrust = async () => {
       if (currentAsset?.type === 'stellar' && !currentAsset.isNative && senderAddress) {
         try {
-          const exists = await checkTrustlineExists(senderAddress, currentAsset.symbol, currentAsset.tokenAddress || '');
+          const exists = await checkTrustlineExists(
+            senderAddress,
+            currentAsset.symbol,
+            currentAsset.tokenAddress || ''
+          );
           setHasTrustline(exists);
-        } catch (e) {
+        } catch {
           setHasTrustline(false);
         }
       } else {
@@ -196,12 +246,21 @@ export const useSendAsset = (onBack?: () => void) => {
 
   useEffect(() => {
     const checkRecipientTrust = async () => {
-      if (currentAsset?.type === 'stellar' && !currentAsset.isNative && recipientAddress && validateAddress(recipientAddress, { addressType: 'stellar', network: currentAsset.network })) {
+      if (
+        currentAsset?.type === 'stellar' &&
+        !currentAsset.isNative &&
+        recipientAddress &&
+        validateAddress(recipientAddress, { addressType: 'stellar', network: currentAsset.network })
+      ) {
         setIsFetchingRecipientTrust(true);
         try {
-          const exists = await checkTrustlineExists(recipientAddress, currentAsset.symbol, currentAsset.tokenAddress || '');
+          const exists = await checkTrustlineExists(
+            recipientAddress,
+            currentAsset.symbol,
+            currentAsset.tokenAddress || ''
+          );
           setRecipientHasTrustline(exists);
-        } catch (e) {
+        } catch {
           setRecipientHasTrustline(false);
         } finally {
           setIsFetchingRecipientTrust(false);
@@ -217,14 +276,32 @@ export const useSendAsset = (onBack?: () => void) => {
 
   useEffect(() => {
     const estimate = async () => {
-      if (!currentAsset || !senderAddress || !recipientAddress || !amount || parseFloat(amount) <= 0 || !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) {
-        setEstimatedFees(null); return;
+      if (
+        !currentAsset ||
+        !senderAddress ||
+        !recipientAddress ||
+        !amount ||
+        parseFloat(amount) <= 0 ||
+        !validateAddress(recipientAddress, {
+          addressType: currentAsset.addressType as any,
+          network: currentAsset.network,
+        })
+      ) {
+        setEstimatedFees(null);
+        return;
       }
       setIsEstimatingFees(true);
       try {
         let fees;
         if (currentAsset.type === 'evm') {
-          fees = await estimateEVMFees(Number(currentAsset.networkKey), senderAddress, recipientAddress, amount || '0.0001', currentAsset.isNative ? undefined : currentAsset.tokenAddress, currentAsset.decimals);
+          fees = await estimateEVMFees(
+            Number(currentAsset.networkKey),
+            senderAddress,
+            recipientAddress,
+            amount || '0.0001',
+            currentAsset.isNative ? undefined : currentAsset.tokenAddress,
+            currentAsset.decimals
+          );
         } else if (currentAsset.type === 'stellar') {
           fees = await estimateStellarFees();
         } else {
@@ -232,8 +309,13 @@ export const useSendAsset = (onBack?: () => void) => {
         }
         setEstimatedFees(fees);
       } catch (e: any) {
-        setEstimatedFees({ totalCost: currentAsset.baseFee.toFixed(8), error: formatErrorMessage(e, 'Fee') });
-      } finally { setIsEstimatingFees(false); }
+        setEstimatedFees({
+          totalCost: currentAsset.baseFee.toFixed(8),
+          error: formatErrorMessage(e),
+        });
+      } finally {
+        setIsEstimatingFees(false);
+      }
     };
     const timer = setTimeout(estimate, 500);
     return () => clearTimeout(timer);
@@ -246,7 +328,9 @@ export const useSendAsset = (onBack?: () => void) => {
     }
 
     if (isConfirmingRef.current) {
-      console.warn('[useSendAsset] Transaction confirmation already in progress. Blocking concurrent request.');
+      console.warn(
+        '[useSendAsset] Transaction confirmation already in progress. Blocking concurrent request.'
+      );
       return;
     }
     isConfirmingRef.current = true;
@@ -263,7 +347,10 @@ export const useSendAsset = (onBack?: () => void) => {
 
         if (!currentAsset.isNative && currentAsset.tokenAddress) {
           console.log('[useSendAsset] Preparing ERC20 transfer data');
-          data = new ethers.Interface(SendErcAbi).encodeFunctionData('transfer', [recipientAddress, ethers.parseUnits(amount, currentAsset.decimals)]);
+          data = new ethers.Interface(SendErcAbi).encodeFunctionData('transfer', [
+            recipientAddress,
+            ethers.parseUnits(amount, currentAsset.decimals),
+          ]);
           to = currentAsset.tokenAddress;
           sendAmt = '0';
         }
@@ -281,7 +368,10 @@ export const useSendAsset = (onBack?: () => void) => {
           );
           unsignedTx = prepRes.unsignedTx;
         } catch (apiError) {
-          console.warn('[useSendAsset] Backend transaction preparation failed. Falling back to client-side simulation:', apiError);
+          console.warn(
+            '[useSendAsset] Backend transaction preparation failed. Falling back to client-side simulation:',
+            apiError
+          );
         }
 
         req = {
@@ -292,23 +382,26 @@ export const useSendAsset = (onBack?: () => void) => {
           to,
           amount: sendAmt,
           data,
-          unsignedTx
+          unsignedTx,
         };
         console.log('[useSendAsset] Sending transaction request to router:', req);
         const res = await sendTransaction(req);
-        const chainSymbol = currentAsset.type === 'evm' ? (getChainById(Number(currentAsset.networkKey))?.symbol || currentAsset.network) : currentAsset.network;
+        const chainSymbol =
+          currentAsset.type === 'evm'
+            ? getChainById(Number(currentAsset.networkKey))?.symbol || currentAsset.network
+            : currentAsset.network;
 
         await storeSwapOrder({
           txHash: res.hash || 'unknown',
           walletAddress: senderAddress,
-          provider: "EVMTX",
+          provider: 'EVMTX',
           fromChain: chainSymbol,
           toChain: chainSymbol,
           fromToken: currentAsset.symbol,
           toToken: currentAsset.symbol,
           amountIn: amount,
           amountOut: amount,
-          txType: currentAsset.isNative ? 'Native Transfer' : 'Token Transfer'
+          txType: currentAsset.isNative ? 'Native Transfer' : 'Token Transfer',
         }).catch(err => console.error('Failed to store transfer to backend:', err));
 
         setRecipientAddress('');
@@ -331,11 +424,17 @@ export const useSendAsset = (onBack?: () => void) => {
 
         const executeStellarWithRetry = async (retryCount = 0): Promise<any> => {
           try {
-            const tx = await sendCryptoStellarBuild(senderAddress, recipientAddress, amount, memo ? { memo } : {}, {
-              code: currentAsset.symbol,
-              issuer: currentAsset.tokenAddress,
-              isNative: currentAsset.isNative
-            });
+            const tx = await sendCryptoStellarBuild(
+              senderAddress,
+              recipientAddress,
+              amount,
+              memo ? { memo } : {},
+              {
+                code: currentAsset.symbol,
+                issuer: currentAsset.tokenAddress,
+                isNative: currentAsset.isNative,
+              }
+            );
 
             req = {
               type: 'stellar',
@@ -344,18 +443,26 @@ export const useSendAsset = (onBack?: () => void) => {
               from: senderAddress,
               to: recipientAddress,
               amount,
-              data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBNET' }
+              data: { xdr: tx.xdr, network: currentNetwork === 'testnet' ? 'TESTNET' : 'PUBNET' },
             };
 
-            console.log(`[useSendAsset] Sending transaction request to router (attempt ${retryCount + 1}):`, req);
+            console.log(
+              `[useSendAsset] Sending transaction request to router (attempt ${retryCount + 1}):`,
+              req
+            );
             const res = await sendTransaction(req);
             return res;
           } catch (err: any) {
             const errorStr = (err.message || JSON.stringify(err)).toLowerCase();
-            const isSequenceError = errorStr.includes('tx_bad_seq') || errorStr.includes('sequence_mismatch') || errorStr.includes('bad sequence');
+            const isSequenceError =
+              errorStr.includes('tx_bad_seq') ||
+              errorStr.includes('sequence_mismatch') ||
+              errorStr.includes('bad sequence');
 
             if (retryCount < 1 && isSequenceError) {
-              console.warn('[useSendAsset] Stellar sequence mismatch detected. Retrying with fresh account data...');
+              console.warn(
+                '[useSendAsset] Stellar sequence mismatch detected. Retrying with fresh account data...'
+              );
               await new Promise(resolve => setTimeout(resolve, 1500));
               return executeStellarWithRetry(retryCount + 1);
             }
@@ -407,7 +514,7 @@ export const useSendAsset = (onBack?: () => void) => {
       }
     } catch (e: any) {
       console.error('[useSendAsset] Transaction exception caught:', e);
-      const errMsg = formatErrorMessage(e, 'Tx');
+      const errMsg = formatErrorMessage(e);
       setRecipientAddress('');
       setAmount('');
       setMemo('');
@@ -453,11 +560,16 @@ export const useSendAsset = (onBack?: () => void) => {
     }
 
     const amountStr = maxAmount.toFixed(currentAsset.decimals, BigNumber.ROUND_DOWN);
-    setAmount(amountStr.replace(/(\.[0-9]*[1-9])0+$/, "$1").replace(/\.0+$/, ""));
+    setAmount(amountStr.replace(/(\.[0-9]*[1-9])0+$/, '$1').replace(/\.0+$/, ''));
   }, [currentAsset, estimatedFees, balance]);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const copyToClipboard = async (text: string, _label?: string) => {
-    try { await navigator.clipboard.writeText(text); } catch (e) { console.error('Copy error', e); }
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      console.error('Copy error', e);
+    }
   };
 
   const handleDone = useCallback(() => {
@@ -473,10 +585,21 @@ export const useSendAsset = (onBack?: () => void) => {
   }, [currentAsset, navigate, onBack]);
 
   return {
-    recipientAddress, setRecipientAddress, amount, setAmount, memo, setMemo,
-    balance, isFetchingBalance,
-    transactionState, setTransactionState, isEstimatingFees, estimatedFees,
-    currentAsset, senderAddress, isWalletConnected: !!senderAddress,
+    recipientAddress,
+    setRecipientAddress,
+    amount,
+    setAmount,
+    memo,
+    setMemo,
+    balance,
+    isFetchingBalance,
+    transactionState,
+    setTransactionState,
+    isEstimatingFees,
+    estimatedFees,
+    currentAsset,
+    senderAddress,
+    isWalletConnected: !!senderAddress,
     handleMaxClick,
     handleRefreshBalances: () => fetchBalance(true),
     handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
@@ -485,11 +608,30 @@ export const useSendAsset = (onBack?: () => void) => {
     handleDone,
     handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
-    formError: (!currentAsset) ? 'Select asset' : (!senderAddress) ? 'Connect wallet' : (recipientAddress && !validateAddress(recipientAddress, { addressType: currentAsset.addressType as any, network: currentAsset.network })) ? 'Invalid address' : (amount && amount !== '.' && new BigNumber(amount).isGreaterThan(balance) && hasTrustline) ? 'Insufficient funds' : null,
-    assets: allAssets, availableChains: [], onBack,
+    formError: !currentAsset
+      ? 'Select asset'
+      : !senderAddress
+        ? 'Connect wallet'
+        : recipientAddress &&
+            !validateAddress(recipientAddress, {
+              addressType: currentAsset.addressType as any,
+              network: currentAsset.network,
+            })
+          ? 'Invalid address'
+          : amount && amount !== '.' && new BigNumber(amount).isGreaterThan(balance) && hasTrustline
+            ? 'Insufficient funds'
+            : null,
+    assets: allAssets,
+    availableChains: [],
+    onBack,
     needsTrustline: hasTrustline === false,
     recipientNeedsTrustline: recipientHasTrustline === false,
     isFetchingRecipientTrust,
-    buttonLabel: (hasTrustline === false) ? 'Add Trust & Send' : (transactionState.step === 'review' ? 'Send Now' : 'Continue to Review')
+    buttonLabel:
+      hasTrustline === false
+        ? 'Add Trust & Send'
+        : transactionState.step === 'review'
+          ? 'Send Now'
+          : 'Continue to Review',
   };
 };

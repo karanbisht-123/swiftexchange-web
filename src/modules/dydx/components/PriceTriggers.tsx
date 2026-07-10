@@ -54,7 +54,7 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
 
   const calculatePercentageFromPrice = (targetPrice: number): number => {
     if (!targetPrice || !entryPrice) return 0;
-    let rawPercentage = isLong
+    const rawPercentage = isLong
       ? ((targetPrice - entryPrice) / entryPrice) * 100
       : ((entryPrice - targetPrice) / entryPrice) * 100;
     return Math.abs(rawPercentage);
@@ -119,20 +119,20 @@ const PriceTriggers: React.FC<PriceTriggersProps> = ({
       takeProfit:
         tpPrice && !isNaN(parseFloat(tpPrice))
           ? {
-            enabled: true,
-            price: parseFloat(tpPrice),
-            percentage: parseFloat(tpPercentage || '0'),
-            type: 'MARKET',
-          }
+              enabled: true,
+              price: parseFloat(tpPrice),
+              percentage: parseFloat(tpPercentage || '0'),
+              type: 'MARKET',
+            }
           : undefined,
       stopLoss:
         slPrice && !isNaN(parseFloat(slPrice))
           ? {
-            enabled: true,
-            price: parseFloat(slPrice),
-            percentage: parseFloat(slPercentage || '0'),
-            type: 'MARKET',
-          }
+              enabled: true,
+              price: parseFloat(slPrice),
+              percentage: parseFloat(slPercentage || '0'),
+              type: 'MARKET',
+            }
           : undefined,
     };
     await onSave(config);

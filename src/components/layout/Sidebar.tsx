@@ -110,7 +110,7 @@ const Sidebar: FC = () => {
       icon: <History className="w-[18px] h-[18px]" />,
     },
     {
-      href: ROUTES.TRADING_STEALLR,
+      href: ROUTES.TRADING_STELLAR,
       label: 'Spot',
       icon: <CandlestickChart className="w-[18px] h-[18px]" />,
     },

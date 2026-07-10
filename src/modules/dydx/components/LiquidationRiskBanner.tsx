@@ -1,19 +1,19 @@
 import { AlertTriangle } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 
-import AddMarginModal from './shared/Addmarginmodal';
 import { useDydxData } from '../hooks/useDydxData';
-import { useOraclePrices } from '../hooks/useOraclePrices';
 import { useDydxTrading } from '../hooks/useDydxTrading';
 import { metadataService } from '../hooks/useMetadata';
+import { useOraclePrices } from '../hooks/useOraclePrices';
+import { dydxWalletService } from '../service/dydxWalletService';
 import useMarketStore from '../store/marketStore';
 import { useWebSocketStore } from '../store/websocketStore';
-import { dydxWalletService } from '../service/dydxWalletService';
 import { type Position } from '../types/trading.types';
 import {
   calculateCrossLiquidationPrice,
   calculateIsolatedLiquidationPrice,
 } from '../utils/marginCalculator';
+import AddMarginModal from './shared/Addmarginmodal';
 
 const ISOLATED_SUBACCOUNT_START = 128;
 const ALERT_THRESHOLD = 90; // Visibility threshold (retained for user testing)
@@ -24,7 +24,6 @@ const formatUsd = (n: number) =>
   n >= 1000
     ? '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 })
     : '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-
 
 interface RiskPosition {
   position: Position;
@@ -71,7 +70,9 @@ function useLiquidationRisk(): RiskPosition[] {
       if (absSize === 0) return;
 
       const mktData = marketCache[pos.market];
-      const mmf = mktData?.maintenanceMarginFraction ? parseFloat(mktData.maintenanceMarginFraction) : 0.03;
+      const mmf = mktData?.maintenanceMarginFraction
+        ? parseFloat(mktData.maintenanceMarginFraction)
+        : 0.03;
       const imf = mktData?.initialMarginFraction ? parseFloat(mktData.initialMarginFraction) : 0.05;
       const entryPrice = parseFloat(pos.entryPrice || '0');
       const liveOracle = oraclePrices[pos.market];
@@ -92,7 +93,9 @@ function useLiquidationRisk(): RiskPosition[] {
         liqPrice = calculateIsolatedLiquidationPrice(absSize, oracle, margin, mmf, side);
       } else {
         const apiLev = pos.leverage ? parseFloat(pos.leverage) : 0;
-        const storedRaw = localStorage.getItem(`dydx_leverage_${pos.market}`) ?? localStorage.getItem('dydx_leverage');
+        const storedRaw =
+          localStorage.getItem(`dydx_leverage_${pos.market}`) ??
+          localStorage.getItem('dydx_leverage');
         const storedLev = storedRaw ? parseFloat(storedRaw) : 5.0;
         const leverage = Math.min(
           apiLev > 0 ? apiLev : storedLev > 0 ? storedLev : maxLeverage,
@@ -107,10 +110,19 @@ function useLiquidationRisk(): RiskPosition[] {
           .reduce((sum, p) => {
             const pMkt = marketCache[p.market];
             const pPrice = pMkt ? parseFloat(pMkt.oraclePrice) : parseFloat(p.entryPrice);
-            const pMmf = pMkt?.maintenanceMarginFraction ? parseFloat(pMkt.maintenanceMarginFraction) : 0.03;
+            const pMmf = pMkt?.maintenanceMarginFraction
+              ? parseFloat(pMkt.maintenanceMarginFraction)
+              : 0.03;
             return sum + Math.abs(parseFloat(p.size)) * pPrice * pMmf;
           }, 0);
-        liqPrice = calculateCrossLiquidationPrice(absSize, oracle, crossEquity, mmf, otherMMR, side);
+        liqPrice = calculateCrossLiquidationPrice(
+          absSize,
+          oracle,
+          crossEquity,
+          mmf,
+          otherMMR,
+          side
+        );
       }
 
       if (!liqPrice || liqPrice <= 0) return;
@@ -118,7 +130,14 @@ function useLiquidationRisk(): RiskPosition[] {
       const distancePct = (Math.abs(oracle - liqPrice) / oracle) * 100;
 
       if (distancePct <= ALERT_THRESHOLD) {
-        risks.push({ position: pos, liquidationPrice: liqPrice, oraclePrice: oracle, distancePct, isIsolated, margin });
+        risks.push({
+          position: pos,
+          liquidationPrice: liqPrice,
+          oraclePrice: oracle,
+          distancePct,
+          isIsolated,
+          margin,
+        });
       }
     });
 
@@ -126,7 +145,7 @@ function useLiquidationRisk(): RiskPosition[] {
   }, [positions, marketCache, oraclePrices, isolatedEquityBySubaccount, childSubaccounts]);
 }
 
-//Price track bar 
+//Price track bar
 function PriceTrack({
   oracle,
   liqPrice,
@@ -161,10 +180,11 @@ function PriceTrack({
           Oracle {fmt(oracle)}
         </span>
         <span
-          className={`absolute -translate-x-1/2 px-1.5 py-0.5 rounded border whitespace-nowrap font-medium font-mono ${isCritical
+          className={`absolute -translate-x-1/2 px-1.5 py-0.5 rounded border whitespace-nowrap font-medium font-mono ${
+            isCritical
               ? 'bg-red-500/10 border-red-500/20 text-red-400'
               : 'bg-amber-500/10 border-amber-500/20 text-amber-500'
-            }`}
+          }`}
           style={{ left: '80%' }}
         >
           Liq {fmt(liqPrice)}
@@ -176,7 +196,10 @@ function PriceTrack({
         <div style={{ width: `${warnFill}%` }} className="bg-amber-500" />
         <div style={{ width: `${dangerFill}%` }} className="bg-red-500" />
         <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400" style={{ left: '40%' }} />
-        <div className={`absolute top-0 bottom-0 w-0.5 ${isCritical ? 'bg-red-500' : 'bg-amber-500'}`} style={{ left: '80%' }} />
+        <div
+          className={`absolute top-0 bottom-0 w-0.5 ${isCritical ? 'bg-red-500' : 'bg-amber-500'}`}
+          style={{ left: '80%' }}
+        />
       </div>
 
       <div className="flex justify-between items-center mt-0.5 text-xs  text-(--color-text-muted) font-medium">
@@ -235,8 +258,9 @@ function RiskCard({
   // Determine Danger Level Style: Red (Critical) vs Yellow (Warning) vs Green (Safe)
   let levelColor = 'text-green-500';
   let borderClass = 'border-(--color-border) border-l-4 border-l-emerald-500';
-  let bgClass = 'bg-(--color-bg-secondary)';
-  let msgBoxClass = 'bg-emerald-500/5 dark:bg-emerald-950/10 border-emerald-500/20 text-emerald-500';
+  const bgClass = 'bg-(--color-bg-secondary)';
+  let msgBoxClass =
+    'bg-emerald-500/5 dark:bg-emerald-950/10 border-emerald-500/20 text-emerald-500';
 
   if (isCritical) {
     levelColor = 'text-red-500';
@@ -244,7 +268,8 @@ function RiskCard({
     msgBoxClass = 'bg-red-500/5 dark:bg-red-950/10 border-red-500/20 text-red-500';
   } else if (isWarning) {
     levelColor = 'text-amber-500';
-    borderClass = 'border-(--color-border) border-l-4 border-l-amber-500 shadow-sm shadow-amber-500/5';
+    borderClass =
+      'border-(--color-border) border-l-4 border-l-amber-500 shadow-sm shadow-amber-500/5';
     msgBoxClass = 'bg-amber-500/5 dark:bg-amber-950/10 border-amber-500/20 text-amber-500';
   }
 
@@ -259,9 +284,10 @@ function RiskCard({
   const pnlSign = unrealizedPnl >= 0 ? '+' : '';
 
   const dollarGap = Math.abs(oraclePrice - liquidationPrice);
-  const gapFmt = dollarGap >= 1000
-    ? '$' + dollarGap.toLocaleString(undefined, { maximumFractionDigits: 0 })
-    : '$' + dollarGap.toFixed(2);
+  const gapFmt =
+    dollarGap >= 1000
+      ? '$' + dollarGap.toLocaleString(undefined, { maximumFractionDigits: 0 })
+      : '$' + dollarGap.toFixed(2);
 
   const assetName = position.market.replace('-USD', '');
 
@@ -270,7 +296,9 @@ function RiskCard({
     : `Price must fall ${gapFmt} to liquidate. You're long — add margin or close early if ${assetName} drops toward ${fmt(liquidationPrice)}.`;
 
   return (
-    <div className={`border rounded-xl p-3.5 flex flex-col md:flex-row gap-4 shadow-sm hover:shadow-md transition-all duration-300 ${bgClass} ${borderClass}`}>
+    <div
+      className={`border rounded-xl p-3.5 flex flex-col md:flex-row gap-4 shadow-sm hover:shadow-md transition-all duration-300 ${bgClass} ${borderClass}`}
+    >
       <div className="flex flex-col gap-2.5 md:w-[250px] shrink-0 md:border-r md:border-(--color-border)/30 md:pr-4">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 flex items-center justify-center overflow-hidden shrink-0">
@@ -285,10 +313,13 @@ function RiskCard({
               <span className="text-xs font-extrabold text-(--color-text-primary) tracking-tight">
                 {position.market}
               </span>
-              <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-bold ${isShort
-                  ? 'bg-red-500/15 text-red-400 border border-red-500/20'
-                  : 'bg-green-500/15 text-green-400 border border-green-500/20'
-                }`}>
+              <span
+                className={`text-[8.5px] px-1.5 py-0.5 rounded font-bold ${
+                  isShort
+                    ? 'bg-red-500/15 text-red-400 border border-red-500/20'
+                    : 'bg-green-500/15 text-green-400 border border-green-500/20'
+                }`}
+              >
                 {position.side}
               </span>
               <span className="text-[8.5px] px-1.5 py-0.5 rounded font-bold bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary)">
@@ -296,15 +327,24 @@ function RiskCard({
               </span>
             </div>
             <span className="text-[9.5px] text-(--color-text-muted) font-semibold leading-none mt-0.5">
-              {position.leverage ? parseFloat(position.leverage).toFixed(0) : '—'}x leverage · {Math.abs(sizeNum).toFixed(4)} {assetName}
+              {position.leverage ? parseFloat(position.leverage).toFixed(0) : '—'}x leverage ·{' '}
+              {Math.abs(sizeNum).toFixed(4)} {assetName}
             </span>
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-1 gap-0 border border-(--color-border) bg-(--color-bg-tertiary) rounded-xl overflow-hidden mt-1 shrink-0">
           {[
-            { label: 'Oracle Price', value: fmt(oraclePrice), className: 'text-(--color-text-primary)' },
-            { label: 'Avg Open', value: fmt(entryPriceNum), className: 'text-(--color-text-primary)' },
+            {
+              label: 'Oracle Price',
+              value: fmt(oraclePrice),
+              className: 'text-(--color-text-primary)',
+            },
+            {
+              label: 'Avg Open',
+              value: fmt(entryPriceNum),
+              className: 'text-(--color-text-primary)',
+            },
             {
               label: 'P&L',
               value: `${pnlSign}${fmt(unrealizedPnl)}`,
@@ -321,8 +361,12 @@ function RiskCard({
 
             return (
               <div key={i} className={borderStyle}>
-                <span className="text-[8.5px] uppercase text-(--color-text-muted) font-bold tracking-wider">{m.label}</span>
-                <span className={`text-[11px] font-bold font-mono tracking-tight ${m.className}`}>{m.value}</span>
+                <span className="text-[8.5px] uppercase text-(--color-text-muted) font-bold tracking-wider">
+                  {m.label}
+                </span>
+                <span className={`text-[11px] font-bold font-mono tracking-tight ${m.className}`}>
+                  {m.value}
+                </span>
               </div>
             );
           })}
@@ -332,7 +376,8 @@ function RiskCard({
       <div className="flex-1 flex flex-col gap-3 justify-between">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="text-xs font-semibold text-(--color-text-secondary) leading-none">
-            Liquidation risk — {isShort ? 'short' : 'long'} position · <span className={levelColor}>{distancePct.toFixed(1)}% away</span>
+            Liquidation risk — {isShort ? 'short' : 'long'} position ·{' '}
+            <span className={levelColor}>{distancePct.toFixed(1)}% away</span>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -363,7 +408,9 @@ function RiskCard({
           isCritical={isCritical}
         />
 
-        <div className={`border rounded-md px-2.5 py-3 text-xs leading-normal font-semibold flex items-center gap-1.5 ${msgBoxClass}`}>
+        <div
+          className={`border rounded-md px-2.5 py-3 text-xs leading-normal font-semibold flex items-center gap-1.5 ${msgBoxClass}`}
+        >
           <AlertTriangle size={11} className="shrink-0 animate-pulse" />
           <span>{message}</span>
         </div>
@@ -388,23 +435,28 @@ const LiquidationRiskBanner: React.FC = () => {
       markets.map(m => metadataService.getMetadata(m).then(meta => ({ m, icon: meta?.image })))
     ).then(results => {
       const map: Record<string, string> = {};
-      results.forEach(r => { if (r.status === 'fulfilled' && r.value.icon) map[r.value.m] = r.value.icon; });
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value.icon) map[r.value.m] = r.value.icon;
+      });
       setIcons(prev => ({ ...prev, ...map }));
     });
   }, [riskPositions.map(r => r.position.market).join(',')]);
 
-  const handleClose = useCallback(async (position: Position) => {
-    setClosingMarket(position.market);
-    setCloseError(null);
-    try {
-      const res = await closePosition(position);
-      if (!res.success) setCloseError(res.userMessage || 'Failed to close position');
-    } catch (err: any) {
-      setCloseError(err.message || 'Failed to close position');
-    } finally {
-      setClosingMarket(null);
-    }
-  }, [closePosition]);
+  const handleClose = useCallback(
+    async (position: Position) => {
+      setClosingMarket(position.market);
+      setCloseError(null);
+      try {
+        const res = await closePosition(position);
+        if (!res.success) setCloseError(res.userMessage || 'Failed to close position');
+      } catch (err: any) {
+        setCloseError(err.message || 'Failed to close position');
+      } finally {
+        setClosingMarket(null);
+      }
+    },
+    [closePosition]
+  );
 
   if (riskPositions.length === 0) return null;
 

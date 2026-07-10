@@ -1,12 +1,13 @@
 import { ethers } from 'ethers';
 
+import { ERC20_ABI } from '../../../abi/Erc20AbI';
+import { SendErcAbi } from '../../../abi/SendErcAbi';
 import { getEVMChains } from '../../walletconnect/config/chains';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { rpcManager } from './rpcProvider';
-import { SendErcAbi } from '../../../abi/SendErcAbi';
-import { ERC20_ABI } from '../../../abi/Erc20AbI';
-import { getWalletGasInfo } from '../../../service/apiService';
-import { getNetworkPrefix } from '../../../utils/transactionUtils';
+
+// import { getWalletGasInfo } from '../../../service/apiService';
+// import { getNetworkPrefix } from '../../../utils/transactionUtils';
 
 export type EVMNetworkConfig = {
   chainId: number | string;
@@ -64,7 +65,9 @@ export async function getERC20Balances(
     try {
       let bal: bigint;
       if (asset.isNative) {
-        bal = await rpcManager.fetchWithFallback(chainId, rpcUrls, p => p.getBalance(senderAddress));
+        bal = await rpcManager.fetchWithFallback(chainId, rpcUrls, p =>
+          p.getBalance(senderAddress)
+        );
       } else {
         bal = await rpcManager.fetchWithFallback(chainId, rpcUrls, async p => {
           const contract = new ethers.Contract(asset.address, ERC20_ABI, p);
@@ -110,27 +113,32 @@ export async function estimateEVMFees(
   const defaultGasPrice = BigInt(20000000000);
 
   try {
-    const amountParsed = tokenAddress ? ethers.parseUnits(amount, tokenDecimals || 18) : ethers.parseEther(amount);
+    const amountParsed = tokenAddress
+      ? ethers.parseUnits(amount, tokenDecimals || 18)
+      : ethers.parseEther(amount);
 
     // 1. Fetch Gas Limit from RPC
-    const gasLimit = await rpcManager.fetchWithFallback(chainId, rpcUrls, async p => {
-      if (tokenAddress) {
-        const iface = new ethers.Interface(SendErcAbi);
-        const data = iface.encodeFunctionData('transfer', [to, amountParsed]);
-        return await p.estimateGas({ from, to: tokenAddress, data });
-      } else {
-        return await p.estimateGas({ from, to, value: amountParsed });
-      }
-    }).then(BigInt).catch(() => defaultGasLimit);
+    const gasLimit = await rpcManager
+      .fetchWithFallback(chainId, rpcUrls, async p => {
+        if (tokenAddress) {
+          const iface = new ethers.Interface(SendErcAbi);
+          const data = iface.encodeFunctionData('transfer', [to, amountParsed]);
+          return await p.estimateGas({ from, to: tokenAddress, data });
+        } else {
+          return await p.estimateGas({ from, to, value: amountParsed });
+        }
+      })
+      .then(BigInt)
+      .catch(() => defaultGasLimit);
 
     // 2. Fetch Fee Data from Wallet API or RPC
-    const prefix = getNetworkPrefix(networkKey);
-    let walletInfo: any = null;
-    try {
-      walletInfo = await getWalletGasInfo(prefix, from);
-    } catch (e) {
-      console.warn(`[estimateEVMFees] Backend proxy failed, falling back to RPC:`, e);
-    }
+    // const prefix = getNetworkPrefix(networkKey);
+    // let walletInfo: any = null;
+    // try {
+    //   walletInfo = await getWalletGasInfo(prefix, from);
+    // } catch (e) {
+    //   console.warn(`[estimateEVMFees] Backend proxy failed, falling back to RPC:`, e);
+    // }
 
     let feeData: any;
     /* Commented out for now to use direct RPC gas instead of wallet gas
@@ -148,7 +156,7 @@ export async function estimateEVMFees(
 
     feeData = adjustFeeDataForMinGas(feeData, networkKey);
 
-    let effectiveGasPrice = feeData?.maxFeePerGas ?? feeData?.gasPrice ?? defaultGasPrice;
+    const effectiveGasPrice = feeData?.maxFeePerGas ?? feeData?.gasPrice ?? defaultGasPrice;
 
     const totalCost = ethers.formatEther(gasLimit * effectiveGasPrice);
 
@@ -238,7 +246,12 @@ export function adjustFeeDataForMinGas(feeData: any, networkKey: NetworkKey): an
 
       const adjusted = { ...feeData };
 
-      if (adjusted.maxFeePerGas !== undefined && adjusted.maxPriorityFeePerGas !== undefined && adjusted.maxFeePerGas !== null && adjusted.maxPriorityFeePerGas !== null) {
+      if (
+        adjusted.maxFeePerGas !== undefined &&
+        adjusted.maxPriorityFeePerGas !== undefined &&
+        adjusted.maxFeePerGas !== null &&
+        adjusted.maxPriorityFeePerGas !== null
+      ) {
         let maxPriorityFee = BigInt(adjusted.maxPriorityFeePerGas);
         let maxFee = BigInt(adjusted.maxFeePerGas);
 
@@ -300,7 +313,7 @@ export async function simulateEVMTransaction(
   const { estimate, rpcFeeData, balance } = await rpcManager.fetchWithFallback(
     networkKey,
     rpcUrls,
-    async (p) => {
+    async p => {
       const est = await p.estimateGas({
         from,
         to,
@@ -322,7 +335,7 @@ export async function simulateEVMTransaction(
   const gasLimitBigInt = estimate + estimate / BigInt(5); // 20% cushion
 
   const price = feeData.maxFeePerGas || feeData.gasPrice || BigInt(20000000000);
-  const totalRequired = (data === '0x' ? amountInWei : BigInt(0)) + (gasLimitBigInt * price);
+  const totalRequired = (data === '0x' ? amountInWei : BigInt(0)) + gasLimitBigInt * price;
 
   if (balance < totalRequired) {
     const have = parseFloat(ethers.formatEther(balance)).toPrecision(6);
@@ -334,4 +347,3 @@ export async function simulateEVMTransaction(
 
   return { gasLimit: gasLimitBigInt, feeData, totalRequired };
 }
-

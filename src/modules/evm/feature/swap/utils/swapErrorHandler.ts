@@ -3,28 +3,35 @@ const NOISE_STRINGS = ['payload=', 'jsonrpc', 'UNKNOWN_ERROR', 'version='];
 export function extractCleanMessage(rawMsg: string): string {
   if (!rawMsg) return '';
 
-  let trimmed = rawMsg.trim();
+  const trimmed = rawMsg.trim();
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const parsed = JSON.parse(trimmed);
-      const innerMsg = parsed?.message || parsed?.error?.message || parsed?.error || parsed?.reason || parsed?.details || parsed?.description;
+      const innerMsg =
+        parsed?.message ||
+        parsed?.error?.message ||
+        parsed?.error ||
+        parsed?.reason ||
+        parsed?.details ||
+        parsed?.description;
       if (innerMsg && typeof innerMsg === 'string') {
         return extractCleanMessage(innerMsg);
       }
-    } catch { }
+    } catch (err) {
+      console.error('Error parsing message:', err);
+    }
   }
 
   const nestedBodyMatch = rawMsg.match(/body=\\?"(\{.*?\})"(?:\\|,|\s|$)/s);
   if (nestedBodyMatch?.[1]) {
     try {
-      const unescaped = nestedBodyMatch[1]
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, '\\');
+      const unescaped = nestedBodyMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
       const parsed = JSON.parse(unescaped);
-      const innerMsg = parsed?.error?.message || parsed?.message || parsed?.reason || parsed?.details;
+      const innerMsg =
+        parsed?.error?.message || parsed?.message || parsed?.reason || parsed?.details;
       if (innerMsg) return innerMsg;
     } catch (err) {
-      console.log(err)
+      console.log(err);
     }
   }
 
@@ -34,9 +41,12 @@ export function extractCleanMessage(rawMsg: string): string {
       try {
         const unescaped = bodyMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
         const parsed = JSON.parse(unescaped);
-        const innerMsg = parsed?.error?.message || parsed?.message || parsed?.reason || parsed?.details;
+        const innerMsg =
+          parsed?.error?.message || parsed?.message || parsed?.reason || parsed?.details;
         if (innerMsg) return innerMsg;
-      } catch { }
+      } catch (err) {
+        console.error('Error parsing message:', err);
+      }
     }
   }
 
@@ -46,7 +56,7 @@ export function extractCleanMessage(rawMsg: string): string {
     /["']reason["']\s*:\s*["']([^"']+)["']/i,
     /\\?["']reason\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i,
     /["']details["']\s*:\s*["']([^"']+)["']/i,
-    /\\?["']details\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i
+    /\\?["']details\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i,
   ];
   for (const pattern of messagePatterns) {
     const match = rawMsg.match(pattern);
@@ -65,8 +75,8 @@ export function extractCleanMessage(rawMsg: string): string {
         return inner;
       }
     }
-  } catch (error) {
-    // ignore
+  } catch (err) {
+    console.error('Error parsing message:', err);
   }
 
   return rawMsg;
@@ -77,12 +87,11 @@ function isNoisy(str: string): boolean {
   const LONG_HEX_PATTERN = /\b0x[0-9a-fA-F]{65,}\b/;
   if (LONG_HEX_PATTERN.test(str)) return true;
 
-  return NOISE_STRINGS.some((n) => str.includes(n));
+  return NOISE_STRINGS.some(n => str.includes(n));
 }
 
-
 export function translateErrorMessage(message: string): string {
-  let processedMessage = message
+  const processedMessage = message
     .replace(/^could not coalesce error/i, '')
     .replace(/^\s*\(/, '')
     .replace(/\)\s*$/, '')
@@ -103,7 +112,12 @@ export function translateErrorMessage(message: string): string {
 
   if (lower.includes('balance is empty') || lower.includes('insufficient')) {
     if (lower.includes('fee')) {
-      if (lower.includes('required') || lower.includes('current') || lower.includes('need') || lower.includes('have')) {
+      if (
+        lower.includes('required') ||
+        lower.includes('current') ||
+        lower.includes('need') ||
+        lower.includes('have')
+      ) {
         return processedMessage;
       }
       return 'Insufficient native tokens for gas fees.';
@@ -141,7 +155,13 @@ export function translateErrorMessage(message: string): string {
     }
   }
 
-  if (lower.includes('gas price below minimum') || lower.includes('intrinsic gas') || lower.includes('max fee') || lower.includes('tip cap') || lower.includes('below minimum')) {
+  if (
+    lower.includes('gas price below minimum') ||
+    lower.includes('intrinsic gas') ||
+    lower.includes('max fee') ||
+    lower.includes('tip cap') ||
+    lower.includes('below minimum')
+  ) {
     return processedMessage;
   }
 
@@ -152,7 +172,11 @@ export function translateErrorMessage(message: string): string {
     return 'Pending tx with lower fee. Please retry';
   }
 
-  if (processedMessage.includes('http://') || processedMessage.includes('https://') || lower.includes('rpc error')) {
+  if (
+    processedMessage.includes('http://') ||
+    processedMessage.includes('https://') ||
+    lower.includes('rpc error')
+  ) {
     const revertMatch = processedMessage.match(/execution reverted:?\s*([^"(]+)/i);
     if (revertMatch?.[1]?.trim()) {
       return `Transaction failed: ${revertMatch[1].trim()}`;
@@ -160,7 +184,11 @@ export function translateErrorMessage(message: string): string {
     return 'Network provider error. Please retry';
   }
 
-  if (lower.includes('tx_bad_seq') || lower.includes('sequence_mismatch') || lower.includes('bad sequence')) {
+  if (
+    lower.includes('tx_bad_seq') ||
+    lower.includes('sequence_mismatch') ||
+    lower.includes('bad sequence')
+  ) {
     return 'Tx sequence mismatch. Please retry';
   }
 
@@ -207,7 +235,11 @@ export function translateErrorMessage(message: string): string {
     return 'Bridge simulation failed. Please check your Stellar account balance and try again.';
   }
 
-  if (lower.includes('user declined') || lower.includes('user rejected') || lower.includes('dismissed')) {
+  if (
+    lower.includes('user declined') ||
+    lower.includes('user rejected') ||
+    lower.includes('dismissed')
+  ) {
     return 'User cancelled the transaction';
   }
 
@@ -233,7 +265,8 @@ export function parseWalletError(error: unknown): string {
     rawMsg = error;
   } else if (typeof error === 'object') {
     const errObj = error as any;
-    errCode = errObj.code || errObj.error?.code || errObj.info?.error?.code || errObj.originalError?.code;
+    errCode =
+      errObj.code || errObj.error?.code || errObj.info?.error?.code || errObj.originalError?.code;
     rawMsg =
       errObj.message ||
       errObj.originalError?.message ||
@@ -251,12 +284,14 @@ export function parseWalletError(error: unknown): string {
   // Handle user rejection explicitly first
   if (
     errCode === 4001 ||
-    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected/i.test(rawMsg)
+    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected/i.test(
+      rawMsg
+    )
   ) {
     return 'User cancelled the transaction';
   }
 
-  let message = extractCleanMessage(rawMsg);
+  const message = extractCleanMessage(rawMsg);
 
   if (message.length > 0 && message !== '[object Object]') {
     // If the message is specifically about WalletConnect, let's ensure it's clean and return it
@@ -285,13 +320,18 @@ export function parseWalletError(error: unknown): string {
 export function parseSwapError(error: any): string {
   console.error('[SwapError]', error);
   const rawMsg: string = error?.message || error?.originalError?.message || '';
-  const errCode = error?.code || error?.error?.code || error?.info?.error?.code || error?.originalError?.code;
+  const errCode =
+    error?.code || error?.error?.code || error?.info?.error?.code || error?.originalError?.code;
 
-  const isWalletOrConnectError = 
-    errCode === 4001 || 
-    errCode === -32603 || 
-    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected|walletconnect|wallet-connect|connector/i.test(rawMsg) ||
-    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected|walletconnect|wallet-connect|connector/i.test(String(error));
+  const isWalletOrConnectError =
+    errCode === 4001 ||
+    errCode === -32603 ||
+    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected|walletconnect|wallet-connect|connector/i.test(
+      rawMsg
+    ) ||
+    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected|walletconnect|wallet-connect|connector/i.test(
+      String(error)
+    );
 
   if (
     isWalletOrConnectError ||
@@ -308,12 +348,18 @@ export function parseSwapError(error: any): string {
   let message = '';
   const data = error?.response?.data || error?.data || error;
 
-  if (data?.diagnosisMessages && Array.isArray(data.diagnosisMessages) && data.diagnosisMessages.length > 0) {
+  if (
+    data?.diagnosisMessages &&
+    Array.isArray(data.diagnosisMessages) &&
+    data.diagnosisMessages.length > 0
+  ) {
     return String(data.diagnosisMessages[0]);
   }
 
   if (Array.isArray(data) && data.length > 0) {
-    const firstErrorItem = data.find((item: any) => item.ok === false || item.error || item.message);
+    const firstErrorItem = data.find(
+      (item: any) => item.ok === false || item.error || item.message
+    );
     if (firstErrorItem) {
       message = String(firstErrorItem.error || firstErrorItem.message || 'Unknown swap error');
     } else if (data[0]?.error) {
@@ -349,7 +395,10 @@ export function parseSwapError(error: any): string {
               for (let i = 0; i < jsonToParse.length; i++) {
                 if (jsonToParse[i] === '{') braces++;
                 if (jsonToParse[i] === '}') braces--;
-                if (braces === 0) { jsonToParse = jsonToParse.substring(0, i + 1); break; }
+                if (braces === 0) {
+                  jsonToParse = jsonToParse.substring(0, i + 1);
+                  break;
+                }
               }
             }
           } else {
@@ -360,12 +409,20 @@ export function parseSwapError(error: any): string {
             const parsed = JSON.parse(jsonToParse);
             const deepError = parsed.error || parsed;
             let body = deepError.body;
-            if (typeof body === 'string') { try { body = JSON.parse(body); } catch { } }
+            if (typeof body === 'string') {
+              try {
+                body = JSON.parse(body);
+              } catch (err) {
+                console.error('Error parsing message:', err);
+              }
+            }
             if (body?.error?.message) message = body.error.message;
             else if (deepError.message) message = deepError.message;
             else if (parsed.reason) message = parsed.reason;
           }
-        } catch { }
+        } catch (err) {
+          console.error('Error parsing message:', err);
+        }
       }
     } else {
       try {

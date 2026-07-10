@@ -1,11 +1,12 @@
 import React from 'react';
+
+import { EvmTransactionModal } from '../modules/evm/components/EvmTransactionModal';
+import { TransactionMonitor } from '../modules/evm/components/TransactionMonitor';
+import StellarTransactionModal from '../modules/stellar/components/modals/StellarTransactionModal';
 import { useNotificationStore } from '../store/notificationStore';
 import { useTransactionModalStore } from '../store/transactionModalStore';
 import { NotificationPanel } from './NotificationPanel';
 import { ToastContainer } from './ToastContainer';
-import { TransactionMonitor } from '../modules/evm/components/TransactionMonitor';
-import { EvmTransactionModal } from '../modules/evm/components/EvmTransactionModal';
-import StellarTransactionModal from '../modules/steallr/components/modals/StellarTransactionModal';
 
 export const GlobalNotifications: React.FC = () => {
   const { isGlobalPanelOpen, setGlobalPanelOpen } = useNotificationStore();
@@ -17,8 +18,9 @@ export const GlobalNotifications: React.FC = () => {
       <ToastContainer />
       <NotificationPanel isOpen={isGlobalPanelOpen} onClose={() => setGlobalPanelOpen(false)} />
 
-      {isOpen && modalParams && (
-        modalParams.isStellar ? (
+      {isOpen &&
+        modalParams &&
+        (modalParams.isStellar ? (
           <StellarTransactionModal
             isOpen={isOpen}
             onClose={closeModal}
@@ -37,8 +39,7 @@ export const GlobalNotifications: React.FC = () => {
             networkName={modalParams.networkName}
             onDone={closeModal}
           />
-        )
-      )}
+        ))}
     </>
   );
 };

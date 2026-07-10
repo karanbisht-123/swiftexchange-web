@@ -11,7 +11,7 @@ import { useTransactionModalStore } from '../../../../../store/transactionModalS
 import { ActionGuard } from '../../../../commonfeature/components/ActionGuard';
 import TransactionButton from '../../../../commonfeature/components/TransactionButton';
 import { useAssetSelectorModal } from '../../../../commonfeature/components/useAssetSelectorModal';
-import { AmmSwapService } from '../../../../steallr/service/ammSwapService';
+import { AmmSwapService } from '../../../../stellar/service/ammSwapService';
 import StellarActiveGuard from '../../../../walletconnect/components/StellarActiveGuard';
 import { getStellarConfig } from '../../../../walletconnect/config/chains';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
