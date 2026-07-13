@@ -522,7 +522,6 @@ const PositionsPanel: React.FC = () => {
     positionsError,
     refreshPositions,
     isConnected,
-    // isReceivingUpdates,
   } = useDydxData();
 
   const positions = rawPositions as Position[];
@@ -873,15 +872,7 @@ const PositionsPanel: React.FC = () => {
           <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
             <tr>
               <th className="p-3 border-b border-color">
-                <div className="flex text-[10px] items-center gap-2">
-                  Market
-                  {/* {!isReceivingUpdates && (
-                    <div
-                      className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"
-                      title="Reconnecting..."
-                    />
-                  )} */}
-                </div>
+                <div className="flex text-[10px] items-center gap-2">Market</div>
               </th>
               <th className="p-2 border-b border-color text-[10px]">Leverage</th>
               <th className="p-2 border-b border-color text-[10px]">Type</th>

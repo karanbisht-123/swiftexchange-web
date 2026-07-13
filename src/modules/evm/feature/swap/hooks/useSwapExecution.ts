@@ -1,15 +1,23 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { WalletType } from '../../../../walletconnect/constants/Wallet';
-import { useSwapStore } from '../../../../../store/swapStore';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { ChainSymbol, FeePaymentMethod, Messenger } from '@allbridge/bridge-core-sdk';
+
 import { useNotificationStore } from '../../../../../store/notificationStore';
+import { useSwapStore } from '../../../../../store/swapStore';
 import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
+import { sendEVMTransaction } from '../../../../../utils/walletConnectUtils';
+import { WalletType } from '../../../../walletconnect/constants/Wallet';
+import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
+import { getChainById } from '../../../utils/Chainregistry';
+import {
+  STELLAR_NETWORK_PASSPHRASE,
+  prepareStellarToEvmRawTransaction,
+  signAndSubmitTransaction,
+} from '../services/stellarBridgeService';
 import { isStellar } from '../utils/swapAssetUtils';
 import { parseSwapError, parseWalletError } from '../utils/swapErrorHandler';
-import { getChainById } from '../../../utils/Chainregistry';
-import { ChainSymbol, FeePaymentMethod, Messenger } from '@allbridge/bridge-core-sdk';
-import { signAndSubmitTransaction, prepareStellarToEvmRawTransaction, STELLAR_NETWORK_PASSPHRASE } from '../services/stellarBridgeService';
-import { sendEVMTransaction } from '../../../../../utils/walletConnectUtils';
-import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
+import { getCalculatedBuyAmount } from '../utils/swapQuoteUtils';
+
 export interface UseSwapExecutionParams {
   sellAmount: string;
   selectedSellAsset: any;
@@ -25,7 +33,6 @@ export interface UseSwapExecutionParams {
   evmAddress: string;
   currentNetwork: 'mainnet' | 'testnet';
   userSlippageTolerance: number;
-  calculatedBuyAmount: string;
   fromChainConfig: any;
 
   // quote data
@@ -37,8 +44,24 @@ export interface UseSwapExecutionParams {
   ammService: any;
   getProvider: (type: WalletType) => any;
   fetchFusionQuote: (sellAsset: any, buyAsset: any, amount: string) => Promise<any>;
-  performSwap: (quote: any, sellAsset: any, buyAsset: any, amount: string, slippage: number, onBeforeSign: () => void, onProgress?: (step: 'approving' | 'signing') => void) => Promise<string>;
-  performFusionSwap: (sellAsset: any, buyAsset: any, amount: string, preset: string, onProgress: any, quote: any, onBeforeSign: () => void) => Promise<string>;
+  performSwap: (
+    quote: any,
+    sellAsset: any,
+    buyAsset: any,
+    amount: string,
+    slippage: number,
+    onBeforeSign: () => void,
+    onProgress?: (step: 'approving' | 'signing') => void
+  ) => Promise<string>;
+  performFusionSwap: (
+    sellAsset: any,
+    buyAsset: any,
+    amount: string,
+    preset: string,
+    onProgress: any,
+    quote: any,
+    onBeforeSign: () => void
+  ) => Promise<string>;
   prepareBridgeTransaction: (params: any) => Promise<any>;
 
   // state triggers
@@ -64,7 +87,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     evmAddress,
     currentNetwork,
     userSlippageTolerance,
-    calculatedBuyAmount,
     fromChainConfig,
     activeQuote,
     swapQuote,
@@ -86,10 +108,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   const [isWaitingForWallet, setIsWaitingForWallet] = useState(false);
   const [showFusionScreen, setShowFusionScreen] = useState(false);
 
-  const executionApprovalRequired = useSwapStore((s) => s.executionApprovalRequired);
-  const executionCurrentStep = useSwapStore((s) => s.executionCurrentStep);
-  const setExecutionApprovalRequired = useSwapStore((s) => s.setExecutionApprovalRequired);
-  const setExecutionCurrentStep = useSwapStore((s) => s.setExecutionCurrentStep);
+  const executionApprovalRequired = useSwapStore(s => s.executionApprovalRequired);
+  const executionCurrentStep = useSwapStore(s => s.executionCurrentStep);
+  const setExecutionApprovalRequired = useSwapStore(s => s.setExecutionApprovalRequired);
+  const setExecutionCurrentStep = useSwapStore(s => s.setExecutionCurrentStep);
 
   const isSubmittingRef = useRef(false);
   const swapAbortRef = useRef<AbortController | null>(null);
@@ -97,12 +119,34 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   const { showToast } = useNotificationStore();
   const { openModal } = useTransactionModalStore();
 
-  const setBridgeTxStatus = useSwapStore((s) => s.setPendingTxStatus);
-  const setBridgeErrorMsg = useSwapStore((s) => s.setPendingTxErrorMsg);
-  const setPendingTxFromChainId = useSwapStore((s) => s.setPendingTxFromChainId);
+  const setBridgeTxStatus = useSwapStore(s => s.setPendingTxStatus);
+  const setBridgeErrorMsg = useSwapStore(s => s.setPendingTxErrorMsg);
+  const setPendingTxFromChainId = useSwapStore(s => s.setPendingTxFromChainId);
+
+  const trackDydxIntent = useCallback((txHash: string, amountOut: string) => {
+    try {
+      const parsedAmount = parseFloat(amountOut || '0');
+      if (parsedAmount > 0 && localStorage.getItem('pending_dydx_intent') === 'true') {
+        localStorage.setItem(
+          'dydx_intent_' + txHash,
+          JSON.stringify({
+            amountOut,
+            timestamp: Date.now(),
+          })
+        );
+        localStorage.removeItem('pending_dydx_intent');
+      } else if (parsedAmount <= 0) {
+        localStorage.removeItem('pending_dydx_intent');
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
-    return () => { swapAbortRef.current?.abort(); };
+    return () => {
+      swapAbortRef.current?.abort();
+    };
   }, []);
 
   const resetLoadingState = useCallback(() => {
@@ -117,14 +161,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     isSubmittingRef.current = false;
   }, [resetSwap, setBridgeTxStatus, setExecutionApprovalRequired, setExecutionCurrentStep]);
 
-  const setSwapProgressStatus = useCallback((status: 'approving' | 'signing') => {
-    setBridgeTxStatus(status === 'signing' ? 'signing' : 'preparing');
-    setFusionStatus(status);
-    setExecutionCurrentStep(status);
-    if (useSwapStore.getState().executionApprovalRequired === null) {
-      setExecutionApprovalRequired(status === 'approving');
-    }
-  }, [setBridgeTxStatus, setExecutionApprovalRequired, setExecutionCurrentStep]);
+  const setSwapProgressStatus = useCallback(
+    (status: 'approving' | 'signing') => {
+      setBridgeTxStatus(status === 'signing' ? 'signing' : 'preparing');
+      setFusionStatus(status);
+      setExecutionCurrentStep(status);
+      if (useSwapStore.getState().executionApprovalRequired === null) {
+        setExecutionApprovalRequired(status === 'approving');
+      }
+    },
+    [setBridgeTxStatus, setExecutionApprovalRequired, setExecutionCurrentStep]
+  );
 
   const executeStellarSwap = async (checkAborted: () => void) => {
     if (!activeQuote.data || !ammService || !stellarAddress) {
@@ -136,21 +183,34 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       setExecutionCurrentStep('preparing');
       setBridgeTxStatus('preparing');
       const tx = await ammService.buildSwapTransaction(stellarAddress, activeQuote.data, {
-        slippageTolerance: userSlippageTolerance
+        slippageTolerance: userSlippageTolerance,
       });
       checkAborted();
       setExecutionCurrentStep('signing');
       setBridgeTxStatus('signing');
       setPendingTxFromChainId(fromChainId);
+      const computedOutAmount = getCalculatedBuyAmount({
+        actionType,
+        isGasless,
+        fusionQuote,
+        showFusionScreen,
+        selectedBuyAsset,
+        activeQuoteSource: activeQuote.source,
+        activeQuoteData: activeQuote.data,
+        swapQuote,
+        isSameAssetSelected: false,
+        feePayType,
+      });
       const provider = getProvider(WalletType.STELLAR) as any;
       setIsWaitingForWallet(true);
       try {
         const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
+        if (hash) trackDydxIntent(hash, computedOutAmount);
         handleReset();
         showToast({
           type: 'STELLAR',
           title: 'Swap Transaction Sent',
-          message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
+          message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
         });
         if (hash) {
           openModal({
@@ -164,7 +224,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         setIsWaitingForWallet(false);
       }
     } catch (err) {
-      if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
+      if ((err as any)?.name === 'AbortError') {
+        resetLoadingState();
+        return;
+      }
       console.error('Stellar swap execution failed:', err);
       const errMsg = parseSwapError(err);
       setBridgeErrorMsg(errMsg);
@@ -179,7 +242,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         type: 'STELLAR',
         title: 'Swap Failed',
         message: errMsg,
-        dontSave: true
+        dontSave: true,
       });
     }
   };
@@ -202,26 +265,44 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         sellAmount,
         userSlippageTolerance,
         onBeforeSign,
-        setSwapProgressStatus,
+        setSwapProgressStatus
       );
+      const computedOutAmount = getCalculatedBuyAmount({
+        actionType,
+        isGasless,
+        fusionQuote,
+        showFusionScreen,
+        selectedBuyAsset,
+        activeQuoteSource: activeQuote.source,
+        activeQuoteData: activeQuote.data,
+        swapQuote,
+        isSameAssetSelected: false,
+        feePayType,
+      });
+      if (hash) trackDydxIntent(hash, computedOutAmount);
       handleReset();
       showToast({
         type: 'EVM_SWAP',
         title: 'Swap Transaction Sent',
-        message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`
+        message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
       });
       if (hash) {
         openModal({
           status: 'success',
           type: 'Swap',
           hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}` : undefined,
+          explorerUrl: fromChainConfig?.blockExplorerUrl
+            ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
+            : undefined,
           networkName: fromChainConfig?.name,
           isStellar: false,
         });
       }
     } catch (err) {
-      if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
+      if ((err as any)?.name === 'AbortError') {
+        resetLoadingState();
+        return;
+      }
       console.error('Swap execution failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
@@ -240,7 +321,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   };
 
   const executeStellarToEvmBridge = async (checkAborted: () => void) => {
-    if (!stellarAddress || !evmAddress || !activeQuote.data) { setBridgeTxStatus('idle'); return; }
+    if (!stellarAddress || !evmAddress || !activeQuote.data) {
+      setBridgeTxStatus('idle');
+      return;
+    }
     setExecutionApprovalRequired(false);
     setExecutionCurrentStep('preparing');
     const xdr = await prepareStellarToEvmRawTransaction({
@@ -250,9 +334,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       fromAccountAddress: stellarAddress,
       toAccountAddress: evmAddress,
       network: currentNetwork,
-      feePaymentMethod: (feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) ? FeePaymentMethod.WITH_STABLECOIN : FeePaymentMethod.WITH_NATIVE_CURRENCY,
+      feePaymentMethod:
+        feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin
+          ? FeePaymentMethod.WITH_STABLECOIN
+          : FeePaymentMethod.WITH_NATIVE_CURRENCY,
       messenger: Messenger.ALLBRIDGE,
-      slippageTolerance: userSlippageTolerance
+      slippageTolerance: userSlippageTolerance,
     });
     checkAborted();
     setExecutionCurrentStep('signing');
@@ -266,7 +353,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         xdr,
         network: currentNetwork,
         networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
-        provider
+        provider,
       });
     } finally {
       setIsWaitingForWallet(false);
@@ -274,6 +361,19 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
 
     if (result.success) {
       const txHash = result.hash || undefined;
+      const computedOutAmount = getCalculatedBuyAmount({
+        actionType,
+        isGasless,
+        fusionQuote,
+        showFusionScreen,
+        selectedBuyAsset,
+        activeQuoteSource: activeQuote.source,
+        activeQuoteData: activeQuote.data,
+        swapQuote,
+        isSameAssetSelected: false,
+        feePayType,
+      });
+      if (txHash) trackDydxIntent(txHash, computedOutAmount);
       handleReset();
       if (txHash) {
         storeSwapOrder({
@@ -285,14 +385,16 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           toChain: getChainById(toChainId)?.symbol || String(toChainId),
           toToken: buyAssetSymbol,
           amountIn: sellAmount,
-          amountOut: calculatedBuyAmount,
-          txType: 'Bridge'
-        } as any).catch((err: any) => console.error('Failed to store Stellar\u2192EVM bridge order:', err));
+          amountOut: computedOutAmount,
+          txType: 'Bridge',
+        } as any).catch((err: any) =>
+          console.error('Failed to store Stellar\u2192EVM bridge order:', err)
+        );
       }
       showToast({
         type: 'BRIDGE',
         title: 'Bridge Initiated',
-        message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
+        message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
       });
       if (txHash) {
         openModal({
@@ -308,7 +410,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   };
 
   const executeEvmFusionPlusBridge = async (checkAborted: () => void) => {
-    if (!evmAddress) { setBridgeTxStatus('idle'); return; }
+    if (!evmAddress) {
+      setBridgeTxStatus('idle');
+      return;
+    }
     setBridgeTxStatus('preparing');
     try {
       const currentQuote = activeQuote.data;
@@ -321,29 +426,47 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         setSwapProgressStatus,
         currentQuote,
         () => {
-          checkAborted()
+          checkAborted();
           setBridgeTxStatus('signing');
           setIsWaitingForWallet(true);
-        },
+        }
       );
+      const computedOutAmount = getCalculatedBuyAmount({
+        actionType,
+        isGasless,
+        fusionQuote,
+        showFusionScreen,
+        selectedBuyAsset,
+        activeQuoteSource: activeQuote.source,
+        activeQuoteData: activeQuote.data,
+        swapQuote,
+        isSameAssetSelected: false,
+        feePayType,
+      });
+      if (hash) trackDydxIntent(hash, computedOutAmount);
       handleReset();
       showToast({
         type: 'EVM_SWAP',
         title: 'Bridge Order Submitted',
-        message: `Cross-chain swap for ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol} submitted successfully.`
+        message: `Cross-chain swap for ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol} submitted successfully.`,
       });
       if (hash) {
         openModal({
           status: 'success',
           type: 'Bridge',
           hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}` : undefined,
+          explorerUrl: fromChainConfig?.blockExplorerUrl
+            ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
+            : undefined,
           networkName: fromChainConfig?.name,
           isStellar: false,
         });
       }
     } catch (err) {
-      if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
+      if ((err as any)?.name === 'AbortError') {
+        resetLoadingState();
+        return;
+      }
       console.error('Fusion Plus cross-chain swap failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
@@ -363,7 +486,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
 
   const executeEvmAllbridgeBridge = async (checkAborted: () => void) => {
     const destAddr = isStellar(toChainId) ? stellarAddress : evmAddress;
-    if (!evmAddress || !destAddr) { setBridgeTxStatus('idle'); return; }
+    if (!evmAddress || !destAddr) {
+      setBridgeTxStatus('idle');
+      return;
+    }
 
     setExecutionApprovalRequired(false);
     setExecutionCurrentStep('preparing');
@@ -372,24 +498,37 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       fromChainId,
       toChainId,
       amount: sellAmount,
-      feePayType: (feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin) ? 'stablecoin' : 'native',
+      feePayType:
+        feePayType === 'stablecoin' && activeQuote.data?.fee?.stablecoin ? 'stablecoin' : 'native',
       fromAddress: evmAddress,
       destinationAddress: destAddr,
       sourceToken: sellAssetSymbol,
       destinationToken: buyAssetSymbol,
-      slippageTolerance: userSlippageTolerance
+      slippageTolerance: userSlippageTolerance,
     });
     checkAborted();
 
     const txs = bridgeResponse.transactions || [];
     const hasApproval = txs.some((t: any) => t.type === 'approve');
 
-    console.log(txs, "---------- hasApprval check ")
+    console.log(txs, '---------- hasApprval check ');
 
     setExecutionApprovalRequired(hasApproval);
     setExecutionCurrentStep(hasApproval ? 'approving' : 'signing');
 
     const provider = getProvider(WalletType.EVM) as any;
+    const computedOutAmount = getCalculatedBuyAmount({
+      actionType,
+      isGasless,
+      fusionQuote,
+      showFusionScreen,
+      selectedBuyAsset,
+      activeQuoteSource: activeQuote.source,
+      activeQuoteData: activeQuote.data,
+      swapQuote,
+      isSameAssetSelected: false,
+      feePayType,
+    });
     let transferHash: string | undefined = undefined;
     for (const tx of txs) {
       if (tx.type === 'approve') {
@@ -421,12 +560,13 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           toChain: getChainById(toChainId)?.symbol || String(toChainId),
           toToken: buyAssetSymbol,
           amountIn: sellAmount,
-          amountOut: calculatedBuyAmount,
-          txType: 'Token Approval'
+          amountOut: computedOutAmount,
+          txType: 'Token Approval',
         } as any).catch(err => console.error('Failed to store Allbridge approval order:', err));
       }
       if (tx.type === 'transfer') {
         transferHash = hash;
+        if (hash) trackDydxIntent(hash, computedOutAmount);
         useSwapStore.getState().setPendingTxHash(hash);
         storeSwapOrder({
           txHash: hash,
@@ -437,8 +577,8 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           toChain: getChainById(toChainId)?.symbol || String(toChainId),
           toToken: buyAssetSymbol,
           amountIn: sellAmount,
-          amountOut: calculatedBuyAmount,
-          txType: 'Bridge'
+          amountOut: computedOutAmount,
+          txType: 'Bridge',
         } as any).catch(err => console.error('Failed to store Allbridge order:', err));
       }
     }
@@ -446,14 +586,16 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     showToast({
       type: 'BRIDGE',
       title: 'Bridge Initiated',
-      message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`
+      message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
     });
     if (transferHash) {
       openModal({
         status: 'success',
         type: 'Bridge',
         hash: transferHash,
-        explorerUrl: fromChainConfig?.blockExplorerUrl ? `${fromChainConfig.blockExplorerUrl}/tx/${transferHash}` : undefined,
+        explorerUrl: fromChainConfig?.blockExplorerUrl
+          ? `${fromChainConfig.blockExplorerUrl}/tx/${transferHash}`
+          : undefined,
         networkName: fromChainConfig?.name,
         isStellar: false,
       });
@@ -500,10 +642,22 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           await executeEvmSwap(checkAborted);
         }
       } else {
-        if (isStellar(fromChainId) && !stellarAddress) { setBridgeTxStatus('idle'); return; }
-        if (isStellar(toChainId) && !stellarAddress) { setBridgeTxStatus('idle'); return; }
-        if (!isStellar(fromChainId) && !evmAddress) { setBridgeTxStatus('idle'); return; }
-        if (!activeQuote.data) { setBridgeTxStatus('idle'); return; }
+        if (isStellar(fromChainId) && !stellarAddress) {
+          setBridgeTxStatus('idle');
+          return;
+        }
+        if (isStellar(toChainId) && !stellarAddress) {
+          setBridgeTxStatus('idle');
+          return;
+        }
+        if (!isStellar(fromChainId) && !evmAddress) {
+          setBridgeTxStatus('idle');
+          return;
+        }
+        if (!activeQuote.data) {
+          setBridgeTxStatus('idle');
+          return;
+        }
 
         try {
           if (isStellar(fromChainId)) {
@@ -514,7 +668,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
             await executeEvmAllbridgeBridge(checkAborted);
           }
         } catch (err: any) {
-          if ((err as any)?.name === 'AbortError') { resetLoadingState(); return; }
+          if ((err as any)?.name === 'AbortError') {
+            resetLoadingState();
+            return;
+          }
           console.error('Bridge failed:', err);
           const errMsg = parseWalletError(err);
           setBridgeErrorMsg(errMsg);
@@ -526,7 +683,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
             error: errMsg,
             isStellar: isStellar(fromChainId),
           });
-          showToast({ type: 'BRIDGE', title: 'Transaction Failed', message: errMsg, dontSave: true });
+          showToast({
+            type: 'BRIDGE',
+            title: 'Transaction Failed',
+            message: errMsg,
+            dontSave: true,
+          });
         }
       }
     };

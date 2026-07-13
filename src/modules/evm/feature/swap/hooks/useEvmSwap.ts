@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { ethers } from 'ethers';
-import type { FusionQuote, SwapQuote, SwapQuoteRequest } from '../types/swap.types';
+
+import { notifyWalletSignRequest } from '../../../../../utils/walletConnectUtils';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
+import { simulateSwapTransaction } from '../../../service/evmSimulationService';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
 import { addLocalTransaction } from '../../../service/localTransactionService';
 import {
@@ -13,17 +16,20 @@ import {
 } from '../../../service/tokenListService';
 import { getChainById, isEvmChain } from '../../../utils/Chainregistry';
 import { getEVMNetworkConfig } from '../../../utils/evmUtils';
+import { simulateEVMTransaction } from '../../../utils/evmUtils';
 import { rpcManager } from '../../../utils/rpcProvider';
-import { parseSwapError } from '../utils/swapErrorHandler';
-import { toPlainString, formatAmount } from '../utils/swapAmountUtils';
-import { getSwapQuote, prepareSwapTransaction } from '../services/evmSwapService';
-import { get1InchFusionQuote, build1InchFusionOrder, submit1InchFusionOrder } from '../services/fusionOrderService';
+import { AGGREGATOR_NATIVE_ADDRESS } from '../constants/swap.constants';
 import { executeSwap } from '../execution/evmSwapExecutor';
 import { execute1InchFusionSwap } from '../execution/fusionSwapExecutor';
-import { simulateSwapTransaction } from '../../../service/evmSimulationService';
-import { simulateEVMTransaction } from '../../../utils/evmUtils';
-import { AGGREGATOR_NATIVE_ADDRESS } from '../constants/swap.constants';
-import { notifyWalletSignRequest } from '../../../../../utils/walletConnectUtils';
+import { getSwapQuote, prepareSwapTransaction } from '../services/evmSwapService';
+import {
+  build1InchFusionOrder,
+  get1InchFusionQuote,
+  submit1InchFusionOrder,
+} from '../services/fusionOrderService';
+import type { FusionQuote, SwapQuote, SwapQuoteRequest } from '../types/swap.types';
+import { formatAmount, toPlainString } from '../utils/swapAmountUtils';
+import { parseSwapError } from '../utils/swapErrorHandler';
 
 export { toPlainString };
 
@@ -321,10 +327,20 @@ export const useEvmSwap = ({
           throw new Error('Cannot swap same token');
         }
 
-        const isNativeSell = !!sellAsset.isNative || isNativeAddress(request.tokenIn?.address) || isNativeAddress(sellAsset.address);
-        const isNativeBuy = !!buyAsset.isNative || isNativeAddress(request.tokenOut?.address) || isNativeAddress(buyAsset.address);
-        const normalizedSellAddress = isNativeSell ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : sellAsset.address;
-        const normalizedBuyAddress = isNativeBuy ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : buyAsset.address;
+        const isNativeSell =
+          !!sellAsset.isNative ||
+          isNativeAddress(request.tokenIn?.address) ||
+          isNativeAddress(sellAsset.address);
+        const isNativeBuy =
+          !!buyAsset.isNative ||
+          isNativeAddress(request.tokenOut?.address) ||
+          isNativeAddress(buyAsset.address);
+        const normalizedSellAddress = isNativeSell
+          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+          : sellAsset.address;
+        const normalizedBuyAddress = isNativeBuy
+          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+          : buyAsset.address;
 
         if (!isNativeSell && !ethers.isAddress(normalizedSellAddress || ''))
           throw new Error(`Invalid sell token address: ${sellAsset.address}`);
@@ -396,8 +412,12 @@ export const useEvmSwap = ({
       updateState({ quoteLoading: true, error: null });
 
       try {
-        const normalizedTokenIn = isNativeAddress(sellAsset.address) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : sellAsset.address;
-        const normalizedTokenOut = isNativeAddress(buyAsset.address) ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase() : buyAsset.address;
+        const normalizedTokenIn = isNativeAddress(sellAsset.address)
+          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+          : sellAsset.address;
+        const normalizedTokenOut = isNativeAddress(buyAsset.address)
+          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+          : buyAsset.address;
 
         const fusionQuoteData = await get1InchFusionQuote(
           chainId,
@@ -586,9 +606,9 @@ export const useEvmSwap = ({
               amountOut:
                 fQuote.toTokenAmount || fQuote.dstTokenAmount
                   ? ethers.formatUnits(
-                    fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
-                    buyAsset.decimals || 18
-                  )
+                      fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
+                      buyAsset.decimals || 18
+                    )
                   : '0',
               txType: 'Token Approval',
             } as any).catch(backendErr =>
@@ -616,9 +636,9 @@ export const useEvmSwap = ({
             amountOut:
               fQuote.toTokenAmount || fQuote.dstTokenAmount
                 ? ethers.formatUnits(
-                  fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
-                  buyAsset.decimals || 18
-                )
+                    fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
+                    buyAsset.decimals || 18
+                  )
                 : '0',
             txType: 'Swap',
           } as any);

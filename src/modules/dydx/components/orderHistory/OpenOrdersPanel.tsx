@@ -101,8 +101,7 @@ function getStatusBadge(order: TrackedOrder) {
 }
 
 const OpenOrdersPanel: React.FC = () => {
-  const { openOrdersWithGrace, loadingOrders, ordersError, refreshOrders, isConnected } =
-    useDydxData();
+  const { openOrders, loadingOrders, ordersError, refreshOrders, isConnected } = useDydxData();
   const marketCache = useMarketStore(state => state.marketCache);
 
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
@@ -113,12 +112,10 @@ const OpenOrdersPanel: React.FC = () => {
   const cancelRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (openOrdersWithGrace.length === 0) return;
+    if (openOrders.length === 0) return;
 
     const fetchIcons = async () => {
-      const markets = [
-        ...new Set(openOrdersWithGrace.map(o => o.ticker).filter(Boolean)),
-      ] as string[];
+      const markets = [...new Set(openOrders.map(o => o.ticker).filter(Boolean))] as string[];
       const newMarkets = markets.filter(m => !requestedIconsRef.current.has(m));
       if (newMarkets.length === 0) return;
       newMarkets.forEach(m => requestedIconsRef.current.add(m));
@@ -141,7 +138,7 @@ const OpenOrdersPanel: React.FC = () => {
     };
 
     fetchIcons();
-  }, [openOrdersWithGrace]);
+  }, [openOrders]);
 
   useEffect(() => {
     return () => {
@@ -222,7 +219,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (loadingOrders && openOrdersWithGrace.length === 0) {
+  if (loadingOrders && openOrders.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted">
         <Loader2 className="w-6 h-6 mr-2 animate-spin" />
@@ -231,7 +228,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (ordersError && openOrdersWithGrace.length === 0) {
+  if (ordersError && openOrders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center">
         <h3 className="text-lg font-semibold text-red-400 mb-2">Error Loading Orders</h3>
@@ -247,7 +244,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (openOrdersWithGrace.length === 0) {
+  if (openOrders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted">
         <h3 className="text-lg font-semibold text-primary mb-2">No Open Orders</h3>
@@ -276,7 +273,7 @@ const OpenOrdersPanel: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {openOrdersWithGrace.map(order => {
+            {openOrders.map(order => {
               const isCancelling = cancelling.has(order.id);
               const filled = parseFloat(order.totalOptimisticFilled || '0');
               const size = parseFloat(order.size);
@@ -359,7 +356,7 @@ const OpenOrdersPanel: React.FC = () => {
 
       {/* Mobile cards */}
       <div className="md:hidden flex-1 overflow-auto space-y-1.5 p-2">
-        {openOrdersWithGrace.map(order => {
+        {openOrders.map(order => {
           const isCancelling = cancelling.has(order.id);
           const filled = parseFloat(order.totalOptimisticFilled || '0');
           const size = parseFloat(order.size);

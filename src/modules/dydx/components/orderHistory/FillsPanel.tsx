@@ -26,12 +26,17 @@ function computeClosedPnl(fill: Fill): { str: string; cls: string } {
   const entryPrice = parseFloat(fill.entryPriceBefore);
   const fillPrice = parseFloat(fill.price);
   const fillSize = parseFloat(fill.size);
+  const fee = parseFloat(fill.fee || '0');
 
   let closedPnl: number | null = null;
   if (fill.positionSideBefore === 'LONG' && fill.side === 'SELL') {
-    closedPnl = (fillPrice - entryPrice) * Math.min(sizeBefore, fillSize);
+    const closedSize = Math.min(sizeBefore, fillSize);
+    const feePortion = fillSize > 0 ? fee * (closedSize / fillSize) : 0;
+    closedPnl = (fillPrice - entryPrice) * closedSize - feePortion;
   } else if (fill.positionSideBefore === 'SHORT' && fill.side === 'BUY') {
-    closedPnl = (entryPrice - fillPrice) * Math.min(sizeBefore, fillSize);
+    const closedSize = Math.min(sizeBefore, fillSize);
+    const feePortion = fillSize > 0 ? fee * (closedSize / fillSize) : 0;
+    closedPnl = (entryPrice - fillPrice) * closedSize - feePortion;
   }
 
   if (closedPnl === null) return { str: '—', cls: 'text-muted' };
