@@ -185,18 +185,18 @@ const OrderHistoryPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-secondary overflow-hidden">
       <div className="hidden md:block flex-1 overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-secondary border-b border-color z-10">
-            <tr className="text-muted text-xs">
-              <th className="text-left px-4 py-3 font-medium">Market</th>
-              <th className="text-center px-4 py-3 font-medium">Status</th>
-              <th className="text-center px-4 py-3 font-medium">Side</th>
-              <th className="text-left px-4 py-3 font-medium">Type</th>
-              <th className="text-right px-4 py-3 font-medium">Amount</th>
-              <th className="text-right px-4 py-3 font-medium">Filled</th>
-              <th className="text-right px-4 py-3 font-medium">Price</th>
-              <th className="text-center px-4 py-3 font-medium">TIF</th>
-              <th className="text-right px-4 py-3 font-medium">Time</th>
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-secondary text-muted text-[10px] uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-color">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Market</th>
+              <th className="px-2 py-2 text-center font-semibold">Status</th>
+              <th className="px-2 py-2 text-center font-semibold">Side</th>
+              <th className="px-2 py-2 text-left font-semibold">Type</th>
+              <th className="px-2 py-2 text-right font-semibold">Amount</th>
+              <th className="px-2 py-2 text-right font-semibold">Filled</th>
+              <th className="px-2 py-2 text-right font-semibold">Price</th>
+              <th className="px-2 py-2 text-center font-semibold">TIF</th>
+              <th className="px-2 py-2 text-right font-semibold">Time</th>
             </tr>
           </thead>
           <tbody>
@@ -222,36 +222,36 @@ const OrderHistoryPanel: React.FC = () => {
                 <tr
                   key={order.id}
                   onClick={() => handleOrderClick(order)}
-                  className="border-b border-color hover:bg-hover transition-colors cursor-pointer"
+                  className="border-b border-color hover:bg-hover transition-colors cursor-pointer text-[11px]"
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-1.5">
                     <MarketBadge market={marketTicker} />
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <StatusIndicator status={order.status} />
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-semibold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}
                     >
                       {capitalizeFirst(order.side)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-left">
-                    <span className="text-primary text-xs">{capitalizeFirst(displayType)}</span>
+                  <td className="px-2 py-1.5 text-left text-primary font-bold">
+                    {capitalizeFirst(displayType)}
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{sizeStr}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-2 py-1.5 text-right text-primary font-mono">{sizeStr}</td>
+                  <td className="px-2 py-1.5 text-right">
                     <div className="text-primary font-mono">{filledStr}</div>
                     {fillPercent > 0 && fillPercent < 100 && (
-                      <div className="text-xs text-gray-500">{fillPercent.toFixed(0)}%</div>
+                      <div className="text-[9px] text-gray-500">{fillPercent.toFixed(0)}%</div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{priceStr}</td>
-                  <td className="px-4 py-3 text-center text-gray-400 text-xs">
+                  <td className="px-2 py-1.5 text-right text-primary font-mono">{priceStr}</td>
+                  <td className="px-2 py-1.5 text-center text-gray-400 font-bold">
                     {order.timeInForce || 'GTT'}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-xs">
+                  <td className="px-2 py-1.5 text-right text-gray-400 font-mono">
                     {formatTimeAgoCompact(order.updatedAt || order.goodTilBlockTime || '')}
                   </td>
                 </tr>

@@ -89,8 +89,9 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
     : null;
 
   const lastUpdateTime = parentData?.lastUpdate ?? null;
-  // dataLoaded = WS snapshot has arrived at least once (lastUpdate > 0)
-  const dataLoaded = parentData !== undefined && parentData.lastUpdate > 0;
+  // dataLoaded = WS snapshot has arrived and contains equity
+  const dataLoaded =
+    parentData !== undefined && parentData.equity !== undefined && parentData.lastUpdate > 0;
 
   const wsIsConnected = useWebSocketStore(s => s.isConnected);
   const isReceivingUpdates =

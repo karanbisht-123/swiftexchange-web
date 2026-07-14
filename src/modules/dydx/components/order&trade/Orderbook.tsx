@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, memo } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useMarkets } from '../../hooks/useMarkets';
 import { useOrderbook } from '../../hooks/useOrderbook';
@@ -13,12 +13,13 @@ interface OrderbookRow {
   usdTotal: number;
 }
 
-// Skeleton shimmer row 
+// Skeleton shimmer row
 const SkeletonRow = ({ isAsk = false }: { isAsk?: boolean }) => (
   <div className="grid grid-cols-3 px-1 md:px-2 lg:px-4 py-0.5 my-0.5 relative overflow-hidden">
     <div
-      className={`skeleton-shimmer rounded h-[13px] w-[68%] ${isAsk ? 'bg-danger/15' : 'bg-success/15'
-        }`}
+      className={`skeleton-shimmer rounded h-[13px] w-[68%] ${
+        isAsk ? 'bg-danger/15' : 'bg-success/15'
+      }`}
     />
     <div className="skeleton-shimmer rounded h-[13px] w-[52%] bg-primary/10 ml-auto" />
     <div className="skeleton-shimmer rounded h-[13px] w-[44%] bg-primary/8 ml-auto" />
@@ -63,7 +64,8 @@ const OrderbookRowComponent = memo(function OrderbookRowComponent({
     }
   }, [size]);
 
-  const depthPct = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
+  const currentTotal = displayMode === 'base' ? total : usdTotal;
+  const depthPct = maxTotal > 0 ? (currentTotal / maxTotal) * 100 : 0;
   const displaySize =
     displayMode === 'base'
       ? size.toFixed(4)
@@ -93,17 +95,21 @@ const OrderbookRowComponent = memo(function OrderbookRowComponent({
           transform: `scaleX(${Math.min(1, depthPct / 100)})`,
         }}
       />
-      <div className={`relative font-semibold tabular-nums text-xs lg:text-[13px] ${
-        isAsk ? 'text-danger' : 'text-success'
-      }`}>
+      <div
+        className={`relative font-semibold tabular-nums text-xs lg:text-[13px] ${
+          isAsk ? 'text-danger' : 'text-success'
+        }`}
+      >
         {price.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })}
       </div>
-      <div className={`relative text-right tabular-nums text-xs lg:text-[13px] transition-colors duration-400 ${
-        flashClass || 'text-primary'
-      }`}>
+      <div
+        className={`relative text-right tabular-nums text-xs lg:text-[13px] transition-colors duration-400 ${
+          flashClass || 'text-primary'
+        }`}
+      >
         {displaySize}
       </div>
       <div className="relative text-right text-muted tabular-nums text-xs lg:text-[13px]">
@@ -113,11 +119,10 @@ const OrderbookRowComponent = memo(function OrderbookRowComponent({
   );
 });
 
-
 const Orderbook = () => {
   const { selectedMarket } = useMarketStore();
   const { onPriceClick } = useOrderbookClickStore();
-  const { orderbook, isConnected, isLoading } = useOrderbook(selectedMarket);
+  const { orderbook, isLoading } = useOrderbook(selectedMarket);
   const { getMarket } = useMarkets();
 
   const marketData = getMarket(selectedMarket);
@@ -282,43 +287,47 @@ const Orderbook = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-primary rounded p-0.5">
+          <div className="relative flex items-center bg-primary rounded p-0.5 w-[90px]">
+            <div
+              className="absolute top-0.5 bottom-0.5 w-[43px] bg-hover rounded transition-transform duration-300 ease-in-out"
+              style={{ transform: displayMode === 'usd' ? 'translateX(43px)' : 'translateX(0)' }}
+            />
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'base' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
-                }`}
+              className={`relative z-10 flex-1 py-0.5 text-[10px] font-semibold transition-colors ${
+                displayMode === 'base' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
               onClick={() => setDisplayMode('base')}
             >
               {base}
             </button>
             <button
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded transition-colors ${displayMode === 'usd' ? 'bg-hover text-primary' : 'text-muted hover:text-primary'
-                }`}
+              className={`relative z-10 flex-1 py-0.5 text-[10px] font-semibold transition-colors ${
+                displayMode === 'usd' ? 'text-primary' : 'text-muted hover:text-primary'
+              }`}
               onClick={() => setDisplayMode('usd')}
             >
               {quote}
             </button>
           </div>
-          <div
-            className={`w-2 h-2 rounded-full hidden lg:block ${isConnected && !isLoading ? 'bg-success' : 'bg-warning'
-              } ${isConnected ? 'animate-pulse' : ''}`}
-          />
         </div>
       </div>
 
-      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-muted border-b border-color font-medium">
+      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-[10px] md:text-xs text-muted border-b border-color font-medium">
         <div>
           Price{' '}
-          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">{quote}</span>
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[9px] md:text-[10px]">
+            {quote}
+          </span>
         </div>
         <div className="text-right">
           Size{' '}
-          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[9px] md:text-[10px]">
             {displayMode === 'base' ? base : quote}
           </span>
         </div>
         <div className="text-right">
           Total{' '}
-          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[10px]">
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[9px] md:text-[10px]">
             {displayMode === 'base' ? base : quote}
           </span>
         </div>
@@ -343,11 +352,11 @@ const Orderbook = () => {
         ))}
 
         {/* Skeleton rows shown while loading with no real data yet */}
-        {isLoading && asks.length === 0 &&
+        {isLoading &&
+          asks.length === 0 &&
           Array.from({ length: maxRows }).map((_, i) => (
             <SkeletonRow key={`ask-skel-${i}`} isAsk />
-          ))
-        }
+          ))}
       </div>
 
       {/* ── SPREAD ───────────────────────────────────────────────────────────── */}
@@ -381,11 +390,9 @@ const Orderbook = () => {
           />
         ))}
 
-        {isLoading && bids.length === 0 &&
-          Array.from({ length: maxRows }).map((_, i) => (
-            <SkeletonRow key={`bid-skel-${i}`} />
-          ))
-        }
+        {isLoading &&
+          bids.length === 0 &&
+          Array.from({ length: maxRows }).map((_, i) => <SkeletonRow key={`bid-skel-${i}`} />)}
       </div>
 
       <style>{`

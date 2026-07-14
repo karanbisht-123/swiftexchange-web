@@ -459,17 +459,22 @@ export const useDydxDeposit = () => {
 
       const nobleAddress = dydxToNoble(dydxAddress);
 
-      try {
-        const res = await fetch(
-          `https://rest.cosmos.directory/noble/cosmos/bank/v1beta1/balances/${nobleAddress}`
-        );
-        if (res.ok) {
-          const { balances = [] } = await res.json();
-          const uusdc = (balances as any[]).find(b => b.denom === 'uusdc');
-          if (uusdc && BigInt(uusdc.amount) > 0n) setPendingNobleQuantums(uusdc.amount);
+      const activeTx = getCurrentDepositTx();
+      const hasActivePending = activeTx && activeTx.status === 'pending';
+
+      if (hasActivePending) {
+        try {
+          const res = await fetch(
+            `https://rest.cosmos.directory/noble/cosmos/bank/v1beta1/balances/${nobleAddress}`
+          );
+          if (res.ok) {
+            const { balances = [] } = await res.json();
+            const uusdc = (balances as any[]).find(b => b.denom === 'uusdc');
+            if (uusdc && BigInt(uusdc.amount) > 0n) setPendingNobleQuantums(uusdc.amount);
+          }
+        } catch (e) {
+          console.warn('[deposit] Noble balance check failed:', e);
         }
-      } catch (e) {
-        console.warn('[deposit] Noble balance check failed:', e);
       }
 
       try {

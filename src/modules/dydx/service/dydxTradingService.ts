@@ -20,6 +20,7 @@ import {
   SUBACCOUNT_CONSTANTS,
   type TriggerParams,
 } from '../types/trading.types';
+import { dydxBlockHeightService } from './dydxBlockHeightService';
 import { dydxSubaccountService } from './dydxSubaccountService';
 import { dydxWalletService } from './dydxWalletService';
 
@@ -28,7 +29,7 @@ const TRADING_CONFIG = {
   SHORT_BLOCK_FORWARD: 19,
   SHORT_BLOCK_WINDOW: 20,
   SHORT_TERM_BLOCKS: 19,
-  DEFAULT_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
+  DEFAULT_STATEFUL_EXPIRY_SECONDS: 28 * 24 * 3600,
   CLOSE_POSITION_SLIPPAGE: 0.03,
   MAX_STATEFUL_EXPIRY_SECONDS: 95 * 24 * 3600,
   ISOLATED_FEE_BUFFER: 0.02,
@@ -63,6 +64,7 @@ interface IsolatedTransferContext {
   marketInfo: MarketData;
   params: PlaceOrderParams;
   orderCategory: OrderCategory;
+  price: number;
 }
 
 interface AtomicTransferOrderContext {
@@ -130,20 +132,20 @@ class DydxTradingService {
 
       const needsTransferCheck = subaccountNumber >= 128 && !!params.leverage;
 
-      const [price, transferAmount] = await Promise.all([
-        this.resolveOrderPrice(params, marketInfo, orderCategory),
-        needsTransferCheck
-          ? this.getRequiredTransferAmount({
-              client,
-              address,
-              subaccountNumber,
-              size,
-              marketInfo,
-              params,
-              orderCategory,
-            })
-          : Promise.resolve(null),
-      ]);
+      const price = await this.resolveOrderPrice(params, marketInfo, orderCategory);
+
+      const transferAmount = needsTransferCheck
+        ? await this.getRequiredTransferAmount({
+            client,
+            address,
+            subaccountNumber,
+            size,
+            marketInfo,
+            params,
+            orderCategory,
+            price,
+          })
+        : null;
 
       const triggerPrice = params.triggerPrice
         ? this.roundPrice(params.triggerPrice, marketInfo.tickSize!)
@@ -234,39 +236,59 @@ class DydxTradingService {
     address,
     subaccountNumber,
     size,
-    marketInfo,
     params,
     orderCategory,
+    price,
   }: IsolatedTransferContext): Promise<number | null> {
-    const oraclePrice = parseFloat(marketInfo.oraclePrice);
-    const notionalValue = size * oraclePrice;
+    const notionalValue = size * price;
     const requiredMargin = notionalValue / params.leverage!;
 
     const isLongTermOrder = !orderCategory.isMarket;
     const targetEquity = isLongTermOrder ? Math.max(requiredMargin, 20.1) : requiredMargin;
     const targetEquityWithBuffer = targetEquity * (1 + TRADING_CONFIG.ISOLATED_FEE_BUFFER);
 
-    const indexer = dydxWalletService.getIndexerClient();
+    let currentEquity = 0;
+    let crossFreeCollateral = 0;
 
-    // Both calls are independent — run in parallel to save one RTT
-    const [isoResult, crossResult] = await Promise.allSettled([
-      indexer.account.getSubaccount(address, subaccountNumber),
-      indexer.account.getSubaccount(address, SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT),
-    ]);
+    const wsState = useWebSocketStore.getState();
+    const parentKey = `parent_subaccount_${address}_0`;
+    const parentData = wsState.parentSubaccounts.get(parentKey);
 
-    const currentEquity =
-      isoResult.status === 'fulfilled' ? parseFloat(isoResult.value.subaccount?.equity || '0') : 0;
+    if (parentData) {
+      const child = parentData.childSubaccounts.find(c => c.subaccountNumber === subaccountNumber);
+      currentEquity = child ? parseFloat(child.equity || '0') : 0;
+
+      const crossChild = parentData.childSubaccounts.find(
+        c => c.subaccountNumber === SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
+      );
+      crossFreeCollateral = crossChild
+        ? parseFloat(crossChild.freeCollateral || '0')
+        : parseFloat(parentData.freeCollateral || '0');
+    } else {
+      const indexer = dydxWalletService.getIndexerClient();
+
+      // Both calls are independent — run in parallel to save one RTT
+      const [isoResult, crossResult] = await Promise.allSettled([
+        indexer.account.getSubaccount(address, subaccountNumber),
+        indexer.account.getSubaccount(address, SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT),
+      ]);
+
+      currentEquity =
+        isoResult.status === 'fulfilled'
+          ? parseFloat(isoResult.value.subaccount?.equity || '0')
+          : 0;
+
+      if (crossResult.status === 'rejected') {
+        throw new Error(
+          `Failed to read cross margin balance: ${(crossResult.reason as Error).message}`
+        );
+      }
+      crossFreeCollateral = parseFloat(crossResult.value.subaccount?.freeCollateral || '0');
+    }
 
     if (currentEquity >= targetEquityWithBuffer) return null;
 
     const shortfall = targetEquityWithBuffer - currentEquity;
-
-    if (crossResult.status === 'rejected') {
-      throw new Error(
-        `Failed to read cross margin balance: ${(crossResult.reason as Error).message}`
-      );
-    }
-    const crossFreeCollateral = parseFloat(crossResult.value.subaccount?.freeCollateral || '0');
 
     if (crossFreeCollateral < shortfall) {
       throw new Error(
@@ -525,6 +547,9 @@ class DydxTradingService {
   }
 
   private async getFreshBlockHeight(client: any): Promise<number> {
+    dydxBlockHeightService.start(client);
+    const estimated = dydxBlockHeightService.getEstimatedHeight();
+    if (estimated > 0) return estimated;
     return client.validatorClient.get.latestBlockHeight();
   }
 

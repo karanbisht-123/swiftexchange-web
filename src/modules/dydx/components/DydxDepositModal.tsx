@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Info,
   Loader2,
-  RefreshCw,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -48,6 +47,7 @@ interface DydxDepositModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialAsset?: Asset | null;
+  initialAmount?: string;
 }
 
 function getExplorerTxUrl(chainId: string | number, txHash: string): string {
@@ -137,19 +137,21 @@ const StepIndicator: React.FC<{
             <div className="relative flex flex-col items-center shrink-0 w-6">
               {!isLast && (
                 <div
-                  className={`absolute left-1/2 -translate-x-1/2 top-6 bottom-[-12px] border-l-2 border-dashed ${isDone ? 'border-emerald-500/80' : 'border-white/20'
-                    }`}
+                  className={`absolute left-1/2 -translate-x-1/2 top-6 bottom-[-12px] border-l-2 border-dashed ${
+                    isDone ? 'border-emerald-500/80' : 'border-white/20'
+                  }`}
                 />
               )}
               <div
-                className={`w-6 h-6 rounded-full border flex items-center justify-center z-10 mt-0.5 transition-colors duration-200 ${isActive
-                  ? 'border-brand bg-brand/10 text-brand'
-                  : isDone
-                    ? 'border-emerald-500 bg-emerald-500 text-white'
-                    : isErr
-                      ? 'border-danger bg-danger/10 text-danger'
-                      : 'border-white/10 bg-secondary text-muted opacity-40'
-                  }`}
+                className={`w-6 h-6 rounded-full border flex items-center justify-center z-10 mt-0.5 transition-colors duration-200 ${
+                  isActive
+                    ? 'border-brand bg-brand/10 text-brand'
+                    : isDone
+                      ? 'border-emerald-500 bg-emerald-500 text-white'
+                      : isErr
+                        ? 'border-danger bg-danger/10 text-danger'
+                        : 'border-white/10 bg-secondary text-muted opacity-40'
+                }`}
               >
                 {isActive ? (
                   <Loader2 className="w-3 h-3 text-brand animate-spin" />
@@ -165,18 +167,20 @@ const StepIndicator: React.FC<{
 
             {/* Right Column: Text and message */}
             <div
-              className={`flex-1 ${isLast ? 'pb-1' : 'pb-8'} transition-opacity duration-200 ${!isActive && !isDone && !isErr ? 'opacity-40' : 'opacity-100'
-                }`}
+              className={`flex-1 ${isLast ? 'pb-1' : 'pb-8'} transition-opacity duration-200 ${
+                !isActive && !isDone && !isErr ? 'opacity-40' : 'opacity-100'
+              }`}
             >
               <p
-                className={`text-xs font-semibold leading-tight ${isErr
-                  ? 'text-danger'
-                  : isActive
-                    ? 'text-brand'
-                    : isDone
-                      ? 'text-emerald-500'
-                      : 'text-muted'
-                  }`}
+                className={`text-xs font-semibold leading-tight ${
+                  isErr
+                    ? 'text-danger'
+                    : isActive
+                      ? 'text-brand'
+                      : isDone
+                        ? 'text-emerald-500'
+                        : 'text-muted'
+                }`}
               >
                 {s.label}
               </p>
@@ -196,6 +200,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
   isOpen,
   onClose,
   initialAsset,
+  initialAmount,
 }) => {
   const { network } = useWalletStore();
   const { assets } = useWalletAssets(network);
@@ -242,7 +247,10 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     return 'idle';
   }, [depositPhase, currentDepositTx]);
 
-  const displayError = depositError || (effectiveDepositPhase === 'error' && bridgeTracker.errorMessage) || 'Deposit failed';
+  const displayError =
+    depositError ||
+    (effectiveDepositPhase === 'error' && bridgeTracker.errorMessage) ||
+    'Deposit failed';
 
   // Modal step state
   const [modalStep, setModalStep] = useState<ModalStep>(() => {
@@ -427,6 +435,13 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     }
   }, [isOpen, assets, initialAsset]);
 
+  // Sync initial amount if provided
+  useEffect(() => {
+    if (isOpen && initialAmount) {
+      setAmount(initialAmount);
+    }
+  }, [isOpen, initialAmount]);
+
   // Auto-clear success state
   useEffect(() => {
     if (effectiveDepositPhase === 'success' && modalStep === 'tracker') {
@@ -459,8 +474,11 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
       return () => clearTimeout(t);
     }
   }, [amount, selectedAsset, getRoute, evmChainId, goFast]);
-  const isChainMismatch =
-    !!(evmWallet && displayAsset && Number(evmWallet.chainId) !== Number(displayAsset.chainId));
+  const isChainMismatch = !!(
+    evmWallet &&
+    displayAsset &&
+    Number(evmWallet.chainId) !== Number(displayAsset.chainId)
+  );
 
   const { stepDefs, stepStatuses } = useMemo(() => {
     const defs: DepositStepDef[] = [];
@@ -485,11 +503,12 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
     defs.push({
       id: 'confirm-deposit',
       label: 'Confirm deposit',
-      sublabel: effectiveDepositPhase === 'depositing' || effectiveDepositPhase === 'polling'
-        ? (currentDepositTx?.estimatedTime
-          ? `Waiting for funds to arrive on dYdX (approx. ${currentDepositTx.estimatedTime})...`
-          : 'Waiting for funds to arrive on dYdX...')
-        : 'Confirm the deposit transaction in your wallet',
+      sublabel:
+        effectiveDepositPhase === 'depositing' || effectiveDepositPhase === 'polling'
+          ? currentDepositTx?.estimatedTime
+            ? `Waiting for funds to arrive on dYdX (approx. ${currentDepositTx.estimatedTime})...`
+            : 'Waiting for funds to arrive on dYdX...'
+          : 'Confirm the deposit transaction in your wallet',
     });
 
     const statuses: Record<string, StepStatus> = {};
@@ -693,7 +712,6 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             </div>
           )}
 
-
           {/* Success state */}
           {isSuccess && (
             <div className="flex flex-col items-center gap-5 py-8 animate-in fade-in duration-500">
@@ -708,9 +726,9 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
                 <h4 className="text-3xl font-black text-primary font-mono tracking-tight">
                   {depositedAmount !== null
                     ? `${depositedAmount.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}`
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}`
                     : `${amount || currentDepositTx?.amount || '0.00'}`}
                   <span className="text-base font-bold text-muted ml-1.5 uppercase">
                     {selectedAsset?.symbol || currentDepositTx?.assetSymbol || 'USDC'}
@@ -928,9 +946,9 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
             <span className="text-xs text-muted">
               {displayUsd > 0 && !isStable
                 ? `≈ $${displayUsd.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}`
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}`
                 : null}
             </span>
             <button
@@ -1081,7 +1099,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {isChainMismatch && amountValue > 0 && (
+        {/* {isChainMismatch && amountValue > 0 && (
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-brand/5 border border-brand/20">
             <RefreshCw className="w-3.5 h-3.5 text-brand shrink-0" />
             <p className="text-xs text-brand">
@@ -1092,7 +1110,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               when you click Deposit.
             </p>
           </div>
-        )}
+        )} */}
 
         <button
           onClick={handleDeposit}

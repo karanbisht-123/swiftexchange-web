@@ -70,6 +70,7 @@ export default function TradingChart() {
   const [editingInstanceId, setEditingInstanceId] = useState<string | null>(null);
   const [activeDrawingColor, setActiveDrawingColor] = useState('#3b82f6');
   const [activeDrawingWidth, setActiveDrawingWidth] = useState(2);
+  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
 
   // Hooks
   const {
@@ -112,6 +113,12 @@ export default function TradingChart() {
     timeframe,
     1000
   );
+
+  useEffect(() => {
+    if (!isLoading && !hasInitiallyLoaded) {
+      setHasInitiallyLoaded(true);
+    }
+  }, [isLoading, hasInitiallyLoaded]);
 
   //Stable mutable refs (written during render — safe, no re-render triggered)
   const selectedMarketRef = useRef(selectedMarket);
@@ -746,7 +753,10 @@ export default function TradingChart() {
           </div>
         )}
 
-        <MarketTransitionOverlay isLoading={isLoading} market={selectedMarket} />
+        <MarketTransitionOverlay
+          isLoading={isLoading && !hasInitiallyLoaded}
+          market={selectedMarket}
+        />
 
         <div
           ref={chartContainerRef}

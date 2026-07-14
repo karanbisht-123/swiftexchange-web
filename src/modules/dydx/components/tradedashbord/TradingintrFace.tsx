@@ -19,31 +19,24 @@ import DydxTopBar from '../../layout/DydxTopBar';
 import useMarketStore from '../../store/marketStore';
 import { DydxWalletConnect } from '../DydxWalletConnect';
 import MarketsDisplay from '../MarketsDisplay';
+import TradingChart from '../TradingChart/index';
+import { DydxTradingForm } from '../form/DydxTradingForm';
 import MarketSwitcher from '../market/MarketSwitcher';
 import { MarketStats } from '../market/MarketSwitcher';
+import OrderAndTrades from '../order&trade/OrderAndTrades';
+import Orderbook from '../order&trade/Orderbook';
+import PositionsPanel from '../orderHistory/PositionsPanel';
 import ResizablePanel from './ResizablePanel';
 import ResizablePanelHorizontal from './ResizablePanelHorizontal';
 import SubscriptionKeepAlive from './SubscriptionKeepAlive';
-import {
-  OrderbookSkeleton,
-  TablePanelSkeleton,
-  TradingChartSkeleton,
-  TradingFormSkeleton,
-} from './TradingSkeletons';
+import { TablePanelSkeleton, TradingChartSkeleton } from './TradingSkeletons';
 
 const DepthChart = lazy(() => import('../DepthChart'));
-const TradingChart = lazy(() => import('../TradingChart/index'));
 const FundingChart = lazy(() => import('./FundingChart'));
-const OrderAndTrades = lazy(() => import('../order&trade/OrderAndTrades'));
-const Orderbook = lazy(() => import('../order&trade/Orderbook'));
-const DydxTradingForm = lazy(() =>
-  import('../form/DydxTradingForm').then(m => ({ default: m.DydxTradingForm }))
-);
 const FillsPanel = lazy(() => import('../orderHistory/FillsPanel'));
 const FundingPaymentsPanel = lazy(() => import('../orderHistory/FundingPaymentsPanel'));
 const OpenOrdersPanel = lazy(() => import('../orderHistory/OpenOrdersPanel'));
 const OrderHistoryPanel = lazy(() => import('../orderHistory/OrderHistoryPanel'));
-const PositionsPanel = lazy(() => import('../orderHistory/PositionsPanel'));
 const TransferHistoryPanel = lazy(() => import('../orderHistory/TransferHistoryPanel'));
 
 const LoadingFallback = () => (
@@ -147,9 +140,7 @@ const TradingintrFace = () => {
                       position="left"
                       className="bg-secondary shrink-0 z-10 rounded-lg pb-1 px-1"
                     >
-                      <Suspense fallback={<OrderbookSkeleton />}>
-                        <OrderAndTrades />
-                      </Suspense>
+                      <OrderAndTrades />
                     </ResizablePanelHorizontal>
                   </div>
 
@@ -167,9 +158,7 @@ const TradingintrFace = () => {
                 </div>
 
                 <div className="bg-secondary flex-shrink-0 h-full overflow-hidden mb-1.5 ml-1.5 rounded-lg">
-                  <Suspense fallback={<TradingFormSkeleton />}>
-                    <DydxTradingForm />
-                  </Suspense>
+                  <DydxTradingForm />
                 </div>
               </div>
             ) : (
@@ -320,47 +309,55 @@ const PortfolioView = ({
       </div>
 
       <div className="flex-1 overflow-auto relative">
-        <Suspense fallback={<TablePanelSkeleton />}>
-          <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
-            <DydxWalletConnect />
-          </div>
-          <div
-            style={{ display: activeTab === 'positions' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
-            <PositionsPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'orders' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+        <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
+          <DydxWalletConnect />
+        </div>
+        <div
+          style={{ display: activeTab === 'positions' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <PositionsPanel />
+        </div>
+        <div
+          style={{ display: activeTab === 'orders' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<TablePanelSkeleton />}>
             <OpenOrdersPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'fills' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+          </Suspense>
+        </div>
+        <div
+          style={{ display: activeTab === 'fills' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<TablePanelSkeleton />}>
             <FillsPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'history' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+          </Suspense>
+        </div>
+        <div
+          style={{ display: activeTab === 'history' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<TablePanelSkeleton />}>
             <OrderHistoryPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'funding' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+          </Suspense>
+        </div>
+        <div
+          style={{ display: activeTab === 'funding' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<TablePanelSkeleton />}>
             <FundingPaymentsPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'transfers' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+          </Suspense>
+        </div>
+        <div
+          style={{ display: activeTab === 'transfers' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<TablePanelSkeleton />}>
             <TransferHistoryPanel />
-          </div>
-        </Suspense>
+          </Suspense>
+        </div>
       </div>
     </div>
   );
@@ -392,9 +389,7 @@ const MobileLayout = () => {
         <div className="flex-1 overflow-hidden relative">
           {activeTab === 'price' && (
             <div className="h-full">
-              <Suspense fallback={<TradingChartSkeleton />}>
-                <TradingChart />
-              </Suspense>
+              <TradingChart />
             </div>
           )}
           {activeTab === 'depth' && (
@@ -413,9 +408,7 @@ const MobileLayout = () => {
           )}
           {activeTab === 'orderbook' && (
             <div className="h-full overflow-hidden">
-              <Suspense fallback={<OrderbookSkeleton />}>
-                <OrderAndTrades />
-              </Suspense>
+              <OrderAndTrades />
             </div>
           )}
           {activeTab === 'trade' && (
@@ -426,9 +419,7 @@ const MobileLayout = () => {
                 }`}
               >
                 <div className="flex-1 relative overflow-hidden group">
-                  <Suspense fallback={<OrderbookSkeleton />}>
-                    <Orderbook />
-                  </Suspense>
+                  <Orderbook />
                   {tradeView === 'split' ? (
                     <button
                       onClick={() => setTradeView('orderbook')}
@@ -454,9 +445,7 @@ const MobileLayout = () => {
                 }`}
               >
                 <div className="flex-1 relative overflow-hidden group">
-                  <Suspense fallback={<TradingFormSkeleton />}>
-                    <DydxTradingForm />
-                  </Suspense>
+                  <DydxTradingForm />
                   {tradeView === 'split' ? (
                     <button
                       onClick={() => setTradeView('form')}
@@ -635,41 +624,47 @@ const MobilePortfolio = () => {
       </div>
 
       <div className="flex-1 overflow-auto relative">
-        <Suspense fallback={<LoadingFallback />}>
-          <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
-            <DydxWalletConnect />
-          </div>
-          <div
-            style={{ display: activeTab === 'positions' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
-            <PositionsPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'orders' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+        <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
+          <DydxWalletConnect />
+        </div>
+        <div
+          style={{ display: activeTab === 'positions' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <PositionsPanel />
+        </div>
+        <div
+          style={{ display: activeTab === 'orders' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<LoadingFallback />}>
             <OpenOrdersPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'fills' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+          </Suspense>
+        </div>
+        <div
+          style={{ display: activeTab === 'fills' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<LoadingFallback />}>
             <FillsPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'history' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+          </Suspense>
+        </div>
+        <div
+          style={{ display: activeTab === 'history' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<LoadingFallback />}>
             <OrderHistoryPanel />
-          </div>
-          <div
-            style={{ display: activeTab === 'funding' ? 'flex' : 'none' }}
-            className="h-full flex-col flex overflow-hidden"
-          >
+          </Suspense>
+        </div>
+        <div
+          style={{ display: activeTab === 'funding' ? 'flex' : 'none' }}
+          className="h-full flex-col flex overflow-hidden"
+        >
+          <Suspense fallback={<LoadingFallback />}>
             <FundingPaymentsPanel />
-          </div>
-        </Suspense>
+          </Suspense>
+        </div>
       </div>
     </div>
   );

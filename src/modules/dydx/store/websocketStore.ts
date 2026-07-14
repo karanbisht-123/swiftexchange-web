@@ -203,13 +203,6 @@ export type PartialSubaccountUpdate = Omit<Partial<ParentSubaccountData>, 'order
 const TERMINAL_STATUSES = new Set(['FILLED', 'CANCELED', 'BEST_EFFORT_CANCELED', 'REJECTED']);
 const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PARTIALLY_FILLED']);
 
-// how long a filled/cancelled market order stays visible in the UI
-const MARKET_ORDER_GRACE_MS = 3_500;
-
-// How long a new BEST_EFFORT_OPENED order waits before appearing in the UI.
-// If it gets rejected within this window, it never shows — no flicker.
-const ORDER_APPEARANCE_DELAY_MS = 800;
-
 // delayed unsubscribe prevents churn on fast mount/unmount cycles
 const UNSUB_DELAY_MS = 3_000;
 
@@ -220,13 +213,6 @@ export function isMarketOrder(
   order: Pick<TrackedOrder, 'type' | 'timeInForce' | 'orderFlags'>
 ): boolean {
   return order.type === 'MARKET' || (order.timeInForce === 'IOC' && order.orderFlags === '0');
-}
-
-function shouldKeepGracePeriod(order: TrackedOrder): boolean {
-  if (!TERMINAL_STATUSES.has(order.status)) return false;
-  // Only market orders get a brief grace period to show filled/canceled flash.
-  // Non-market rejected orders are suppressed silently via the appearance delay.
-  return isMarketOrder(order);
 }
 
 function recomputeChildEquity(child: ChildSubaccount): void {
@@ -453,13 +439,9 @@ function evictOrders(
 
   for (const order of orderMap.values()) {
     if (TERMINAL_STATUSES.has(order.status)) {
-      // keep market orders briefly so the UI can show a filled flash
-      if (shouldKeepGracePeriod(order)) {
-        if (now - (order._terminalAt ?? now) < MARKET_ORDER_GRACE_MS) {
-          kept.push(order);
-        }
+      if (isMarketOrder(order) && now - (order._terminalAt ?? now) < 5000) {
+        kept.push(order);
       }
-      // non-grace terminal orders (regular CANCELED/FILLED limit orders) are dropped immediately
       continue;
     }
 
@@ -1121,16 +1103,6 @@ export const useWebSocketStore = create<WebSocketState>()(
         // receiving a real freeCollateral value means server has caught up — clear optimistic offset
         const clearOptimistic = data.freeCollateral !== undefined;
 
-        // Schedule a delayed re-render for any new BEST_EFFORT_OPENED orders.
-        // After ORDER_APPEARANCE_DELAY_MS the selector will include them if
-        // they haven't been rejected in the meantime.
-        if (data.orders?.some(o => o.status === 'BEST_EFFORT_OPENED')) {
-          setTimeout(() => {
-            const s = useWebSocketStore.getState();
-            useWebSocketStore.setState({ updateTrigger: s.updateTrigger + 1 });
-          }, ORDER_APPEARANCE_DELAY_MS + 50); // +50ms buffer
-        }
-
         return {
           parentSubaccounts: newMap,
           optimisticFreeCollateralDelta: clearOptimistic ? 0 : state.optimisticFreeCollateralDelta,
@@ -1334,23 +1306,12 @@ webSocketManager.onDisconnect(() =>
 
 export function selectOpenOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
-  const now = Date.now();
-  return data.orders.filter(o => {
-    if (!OPEN_STATUSES.has(o.status)) return false;
-    // BEST_EFFORT_OPENED orders are hidden for ORDER_APPEARANCE_DELAY_MS.
-    // If they get rejected within that window they never appear.
-    // Confirmed statuses (OPEN, PARTIALLY_FILLED, UNTRIGGERED) are shown immediately.
-    if (o.status === 'BEST_EFFORT_OPENED' && o._firstSeenAt) {
-      if (now - o._firstSeenAt < ORDER_APPEARANCE_DELAY_MS) return false;
-    }
-    return true;
-  });
+  return data.orders.filter(o => OPEN_STATUSES.has(o.status));
 }
 
 export function selectPortfolioMetrics(
   data: ParentSubaccountData | undefined,
   optimisticDelta: number = 0,
-  // connectedSubaccountNumber: number = 0,
   marketsSnapshot?: Map<string, MarketData>,
   leverages: Record<string, number> = {}
 ): {
@@ -1424,22 +1385,8 @@ export function selectPortfolioMetrics(
 
 export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
   if (!data) return [];
-  const now = Date.now();
-  return data.orders.filter(o => {
-    if (OPEN_STATUSES.has(o.status)) {
-      if (o.status === 'BEST_EFFORT_OPENED' && o._firstSeenAt) {
-        if (now - o._firstSeenAt < ORDER_APPEARANCE_DELAY_MS) return false;
-      }
-      return true;
-    }
-    if (!isMarketOrder(o)) return false;
-    const age = now - (o._terminalAt ?? now);
-    if (age >= MARKET_ORDER_GRACE_MS) return false;
-    return (
-      // o.status === 'FILLED' ||
-      o.status === 'REJECTED' || o.status === 'BEST_EFFORT_CANCELED' || o.status === 'CANCELED'
-    );
-  });
+  // For open orders, instantly show all open orders without any grace or delay, exactly like dYdX
+  return data.orders.filter(o => OPEN_STATUSES.has(o.status));
 }
 
 export function selectRecentlyTerminalOrders(
@@ -1448,9 +1395,6 @@ export function selectRecentlyTerminalOrders(
   if (!data) return [];
   const now = Date.now();
   return data.orders.filter(
-    o =>
-      TERMINAL_STATUSES.has(o.status) &&
-      isMarketOrder(o) &&
-      now - (o._terminalAt ?? now) < MARKET_ORDER_GRACE_MS
+    o => TERMINAL_STATUSES.has(o.status) && isMarketOrder(o) && now - (o._terminalAt ?? now) < 5000
   );
 }

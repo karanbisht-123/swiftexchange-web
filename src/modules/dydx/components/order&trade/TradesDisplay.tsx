@@ -71,7 +71,7 @@ const SkeletonTradeRow = memo(function SkeletonTradeRow({ index }: { index: numb
 
 export default function TradesDisplay() {
   const { selectedMarket } = useMarketStore();
-  const { trades, isLoading, isConnected } = useTrades(selectedMarket, 50);
+  const { trades, isLoading } = useTrades(selectedMarket, 50);
 
   const maxTradeSize = useMemo(() => {
     if (!trades.length) return 1;
@@ -110,15 +110,22 @@ export default function TradesDisplay() {
           <span className="text-primary font-semibold">{baseCurrency}</span>
           <span className="text-muted">/</span>
           <span className="text-muted">{quoteCurrency}</span>
-          <div
-            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success animate-pulse' : 'bg-warning'}`}
-          />
         </div>
       </div>
 
-      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-xs text-muted border-b border-color font-medium">
-        <div className="text-left">Size ({baseCurrency})</div>
-        <div className="text-center">Price ({quoteCurrency})</div>
+      <div className="grid grid-cols-3 shrink-0 px-1 md:px-2 lg:px-4 py-2 text-[10px] md:text-xs text-muted border-b border-color font-medium">
+        <div className="text-left">
+          Size{' '}
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[9px] md:text-[10px] ml-1">
+            {baseCurrency}
+          </span>
+        </div>
+        <div className="text-center">
+          Price{' '}
+          <span className="bg-primary text-muted px-1 py-0.5 rounded text-[9px] md:text-[10px] ml-1">
+            {quoteCurrency}
+          </span>
+        </div>
         <div className="text-right">Time</div>
       </div>
 

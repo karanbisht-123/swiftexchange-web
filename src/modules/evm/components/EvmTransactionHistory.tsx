@@ -3,8 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import PageLayout from '../../../components/layout/PageLayout';
+import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import AllTransactionsUI from '../../stellar/components/AllTransactionsUI';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useEvmTransaction } from '../hook/useEvmTransaction';
 import {
@@ -125,6 +127,21 @@ const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: 
   </div>
 );
 
+const ElapsedTime = ({ startTime }: { startTime: number }) => {
+  const [elapsed, setElapsed] = useState(Date.now() - startTime);
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+  const mins = Math.floor(elapsed / 60000);
+  const secs = Math.floor((elapsed % 60000) / 1000);
+  return (
+    <span>
+      {mins}:{secs.toString().padStart(2, '0')}
+    </span>
+  );
+};
+
 const EvmTransactionHistory: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const txHashFromUrl = searchParams.get('hash');
@@ -167,6 +184,28 @@ const EvmTransactionHistory: React.FC = () => {
     Record<string, 'success' | 'failed'>
   >({});
   const [showPendingOnly, setShowPendingOnly] = useState(false);
+  const [depositModalOpen, setDepositModalOpen] = useState(false);
+  const [depositModalAsset, setDepositModalAsset] = useState<any>(null);
+  const [depositModalAmount, setDepositModalAmount] = useState<string>('');
+
+  const handleOpenDepositModal = (tx: any, chainId: string | number, amount: string) => {
+    let destChainId = chainId;
+    if (tx.toChainSymbol) {
+      const allChains = getEvmChainsForNetwork(currentNetwork);
+      const found = allChains.find(
+        c =>
+          c.symbol?.toLowerCase() === tx.toChainSymbol.toLowerCase() ||
+          c.name.toLowerCase() === tx.toChainSymbol.toLowerCase()
+      );
+      if (found) destChainId = found.chainId;
+    }
+    const usdcAsset = usePortfolioStore
+      .getState()
+      .assets.find(a => String(a.chainId) === String(destChainId) && a.symbol === 'USDC');
+    setDepositModalAsset(usdcAsset || null);
+    setDepositModalAmount(amount);
+    setDepositModalOpen(true);
+  };
 
   const {
     ordersData: backendOrders,
@@ -1041,99 +1080,136 @@ const EvmTransactionHistory: React.FC = () => {
       );
 
       return (
-        <div
-          key={tx.hash}
-          onClick={() => handleLocalTxClick(tx)}
-          className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${
-            isSelected
-              ? 'bg-secondary border border-color shadow-sm'
-              : isPending
-                ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
-                : isFailed
-                  ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
-                  : 'bg-primary border border-transparent hover:border-color'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="relative shrink-0"
-              style={{ width: showDualIcon ? 52 : 32, height: 32 }}
-            >
-              <div className="absolute left-0 top-0 w-8 h-8">
-                <div
-                  className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-primary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
-                >
-                  {fromAssetLogo ? (
-                    <img
-                      src={fromAssetLogo}
-                      alt={fromAssetSymbol}
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                  ) : (
-                    <span className="text-[9px] font-bold text-primary">{fromFallbackLetter}</span>
-                  )}
-                </div>
-                {fromChainLogo && (
-                  <img
-                    src={fromChainLogo}
-                    alt=""
-                    className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
-                  />
-                )}
-              </div>
-
-              {showDualIcon && (
-                <div className="absolute right-0 top-0 w-8 h-8">
+        <React.Fragment key={tx.hash}>
+          <div
+            onClick={() => handleLocalTxClick(tx)}
+            className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${
+              isSelected
+                ? 'bg-secondary border border-color shadow-sm'
+                : isPending
+                  ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
+                  : isFailed
+                    ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
+                    : 'bg-primary border border-transparent hover:border-color'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className="relative shrink-0"
+                style={{ width: showDualIcon ? 52 : 32, height: 32 }}
+              >
+                <div className="absolute left-0 top-0 w-8 h-8">
                   <div
-                    className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-secondary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
+                    className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-primary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
                   >
-                    {toAssetLogo ? (
+                    {fromAssetLogo ? (
                       <img
-                        src={toAssetLogo}
-                        alt={toAssetSymbol}
+                        src={fromAssetLogo}
+                        alt={fromAssetSymbol}
                         className="w-full h-full object-cover rounded-full"
                       />
                     ) : (
-                      <span className="text-[9px] font-bold text-primary">{toFallbackLetter}</span>
+                      <span className="text-[9px] font-bold text-primary">
+                        {fromFallbackLetter}
+                      </span>
                     )}
                   </div>
-                  {toChainLogo && (
+                  {fromChainLogo && (
                     <img
-                      src={toChainLogo}
+                      src={fromChainLogo}
                       alt=""
                       className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
                     />
                   )}
                 </div>
-              )}
-            </div>
 
-            <div className="flex-1 min-w-0">
-              {/* Label row */}
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-xs font-semibold text-primary truncate leading-tight">
-                  {cleanLabel}
-                </span>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}
-                >
-                  {tx.status === 'pending' && (txProvider === 'SKIP' || txProvider === 'SRBTODYDX')
-                    ? 'Bridging'
-                    : tx.status === 'pending' && txProvider === 'DYDX'
-                      ? 'Settling'
-                      : tx.status}
-                </span>
-                {isPending && (
-                  <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />
+                {showDualIcon && (
+                  <div className="absolute right-0 top-0 w-8 h-8">
+                    <div
+                      className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-secondary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
+                    >
+                      {toAssetLogo ? (
+                        <img
+                          src={toAssetLogo}
+                          alt={toAssetSymbol}
+                          className="w-full h-full object-cover rounded-full"
+                        />
+                      ) : (
+                        <span className="text-[9px] font-bold text-primary">
+                          {toFallbackLetter}
+                        </span>
+                      )}
+                    </div>
+                    {toChainLogo && (
+                      <img
+                        src={toChainLogo}
+                        alt=""
+                        className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
+                      />
+                    )}
+                  </div>
                 )}
               </div>
 
-              {showDualIcon ? (
-                <div className="flex items-start gap-2">
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
-                      From
+              <div className="flex-1 min-w-0">
+                {/* Label row */}
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs font-semibold text-primary truncate leading-tight">
+                    {cleanLabel}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}
+                  >
+                    {tx.status === 'pending' &&
+                    (txProvider === 'SKIP' ||
+                      txProvider === 'SRBTODYDX' ||
+                      txProvider === 'ALLBRIDGE')
+                      ? 'Bridging'
+                      : tx.status === 'pending' && txProvider === 'DYDX'
+                        ? 'Settling'
+                        : tx.status}
+                  </span>
+                  {isPending && (
+                    <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />
+                  )}
+                  {isPending && isAllbridge && (
+                    <span className="text-[10px] text-muted ml-auto mr-1 font-medium flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/70 animate-pulse"></span>
+                      ~2m (<ElapsedTime startTime={tx.timestamp} />)
                     </span>
+                  )}
+                </div>
+
+                {showDualIcon ? (
+                  <div className="flex items-start gap-2">
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
+                        From
+                      </span>
+                      <span className="text-[9px] font-bold text-primary truncate leading-tight">
+                        {fromAssetSymbol || '—'}
+                      </span>
+                      <span className="text-[8px] text-muted truncate leading-tight">
+                        {fromChainName}
+                      </span>
+                    </div>
+
+                    <span className="text-muted text-[9px] mt-2 shrink-0">›</span>
+
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
+                        To
+                      </span>
+                      <span className="text-[9px] font-bold text-primary truncate leading-tight">
+                        {toAssetSymbol || '—'}
+                      </span>
+                      <span className="text-[8px] text-muted truncate leading-tight">
+                        {toChainName || fromChainName}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col min-w-0">
                     <span className="text-[9px] font-bold text-primary truncate leading-tight">
                       {fromAssetSymbol || '—'}
                     </span>
@@ -1141,68 +1217,93 @@ const EvmTransactionHistory: React.FC = () => {
                       {fromChainName}
                     </span>
                   </div>
-
-                  <span className="text-muted text-[9px] mt-2 shrink-0">›</span>
-
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
-                      To
-                    </span>
-                    <span className="text-[9px] font-bold text-primary truncate leading-tight">
-                      {toAssetSymbol || '—'}
-                    </span>
-                    <span className="text-[8px] text-muted truncate leading-tight">
-                      {toChainName || fromChainName}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col min-w-0">
-                  <span className="text-[9px] font-bold text-primary truncate leading-tight">
-                    {fromAssetSymbol || '—'}
-                  </span>
-                  <span className="text-[8px] text-muted truncate leading-tight">
-                    {fromChainName}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Right: amount + explorer */}
-            <div className="flex flex-col items-end justify-center gap-1 shrink-0 ml-1">
-              {topAmount && bottomToken && (
-                <div className="flex items-baseline gap-0.5">
-                  <span className="font-bold font-mono text-md text-primary">{topAmount}</span>
-                  <span className="text-sm text-muted font-medium">{bottomToken}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-1">
-                <span className="text-sm text-muted font-mono opacity-70">
-                  {formatRecentTime(tx.timestamp)}
-                </span>
-                {!isFusion && (
-                  <a
-                    href={
-                      isAllbridge
-                        ? `https://core.allbridge.io/explorer?search=${tx.hash}`
-                        : getExplorerUrl(tx.chainId, 'tx', tx.hash)
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={e => e.stopPropagation()}
-                    className="p-0.5 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center"
-                    title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
-                  >
-                    <ExternalLink size={12} />
-                  </a>
                 )}
               </div>
-              <span className="text-sm text-muted/50 font-mono">
-                {tx.hash.slice(0, 5)}…{tx.hash.slice(-3)}
-              </span>
+
+              {/* Right: amount + explorer */}
+              <div className="flex flex-col items-end justify-center gap-1 shrink-0 ml-1">
+                {topAmount && bottomToken && (
+                  <div className="flex items-baseline gap-0.5">
+                    <span className="font-bold font-mono text-md text-primary">{topAmount}</span>
+                    <span className="text-sm text-muted font-medium">{bottomToken}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-muted font-mono opacity-70">
+                    {formatRecentTime(tx.timestamp)}
+                  </span>
+                  {!isFusion && (
+                    <a
+                      href={
+                        isAllbridge
+                          ? `https://core.allbridge.io/explorer?search=${tx.hash}`
+                          : getExplorerUrl(tx.chainId, 'tx', tx.hash)
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="p-0.5 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center"
+                      title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
+                    >
+                      <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+                <span className="text-sm text-muted/50 font-mono">
+                  {tx.hash.slice(0, 5)}…{tx.hash.slice(-3)}
+                </span>
+              </div>
             </div>
+
+            {(() => {
+              if (tx.hash) {
+                try {
+                  const intentStr = localStorage.getItem('dydx_intent_' + tx.hash);
+                  if (intentStr) {
+                    const intent = JSON.parse(intentStr);
+                    if (tx.status === 'success') {
+                      return (
+                        <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
+                          <span className="text-xs text-muted font-medium">
+                            {intent.amountOut} USDC Ready to Deposit
+                          </span>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleOpenDepositModal(
+                                tx,
+                                tx.chainId || selectedView,
+                                intent.amountOut
+                              );
+                            }}
+                            className="px-3 py-1.5 bg-brand text-white text-[11px] font-bold rounded-lg shadow hover:bg-brand/90 transition-colors flex items-center gap-1.5"
+                          >
+                            Deposit to dYdX
+                          </button>
+                        </div>
+                      );
+                    } else if (tx.status === 'pending') {
+                      return (
+                        <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
+                          <span className="text-[11px] text-muted font-medium flex items-center gap-1.5">
+                            <Loader2 size={11} className="animate-spin text-yellow-500/80" />
+                            Step 1: Preparing Funds...
+                          </span>
+                          <span className="text-[10px] text-muted/50 font-medium">
+                            Deposit unlocks on completion
+                          </span>
+                        </div>
+                      );
+                    }
+                  }
+                } catch {
+                  /* ignore */
+                }
+              }
+              return null;
+            })()}
           </div>
-        </div>
+        </React.Fragment>
       );
     };
 
@@ -1403,97 +1504,135 @@ const EvmTransactionHistory: React.FC = () => {
               const fallbackLetter = assetSymbol ? assetSymbol.slice(0, 2).toUpperCase() : 'TX';
 
               return (
-                <button
-                  key={tx.uniqueId}
-                  onClick={() => handleTxClick(tx)}
-                  className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${
-                    isSelected ? 'border' : 'hover:bg-tertiary/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0">
-                      <div className="w-full h-full rounded-full flex items-center justify-center border border-color overflow-hidden bg-primary">
-                        {assetLogo ? (
+                <div key={tx.uniqueId} className="flex flex-col">
+                  <button
+                    onClick={() => handleTxClick(tx)}
+                    className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${
+                      isSelected ? 'border' : 'hover:bg-tertiary/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0">
+                        <div className="w-full h-full rounded-full flex items-center justify-center border border-color overflow-hidden bg-primary">
+                          {assetLogo ? (
+                            <img
+                              src={assetLogo}
+                              alt={assetSymbol}
+                              className="w-full h-full object-cover rounded-full"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-tertiary flex items-center justify-center text-[10px] lg:text-xs font-bold text-primary rounded-full">
+                              {fallbackLetter}
+                            </div>
+                          )}
+                        </div>
+                        {chainLogo && (
                           <img
-                            src={assetLogo}
-                            alt={assetSymbol}
-                            className="w-full h-full object-cover rounded-full"
+                            src={chainLogo}
+                            alt=""
+                            className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 lg:w-4 lg:h-4 rounded-full border border-secondary object-cover bg-secondary"
                           />
-                        ) : (
-                          <div className="w-full h-full bg-tertiary flex items-center justify-center text-[10px] lg:text-xs font-bold text-primary rounded-full">
-                            {fallbackLetter}
-                          </div>
                         )}
                       </div>
-                      {chainLogo && (
-                        <img
-                          src={chainLogo}
-                          alt=""
-                          className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 lg:w-4 lg:h-4 rounded-full border border-secondary object-cover bg-secondary"
-                        />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-2 truncate">
-                        <span className="truncate">{actionLabel}</span>
-                        <span className="text-[9px] lg:text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
-                          {tx.category}
-                        </span>
-                      </div>
-                      {(() => {
-                        const formattedTime = tx.metadata?.blockTimestamp
-                          ? new Date(tx.metadata.blockTimestamp).toLocaleTimeString(undefined, {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
-                          : '';
-                        return (
-                          <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
-                            {formattedTime && (
-                              <>
-                                <span className="text-muted/80 font-sans shrink-0 font-medium">
-                                  {formattedTime}
-                                </span>
-                                <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
-                              </>
-                            )}
-                            <span className="hidden lg:inline opacity-75 shrink-0">
-                              {tx.blockNum ? `Block #${formatBlockNumber(tx.blockNum)}` : 'Pending'}
-                            </span>
-                            <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
-                            <span className="truncate max-w-[80px] lg:max-w-[120px]">
-                              {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
-                            </span>
-                            <a
-                              href={getExplorerUrl(
-                                typeof selectedView === 'number' ? selectedView : 1,
-                                'tx',
-                                tx.hash
+                      <div className="min-w-0 flex-1">
+                        <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-2 truncate">
+                          <span className="truncate">{actionLabel}</span>
+                          <span className="text-[9px] lg:text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
+                            {tx.category}
+                          </span>
+                        </div>
+                        {(() => {
+                          const formattedTime = tx.metadata?.blockTimestamp
+                            ? new Date(tx.metadata.blockTimestamp).toLocaleTimeString(undefined, {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '';
+                          return (
+                            <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
+                              {formattedTime && (
+                                <>
+                                  <span className="text-muted/80 font-sans shrink-0 font-medium">
+                                    {formattedTime}
+                                  </span>
+                                  <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                                </>
                               )}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
-                              title="View on Explorer"
-                            >
-                              <ExternalLink size={10} />
-                            </a>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0 ml-2">
-                    <div className="text-right">
-                      <div className="font-bold font-mono text-sm lg:text-base text-primary">
-                        {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
+                              <span className="hidden lg:inline opacity-75 shrink-0">
+                                {tx.blockNum
+                                  ? `Block #${formatBlockNumber(tx.blockNum)}`
+                                  : 'Pending'}
+                              </span>
+                              <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                              <span className="truncate max-w-[80px] lg:max-w-[120px]">
+                                {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
+                              </span>
+                              <a
+                                href={getExplorerUrl(
+                                  typeof selectedView === 'number' ? selectedView : 1,
+                                  'tx',
+                                  tx.hash
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
+                                className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                                title="View on Explorer"
+                              >
+                                <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          );
+                        })()}
                       </div>
-                      <div className="text-[9px] lg:text-xs text-muted mt-0.5 font-medium bg-tertiary/50 px-1.5 py-0.5 rounded ml-auto w-fit">
-                        {formatAssetName(tx)}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 ml-2">
+                      <div className="text-right">
+                        <div className="font-bold font-mono text-sm lg:text-base text-primary">
+                          {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
+                        </div>
+                        <div className="text-[9px] lg:text-xs text-muted mt-0.5 font-medium bg-tertiary/50 px-1.5 py-0.5 rounded ml-auto w-fit">
+                          {formatAssetName(tx)}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
+
+                    {/* Inline dYdX Deposit Button inside the button wrapper */}
+                    {(() => {
+                      if (tx.hash) {
+                        try {
+                          const intentStr = localStorage.getItem('dydx_intent_' + tx.hash);
+                          if (intentStr) {
+                            const intent = JSON.parse(intentStr);
+                            return (
+                              <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between w-full">
+                                <span className="text-xs text-muted font-medium">
+                                  {intent.amountOut} USDC Ready to Deposit
+                                </span>
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    handleOpenDepositModal(
+                                      tx as any,
+                                      tx.chainId || selectedView,
+                                      intent.amountOut
+                                    );
+                                  }}
+                                  className="px-3 py-1.5 bg-brand text-white text-[11px] font-bold rounded-lg shadow hover:bg-brand/90 transition-colors flex items-center gap-1.5"
+                                >
+                                  Deposit to dYdX
+                                </button>
+                              </div>
+                            );
+                          }
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                      return null;
+                    })()}
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -1714,6 +1853,13 @@ const EvmTransactionHistory: React.FC = () => {
           backendStatus={statusData}
         />
       )}
+
+      <DydxDepositModal
+        isOpen={depositModalOpen}
+        onClose={() => setDepositModalOpen(false)}
+        initialAsset={depositModalAsset}
+        initialAmount={depositModalAmount}
+      />
     </PageLayout>
   );
 };

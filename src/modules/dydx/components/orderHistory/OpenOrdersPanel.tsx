@@ -101,8 +101,7 @@ function getStatusBadge(order: TrackedOrder) {
 }
 
 const OpenOrdersPanel: React.FC = () => {
-  const { openOrdersWithGrace, loadingOrders, ordersError, refreshOrders, isConnected } =
-    useDydxData();
+  const { openOrders, loadingOrders, ordersError, refreshOrders, isConnected } = useDydxData();
   const marketCache = useMarketStore(state => state.marketCache);
 
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
@@ -113,12 +112,10 @@ const OpenOrdersPanel: React.FC = () => {
   const cancelRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (openOrdersWithGrace.length === 0) return;
+    if (openOrders.length === 0) return;
 
     const fetchIcons = async () => {
-      const markets = [
-        ...new Set(openOrdersWithGrace.map(o => o.ticker).filter(Boolean)),
-      ] as string[];
+      const markets = [...new Set(openOrders.map(o => o.ticker).filter(Boolean))] as string[];
       const newMarkets = markets.filter(m => !requestedIconsRef.current.has(m));
       if (newMarkets.length === 0) return;
       newMarkets.forEach(m => requestedIconsRef.current.add(m));
@@ -141,7 +138,7 @@ const OpenOrdersPanel: React.FC = () => {
     };
 
     fetchIcons();
-  }, [openOrdersWithGrace]);
+  }, [openOrders]);
 
   useEffect(() => {
     return () => {
@@ -222,7 +219,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (loadingOrders && openOrdersWithGrace.length === 0) {
+  if (loadingOrders && openOrders.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted">
         <Loader2 className="w-6 h-6 mr-2 animate-spin" />
@@ -231,7 +228,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (ordersError && openOrdersWithGrace.length === 0) {
+  if (ordersError && openOrders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center">
         <h3 className="text-lg font-semibold text-red-400 mb-2">Error Loading Orders</h3>
@@ -247,7 +244,7 @@ const OpenOrdersPanel: React.FC = () => {
     );
   }
 
-  if (openOrdersWithGrace.length === 0) {
+  if (openOrders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted">
         <h3 className="text-lg font-semibold text-primary mb-2">No Open Orders</h3>
@@ -260,23 +257,23 @@ const OpenOrdersPanel: React.FC = () => {
     <div className="h-full flex flex-col bg-secondary overflow-hidden">
       {/* Desktop table */}
       <div className="hidden md:block flex-1 overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-secondary border-b border-color z-10">
-            <tr className="text-muted text-xs">
-              <th className="text-left px-4 py-3 font-medium">Market</th>
-              <th className="text-center px-4 py-3 font-medium">Status</th>
-              <th className="text-left px-4 py-3 font-medium">Type</th>
-              <th className="text-center px-4 py-3 font-medium">Side</th>
-              <th className="text-right px-4 py-3 font-medium">Amount</th>
-              <th className="text-right px-4 py-3 font-medium">Filled</th>
-              <th className="text-right px-4 py-3 font-medium">Price</th>
-              <th className="text-center px-4 py-3 font-medium">TIF</th>
-              <th className="text-right px-4 py-3 font-medium">Created</th>
-              <th className="text-center px-4 py-3 font-medium">Cancel</th>
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-secondary text-muted text-[10px] uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-color">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Market</th>
+              <th className="px-2 py-2 text-center font-semibold">Status</th>
+              <th className="px-2 py-2 font-semibold">Type</th>
+              <th className="px-2 py-2 text-center font-semibold">Side</th>
+              <th className="px-2 py-2 text-right font-semibold">Amount</th>
+              <th className="px-2 py-2 text-right font-semibold">Filled</th>
+              <th className="px-2 py-2 text-right font-semibold">Price</th>
+              <th className="px-2 py-2 text-center font-semibold">TIF</th>
+              <th className="px-2 py-2 text-right font-semibold">Created</th>
+              <th className="px-2 py-2 text-center font-semibold">Cancel</th>
             </tr>
           </thead>
           <tbody>
-            {openOrdersWithGrace.map(order => {
+            {openOrders.map(order => {
               const isCancelling = cancelling.has(order.id);
               const filled = parseFloat(order.totalOptimisticFilled || '0');
               const size = parseFloat(order.size);
@@ -298,54 +295,54 @@ const OpenOrdersPanel: React.FC = () => {
               return (
                 <tr
                   key={order.id}
-                  className={`border-b border-color hover:bg-hover transition-colors ${isCancelling ? 'opacity-50' : ''} ${isPending ? 'bg-yellow-500/5' : ''}`}
+                  className={`border-b border-color hover:bg-hover transition-colors text-[11px] ${isCancelling ? 'opacity-50' : ''} ${isPending ? 'bg-yellow-500/5' : ''}`}
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-1.5">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center overflow-hidden">
+                      <div className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center overflow-hidden">
                         {order.ticker && getMarketIcon(order.ticker)}
                       </div>
-                      <span className="text-primary text-xs font-medium">
+                      <span className="font-bold text-primary">
                         {order.ticker?.split('-')[0] ?? '—'}
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-center">{getStatusBadge(order)}</td>
-                  <td className="px-4 py-3 text-left">
-                    <span className="text-primary text-xs">{capitalizeFirst(displayType)}</span>
+                  <td className="px-2 py-1.5 text-center">{getStatusBadge(order)}</td>
+                  <td className="px-2 py-1.5 text-left">
+                    <span className="text-primary font-bold">{capitalizeFirst(displayType)}</span>
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-semibold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}
                     >
                       {capitalizeFirst(order.side)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{sizeStr}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-2 py-1.5 text-right text-primary font-mono">{sizeStr}</td>
+                  <td className="px-2 py-1.5 text-right">
                     <div className="text-primary font-mono">{filledStr}</div>
                     {fillPercent > 0 && (
-                      <div className="text-xs text-muted">{fillPercent.toFixed(0)}%</div>
+                      <div className="text-[9px] text-muted">{fillPercent.toFixed(0)}%</div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{priceStr}</td>
-                  <td className="px-4 py-3 text-center text-muted text-xs">
+                  <td className="px-2 py-1.5 text-right text-primary font-mono">{priceStr}</td>
+                  <td className="px-2 py-1.5 text-center text-muted font-bold">
                     {order.timeInForce || 'GTT'}
                   </td>
-                  <td className="px-4 py-3 text-right text-muted text-xs">
+                  <td className="px-2 py-1.5 text-right text-muted font-mono">
                     {formatTimeAgoCompact(timeStr)}
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     {!isMarket && (
                       <button
                         onClick={() => handleCancel(order)}
                         disabled={isCancelling}
-                        className={`p-1.5 rounded transition-colors ${isCancelling ? 'bg-secondary cursor-not-allowed text-muted' : 'bg-red-900/30 hover:bg-red-900/50 text-red-400'}`}
+                        className={`p-1 rounded transition-colors ${isCancelling ? 'bg-secondary cursor-not-allowed text-muted' : 'bg-red-900/30 hover:bg-red-900/50 text-red-400'}`}
                       >
                         {isCancelling ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-3 h-3 animate-spin" />
                         ) : (
-                          <X className="w-4 h-4" />
+                          <X className="w-3 h-3" />
                         )}
                       </button>
                     )}
@@ -359,7 +356,7 @@ const OpenOrdersPanel: React.FC = () => {
 
       {/* Mobile cards */}
       <div className="md:hidden flex-1 overflow-auto space-y-1.5 p-2">
-        {openOrdersWithGrace.map(order => {
+        {openOrders.map(order => {
           const isCancelling = cancelling.has(order.id);
           const filled = parseFloat(order.totalOptimisticFilled || '0');
           const size = parseFloat(order.size);

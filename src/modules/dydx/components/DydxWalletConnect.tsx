@@ -6,6 +6,7 @@ import { Tooltip } from '../../../components/common/Tooltip';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxDeposit } from '../hooks/useDydxDeposit';
 import { useDydxWallet } from '../hooks/useDydxWallet';
+import { useCurrentDepositTx } from '../hooks/useTransactionTracker';
 import { dydxWalletService } from '../service/dydxWalletService';
 import useOrderPreviewStore from '../store/orderPreviewStore';
 import { selectPortfolioMetrics, useWebSocketStore } from '../store/websocketStore';
@@ -72,10 +73,26 @@ export const DydxWalletConnect: React.FC = () => {
   useEffect(() => {
     if (isConnected && address) {
       checkPendingDeposit();
+    }
+  }, [isConnected, address, checkPendingDeposit]);
+
+  const pendingDepositTx = useCurrentDepositTx();
+
+  // Fast polling during active bridge transactions
+  useEffect(() => {
+    if (isConnected && address && pendingDepositTx?.status === 'pending') {
       const interval = setInterval(checkPendingDeposit, 15000);
       return () => clearInterval(interval);
     }
-  }, [isConnected, address, checkPendingDeposit]);
+  }, [isConnected, address, pendingDepositTx?.status, checkPendingDeposit]);
+
+  // Slow polling to catch external deposits arriving while app is idle
+  useEffect(() => {
+    if (isConnected && address && pendingDepositTx?.status !== 'pending') {
+      const interval = setInterval(checkPendingDeposit, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [isConnected, address, pendingDepositTx?.status, checkPendingDeposit]);
 
   useEffect(() => {
     if (pendingDydxQuantums && !isRecovering && pendingDydxQuantums !== lastAttemptedQuantums) {
@@ -172,16 +189,6 @@ export const DydxWalletConnect: React.FC = () => {
     useCallback(s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined), [parentKey])
   );
 
-  // const activeSubaccountNumber = useMemo(() => {
-  //   if (!parentData?.childSubaccounts) return 0;
-  //   for (const child of parentData.childSubaccounts) {
-  //     if (Object.keys(child.openPerpetualPositions || {}).length > 0) {
-  //       return child.subaccountNumber;
-  //     }
-  //   }
-  //   return 0;
-  // }, [parentData?.childSubaccounts]);
-
   // Collect leverages from localStorage for all active positions to ensure the
   // Portfolio summary margin matches the Positions table margin.
   const leveragesMap = useMemo(() => {
@@ -199,8 +206,6 @@ export const DydxWalletConnect: React.FC = () => {
     });
     return map;
   }, [parentData]);
-
-  // const activeSubaccountNumber = 0;
 
   const marginMetrics = useMemo(
     () => selectPortfolioMetrics(parentData, optimisticDelta, marketsMap, leveragesMap),

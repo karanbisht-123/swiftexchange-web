@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams, useLocation } from 'react-router-dom';
-import { WalletType } from '../../../../walletconnect/constants/Wallet';
+import { useLocation, useSearchParams } from 'react-router-dom';
+
 import { useSwapStore } from '../../../../../store/swapStore';
-import { isStellar } from '../utils/swapAssetUtils';
+import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { getEvmSwapEnabledChains, isEvmChain } from '../../../utils/Chainregistry';
 import { switchOrAddChain } from '../../../utils/evmChainUtils';
 import { STELLAR_CHAIN_ID } from '../constants/swap.constants';
+import { isStellar } from '../utils/swapAssetUtils';
 
 export function useSwapAssetDefaults(params: {
   connectedWallets: any;
@@ -20,13 +21,19 @@ export function useSwapAssetDefaults(params: {
   const locationState = location.state as { selectedAsset?: any; isPerp?: boolean };
 
   const {
-    fromChainId, setFromChainId,
-    toChainId, setToChainId,
-    sellAssetSymbol, setSellAssetSymbol,
-    sellAssetAddress, setSellAssetAddress,
-    buyAssetSymbol, setBuyAssetSymbol,
-    buyAssetAddress, setBuyAssetAddress,
-    resetInputs
+    fromChainId,
+    setFromChainId,
+    toChainId,
+    setToChainId,
+    sellAssetSymbol,
+    setSellAssetSymbol,
+    sellAssetAddress,
+    setSellAssetAddress,
+    buyAssetSymbol,
+    setBuyAssetSymbol,
+    buyAssetAddress,
+    setBuyAssetAddress,
+    resetInputs,
   } = useSwapStore();
 
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
@@ -42,7 +49,7 @@ export function useSwapAssetDefaults(params: {
 
     if (locationState?.selectedAsset) {
       const asset = locationState.selectedAsset;
-      initialFromChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : (asset.chainId || 1);
+      initialFromChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : asset.chainId || 1;
       initialSellSymbol = asset.symbol;
       initialSellAddr = asset.address || '';
       if (locationState.isPerp) {
@@ -57,10 +64,20 @@ export function useSwapAssetDefaults(params: {
       const buyAddressParam = searchParams.get('buyAddress');
 
       if (fromParam) {
-        initialFromChainId = fromParam === 'stellar' ? STELLAR_CHAIN_ID : (isNaN(Number(fromParam)) ? fromParam : Number(fromParam));
+        initialFromChainId =
+          fromParam === 'stellar'
+            ? STELLAR_CHAIN_ID
+            : isNaN(Number(fromParam))
+              ? fromParam
+              : Number(fromParam);
       }
       if (toParam) {
-        initialToChainId = toParam === 'stellar' ? STELLAR_CHAIN_ID : (isNaN(Number(toParam)) ? toParam : Number(toParam));
+        initialToChainId =
+          toParam === 'stellar'
+            ? STELLAR_CHAIN_ID
+            : isNaN(Number(toParam))
+              ? toParam
+              : Number(toParam);
       }
       if (sellAssetParam) initialSellSymbol = sellAssetParam;
       if (sellAddressParam) initialSellAddr = sellAddressParam;
@@ -70,7 +87,8 @@ export function useSwapAssetDefaults(params: {
 
     const storeFromChain = useSwapStore.getState().fromChainId;
     if (!initialFromChainId) {
-      const defaultChainId = currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
+      const defaultChainId =
+        currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
       if (storeFromChain === 1 && defaultChainId !== 1) {
         initialFromChainId = defaultChainId;
       }
@@ -78,10 +96,14 @@ export function useSwapAssetDefaults(params: {
 
     if (initialFromChainId !== null) setFromChainId(initialFromChainId);
     if (initialToChainId !== null) setToChainId(initialToChainId);
-    if (initialSellSymbol) setSellAssetSymbol(initialSellSymbol);
-    if (initialSellAddr) setSellAssetAddress(initialSellAddr);
-    if (initialBuySymbol) setBuyAssetSymbol(initialBuySymbol);
-    if (initialBuyAddr) setBuyAssetAddress(initialBuyAddr);
+    if (initialSellSymbol) {
+      setSellAssetSymbol(initialSellSymbol);
+      setSellAssetAddress(initialSellAddr);
+    }
+    if (initialBuySymbol) {
+      setBuyAssetSymbol(initialBuySymbol);
+      setBuyAssetAddress(initialBuyAddr);
+    }
   }, []);
 
   useEffect(() => {
@@ -129,7 +151,15 @@ export function useSwapAssetDefaults(params: {
     if (buyAssetSymbol) params.set('buyAsset', buyAssetSymbol);
     if (buyAssetAddress) params.set('buyAddress', buyAssetAddress);
     setSearchParams(params, { replace: true });
-  }, [fromChainId, toChainId, sellAssetSymbol, sellAssetAddress, buyAssetSymbol, buyAssetAddress, setSearchParams]);
+  }, [
+    fromChainId,
+    toChainId,
+    sellAssetSymbol,
+    sellAssetAddress,
+    buyAssetSymbol,
+    buyAssetAddress,
+    setSearchParams,
+  ]);
 
   const prevChainIds = useRef({ from: fromChainId, to: toChainId });
   useEffect(() => {
@@ -142,7 +172,7 @@ export function useSwapAssetDefaults(params: {
   useEffect(() => {
     if (locationState?.selectedAsset) {
       const asset = locationState.selectedAsset;
-      const targetChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : (asset.chainId || 1);
+      const targetChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : asset.chainId || 1;
       setFromChainId(targetChainId);
       setSellAssetSymbol(asset.symbol);
       setSellAssetAddress(asset.address || '');
@@ -185,7 +215,16 @@ export function useSwapAssetDefaults(params: {
         active = false;
       };
     }
-  }, [fromChainId, currentChainId, isConnected, isChainSwitching, getProvider, setFromChainId, setToChainId, toChainId]);
+  }, [
+    fromChainId,
+    currentChainId,
+    isConnected,
+    isChainSwitching,
+    getProvider,
+    setFromChainId,
+    setToChainId,
+    toChainId,
+  ]);
 
   return {
     isChainSwitching,

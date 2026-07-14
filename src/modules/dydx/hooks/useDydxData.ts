@@ -10,7 +10,6 @@ import {
 import { dydxWalletService } from '../service/dydxWalletService';
 import {
   type TrackedOrder,
-  selectOpenAndGraceOrders,
   selectOpenOrders,
   selectRecentlyTerminalOrders,
   useWebSocketStore,
@@ -29,7 +28,6 @@ interface UseDydxDataReturn {
 
   orders: TrackedOrder[];
   openOrders: TrackedOrder[];
-  openOrdersWithGrace: TrackedOrder[];
   loadingOrders: boolean;
   ordersError: string | null;
   refreshOrders: () => Promise<void>;
@@ -109,11 +107,6 @@ export const useDydxData = (): UseDydxDataReturn => {
   }, [parentData?.orders]);
 
   const openOrders = useMemo<TrackedOrder[]>(() => selectOpenOrders(parentData), [parentData]);
-
-  const openOrdersWithGrace = useMemo<TrackedOrder[]>(
-    () => selectOpenAndGraceOrders(parentData),
-    [parentData]
-  );
 
   const fills = useMemo(() => {
     const all = parentData?.fills ?? [];
@@ -401,7 +394,6 @@ export const useDydxData = (): UseDydxDataReturn => {
 
     orders,
     openOrders,
-    openOrdersWithGrace,
     loadingOrders,
     ordersError,
     refreshOrders,
