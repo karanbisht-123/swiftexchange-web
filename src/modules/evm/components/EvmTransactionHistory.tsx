@@ -127,6 +127,21 @@ const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: 
   </div>
 );
 
+const ElapsedTime = ({ startTime }: { startTime: number }) => {
+  const [elapsed, setElapsed] = useState(Date.now() - startTime);
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+  const mins = Math.floor(elapsed / 60000);
+  const secs = Math.floor((elapsed % 60000) / 1000);
+  return (
+    <span>
+      {mins}:{secs.toString().padStart(2, '0')}
+    </span>
+  );
+};
+
 const EvmTransactionHistory: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const txHashFromUrl = searchParams.get('hash');
@@ -1146,7 +1161,9 @@ const EvmTransactionHistory: React.FC = () => {
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}
                   >
                     {tx.status === 'pending' &&
-                    (txProvider === 'SKIP' || txProvider === 'SRBTODYDX')
+                    (txProvider === 'SKIP' ||
+                      txProvider === 'SRBTODYDX' ||
+                      txProvider === 'ALLBRIDGE')
                       ? 'Bridging'
                       : tx.status === 'pending' && txProvider === 'DYDX'
                         ? 'Settling'
@@ -1154,6 +1171,12 @@ const EvmTransactionHistory: React.FC = () => {
                   </span>
                   {isPending && (
                     <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />
+                  )}
+                  {isPending && isAllbridge && (
+                    <span className="text-[10px] text-muted ml-auto mr-1 font-medium flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/70 animate-pulse"></span>
+                      ~2m (<ElapsedTime startTime={tx.timestamp} />)
+                    </span>
                   )}
                 </div>
 
@@ -1232,33 +1255,46 @@ const EvmTransactionHistory: React.FC = () => {
               </div>
             </div>
 
-            {/* Inline dYdX Deposit Button inside the card */}
             {(() => {
-              if (tx.hash && tx.status === 'success') {
+              if (tx.hash) {
                 try {
                   const intentStr = localStorage.getItem('dydx_intent_' + tx.hash);
                   if (intentStr) {
                     const intent = JSON.parse(intentStr);
-                    return (
-                      <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
-                        <span className="text-xs text-muted font-medium">
-                          {intent.amountOut} USDC Ready to Deposit
-                        </span>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleOpenDepositModal(
-                              tx,
-                              tx.chainId || selectedView,
-                              intent.amountOut
-                            );
-                          }}
-                          className="px-3 py-1.5 bg-brand text-white text-[11px] font-bold rounded-lg shadow hover:bg-brand/90 transition-colors flex items-center gap-1.5"
-                        >
-                          Deposit to dYdX
-                        </button>
-                      </div>
-                    );
+                    if (tx.status === 'success') {
+                      return (
+                        <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
+                          <span className="text-xs text-muted font-medium">
+                            {intent.amountOut} USDC Ready to Deposit
+                          </span>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleOpenDepositModal(
+                                tx,
+                                tx.chainId || selectedView,
+                                intent.amountOut
+                              );
+                            }}
+                            className="px-3 py-1.5 bg-brand text-white text-[11px] font-bold rounded-lg shadow hover:bg-brand/90 transition-colors flex items-center gap-1.5"
+                          >
+                            Deposit to dYdX
+                          </button>
+                        </div>
+                      );
+                    } else if (tx.status === 'pending') {
+                      return (
+                        <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
+                          <span className="text-[11px] text-muted font-medium flex items-center gap-1.5">
+                            <Loader2 size={11} className="animate-spin text-yellow-500/80" />
+                            Step 1: Preparing Funds...
+                          </span>
+                          <span className="text-[10px] text-muted/50 font-medium">
+                            Deposit unlocks on completion
+                          </span>
+                        </div>
+                      );
+                    }
                   }
                 } catch {
                   /* ignore */
@@ -1577,7 +1613,7 @@ const EvmTransactionHistory: React.FC = () => {
                                   onClick={e => {
                                     e.stopPropagation();
                                     handleOpenDepositModal(
-                                      tx,
+                                      tx as any,
                                       tx.chainId || selectedView,
                                       intent.amountOut
                                     );

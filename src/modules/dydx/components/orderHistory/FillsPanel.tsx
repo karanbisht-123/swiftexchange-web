@@ -137,19 +137,19 @@ const FillsPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-secondary overflow-hidden">
       <div className="hidden md:block flex-1 overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-secondary border-b border-color z-10">
-            <tr className="text-muted text-xs">
-              <th className="text-left px-4 py-3 font-medium">Market</th>
-              <th className="text-left px-4 py-3 font-medium">Date | Age</th>
-              <th className="text-left px-4 py-3 font-medium">Type</th>
-              <th className="text-center px-4 py-3 font-medium">Side</th>
-              <th className="text-right px-4 py-3 font-medium">Amount</th>
-              <th className="text-right px-4 py-3 font-medium">Price</th>
-              <th className="text-right px-4 py-3 font-medium">Total</th>
-              <th className="text-right px-4 py-3 font-medium">Fee</th>
-              <th className="text-right px-4 py-3 font-medium">Closed PNL</th>
-              <th className="text-right px-4 py-3 font-medium">Liquidity</th>
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-secondary text-muted text-[10px] uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-color">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Market</th>
+              <th className="px-2 py-2 font-semibold">Date | Age</th>
+              <th className="px-2 py-2 font-semibold">Type</th>
+              <th className="px-2 py-2 text-center font-semibold">Side</th>
+              <th className="px-2 py-2 text-right font-semibold">Amount</th>
+              <th className="px-2 py-2 text-right font-semibold">Price</th>
+              <th className="px-2 py-2 text-right font-semibold">Total</th>
+              <th className="px-2 py-2 text-right font-semibold">Fee</th>
+              <th className="px-2 py-2 text-right font-semibold">Closed PNL</th>
+              <th className="px-2 py-2 text-right font-semibold">Liquidity</th>
             </tr>
           </thead>
           <tbody>
@@ -172,32 +172,32 @@ const FillsPanel: React.FC = () => {
                 <tr
                   key={fill.id}
                   onClick={() => handleFillClick(fill)}
-                  className="border-b border-color hover:bg-hover transition-colors cursor-pointer"
+                  className="border-b border-color hover:bg-hover transition-colors cursor-pointer text-[11px]"
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-1.5">
                     <MarketBadge market={marketTicker} />
                   </td>
-                  <td className="px-4 py-3 text-left text-muted text-xs">
+                  <td className="px-2 py-1.5 text-left text-muted font-mono">
                     {formatTimeAgoCompact(fill.createdAt)}
                   </td>
-                  <td className="px-4 py-3 text-left text-primary">
+                  <td className="px-2 py-1.5 text-left text-primary font-bold">
                     {capitalizeFirst(
                       fill.clientMetadata === '1' && fill.type === 'LIMIT' ? 'MARKET' : fill.type
                     )}
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-semibold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}
                     >
                       {capitalizeFirst(fill.side)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{amountStr}</td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{priceStr}</td>
-                  <td className="px-4 py-3 text-right text-primary font-mono">{totalStr}</td>
-                  <td className="px-4 py-3 text-right text-muted font-mono">{feeStr}</td>
-                  <td className={`px-4 py-3 text-right font-mono ${pnlClass}`}>{closedPnlStr}</td>
-                  <td className="px-4 py-3 text-right text-muted">
+                  <td className="px-2 py-1.5 text-right text-primary font-mono">{amountStr}</td>
+                  <td className="px-2 py-1.5 text-right text-primary font-mono">{priceStr}</td>
+                  <td className="px-2 py-1.5 text-right text-primary font-mono">{totalStr}</td>
+                  <td className="px-2 py-1.5 text-right text-muted font-mono">{feeStr}</td>
+                  <td className={`px-2 py-1.5 text-right font-mono ${pnlClass}`}>{closedPnlStr}</td>
+                  <td className="px-2 py-1.5 text-right text-muted">
                     {capitalizeFirst(fill.liquidity)}
                   </td>
                 </tr>

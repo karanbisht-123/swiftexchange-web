@@ -380,6 +380,7 @@ export function useMidMarketPrice(market: string): {
 
     return () => {
       state.listeners.delete(computeMid as any);
+      unsubscribeFromMarket(market);
     };
   }, [market]);
 

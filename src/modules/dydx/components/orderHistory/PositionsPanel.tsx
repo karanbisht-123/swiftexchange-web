@@ -171,37 +171,37 @@ const PositionRow = React.memo(function PositionRow({
   const isIsolated = (position.subaccountNumber ?? 0) >= ISOLATED_SUBACCOUNT_START;
 
   return (
-    <tr className="border-b border-color hover:bg-hover transition-colors">
-      <td className="p-3">
+    <tr className="border-b border-color hover:bg-hover transition-colors text-[11px]">
+      <td className="px-3 py-1.5">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center overflow-hidden">
+          <div className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center overflow-hidden">
             {getMarketIcon(position.market)}
           </div>
           <span className="font-bold text-primary">{position.market}</span>
         </div>
       </td>
 
-      <td className="p-3">
-        <span className="px-1.5 py-1 rounded text-[10px] font-bold bg-secondary text-primary">
+      <td className="px-2 py-1.5">
+        <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-tertiary text-primary border border-color">
           {metrics.leverage.toFixed(1)}×
         </span>
       </td>
 
-      <td className="p-3">
-        <span className="px-1.5 py-1 rounded text-[10px] font-medium bg-secondary text-primary">
+      <td className="px-2 py-1.5">
+        <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-tertiary text-primary border border-color uppercase tracking-wider">
           {metrics.marginType}
         </span>
       </td>
 
-      <td className="p-3 text-right text-primary font-mono">
+      <td className="px-2 py-1.5 text-right text-primary font-mono">
         {formatNumericWithCommas(metrics.absSize, decimals)}
       </td>
 
-      <td className="p-3 text-right text-primary font-mono">
+      <td className="px-2 py-1.5 text-right text-primary font-mono">
         {formatNumericWithCommas(metrics.notional, 2, '$')}
       </td>
 
-      <td className="p-3 text-right">
+      <td className="px-2 py-1.5 text-right font-mono">
         <PnlCell
           oraclePrice={oraclePrice}
           margin={metrics.margin}
@@ -210,39 +210,39 @@ const PositionRow = React.memo(function PositionRow({
         />
       </td>
 
-      <td className="p-3 text-right font-mono">
+      <td className="px-2 py-1.5 text-right font-mono">
         <div className="flex items-center justify-end gap-1.5 text-primary">
           <span>{formatNumericWithCommas(metrics.margin, 2, '$')}</span>
           {isIsolated && (
             <button
               onClick={() => onAddMargin(position)}
               disabled={isClosing}
-              className="p-1 hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
+              className="p-0.5 hover:bg-blue-900/30 rounded text-muted hover:text-blue-400 transition-all disabled:opacity-50"
               title="Add Margin"
             >
-              <PlusCircle size={12} />
+              <PlusCircle size={10} />
             </button>
           )}
         </div>
       </td>
 
-      <td className="p-3 text-right text-muted font-mono">
+      <td className="px-2 py-1.5 text-right text-muted font-mono">
         {formatMarketPrice(metrics.entryPrice, '$')}
       </td>
 
-      <td className="p-3 text-right">
+      <td className="px-2 py-1.5 text-right font-mono">
         <OraclePriceCell oraclePrice={oraclePrice} />
       </td>
 
-      <td className="p-3 text-right text-orange-400 font-mono">
+      <td className="px-2 py-1.5 text-right text-orange-400 font-mono">
         {metrics.liquidationPrice ? formatMarketPrice(metrics.liquidationPrice, '$') : '—'}
       </td>
 
-      <td className="p-3 text-right text-muted font-mono">
+      <td className="px-2 py-1.5 text-right text-muted font-mono">
         {formatNumericWithCommas(parseFloat(position.netFunding || '0'), 4)}
       </td>
 
-      <td className="p-3 text-center">
+      <td className="px-2 py-1.5 text-center">
         <div className="flex justify-center gap-1.5">
           <button
             onClick={() => onEdit(position)}
@@ -709,12 +709,15 @@ const PositionsPanel: React.FC = () => {
       if (result.success) {
         showNotification(`Position ${position.market} closed successfully!`, 'success');
         setTimeout(refreshPositions, 1000);
+        // Clear the loading state after 10 seconds as a fallback
+        // The position will normally be removed from the UI via WebSocket before this
+        setTimeout(() => setClosingMarket(prev => (prev === position.market ? null : prev)), 10000);
       } else {
         showNotification(result.userMessage || 'Failed to close position', 'error');
+        setClosingMarket(null);
       }
     } catch (error: any) {
       showNotification(error.message || 'Failed to close position', 'error');
-    } finally {
       setClosingMarket(null);
     }
   }, [positionToClose, closePosition, refreshPositions, showNotification]);
@@ -742,19 +745,21 @@ const PositionsPanel: React.FC = () => {
           `All ${result.closed} position${result.closed > 1 ? 's' : ''} closed successfully!`,
           'success'
         );
+        setTimeout(() => setIsClosingAll(false), 10000);
       } else if (result.partialSuccess) {
         showNotification(
           `${result.closed} closed, ${result.failed} failed — check individual positions`,
           'error'
         );
+        setIsClosingAll(false);
       } else {
         showNotification('Failed to close positions', 'error');
+        setIsClosingAll(false);
       }
 
       setTimeout(refreshPositions, 1000);
     } catch (error: any) {
       showNotification(error.message || 'Failed to close all positions', 'error');
-    } finally {
       setIsClosingAll(false);
     }
   }, [positions, marketCache, closeAllPositions, refreshPositions, showNotification]);
@@ -868,17 +873,15 @@ const PositionsPanel: React.FC = () => {
       )}
 
       <div className="hidden md:block">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead className="bg-secondary text-muted font-medium uppercase sticky top-0 z-10">
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-secondary text-muted text-[10px] uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-color">
             <tr>
-              <th className="p-3 border-b border-color">
-                <div className="flex text-[10px] items-center gap-2">Market</div>
-              </th>
-              <th className="p-2 border-b border-color text-[10px]">Leverage</th>
-              <th className="p-2 border-b border-color text-[10px]">Type</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">Size</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">Value</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">
+              <th className="px-3 py-2 font-semibold">Market</th>
+              <th className="px-2 py-2 font-semibold">Leverage</th>
+              <th className="px-2 py-2 font-semibold">Type</th>
+              <th className="px-2 py-2 text-right font-semibold">Size</th>
+              <th className="px-2 py-2 text-right font-semibold">Value</th>
+              <th className="px-2 py-2 text-right font-semibold">
                 <div className="flex items-center justify-end gap-1">
                   P&L
                   <Tooltip content="Refresh oracle prices to update P&L" position="bottom">
@@ -886,19 +889,19 @@ const PositionsPanel: React.FC = () => {
                   </Tooltip>
                 </div>
               </th>
-              <th className="p-2 border-b border-color text-right text-[10px]">Margin</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">Avg. Open</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">Oracle</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">Liquidation</th>
-              <th className="p-2 border-b border-color text-right text-[10px]">Funding</th>
-              <th className="p-2 border-b border-color text-center text-[10px]">
+              <th className="px-2 py-2 text-right font-semibold">Margin</th>
+              <th className="px-2 py-2 text-right font-semibold">Avg. Open</th>
+              <th className="px-2 py-2 text-right font-semibold">Oracle</th>
+              <th className="px-2 py-2 text-right font-semibold">Liquidation</th>
+              <th className="px-2 py-2 text-right font-semibold">Funding</th>
+              <th className="px-2 py-2 text-center font-semibold">
                 <div className="flex items-center justify-center gap-2">
                   Actions
                   {positions.length > 1 && (
                     <button
                       onClick={handleCloseAll}
                       disabled={isClosingAll || !!closingMarket}
-                      className="px-1.5 py-0.5 bg-red-900/40 hover:bg-red-700/50 text-red-400 hover:text-red-300 rounded text-[9px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                      className="px-1.5 py-0.5 bg-red-900/40 hover:bg-red-700/50 text-red-400 hover:text-red-300 rounded text-[9px] font-bold transition-all disabled:opacity-40 flex items-center gap-1 uppercase"
                       title="Close all positions"
                     >
                       {isClosingAll ? (
@@ -989,6 +992,8 @@ const PositionsPanel: React.FC = () => {
           isLoading={isSettingTriggers}
           error={orderError}
           onSave={handleSaveTriggers}
+          marketIcon={getMarketIcon(selectedPosition.market)}
+          oraclePrice={oraclePrices[selectedPosition.market] ?? undefined}
         />
       )}
 

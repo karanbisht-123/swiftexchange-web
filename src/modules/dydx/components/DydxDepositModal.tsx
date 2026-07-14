@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Info,
   Loader2,
-  RefreshCw,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -1100,7 +1099,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
           </div>
         )}
 
-        {isChainMismatch && amountValue > 0 && (
+        {/* {isChainMismatch && amountValue > 0 && (
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-brand/5 border border-brand/20">
             <RefreshCw className="w-3.5 h-3.5 text-brand shrink-0" />
             <p className="text-xs text-brand">
@@ -1111,7 +1110,7 @@ export const DydxDepositModal: React.FC<DydxDepositModalProps> = ({
               when you click Deposit.
             </p>
           </div>
-        )}
+        )} */}
 
         <button
           onClick={handleDeposit}

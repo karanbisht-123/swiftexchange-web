@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { ChainSymbol, FeePaymentMethod, Messenger } from '@allbridge/bridge-core-sdk';
 
@@ -103,6 +104,8 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     setSellAmount,
   } = params;
 
+  const navigate = useNavigate();
+
   const [isFusionLoading, setIsFusionLoading] = useState(false);
   const [fusionStatus, setFusionStatus] = useState<'idle' | 'approving' | 'signing'>('idle');
   const [isWaitingForWallet, setIsWaitingForWallet] = useState(false);
@@ -135,12 +138,14 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           })
         );
         localStorage.removeItem('pending_dydx_intent');
+        return true;
       } else if (parsedAmount <= 0) {
         localStorage.removeItem('pending_dydx_intent');
       }
     } catch {
       // ignore
     }
+    return false;
   }, []);
 
   useEffect(() => {
@@ -205,7 +210,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       setIsWaitingForWallet(true);
       try {
         const hash = await ammService.executeSwapWithWalletConnect(tx, provider);
-        if (hash) trackDydxIntent(hash, computedOutAmount);
+        const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
         handleReset();
         showToast({
           type: 'STELLAR',
@@ -219,6 +224,9 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
             hash,
             isStellar: true,
           });
+        }
+        if (wasTracked) {
+          navigate(`/transactions?tab=recent&hash=${hash}`);
         }
       } finally {
         setIsWaitingForWallet(false);
@@ -279,7 +287,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         isSameAssetSelected: false,
         feePayType,
       });
-      if (hash) trackDydxIntent(hash, computedOutAmount);
+      const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
       handleReset();
       showToast({
         type: 'EVM_SWAP',
@@ -297,6 +305,9 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           networkName: fromChainConfig?.name,
           isStellar: false,
         });
+      }
+      if (wasTracked) {
+        navigate(`/transactions?tab=recent&hash=${hash}`);
       }
     } catch (err) {
       if ((err as any)?.name === 'AbortError') {
@@ -373,7 +384,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         isSameAssetSelected: false,
         feePayType,
       });
-      if (txHash) trackDydxIntent(txHash, computedOutAmount);
+      const wasTracked = txHash ? trackDydxIntent(txHash, computedOutAmount) : false;
       handleReset();
       if (txHash) {
         storeSwapOrder({
@@ -403,6 +414,9 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           hash: txHash,
           isStellar: true,
         });
+      }
+      if (wasTracked && txHash) {
+        navigate(`/transactions?tab=recent&hash=${txHash}`);
       }
     } else {
       throw new Error(result.error || 'Stellar transaction failed');
@@ -443,7 +457,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         isSameAssetSelected: false,
         feePayType,
       });
-      if (hash) trackDydxIntent(hash, computedOutAmount);
+      const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
       handleReset();
       showToast({
         type: 'EVM_SWAP',
@@ -461,6 +475,9 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           networkName: fromChainConfig?.name,
           isStellar: false,
         });
+      }
+      if (wasTracked) {
+        navigate(`/transactions?tab=recent&hash=${hash}`);
       }
     } catch (err) {
       if ((err as any)?.name === 'AbortError') {
@@ -566,7 +583,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       }
       if (tx.type === 'transfer') {
         transferHash = hash;
-        if (hash) trackDydxIntent(hash, computedOutAmount);
         useSwapStore.getState().setPendingTxHash(hash);
         storeSwapOrder({
           txHash: hash,
@@ -582,6 +598,8 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         } as any).catch(err => console.error('Failed to store Allbridge order:', err));
       }
     }
+
+    const wasTracked = transferHash ? trackDydxIntent(transferHash, computedOutAmount) : false;
     handleReset();
     showToast({
       type: 'BRIDGE',
@@ -599,6 +617,9 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         networkName: fromChainConfig?.name,
         isStellar: false,
       });
+    }
+    if (wasTracked && transferHash) {
+      navigate(`/transactions?tab=recent&hash=${transferHash}`);
     }
   };
 

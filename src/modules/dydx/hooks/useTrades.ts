@@ -126,6 +126,7 @@ function unsubscribeFromMarket(market: string): void {
   }
   state.isSubscribed = false;
   state.trades = [];
+  tradesState.delete(market);
 }
 
 export function useTrades(market: string = 'BTC-USD', limit: number = 50) {
