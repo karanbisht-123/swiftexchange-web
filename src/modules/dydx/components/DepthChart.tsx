@@ -16,8 +16,9 @@ const DepthChart: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  const [hoveredPoint, setHoveredPoint] = useState<DepthPoint | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const hoveredPointRef = useRef<DepthPoint | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const depthData = useMemo(() => {
     if (!orderbook?.bids?.length || !orderbook?.asks?.length) return null;
@@ -64,6 +65,10 @@ const DepthChart: React.FC = () => {
     });
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
+      const { offsetWidth, offsetHeight } = containerRef.current;
+      if (offsetWidth > 0 && offsetHeight > 0) {
+        setCanvasSize({ width: offsetWidth, height: offsetHeight });
+      }
     }
 
     return () => resizeObserver.disconnect();
@@ -254,17 +259,16 @@ const DepthChart: React.FC = () => {
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      if (hoveredPoint) {
-        const x = hoveredPoint.isBid
-          ? xScaleBid(hoveredPoint.price)
-          : xScaleAsk(hoveredPoint.price);
-        const y = yScale(hoveredPoint.total);
+      if (hoveredPointRef.current) {
+        const hp = hoveredPointRef.current;
+        const x = hp.isBid ? xScaleBid(hp.price) : xScaleAsk(hp.price);
+        const y = yScale(hp.total);
 
         ctx.beginPath();
         ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = hoveredPoint.isBid ? '#10b981' : '#ef4444';
+        ctx.fillStyle = hp.isBid ? '#10b981' : '#ef4444';
         ctx.fill();
-        ctx.strokeStyle = ctx.fillStyle =
+        ctx.strokeStyle =
           getComputedStyle(document.documentElement)
             .getPropertyValue('--color-bg-secondary')
             .trim() || '#191c25';
@@ -284,7 +288,7 @@ const DepthChart: React.FC = () => {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [depthData, canvasSize, hoveredPoint]);
+  }, [depthData, canvasSize]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current || !depthData) return;
@@ -302,28 +306,36 @@ const DepthChart: React.FC = () => {
       y < padding.top ||
       y > canvasSize.height - padding.bottom
     ) {
-      setHoveredPoint(null);
+      hoveredPointRef.current = null;
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = requestAnimationFrame(() => {
+        animationFrameRef.current = null;
+      });
       return;
     }
 
     const { bids, asks, midPrice } = depthData;
-
     const isLeftSide = x < centerX;
-
     let closest: DepthPoint | null = null;
     let minDist = Infinity;
-
     const dataToCheck = isLeftSide ? bids : asks;
-
-    dataToCheck.forEach(point => {
+    for (const point of dataToCheck) {
       const dist = Math.abs(point.price - midPrice);
       if (dist < minDist) {
         minDist = dist;
         closest = point;
       }
+    }
+    hoveredPointRef.current = closest;
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = requestAnimationFrame(() => {
+      animationFrameRef.current = null;
     });
-
-    setHoveredPoint(closest);
+    if (tooltipRef.current && closest) {
+      const tt = tooltipRef.current;
+      tt.style.display = 'block';
+      tt.innerHTML = `<div class="flex gap-4"><div><span class="text-muted">Price: </span><span style="color:${closest.isBid ? 'var(--color-success)' : 'var(--color-danger)'}">${closest.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div><div><span class="text-muted">Total: </span><span class="text-primary">${closest.total.toFixed(4)} ${base}</span></div></div>`;
+    }
   };
 
   const base = selectedMarket.split('-')[0] || 'BTC';
@@ -340,40 +352,29 @@ const DepthChart: React.FC = () => {
             <canvas
               ref={canvasRef}
               onMouseMove={handleMouseMove}
-              onMouseLeave={() => setHoveredPoint(null)}
-              style={{ cursor: 'crosshair', display: 'block' }}
+              onMouseLeave={() => {
+                hoveredPointRef.current = null;
+                if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+              }}
+              style={{
+                cursor: 'crosshair',
+                display: 'block',
+                touchAction: 'none',
+                userSelect: 'none',
+              }}
               className="w-full min-h-[300px]"
             />
-
-            {hoveredPoint && (
-              <div
-                className="absolute bg-secondary border border-color rounded px-3 py-2 text-xs pointer-events-none shadow-lg"
-                style={{
-                  left: '50%',
-                  top: '10px',
-                  transform: 'translateX(-50%)',
-                  zIndex: 10,
-                }}
-              >
-                <div className="flex gap-4">
-                  <div>
-                    <span className="text-muted">Price: </span>
-                    <span className={hoveredPoint.isBid ? 'price-up' : 'price-down'}>
-                      {hoveredPoint.price.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-muted">Total: </span>
-                    <span className="text-primary">
-                      {hoveredPoint.total.toFixed(4)} {base}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
+            <div
+              ref={tooltipRef}
+              className="absolute bg-secondary border border-color rounded px-3 py-2 text-xs pointer-events-none shadow-lg"
+              style={{
+                left: '50%',
+                top: '10px',
+                transform: 'translateX(-50%)',
+                zIndex: 10,
+                display: 'none',
+              }}
+            />
           </>
         )}
       </div>

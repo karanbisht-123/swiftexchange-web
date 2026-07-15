@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
+import { useNotificationStore } from '../../../store/notificationStore';
 import { getSocketClient } from '../client/clients';
 import type { Fill, Transfer } from '../types/trading.types';
 import { webSocketManager } from '../utils/WebSocketManager';
@@ -207,7 +208,7 @@ const OPEN_STATUSES = new Set(['OPEN', 'BEST_EFFORT_OPENED', 'UNTRIGGERED', 'PAR
 const UNSUB_DELAY_MS = 3_000;
 
 // Isolated subaccount numbers start at this value (dYdX protocol constant)
-const ISOLATED_SUBACCOUNT_START = 128;
+export const ISOLATED_SUBACCOUNT_START = 128;
 
 export function isMarketOrder(
   order: Pick<TrackedOrder, 'type' | 'timeInForce' | 'orderFlags'>
@@ -285,7 +286,12 @@ interface WebSocketState {
   applyOptimisticMarginDeduction: (amount: number) => void;
   clearOptimisticDelta: () => void;
 
-  updateParentSubaccount: (key: string, data: PartialSubaccountUpdate, msgId?: number) => void;
+  updateParentSubaccount: (
+    key: string,
+    data: PartialSubaccountUpdate,
+    msgId?: number,
+    isLiveUpdate?: boolean
+  ) => void;
   updateMarket: (ticker: string, data: Partial<MarketData>) => void;
   updateMarkets: (updates: Record<string, Partial<MarketData>>) => void;
   updateOraclePrices: (updates: Record<string, string>) => void;
@@ -396,7 +402,8 @@ function mergeOrders(
   existing: Map<string, TrackedOrder>,
   incoming: RawOrder[],
   msgId: number,
-  now: number
+  now: number,
+  isLiveUpdate: boolean
 ): Map<string, TrackedOrder> {
   const next = new Map(existing);
 
@@ -407,7 +414,8 @@ function mergeOrders(
     const prev = next.get(id);
     if (prev && prev._msgId > msgId) continue;
 
-    const isTerminal = TERMINAL_STATUSES.has(raw.status);
+    const mergedStatus = raw.status || (prev ? prev.status : 'OPEN');
+    const isTerminal = TERMINAL_STATUSES.has(mergedStatus);
     const prevWasTerminal = prev ? TERMINAL_STATUSES.has(prev.status) : false;
 
     // if status is no longer terminal, clear the timestamp so grace logic is reset
@@ -415,13 +423,42 @@ function mergeOrders(
 
     const firstSeenAt = prev?._firstSeenAt ?? now;
 
-    next.set(id, {
+    const merged = {
       ...prev,
       ...raw,
+      status: mergedStatus,
       _msgId: msgId,
       _terminalAt: terminalAt,
       _firstSeenAt: firstSeenAt,
-    } as TrackedOrder);
+    } as TrackedOrder;
+    next.set(id, merged);
+
+    if (isLiveUpdate && isTerminal && !prevWasTerminal) {
+      if (merged.status === 'FILLED') {
+        try {
+          useNotificationStore.getState().showToast({
+            type: 'DYDX',
+            title: 'Order Filled',
+            message: `Your ${merged.side} order for ${merged.size} on ${merged.ticker || 'market'} was filled.`,
+          });
+        } catch (e) {
+          console.error('Failed to show fill toast', e);
+        }
+      } else if (merged.status === 'REJECTED' || merged.status === 'BEST_EFFORT_CANCELED') {
+        try {
+          let reason = merged.removalReason || merged.status;
+          if (reason.includes('UNDERCOLLATERALIZED')) reason = 'Undercollateralized';
+          if (reason.includes('INSUFFICIENT_MARGIN')) reason = 'Insufficient Margin';
+          useNotificationStore.getState().showToast({
+            type: 'DYDX',
+            title: 'Order Rejected',
+            message: `Order rejected on chain: ${reason}`,
+          });
+        } catch (e) {
+          console.error('Failed to show rejection toast', e);
+        }
+      }
+    }
   }
 
   return next;
@@ -430,18 +467,11 @@ function mergeOrders(
 /**
  * Removes expired orders and caps the list to MAX_ORDERS.
  */
-function evictOrders(
-  orderMap: Map<string, TrackedOrder>,
-  currentBlock: number,
-  now: number
-): TrackedOrder[] {
+function evictOrders(orderMap: Map<string, TrackedOrder>, currentBlock: number): TrackedOrder[] {
   const kept: TrackedOrder[] = [];
 
   for (const order of orderMap.values()) {
     if (TERMINAL_STATUSES.has(order.status)) {
-      if (isMarketOrder(order) && now - (order._terminalAt ?? now) < 5000) {
-        kept.push(order);
-      }
       continue;
     }
 
@@ -656,7 +686,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                   : [];
               if (contents.blockHeight) updates.blockHeight = contents.blockHeight as string;
 
-              get().updateParentSubaccount(key, updates, msgId);
+              get().updateParentSubaccount(key, updates, msgId, false);
               return;
             }
 
@@ -712,6 +742,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                     const isClosed = pos.status === 'CLOSED' || parseFloat(pos.size ?? '0') === 0;
 
                     if (isClosed) {
+                      const wasAlreadyClosed = !child.openPerpetualPositions[pos.market];
                       delete child.openPerpetualPositions[pos.market];
                       hasChildUpdate = true;
                       hasPerpUpdate = true;
@@ -721,6 +752,15 @@ export const useWebSocketStore = create<WebSocketState>()(
                         netFunding: pos.netFunding ?? '0',
                       });
                       closedMarkets.push(pos.market);
+
+                      if (!wasAlreadyClosed) {
+                        const pnl = parseFloat(pos.realizedPnl || '0');
+                        useNotificationStore.getState().showToast({
+                          type: 'DYDX',
+                          title: 'Position Closed',
+                          message: `Position on ${pos.market} closed. Realized PnL: $${pnl.toFixed(2)}`,
+                        });
+                      }
                     } else {
                       const existing = child.openPerpetualPositions[pos.market];
                       const isPnlOnly =
@@ -845,7 +885,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               }
               if (allFills.length > 0) updates.fills = allFills as Fill[];
 
-              get().updateParentSubaccount(key, updates, msgId);
+              get().updateParentSubaccount(key, updates, msgId, true);
               return;
             }
             if (contents.subaccount) {
@@ -891,7 +931,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                 : [];
             if (contents.blockHeight) updates.blockHeight = contents.blockHeight as string;
 
-            get().updateParentSubaccount(key, updates, msgId);
+            get().updateParentSubaccount(key, updates, msgId, true);
           }
         );
       });
@@ -1047,7 +1087,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       set({ optimisticFreeCollateralDelta: 0 });
     },
 
-    updateParentSubaccount: (key, data, msgId = 0) => {
+    updateParentSubaccount: (key, data, msgId = 0, isLiveUpdate = false) => {
       set(state => {
         const newMap = new Map(state.parentSubaccounts);
         const existing = newMap.get(key) ?? {
@@ -1068,11 +1108,11 @@ export const useWebSocketStore = create<WebSocketState>()(
 
         const mergedOrderMap =
           data.orders !== undefined && data.orders.length > 0
-            ? mergeOrders(orderMap, data.orders, msgId, now)
+            ? mergeOrders(orderMap, data.orders, msgId, now, isLiveUpdate)
             : orderMap;
 
         const currentBlock = parseInt(data.blockHeight ?? existing.blockHeight ?? '0', 10);
-        const finalOrders = evictOrders(mergedOrderMap, currentBlock, now);
+        const finalOrders = evictOrders(mergedOrderMap, currentBlock);
         const finalFills =
           data.fills !== undefined ? mergeFills(existing.fills, data.fills) : existing.fills;
 
@@ -1381,20 +1421,4 @@ export function selectPortfolioMetrics(
     marginUsagePercent,
     isolatedEquity: isolatedEquitySum,
   };
-}
-
-export function selectOpenAndGraceOrders(data: ParentSubaccountData | undefined): TrackedOrder[] {
-  if (!data) return [];
-  // For open orders, instantly show all open orders without any grace or delay, exactly like dYdX
-  return data.orders.filter(o => OPEN_STATUSES.has(o.status));
-}
-
-export function selectRecentlyTerminalOrders(
-  data: ParentSubaccountData | undefined
-): TrackedOrder[] {
-  if (!data) return [];
-  const now = Date.now();
-  return data.orders.filter(
-    o => TERMINAL_STATUSES.has(o.status) && isMarketOrder(o) && now - (o._terminalAt ?? now) < 5000
-  );
 }

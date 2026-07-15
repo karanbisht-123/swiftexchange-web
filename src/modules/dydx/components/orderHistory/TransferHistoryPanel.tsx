@@ -110,7 +110,7 @@ const TransferHistoryPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-secondary overflow-hidden">
+    <div className="h-full flex flex-col bg-secondary overflow-y-visible md:overflow-auto relative">
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
@@ -214,7 +214,7 @@ const TransferHistoryPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto space-y-0.5">
+      <div className="md:hidden w-full flex flex-col space-y-2 p-2 pb-4">
         {paginatedTransfers.map((transfer, index) => {
           const amountVal = parseFloat(transfer.size);
           const isDeposit = transfer.type === 'DEPOSIT';
@@ -223,37 +223,48 @@ const TransferHistoryPanel: React.FC = () => {
           return (
             <div
               key={uniqueKey}
-              className="bg-secondary border border-color p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color rounded-xl p-3 shadow-sm flex flex-col gap-3"
             >
-              <div className="flex flex-col gap-1 min-w-0 flex-1">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span
-                    className={`font-medium text-sm ${isDeposit ? 'text-green-500' : 'text-primary'}`}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide ${isDeposit ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
                   >
-                    {isDeposit ? 'Deposit' : 'Withdrawal'}
-                  </span>
-                  <span className="text-xs text-muted">
-                    {formatTimeAgoCompact(new Date(transfer.createdAt))}
+                    {isDeposit ? 'DEPOSIT' : 'WITHDRAWAL'}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 text-xs text-muted">
-                  <span>From: {truncateAddress(transfer.sender.address)}</span>
+                <span className="text-xs text-muted">
+                  {formatTimeAgoCompact(new Date(transfer.createdAt))}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center bg-secondary/30 rounded-lg p-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-muted uppercase tracking-wider">From</span>
+                  <span className="font-mono text-xs text-primary">
+                    {truncateAddress(transfer.sender.address)}
+                  </span>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <span className="text-[10px] text-muted uppercase tracking-wider">Amount</span>
+                  <span className="font-mono text-sm text-primary font-bold">
+                    ${amountVal.toFixed(2)}
+                  </span>
                 </div>
               </div>
 
-              <div className="flex flex-col items-end gap-1">
-                <span className="font-mono text-sm text-primary">${amountVal.toFixed(2)}</span>
-                {transfer.transactionHash && (
+              {transfer.transactionHash && (
+                <div className="flex justify-end mt-1">
                   <a
                     href={`https://www.mintscan.io/dydx/tx/${transfer.transactionHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-500 flex items-center gap-1"
+                    className="text-xs text-blue-500 flex items-center gap-1 hover:text-blue-400 transition-colors"
                   >
-                    Tx <ExternalLink size={10} />
+                    View Tx <ExternalLink size={10} />
                   </a>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           );
         })}

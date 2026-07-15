@@ -196,6 +196,7 @@ export default function TradingChart() {
 
   const onCrosshairMoveRef = useRef<(time: number | null) => void>(() => {});
   const onVisibleRangeChangeRef = useRef<() => void>(() => {});
+  const legendRafRef = useRef<number | null>(null);
 
   // Keep refs pointed at latest closures without triggering createInstance re-run
   onCrosshairMoveRef.current = useCallback(
@@ -453,7 +454,11 @@ export default function TradingChart() {
 
     if (updatedBar) {
       scheduleIndicatorRecalc(updatedBar);
-      setLegend(buildLegend());
+      if (legendRafRef.current != null) cancelAnimationFrame(legendRafRef.current);
+      legendRafRef.current = requestAnimationFrame(() => {
+        legendRafRef.current = null;
+        setLegend(buildLegend());
+      });
     }
   }, [
     latestCandle,
@@ -698,7 +703,10 @@ export default function TradingChart() {
         isMobile={isMobile}
       />
 
-      <div className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]">
+      <div
+        className="flex-1 bg-secondary relative overflow-hidden min-h-[200px]"
+        style={{ touchAction: 'none' }}
+      >
         <Watermark market={selectedMarket} isMobile={isMobile} isDark={isDark} />
         <HistoryLoadingOverlay isFetchingMore={isFetchingMore} />
         <DrawingToolbar
@@ -764,6 +772,7 @@ export default function TradingChart() {
           style={{
             left: showDrawingToolbar ? '46px' : '0px',
             touchAction: 'none',
+            overscrollBehavior: 'contain',
           }}
         />
       </div>

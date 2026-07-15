@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+
 import { portfolioService } from '../portfolio/PortfolioService';
 import { portfolioUtils } from '../utils/portfolioUtils';
 
@@ -22,8 +23,13 @@ export interface Asset {
 }
 
 export interface ProviderStatus {
-  status: 'idle' | 'loading' | 'success' | 'error';
+  /** fresh = up-to-date, stale = last refresh failed but old data still shown, error = no data at all */
+  status: 'idle' | 'loading' | 'success' | 'stale' | 'error';
   lastUpdated: number;
+  /** Timestamp of the last SUCCESSFUL fetch for this provider (used by the UI "last synced X ago" label) */
+  lastSuccess?: number;
+  /** Set when status transitions to 'stale' — the moment the refresh failure was detected */
+  staleSince?: number;
   error?: string;
 }
 
@@ -56,7 +62,6 @@ interface PortfolioActions {
   enrichPrices: () => Promise<void>;
 }
 
-
 const CACHE_TTL = 60_000;
 let enrichInFlight = false;
 
@@ -75,8 +80,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         lastConnectedWalletsStr: '',
 
         updateAsset: (newAsset: Asset) => {
-          set((state) => {
-            const index = state.assets.findIndex((a) => a.id === newAsset.id);
+          set(state => {
+            const index = state.assets.findIndex(a => a.id === newAsset.id);
             const nextAssets = [...state.assets];
             if (index >= 0) {
               nextAssets[index] = { ...nextAssets[index], ...newAsset };
@@ -95,21 +100,21 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
 
         getAssetBalance: (chainId: number | string, symbol: string) => {
           const asset = get().assets.find(
-            (a) => a.chainId === chainId && a.symbol.toUpperCase() === symbol.toUpperCase()
+            a => a.chainId === chainId && a.symbol.toUpperCase() === symbol.toUpperCase()
           );
           return asset?.balance || 0;
         },
 
         clearAssets: () => {
-          set({ 
-            assets: [], 
+          set({
+            assets: [],
             lastFetched: 0,
             providerStatus: {},
             lastConnectedWalletsStr: '',
             isLoading: false,
             isFetching: false,
             hasError: false,
-            errorMessage: null
+            errorMessage: null,
           });
           try {
             usePortfolioStore.persist?.clearStorage();
@@ -119,15 +124,15 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
         },
 
         clearAssetsByType: (chainType: 'evm' | 'stellar' | 'dydx') => {
-          set((state) => ({
-            assets: state.assets.filter((a) => a.chainType !== chainType),
+          set(state => ({
+            assets: state.assets.filter(a => a.chainType !== chainType),
             lastFetched: 0,
             isFetching: false,
             isLoading: false,
             providerStatus: {
               ...state.providerStatus,
-              [chainType]: { status: 'idle', lastUpdated: 0 }
-            }
+              [chainType]: { status: 'idle', lastUpdated: 0 },
+            },
           }));
         },
 
@@ -144,7 +149,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           const currentWalletsStr = JSON.stringify(connectedWallets);
           const walletsChanged = state.lastConnectedWalletsStr !== currentWalletsStr;
 
-          const isRecentlyFetched = (now - state.lastFetched) < CACHE_TTL;
+          const isRecentlyFetched = now - state.lastFetched < CACHE_TTL;
           const isNetworkSame = state.network === network;
           const hasData = state.assets.length > 0;
 
@@ -155,7 +160,8 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           const providersToFetch = portfolioService.getProviders().filter(p => {
             if (p.id === 'evm') return !!connectedWallets.evm?.address;
             if (p.id === 'stellar') return !!connectedWallets.stellar?.address;
-            if (p.id === 'dydx') return !!(connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress);
+            if (p.id === 'dydx')
+              return !!(connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress);
             return true;
           });
 
@@ -168,14 +174,17 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
             hasError: false,
             errorMessage: null,
             lastConnectedWalletsStr: currentWalletsStr,
-            providerStatus: providersToFetch.reduce((acc, p) => ({
-              ...acc,
-              [p.id]: { status: 'loading', lastUpdated: Date.now() }
-            }), state.providerStatus)
+            providerStatus: providersToFetch.reduce(
+              (acc, p) => ({
+                ...acc,
+                [p.id]: { status: 'loading', lastUpdated: Date.now() },
+              }),
+              state.providerStatus
+            ),
           });
 
           const updateStateWithAssets = (newAssets: Asset[], chainType: string) => {
-            set((s) => {
+            set(s => {
               const otherAssets = s.assets.filter(a => a.chainType !== chainType);
 
               // Preserve cached price and percentage data if new assets have a price of 0
@@ -185,7 +194,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
                   return {
                     ...newAsset,
                     current_price: existingAsset.current_price || 0,
-                    price_change_percentage_24h: existingAsset.price_change_percentage_24h || 0
+                    price_change_percentage_24h: existingAsset.price_change_percentage_24h || 0,
                   };
                 }
                 return newAsset;
@@ -203,7 +212,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           };
 
           let completedCount = 0;
-          const fetchPromises = providersToFetch.map(async (p) => {
+          const fetchPromises = providersToFetch.map(async p => {
             try {
               const assets = await p.fetch({ connectedWallets, network });
 
@@ -212,36 +221,66 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
               set(s => ({
                 providerStatus: {
                   ...s.providerStatus,
-                  [p.id]: { status: 'success', lastUpdated: Date.now() }
-                }
+                  [p.id]: {
+                    status: 'success',
+                    lastUpdated: Date.now(),
+                    lastSuccess: Date.now(),
+                    staleSince: undefined,
+                    error: undefined,
+                  },
+                },
               }));
             } catch (e) {
               console.error(`[PortfolioStore] Provider ${p.id} failed`, e);
-              set(s => ({
-                providerStatus: {
-                  ...s.providerStatus,
-                  [p.id]: { status: 'error', lastUpdated: Date.now(), error: String(e) }
-                }
-              }));
+              set(s => {
+                // 'stale' when we have old cached data to still show; hard 'error' when there's nothing.
+                const hasCachedData = s.assets.some(a => a.chainType === p.id);
+                const prevStatus = s.providerStatus[p.id];
+                const lastSuccess =
+                  prevStatus?.lastSuccess ?? (hasCachedData ? Date.now() : undefined);
+                return {
+                  providerStatus: {
+                    ...s.providerStatus,
+                    [p.id]: {
+                      status: hasCachedData ? 'stale' : 'error',
+                      lastUpdated: Date.now(),
+                      lastSuccess,
+                      staleSince: hasCachedData ? Date.now() : undefined,
+                      error: String(e),
+                    },
+                  },
+                };
+              });
             } finally {
               completedCount++;
               if (completedCount === providersToFetch.length) {
                 const finalState = get();
-                const anyError = Object.values(finalState.providerStatus).some(ps => ps.status === 'error');
+                const allStatuses = Object.values(finalState.providerStatus);
+                // hasError = true ONLY when every active provider is in hard 'error' (no cache at all).
+                // 'stale' providers have old data to show — they do not constitute a hard error.
+                const allHardErrored =
+                  allStatuses.length > 0 && allStatuses.every(ps => ps.status === 'error');
+                const hasStaleness = allStatuses.some(ps => ps.status === 'stale');
 
                 set({
                   isFetching: false,
                   isLoading: false,
                   lastFetched: Date.now(),
-                  hasError: Object.values(finalState.providerStatus).every(ps => ps.status === 'error'),
-                  errorMessage: anyError ? 'Some portfolio data could not be synced' : null
+                  hasError: allHardErrored,
+                  errorMessage: allHardErrored
+                    ? 'Unable to load portfolio data. Check your connection.'
+                    : hasStaleness
+                      ? 'Some portfolio data could not be refreshed'
+                      : null,
                 });
 
                 if (!enrichInFlight && get().assets.some(a => (a.balance || 0) > 0)) {
                   enrichInFlight = true;
-                  get().enrichPrices().finally(() => {
-                    enrichInFlight = false;
-                  });
+                  get()
+                    .enrichPrices()
+                    .finally(() => {
+                      enrichInFlight = false;
+                    });
                 }
               }
             }
@@ -259,17 +298,15 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
 
         enrichPrices: async () => {
           const { assets } = get();
-          const needsPrice = assets.filter(
-            (a) => a.current_price === 0 && (a.balance || 0) > 0
-          );
+          const needsPrice = assets.filter(a => a.current_price === 0 && (a.balance || 0) > 0);
           if (needsPrice.length === 0) return;
 
           try {
-            const symbols = needsPrice.map((a) => a.symbol);
+            const symbols = needsPrice.map(a => a.symbol);
             const priceData = await portfolioUtils.fetchBatchPrices(symbols);
 
-            set((s) => {
-              const updatedAssets = s.assets.map((asset) => {
+            set(s => {
+              const updatedAssets = s.assets.map(asset => {
                 const newData = priceData[asset.symbol.toUpperCase()];
                 if (asset.current_price === 0 && newData) {
                   return {
@@ -297,7 +334,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
       {
         name: 'portfolio-storage',
         storage: createJSONStorage(() => localStorage),
-        partialize: (state) => ({
+        partialize: state => ({
           assets: state.assets,
           lastFetched: state.lastFetched,
           network: state.network,
@@ -307,18 +344,17 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
   )
 );
 
-
 export const selectTotalValue = (state: PortfolioState) =>
   portfolioUtils.calculateTotalUSD(state.assets);
 
 export const selectAssetsByChain = (chainId: number | string) => (state: PortfolioState) =>
-  state.assets.filter((a) => a.chainId === chainId);
+  state.assets.filter(a => a.chainId === chainId);
 
 export const selectEvmAssets = (state: PortfolioState) =>
-  state.assets.filter((a) => a.chainType === 'evm');
+  state.assets.filter(a => a.chainType === 'evm');
 
 export const selectStellarAssets = (state: PortfolioState) =>
-  state.assets.filter((a) => a.chainType === 'stellar');
+  state.assets.filter(a => a.chainType === 'stellar');
 
 export const selectPortfolioAssets = (state: PortfolioState) =>
-  state.assets.filter((a) => (a.balance || 0) > 0);
+  state.assets.filter(a => (a.balance || 0) > 0);

@@ -6,8 +6,9 @@ import {
   Network,
   onboarding,
 } from '@dydxprotocol/v4-client-js';
+import { Core } from '@walletconnect/core';
 import { WalletConnectModal } from '@walletconnect/modal';
-import type UniversalProviderType from '@walletconnect/universal-provider';
+import UniversalProviderType from '@walletconnect/universal-provider';
 
 import { sendCustomNotification } from '../../../service/notificationService';
 import {
@@ -83,14 +84,8 @@ export interface UnifiedConnectionResult {
   stellar?: WalletSession;
 }
 
-let UniversalProviderClass: typeof UniversalProviderType | null = null;
-
 async function loadUniversalProvider(): Promise<typeof UniversalProviderType> {
-  if (!UniversalProviderClass) {
-    const mod = await import('@walletconnect/universal-provider');
-    UniversalProviderClass = mod.default;
-  }
-  return UniversalProviderClass;
+  return UniversalProviderType;
 }
 
 function getDydxChainId(network: NetworkType): string {
@@ -239,7 +234,6 @@ class WalletService {
       this.providers.delete(key);
     }
 
-    const { Core } = await import('@walletconnect/core');
     const ProviderClass = await loadUniversalProvider();
 
     const core = new Core({

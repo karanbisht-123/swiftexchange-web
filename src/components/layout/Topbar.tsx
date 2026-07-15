@@ -1,11 +1,15 @@
-import { Bell, Menu } from 'lucide-react';
-import { useCallback, useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Bell, ChevronDown, Menu } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ROUTES } from '../../constants/routes';
 import { ConnectWalletButton } from '../../modules/walletconnect/components/ConnectWalletButton';
 import NetworkSwitch from '../../modules/walletconnect/components/NetworkSwitch';
-import { useWalletConnect } from '../../modules/walletconnect/hooks/useWalletConnect';
+import {
+  useApiTradingKeys,
+  useWalletConnect,
+} from '../../modules/walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '../../modules/walletconnect/store/walletConnectStore';
 import { useNotificationStore } from '../../store/notificationStore';
 import ThemeToggle from '../../utils/ThemeToggle';
 
@@ -13,12 +17,47 @@ const Topbar: React.FC = () => {
   const { connectedWallets, isRestoringSession, disconnectAll } = useWalletConnect();
   const navigate = useNavigate();
   const loc = useLocation();
+  const [searchParams] = useSearchParams();
   const hasRedirected = useRef(false);
 
   const { notifications, setGlobalPanelOpen } = useNotificationStore();
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const isAnyWalletConnected = Object.keys(connectedWallets).length > 0;
+
+  const hasDydx = useWalletStore(
+    state =>
+      !!(state.connectedWallets.evm?.dydxAddress || state.connectedWallets.cosmos?.dydxAddress)
+  );
+  const { openModal } = useApiTradingKeys();
+  const openExportPhraseModal = useWalletStore(state => state.openExportPhraseModal);
+
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const cb = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setIsMoreOpen(false);
+      }
+    };
+    if (isMoreOpen) document.addEventListener('mousedown', cb);
+    return () => document.removeEventListener('mousedown', cb);
+  }, [isMoreOpen]);
+
+  const activeTab = searchParams.get('view') || 'trade';
+  const isDydxTradeView = loc.pathname === ROUTES.TRADING_DYDX_FUTURES;
+
+  const tabs = [
+    { key: 'trade', label: 'Trade' },
+    { key: 'markets', label: 'Markets' },
+    { key: 'portfolio', label: 'Portfolio' },
+  ];
+
+  const handleTabClick = (tabKey: string) => {
+    navigate(`${ROUTES.TRADING_DYDX_FUTURES}?view=${tabKey}`);
+  };
 
   useEffect(() => {
     if (isRestoringSession) return;
@@ -36,8 +75,8 @@ const Topbar: React.FC = () => {
   }, [disconnectAll, navigate]);
 
   return (
-    <header className="sticky top-0 z-50 h-16 bg-(--color-bg-secondary)/95 backdrop-blur-md flex items-center justify-between px-2">
-      <div className="flex items-center gap-2 px-1 select-none">
+    <header className="sticky top-0 z-50 h-[60px] bg-(--color-bg-secondary)/95 backdrop-blur-md flex items-center justify-between px-2">
+      <div className="flex items-center gap-2 px-1 select-none h-full">
         <button
           id="hamburger-btn"
           onClick={() => window.dispatchEvent(new CustomEvent('sidebar:toggle'))}
@@ -45,13 +84,70 @@ const Topbar: React.FC = () => {
         >
           <Menu size={20} />
         </button>
-        {/* <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] lg:text-xs font-black tracking-widest bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 dark:border-amber-500/30 transition-all duration-300 hover:scale-105 shadow-[0_0_12px_rgba(245,158,11,0.08)]">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-md bg-amber-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-sm h-1.5 w-1.5 bg-amber-500"></span>
-          </span>
-          BETA
-        </span> */}
+
+        {isDydxTradeView && (
+          <div className="hidden lg:flex items-center gap-4 ml-4 h-full">
+            {tabs.map(tab => {
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => handleTabClick(tab.key)}
+                  className={`relative flex items-center h-full px-2 transition-colors duration-150 font-medium text-sm ${
+                    isActive
+                      ? 'text-white'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  {tab.label}
+                  {isActive && (
+                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-brand-primary)] rounded-t-sm" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {isDydxTradeView && hasDydx && (
+          <div className="relative ml-2 lg:ml-4 flex items-center" ref={moreMenuRef}>
+            <button
+              onClick={() => setIsMoreOpen(!isMoreOpen)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all duration-150 font-medium text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] ${
+                isMoreOpen ? 'bg-[var(--color-bg-tertiary)]' : ''
+              }`}
+            >
+              More
+              <ChevronDown
+                size={14}
+                className={`transition-transform duration-200 ${isMoreOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {isMoreOpen && (
+              <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.1)] z-50 flex flex-col py-1 animate-slide-up origin-top-left">
+                <button
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    openModal();
+                  }}
+                  className="px-4 py-2.5 text-left text-sm font-medium hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-tertiary)] transition-colors text-[var(--color-text-primary)]"
+                >
+                  API Trading Keys
+                </button>
+                <button
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    openExportPhraseModal();
+                  }}
+                  className="px-4 py-2.5 text-left text-sm font-medium hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-tertiary)] transition-colors text-[var(--color-text-primary)]"
+                >
+                  Export Phrase
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 lg:gap-4">

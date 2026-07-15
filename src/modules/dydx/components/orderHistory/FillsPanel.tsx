@@ -135,7 +135,7 @@ const FillsPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-secondary overflow-hidden">
+    <div className="h-full bg-secondary overflow-y-visible md:overflow-auto flex flex-col relative">
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-left border-collapse">
           <thead className="bg-secondary text-muted text-[10px] uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-color">
@@ -207,12 +207,17 @@ const FillsPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto space-y-0.5">
+      <div className="md:hidden w-full flex flex-col space-y-2 p-2 pb-4">
         {currentPageData.map(fill => {
           const marketTicker = fill.market || (fill as any).ticker || '';
 
           const total = parseFloat(fill.size) * parseFloat(fill.price);
           const totalStr = formatNumericWithCommas(total, 2, '$');
+
+          const mkt = marketCache[marketTicker];
+          const stepSize = mkt?.stepSize || '0.0001';
+          const decimals = currencyService.getStepSizeDecimals(stepSize);
+          const sizeStr = formatNumericWithCommas(fill.size, decimals);
 
           const { str: closedPnlStr, cls: pnlClass } = computeClosedPnl(fill);
 
@@ -220,28 +225,56 @@ const FillsPanel: React.FC = () => {
             <div
               key={fill.id}
               onClick={() => handleFillClick(fill)}
-              className="bg-secondary border border-color p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color rounded-xl p-3 shadow-sm active:opacity-70 transition-opacity"
             >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <MarketBadge market={marketTicker} />
-              </div>
-              <div className="flex items-center">
-                <div className="flex items-center gap-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <MarketBadge market={marketTicker} />
                   <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide ${fill.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
                   >
                     {capitalizeFirst(fill.side)}
                   </span>
-                  <span className="text-primary font-mono text-xs">{totalStr}</span>
-                  {closedPnlStr !== '—' && (
-                    <span className={`font-mono text-xs ${pnlClass}`}>PNL: {closedPnlStr}</span>
-                  )}
                 </div>
-                <span className="text-muted text-xs mx-2 truncate">
-                  {formatTimeAgoCompact(fill.createdAt)}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted text-[10px]">
+                    {formatTimeAgoCompact(fill.createdAt)}
+                  </span>
+                  <ChevronRight size={14} className="text-muted" />
+                </div>
               </div>
-              <ChevronRight size={16} className="text-muted flex-shrink-0" />
+
+              <div className="flex justify-between items-end px-1">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-muted font-medium mb-1 uppercase tracking-wider">
+                    Price
+                  </span>
+                  <span className="text-primary font-mono text-sm font-medium">
+                    {formatMarketPrice(fill.price, '$')}
+                  </span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] text-muted font-medium mb-1 uppercase tracking-wider">
+                    Amount
+                  </span>
+                  <span className="text-primary font-mono text-sm font-medium">{sizeStr}</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] text-muted font-medium mb-1 uppercase tracking-wider">
+                    Total
+                  </span>
+                  <span className="text-primary font-mono text-sm font-medium">{totalStr}</span>
+                </div>
+              </div>
+
+              {closedPnlStr !== '—' && (
+                <div className="mt-2 pt-2 border-t border-dashed border-color flex justify-between items-center px-1">
+                  <span className="text-[10px] text-muted uppercase tracking-wider">
+                    Closed PNL
+                  </span>
+                  <span className={`font-mono text-sm font-bold ${pnlClass}`}>{closedPnlStr}</span>
+                </div>
+              )}
             </div>
           );
         })}

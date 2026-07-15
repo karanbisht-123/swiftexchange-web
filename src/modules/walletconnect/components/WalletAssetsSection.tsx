@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   ArrowUpRight,
+  Clock,
   MoreHorizontal,
   RefreshCw,
   TrendingDown,
@@ -18,10 +19,92 @@ import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 import { useWalletAssets } from '../hooks/useWalletAssets';
 import { type Asset } from '../store/portfolioStore';
+import type { ProviderStatus } from '../store/portfolioStore';
 import { useWalletStore } from '../store/walletConnectStore';
 import { portfolioUtils } from '../utils/portfolioUtils';
 
 const ROW_HEIGHT = 76;
+
+/** Returns a compact human-readable "2m ago" / "1h ago" string for a Unix ms timestamp */
+const formatRelativeTime = (ms: number): string => {
+  const diff = Math.max(0, Date.now() - ms);
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+};
+
+/** Maps provider id to a human-readable chain label */
+const PROVIDER_LABELS: Record<string, string> = {
+  evm: 'EVM',
+  stellar: 'Stellar',
+  dydx: 'dYdX',
+};
+
+/**
+ * Renders compact per-provider stale banners.
+ * Only shown when a provider's last refresh failed but old cached data is still in the store.
+ */
+const ProviderStaleBanners = ({
+  providerStatus,
+  onRetry,
+  isRetrying,
+}: {
+  providerStatus: Record<string, ProviderStatus>;
+  onRetry: () => void;
+  isRetrying: boolean;
+}) => {
+  const staleProviders = Object.entries(providerStatus).filter(([, ps]) => ps.status === 'stale');
+
+  if (staleProviders.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1 px-3 pt-2">
+      {staleProviders.map(([id, ps]) => (
+        <div
+          key={id}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.2)',
+          }}
+        >
+          <Clock size={12} style={{ color: '#F59E0B', flexShrink: 0 }} />
+          <span className="text-xs font-medium flex-1" style={{ color: '#D97706' }}>
+            <span className="font-semibold">{PROVIDER_LABELS[id] ?? id}</span>
+            {' data outdated'}
+            {ps.lastSuccess && (
+              <span className="font-normal opacity-75">
+                {' · last synced '}
+                {formatRelativeTime(ps.lastSuccess)}
+              </span>
+            )}
+          </span>
+          <button
+            onClick={onRetry}
+            disabled={isRetrying}
+            className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold transition-opacity"
+            style={{
+              background: 'rgba(245, 158, 11, 0.15)',
+              color: '#D97706',
+              opacity: isRetrying ? 0.5 : 1,
+              cursor: isRetrying ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {isRetrying ? (
+              <RefreshCw size={10} className="animate-spin" />
+            ) : (
+              <RefreshCw size={10} />
+            )}
+            Retry
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const getChainIcon = (asset: Asset): string | undefined => {
   const chainId =
@@ -452,8 +535,16 @@ const SkeletonRows = () => (
 const WalletAssetsSection = () => {
   const navigate = useNavigate();
   const { network } = useWalletStore();
-  const { assets, loading, isRefreshing, totalValue, hasError, errorMessage, refetch } =
-    useWalletAssets(network);
+  const {
+    assets,
+    loading,
+    isRefreshing,
+    totalValue,
+    hasError,
+    errorMessage,
+    providerStatus,
+    refetch,
+  } = useWalletAssets(network);
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
@@ -619,6 +710,12 @@ const WalletAssetsSection = () => {
             </div>
           ) : (
             <div className="w-full h-[71svh] lg:h-[65svh] pt-1">
+              {/* Per-provider stale banners — shown above the list when a refresh failed but cached data exists */}
+              <ProviderStaleBanners
+                providerStatus={providerStatus}
+                onRetry={refetch}
+                isRetrying={isRefreshing}
+              />
               <AutoSizer
                 renderProp={({ height, width }) => (
                   <FixedSizeList

@@ -49,9 +49,10 @@ export interface Order {
   goodTilBlockTime?: string;
   ticker: string;
   createdAtHeight: string;
-  updatedAt?: string;
-  updatedAtHeight?: string;
-  clientMetadata?: string;
+  updatedAt: string;
+  updatedAtHeight: string;
+  clientMetadata: string;
+  marginMode?: string;
 }
 
 export interface Fill {
@@ -65,12 +66,13 @@ export interface Fill {
   size: string;
   fee: string;
   createdAt: string;
-  createdAtHeight: string;
+  createdAtHeight?: string;
   orderId?: string;
   clientMetadata?: string;
   positionSizeBefore?: string;
   entryPriceBefore?: string;
   positionSideBefore?: string;
+  marginMode?: string;
 }
 
 export interface HistoricalPnl {
@@ -154,6 +156,7 @@ export function normalizeFill(f: any): Fill {
     positionSizeBefore: f.positionSizeBefore || f.position_size_before,
     entryPriceBefore: f.entryPriceBefore || f.entry_price_before,
     positionSideBefore: f.positionSideBefore || f.position_side_before,
+    marginMode: f.marginMode,
   };
 }
 
@@ -181,6 +184,7 @@ export function normalizeOrder(o: any): Order {
     updatedAt: o.updatedAt || o.updated_at,
     updatedAtHeight: o.updatedAtHeight || o.updated_at_height,
     clientMetadata: o.clientMetadata || o.client_metadata,
+    marginMode: o.marginMode,
   };
 }
 
@@ -450,10 +454,51 @@ class DydxDataService {
         createdBeforeOrAt,
         returnLatestOrders
       );
+      let orders = ((response || []) as any[]).map(normalizeOrder);
 
-      const orders = ((response || []) as any[]).map(normalizeOrder);
+      let trades: any[] = [];
+      try {
+        const tradeResponse: any = await indexer.account.getParentSubaccountNumberTradeHistory(
+          address,
+          0,
+          ticker,
+          undefined,
+          limit,
+          undefined
+        );
+        trades = tradeResponse?.tradeHistory || [];
+      } catch (err) {
+        console.error('[DydxDataService] Failed to fetch trade history for order merging', err);
+      }
 
-      return orders.sort((a, b) => {
+      const tradeSubNumMap = new Map<string, number>();
+      trades.forEach((t: any) => {
+        const orderId = t.orderId || t.id;
+        if (orderId) {
+          tradeSubNumMap.set(orderId, parseInt(t.subaccountNumber) || 0);
+        }
+      });
+      const wsOrders = useWebSocketStore.getState().parentSubaccounts;
+
+      orders = orders.map((o: Order) => {
+        let subNum = 0;
+
+        if (tradeSubNumMap.has(o.id)) {
+          subNum = tradeSubNumMap.get(o.id)!;
+        } else {
+          wsOrders.forEach(parent => {
+            const cachedOrder = parent.orders?.find(wsO => wsO.id === o.id);
+            if (cachedOrder && typeof (cachedOrder as any).subaccountNumber === 'number') {
+              subNum = (cachedOrder as any).subaccountNumber;
+            }
+          });
+        }
+
+        o.marginMode = subNum >= 128 ? 'ISOLATED' : 'CROSS';
+        return o;
+      });
+
+      return orders.sort((a: Order, b: Order) => {
         const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
         const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         return timeB - timeA;
@@ -491,12 +536,10 @@ class DydxDataService {
               const subaccountNumber = dydxWalletService.getSubaccountNumber();
               const parentKey = address ? `parent_subaccount_${address}_${subaccountNumber}` : null;
               if (parentKey) {
-                useWebSocketStore
-                  .getState()
-                  .updateParentSubaccount(parentKey, {
-                    fills: data as any,
-                    lastUpdate: Date.now(),
-                  });
+                useWebSocketStore.getState().updateParentSubaccount(parentKey, {
+                  fills: data as any,
+                  lastUpdate: Date.now(),
+                });
               }
             } catch (err) {
               console.error('[DydxDataService] Failed to update websocket store for fills:', err);
@@ -541,7 +584,7 @@ class DydxDataService {
         return timeB - timeA;
       });
     } catch (err) {
-      console.error('[DydxDataService] fetchFillsRaw failed:', err);
+      console.error('[DydxDataService] Error fetching fills:', err);
       return [];
     }
   }

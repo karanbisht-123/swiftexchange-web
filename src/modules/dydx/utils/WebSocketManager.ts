@@ -67,7 +67,7 @@ class WebSocketManager {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly FLUSH_INTERVAL = 100;
 
-  private rafId: number | null = null;
+  private timeoutId: ReturnType<typeof setTimeout> | null = null;
   // Separate high-priority queue so microtask path never touches low-priority calls
   private pendingHandlerCalls: Array<{ handler: MessageHandler; data: WebSocketMessage }> = [];
   private pendingHighPriorityCalls: Array<{ handler: MessageHandler; data: WebSocketMessage }> = [];
@@ -546,10 +546,10 @@ class WebSocketManager {
       return;
     }
 
-    if (this.rafId !== null) return;
+    if (this.timeoutId !== null) return;
 
-    this.rafId = requestAnimationFrame(() => {
-      this.rafId = null;
+    this.timeoutId = setTimeout(() => {
+      this.timeoutId = null;
       const calls = this.pendingHandlerCalls.splice(0, this.MAX_BATCH_SIZE);
       calls.forEach(({ handler, data }) => {
         try {
@@ -559,7 +559,7 @@ class WebSocketManager {
         }
       });
       if (this.pendingHandlerCalls.length > 0) this.scheduleHandlerExecution();
-    });
+    }, 0);
   }
 
   private scheduleDisconnectNotification(): void {
@@ -745,9 +745,9 @@ class WebSocketManager {
       this.flushTimer = null;
     }
 
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
+    if (this.timeoutId !== null) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
     }
 
     this.pendingHandlerCalls = [];

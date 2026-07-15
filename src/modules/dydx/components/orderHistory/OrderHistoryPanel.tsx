@@ -22,7 +22,7 @@ type AnyOrder = Order & Partial<TrackedOrder>;
 const ITEMS_PER_PAGE = 10;
 
 const getOrderTime = (order: AnyOrder): number => {
-  const timeStr = order.updatedAt || order.goodTilBlockTime;
+  const timeStr = order.updatedAt || (order as any)._firstSeenAt || order.createdAtHeight || '';
   return timeStr ? new Date(timeStr).getTime() : (order as any)._firstSeenAt || 0;
 };
 
@@ -183,19 +183,21 @@ const OrderHistoryPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-secondary overflow-hidden">
+    <div className="h-full bg-secondary overflow-y-visible md:overflow-auto flex flex-col relative">
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-left border-collapse">
           <thead className="bg-secondary text-muted text-[10px] uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-color">
             <tr>
               <th className="px-3 py-2 font-semibold">Market</th>
-              <th className="px-2 py-2 text-center font-semibold">Status</th>
+              <th className="px-2 py-2 text-left font-semibold">Status</th>
               <th className="px-2 py-2 text-center font-semibold">Side</th>
-              <th className="px-2 py-2 text-left font-semibold">Type</th>
               <th className="px-2 py-2 text-right font-semibold">Amount</th>
               <th className="px-2 py-2 text-right font-semibold">Filled</th>
               <th className="px-2 py-2 text-right font-semibold">Price</th>
-              <th className="px-2 py-2 text-center font-semibold">TIF</th>
+              <th className="px-2 py-2 text-center font-semibold">Trigger</th>
+              <th className="px-2 py-2 text-center font-semibold text-[10px] whitespace-nowrap">
+                Margin Mode
+              </th>
               <th className="px-2 py-2 text-right font-semibold">Time</th>
             </tr>
           </thead>
@@ -207,6 +209,9 @@ const OrderHistoryPanel: React.FC = () => {
               const size = parseFloat(order.size);
               const fillPercent = size > 0 ? (filled / size) * 100 : 0;
               const displayType = getDisplayOrderType(order);
+              const rawMarginMode =
+                (order as any).marginMode || (order as any).margin_mode || 'CROSS';
+              const marginMode = capitalizeFirst(rawMarginMode);
 
               const marketTicker = order.ticker ?? '';
               const mkt = marketCache[marketTicker];
@@ -227,8 +232,8 @@ const OrderHistoryPanel: React.FC = () => {
                   <td className="px-3 py-1.5">
                     <MarketBadge market={marketTicker} />
                   </td>
-                  <td className="px-2 py-1.5 text-center">
-                    <StatusIndicator status={order.status} />
+                  <td className="px-2 py-1.5 text-left">
+                    <StatusIndicator status={order.status} type={displayType} />
                   </td>
                   <td className="px-2 py-1.5 text-center">
                     <span
@@ -236,9 +241,6 @@ const OrderHistoryPanel: React.FC = () => {
                     >
                       {capitalizeFirst(order.side)}
                     </span>
-                  </td>
-                  <td className="px-2 py-1.5 text-left text-primary font-bold">
-                    {capitalizeFirst(displayType)}
                   </td>
                   <td className="px-2 py-1.5 text-right text-primary font-mono">{sizeStr}</td>
                   <td className="px-2 py-1.5 text-right">
@@ -248,11 +250,16 @@ const OrderHistoryPanel: React.FC = () => {
                     )}
                   </td>
                   <td className="px-2 py-1.5 text-right text-primary font-mono">{priceStr}</td>
-                  <td className="px-2 py-1.5 text-center text-gray-400 font-bold">
-                    {order.timeInForce || 'GTT'}
+                  <td className="px-2 py-1.5 text-center text-gray-400 font-bold">—</td>
+                  <td className="px-2 py-1.5 text-center">
+                    <span className="px-1.5 py-0.5 bg-[#2B2B36] text-gray-300 rounded text-[9px] font-bold">
+                      {marginMode}
+                    </span>
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-400 font-mono">
-                    {formatTimeAgoCompact(order.updatedAt || order.goodTilBlockTime || '')}
+                    {formatTimeAgoCompact(
+                      order.updatedAt || (order as any)._firstSeenAt || order.createdAtHeight || ''
+                    )}
                   </td>
                 </tr>
               );
@@ -261,7 +268,7 @@ const OrderHistoryPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto space-y-0.5">
+      <div className="md:hidden w-full flex flex-col space-y-2 p-2 pb-4">
         {currentPageData.map(order => {
           const size = parseFloat(order.size);
           const displayType = getDisplayOrderType(order);
@@ -274,31 +281,48 @@ const OrderHistoryPanel: React.FC = () => {
           const sizeStr = formatNumericWithCommas(size, decimals);
           const priceStr =
             displayType === 'MARKET' ? 'Market' : formatMarketPrice(order.price, '$');
+          const timeStr =
+            order.updatedAt || (order as any)._firstSeenAt || order.createdAtHeight || '';
 
           return (
             <div
               key={order.id}
               onClick={() => handleOrderClick(order)}
-              className="bg-secondary border border-color p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color rounded-xl p-3 shadow-sm active:opacity-70 transition-opacity"
             >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <MarketBadge market={marketTicker} />
-                <div className="flex min-w-0">
-                  <div className="flex items-center gap-4">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
-                    >
-                      {capitalizeFirst(order.side)}
-                    </span>
-                    <span className="text-primary font-mono text-xs">{priceStr}</span>
-                  </div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <MarketBadge market={marketTicker} />
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                  >
+                    {capitalizeFirst(order.side)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted text-[10px]">{formatTimeAgoCompact(timeStr)}</span>
+                  <ChevronRight size={14} className="text-muted" />
                 </div>
               </div>
-              <div className="flex items-start flex-col mr-2">
-                <StatusIndicator status={order.status} />
-                <span className="text-muted text-xs font-mono">{sizeStr}</span>
+
+              <div className="flex justify-between items-center mb-3">
+                <StatusIndicator status={order.status} type={displayType} />
               </div>
-              <ChevronRight size={16} className="text-muted flex-shrink-0" />
+
+              <div className="flex justify-between items-end px-1">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-muted font-medium mb-1 uppercase tracking-wider">
+                    Price
+                  </span>
+                  <span className="text-primary font-mono text-sm font-medium">{priceStr}</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] text-muted font-medium mb-1 uppercase tracking-wider">
+                    Amount
+                  </span>
+                  <span className="text-primary font-mono text-sm font-medium">{sizeStr}</span>
+                </div>
+              </div>
             </div>
           );
         })}
