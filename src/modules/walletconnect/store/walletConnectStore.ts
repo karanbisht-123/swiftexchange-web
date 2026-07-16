@@ -1,25 +1,18 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-import {
-  type NetworkType,
-} from '../config/chains';
-import { walletService } from '../services/walletService';
-import { usePortfolioStore } from '../store/portfolioStore';
+import { type NetworkType } from '../config/chains';
 import type { ApiTradingKey } from '../services/apiTradingKeyService';
 import { WITHDRAW_PREF_KEY } from '../services/apiTradingKeyService';
+import { walletService } from '../services/walletService';
+import { usePortfolioStore } from '../store/portfolioStore';
+
 // import { ErrorCode } from '@allbridge/bridge-core-sdk';
 
 export type WalletType = 'evm' | 'cosmos' | 'stellar';
 
 type ConnectionState =
-  | 'idle'
-  | 'connecting'
-  | 'connected'
-  | 'signing'
-  | 'deriving'
-  | 'failed'
-  | 'disconnected';
+  'idle' | 'connecting' | 'connected' | 'signing' | 'deriving' | 'failed' | 'disconnected';
 
 export interface ConnectedWallet {
   type: WalletType;
@@ -46,7 +39,7 @@ export interface WalletState {
   sessionLastPingAt: Partial<Record<WalletType, number>>;
   session: any; // Raw WalletConnect session if connected
 
-  // API Trading Keys 
+  // API Trading Keys
   apiTradingKeys: ApiTradingKey[];
   isGeneratingApiKey: boolean;
   revokingKeyId: string | null;
@@ -71,7 +64,7 @@ interface WalletActions {
   isConnecting: (type: WalletType) => boolean;
   updateSessionPing: (type: WalletType) => void;
 
-  // API Trading Keys 
+  // API Trading Keys
   generateApiTradingKey: (label?: string) => Promise<void>;
   revokeApiTradingKey: (id: string) => Promise<void>;
   loadApiTradingKeys: () => void;
@@ -295,15 +288,18 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       await walletService.disconnect(type);
 
       set(state => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { [type]: _wallet, ...remainingWallets } = state.connectedWallets;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { [type]: _status, ...remainingStatus } = state.connectionStatus;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { [type]: _ping, ...remainingPings } = state.sessionLastPingAt;
         const hasWallets = Object.keys(remainingWallets).length > 0;
         const nextRawSession = hasWallets
-          ? (walletService.getProvider('evm')?.session ||
+          ? walletService.getProvider('evm')?.session ||
             walletService.getProvider('cosmos')?.session ||
             walletService.getProvider('stellar')?.session ||
-            null)
+            null
           : null;
         return {
           connectedWallets: remainingWallets,
@@ -435,7 +431,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       return walletService.checkSessionHealth();
     },
 
-    // API Trading Key actions 
+    // API Trading Key actions
 
     loadApiTradingKeys: () => {
       set({ apiTradingKeys: walletService.listApiTradingKeys() });
@@ -478,12 +474,13 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     setRestrictWithdrawalToWebsite: (value: boolean) => {
       try {
         localStorage.setItem(WITHDRAW_PREF_KEY, value ? '1' : '0');
-      } catch (err) { console.error("--", err) }
+      } catch (err) {
+        console.error('--', err);
+      }
       set({ restrictWithdrawalToWebsite: value });
     },
   }))
 );
-
 
 let listenerInitialized = false;
 
@@ -495,15 +492,18 @@ export const initWalletListener = async () => {
       try {
         if (state === 'disconnected' || state === 'failed') {
           useWalletStore.setState(prev => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { [type]: _wallet, ...remainingWallets } = prev.connectedWallets;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { [type]: _status, ...remainingStatus } = prev.connectionStatus;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { [type]: _ping, ...remainingPings } = prev.sessionLastPingAt;
             const hasWallets = Object.keys(remainingWallets).length > 0;
             const nextRawSession = hasWallets
-              ? (walletService.getProvider('evm')?.session ||
+              ? walletService.getProvider('evm')?.session ||
                 walletService.getProvider('cosmos')?.session ||
                 walletService.getProvider('stellar')?.session ||
-                null)
+                null
               : null;
             return {
               connectedWallets: remainingWallets,
@@ -512,14 +512,22 @@ export const initWalletListener = async () => {
               session: nextRawSession,
             };
           });
-          // if (type === 'evm') {
-          //       usePortfolioStore.getState().clearAssetsByType('evm');
-          //       usePortfolioStore.getState().clearAssetsByType('dydx');
-          //     } else if (type === 'stellar') {
-          //       usePortfolioStore.getState().clearAssetsByType('stellar');
-          //     } else if (type === 'cosmos') {
-          //       usePortfolioStore.getState().clearAssetsByType('dydx');
-          //     }
+          // Remote disconnect (WalletConnect session drop from wallet app side) —
+          // mirror the same cache-clear that the UI-initiated disconnect() action performs.
+          const portfolio = usePortfolioStore.getState();
+          const remainingWallets = useWalletStore.getState().connectedWallets;
+          if (Object.keys(remainingWallets).length === 0) {
+            portfolio.clearAssets();
+          } else {
+            if (type === 'evm') {
+              portfolio.clearAssetsByType('evm');
+              portfolio.clearAssetsByType('dydx'); // dYdX is EVM-derived
+            } else if (type === 'stellar') {
+              portfolio.clearAssetsByType('stellar');
+            } else if (type === 'cosmos') {
+              portfolio.clearAssetsByType('dydx');
+            }
+          }
           return;
         }
 

@@ -117,7 +117,7 @@ const FundingPaymentsPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-secondary overflow-hidden">
+    <div className="h-full bg-secondary overflow-y-visible md:overflow-auto flex flex-col relative">
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-secondary border-b border-color z-10">
@@ -182,32 +182,75 @@ const FundingPaymentsPanel: React.FC = () => {
         </table>
       </div>
 
-      <div className="md:hidden flex-1 overflow-auto space-y-0.5">
+      <div className="md:hidden w-full flex flex-col space-y-2 p-2 pb-4">
         {paymentsState.map((payment, index) => {
           const paymentVal = parseFloat(payment.payment);
+          const rateVal = parseFloat(payment.rate);
+          const sizeVal = parseFloat(payment.size);
+          const priceVal = parseFloat(payment.oraclePrice);
           const side = payment.side as 'LONG' | 'SHORT';
           const displaySide = side === 'LONG' ? 'BUY' : 'SELL';
 
           return (
             <div
               key={`${payment.ticker}-${payment.createdAt}-${index}`}
-              className="bg-secondary border border-color p-3 flex items-center justify-between active:bg-hover transition-colors"
+              className="bg-secondary border border-color rounded-xl p-3 shadow-sm flex flex-col gap-3"
             >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <MarketBadge market={payment.ticker} />
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <SideBadge side={displaySide} />
-                    <span
-                      className={`font-mono text-xs ${paymentVal >= 0 ? 'text-green-500' : 'text-red-500'}`}
-                    >
-                      {paymentVal >= 0 ? '+' : ''}
-                      {paymentVal.toFixed(6)}
-                    </span>
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MarketBadge market={payment.ticker} />
+                  <SideBadge side={displaySide} />
+                </div>
+                <span className="text-xs text-muted">
+                  {new Date(payment.createdAt).toLocaleDateString()}{' '}
+                  {new Date(payment.createdAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </div>
+
+              {/* Main Stats */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
+                    Payment
                   </div>
-                  <span className="text-xs text-muted">
-                    {new Date(payment.createdAt).toLocaleTimeString()}
-                  </span>
+                  <div
+                    className={`font-mono font-bold ${paymentVal >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                  >
+                    {paymentVal >= 0 ? '+' : ''}
+                    {paymentVal.toFixed(6)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Rate</div>
+                  <div
+                    className={`font-mono font-bold ${rateVal >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                  >
+                    {(rateVal * 100).toFixed(6)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* Secondary Details */}
+              <div className="grid grid-cols-2 gap-2 bg-secondary/30 rounded-lg p-2">
+                <div>
+                  <div className="text-[10px] text-muted uppercase">Size</div>
+                  <div className="text-xs font-mono text-primary">
+                    {sizeVal.toFixed(4)} {payment.ticker.split('-')[0]}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] text-muted uppercase">Oracle Price</div>
+                  <div className="text-xs font-mono text-primary">
+                    $
+                    {priceVal.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

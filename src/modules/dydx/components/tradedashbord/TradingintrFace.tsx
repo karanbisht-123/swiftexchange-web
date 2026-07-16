@@ -15,7 +15,7 @@ import { GeolocationGuard } from '../../../commonfeature/components/GeolocationG
 import { RESTRICTED_TRADING_LOCATIONS } from '../../../commonfeature/constants/compliance';
 import { useDydxData } from '../../hooks/useDydxData';
 import { useMarkets } from '../../hooks/useMarkets';
-import DydxTopBar from '../../layout/DydxTopBar';
+import { dydxRecoveryService } from '../../service/dydxRecoveryService';
 import useMarketStore from '../../store/marketStore';
 import { DydxWalletConnect } from '../DydxWalletConnect';
 import MarketsDisplay from '../MarketsDisplay';
@@ -72,10 +72,14 @@ const TradingintrFace = () => {
 
   const [activeBottomTab, setActiveBottomTab] = useState('positions');
 
+  useEffect(() => {
+    // Initialize the background recovery service for stranded capital
+    dydxRecoveryService.init();
+  }, []);
+
   return (
     <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
-      <div className="bg-primary text-primary lg:px-2 font-body flex flex-col h-screen max-h-screen">
-        <DydxTopBar />
+      <div className="bg-primary text-primary lg:px-2 lg:pt-2 font-body flex flex-col h-screen max-h-screen">
         <SubscriptionKeepAlive />
 
         {view === 'trade' && (
@@ -385,8 +389,8 @@ const MobileLayout = () => {
       <div className="max-w-[100vw] shrink-0">
         <MarketSwitcher />
       </div>
-      <div className="flex-1 overflow-hidden bg-secondary flex flex-col">
-        <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-secondary flex flex-col">
+        <div className="relative h-[400px] sm:h-[500px] shrink-0">
           {activeTab === 'price' && (
             <div className="h-full">
               <TradingChart />
@@ -468,14 +472,31 @@ const MobileLayout = () => {
             </div>
           )}
           {activeTab === 'portfolio' && (
-            <div className="h-full overflow-auto">
+            <div className="w-full">
               <Suspense fallback={<TablePanelSkeleton />}>
                 <MobilePortfolio />
               </Suspense>
             </div>
           )}
+
+          {/* Render MobilePositionsTabs at the bottom of all tabs except portfolio */}
+          {activeTab !== 'portfolio' && (
+            <div className="shrink-0 w-full flex flex-col border-t-8 border-[var(--color-bg-primary)]">
+              <Suspense fallback={<TablePanelSkeleton />}>
+                <MobilePositionsTabs simplified />
+              </Suspense>
+            </div>
+          )}
+          {activeTab !== 'portfolio' && marketData && (
+            <div className="mt-4">
+              <MarketStats marketData={marketData} />
+            </div>
+          )}
+          {/* Universal padding to ensure content isn't hidden behind the fixed bottom nav bar */}
+          <div className="h-[80px] shrink-0 w-full" />
         </div>
-        <div className="flex items-center justify-center gap-2 px-4 py-3 bg-secondary border-t border-color shrink-0">
+
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around px-2 py-2 pb-4 bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)] shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
           {tabs.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -483,28 +504,23 @@ const MobileLayout = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-primary text-muted hover:bg-hover hover:text-primary'
+                className={`flex flex-col items-center justify-center gap-1 min-w-[56px] transition-all ${
+                  isActive ? 'text-[var(--color-brand-primary)]' : 'text-muted hover:text-primary'
                 }`}
               >
                 <Icon className="w-5 h-5 shrink-0" />
-                {isActive && (
-                  <span className="text-xs font-medium whitespace-nowrap">{tab.label}</span>
-                )}
+                <span className="text-[10px] font-medium whitespace-nowrap">{tab.label}</span>
               </button>
             );
           })}
         </div>
-        {marketData && <MarketStats marketData={marketData} />}
       </div>
     </div>
   );
 };
 
-const MobilePortfolio = () => {
-  const [activeTab, setActiveTab] = useState('wallet');
+const MobilePositionsTabs = ({ simplified = false }: { simplified?: boolean }) => {
+  const [activeTab, setActiveTab] = useState('positions');
 
   const {
     positions,
@@ -516,14 +532,17 @@ const MobilePortfolio = () => {
     lastUpdateTime,
   } = useDydxData();
 
-  const tabs = ['wallet', 'positions', 'orders', 'fills', 'history', 'funding'];
+  const tabs = simplified
+    ? ['positions', 'orders']
+    : ['positions', 'orders', 'fills', 'history', 'funding', 'transfers'];
+
   const labels: Record<string, string> = {
-    wallet: 'Wallet',
     positions: 'Positions',
     orders: 'Open Orders',
     fills: 'Fills',
     history: 'Order History',
     funding: 'Funding Payments',
+    transfers: 'Transfers',
   };
 
   const prevCountsRef = useRef({ positions: 0, orders: 0, fills: 0 });
@@ -581,8 +600,8 @@ const MobilePortfolio = () => {
   }, [positions.length, openOrderCount, fillCount, lastUpdateTime, loadingOrders, loadingFills]);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center border-b border-color overflow-x-auto scrollbar-hide shrink-0">
+    <div className="w-full flex flex-col">
+      <div className="flex items-center border-b border-color overflow-x-auto scrollbar-hide shrink-0 sticky top-0 bg-secondary z-10">
         {tabs.map(tab => {
           const isLoading =
             (tab === 'positions' && loadingPositions) ||
@@ -623,35 +642,29 @@ const MobilePortfolio = () => {
         })}
       </div>
 
-      <div className="flex-1 overflow-auto relative">
-        <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="p-4">
-          <DydxWalletConnect />
-        </div>
+      <div className="flex-1 w-full flex flex-col">
         <div
           style={{ display: activeTab === 'positions' ? 'flex' : 'none' }}
-          className="h-full flex-col flex overflow-hidden"
+          className="flex-col flex"
         >
           <PositionsPanel />
         </div>
         <div
           style={{ display: activeTab === 'orders' ? 'flex' : 'none' }}
-          className="h-full flex-col flex overflow-hidden"
+          className="flex-col flex"
         >
           <Suspense fallback={<LoadingFallback />}>
             <OpenOrdersPanel />
           </Suspense>
         </div>
-        <div
-          style={{ display: activeTab === 'fills' ? 'flex' : 'none' }}
-          className="h-full flex-col flex overflow-hidden"
-        >
+        <div style={{ display: activeTab === 'fills' ? 'flex' : 'none' }} className="flex-col flex">
           <Suspense fallback={<LoadingFallback />}>
             <FillsPanel />
           </Suspense>
         </div>
         <div
           style={{ display: activeTab === 'history' ? 'flex' : 'none' }}
-          className="h-full flex-col flex overflow-hidden"
+          className="flex-col flex"
         >
           <Suspense fallback={<LoadingFallback />}>
             <OrderHistoryPanel />
@@ -659,13 +672,32 @@ const MobilePortfolio = () => {
         </div>
         <div
           style={{ display: activeTab === 'funding' ? 'flex' : 'none' }}
-          className="h-full flex-col flex overflow-hidden"
+          className="flex-col flex"
         >
           <Suspense fallback={<LoadingFallback />}>
             <FundingPaymentsPanel />
           </Suspense>
         </div>
+        <div
+          style={{ display: activeTab === 'transfers' ? 'flex' : 'none' }}
+          className="flex-col flex"
+        >
+          <Suspense fallback={<LoadingFallback />}>
+            <TransferHistoryPanel />
+          </Suspense>
+        </div>
       </div>
+    </div>
+  );
+};
+
+const MobilePortfolio = () => {
+  return (
+    <div className="w-full flex flex-col">
+      <div className="shrink-0 p-4 pb-2 border-b border-color">
+        <DydxWalletConnect />
+      </div>
+      <MobilePositionsTabs />
     </div>
   );
 };

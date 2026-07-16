@@ -102,8 +102,11 @@ export interface SetTriggersResult {
 }
 
 class DydxTradingService {
-  private clientIdCounter = Math.floor(Math.random() * 0x7fffffff);
   private sweepingSubaccounts = new Set<number>();
+
+  private generateClientId(): number {
+    return (Date.now() % 0x7fffffff) + Math.floor(Math.random() * 10000);
+  }
 
   private async getClientAndWallet() {
     const client = await dydxWalletService.getCompositeClient();
@@ -251,10 +254,12 @@ class DydxTradingService {
     let crossFreeCollateral = 0;
 
     const wsState = useWebSocketStore.getState();
+    const isWsConnected = wsState.connectionStatus === 'connected';
     const parentKey = `parent_subaccount_${address}_0`;
     const parentData = wsState.parentSubaccounts.get(parentKey);
+    const isDataFresh = parentData && Date.now() - parentData.lastUpdate < 5000;
 
-    if (parentData) {
+    if (isWsConnected && isDataFresh) {
       const child = parentData.childSubaccounts.find(c => c.subaccountNumber === subaccountNumber);
       currentEquity = child ? parseFloat(child.equity || '0') : 0;
 
@@ -343,11 +348,8 @@ class DydxTradingService {
         SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
       );
 
-      const oraclePrice = parseFloat(marketInfo.oraclePrice);
       const slippage = params.slippageTolerance ?? TRADING_CONFIG.DEFAULT_SLIPPAGE;
-      const normalizedSide = params.side.toUpperCase().trim();
-      let freshPrice =
-        normalizedSide === 'BUY' ? oraclePrice * (1 + slippage) : oraclePrice * (1 - slippage);
+      let freshPrice = await this.getSlippagePrice(params.market, params.side, slippage);
       freshPrice = this.roundPrice(freshPrice, marketInfo.tickSize!);
       const height = await this.getFreshBlockHeight(client);
       const goodTilBlock = height + TRADING_CONFIG.SHORT_BLOCK_FORWARD;
@@ -375,7 +377,8 @@ class DydxTradingService {
     );
     let timeInForce = OrderTimeInForce.GTT;
     if (params.timeInForce === 'IOC') timeInForce = OrderTimeInForce.IOC;
-    if (params.reduceOnly || orderCategory.isMarketConditional) timeInForce = OrderTimeInForce.IOC;
+    if (params.reduceOnly || orderCategory.isMarket || orderCategory.isMarketConditional)
+      timeInForce = OrderTimeInForce.IOC;
 
     const orderPayload = {
       subaccountNumber,
@@ -1031,11 +1034,6 @@ class DydxTradingService {
     const tick = parseFloat(tickSize);
     const decimals = (tickSize.split('.')[1] ?? '').length;
     return parseFloat((Math.round(value / tick) * tick).toFixed(decimals));
-  }
-
-  private generateClientId(): number {
-    this.clientIdCounter = (this.clientIdCounter + 1) % 0x7fffffff;
-    return this.clientIdCounter;
   }
 
   private extractHash(hash: any): string {

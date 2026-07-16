@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   isMarketOrder,
-  selectOpenAndGraceOrders,
   selectOpenOrders,
   selectPortfolioMetrics,
-  selectRecentlyTerminalOrders,
   useWebSocketStore,
 } from '../websocketStore';
 import type { MarketData, ParentSubaccountData } from '../websocketStore';
@@ -72,8 +70,7 @@ describe('websocketStore', () => {
   });
 
   describe('selectOpenOrders', () => {
-    it('hides BEST_EFFORT_OPENED orders until ORDER_APPEARANCE_DELAY_MS elapses', () => {
-      vi.useFakeTimers();
+    it('shows BEST_EFFORT_OPENED orders immediately', () => {
       const now = Date.now();
       const data: ParentSubaccountData = {
         address: '0xAddress',
@@ -109,103 +106,7 @@ describe('websocketStore', () => {
         lastUpdate: now,
       };
 
-      expect(selectOpenOrders(data)).toEqual([data.orders[1]]);
-
-      vi.advanceTimersByTime(800);
       expect(selectOpenOrders(data)).toEqual([data.orders[0], data.orders[1]]);
-      vi.useRealTimers();
-    });
-  });
-
-  describe('selectOpenAndGraceOrders', () => {
-    it('returns open orders and terminal market orders within grace period', () => {
-      vi.useFakeTimers();
-      const now = Date.now();
-      const data: ParentSubaccountData = {
-        address: '0xAddress',
-        parentSubaccountNumber: 0,
-        equity: '100',
-        freeCollateral: '100',
-        childSubaccounts: [],
-        orders: [
-          {
-            id: '1',
-            side: 'BUY',
-            size: '1',
-            price: '100',
-            type: 'MARKET',
-            status: 'CANCELED',
-            _msgId: 1,
-            _terminalAt: now,
-          },
-          {
-            id: '2',
-            side: 'BUY',
-            size: '1',
-            price: '100',
-            type: 'LIMIT',
-            status: 'OPEN',
-            _msgId: 1,
-            _firstSeenAt: now,
-          },
-        ],
-        fills: [],
-        transfers: [],
-        blockHeight: '1',
-        lastUpdate: now,
-      };
-
-      expect(selectOpenAndGraceOrders(data)).toEqual([data.orders[0], data.orders[1]]);
-
-      vi.advanceTimersByTime(3500);
-      expect(selectOpenAndGraceOrders(data)).toEqual([data.orders[1]]);
-      vi.useRealTimers();
-    });
-  });
-
-  describe('selectRecentlyTerminalOrders', () => {
-    it('returns only terminal market orders within grace period', () => {
-      vi.useFakeTimers();
-      const now = Date.now();
-      const data: ParentSubaccountData = {
-        address: '0xAddress',
-        parentSubaccountNumber: 0,
-        equity: '100',
-        freeCollateral: '100',
-        childSubaccounts: [],
-        orders: [
-          {
-            id: '1',
-            side: 'BUY',
-            size: '1',
-            price: '100',
-            type: 'MARKET',
-            status: 'FILLED',
-            _msgId: 1,
-            _terminalAt: now,
-          },
-          {
-            id: '2',
-            side: 'BUY',
-            size: '1',
-            price: '100',
-            type: 'LIMIT',
-            status: 'OPEN',
-            _msgId: 1,
-            _firstSeenAt: now,
-          },
-        ],
-        fills: [],
-        transfers: [],
-        blockHeight: '1',
-        lastUpdate: now,
-      };
-
-      expect(selectRecentlyTerminalOrders(data)).toEqual([data.orders[0]]);
-
-      vi.advanceTimersByTime(3500);
-      expect(selectRecentlyTerminalOrders(data)).toEqual([]);
-      vi.useRealTimers();
     });
   });
 

@@ -22,8 +22,8 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
   const toolTipRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
-  // Shared with crosshair handler so tooltip always uses current timeframe values
   const dataMapRef = useRef<Map<number, any>>(new Map());
+  const containerSizeRef = useRef({ width: 0, height: 0 });
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
@@ -101,13 +101,15 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
       const toolTip = toolTipRef.current;
 
       chart.subscribeCrosshairMove(param => {
+        const cw = containerSizeRef.current.width;
+        const ch = containerSizeRef.current.height;
         if (
           param.point === undefined ||
           !param.time ||
           param.point.x < 0 ||
-          param.point.x > chartContainerRef.current!.clientWidth ||
+          param.point.x > cw ||
           param.point.y < 0 ||
-          param.point.y > chartContainerRef.current!.clientHeight
+          param.point.y > ch
         ) {
           toolTip.style.display = 'none';
           return;
@@ -131,27 +133,24 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
         const rateColor = isPositive ? '#22c55e' : '#ef4444';
 
         toolTip.innerHTML = `
-          <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FFFFFF;">
-            <div style="margin-bottom: 4px; color: #9CA3AF;">${date}</div>
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-              <span style="color: #9CA3AF;">Rate</span>
-              <span style="color: ${rateColor};">${rate}%</span>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FFFFFF;">
+              <div style="margin-bottom: 4px; color: #9CA3AF;">${date}</div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <span style="color: #9CA3AF;">Rate</span>
+                <span style="color: ${rateColor};">${rate}%</span>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <span style="color: #9CA3AF;">Price</span>
+                <span>$${price}</span>
+              </div>
             </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-              <span style="color: #9CA3AF;">Price</span>
-              <span>$${price}</span>
-            </div>
-          </div>
-        `;
+          `;
 
         let shiftedCoordinate = param.point.x - 50;
         if (param.point.x - 50 < 0) {
           shiftedCoordinate = 0;
-        } else if (
-          param.point.x + toolTip.clientWidth + 50 >
-          chartContainerRef.current!.clientWidth
-        ) {
-          shiftedCoordinate = chartContainerRef.current!.clientWidth - toolTip.clientWidth;
+        } else if (param.point.x + toolTip.clientWidth + 50 > cw) {
+          shiftedCoordinate = cw - toolTip.clientWidth;
         }
 
         const y = param.point.y;
@@ -162,15 +161,26 @@ const FundingChart: React.FC<FundingChartProps> = ({ market }) => {
       });
     }
 
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+    const ro = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      containerSizeRef.current = { width, height };
+      if (width > 0 && height > 0) {
+        chart.applyOptions({ width: Math.floor(width), height: Math.floor(height) });
       }
-    };
-    window.addEventListener('resize', handleResize);
+    });
+    if (chartContainerRef.current) {
+      const { offsetWidth, offsetHeight } = chartContainerRef.current;
+      containerSizeRef.current = { width: offsetWidth, height: offsetHeight };
+      if (offsetWidth > 0 && offsetHeight > 0) {
+        chart.applyOptions({ width: offsetWidth, height: offsetHeight });
+      }
+      ro.observe(chartContainerRef.current);
+    }
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      ro.disconnect();
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;

@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle, Clock, Loader2, RefreshCw, X } from 'lucide-react';
+import { Loader2, RefreshCw, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
@@ -12,92 +12,25 @@ import { currencyService } from '../../utils/currencyService';
 import { capitalizeFirst, formatTimeAgoCompact, getDisplayOrderType } from '../../utils/orderUtils';
 import { CANCEL_REFRESH_DELAY_MS } from '../../utils/orderUtils';
 
-// Module-level pure function — no deps, no need for useCallback inside the component
 function getStatusBadge(order: TrackedOrder) {
   const status = order.status;
+  const displayType = getDisplayOrderType(order);
+  const typeStr = capitalizeFirst(displayType);
 
-  if (isMarketOrder(order)) {
-    if (status === 'FILLED') {
-      return (
-        <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">
-          <CheckCircle className="w-3 h-3" />
-          <span>Filled</span>
-        </div>
-      );
-    }
-    if (status === 'REJECTED') {
-      const reason = order.removalReason
-        ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
-        : 'Rejected';
-      return (
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
-            <X className="w-3 h-3" />
-            <span>Rejected</span>
-          </div>
-          <span className="text-[10px] text-red-400/70 px-2 leading-tight">{reason}</span>
-        </div>
-      );
-    }
-    if (status === 'BEST_EFFORT_CANCELED' || status === 'CANCELED') {
-      const reason = order.removalReason
-        ? order.removalReason.replace('ORDER_REMOVAL_REASON_', '').replace(/_/g, ' ')
-        : null;
-      return (
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded text-xs">
-            <X className="w-3 h-3" />
-            <span>Canceled</span>
-          </div>
-          {reason && (
-            <span className="text-[10px] text-gray-400/70 px-2 leading-tight">{reason}</span>
-          )}
-        </div>
-      );
-    }
-  }
+  const getStatusColor = () => {
+    if (status === 'FILLED') return 'bg-green-500';
+    if (['OPEN', 'PARTIALLY_FILLED'].includes(status)) return 'bg-green-500'; // Using green for OPEN matching UI
+    if (status === 'CANCELED' || status === 'BEST_EFFORT_CANCELED' || status === 'REJECTED')
+      return 'bg-gray-500';
+    return 'bg-yellow-500';
+  };
 
-  if (status === 'REJECTED') {
-    return (
-      <div className="flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
-        <X className="w-3 h-3" />
-        <span>Rejected</span>
-      </div>
-    );
-  }
-
-  switch (status) {
-    case 'BEST_EFFORT_OPENED':
-      return (
-        <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs">
-          <Clock className="w-3 h-3 animate-spin" />
-          <span>Pending</span>
-        </div>
-      );
-    case 'OPEN':
-      return (
-        <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">
-          <CheckCircle className="w-3 h-3" />
-          <span>Open</span>
-        </div>
-      );
-    case 'PARTIALLY_FILLED':
-      return (
-        <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs">
-          <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-          <span>Filling</span>
-        </div>
-      );
-    case 'UNTRIGGERED':
-      return (
-        <div className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
-          <AlertCircle className="w-3 h-3" />
-          <span>Trigger</span>
-        </div>
-      );
-    default:
-      return <span className="px-2 py-0.5 bg-secondary text-muted rounded text-xs">{status}</span>;
-  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor()}`} />
+      <span className="text-gray-300">{typeStr}</span>
+    </div>
+  );
 }
 
 const OpenOrdersPanel: React.FC = () => {
@@ -212,7 +145,7 @@ const OpenOrdersPanel: React.FC = () => {
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-muted">
+      <div className="flex flex-col items-center justify-center h-full min-h-[150px] py-8 text-center text-muted">
         <h3 className="text-lg font-semibold text-primary mb-2">Connect Wallet</h3>
         <p className="text-sm">Connect your wallet to manage orders</p>
       </div>
@@ -221,7 +154,7 @@ const OpenOrdersPanel: React.FC = () => {
 
   if (loadingOrders && openOrders.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-muted">
+      <div className="flex items-center justify-center h-full min-h-[150px] py-8 text-muted">
         <Loader2 className="w-6 h-6 mr-2 animate-spin" />
         Loading orders...
       </div>
@@ -246,7 +179,7 @@ const OpenOrdersPanel: React.FC = () => {
 
   if (openOrders.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-muted">
+      <div className="flex flex-col items-center justify-center h-full min-h-[150px] py-8 text-center text-muted">
         <h3 className="text-lg font-semibold text-primary mb-2">No Open Orders</h3>
         <p className="text-sm">Your active orders will appear here</p>
       </div>
@@ -254,20 +187,22 @@ const OpenOrdersPanel: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-secondary overflow-hidden">
+    <div className="h-full bg-secondary overflow-y-visible md:overflow-auto flex flex-col relative">
       {/* Desktop table */}
       <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-left border-collapse">
           <thead className="bg-secondary text-muted text-[10px] uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-color">
             <tr>
               <th className="px-3 py-2 font-semibold">Market</th>
-              <th className="px-2 py-2 text-center font-semibold">Status</th>
-              <th className="px-2 py-2 font-semibold">Type</th>
+              <th className="px-2 py-2 text-left font-semibold">Status</th>
               <th className="px-2 py-2 text-center font-semibold">Side</th>
               <th className="px-2 py-2 text-right font-semibold">Amount</th>
               <th className="px-2 py-2 text-right font-semibold">Filled</th>
               <th className="px-2 py-2 text-right font-semibold">Price</th>
               <th className="px-2 py-2 text-center font-semibold">TIF</th>
+              <th className="px-2 py-2 text-center font-semibold text-[10px] whitespace-nowrap">
+                Margin Mode
+              </th>
               <th className="px-2 py-2 text-right font-semibold">Created</th>
               <th className="px-2 py-2 text-center font-semibold">Cancel</th>
             </tr>
@@ -280,7 +215,9 @@ const OpenOrdersPanel: React.FC = () => {
               const fillPercent = size > 0 ? (filled / size) * 100 : 0;
               const isPending = order.status === 'BEST_EFFORT_OPENED';
               const isMarket = isMarketOrder(order);
-              const displayType = getDisplayOrderType(order);
+              const rawMarginMode =
+                (order as any).marginMode || (order as any).margin_mode || 'CROSS';
+              const marginMode = capitalizeFirst(rawMarginMode);
 
               const marketTicker = order.ticker ?? '';
               const mkt = marketCache[marketTicker];
@@ -290,7 +227,8 @@ const OpenOrdersPanel: React.FC = () => {
               const sizeStr = formatNumericWithCommas(size, decimals);
               const filledStr = formatNumericWithCommas(filled, decimals);
               const priceStr = isMarket ? 'Market' : formatMarketPrice(order.price, '$');
-              const timeStr = order.goodTilBlockTime || order.updatedAt || '';
+              const timeStr =
+                order.updatedAt || (order as any)._firstSeenAt || order.createdAtHeight || '';
 
               return (
                 <tr
@@ -307,10 +245,7 @@ const OpenOrdersPanel: React.FC = () => {
                       </span>
                     </div>
                   </td>
-                  <td className="px-2 py-1.5 text-center">{getStatusBadge(order)}</td>
-                  <td className="px-2 py-1.5 text-left">
-                    <span className="text-primary font-bold">{capitalizeFirst(displayType)}</span>
-                  </td>
+                  <td className="px-2 py-1.5 text-left">{getStatusBadge(order)}</td>
                   <td className="px-2 py-1.5 text-center">
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}
@@ -326,10 +261,15 @@ const OpenOrdersPanel: React.FC = () => {
                     )}
                   </td>
                   <td className="px-2 py-1.5 text-right text-primary font-mono">{priceStr}</td>
-                  <td className="px-2 py-1.5 text-center text-muted font-bold">
+                  <td className="px-2 py-1.5 text-center text-gray-400 font-bold">
                     {order.timeInForce || 'GTT'}
                   </td>
-                  <td className="px-2 py-1.5 text-right text-muted font-mono">
+                  <td className="px-2 py-1.5 text-center">
+                    <span className="px-1.5 py-0.5 bg-[#2B2B36] text-gray-300 rounded text-[9px] font-bold">
+                      {marginMode}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1.5 text-right text-gray-400 font-mono">
                     {formatTimeAgoCompact(timeStr)}
                   </td>
                   <td className="px-2 py-1.5 text-center">
@@ -355,14 +295,13 @@ const OpenOrdersPanel: React.FC = () => {
       </div>
 
       {/* Mobile cards */}
-      <div className="md:hidden flex-1 overflow-auto space-y-1.5 p-2">
+      <div className="md:hidden w-full flex flex-col space-y-2 p-2 pb-4">
         {openOrders.map(order => {
           const isCancelling = cancelling.has(order.id);
           const filled = parseFloat(order.totalOptimisticFilled || '0');
           const size = parseFloat(order.size);
           const fillPercent = size > 0 ? (filled / size) * 100 : 0;
           const isMarket = isMarketOrder(order);
-          const displayType = getDisplayOrderType(order);
 
           const marketTicker = order.ticker ?? '';
           const mkt = marketCache[marketTicker];
@@ -372,80 +311,81 @@ const OpenOrdersPanel: React.FC = () => {
           const sizeStr = formatNumericWithCommas(size, decimals);
           const filledStr = formatNumericWithCommas(filled, decimals);
           const priceStr = isMarket ? 'Market' : formatMarketPrice(order.price, '$');
-          const timeStr = order.goodTilBlockTime || order.updatedAt || '';
+          const timeStr =
+            order.updatedAt || (order as any)._firstSeenAt || order.createdAtHeight || '';
 
           return (
             <div
               key={order.id}
-              className={`bg-secondary border border-color rounded-lg p-2.5 text-xs ${isCancelling ? 'opacity-50' : ''}`}
+              className={`bg-secondary border border-color rounded-xl p-3 shadow-sm mb-2 ${isCancelling ? 'opacity-50' : ''}`}
             >
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-full bg-[var(--color-bg-primary)] flex items-center justify-center overflow-hidden shrink-0">
                     {order.ticker && getMarketIcon(order.ticker)}
                   </div>
-                  <span className="text-primary font-bold">
-                    {order.ticker?.split('-')[0] ?? '—'}
-                  </span>
+                  <div>
+                    <div className="font-bold text-primary flex items-center gap-1.5 text-sm">
+                      {order.ticker?.split('-')[0] ?? '—'}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                      >
+                        {capitalizeFirst(order.side)}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-secondary text-muted uppercase">
+                        {order.timeInForce || 'GTT'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-primary text-[10px]">{capitalizeFirst(displayType)}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.side === 'BUY' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
-                  >
-                    {capitalizeFirst(order.side)}
-                  </span>
+                  <div className="text-right">{getStatusBadge(order)}</div>
                   {!isMarket && (
                     <button
                       onClick={() => handleCancel(order)}
                       disabled={isCancelling}
-                      className={`p-1.5 rounded transition-colors ${isCancelling ? 'bg-primary cursor-not-allowed text-muted' : 'bg-red-900/30 hover:bg-red-900/50 text-red-400'}`}
+                      className={`p-1.5 rounded-lg transition-colors ${isCancelling ? 'bg-secondary cursor-not-allowed text-muted' : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'}`}
                     >
                       {isCancelling ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
-                        <X className="w-3 h-3" />
+                        <X className="w-3.5 h-3.5" />
                       )}
                     </button>
                   )}
                 </div>
               </div>
-              <div className="mb-2">{getStatusBadge(order)}</div>
-              <div className="border-t border-dashed border-color pt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
+
+              <div className="flex justify-between items-end mb-3 px-1">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-muted font-medium mb-1 uppercase tracking-wider">
+                    Price
+                  </span>
+                  <span className="text-primary font-mono text-sm font-medium">{priceStr}</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] text-muted font-medium mb-1 uppercase tracking-wider">
                     Amount
                   </span>
-                  <span className="text-primary font-medium font-mono">{sizeStr}</span>
+                  <span className="text-primary font-mono text-sm font-medium">{sizeStr}</span>
                 </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
-                    Filled
-                  </span>
-                  <div>
-                    <div className="text-primary font-medium font-mono">{filledStr}</div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 p-2.5 bg-secondary/30 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-muted">Filled</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-primary font-mono">{filledStr}</span>
                     {fillPercent > 0 && (
-                      <div className="text-[9px] text-muted">{fillPercent.toFixed(0)}%</div>
+                      <span className="text-[9px] text-green-400">({fillPercent.toFixed(0)}%)</span>
                     )}
                   </div>
                 </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
-                    Price
-                  </span>
-                  <span className="text-primary font-medium font-mono">{priceStr}</span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
-                    TIF
-                  </span>
-                  <span className="text-primary font-medium">{order.timeInForce || 'GTT'}</span>
-                </div>
-                <div className="flex flex-col gap-0.5 col-span-2">
-                  <span className="text-muted text-[9px] uppercase tracking-wide font-medium">
-                    Created
-                  </span>
-                  <span className="text-primary font-medium">{formatTimeAgoCompact(timeStr)}</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-muted">Created</span>
+                  <span className="text-[10px] text-primary">{formatTimeAgoCompact(timeStr)}</span>
                 </div>
               </div>
             </div>

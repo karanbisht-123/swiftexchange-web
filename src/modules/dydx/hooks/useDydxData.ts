@@ -8,12 +8,7 @@ import {
   dydxDataService,
 } from '../service/dydxOrderService';
 import { dydxWalletService } from '../service/dydxWalletService';
-import {
-  type TrackedOrder,
-  selectOpenOrders,
-  selectRecentlyTerminalOrders,
-  useWebSocketStore,
-} from '../store/websocketStore';
+import { type TrackedOrder, selectOpenOrders, useWebSocketStore } from '../store/websocketStore';
 
 interface UseDydxDataReturn {
   positions: Position[];
@@ -47,7 +42,6 @@ interface UseDydxDataReturn {
   isReceivingUpdates: boolean;
   lastUpdateTime: number | null;
   blockHeight: string;
-  recentlyFilledCount: number;
 }
 
 const WS_FRESHNESS_MS = 30_000;
@@ -123,11 +117,6 @@ export const useDydxData = (): UseDydxDataReturn => {
   const isReceivingUpdates = parentData
     ? Date.now() - parentData.lastUpdate < WS_FRESHNESS_MS
     : false;
-
-  const recentlyFilledCount = useMemo(
-    () => selectRecentlyTerminalOrders(parentData).filter(o => o.status === 'FILLED').length,
-    [parentData]
-  );
 
   const loadingPositions = false;
   const positionsError = null;
@@ -413,6 +402,5 @@ export const useDydxData = (): UseDydxDataReturn => {
     isReceivingUpdates,
     lastUpdateTime,
     blockHeight,
-    recentlyFilledCount,
   };
 };

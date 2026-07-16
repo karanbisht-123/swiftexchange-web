@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 
 import { Notification, type NotificationType } from '../../../../components/common/Notification';
 import { Tooltip } from '../../../../components/common/Tooltip';
@@ -8,15 +7,10 @@ import { useDydxWallet } from '../../hooks/useDydxWallet';
 import { useMarkets } from '../../hooks/useMarkets';
 import { useSubaccounts } from '../../hooks/useSubaccounts';
 // NEW IMPORTS
-import { dydxWalletService } from '../../service/dydxWalletService';
+
 import useMarketStore from '../../store/marketStore';
 import useOrderPreviewStore from '../../store/orderPreviewStore';
 import { useOrderbookClickStore } from '../../store/orderbookClickStore';
-import {
-  type TrackedOrder,
-  selectRecentlyTerminalOrders,
-  useWebSocketStore,
-} from '../../store/websocketStore';
 import type { MarginMode, OrderSideEnum, OrderTypeEnum } from '../../types/trading.types';
 import {
   getMaxBuyingPower,
@@ -49,7 +43,6 @@ interface NotificationState {
 }
 
 const PRICE_REQUIRED_TYPES = ['LIMIT', 'STOP_LIMIT', 'TAKE_PROFIT_LIMIT'] as const;
-const sessionClientIds = new Set<string>();
 
 const TRIGGER_REQUIRED_TYPES = [
   'STOP_MARKET',
@@ -96,20 +89,6 @@ export const DydxTradingForm: React.FC = () => {
 
   const pendingMarginRequired = useOrderPreviewStore(s => s.pendingMarginRequired);
 
-  // Parent Subaccount Key
-  const address = dydxWalletService.getAddress();
-  const subaccountNumber = dydxWalletService.getSubaccountNumber();
-  const parentKey = address ? `parent_subaccount_${address}_${subaccountNumber}` : null;
-
-  // Get parentData from Zustand
-  const parentData = useWebSocketStore(
-    useShallow(state => (parentKey ? state.parentSubaccounts.get(parentKey) : undefined))
-  );
-  const recentlyTerminalOrders = useMemo(
-    () => selectRecentlyTerminalOrders(parentData),
-    [parentData]
-  );
-
   const [orderType, setOrderType] = useState<OrderTypeEnum>('LIMIT');
   const [side, setSide] = useState<OrderSideEnum>('BUY');
   const [marginMode, setMarginMode] = useState<MarginMode>('CROSS');
@@ -154,7 +133,6 @@ export const DydxTradingForm: React.FC = () => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  const shownRejectionsRef = useRef<Set<string>>(new Set());
   const sizeFromSliderRef = useRef(false);
 
   const isConditional = CONDITIONAL_TYPES.includes(orderType as (typeof CONDITIONAL_TYPES)[number]);
@@ -240,38 +218,6 @@ export const DydxTradingForm: React.FC = () => {
 
   const hasValidationErrors = !!(sizeError || priceError || triggerError || goodTilError);
   const isFormValid = !hasValidationErrors && !!size && canTrade;
-
-  useEffect(() => {
-    if (!selectedMarket) return;
-
-    const recentRejections = recentlyTerminalOrders.filter((order: TrackedOrder) => {
-      if (!order.ticker || order.ticker !== selectedMarket) return false;
-      if (order.subaccountNumber !== undefined && order.subaccountNumber !== targetSubaccount)
-        return false;
-      if (order.clientId == null || !sessionClientIds.has(order.clientId.toString())) return false;
-      return (
-        order.status === 'REJECTED' ||
-        (order.status === 'BEST_EFFORT_CANCELED' && order.removalReason)
-      );
-    });
-
-    for (const order of recentRejections) {
-      const key = `${order.id}-${order.status}`;
-      if (shownRejectionsRef.current.has(key)) continue;
-
-      shownRejectionsRef.current.add(key);
-
-      let reason = order.removalReason || 'Unknown reason';
-      if (reason.includes('UNDERCOLLATERALIZED')) reason = 'Undercollateralized';
-      if (reason.includes('INSUFFICIENT_MARGIN')) reason = 'Insufficient Margin';
-
-      addNotification(
-        'error',
-        `Order ${order.side} ${order.size} ${selectedMarket} was rejected on chain.\nReason: ${reason}`,
-        'Order Rejected'
-      );
-    }
-  }, [recentlyTerminalOrders, selectedMarket, targetSubaccount, addNotification]);
 
   useEffect(() => {
     if (leverage > maxLeverage) setLeverage(maxLeverage);
@@ -551,8 +497,6 @@ export const DydxTradingForm: React.FC = () => {
     );
 
     if (result.success) {
-      // Record this clientId so rejection notifications only fire for our session's orders
-      if (result.clientId != null) sessionClientIds.add(result.clientId.toString());
       addNotification(
         'success',
         `${side} ${finalQuantity} ${marketData.baseAsset}`,
