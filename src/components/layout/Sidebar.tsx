@@ -88,11 +88,6 @@ const Sidebar: FC = () => {
       label: 'Swap',
       icon: <Repeat2 className="w-[18px] h-[18px]" />,
     },
-    // {
-    //   href: ROUTES.BRIDGE,
-    //   label: 'DYDX-SDEX Bridge',
-    //   icon: <ArrowRightLeft className="w-[18px] h-[18px]" />,
-    // },
     {
       href: ROUTES.TRADING_EVM_FIAT,
       label: 'Fiat On/Off Ramp',

@@ -1,13 +1,16 @@
 import { ethers } from 'ethers';
+
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
-import { ensureFusionAllowance, readAllowance } from './approvalExecutor';
 import { getChainById } from '../../../utils/Chainregistry';
-import { LIMIT_ORDER_PROTOCOL, AGGREGATOR_NATIVE_ADDRESS } from '../constants/swap.constants';
+import { AGGREGATOR_NATIVE_ADDRESS, LIMIT_ORDER_PROTOCOL } from '../constants/swap.constants';
 import { formatAmount } from '../utils/swapAmountUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
+import { ensureFusionAllowance, readAllowance } from './approvalExecutor';
 
 export interface ExecuteFusionSwapDependencies {
-  simulateSwapTransaction: (params: any) => Promise<{ canProceed: boolean; errors: string[]; warnings: string[] }>;
+  simulateSwapTransaction: (
+    params: any
+  ) => Promise<{ canProceed: boolean; errors: string[]; warnings: string[] }>;
   build1InchFusionOrder: (params: any) => Promise<any>;
   submit1InchFusionOrder: (payload: any, isCrossChain: boolean, isNative: boolean) => Promise<any>;
   getProvider: (type: WalletType) => any;
@@ -37,17 +40,20 @@ export async function execute1InchFusionSwap(
   const isCrossChain = String(chainId) !== String(toChainId);
 
   const chainConfig = getChainById(chainId);
-  const rawSymbol = chainConfig?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+  const rawSymbol =
+    (chainConfig?.symbol || chainConfig?.nativeCurrency.symbol)?.toUpperCase() || 'ETH';
   const chainSymbol = rawSymbol === 'BNB' ? 'BSC' : rawSymbol;
   const amountBN = BigInt(formatAmount(sellAmount, sellAsset.decimals));
 
-  const currentAllowance = sellAsset.isNative ? amountBN : await readAllowance(
-    sellAsset.address,
-    senderAddress,
-    LIMIT_ORDER_PROTOCOL,
-    chainId,
-    provider
-  );
+  const currentAllowance = sellAsset.isNative
+    ? amountBN
+    : await readAllowance(
+        sellAsset.address,
+        senderAddress,
+        LIMIT_ORDER_PROTOCOL,
+        chainId,
+        provider
+      );
   const requiresApproval = currentAllowance < amountBN;
 
   if (onProgress) {
@@ -111,9 +117,11 @@ export async function execute1InchFusionSwap(
     permit: '',
     toChain: isCrossChain
       ? (() => {
-        const symbol = getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
-        return symbol === 'BNB' ? 'BSC' : symbol;
-      })()
+          const chainInfo = getChainById(toChainId);
+          const symbol =
+            (chainInfo?.symbol || chainInfo?.nativeCurrency.symbol)?.toUpperCase() || 'ETH';
+          return symbol === 'BNB' ? 'BSC' : symbol;
+        })()
       : undefined,
     secretCount: isCrossChain ? secretCount : undefined,
     isNative: isSourceNative,
@@ -190,7 +198,9 @@ export async function execute1InchFusionSwap(
       submitPayload = {
         chain: chainSymbol,
         toChain: (() => {
-          const symbol = getChainById(toChainId)?.nativeCurrency.symbol?.toUpperCase() || 'ETH';
+          const chainInfo = getChainById(toChainId);
+          const symbol =
+            (chainInfo?.symbol || chainInfo?.nativeCurrency.symbol)?.toUpperCase() || 'ETH';
           return symbol === 'BNB' ? 'BSC' : symbol;
         })(),
         order: {

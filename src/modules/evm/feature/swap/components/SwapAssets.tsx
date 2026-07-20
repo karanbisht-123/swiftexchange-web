@@ -19,7 +19,12 @@ import { useWalletConnect } from '../../../../walletconnect/hooks/useWalletConne
 import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
 import { portfolioUtils } from '../../../../walletconnect/utils/portfolioUtils';
 import { getTokensForChain } from '../../../service/tokenListService';
-import { getChainById, getGlobalAssetMetadata, isEvmChain } from '../../../utils/Chainregistry';
+import {
+  getChainById,
+  getGlobalAssetMetadata,
+  isEvmChain,
+  normalizeTokenForDisplay,
+} from '../../../utils/Chainregistry';
 import { switchOrAddChain } from '../../../utils/evmChainUtils';
 import { STELLAR_CHAIN_ID } from '../constants/swap.constants';
 // Extracted hooks
@@ -290,7 +295,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     evmAddress,
     currentNetwork,
     userSlippageTolerance,
-    calculatedBuyAmount: '0.00',
     fromChainConfig,
     activeQuote,
     swapQuote,
@@ -802,6 +806,38 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const executionLoadingLabel =
     bridgeTxStatus === 'signing' ? 'CHECK WALLET...' : 'BUILDING ORDER...';
 
+  // Normalize display for native-address tokens on ETH L2 chains
+  // e.g. on Arbitrum the API may return symbol="ARB" for address=0x000...000
+  // but the actual gas token is ETH. We correct the display without
+  // touching the underlying asset data (swap logic still uses the original).
+  const normalizedSellDisplay = selectedSellAsset
+    ? normalizeTokenForDisplay(
+        {
+          symbol: (selectedSellAsset as any).symbol,
+          name: (selectedSellAsset as any).name,
+          logoURI: (selectedSellAsset as any).logoURI,
+          address: (selectedSellAsset as any).address,
+          isNative: (selectedSellAsset as any).isNative,
+          type: (selectedSellAsset as any).type,
+        },
+        fromChainId
+      )
+    : null;
+
+  const normalizedBuyDisplay = selectedBuyAsset
+    ? normalizeTokenForDisplay(
+        {
+          symbol: (selectedBuyAsset as any).symbol,
+          name: (selectedBuyAsset as any).name,
+          logoURI: (selectedBuyAsset as any).logoURI,
+          address: (selectedBuyAsset as any).address,
+          isNative: (selectedBuyAsset as any).isNative,
+          type: (selectedBuyAsset as any).type,
+        },
+        toChainId
+      )
+    : null;
+
   return (
     <PageLayout
       title="Token Swap"
@@ -876,21 +912,25 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   <div className="relative min-w-[36px] sm:min-w-[40px]">
                     <img
                       src={
+                        normalizedSellDisplay?.logoURI ||
                         (selectedSellAsset as any)?.logoURI ||
                         `https://ui-avatars.com/api/?name=${sellAssetSymbol}&background=random`
                       }
                       className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-tertiary object-cover shadow-sm"
-                      alt=""
+                      alt={normalizedSellDisplay?.symbol || sellAssetSymbol}
+                      onError={e => {
+                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${normalizedSellDisplay?.symbol || sellAssetSymbol}&background=random`;
+                      }}
                     />
                     <img
-                      src={fromChainConfig?.nativeCurrency.logoURI}
+                      src={fromChainConfig?.logoURI}
                       className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full border-2 border-secondary bg-secondary"
-                      alt=""
+                      alt={fromChainConfig?.name}
                     />
                   </div>
                   <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden">
                     <span className="font-bold text-[13px] sm:text-[15px] leading-tight truncate w-full">
-                      {sellAssetSymbol || 'Select'}
+                      {normalizedSellDisplay?.symbol || sellAssetSymbol || 'Select'}
                     </span>
                     <span className="text-[8px] sm:text-[9px] text-muted font-bold tracking-tight truncate w-full uppercase">
                       {fromChainConfig?.name}
@@ -1042,21 +1082,25 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                   <div className="relative min-w-[36px] sm:min-w-[40px]">
                     <img
                       src={
+                        normalizedBuyDisplay?.logoURI ||
                         (selectedBuyAsset as any)?.logoURI ||
                         `https://ui-avatars.com/api/?name=${buyAssetSymbol}&background=random`
                       }
                       className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-tertiary object-cover shadow-sm"
-                      alt=""
+                      alt={normalizedBuyDisplay?.symbol || buyAssetSymbol}
+                      onError={e => {
+                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${normalizedBuyDisplay?.symbol || buyAssetSymbol}&background=random`;
+                      }}
                     />
                     <img
-                      src={toChainConfig?.nativeCurrency.logoURI}
+                      src={toChainConfig?.logoURI}
                       className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full border-2 border-secondary bg-secondary"
-                      alt=""
+                      alt={toChainConfig?.name}
                     />
                   </div>
                   <div className="flex flex-col items-start pr-1 min-w-0 overflow-hidden">
                     <span className="font-bold text-[13px] sm:text-[15px] leading-tight truncate w-full">
-                      {buyAssetSymbol || 'Select'}
+                      {normalizedBuyDisplay?.symbol || buyAssetSymbol || 'Select'}
                     </span>
                     <span className="text-[8px] sm:text-[9px] text-muted font-bold tracking-tight truncate w-full uppercase">
                       {toChainConfig?.name?.split(' ')[0]}

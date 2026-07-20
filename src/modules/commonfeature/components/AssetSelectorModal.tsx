@@ -178,13 +178,22 @@ const AssetSelectorModal: FC = () => {
         }
       }
     } else if (effectiveActionType === 'SWAP' || effectiveActionType === 'BRIDGE') {
+      const allPossibleChains = [
+        ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
+        ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
+        ...(isDydxConnected ? [DYDX_CHAIN_ID] : []),
+      ];
+
       const targetChains =
         selectedNetwork === 'all'
-          ? [
-              ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
-              ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
-              ...(isDydxConnected ? [DYDX_CHAIN_ID] : []),
-            ]
+          ? Array.from(new Set(allPossibleChains)).filter(chainId => {
+              const chainConfig = getChainById(chainId);
+              if (!chainConfig) return false;
+              if (effectiveActionType === 'SWAP')
+                return chainConfig.swapEnabled || (chainConfig as any).swapEnable;
+              if (effectiveActionType === 'BRIDGE') return chainConfig.bridgeEnable;
+              return true;
+            })
           : [selectedNetwork];
 
       targetChains.forEach(activeChainId => {
@@ -254,8 +263,9 @@ const AssetSelectorModal: FC = () => {
       result = result.filter(
         a =>
           a.symbol.toLowerCase().includes(q) ||
-          a.name?.toLowerCase().includes(q) ||
-          (a.address && a.address.toLowerCase().includes(q))
+          (a.name && a.name.toLowerCase().includes(q)) ||
+          (a.address && q.length > 5 && a.address.toLowerCase().includes(q)) ||
+          (a.address && a.address.toLowerCase() === q)
       );
     }
 
