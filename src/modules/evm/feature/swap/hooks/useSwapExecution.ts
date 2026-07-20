@@ -70,6 +70,7 @@ export interface UseSwapExecutionParams {
   resetSwap: () => void;
   resetInputs: () => void;
   setSellAmount: (amt: string) => void;
+  executeNearIntentDeposit?: (sellAsset: any, amount: string, quote: any) => Promise<string>;
 }
 
 export function useSwapExecution(params: UseSwapExecutionParams) {
@@ -102,6 +103,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     resetSwap,
     resetInputs,
     setSellAmount,
+    executeNearIntentDeposit,
   } = params;
 
   const navigate = useNavigate();
@@ -623,6 +625,85 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     }
   };
 
+  const executeEvmNearIntentBridge = async (checkAborted: () => void) => {
+    if (!executeNearIntentDeposit || !activeQuote.data) {
+      setBridgeTxStatus('idle');
+      return;
+    }
+
+    setExecutionApprovalRequired(false);
+    setExecutionCurrentStep('preparing');
+    checkAborted();
+
+    setExecutionCurrentStep('signing');
+    setBridgeTxStatus('signing');
+    setPendingTxFromChainId(fromChainId);
+    setIsWaitingForWallet(true);
+
+    try {
+      // Find the NearIntentToken
+      const { fetchNearIntentTokens, isStellarBlockchain } =
+        await import('../services/oneClickApi');
+      const { getEvmChainId } = await import('../hooks/useNearIntentCrossChain');
+      const nearTokens = await fetchNearIntentTokens();
+
+      const nearSellAsset = nearTokens.find((t: any) => {
+        if (t.symbol.toUpperCase() !== sellAssetSymbol.toUpperCase()) return false;
+        const tChainId = isStellarBlockchain(t.blockchain) ? 'stellar' : getEvmChainId(t);
+        return String(tChainId) === String(isStellar(fromChainId) ? 'stellar' : fromChainId);
+      });
+
+      if (!nearSellAsset) throw new Error('Could not resolve NEAR Intent asset for deposit');
+
+      const hash = await executeNearIntentDeposit(nearSellAsset, sellAmount, activeQuote.data);
+      checkAborted();
+
+      const computedOutAmount = activeQuote.data.amountOutFormatted || activeQuote.data.amountOut;
+      const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
+
+      handleReset();
+      showToast({
+        type: 'BRIDGE',
+        title: 'Bridge Initiated',
+        message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol} via NEAR Intents`,
+      });
+      if (hash) {
+        openModal({
+          status: 'success',
+          type: 'Bridge',
+          hash,
+          explorerUrl: fromChainConfig?.blockExplorerUrl
+            ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
+            : undefined,
+          networkName: fromChainConfig?.name,
+          isStellar: isStellar(fromChainId),
+        });
+      }
+      if (wasTracked && hash) {
+        navigate(`/transactions?tab=recent&hash=${hash}`);
+      }
+    } catch (err: any) {
+      if ((err as any)?.name === 'AbortError') {
+        resetLoadingState();
+        return;
+      }
+      console.error('NEAR Intents swap failed:', err);
+      const errMsg = parseWalletError(err);
+      setBridgeErrorMsg(errMsg);
+      resetLoadingState();
+      setBridgeTxStatus('error');
+      openModal({
+        status: 'error',
+        type: 'Bridge',
+        error: errMsg,
+        isStellar: isStellar(fromChainId),
+      });
+      showToast({ type: 'BRIDGE', title: 'Bridge Failed', message: errMsg, dontSave: true });
+    } finally {
+      setIsWaitingForWallet(false);
+    }
+  };
+
   const handleUnifiedSwap = useCallback(async () => {
     if (!sellAmount) return;
     if (isSubmittingRef.current) return;
@@ -685,6 +766,8 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
             await executeStellarToEvmBridge(checkAborted);
           } else if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
             await executeEvmFusionPlusBridge(checkAborted);
+          } else if (activeQuote.source === 'near_intent' && activeQuote.data) {
+            await executeEvmNearIntentBridge(checkAborted);
           } else if (activeQuote.source === 'bridge' && activeQuote.data) {
             await executeEvmAllbridgeBridge(checkAborted);
           }
@@ -747,6 +830,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     resetSwap,
     resetInputs,
     setSellAmount,
+    executeNearIntentDeposit,
   ]);
 
   return {

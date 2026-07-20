@@ -164,10 +164,16 @@ export const useNearIntentCrossChain = ({
   );
 
   const executeDeposit = useCallback(
-    async (sellAsset: NearIntentToken, amount: string) => {
-      if (!quote || !quote.depositAddress) {
-        setError('No valid quote or deposit address');
-        return;
+    async (
+      sellAsset: NearIntentToken,
+      amount: string,
+      providedQuote?: NearIntentQuote
+    ): Promise<string> => {
+      const quoteToUse = providedQuote || quote;
+      if (!quoteToUse || !quoteToUse.depositAddress) {
+        const errMsg = 'No valid quote or deposit address';
+        setError(errMsg);
+        throw new Error(errMsg);
       }
 
       setLoading(true);
@@ -205,14 +211,14 @@ export const useNearIntentCrossChain = ({
 
           txBuilder.addOperation(
             StellarSDK.Operation.payment({
-              destination: quote.depositAddress,
+              destination: quoteToUse.depositAddress,
               asset: stellarAsset,
               amount: ethers.formatUnits(amount, sellAsset.decimals),
             })
           );
 
-          if (quote.depositMemo) {
-            txBuilder.addMemo(StellarSDK.Memo.text(quote.depositMemo));
+          if (quoteToUse.depositMemo) {
+            txBuilder.addMemo(StellarSDK.Memo.text(quoteToUse.depositMemo));
           }
 
           const transaction = txBuilder.setTimeout(300).build();
@@ -246,7 +252,7 @@ export const useNearIntentCrossChain = ({
 
           notifyWalletSignRequest(WalletType.EVM);
 
-          const rawDeposit = quote.depositAddress;
+          const rawDeposit = quoteToUse.depositAddress;
           let depositAddr: string;
           if (/^0x[0-9a-fA-F]{40}$/.test(rawDeposit)) {
             depositAddr = ethers.getAddress(rawDeposit);
@@ -304,8 +310,13 @@ export const useNearIntentCrossChain = ({
         }
 
         setTxHash(txHashResult);
-        await submitNearIntentDeposit(txHashResult, quote.depositAddress, quote.depositMemo);
+        await submitNearIntentDeposit(
+          txHashResult,
+          quoteToUse.depositAddress,
+          quoteToUse.depositMemo
+        );
         setStatus('SUCCESS');
+        return txHashResult;
       } catch (err: any) {
         const msg = (err?.message || String(err)).toLowerCase();
 
@@ -325,10 +336,12 @@ export const useNearIntentCrossChain = ({
         if (rejected) {
           setError(null);
           setStatus('CANCELLED');
+          throw new DOMException('Swap aborted', 'AbortError');
         } else {
           console.error('[InterSwap] Execute deposit error:', err);
           setError(err.message || 'Transaction failed. Please try again.');
           setStatus('FAILED');
+          throw err;
         }
       } finally {
         setLoading(false);

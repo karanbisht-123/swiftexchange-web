@@ -58,15 +58,40 @@ const getHeaders = () => {
 // the user must also include a memo field in their Stellar payment.
 export const isStellarBlockchain = (blockchain: string): boolean => blockchain === 'stellar';
 
+let cachedNearIntentTokens: NearIntentToken[] | null = null;
+let lastNearIntentTokensFetch = 0;
+const NEAR_INTENT_TOKENS_TTL = 5 * 60 * 1000; // 5 minutes
+let fetchNearIntentTokensPromise: Promise<NearIntentToken[]> | null = null;
+
 export const fetchNearIntentTokens = async (): Promise<NearIntentToken[]> => {
-  const response = await fetch(`${API_BASE_URL}/v0/tokens`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch tokens: ${response.statusText}`);
+  const now = Date.now();
+  if (cachedNearIntentTokens && now - lastNearIntentTokensFetch < NEAR_INTENT_TOKENS_TTL) {
+    return cachedNearIntentTokens;
   }
-  return response.json();
+
+  if (fetchNearIntentTokensPromise) {
+    return fetchNearIntentTokensPromise;
+  }
+
+  fetchNearIntentTokensPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/v0/tokens`, {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch tokens: ${response.statusText}`);
+      }
+      const data = await response.json();
+      cachedNearIntentTokens = data;
+      lastNearIntentTokensFetch = Date.now();
+      return data;
+    } finally {
+      fetchNearIntentTokensPromise = null;
+    }
+  })();
+
+  return fetchNearIntentTokensPromise;
 };
 
 export const getNearIntentQuote = async (

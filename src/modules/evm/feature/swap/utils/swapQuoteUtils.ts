@@ -1,7 +1,13 @@
 import { ethers } from 'ethers';
-import { isStellar } from './swapAssetUtils';
+
+import type {
+  ButtonLabelParams,
+  BuyAmountParams,
+  ErrorParams,
+  MinReceivedParams,
+} from '../types/swap.types';
 import { toPlainString } from './swapAmountUtils';
-import type { BuyAmountParams, MinReceivedParams, ButtonLabelParams, ErrorParams } from '../types/swap.types';
+import { isStellar } from './swapAssetUtils';
 
 export function getCalculatedBuyAmount(params: BuyAmountParams): string {
   const {
@@ -43,9 +49,12 @@ export function getCalculatedBuyAmount(params: BuyAmountParams): string {
     const amtRaw = activeQuoteData.toTokenAmount || activeQuoteData.dstTokenAmount || '0';
     try {
       return ethers.formatUnits(amtRaw, decimals);
-    } catch (err) {
+    } catch {
       return '0.00';
     }
+  }
+  if (activeQuoteSource === 'near_intent' && activeQuoteData) {
+    return activeQuoteData.amountOutFormatted || activeQuoteData.amountOut || '0.00';
   }
   if (swapQuote) return swapQuote.outputAmount || '0.00';
 
@@ -79,6 +88,16 @@ export function getMinimumReceived(params: MinReceivedParams): string {
         }
       }
     }
+    if (activeQuoteSource === 'near_intent' && activeQuoteData) {
+      if (activeQuoteData.minAmountOut) {
+        try {
+          return ethers.formatUnits(activeQuoteData.minAmountOut, selectedBuyAsset?.decimals || 18);
+        } catch {
+          return '0.00';
+        }
+      }
+      return '0.00';
+    }
     if (activeQuoteSource === 'bridge') {
       const grossAmount = parseFloat(activeQuoteData?.minimumAmountOut || '0');
       if (feePayType === 'stablecoin' && activeQuoteData?.fee?.stablecoin) {
@@ -89,7 +108,8 @@ export function getMinimumReceived(params: MinReceivedParams): string {
     }
   }
 
-  if (isStellar(fromChainId) && activeQuoteSource === 'stellar') return activeQuoteData?.minimumOutput || '0.00';
+  if (isStellar(fromChainId) && activeQuoteSource === 'stellar')
+    return activeQuoteData?.minimumOutput || '0.00';
 
   if (swapQuote?.minimumReceived) return swapQuote.minimumReceived;
   if (!swapQuote?.outputAmount || !selectedBuyAsset) return '0.00';
@@ -100,7 +120,7 @@ export function getMinimumReceived(params: MinReceivedParams): string {
     const slippageBips = BigInt(Math.floor(userSlippageTolerance * 100));
     const minReceivedBN = (amountBN * (10000n - slippageBips)) / 10000n;
     return ethers.formatUnits(minReceivedBN, decimals);
-  } catch (err) {
+  } catch {
     return calculatedBuyAmount;
   }
 }
@@ -129,7 +149,8 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     nativeSymbol,
   } = params;
 
-  if (isFetchingSwapAssets || isQuoteLoading || isFetchingStellarAssets) return 'FETCHING QUOTES...';
+  if (isFetchingSwapAssets || isQuoteLoading || isFetchingStellarAssets)
+    return 'FETCHING QUOTES...';
   if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
   if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
 
@@ -140,7 +161,12 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     return `INSUFFICIENT ${nativeSymbol} FOR GAS`;
   }
 
-  if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
+  if (
+    isStellar(toChainId) &&
+    selectedBuyAsset &&
+    !selectedBuyAsset.isNative &&
+    !selectedBuyAsset.hasTrustline
+  ) {
     return 'ADD TRUSTLINE & SWAP';
   }
 
@@ -169,7 +195,8 @@ export function getErrorMessage(params: ErrorParams): string | null {
     nativeSymbol,
   } = params;
 
-  if (bridgeTxStatus === 'error' || bridgeErrorMsg) return bridgeErrorMsg || 'Transaction failed. Please try again.';
+  if (bridgeTxStatus === 'error' || bridgeErrorMsg)
+    return bridgeErrorMsg || 'Transaction failed. Please try again.';
   if (swapError) return swapError;
   if (activeQuoteError) return activeQuoteError;
   if (isInsufficientBalance) return 'Insufficient balance for this transaction';

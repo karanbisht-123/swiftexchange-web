@@ -29,6 +29,7 @@ import { switchOrAddChain } from '../../../utils/evmChainUtils';
 import { STELLAR_CHAIN_ID } from '../constants/swap.constants';
 // Extracted hooks
 import { useEvmSwap } from '../hooks/useEvmSwap';
+import { useNearIntentCrossChain } from '../hooks/useNearIntentCrossChain';
 import { useSwapAssetDefaults } from '../hooks/useSwapAssetDefaults';
 import { useSwapExecution } from '../hooks/useSwapExecution';
 import { useSwapQuote } from '../hooks/useSwapQuote';
@@ -245,7 +246,30 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     bridgeTxStatus,
     swapQuoteLoading,
     isSameAssetSelected,
+    evmAddress,
+    stellarAddress,
   });
+
+  const { executeDeposit: executeNearIntentDeposit } = useNearIntentCrossChain({
+    evmAddress,
+    stellarAddress,
+    getProvider,
+  });
+
+  const toggleRoute = useCallback(() => {
+    setActiveQuote(prev => {
+      if (!prev.alternativeQuote) return prev;
+      return {
+        ...prev,
+        source: prev.alternativeQuote.source,
+        data: prev.alternativeQuote.data,
+        alternativeQuote: {
+          source: prev.source,
+          data: prev.data,
+        },
+      };
+    });
+  }, [setActiveQuote]);
 
   const resetQuotes = useCallback(() => {
     resetSwap();
@@ -309,6 +333,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     resetSwap,
     resetInputs,
     setSellAmount,
+    executeNearIntentDeposit,
   });
 
   const {
@@ -663,7 +688,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         const toSupported =
           toCfg?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
 
-        if (!fromSupported.includes(sellAssetSymbol.toUpperCase())) {
+        if (isStellar(finalFromId) && !fromSupported.includes(sellAssetSymbol.toUpperCase())) {
           const fallback = fromSupported.includes('USDC')
             ? 'USDC'
             : fromSupported.includes('XLM')
@@ -675,7 +700,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }
         }
 
-        if (!toSupported.includes(buyAssetSymbol.toUpperCase())) {
+        if (isStellar(finalToId) && !toSupported.includes(buyAssetSymbol.toUpperCase())) {
           const fallback = toSupported.includes('USDC')
             ? 'USDC'
             : toSupported.includes('XLM')
@@ -1155,12 +1180,46 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 </div>
               </div>
 
+              {/* Old Route Selector removed */}
+
               {/* Details Section Inside Receive Card */}
               <div
-                className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && (swapQuote || (activeQuote.source === 'stellar' && activeQuote.data))) || (actionType === 'BRIDGE' && !!activeQuote.data) ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}
+                className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && (swapQuote || (activeQuote.source === 'stellar' && activeQuote.data))) || (actionType === 'BRIDGE' && !!activeQuote.data) ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}
               >
                 <div className="overflow-hidden">
                   <div className="pt-5 sm:pt-6 border-t border-dotted border-white/10 space-y-1">
+                    {/* Better Quote Banner */}
+                    {activeQuote.alternativeQuote && (
+                      <div className="flex items-center justify-between py-3 border-b border-white/5">
+                        <div className="flex flex-col">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-[#00E08B]">
+                            Best Rate Available
+                          </span>
+                          <span className="text-[10px] text-muted mt-0.5 font-medium">
+                            Route via NEAR Intents
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={toggleRoute}
+                          className={`relative inline-flex h-[22px] w-[42px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            activeQuote.source === 'near_intent' ? 'bg-[#00E08B]' : 'bg-white/10'
+                          }`}
+                          role="switch"
+                          aria-checked={activeQuote.source === 'near_intent'}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`pointer-events-none inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              activeQuote.source === 'near_intent'
+                                ? 'translate-x-5'
+                                : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    )}
+
                     {/* Provider row */}
                     {(swapQuote?.provider || activeQuote.data?.provider || activeQuote.source) && (
                       <div className="flex items-center justify-between py-2 border-b border-white/5">
@@ -1178,6 +1237,26 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                             />
                           )}
 
+                          {/* NEAR Intents */}
+                          {activeQuote.source === 'near_intent' && (
+                            <div className="w-4 h-4 rounded-full bg-white flex items-center justify-center p-0.5">
+                              <img
+                                src="https://cryptologos.cc/logos/near-protocol-near-logo.png"
+                                className="w-full h-full object-contain"
+                                alt="NEAR"
+                              />
+                            </div>
+                          )}
+
+                          {/* Allbridge */}
+                          {activeQuote.source === 'bridge' && (
+                            <img
+                              src="/allbrg.png"
+                              className="w-4 h-4 rounded-full bg-white object-contain"
+                              alt="Allbridge"
+                            />
+                          )}
+
                           {/* Uniswap */}
                           {(swapQuote?.provider === 'UNISWAP' ||
                             activeQuote.data?.provider === 'UNISWAP') && (
@@ -1191,10 +1270,14 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           <span className="text-[11px] font-black text-brand uppercase tracking-wider">
                             {activeQuote.source === 'fusion_plus'
                               ? '1inch Fusion+'
-                              : swapQuote?.provider ||
-                                activeQuote.data?.provider ||
-                                activeQuote.source?.toUpperCase() ||
-                                'UNISWAP'}
+                              : activeQuote.source === 'near_intent'
+                                ? 'NEAR Intents'
+                                : activeQuote.source === 'bridge'
+                                  ? 'Allbridge'
+                                  : swapQuote?.provider ||
+                                    activeQuote.data?.provider ||
+                                    activeQuote.source?.toUpperCase() ||
+                                    'UNISWAP'}
                           </span>
                         </div>
                       </div>
@@ -1442,6 +1525,35 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                               </>
                             );
                           })()}
+
+                        {activeQuote.source === 'near_intent' && activeQuote.data && (
+                          <>
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">
+                                Est. Time
+                              </span>
+                              <span className="text-[11px] font-black text-primary">
+                                ~{Math.max(1, Math.round(activeQuote.data.timeEstimate / 60))} min
+                              </span>
+                            </div>
+                            {activeQuote.data.withdrawFee && (
+                              <div className="flex items-center justify-between py-2 border-b border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">
+                                  Withdraw Fee
+                                </span>
+                                <span className="text-[11px] font-black text-primary">
+                                  {parseFloat(
+                                    ethers.formatUnits(
+                                      activeQuote.data.withdrawFee || '0',
+                                      selectedBuyAsset?.decimals || 18
+                                    )
+                                  ).toFixed(4)}{' '}
+                                  {buyAssetSymbol}
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        )}
 
                         {activeQuote.source === 'bridge' && activeQuote.data && (
                           <>

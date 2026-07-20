@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ChainSymbol } from '@allbridge/bridge-core-sdk';
+import { ethers } from 'ethers';
 
 import { getChainById } from '../../../utils/Chainregistry';
+import { getEvmChainId } from '../hooks/useNearIntentCrossChain';
+import {
+  fetchNearIntentTokens,
+  getNearIntentQuote,
+  isStellarBlockchain,
+} from '../services/oneClickApi';
 import type { ActiveQuote } from '../types/swap.types';
 import { isStellar } from '../utils/swapAssetUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
@@ -41,6 +48,8 @@ export interface UseSwapQuoteParams {
   bridgeTxStatus: string;
   swapQuoteLoading: boolean;
   isSameAssetSelected: boolean;
+  evmAddress?: string;
+  stellarAddress?: string;
 }
 
 export function useSwapQuote(params: UseSwapQuoteParams) {
@@ -72,6 +81,8 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     bridgeTxStatus,
     swapQuoteLoading,
     isSameAssetSelected,
+    evmAddress,
+    stellarAddress,
   } = params;
 
   const [activeQuote, setActiveQuote] = useState<ActiveQuote>({
@@ -125,7 +136,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
           });
 
           if (requestId !== latestRequestId.current) return;
-          console.log(sq, '=================');
+
           setActiveQuote({ source: 'stellar', data: sq, error: null, loading: false });
         } catch (err) {
           if (requestId !== latestRequestId.current) return;
@@ -185,9 +196,75 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     } else {
       if (!selectedSellAsset || !selectedBuyAsset) return;
 
-      if (isStellar(fromChainId)) {
-        setActiveQuote({ source: 'bridge', data: null, error: null, loading: true });
+      const createNearIntentPromise = async () => {
         try {
+          const nearTokens = await fetchNearIntentTokens();
+          const findNearToken = (symbol: string, cId: number | string) => {
+            if (!symbol) return undefined;
+            return nearTokens.find(t => {
+              if (t.symbol.toUpperCase() !== symbol.toUpperCase()) return false;
+              const tChainId = isStellarBlockchain(t.blockchain) ? 'stellar' : getEvmChainId(t);
+              return String(tChainId) === String(isStellar(cId) ? 'stellar' : cId);
+            });
+          };
+
+          const nearSellAsset = findNearToken(sellAssetSymbol, fromChainId);
+          const nearBuyAsset = findNearToken(buyAssetSymbol, toChainId);
+
+          if (nearSellAsset && nearBuyAsset) {
+            const isStellarOrigin = isStellarBlockchain(nearSellAsset.blockchain);
+            const isStellarDest = isStellarBlockchain(nearBuyAsset.blockchain);
+            const recipient = isStellarDest ? stellarAddress : evmAddress;
+            const refundTo = isStellarOrigin ? stellarAddress : evmAddress;
+
+            if (recipient && refundTo) {
+              const quotePayload = {
+                dry: false,
+                depositMode: (isStellarOrigin ? 'MEMO' : 'SIMPLE') as 'MEMO' | 'SIMPLE',
+                swapType: 'EXACT_INPUT' as const,
+                slippageTolerance: userSlippageTolerance * 100,
+                originAsset: nearSellAsset.assetId,
+                depositType: 'ORIGIN_CHAIN',
+                destinationAsset: nearBuyAsset.assetId,
+                amount: ethers.parseUnits(sellAmount, nearSellAsset.decimals).toString(),
+                recipient: recipient as string,
+                recipientType: 'DESTINATION_CHAIN' as const,
+                refundTo: refundTo as string,
+                refundType: 'ORIGIN_CHAIN',
+                deadline: new Date(Date.now() + 1200000).toISOString(),
+              };
+
+              return await getNearIntentQuote(quotePayload).then(res => res.quote);
+            }
+          }
+          return { error: 'Pair not supported by NEAR Intents' };
+        } catch (err: any) {
+          console.warn('Failed to setup NEAR intents quote', err);
+          return { error: err.message || 'Intents setup failed' };
+        }
+      };
+
+      const isFromStellar = isStellar(fromChainId);
+      const isToStellar = isStellar(toChainId);
+
+      const fromBridgeSupported = isBridgeSupported(sellAssetSymbol, fromChainId);
+      const toBridgeSupported = isBridgeSupported(buyAssetSymbol, toChainId);
+      const bothBridgeSupported = fromBridgeSupported && toBridgeSupported;
+
+      const usdValue = getUsdValue(sellAmount, selectedSellAsset);
+      const isBelow2Usd = usdValue !== null && usdValue < 2;
+      const shouldUseBridge = isToStellar || (bothBridgeSupported && isBelow2Usd);
+
+      setActiveQuote({
+        source: isFromStellar || shouldUseBridge ? 'bridge' : 'fusion_plus',
+        data: null,
+        error: null,
+        loading: true,
+      });
+      setCrossChainWarning(null);
+
+      try {
+        if (isFromStellar) {
           const tokens = await getSupportedTokens();
           const fromChainSym = ChainSymbol.SRB;
           const toChainSym = toChainConfig?.nativeCurrency.symbol;
@@ -203,15 +280,54 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
               t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase()
           );
 
+          let allbridgePromise: Promise<any>;
           if (src && dst) {
-            const sq = await getStellarBridgeQuote({
+            allbridgePromise = getStellarBridgeQuote({
               amount: sellAmount,
               sourceToken: src,
               destinationToken: dst,
               slippageTolerance: userSlippageTolerance,
-            });
-            if (requestId !== latestRequestId.current) return;
-            if (!sq.feeOptions?.stablecoin) {
+            }).catch(err => ({ error: err.message || 'Bridge quote failed' }));
+          } else {
+            allbridgePromise = Promise.resolve({ error: 'Pair not supported by Allbridge' });
+          }
+
+          const intentsPromise = createNearIntentPromise();
+
+          const [abRes, inRes] = await Promise.allSettled([allbridgePromise, intentsPromise]);
+
+          if (requestId !== latestRequestId.current) return;
+
+          const abQ =
+            abRes.status === 'fulfilled' && !(abRes.value as any)?.error ? abRes.value : null;
+          const inQ =
+            inRes.status === 'fulfilled' && !(inRes.value as any)?.error ? inRes.value : null;
+
+          if (!abQ && !inQ) {
+            throw new Error('Tokens not supported by bridge');
+          }
+
+          let bestSource = 'bridge';
+          let bestData = abQ;
+          let altSource: string | null = null;
+          let altData: any = null;
+
+          if (abQ && inQ) {
+            const abOut = parseFloat((abQ as any).amountToBeReceived || '0');
+            const inOut = parseFloat((inQ as any).amountOutFormatted || '0');
+            if (inOut > abOut) {
+              bestSource = 'bridge';
+              bestData = abQ;
+              altSource = 'near_intent';
+              altData = inQ;
+            }
+          } else if (inQ) {
+            bestSource = 'near_intent';
+            bestData = inQ;
+          }
+
+          if (bestSource === 'bridge') {
+            if (!bestData.feeOptions?.stablecoin) {
               setFeePayType('native');
             }
             setActiveQuote({
@@ -219,80 +335,186 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
               loading: false,
               error: null,
               data: {
-                ...sq,
-                minimumAmountOut: sq.amountToBeReceived,
-                conversionRate: sq.exchangeRate,
-                completionTime: sq.transferTimeMs,
+                ...bestData,
+                minimumAmountOut: bestData.amountToBeReceived,
+                conversionRate: bestData.exchangeRate,
+                completionTime: bestData.transferTimeMs,
                 fee: {
                   native: {
-                    amount: sq.feeOptions.native.float,
+                    amount: bestData.feeOptions.native.float,
                     symbol: fromChainConfig?.nativeCurrency.symbol,
                   },
-                  stablecoin: sq.feeOptions.stablecoin
-                    ? { amount: sq.feeOptions.stablecoin.float, symbol: 'USDC' }
+                  stablecoin: bestData.feeOptions.stablecoin
+                    ? { amount: bestData.feeOptions.stablecoin.float, symbol: 'USDC' }
                     : null,
                 },
               },
+              ...(altSource
+                ? {
+                    alternativeQuote: {
+                      source: altSource,
+                      data: altData,
+                    },
+                  }
+                : {}),
             });
+          } else {
+            setActiveQuote({ source: 'near_intent', data: bestData, error: null, loading: false });
           }
-        } catch (err) {
-          if (requestId !== latestRequestId.current) return;
-          console.error('Bridge quote error:', err);
-          setActiveQuote({
-            source: 'bridge',
-            data: null,
-            error: parseSwapError(err),
-            loading: false,
-          });
-        }
-        return;
-      }
-
-      const fromBridgeSupported = isBridgeSupported(sellAssetSymbol, fromChainId);
-      const toBridgeSupported = isBridgeSupported(buyAssetSymbol, toChainId);
-      const bothBridgeSupported = fromBridgeSupported && toBridgeSupported;
-      const isToStellar = isStellar(toChainId);
-      const usdValue = getUsdValue(sellAmount, selectedSellAsset);
-      const isBelow2Usd = usdValue !== null && usdValue < 2;
-      const shouldUseBridge = isToStellar || (bothBridgeSupported && isBelow2Usd);
-
-      setActiveQuote({
-        source: shouldUseBridge ? 'bridge' : 'fusion_plus',
-        data: null,
-        error: null,
-        loading: true,
-      });
-      setCrossChainWarning(null);
-
-      try {
-        if (shouldUseBridge) {
-          const bdgQ = await getEvmBridgeQuote(
+        } else if (shouldUseBridge) {
+          const bdgPromise = getEvmBridgeQuote(
             fromChainId,
             toChainId,
             sellAmount,
             sellAssetSymbol,
             buyAssetSymbol
-          );
+          )
+            .then(res => {
+              if (
+                !res ||
+                (Array.isArray(res) && res.length === 0) ||
+                (typeof res === 'object' && !res.minimumAmountOut && !res.quotes)
+              ) {
+                throw new Error('Bridge quotes empty');
+              }
+              return res;
+            })
+            .catch(err => ({ error: err.message || 'Bridge quote failed' }));
+
+          const intentsPromise = createNearIntentPromise();
+
+          const [bdgRes, inRes] = await Promise.allSettled([bdgPromise, intentsPromise]);
+
           if (requestId !== latestRequestId.current) return;
-          if (
-            !bdgQ ||
-            (Array.isArray(bdgQ) && bdgQ.length === 0) ||
-            (bdgQ && typeof bdgQ === 'object' && !bdgQ.minimumAmountOut && !bdgQ.quotes)
-          ) {
+
+          const bdgQ =
+            bdgRes.status === 'fulfilled' && !(bdgRes.value as any)?.error ? bdgRes.value : null;
+          const inQ =
+            inRes.status === 'fulfilled' && !(inRes.value as any)?.error ? inRes.value : null;
+
+          if (!bdgQ && !inQ) {
             throw new Error('Bridge quotes empty');
           }
-          if (bdgQ && bdgQ.fee && !bdgQ.fee.stablecoin) {
-            setFeePayType('native');
+
+          let bestSource = 'bridge';
+          let bestData = bdgQ;
+          let altSource: string | null = null;
+          let altData: any = null;
+
+          if (bdgQ && inQ) {
+            const bdgOut = parseFloat(
+              (bdgQ as any).minimumAmountOut || (bdgQ as any).quotes?.[0]?.amountToBeReceived || '0'
+            );
+            const inOut = parseFloat((inQ as any).amountOutFormatted || '0');
+            if (inOut > bdgOut) {
+              bestSource = 'bridge';
+              bestData = bdgQ;
+              altSource = 'near_intent';
+              altData = inQ;
+            }
+          } else if (inQ) {
+            bestSource = 'near_intent';
+            bestData = inQ;
           }
-          setActiveQuote({ source: 'bridge', data: bdgQ, error: null, loading: false });
+
+          if (bestSource === 'bridge') {
+            if (bestData.fee && !bestData.fee.stablecoin) {
+              setFeePayType('native');
+            }
+            setActiveQuote({
+              source: 'bridge',
+              data: bestData,
+              error: null,
+              loading: false,
+              ...(altSource
+                ? {
+                    alternativeQuote: {
+                      source: altSource,
+                      data: altData,
+                    },
+                  }
+                : {}),
+            });
+          } else {
+            setActiveQuote({ source: 'near_intent', data: bestData, error: null, loading: false });
+          }
         } else {
-          const fq = await fetchFusionQuote(
+          // Fetch Fusion and NEAR Intents in parallel for EVM to EVM
+          const fusionPromise = fetchFusionQuote(
             selectedSellAsset as any,
             selectedBuyAsset as any,
             sellAmount
-          );
+          ).catch((err: any) => {
+            if (
+              err?.message === 'Quote request cancelled' ||
+              err?.message === 'Quote request superseded'
+            ) {
+              throw err;
+            }
+            return { error: err.message || 'Fusion quote failed' };
+          });
+
+          const intentsPromise = createNearIntentPromise();
+
+          const [fusionResult, intentsResult] = await Promise.allSettled([
+            fusionPromise,
+            intentsPromise,
+          ]);
+
           if (requestId !== latestRequestId.current) return;
-          setActiveQuote({ source: 'fusion_plus', data: fq, error: null, loading: false });
+
+          const fusionQuote =
+            fusionResult.status === 'fulfilled' && !(fusionResult.value as any)?.error
+              ? fusionResult.value
+              : null;
+          const intentsQuote =
+            intentsResult.status === 'fulfilled' && !(intentsResult.value as any)?.error
+              ? intentsResult.value
+              : null;
+
+          if (!fusionQuote && !intentsQuote) {
+            throw new Error('Pair not supported by available routes.');
+          }
+
+          if (fusionQuote && intentsQuote) {
+            const fusionOut =
+              parseFloat((fusionQuote as any).dstTokenAmount || '0') /
+              10 ** (selectedBuyAsset as any).decimals;
+            const intentsOut = parseFloat((intentsQuote as any).amountOutFormatted || '0');
+            if (intentsOut > fusionOut) {
+              setActiveQuote({
+                source: 'fusion_plus',
+                data: fusionQuote,
+                error: null,
+                loading: false,
+                alternativeQuote: {
+                  source: 'near_intent',
+                  data: intentsQuote,
+                },
+              });
+            } else {
+              setActiveQuote({
+                source: 'fusion_plus',
+                data: fusionQuote,
+                error: null,
+                loading: false,
+              });
+            }
+          } else if (fusionQuote) {
+            setActiveQuote({
+              source: 'fusion_plus',
+              data: fusionQuote,
+              error: null,
+              loading: false,
+            });
+          } else if (intentsQuote) {
+            setActiveQuote({
+              source: 'near_intent',
+              data: intentsQuote,
+              error: null,
+              loading: false,
+            });
+          }
         }
       } catch (err: any) {
         if (requestId !== latestRequestId.current) return;
@@ -304,7 +526,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
         console.error('Cross-chain quote error:', err);
         setCrossChainWarning(parseSwapError(err));
         setActiveQuote({
-          source: shouldUseBridge ? 'bridge' : 'fusion_plus',
+          source: shouldUseBridge || isFromStellar ? 'bridge' : null,
           data: null,
           error: parseSwapError(err),
           loading: false,
