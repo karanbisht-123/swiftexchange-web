@@ -35,7 +35,6 @@ const Topbar: React.FC = () => {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     const cb = (e: MouseEvent) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
@@ -75,12 +74,12 @@ const Topbar: React.FC = () => {
   }, [disconnectAll, navigate]);
 
   return (
-    <header className="sticky top-0 z-50 h-[60px] bg-(--color-bg-secondary)/95 backdrop-blur-md flex items-center justify-between px-2">
-      <div className="flex items-center gap-2 px-1 select-none h-full">
+    <header className="sticky top-0 z-50 h-[60px] mb-1 w-full max-w-full bg-(--color-bg-secondary)/95 backdrop-blur-md flex items-center justify-between px-2 sm:px-4 overflow-x-clip">
+      <div className="flex items-center gap-1.5 sm:gap-2 select-none h-full min-w-0 shrink">
         <button
           id="hamburger-btn"
           onClick={() => window.dispatchEvent(new CustomEvent('sidebar:toggle'))}
-          className="lg:hidden p-2 rounded-xl text-(--color-text-secondary) hover:text-(--color-text-primary) hover:bg-(--color-bg-tertiary) transition-colors mr-1 cursor-pointer"
+          className="lg:hidden p-1.5 sm:p-2 rounded-xl text-(--color-text-secondary) hover:text-(--color-text-primary) hover:bg-(--color-bg-tertiary) transition-colors shrink-0 cursor-pointer"
         >
           <Menu size={20} />
         </button>
@@ -95,7 +94,7 @@ const Topbar: React.FC = () => {
                   onClick={() => handleTabClick(tab.key)}
                   className={`relative flex items-center h-full px-2 transition-colors duration-150 font-medium text-sm ${
                     isActive
-                      ? 'text-white'
+                      ? 'text-primary'
                       : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                   }`}
                 >
@@ -110,10 +109,13 @@ const Topbar: React.FC = () => {
         )}
 
         {isDydxTradeView && hasDydx && (
-          <div className="relative ml-2 lg:ml-4 flex items-center" ref={moreMenuRef}>
+          <div
+            className="relative ml-1 sm:ml-2 lg:ml-4 flex items-center shrink-0"
+            ref={moreMenuRef}
+          >
             <button
               onClick={() => setIsMoreOpen(!isMoreOpen)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all duration-150 font-medium text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] ${
+              className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-md transition-all duration-150 font-medium text-xs sm:text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] ${
                 isMoreOpen ? 'bg-[var(--color-bg-tertiary)]' : ''
               }`}
             >
@@ -150,10 +152,10 @@ const Topbar: React.FC = () => {
         )}
       </div>
 
-      <div className="flex items-center gap-2 lg:gap-4">
+      <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-4 shrink-0 min-w-0">
         <NetworkSwitch />
         {isAnyWalletConnected ? (
-          <div className="flex items-center gap-1.5 lg:gap-2">
+          <div className="flex items-center gap-1 sm:gap-1.5 lg:gap-2">
             <ConnectWalletButton />
             <button
               onClick={handleDisconnectAll}
@@ -171,11 +173,11 @@ const Topbar: React.FC = () => {
         {isAnyWalletConnected && (
           <button
             onClick={() => setGlobalPanelOpen(true)}
-            className="relative rounded-full p-2 text-(--color-text-secondary) hover:bg-(--color-bg-tertiary) hover:text-(--color-text-primary) transition-colors cursor-pointer"
+            className="relative rounded-full p-1.5 sm:p-2 text-(--color-text-secondary) hover:bg-(--color-bg-tertiary) hover:text-(--color-text-primary) transition-colors cursor-pointer shrink-0"
           >
-            <Bell size={20} />
+            <Bell size={18} className="sm:w-5 sm:h-5" />
             {unreadCount > 0 && (
-              <span className="absolute right-1.5 top-1.5 flex h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
+              <span className="absolute right-1 top-1 flex h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
               </span>
             )}

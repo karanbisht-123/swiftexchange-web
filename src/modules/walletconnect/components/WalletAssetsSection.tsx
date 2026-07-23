@@ -590,7 +590,7 @@ const WalletAssetsSection = () => {
       setSelectedAsset(asset);
       setIsDepositModalOpen(true);
     },
-    [navigate, ROUTES.BRIDGE, ROUTES.TRADING_DYDX_FUTURES]
+    [navigate, ROUTES.TRADING_DYDX_FUTURES]
   );
 
   const handleCloseDepositModal = useCallback(() => {

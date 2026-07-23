@@ -170,10 +170,11 @@ export interface FusionOrder {
 }
 
 export interface ActiveQuote {
-  source: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+  source: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | 'near_intent' | null;
   data: any;
   error: string | null;
   loading: boolean;
+  alternativeQuote?: any;
 }
 
 export interface EvmGasCheckParams {
@@ -183,7 +184,7 @@ export interface EvmGasCheckParams {
   sellAmount: string;
   actionType: 'SWAP' | 'BRIDGE';
   feePayType: 'native' | 'stablecoin';
-  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | 'near_intent' | null;
   activeQuoteData: any;
   swapQuoteNetworkFee: number | undefined;
   isGasless: boolean;
@@ -205,7 +206,7 @@ export interface BuyAmountParams {
   fusionQuote: any;
   showFusionScreen: boolean;
   selectedBuyAsset: any;
-  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | 'near_intent' | null;
   activeQuoteData: any;
   swapQuote: any;
   isSameAssetSelected: boolean;
@@ -214,7 +215,7 @@ export interface BuyAmountParams {
 
 export interface MinReceivedParams {
   actionType: 'SWAP' | 'BRIDGE';
-  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | 'near_intent' | null;
   activeQuoteData: any;
   feePayType: 'native' | 'stablecoin';
   fromChainId: number | string;

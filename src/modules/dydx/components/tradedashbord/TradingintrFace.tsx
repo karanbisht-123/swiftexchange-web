@@ -389,131 +389,123 @@ const MobileLayout = () => {
       <div className="max-w-[100vw] shrink-0">
         <MarketSwitcher />
       </div>
-      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-secondary flex flex-col">
-        <div className="relative h-[400px] sm:h-[500px] shrink-0">
-          {activeTab === 'price' && (
-            <div className="h-full">
-              <TradingChart />
-            </div>
-          )}
-          {activeTab === 'depth' && (
-            <div className="h-full">
-              <Suspense fallback={<TradingChartSkeleton />}>
-                <DepthChart />
-              </Suspense>
-            </div>
-          )}
-          {activeTab === 'funding' && (
-            <div className="h-full">
-              <Suspense fallback={<TradingChartSkeleton />}>
-                <FundingChart market={selectedMarket} />
-              </Suspense>
-            </div>
-          )}
-          {activeTab === 'orderbook' && (
-            <div className="h-full overflow-hidden">
-              <OrderAndTrades />
-            </div>
-          )}
-          {activeTab === 'trade' && (
-            <div className="h-full overflow-hidden flex relative">
-              <div
-                className={`transition-all duration-300 ease-in-out border-r border-color overflow-hidden flex flex-col ${
-                  tradeView === 'split' ? 'w-1/2' : tradeView === 'orderbook' ? 'w-full' : 'w-0'
-                }`}
-              >
-                <div className="flex-1 relative overflow-hidden group">
-                  <Orderbook />
-                  {tradeView === 'split' ? (
-                    <button
-                      onClick={() => setTradeView('orderbook')}
-                      className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                      title="Expand Orderbook"
-                    >
-                      <Maximize2 className="w-3.5 h-3.5" />
-                    </button>
-                  ) : tradeView === 'orderbook' ? (
-                    <button
-                      onClick={() => setTradeView('split')}
-                      className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                      title="Split View"
-                    >
-                      <Minimize2 className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <div
-                className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
-                  tradeView === 'split' ? 'w-1/2' : tradeView === 'form' ? 'w-full' : 'w-0'
-                }`}
-              >
-                <div className="flex-1 relative overflow-hidden group">
-                  <DydxTradingForm />
-                  {tradeView === 'split' ? (
-                    <button
-                      onClick={() => setTradeView('form')}
-                      className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                      title="Expand Form"
-                    >
-                      <Maximize2 className="w-3.5 h-3.5" />
-                    </button>
-                  ) : tradeView === 'form' ? (
-                    <button
-                      onClick={() => setTradeView('split')}
-                      className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-50 text-muted hover:text-primary transition-colors"
-                      title="Split View"
-                    >
-                      <Minimize2 className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null}
-                </div>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-secondary flex flex-col relative">
+        {activeTab === 'price' && (
+          <div className="h-[350px] shrink-0 w-full">
+            <TradingChart />
+          </div>
+        )}
+        {activeTab === 'depth' && (
+          <div className="h-[350px] shrink-0 w-full">
+            <Suspense fallback={<TradingChartSkeleton />}>
+              <DepthChart />
+            </Suspense>
+          </div>
+        )}
+        {activeTab === 'funding' && (
+          <div className="h-[350px] shrink-0 w-full">
+            <Suspense fallback={<TradingChartSkeleton />}>
+              <FundingChart market={selectedMarket} />
+            </Suspense>
+          </div>
+        )}
+        {activeTab === 'orderbook' && (
+          <div className="flex-1 w-full min-h-[400px]">
+            <OrderAndTrades />
+          </div>
+        )}
+        {activeTab === 'trade' && (
+          <div className="flex-1 w-full min-h-[400px] flex relative">
+            <div
+              className={`transition-all duration-300 ease-in-out border-r border-color overflow-hidden flex flex-col ${
+                tradeView === 'split' ? 'w-1/2' : tradeView === 'orderbook' ? 'w-full' : 'w-0'
+              }`}
+            >
+              <div className="flex-1 relative overflow-hidden group">
+                <Orderbook />
+                {tradeView === 'split' ? (
+                  <button
+                    onClick={() => setTradeView('orderbook')}
+                    className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-40 text-muted hover:text-primary transition-colors"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                ) : tradeView === 'orderbook' ? (
+                  <button
+                    onClick={() => setTradeView('split')}
+                    className="absolute top-1 right-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-40 text-muted hover:text-primary transition-colors"
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" />
+                  </button>
+                ) : null}
               </div>
             </div>
-          )}
-          {activeTab === 'portfolio' && (
-            <div className="w-full">
-              <Suspense fallback={<TablePanelSkeleton />}>
-                <MobilePortfolio />
-              </Suspense>
+            <div
+              className={`transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
+                tradeView === 'split' ? 'w-1/2' : tradeView === 'form' ? 'w-full' : 'w-0'
+              }`}
+            >
+              <div className="flex-1 relative overflow-hidden group">
+                <DydxTradingForm />
+                {tradeView === 'split' ? (
+                  <button
+                    onClick={() => setTradeView('form')}
+                    className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-40 text-muted hover:text-primary transition-colors"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                ) : tradeView === 'form' ? (
+                  <button
+                    onClick={() => setTradeView('split')}
+                    className="absolute top-1 left-1 p-1 bg-secondary/90 backdrop-blur rounded shadow-sm border border-color z-40 text-muted hover:text-primary transition-colors"
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" />
+                  </button>
+                ) : null}
+              </div>
             </div>
-          )}
+          </div>
+        )}
+        {activeTab === 'portfolio' && (
+          <div className="w-full flex-1">
+            <Suspense fallback={<TablePanelSkeleton />}>
+              <MobilePortfolio />
+            </Suspense>
+          </div>
+        )}
 
-          {/* Render MobilePositionsTabs at the bottom of all tabs except portfolio */}
-          {activeTab !== 'portfolio' && (
-            <div className="shrink-0 w-full flex flex-col border-t-8 border-[var(--color-bg-primary)]">
-              <Suspense fallback={<TablePanelSkeleton />}>
-                <MobilePositionsTabs simplified />
-              </Suspense>
-            </div>
-          )}
-          {activeTab !== 'portfolio' && marketData && (
-            <div className="mt-4">
-              <MarketStats marketData={marketData} />
-            </div>
-          )}
-          {/* Universal padding to ensure content isn't hidden behind the fixed bottom nav bar */}
-          <div className="h-[80px] shrink-0 w-full" />
-        </div>
+        {/* Render MobilePositionsTabs at the bottom of all tabs except portfolio */}
+        {activeTab !== 'portfolio' && (
+          <div className="shrink-0 w-full flex flex-col border-t-8 border-[var(--color-bg-primary)]">
+            <Suspense fallback={<TablePanelSkeleton />}>
+              <MobilePositionsTabs simplified />
+            </Suspense>
+          </div>
+        )}
+        {activeTab !== 'portfolio' && marketData && (
+          <div className="mt-4 pb-4">
+            <MarketStats marketData={marketData} />
+          </div>
+        )}
+      </div>
 
-        <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around px-2 py-2 pb-4 bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)] shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
-          {tabs.map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center justify-center gap-1 min-w-[56px] transition-all ${
-                  isActive ? 'text-[var(--color-brand-primary)]' : 'text-muted hover:text-primary'
-                }`}
-              >
-                <Icon className="w-5 h-5 shrink-0" />
-                <span className="text-[10px] font-medium whitespace-nowrap">{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
+      <div className="shrink-0 z-40 flex items-center justify-around px-2 py-2 pb-4 bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)] shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex flex-col items-center justify-center gap-1 min-w-[56px] transition-all ${
+                isActive ? 'text-[var(--color-brand-primary)]' : 'text-muted hover:text-primary'
+              }`}
+            >
+              <Icon className="w-5 h-5 shrink-0" />
+              <span className="text-[10px] font-medium whitespace-nowrap">{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

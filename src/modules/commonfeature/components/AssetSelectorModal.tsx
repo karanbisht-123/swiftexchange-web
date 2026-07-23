@@ -4,6 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { FixedSizeList } from 'react-window';
 
+import { getEvmChainId } from '../../evm/feature/swap/hooks/useNearIntentCrossChain';
+import {
+  type NearIntentToken,
+  fetchNearIntentTokens,
+} from '../../evm/feature/swap/services/oneClickApi';
 import { getTokensForChain } from '../../evm/service/tokenListService';
 import { CHAIN_REGISTRY, getChainById } from '../../evm/utils/Chainregistry';
 import { getDydxConfig, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
@@ -54,6 +59,11 @@ const AssetSelectorModal: FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [registryVersion, setRegistryVersion] = useState(0);
+  const [nearTokens, setNearTokens] = useState<NearIntentToken[]>([]);
+
+  useEffect(() => {
+    fetchNearIntentTokens().then(setNearTokens).catch(console.error);
+  }, []);
 
   useEffect(() => {
     const handleUpdate = () => setRegistryVersion(v => v + 1);
@@ -178,13 +188,22 @@ const AssetSelectorModal: FC = () => {
         }
       }
     } else if (effectiveActionType === 'SWAP' || effectiveActionType === 'BRIDGE') {
+      const allPossibleChains = [
+        ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
+        ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
+        ...(isDydxConnected ? [DYDX_CHAIN_ID] : []),
+      ];
+
       const targetChains =
         selectedNetwork === 'all'
-          ? [
-              ...(isEvmConnected ? CHAIN_REGISTRY.map(c => c.chainId) : []),
-              ...(isStellarConnected ? [STELLAR_CHAIN_ID] : []),
-              ...(isDydxConnected ? [DYDX_CHAIN_ID] : []),
-            ]
+          ? Array.from(new Set(allPossibleChains)).filter(chainId => {
+              const chainConfig = getChainById(chainId);
+              if (!chainConfig) return false;
+              if (effectiveActionType === 'SWAP')
+                return chainConfig.swapEnabled || (chainConfig as any).swapEnable;
+              if (effectiveActionType === 'BRIDGE') return chainConfig.bridgeEnable;
+              return true;
+            })
           : [selectedNetwork];
 
       targetChains.forEach(activeChainId => {
@@ -197,12 +216,26 @@ const AssetSelectorModal: FC = () => {
         if (effectiveActionType === 'BRIDGE') {
           const isStellarInvolved =
             activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
+
           if (isStellarInvolved && !showAllStellarAssets) {
             const chainConfig = getChainById(activeChainId);
-            const supportedSymbols =
+            const allbridgeSupportedSymbols =
               chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
+
+            // Get tokens supported by NEAR Intents for this chain
+            const intentsSupportedSymbols = nearTokens
+              .filter(nt => {
+                const tChainId = activeChainId === STELLAR_CHAIN_ID ? 'stellar' : getEvmChainId(nt);
+                return String(tChainId) === String(activeChainId);
+              })
+              .map(nt => nt.symbol.toUpperCase());
+
+            const combinedSupportedSymbols = Array.from(
+              new Set([...allbridgeSupportedSymbols, ...intentsSupportedSymbols])
+            );
+
             validTokens = registryTokens.filter(t =>
-              supportedSymbols.includes(t.symbol.toUpperCase())
+              combinedSupportedSymbols.includes(t.symbol.toUpperCase())
             );
           }
         }
@@ -254,8 +287,9 @@ const AssetSelectorModal: FC = () => {
       result = result.filter(
         a =>
           a.symbol.toLowerCase().includes(q) ||
-          a.name?.toLowerCase().includes(q) ||
-          (a.address && a.address.toLowerCase().includes(q))
+          (a.name && a.name.toLowerCase().includes(q)) ||
+          (a.address && q.length > 5 && a.address.toLowerCase().includes(q)) ||
+          (a.address && a.address.toLowerCase() === q)
       );
     }
 
@@ -272,6 +306,7 @@ const AssetSelectorModal: FC = () => {
     isStellarConnected,
     isEvmConnected,
     registryVersion,
+    nearTokens,
   ]);
 
   const handleSelect = useCallback(

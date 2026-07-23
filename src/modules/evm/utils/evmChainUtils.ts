@@ -40,8 +40,8 @@ export async function switchOrAddChain(provider: any, chainId: number | string):
       } catch (addError: any) {
         throw new Error(`Failed to add network: ${addError.message}`);
       }
-    } else if (error.code !== 4001) {
-      throw new Error(`Failed to switch network: ${error.message}`);
+    } else {
+      throw error;
     }
   }
 }

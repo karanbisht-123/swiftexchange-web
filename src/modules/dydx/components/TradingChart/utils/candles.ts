@@ -19,7 +19,7 @@ export function isValidCandle(c: {
 }
 
 export function normalizeCandles(raw: any[]): CandleBar[] {
-  return raw
+  const mapped = raw
     .map(c => ({
       time: c.startedAtTime
         ? Math.floor(c.startedAtTime / 1000)
@@ -32,6 +32,19 @@ export function normalizeCandles(raw: any[]): CandleBar[] {
     }))
     .filter(isValidCandle)
     .sort((a, b) => a.time - b.time);
+
+  if (mapped.length === 0) return [];
+
+  const unique: CandleBar[] = [];
+  let lastTime = -1;
+  for (const c of mapped) {
+    if (c.time > lastTime) {
+      unique.push(c);
+      lastTime = c.time;
+    }
+  }
+
+  return unique;
 }
 
 export function getPlot(result: any, ...keys: string[]): { time: number; value: number }[] {

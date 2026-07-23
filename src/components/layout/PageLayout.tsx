@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import React from 'react';
 
-import InfoBanner from '../common/InfoBanner';
+// import InfoBanner from '../common/InfoBanner';
 
 interface PageLayoutProps {
   title: string;
@@ -29,8 +29,8 @@ const PageLayout: React.FC<PageLayoutProps> = ({
   hasFooter = false,
   footerContent,
   headerActions,
-  isBeta = false,
-  betaMessage = 'This feature is currently in Beta. You may experience occasional issues as we continue improving it.',
+  // isBeta = false,
+  // betaMessage = 'This feature is currently in Beta. You may experience occasional issues as we continue improving it.',
 }) => {
   const maxWidthClasses = {
     sm: 'max-w-md',
@@ -73,9 +73,11 @@ const PageLayout: React.FC<PageLayoutProps> = ({
           </div>
         </div>
 
-        {isBeta && <InfoBanner variant="warning" label="Beta:" message={betaMessage} />}
+        {/* {isBeta && <InfoBanner variant="warning" label="Beta:" message={betaMessage} />} */}
 
-        <div className="flex-1 overflow-y-auto scrollbar-thin p-3 md:p-6">{children}</div>
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-3 md:p-6 max-w-[100vw]">
+          {children}
+        </div>
         {hasFooter && footerContent && (
           <div className="shrink-0 p-3 md:p-4 border-t border-color">{footerContent}</div>
         )}

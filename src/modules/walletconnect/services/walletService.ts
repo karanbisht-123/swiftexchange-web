@@ -345,6 +345,12 @@ class WalletService {
         projectId: WALLETCONNECT_PROJECT_ID,
         chains: [...evmChains, stellarChain],
         themeMode: 'dark',
+        explorerRecommendedWalletIds: [
+          'a4604022bf9199ca6d762c5663d8a6186a9ca4b607b9dcb29bcb81054d6f1091', // SwiftEx Wallet
+          '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0', // Trust Wallet
+          'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96', // MetaMask
+          'a797aa35c0fadbfc1a53e7f675162ed5226968b44a19ee3d24385c64d1d3c393', // Phantom
+        ],
       });
       this.modals.set('unified', modal);
 
@@ -728,6 +734,12 @@ class WalletService {
       projectId: WALLETCONNECT_PROJECT_ID,
       chains: preferredType === 'evm' ? evmChains : cosmosChains.map(c => `cosmos:${c.chainId}`),
       themeMode: 'dark',
+      explorerRecommendedWalletIds: [
+        'a4604022bf9199ca6d762c5663d8a6186a9ca4b607b9dcb29bcb81054d6f1091', // SwiftEx Wallet
+        '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0', // Trust Wallet
+        'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96', // MetaMask
+        'a797aa35c0fadbfc1a53e7f675162ed5226968b44a19ee3d24385c64d1d3c393', // Phantom
+      ],
     });
     this.modals.set(preferredType, modal);
 
@@ -841,6 +853,9 @@ class WalletService {
       projectId: WALLETCONNECT_PROJECT_ID,
       chains: [stellarChain],
       themeMode: 'dark',
+      explorerRecommendedWalletIds: [
+        'a4604022bf9199ca6d762c5663d8a6186a9ca4b607b9dcb29bcb81054d6f1091', // SwiftEx Wallet
+      ],
     });
     this.modals.set('stellar', modal);
 

@@ -538,7 +538,7 @@ export const DydxTradingForm: React.FC = () => {
             <div className="flex items-center gap-5">
               <div className="flex flex-col">
                 <span className="text-[8px] uppercase tracking-wider text-gray-500">Portfolio</span>
-                <span className="text-base text-sm font-semibold text-white">
+                <span className="text-base text-sm font-semibold text-primary">
                   $
                   {Number(balance.totalEquity).toLocaleString('en-US', {
                     minimumFractionDigits: 2,
@@ -765,7 +765,7 @@ export const DydxTradingForm: React.FC = () => {
                   />
                   <div className="absolute inset-0 bg-brand-primary rounded opacity-0 peer-checked:opacity-100 transition-opacity" />
                   <svg
-                    className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity z-10"
+                    className="absolute w-3 h-3 text-primary opacity-0 peer-checked:opacity-100 transition-opacity z-10"
                     viewBox="0 0 12 12"
                     fill="none"
                   >

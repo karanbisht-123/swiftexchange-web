@@ -19,6 +19,7 @@ const TradingintrFace = lazy(
 );
 const EvmTransactionHistory = lazy(() => import('../modules/evm/components/EvmTransactionHistory'));
 const SwapAssets = lazy(() => import('../modules/evm/feature/swap/components/SwapAssets'));
+
 const CryptoMarket = lazy(() => import('../modules/market/CryptoMarket'));
 const StellarTradescreen = lazy(
   () => import('../modules/stellar/components/tradescreen/StellarTradescreen')
@@ -98,6 +99,7 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
+
           {
             path: ROUTES.TRADING_EVM_FIAT,
             element: (
@@ -106,14 +108,6 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-          // {
-          //   path: ROUTES.BRIDGE,
-          //   element: (
-          //     <Layout>
-          //       <BridgePage />
-          //     </Layout>
-          //   ),
-          // },
 
           {
             path: ROUTES.MARKETS,

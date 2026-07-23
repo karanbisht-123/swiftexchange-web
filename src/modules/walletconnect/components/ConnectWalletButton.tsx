@@ -30,14 +30,19 @@ export const ConnectWalletButton: React.FC = () => {
       await navigator.clipboard.writeText(address);
       setCopiedAddress(address);
       setTimeout(() => setCopiedAddress(null), 2000);
-    } catch {
-      /* ignore */
+    } catch (e) {
+      console.log(e, 'coptoclipbord error');
     }
   };
 
-  const handleDisconnectAll = async () => {
-    await disconnectAll();
+  const handleAddWallet = () => {
     setShowDropdown(false);
+    openModal();
+  };
+
+  const handleDisconnectAll = async () => {
+    setShowDropdown(false);
+    await disconnectAll();
   };
 
   const handleDisconnect = async (type: WalletType) => {
@@ -59,9 +64,9 @@ export const ConnectWalletButton: React.FC = () => {
     return (
       <button
         onClick={openModal}
-        className="flex items-center text-white gap-2 shadow bg-brand rounded-md px-4 py-2 text-sm font-semibold hover:opacity-90 transition-opacity"
+        className="flex items-center text-white gap-2 shadow bg-brand rounded-md px-3 py-1.5 text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer"
       >
-        Connect Wallet
+        Connect
       </button>
     );
   }
@@ -70,7 +75,6 @@ export const ConnectWalletButton: React.FC = () => {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setShowDropdown(v => !v)}
-
         className="flex items-center bg-tertiary shadow rounded-lg gap-2 pl-1.5 pr-3 py-1.5 transition-colors cursor-pointer"
       >
         <div className="flex items-center -space-x-2">
@@ -163,7 +167,7 @@ export const ConnectWalletButton: React.FC = () => {
               <button
                 onClick={() => setShowDropdown(false)}
                 style={{ color: 'var(--color-text-muted)' }}
-                className="p-1 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
+                className="p-1 rounded hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -226,7 +230,7 @@ export const ConnectWalletButton: React.FC = () => {
                         <button
                           onClick={() => copyToClipboard(conn.address)}
                           style={{ color: 'var(--color-text-muted)' }}
-                          className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] transition-colors flex-shrink-0"
+                          className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] transition-colors flex-shrink-0 cursor-pointer"
                           title="Copy"
                         >
                           {copiedAddress === conn.address ? (
@@ -250,7 +254,7 @@ export const ConnectWalletButton: React.FC = () => {
                           <button
                             onClick={() => copyToClipboard(conn.dydxAddress!)}
                             style={{ color: 'var(--color-text-muted)' }}
-                            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] transition-colors flex-shrink-0"
+                            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] transition-colors flex-shrink-0 cursor-pointer"
                             title="Copy dYdX"
                           >
                             {copiedAddress === conn.dydxAddress ? (
@@ -288,7 +292,7 @@ export const ConnectWalletButton: React.FC = () => {
                         borderRadius: '0.5rem',
                         flexShrink: 0,
                       }}
-                      className="p-1.5 hover:opacity-80 transition-opacity"
+                      className="p-1.5 hover:opacity-80 transition-opacity cursor-pointer"
                       title="Disconnect"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -300,16 +304,13 @@ export const ConnectWalletButton: React.FC = () => {
 
             <div style={{ borderTop: '1px solid var(--color-border)' }} className="flex gap-2 p-3">
               <button
-                onClick={() => {
-                  openModal();
-                  setShowDropdown(false);
-                }}
+                onClick={handleAddWallet}
                 style={{
                   background: 'var(--color-brand-primary)',
                   color: '#fff',
                   borderRadius: '0.5rem',
                 }}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold hover:opacity-90 transition-opacity"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add Wallet
@@ -321,7 +322,7 @@ export const ConnectWalletButton: React.FC = () => {
                   color: 'var(--color-danger)',
                   borderRadius: '0.5rem',
                 }}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold hover:opacity-80 transition-opacity"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold hover:opacity-80 transition-opacity cursor-pointer"
               >
                 Disconnect All
               </button>

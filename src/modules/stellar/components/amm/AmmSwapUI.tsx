@@ -10,7 +10,7 @@ import {
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import InfoBanner from '../../../../components/common/InfoBanner';
+// import InfoBanner from '../../../../components/common/InfoBanner';
 import { useTransactionModalStore } from '../../../../store/transactionModalStore';
 import { getTokenIcon } from '../../../evm/utils/ChainUrlHelpers';
 import { getChainById } from '../../../evm/utils/Chainregistry';
@@ -495,12 +495,12 @@ const AmmSwapUI = () => {
       </div>
 
       <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0 border border-color">
-        <InfoBanner
+        {/* <InfoBanner
           variant="warning"
           label="Beta:"
           message={"This feature is currently in Beta. We're actively testing and improving it."}
           margin="mx-0 mt-0 mb-2"
-        />
+        /> */}
 
         {renderSwapForm()}
       </div>
