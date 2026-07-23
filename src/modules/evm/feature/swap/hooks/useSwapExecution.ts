@@ -7,8 +7,10 @@ import { useNotificationStore } from '../../../../../store/notificationStore';
 import { useSwapStore } from '../../../../../store/swapStore';
 import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
 import { sendEVMTransaction } from '../../../../../utils/walletConnectUtils';
+import { StellarSequenceTracker } from '../../../../stellar/utils/StellarSequenceTracker';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
+import { addNearIntentTransaction } from '../../../service/nearIntentTransactionService';
 import { getChainById } from '../../../utils/Chainregistry';
 import {
   STELLAR_NETWORK_PASSPHRASE,
@@ -362,11 +364,20 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     setIsWaitingForWallet(true);
     let result;
     try {
+      // The Allbridge SDK builds the XDR using its own fresh Horizon sequence fetch,
+      // completely bypassing the StellarSequenceTracker. If the tracker has a stale
+      // or ahead value from a prior operation, signAndSubmitTransaction's correction
+      // logic would overwrite the valid Allbridge sequence with a wrong one (tx_bad_seq).
+      // Resetting the tracker here forces it to re-sync from the live Horizon state.
+      if (stellarAddress) {
+        StellarSequenceTracker.reset(stellarAddress);
+      }
       result = await signAndSubmitTransaction({
         xdr,
         network: currentNetwork,
         networkPassphrase: STELLAR_NETWORK_PASSPHRASE[currentNetwork],
         provider,
+        stellarAddress,
       });
     } finally {
       setIsWaitingForWallet(false);
@@ -661,6 +672,26 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       const computedOutAmount = activeQuote.data.amountOutFormatted || activeQuote.data.amountOut;
       const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
 
+      // Persist the NEAR Intent tx locally so it appears in history and can be polled for status
+      if (hash) {
+        const walletAddr = isStellar(fromChainId) ? stellarAddress : evmAddress;
+        addNearIntentTransaction({
+          txHash: hash,
+          depositAddress: activeQuote.data.depositAddress || '',
+          depositMemo: activeQuote.data.depositMemo,
+          amountIn: sellAmount,
+          sellSymbol: sellAssetSymbol,
+          buySymbol: buyAssetSymbol,
+          fromChainId,
+          toChainId,
+          walletAddress: walletAddr || '',
+          status: 'pending',
+          quoteHash: activeQuote.data.quoteHash || activeQuote.data.depositAddress,
+          timestamp: Date.now(),
+          network: currentNetwork,
+        });
+      }
+
       handleReset();
       showToast({
         type: 'BRIDGE',
@@ -762,12 +793,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         }
 
         try {
-          if (isStellar(fromChainId)) {
+          if (activeQuote.source === 'near_intent' && activeQuote.data) {
+            await executeEvmNearIntentBridge(checkAborted);
+          } else if (isStellar(fromChainId)) {
             await executeStellarToEvmBridge(checkAborted);
           } else if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
             await executeEvmFusionPlusBridge(checkAborted);
-          } else if (activeQuote.source === 'near_intent' && activeQuote.data) {
-            await executeEvmNearIntentBridge(checkAborted);
           } else if (activeQuote.source === 'bridge' && activeQuote.data) {
             await executeEvmAllbridgeBridge(checkAborted);
           }

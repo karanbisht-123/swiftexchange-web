@@ -154,7 +154,9 @@ const Sidebar: FC = () => {
           <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
             <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>
-          <h2 className="text-sm font-semibold">BETA</h2>
+          {activeItem === ROUTES.TRADING_DYDX_FUTURES && (
+            <h2 className="text-sm font-semibold">BETA</h2>
+          )}
         </div>
         <nav className="flex-1 p-1 pb-4 overflow-y-auto hide-scrollbar">
           <div className="space-y-0.5">

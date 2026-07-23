@@ -21,10 +21,11 @@ export const WalletListModal: React.FC = () => {
     connectionStatus,
   } = useWalletStore();
 
-
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
   const [error, setError] = useState<string | null>(null);
   const connectTimeoutRef = useRef<number | null>(null);
 
@@ -421,7 +422,7 @@ export const WalletListModal: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end md:items-center justify-center animate-fade-in"
+      className="fixed inset-0 z-[60] flex items-end md:items-center justify-center animate-fade-in"
       style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
       onClick={handleModalClose}
     >
@@ -459,8 +460,6 @@ export const WalletListModal: React.FC = () => {
             <X className="w-5 h-5" />
           </button>
         </div>
-
-
 
         {error && (
           <div
@@ -519,10 +518,7 @@ export const WalletListModal: React.FC = () => {
               {!evmConnected && !stellarConnected && (
                 <div className="space-y-2">
                   <div>
-                    <h3
-
-                      className="text-sm font-semibold uppercase tracking-wider "
-                    >
+                    <h3 className="text-sm font-semibold uppercase tracking-wider ">
                       Unified Connection
                     </h3>
                     <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
@@ -531,13 +527,13 @@ export const WalletListModal: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-3 md:grid-cols-4 gap-2 md:gap-3">
-
                     <button
                       onClick={handleUnifiedConnect}
                       disabled={isAnyActionInProgress}
                       style={{
                         borderColor: 'var(--color-brand-primary)',
-                        background: 'color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-bg-tertiary))',
+                        background:
+                          'color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-bg-tertiary))',
                       }}
                       className="flex flex-col items-center gap-2 p-3 rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_12%,var(--color-bg-tertiary))] transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative w-full"
                     >

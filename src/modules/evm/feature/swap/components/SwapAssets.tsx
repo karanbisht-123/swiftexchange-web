@@ -873,7 +873,22 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       isBeta
       betaMessage="This feature is in Beta. Please double-check the network and address crypto transactions can't be reversed."
     >
-      <StellarActiveGuard bypass={!isStellarActivationRequired} onSkip={onClose}>
+      <StellarActiveGuard
+        bypass={!isStellarActivationRequired}
+        onSkip={onClose}
+        onSwitchToEVM={
+          isConnected
+            ? () => {
+                setFromChainId(137);
+                setToChainId(137);
+                setSellAssetSymbol('USDT');
+                setBuyAssetSymbol('USDC');
+                setSellAssetAddress('');
+                setBuyAssetAddress('');
+              }
+            : undefined
+        }
+      >
         {isLoadingExecution && executionCurrentStep !== 'preparing' ? (
           <SwapExecutionScreen
             actionType={actionType}

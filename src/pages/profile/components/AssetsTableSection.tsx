@@ -38,9 +38,9 @@ export const AssetsTableSection: React.FC<AssetsTableSectionProps> = ({
   };
 
   return (
-    <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl overflow-hidden shadow-sm">
+    <div className="bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl overflow-hidden shadow-sm w-full max-w-[100vw]">
       <div className="p-3 border-b border-(--color-border) space-y-3 md:space-y-0 md:flex md:items-center md:justify-between gap-2">
-        <div className="relative flex-1 max-w-lg">
+        <div className="relative flex-1 max-w-lg min-w-0 w-full">
           <Search
             size={15}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-(--color-text-secondary)"
@@ -54,7 +54,7 @@ export const AssetsTableSection: React.FC<AssetsTableSectionProps> = ({
           />
         </div>
         {availableChains.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1 hide-scrollbar">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1 hide-scrollbar w-full md:w-auto">
             <button
               onClick={() => setSelectedChainFilter('all')}
               className={`px-2.5 py-1 rounded-lg text-[10.5px] font-semibold transition shrink-0 ${
@@ -238,10 +238,10 @@ export const AssetsTableSection: React.FC<AssetsTableSectionProps> = ({
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-sm text-(--color-text-primary) truncate">
+                          <span className="font-bold text-sm text-(--color-text-primary) truncate max-w-[100px] sm:max-w-[150px]">
                             {asset.symbol}
                           </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary) font-medium">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary) font-medium truncate max-w-[60px]">
                             {asset.chainName}
                           </span>
                         </div>
@@ -270,11 +270,11 @@ export const AssetsTableSection: React.FC<AssetsTableSectionProps> = ({
                         </div>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-sm font-bold text-(--color-text-primary)">
+                    <div className="text-right shrink-0 min-w-0 max-w-[140px] sm:max-w-none">
+                      <div className="text-sm font-bold text-(--color-text-primary) truncate">
                         {portfolioUtils.formatBalance(asset.balance)} {asset.symbol}
                       </div>
-                      <div className="text-xs text-(--color-text-secondary) mt-0.5">
+                      <div className="text-xs text-(--color-text-secondary) mt-0.5 truncate">
                         {portfolioUtils.formatUSD(usdValue)}
                       </div>
                     </div>

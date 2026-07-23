@@ -93,7 +93,7 @@ const MarketRow = memo(function MarketRow({
         </div>
       </div>
       <div className="flex-1 min-w-0 text-left">
-        <div className="font-medium text-white text-base lg:text-sm flex items-center gap-1.5">
+        <div className="font-medium text-primary text-base lg:text-sm flex items-center gap-1.5">
           <span>{market.ticker.split('-')[0]}</span>
           <span className="text-slate-500 text-sm lg:text-xs">/USD</span>
         </div>
@@ -103,7 +103,7 @@ const MarketRow = memo(function MarketRow({
       </div>
 
       <div className="text-right flex-shrink-0">
-        <div className="text-base lg:text-sm font-medium text-white font-mono">
+        <div className="text-base lg:text-sm font-medium text-primaary font-mono">
           ${formatPrice(market.oraclePrice)}
         </div>
         <div
@@ -149,7 +149,9 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
   const panelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+  );
   const [scrollTop, setScrollTop] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -249,19 +251,19 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
   return (
     <>
       <div
-        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
+        className={`fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         onClick={onClose}
       />
       <div
         ref={panelRef}
-        className={`fixed top-0 left-0 z-50 h-full w-full lg:max-w-sm bg-secondary border-r border-[#334155] shadow-2xl transition-transform duration-300 ease-out ${
+        className={`fixed top-0 left-0 z-[70] h-full w-full lg:max-w-sm bg-secondary border-r border-[#334155] shadow-2xl transition-transform duration-300 ease-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex items-center justify-between px-4 lg:px-4 py-4 lg:py-3 border-b border-[#334155] pt-safe">
-          <h2 className="text-xl lg:text-lg font-semibold text-white">Markets</h2>
+          <h2 className="text-xl lg:text-lg font-semibold text-primary">Markets</h2>
           <button
             onClick={onClose}
             className="p-2.5 lg:p-2 hover:bg-[#334155] active:bg-[#334155]/80 rounded-lg transition-colors"
@@ -296,7 +298,7 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
             onClick={() => setActiveTab('all')}
             className={`flex-1 px-4 py-3.5 lg:py-2.5 text-base lg:text-sm font-medium transition-colors ${
               activeTab === 'all'
-                ? 'text-white border-b-2 border-blue-500'
+                ? 'text-primary border-b-2 border-blue-500'
                 : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
             }`}
           >
@@ -306,7 +308,7 @@ export default function MarketSelectorModal({ isOpen, onClose }: MarketSelectorM
             onClick={() => setActiveTab('favorites')}
             className={`flex-1 px-4 py-3.5 lg:py-2.5 text-base lg:text-sm font-medium transition-colors flex items-center justify-center gap-2 lg:gap-1.5 ${
               activeTab === 'favorites'
-                ? 'text-white border-b-2 border-blue-500'
+                ? 'text-primary border-b-2 border-blue-500'
                 : 'text-slate-400 hover:text-slate-300 active:text-slate-200'
             }`}
           >

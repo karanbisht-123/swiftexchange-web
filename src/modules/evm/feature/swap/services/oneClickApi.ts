@@ -55,7 +55,6 @@ const getHeaders = () => {
 };
 
 // Stellar requires MEMO mode — the deposit address alone is not enough,
-// the user must also include a memo field in their Stellar payment.
 export const isStellarBlockchain = (blockchain: string): boolean => blockchain === 'stellar';
 
 let cachedNearIntentTokens: NearIntentToken[] | null = null;
@@ -112,12 +111,12 @@ export const getNearIntentQuote = async (
 export const submitNearIntentDeposit = async (
   txHash: string,
   depositAddress: string,
-  depositMemo?: string
+  memo?: string
 ): Promise<void> => {
   const response = await fetch(`${API_BASE_URL}/v0/deposit/submit`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ txHash, depositAddress, ...(depositMemo ? { depositMemo } : {}) }),
+    body: JSON.stringify({ txHash, depositAddress, ...(memo ? { memo } : {}) }),
   });
   if (!response.ok) {
     const errText = await response.text();
@@ -125,8 +124,20 @@ export const submitNearIntentDeposit = async (
   }
 };
 
-export const pollNearIntentStatus = async (quoteHash: string): Promise<any> => {
-  const response = await fetch(`${API_BASE_URL}/v0/status?quoteHash=${quoteHash}`, {
+export const pollNearIntentStatus = async (
+  quoteHash: string,
+  depositAddress?: string,
+  depositMemo?: string
+): Promise<any> => {
+  let url = `${API_BASE_URL}/v0/status?quoteHash=${encodeURIComponent(quoteHash)}`;
+  if (depositAddress) {
+    url += `&depositAddress=${encodeURIComponent(depositAddress)}`;
+  }
+  if (depositMemo) {
+    url += `&depositMemo=${encodeURIComponent(depositMemo)}`;
+  }
+
+  const response = await fetch(url, {
     method: 'GET',
     headers: getHeaders(),
   });

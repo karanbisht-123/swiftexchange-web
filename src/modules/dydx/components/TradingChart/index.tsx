@@ -111,7 +111,7 @@ export default function TradingChart() {
   const { candles, latestCandle, isLoading, isFetchingMore, error, fetchMore } = useRealtimeChart(
     selectedMarket,
     timeframe,
-    1000
+    150
   );
 
   useEffect(() => {

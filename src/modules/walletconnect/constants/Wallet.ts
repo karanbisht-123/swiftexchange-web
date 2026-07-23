@@ -15,6 +15,12 @@ export interface WalletConfig {
 
 export const EVM_WALLETS: WalletConfig[] = [
   {
+    id: 'swiftex',
+    name: 'SwiftEx Wallet',
+    icon: 'https://explorer-api.walletconnect.com/v3/logo/sm/54c06c6a-333d-49d6-f2fd-7e89d2068500?projectId=fdde0f7f2696cc4d849103c23792d693',
+    type: WalletType.EVM,
+  },
+  {
     id: 'metamask',
     name: 'MetaMask',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT3ymr3UNKopfI0NmUY95Dr-0589vG-91KuAA&s',
@@ -63,6 +69,12 @@ export const COSMOS_WALLETS: WalletConfig[] = [
 ];
 
 export const STELLAR_WALLETS: WalletConfig[] = [
+  {
+    id: 'swiftex',
+    name: 'SwiftEx Wallet',
+    icon: 'https://explorer-api.walletconnect.com/v3/logo/sm/54c06c6a-333d-49d6-f2fd-7e89d2068500?projectId=fdde0f7f2696cc4d849103c23792d693',
+    type: WalletType.STELLAR,
+  },
   {
     id: 'lobstr',
     name: 'LOBSTR ',
@@ -113,6 +125,14 @@ export interface WalletMetadata {
 }
 
 export const WALLET_METADATA_MAP: Record<string, WalletMetadata> = {
+  swiftex: {
+    name: 'SwiftEx Wallet',
+    icon: 'https://explorer-api.walletconnect.com/v3/logo/sm/54c06c6a-333d-49d6-f2fd-7e89d2068500?projectId=fdde0f7f2696cc4d849103c23792d693',
+    redirects: {
+      native: 'swiftEx://app.swiftexchange.io',
+      universal: 'https://app.swiftexchange.io/',
+    },
+  },
   metamask: {
     name: 'MetaMask',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT3ymr3UNKopfI0NmUY95Dr-0589vG-91KuAA&s',

@@ -10,7 +10,7 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 
 import { indicatorRegistry } from 'lightweight-charts-indicators';
 
@@ -27,19 +27,42 @@ const TimeframeSelector = memo(function TimeframeSelector({
   value,
   onChange,
 }: TimeframeSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const selectedLabel = TIMEFRAMES.find(t => t.value === value)?.label || value;
+
   return (
-    <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar px-1 flex-1">
-      {TIMEFRAMES.map(tf => (
-        <button
-          key={tf.value}
-          onClick={() => onChange(tf.value)}
-          className={`px-2 py-1 text-[11px] font-medium rounded transition-all whitespace-nowrap ${
-            value === tf.value ? ' text-primary' : 'text-muted hover:text-primary hover:bg-hover'
-          }`}
-        >
-          {tf.label}
-        </button>
-      ))}
+    <div className="relative flex-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 px-2 py-1 hover:bg-hover rounded-md transition-colors min-h-[40px] text-primary font-medium text-xs sm:text-[13px]"
+      >
+        {selectedLabel}
+        <ChevronDown
+          className={`w-3 h-3 transition-transform duration-200 ${open ? 'rotate-180' : 'text-gray-400'}`}
+        />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[140px] z-50">
+            {TIMEFRAMES.map(tf => (
+              <button
+                key={tf.value}
+                onClick={() => {
+                  onChange(tf.value);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2.5 text-xs hover:bg-hover transition-colors flex items-center justify-between ${
+                  value === tf.value ? 'bg-hover text-brand font-medium' : 'text-primary'
+                }`}
+              >
+                <span>{tf.label}</span>
+                {value === tf.value && <Check className="w-3.5 h-3.5 text-brand" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 });
@@ -68,7 +91,7 @@ const ChartTypeDropdown = memo(function ChartTypeDropdown({
     <div className="relative">
       <button
         onClick={onToggle}
-        className="flex items-center gap-1 px-1.5 py-1 hover:bg-hover rounded-md transition-colors min-w-[32px] min-h-[32px] justify-center text-gray-400 hover:text-primary"
+        className="flex items-center gap-1 px-1.5 py-1 hover:bg-hover rounded-md transition-colors min-w-[36px] min-h-[40px] justify-center text-gray-400 hover:text-primary"
         title={`Chart Type: ${value}`}
       >
         {CHART_TYPES.find(c => c.value === value)?.icon}
@@ -78,8 +101,8 @@ const ChartTypeDropdown = memo(function ChartTypeDropdown({
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={onToggle} />
-          <div className="absolute top-full left-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[140px] z-20">
+          <div className="fixed inset-0 z-40" onClick={onToggle} />
+          <div className="absolute top-full left-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[140px] z-50">
             {CHART_TYPES.map(ct => (
               <button
                 key={ct.value}
@@ -136,7 +159,7 @@ const IndicatorPicker = memo(function IndicatorPicker({
     <div className="relative">
       <button
         onClick={onToggle}
-        className="flex items-center gap-1.5 px-2 py-1 hover:bg-hover rounded-md transition-colors min-h-[32px] text-gray-400 hover:text-primary"
+        className="flex items-center gap-1.5 px-2 py-1 hover:bg-hover rounded-md transition-colors min-h-[40px] min-w-[36px] text-gray-400 hover:text-primary"
         title="Indicators"
       >
         <span className="text-xs font-semibold text-gray-400 hover:text-primary flex items-center">
@@ -149,9 +172,9 @@ const IndicatorPicker = memo(function IndicatorPicker({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm pointer-events-auto select-none animate-fade-in">
+        <div className="fixed inset-0 z-20 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm pointer-events-auto select-none animate-fade-in">
           <div className="fixed inset-0 cursor-default" onClick={onToggle} />
-          <div className="bg-secondary rounded-xl w-full max-w-[460px] shadow-2xl py-5 relative text-primary flex flex-col h-[520px] max-h-[85vh] z-10 pointer-events-auto">
+          <div className="bg-secondary w-full sm:max-w-[460px] shadow-2xl pt-5 pb-8 sm:pb-5 relative text-primary flex flex-col h-[85vh] sm:h-[520px] sm:max-h-[85vh] z-10 pointer-events-auto rounded-t-3xl sm:rounded-xl">
             <div className="flex items-center justify-between pb-3 px-4 mb-2">
               <span className="text-sm font-bold uppercase tracking-wider text-primary">
                 Indicators
@@ -283,7 +306,7 @@ const SettingsDropdown = memo(function SettingsDropdown({
     <div className="relative">
       <button
         onClick={onToggle}
-        className="flex items-center gap-1.5 px-2 py-1 hover:bg-hover rounded-md transition-colors min-h-[32px] text-gray-400 hover:text-primary"
+        className="flex items-center gap-1.5 px-2 py-1 hover:bg-hover rounded-md transition-colors min-h-[40px] min-w-[36px] text-gray-400 hover:text-primary"
         title="Chart Settings"
       >
         <span className="text-xs font-medium">Display</span>
@@ -293,8 +316,8 @@ const SettingsDropdown = memo(function SettingsDropdown({
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={onToggle} />
-          <div className="absolute top-full right-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[160px] z-20">
+          <div className="fixed inset-0 z-40" onClick={onToggle} />
+          <div className="absolute top-full right-0 mt-1 bg-secondary rounded-lg shadow-xl border border-color py-1 min-w-[160px] z-50">
             {renderToggleRow('Volume', showVolume, onToggleVolume, 'bg-gray-400')}
             {renderToggleRow('Grid', showGrid, onToggleGrid, 'bg-gray-400')}
             {renderToggleRow('Crosshair', showCrosshair, onToggleCrosshair, 'bg-gray-400')}
@@ -363,7 +386,7 @@ export const ChartHeader = memo(function ChartHeader(props: ChartHeaderProps) {
 
   return (
     <div
-      className={`bg-secondary border-b border-color flex-shrink-0 ${
+      className={`relative z-50 bg-secondary border-b border-color flex-shrink-0 ${
         isFullscreen ? 'safe-area-top' : ''
       }`}
     >
@@ -402,7 +425,7 @@ export const ChartHeader = memo(function ChartHeader(props: ChartHeaderProps) {
             <>
               <button
                 onClick={onDownload}
-                className="p-1.5 hover:bg-hover rounded-md transition-colors hidden sm:flex items-center justify-center min-w-[32px] min-h-[32px]"
+                className="p-1.5 hover:bg-hover rounded-md transition-colors hidden sm:flex items-center justify-center min-w-[36px] min-h-[40px]"
                 title="Download Chart"
               >
                 <Download className="w-4 h-4 text-gray-400" />
@@ -412,7 +435,7 @@ export const ChartHeader = memo(function ChartHeader(props: ChartHeaderProps) {
           )}
           <button
             onClick={onToggleFullscreen}
-            className="p-1 sm:p-1.5 hover:bg-hover rounded-md transition-colors flex items-center justify-center min-w-[32px] min-h-[32px]"
+            className="p-1 sm:p-1.5 hover:bg-hover rounded-md transition-colors flex items-center justify-center min-w-[36px] min-h-[40px]"
             title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
           >
             {isFullscreen ? (

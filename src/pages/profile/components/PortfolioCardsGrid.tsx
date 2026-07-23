@@ -124,10 +124,10 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
           <div
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`p-4 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group shadow-sm hover:shadow-md ${
+            className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group flex flex-col justify-between h-full bg-(--color-bg-secondary) backdrop-blur-md ${
               isActive
-                ? `${details.activeBg} border-brand-primary/50 shadow-inner`
-                : 'bg-(--color-bg-secondary) border-(--color-border) hover:border-brand-primary/30 hover:-translate-y-0.5'
+                ? `${details.activeBg} ${details.glow} shadow-lg shadow-indigo-500/10`
+                : 'border-(--color-border) hover:border-brand-primary/30 hover:-translate-y-0.5 shadow-sm'
             }`}
           >
             <div className="absolute top-0 right-0 w-20 h-20 bg-brand-primary/5 rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-all duration-500" />
@@ -179,7 +179,7 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
 
             <div
               onClick={e => e.stopPropagation()}
-              className="mt-3 pt-3 border-t border-(--color-border) flex items-center justify-between text-xs text-(--color-text-secondary)"
+              className="mt-4 pt-3 border-t border-(--color-border) flex items-center justify-between text-xs text-(--color-text-secondary)"
             >
               {tab === 'total' ? (
                 <span className="text-[10.5px] font-medium text-brand-primary/80">
@@ -192,7 +192,7 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
                   </span>
                   <button
                     onClick={() => handleCopy(details.address, tab)}
-                    className="p-1 hover:bg-(--color-bg-tertiary) rounded text-(--color-text-secondary) hover:text-(--color-text-primary) transition cursor-pointer"
+                    className="p-1.5 bg-(--color-bg-tertiary) hover:bg-(--color-bg-tertiary)/80 rounded-md text-(--color-text-secondary) hover:text-(--color-text-primary) transition cursor-pointer flex items-center justify-center"
                   >
                     {isCopied ? (
                       <Check size={12} className="text-emerald-500" />

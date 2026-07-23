@@ -358,7 +358,7 @@ export const DydxPerformanceCard: React.FC<DydxPerformanceCardProps> = ({
 
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 flex-wrap sm:justify-end">
-                <div className="flex items-center bg-(--color-bg-tertiary) border border-(--color-border) rounded-xl px-3 py-1.5 shadow-sm gap-2">
+                <div className="flex items-center bg-(--color-bg-tertiary) border border-(--color-border) rounded-lg px-3 py-2 shadow-sm gap-2 min-h-[44px]">
                   <Calendar size={13} className="text-(--color-text-secondary) shrink-0" />
                   <input
                     type="date"
@@ -387,7 +387,7 @@ export const DydxPerformanceCard: React.FC<DydxPerformanceCardProps> = ({
                 {isDateRangeActive && (
                   <button
                     onClick={clearRange}
-                    className="p-1.5 rounded-lg bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary) hover:text-red-400 transition"
+                    className="p-2 rounded-lg bg-(--color-bg-tertiary) border border-(--color-border) text-(--color-text-secondary) hover:text-red-400 transition flex items-center justify-center min-h-[44px] min-w-[44px]"
                   >
                     <XIcon size={12} />
                   </button>
@@ -401,8 +401,8 @@ export const DydxPerformanceCard: React.FC<DydxPerformanceCardProps> = ({
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto sm:justify-end">
-                <div className="flex gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border)">
+              <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                <div className="flex items-center gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border) min-h-[44px]">
                   <button
                     onClick={() => setChartType('equity')}
                     className={`px-3 py-1 rounded-lg text-[10.5px] font-bold transition-all ${
@@ -425,7 +425,7 @@ export const DydxPerformanceCard: React.FC<DydxPerformanceCardProps> = ({
                   </button>
                 </div>
                 {!isDateRangeActive ? (
-                  <div className="flex gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border)">
+                  <div className="flex items-center gap-1 bg-(--color-bg-tertiary) p-1 rounded-xl border border-(--color-border) min-h-[44px]">
                     {(['1d', '7d', '30d', '90d'] as const).map(tf => (
                       <button
                         key={tf}

@@ -59,7 +59,7 @@ export function useChartInstance(isDark: boolean): UseChartInstanceResult {
             crosshairColor: '#4a5680',
           }
         : {
-            background: '#f7f8fc',
+            background: '#ffffff',
             textColor: '#0f1729',
             gridColor: '#dce3ed',
             borderColor: '#e4e8f0',

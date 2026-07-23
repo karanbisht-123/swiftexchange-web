@@ -307,27 +307,10 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             throw new Error('Tokens not supported by bridge');
           }
 
-          let bestSource = 'bridge';
-          let bestData = abQ;
-          let altSource: string | null = null;
-          let altData: any = null;
-
-          if (abQ && inQ) {
-            const abOut = parseFloat((abQ as any).amountToBeReceived || '0');
-            const inOut = parseFloat((inQ as any).amountOutFormatted || '0');
-            if (inOut > abOut) {
-              bestSource = 'bridge';
-              bestData = abQ;
-              altSource = 'near_intent';
-              altData = inQ;
-            }
-          } else if (inQ) {
-            bestSource = 'near_intent';
-            bestData = inQ;
-          }
-
-          if (bestSource === 'bridge') {
-            if (!bestData.feeOptions?.stablecoin) {
+          // Bridge (Allbridge) is always the default route.
+          // NEAR Intents, if available and supported, is offered as an alternative toggle.
+          if (abQ) {
+            if (!abQ.feeOptions?.stablecoin) {
               setFeePayType('native');
             }
             setActiveQuote({
@@ -335,31 +318,25 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
               loading: false,
               error: null,
               data: {
-                ...bestData,
-                minimumAmountOut: bestData.amountToBeReceived,
-                conversionRate: bestData.exchangeRate,
-                completionTime: bestData.transferTimeMs,
+                ...abQ,
+                minimumAmountOut: abQ.amountToBeReceived,
+                conversionRate: abQ.exchangeRate,
+                completionTime: abQ.transferTimeMs,
                 fee: {
                   native: {
-                    amount: bestData.feeOptions.native.float,
+                    amount: abQ.feeOptions.native.float,
                     symbol: fromChainConfig?.nativeCurrency.symbol,
                   },
-                  stablecoin: bestData.feeOptions.stablecoin
-                    ? { amount: bestData.feeOptions.stablecoin.float, symbol: 'USDC' }
+                  stablecoin: abQ.feeOptions.stablecoin
+                    ? { amount: abQ.feeOptions.stablecoin.float, symbol: 'USDC' }
                     : null,
                 },
               },
-              ...(altSource
-                ? {
-                    alternativeQuote: {
-                      source: altSource,
-                      data: altData,
-                    },
-                  }
-                : {}),
+              ...(inQ ? { alternativeQuote: { source: 'near_intent', data: inQ } } : {}),
             });
-          } else {
-            setActiveQuote({ source: 'near_intent', data: bestData, error: null, loading: false });
+          } else if (inQ) {
+            // Allbridge failed but NEAR Intents is available — use it as only route
+            setActiveQuote({ source: 'near_intent', data: inQ, error: null, loading: false });
           }
         } else if (shouldUseBridge) {
           const bdgPromise = getEvmBridgeQuote(
@@ -396,47 +373,21 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             throw new Error('Bridge quotes empty');
           }
 
-          let bestSource = 'bridge';
-          let bestData = bdgQ;
-          let altSource: string | null = null;
-          let altData: any = null;
-
-          if (bdgQ && inQ) {
-            const bdgOut = parseFloat(
-              (bdgQ as any).minimumAmountOut || (bdgQ as any).quotes?.[0]?.amountToBeReceived || '0'
-            );
-            const inOut = parseFloat((inQ as any).amountOutFormatted || '0');
-            if (inOut > bdgOut) {
-              bestSource = 'bridge';
-              bestData = bdgQ;
-              altSource = 'near_intent';
-              altData = inQ;
-            }
-          } else if (inQ) {
-            bestSource = 'near_intent';
-            bestData = inQ;
-          }
-
-          if (bestSource === 'bridge') {
-            if (bestData.fee && !bestData.fee.stablecoin) {
+          // Bridge is always the default. NEAR Intents is the alternative toggle.
+          if (bdgQ) {
+            if (bdgQ.fee && !bdgQ.fee.stablecoin) {
               setFeePayType('native');
             }
             setActiveQuote({
               source: 'bridge',
-              data: bestData,
+              data: bdgQ,
               error: null,
               loading: false,
-              ...(altSource
-                ? {
-                    alternativeQuote: {
-                      source: altSource,
-                      data: altData,
-                    },
-                  }
-                : {}),
+              ...(inQ ? { alternativeQuote: { source: 'near_intent', data: inQ } } : {}),
             });
-          } else {
-            setActiveQuote({ source: 'near_intent', data: bestData, error: null, loading: false });
+          } else if (inQ) {
+            // Bridge failed but NEAR Intents is available — fallback
+            setActiveQuote({ source: 'near_intent', data: inQ, error: null, loading: false });
           }
         } else {
           // Fetch Fusion and NEAR Intents in parallel for EVM to EVM

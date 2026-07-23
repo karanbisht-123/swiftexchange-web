@@ -52,10 +52,10 @@ export const Legend = memo(function Legend({
 
   return (
     <div
-      className="absolute z-20 top-2 pointer-events-none flex flex-col gap-y-0.5 items-start text-left select-none"
+      className="absolute z-10 top-2 pointer-events-none flex flex-col gap-y-0.5 items-start text-left select-none"
       style={{ left: leftOffset }}
     >
-      <div className="flex flex-wrap items-center gap-x-1.5 sm:gap-x-2 pointer-events-auto leading-normal text-[10.5px] text-gray-300 font-medium">
+      <div className="flex flex-wrap items-center gap-x-1.5 sm:gap-x-2 pointer-events-none leading-normal text-[10.5px] text-gray-300 font-medium">
         <span className="text-[11px] font-bold text-primary mr-0.5 shrink-0">{market}</span>
         <span className="text-[10px] text-gray-500 shrink-0 select-none opacity-50">•</span>
         <span className="text-[10.5px] font-semibold text-primary shrink-0">{tfLabel}</span>
@@ -154,7 +154,7 @@ export const Legend = memo(function Legend({
           return (
             <div
               key={active.instanceId}
-              className={`flex items-center flex-wrap gap-1 text-[8.5px] sm:text-[9.5px] font-semibold pointer-events-auto transition-opacity group ${
+              className={`flex items-center flex-nowrap gap-1 text-[8.5px] sm:text-[9.5px] font-semibold pointer-events-auto transition-opacity group w-[250px] sm:w-[400px] ${
                 isHidden ? 'opacity-40' : 'opacity-80 hover:opacity-100'
               }`}
             >
@@ -162,15 +162,15 @@ export const Legend = memo(function Legend({
                 className="w-1.5 h-1.5 rounded-full shrink-0"
                 style={{ backgroundColor: active.color }}
               />
-              <span className="text-muted/80 font-normal text-[8px] sm:text-[9px] shrink-0">
+              <span className="text-muted/80 font-normal text-[8px] sm:text-[9px] shrink-0 whitespace-nowrap">
                 {entry.shortName || entry.name}({inputVals}):
               </span>
-              <span className="font-mono font-medium text-[8px] sm:text-[9px] text-primary/90 break-all mr-1.5">
+              <span className="font-mono font-medium text-[8px] sm:text-[9px] text-primary truncate mr-1.5 drop-shadow-none dark:drop-shadow-md">
                 {valueText || '-'}
               </span>
 
               {/* Eyeball, settings and delete buttons — visible on hover of group only */}
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 shrink-0">
                 <button
                   onClick={() => onToggleVisibility(active.instanceId)}
                   className="p-0.5 rounded transition-colors text-muted hover:text-primary hover:bg-hover/40 shrink-0"

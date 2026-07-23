@@ -191,6 +191,8 @@ export const useNearIntentCrossChain = ({
           const config = getStellarConfig('mainnet');
           const server = new StellarSDK.Horizon.Server(config.horizonUrl);
 
+          StellarSequenceTracker.reset(stellarAddress);
+
           const accountResponse = await server.loadAccount(stellarAddress);
           const baseSeq = StellarSequenceTracker.getAndIncrementSequence(
             stellarAddress,
@@ -213,12 +215,16 @@ export const useNearIntentCrossChain = ({
             StellarSDK.Operation.payment({
               destination: quoteToUse.depositAddress,
               asset: stellarAsset,
-              amount: ethers.formatUnits(amount, sellAsset.decimals),
+              amount: amount,
             })
           );
 
           if (quoteToUse.depositMemo) {
             txBuilder.addMemo(StellarSDK.Memo.text(quoteToUse.depositMemo));
+          } else {
+            console.warn(
+              '[NEAR Intents] No depositMemo in quote — Stellar payment may not be attributed correctly.'
+            );
           }
 
           const transaction = txBuilder.setTimeout(300).build();
@@ -271,6 +277,7 @@ export const useNearIntentCrossChain = ({
           const sellAddress = sellAsset.contractAddress || '';
           let txHashResultHex = '';
           const fromAddr = (await signer.getAddress()).toLowerCase();
+          const amountInWei = ethers.parseUnits(amount, sellAsset.decimals || 18);
 
           if (
             !sellAddress ||
@@ -282,7 +289,7 @@ export const useNearIntentCrossChain = ({
                 {
                   from: fromAddr,
                   to: depositAddr,
-                  value: '0x' + BigInt(amount).toString(16),
+                  value: '0x' + amountInWei.toString(16),
                 },
               ],
             });
@@ -292,7 +299,7 @@ export const useNearIntentCrossChain = ({
               'function transfer(address to, uint256 amount) public returns (bool)',
             ];
             const iface = new ethers.Interface(erc20Abi);
-            const data = iface.encodeFunctionData('transfer', [depositAddr, amount]);
+            const data = iface.encodeFunctionData('transfer', [depositAddr, amountInWei]);
 
             const txHex = await provider.request({
               method: 'eth_sendTransaction',
