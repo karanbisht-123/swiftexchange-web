@@ -746,19 +746,19 @@ class WalletService {
     const namespaces =
       preferredType === 'evm'
         ? {
-            eip155: {
-              methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
-              chains: evmChains,
-              events: ['chainChanged', 'accountsChanged'],
-            },
-          }
+          eip155: {
+            methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+            chains: evmChains,
+            events: ['chainChanged', 'accountsChanged'],
+          },
+        }
         : {
-            cosmos: {
-              methods: ['cosmos_signDirect', 'cosmos_signAmino'],
-              chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
-              events: ['accountsChanged'],
-            },
-          };
+          cosmos: {
+            methods: ['cosmos_signDirect', 'cosmos_signAmino'],
+            chains: cosmosChains.map(c => `cosmos:${c.chainId}`),
+            events: ['accountsChanged'],
+          },
+        };
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -1487,7 +1487,7 @@ class WalletService {
         if (this.sessions.get(t)) this.emitState(t, 'connected');
       });
     });
-    provider.on('proposal_expire', () => {});
+    provider.on('proposal_expire', () => { });
     provider.on('disconnect', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
   }
 

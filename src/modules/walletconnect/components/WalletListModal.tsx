@@ -1,6 +1,9 @@
 import { X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ROUTES } from '../../../constants/routes';
+import { useAsterAgent } from '../../../perps/adapters/aster/hooks/useAsterAgent';
+import router from '../../../routes';
 import { EVM_WALLETS, STELLAR_WALLETS, type WalletConfig } from '../constants/Wallet';
 import { useWalletStore } from '../store/walletConnectStore';
 
@@ -20,6 +23,8 @@ export const WalletListModal: React.FC = () => {
     deriveDydx,
     connectionStatus,
   } = useWalletStore();
+
+  const asterAgent = useAsterAgent();
 
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
@@ -140,6 +145,22 @@ export const WalletListModal: React.FC = () => {
     }
   }, [deriveDydx, connectingWallet, disconnectingType]);
 
+  const handleDeriveAster = useCallback(async () => {
+    if (connectingWallet || disconnectingType) return;
+    setError(null);
+    try {
+      await asterAgent.deriveAgentKey();
+      closeModal();
+      router.navigate(ROUTES.TRADING_PERPS);
+    } catch (err: any) {
+      showError(
+        err?.message?.includes('reject') || err?.message?.includes('denied')
+          ? 'Signature rejected. You can try again anytime.'
+          : err?.message || 'Failed to derive Aster wallet. Please try again.'
+      );
+    }
+  }, [asterAgent, connectingWallet, disconnectingType, closeModal]);
+
   const handleModalClose = useCallback(() => {
     if (disconnectingType || connectionStatus.evm?.state === 'signing') return;
     if (connectingWallet) {
@@ -250,91 +271,170 @@ export const WalletListModal: React.FC = () => {
           </div>
 
           {type === 'evm' && (
-            <div
-              style={{
-                borderColor: 'var(--color-brand-primary)',
-                background: 'color-mix(in srgb, var(--color-brand-primary) 8%, transparent)',
-              }}
-              className="p-3 md:p-4 rounded-xl border"
-            >
-              {hasDydx ? (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div
-                      style={{ background: 'var(--color-brand-primary)' }}
-                      className="w-5 h-5 rounded-full flex items-center justify-center"
-                    >
-                      <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path
-                          fillRule="evenodd"
-                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
+            <div className="space-y-2">
+              {/* ── dYdX card ── */}
+              <div
+                style={{
+                  borderColor: 'var(--color-brand-primary)',
+                  background: 'color-mix(in srgb, var(--color-brand-primary) 8%, transparent)',
+                }}
+                className="p-3 md:p-4 rounded-xl border"
+              >
+                {hasDydx ? (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div
+                        style={{ background: 'var(--color-brand-primary)' }}
+                        className="w-5 h-5 rounded-full flex items-center justify-center"
+                      >
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path
+                            fillRule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </div>
+                      <span
+                        style={{ color: 'var(--color-brand-primary)' }}
+                        className="text-sm font-semibold"
+                      >
+                        dYdX Wallet Derived
+                      </span>
                     </div>
                     <span
-                      style={{ color: 'var(--color-brand-primary)' }}
-                      className="text-sm font-semibold"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                      className="text-xs block mb-1"
                     >
-                      dYdX Wallet Derived
+                      dYdX Address
+                    </span>
+                    <span
+                      style={{ color: 'var(--color-brand-primary)' }}
+                      className="text-xs font-mono break-all"
+                    >
+                      {connected.dydxAddress}
                     </span>
                   </div>
-                  <span
-                    style={{ color: 'var(--color-text-secondary)' }}
-                    className="text-xs block mb-1"
-                  >
-                    dYdX Address
-                  </span>
-                  <span
-                    style={{ color: 'var(--color-brand-primary)' }}
-                    className="text-xs font-mono break-all"
-                  >
-                    {connected.dydxAddress}
-                  </span>
-                </div>
-              ) : isSigningNow ? (
-                <div className="flex items-center gap-3">
-                  <div
-                    style={{ background: 'var(--color-brand-primary)' }}
-                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
-                  >
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  </div>
-                  <div>
-                    <p
-                      style={{ color: 'var(--color-brand-primary)' }}
-                      className="text-sm font-semibold"
+                ) : isSigningNow ? (
+                  <div className="flex items-center gap-3">
+                    <div
+                      style={{ background: 'var(--color-brand-primary)' }}
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
                     >
-                      Sign in Wallet
-                    </p>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
-                      Approve the signature to generate your dYdX address
-                    </p>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </div>
+                    <div>
+                      <p
+                        style={{ color: 'var(--color-brand-primary)' }}
+                        className="text-sm font-semibold"
+                      >
+                        Sign in Wallet
+                      </p>
+                      <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
+                        Approve the signature to generate your dYdX address
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p
-                      style={{ color: 'var(--color-brand-primary)' }}
-                      className="text-sm font-semibold"
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p
+                        style={{ color: 'var(--color-brand-primary)' }}
+                        className="text-sm font-semibold"
+                      >
+                        Derive dYdX Wallet
+                      </p>
+                      <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                        One-time signature to enable trading
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleDeriveDydx}
+                      disabled={isAnyActionInProgress}
+                      style={{ background: 'var(--color-brand-primary)', color: '#fff' }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                     >
-                      Derive dYdX Wallet
-                    </p>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                      One-time signature to enable trading
-                    </p>
+                      Derive
+                    </button>
                   </div>
-                  <button
-                    onClick={handleDeriveDydx}
-                    disabled={isAnyActionInProgress}
-                    style={{ background: 'var(--color-brand-primary)', color: '#fff' }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                  >
-                    Derive
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
+
+              {/* ── Aster Agent Wallet card ── */}
+              <div
+                style={{
+                  borderColor: 'color-mix(in srgb, #6366f1 60%, var(--color-border))',
+                  background: 'color-mix(in srgb, #6366f1 8%, transparent)',
+                }}
+                className="p-3 md:p-4 rounded-xl border"
+              >
+                {asterAgent.isReady ? (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div
+                        style={{ background: '#6366f1' }}
+                        className="w-5 h-5 rounded-full flex items-center justify-center"
+                      >
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path
+                            fillRule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </div>
+                      <span style={{ color: '#6366f1' }} className="text-sm font-semibold">
+                        Aster Agent Wallet Active
+                      </span>
+                    </div>
+                    <span
+                      style={{ color: 'var(--color-text-secondary)' }}
+                      className="text-xs block mb-1"
+                    >
+                      Agent Address
+                    </span>
+                    <span style={{ color: '#6366f1' }} className="text-xs font-mono break-all">
+                      {asterAgent.agentAddress}
+                    </span>
+                  </div>
+                ) : asterAgent.deriveState === 'signing' ? (
+                  <div className="flex items-center gap-3">
+                    <div
+                      style={{ background: '#6366f1' }}
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                    >
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </div>
+                    <div>
+                      <p style={{ color: '#6366f1' }} className="text-sm font-semibold">
+                        Sign in Wallet
+                      </p>
+                      <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
+                        Approve to activate Aster futures trading
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p style={{ color: '#6366f1' }} className="text-sm font-semibold">
+                        Derive Aster Agent Wallet
+                      </p>
+                      <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                        One-time signature to enable Aster futures
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleDeriveAster}
+                      disabled={isAnyActionInProgress}
+                      style={{ background: '#6366f1', color: '#fff' }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                    >
+                      Derive
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -346,9 +446,11 @@ export const WalletListModal: React.FC = () => {
       formatAddress,
       handleDisconnect,
       handleDeriveDydx,
+      handleDeriveAster,
       disconnectingType,
       isAnyActionInProgress,
       isSigning,
+      asterAgent,
     ]
   );
 

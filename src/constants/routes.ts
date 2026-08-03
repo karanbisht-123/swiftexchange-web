@@ -10,6 +10,7 @@ export const ROUTES = {
   TRADING_EVM_INTER_SWAP: '/trading/evm/inter-swap',
   TRADING_EVM_FIAT: '/trading/evm/fiat',
   TRADING_DYDX_FUTURES: '/trade/perpetuals',
+  TRADING_PERPS: '/trade/v2/perpetuals',
   MARKETS: '/markets',
   PORTFOLIO: '/portfolio',
   SETTINGS: '/settings',

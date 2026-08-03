@@ -17,6 +17,7 @@ const SendAssets = lazy(() => import('../modules/commonfeature/sendassets/SendAs
 const TradingintrFace = lazy(
   () => import('../modules/dydx/components/tradedashbord/TradingintrFace')
 );
+const PerpetualsTradingPage = lazy(() => import('../pages/perps'));
 const EvmTransactionHistory = lazy(() => import('../modules/evm/components/EvmTransactionHistory'));
 const SwapAssets = lazy(() => import('../modules/evm/feature/swap/components/SwapAssets'));
 
@@ -42,6 +43,16 @@ const router = createBrowserRouter([
           <Layout>
             <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
               <TradingintrFace />
+            </GeolocationGuard>
+          </Layout>
+        ),
+      },
+      {
+        path: ROUTES.TRADING_PERPS,
+        element: (
+          <Layout>
+            <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
+              <PerpetualsTradingPage />
             </GeolocationGuard>
           </Layout>
         ),
