@@ -151,10 +151,14 @@ export const WalletListModal: React.FC = () => {
     try {
       await asterAgent.deriveAgentKey();
       closeModal();
-      router.navigate(ROUTES.TRADING_PERPS);
+      if (window.location.pathname !== ROUTES.TRADING_PERPS) {
+        router.navigate(ROUTES.TRADING_PERPS);
+      }
     } catch (err: any) {
       showError(
-        err?.message?.includes('reject') || err?.message?.includes('denied')
+        err?.message?.includes('reject') ||
+          err?.message?.includes('denied') ||
+          err?.message?.includes('rejected')
           ? 'Signature rejected. You can try again anytime.'
           : err?.message || 'Failed to derive Aster wallet. Please try again.'
       );

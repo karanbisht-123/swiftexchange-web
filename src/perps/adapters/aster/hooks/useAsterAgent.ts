@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import type { Wallet } from 'ethers';
-import { walletService } from '../../../../modules/walletconnect/services/walletService';
+
 import {
   deriveAsterAgentKey,
   encryptAndStoreAgentKey,
@@ -9,7 +10,7 @@ import {
   purgeAgentKey,
   restoreAgentWallet,
 } from '../../../../modules/walletconnect/services/asterAgentKeyManager';
-
+import { walletService } from '../../../../modules/walletconnect/services/walletService';
 import { useWalletStore } from '../../../../modules/walletconnect/store/walletConnectStore';
 
 type DeriveState = 'idle' | 'signing' | 'ready' | 'error';
@@ -58,13 +59,17 @@ export function useAsterAgent(): UseAsterAgentResult {
     if (!userAddr) {
       throw new Error('EVM wallet not connected');
     }
-    if (derivingRef.current) return;
+    if (derivingRef.current) {
+      throw new Error('Derivation request is already in progress. Please check your wallet.');
+    }
     derivingRef.current = true;
     setDeriveState('signing');
     setError(null);
 
     try {
-      const provider = walletService.getProvider('evm');
+      const provider =
+        walletService.getProvider('evm') ||
+        (typeof window !== 'undefined' ? (window as any).ethereum : null);
       if (!provider) throw new Error('EVM provider not available');
 
       const { agentAddress: addr, wallet } = await deriveAsterAgentKey(userAddr, provider);

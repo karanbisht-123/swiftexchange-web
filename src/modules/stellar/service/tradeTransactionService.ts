@@ -117,7 +117,10 @@ export class TradeTransactionService {
         : undefined;
 
       return { offers, nextCursor, hasMore };
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response?.status === 404 || error?.status === 404) {
+        return { offers: [], hasMore: false };
+      }
       console.error('Failed to fetch active offers:', error);
       throw new Error('Failed to fetch active offers');
     }
@@ -252,7 +255,10 @@ export class TradeTransactionService {
         : undefined;
 
       return { trades: finalTrades, nextCursor, hasMore };
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response?.status === 404 || error?.status === 404) {
+        return { trades: [], hasMore: false };
+      }
       console.error('Failed to fetch completed trades:', error);
       throw new Error('Failed to fetch completed trades');
     }
@@ -505,7 +511,10 @@ export class TradeTransactionService {
         : undefined;
 
       return { operations: response.records, nextCursor, hasMore };
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response?.status === 404 || error?.status === 404) {
+        return { operations: [], hasMore: false };
+      }
       console.error('Failed to fetch operations:', error);
       throw new Error('Failed to fetch operations');
     }
@@ -520,7 +529,10 @@ export class TradeTransactionService {
       const response = await this.server.claimableBalances().claimant(accountId).limit(50).call();
 
       return response.records;
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response?.status === 404 || error?.status === 404) {
+        return [];
+      }
       console.error('Failed to fetch claimable balances:', error);
       throw new Error('Failed to fetch claimable balances');
     }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatAmount, getGasBuffer, toPlainString } from '../swapAmountUtils';
+import {
+  calculateMaxSwapAmount,
+  formatAmount,
+  getGasBuffer,
+  toPlainString,
+} from '../swapAmountUtils';
 
 describe('toPlainString', () => {
   it('returns "0" for null', () => {
@@ -66,43 +71,123 @@ describe('formatAmount', () => {
 });
 
 describe('getGasBuffer', () => {
-  it('returns the BSC buffer for chainId 56', () => {
-    const buf = getGasBuffer(56, 18);
-    expect(buf).toBe(BigInt('500000000000000'));
+  it('returns the dynamic fee with 20% margin when networkFee is provided', () => {
+    // 0.00001 ETH -> 0.000012 ETH (12000000000000 wei)
+    const buf = getGasBuffer(1, 18, 0.00001);
+    expect(buf).toBe(BigInt('12000000000000'));
   });
 
-  it('returns the Polygon buffer for chainId 137', () => {
-    const buf = getGasBuffer(137, 18);
-    expect(buf).toBe(BigInt('100000000000000000'));
-  });
-
-  it('returns the L2 buffer for Arbitrum (42161)', () => {
-    const buf = getGasBuffer(42161, 18);
-    expect(buf).toBe(BigInt('500000000000000'));
-  });
-
-  it('returns the L2 buffer for Optimism (10)', () => {
-    const buf = getGasBuffer(10, 18);
-    expect(buf).toBe(BigInt('500000000000000'));
-  });
-
-  it('returns the L2 buffer for Base (8453)', () => {
-    const buf = getGasBuffer(8453, 18);
-    expect(buf).toBe(BigInt('500000000000000'));
-  });
-
-  it('returns the Stellar buffer for pubnet', () => {
+  it('returns the Stellar buffer for pubnet / stellar chain', () => {
     const buf = getGasBuffer('pubnet', 7);
-    expect(buf).toBe(BigInt('100000'));
+    expect(buf).toBe(BigInt('100000')); // 0.01 XLM
   });
 
-  it('returns the Stellar buffer for stellar chainId', () => {
-    const buf = getGasBuffer('stellar', 7);
-    expect(buf).toBe(BigInt('100000'));
-  });
-
-  it('returns the default ETH buffer for mainnet (chainId 1)', () => {
+  it('returns the default minimal buffer for EVM chains before quote arrives', () => {
     const buf = getGasBuffer(1, 18);
-    expect(buf).toBe(BigInt('3000000000000000'));
+    expect(buf).toBe(BigInt('100000000000000')); // 0.0001 ETH
+  });
+});
+
+describe('calculateMaxSwapAmount', () => {
+  it('returns 0 for empty or 0 balance', () => {
+    expect(calculateMaxSwapAmount({ balance: '0', chainId: 1 })).toBe('0');
+    expect(calculateMaxSwapAmount({ balance: null, chainId: 1 })).toBe('0');
+    expect(calculateMaxSwapAmount({ balance: undefined, chainId: 1 })).toBe('0');
+  });
+
+  it('returns 100% of balance for ERC-20 non-native tokens', () => {
+    const result = calculateMaxSwapAmount({
+      balance: '150.55',
+      decimals: 6,
+      isNative: false,
+      chainId: 1,
+    });
+    expect(result).toBe('150.55');
+  });
+
+  it('returns 100% of balance for gasless Fusion swaps', () => {
+    const result = calculateMaxSwapAmount({
+      balance: '1.25',
+      decimals: 18,
+      isNative: true,
+      isGasless: true,
+      actionType: 'SWAP',
+      chainId: 1,
+    });
+    expect(result).toBe('1.25');
+  });
+
+  it('deducts bridge native fee for gasless bridge trades with native fee', () => {
+    const result = calculateMaxSwapAmount({
+      balance: '1.0',
+      decimals: 18,
+      isNative: true,
+      isGasless: true,
+      chainId: 1,
+      actionType: 'BRIDGE',
+      feePayType: 'native',
+      bridgeNativeFee: '0.005',
+    });
+    // With isGasless=true, network gas is 0, but bridge fee 0.005 ETH is still deducted: 1.0 - 0.005 = 0.995 ETH
+    expect(result).toBe('0.995');
+  });
+
+  it('deducts dynamic network fee with safety margin for native token when balance is sufficient', () => {
+    // Balance: 0.000542 ETH, Fee: 0.000017 ETH -> gas buffer: 0.0000204 ETH
+    // Max: 0.000542 - 0.0000204 = 0.0005216 ETH
+    const result = calculateMaxSwapAmount({
+      balance: '0.000542',
+      decimals: 18,
+      isNative: true,
+      isGasless: false,
+      networkFee: 0.000017,
+      chainId: 1,
+    });
+    expect(result).toBe('0.0005216');
+  });
+
+  it('returns 0 if balance is less than required gas buffer instead of giving invalid full balance', () => {
+    const result = calculateMaxSwapAmount({
+      balance: '0.00001',
+      decimals: 18,
+      isNative: true,
+      isGasless: false,
+      chainId: 1,
+    });
+    expect(result).toBe('0');
+  });
+
+  it('deducts bridge native fee if actionType is BRIDGE and feePayType is native', () => {
+    const result = calculateMaxSwapAmount({
+      balance: '1.0',
+      decimals: 18,
+      isNative: true,
+      chainId: 1,
+      actionType: 'BRIDGE',
+      feePayType: 'native',
+      bridgeNativeFee: '0.005',
+    });
+    // Default buffer 0.0001 + 0.005 = 0.0051 ETH -> 1.0 - 0.0051 = 0.9949 ETH
+    expect(result).toBe('0.9949');
+  });
+
+  it('returns "0" on try-block error when isNative is true', () => {
+    const result = calculateMaxSwapAmount({
+      balance: '10.5',
+      decimals: 999999, // invalid decimals causes ethers parseUnits to throw
+      isNative: true,
+      chainId: 1,
+    });
+    expect(result).toBe('0');
+  });
+
+  it('returns raw toPlainString(balance) on try-block error when isNative is false', () => {
+    const result = calculateMaxSwapAmount({
+      balance: '10.5',
+      decimals: 999999, // invalid decimals causes ethers parseUnits to throw
+      isNative: false,
+      chainId: 1,
+    });
+    expect(result).toBe('10.5');
   });
 });

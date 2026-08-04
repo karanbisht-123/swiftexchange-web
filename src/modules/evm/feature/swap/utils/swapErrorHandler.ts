@@ -216,12 +216,23 @@ export function translateErrorMessage(message: string): string {
     return 'Insufficient native token balance to cover gas fees.';
   }
 
-  if (lower.includes('op_no_trust')) {
-    return 'Asset trustline missing. You must enable this asset in your wallet before you can receive it.';
+  if (
+    lower.includes('op_no_trust') ||
+    lower.includes('does not have a trustline') ||
+    (lower.includes('trustline') &&
+      (lower.includes('asset') || lower.includes('destination') || lower.includes('recipient')))
+  ) {
+    return 'Destination Stellar address is not activated or missing a trustline for this asset. Please fund your wallet with XLM and add the trustline.';
   }
 
-  if (lower.includes('op_src_not_found')) {
-    return 'Stellar account not activated. Send at least 1 XLM to this address to activate it.';
+  if (
+    lower.includes('op_src_not_found') ||
+    lower.includes('horizon-errors/not_found') ||
+    lower.includes('resource missing') ||
+    (lower.includes('stellar') && lower.includes('not found')) ||
+    lower.includes('account not found')
+  ) {
+    return 'Stellar account is not activated. Please send at least 1 XLM to your address to activate it on the Stellar network.';
   }
 
   if (lower.includes('op_limit_exceeded')) {

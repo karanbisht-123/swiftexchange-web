@@ -39,6 +39,14 @@ export function useSwapAssetDefaults(params: {
   const [isChainSwitching, setIsChainSwitching] = useState<boolean>(false);
   const hasInitializedDefaults = useRef(false);
 
+  const urlParamsApplied = useRef(false);
+
+  const parseChainId = (param: string): number | string => {
+    if (param === 'stellar' || param === 'pubnet') return STELLAR_CHAIN_ID;
+    const n = Number(param);
+    return isNaN(n) ? param : n;
+  };
+
   useEffect(() => {
     let initialFromChainId: number | string | null = null;
     let initialToChainId: number | string | null = null;
@@ -63,22 +71,8 @@ export function useSwapAssetDefaults(params: {
       const buyAssetParam = searchParams.get('buyAsset');
       const buyAddressParam = searchParams.get('buyAddress');
 
-      if (fromParam) {
-        initialFromChainId =
-          fromParam === 'stellar'
-            ? STELLAR_CHAIN_ID
-            : isNaN(Number(fromParam))
-              ? fromParam
-              : Number(fromParam);
-      }
-      if (toParam) {
-        initialToChainId =
-          toParam === 'stellar'
-            ? STELLAR_CHAIN_ID
-            : isNaN(Number(toParam))
-              ? toParam
-              : Number(toParam);
-      }
+      if (fromParam) initialFromChainId = parseChainId(fromParam);
+      if (toParam) initialToChainId = parseChainId(toParam);
       if (sellAssetParam) initialSellSymbol = sellAssetParam;
       if (sellAddressParam) initialSellAddr = sellAddressParam;
       if (buyAssetParam) initialBuySymbol = buyAssetParam;
@@ -104,6 +98,8 @@ export function useSwapAssetDefaults(params: {
       setBuyAssetSymbol(initialBuySymbol);
       setBuyAssetAddress(initialBuyAddr);
     }
+
+    urlParamsApplied.current = true;
   }, []);
 
   useEffect(() => {
@@ -143,6 +139,7 @@ export function useSwapAssetDefaults(params: {
   }, [currentChainId, isConnected, connectedWallets, searchParams, currentNetwork, locationState]);
 
   useEffect(() => {
+    if (!urlParamsApplied.current) return;
     const params = new URLSearchParams();
     params.set('fromChainId', String(fromChainId));
     params.set('toChainId', String(toChainId));
@@ -161,8 +158,14 @@ export function useSwapAssetDefaults(params: {
     setSearchParams,
   ]);
 
+  const isInitialMount = useRef(true);
   const prevChainIds = useRef({ from: fromChainId, to: toChainId });
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      prevChainIds.current = { from: fromChainId, to: toChainId };
+      return;
+    }
     if (prevChainIds.current.from !== fromChainId || prevChainIds.current.to !== toChainId) {
       resetInputs();
       prevChainIds.current = { from: fromChainId, to: toChainId };

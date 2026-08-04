@@ -5,11 +5,11 @@ import BigNumber from 'bignumber.js';
 
 import { Tooltip } from '../../../components/common/Tooltip';
 import PageLayout from '../../../components/layout/PageLayout';
-import { EvmActionGuard } from '../../evm/components/EvmActionGuard';
 import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
-import StellarActiveGuard from '../../walletconnect/components/StellarActiveGuard';
+import { WalletType } from '../../walletconnect/constants/Wallet';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
+import { ActionGuard } from '../components/ActionGuard';
 import TransactionButton from '../components/TransactionButton';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { useSendAsset } from '../hook/useSendassets';
@@ -598,26 +598,30 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
           </div>
         )}
 
-        {formError && (
+        {formError && formError !== 'Connect wallet' && (
           <div className="bg-danger/5 border border-danger/10 rounded-xl p-3.5 flex gap-3 items-center">
             <AlertCircle size={14} className="text-danger shrink-0" />
             <p className="text-[11px] font-bold text-danger leading-tight">{formError}</p>
           </div>
         )}
 
-        <TransactionButton
-          label={buttonLabel}
-          loadingLabel={isFetchingRecipientTrust ? 'Checking Recipient...' : 'Calculating Fees...'}
-          isLoading={isEstimatingFees || isFetchingRecipientTrust}
-          isDisabled={!isFormValid && !needsTrustline}
-          onClick={handleReviewTransaction}
-          className="mt-2"
-        />
+        <ActionGuard
+          requiredWallets={[currentAsset?.type === 'stellar' ? WalletType.STELLAR : WalletType.EVM]}
+        >
+          <TransactionButton
+            label={!senderAddress ? 'Connect Wallet' : buttonLabel}
+            loadingLabel={
+              isFetchingRecipientTrust ? 'Checking Recipient...' : 'Calculating Fees...'
+            }
+            isLoading={isEstimatingFees || isFetchingRecipientTrust}
+            isDisabled={senderAddress ? !isFormValid && !needsTrustline : false}
+            onClick={handleReviewTransaction}
+            className="mt-2"
+          />
+        </ActionGuard>
       </div>
     );
   };
-
-  const isStellar = currentAsset?.type === 'stellar';
 
   const renderStep = () => {
     switch (transactionState.step) {
@@ -656,15 +660,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
       isBeta
       betaMessage="This feature is in Beta. Please double-check the network and address  crypto transactions can't be reversed."
     >
-      <div className="w-full mx-auto">
-        {isStellar ? (
-          <StellarActiveGuard onSkip={onBack}>{renderStep()}</StellarActiveGuard>
-        ) : (
-          <EvmActionGuard>
-            <>{renderStep()}</>
-          </EvmActionGuard>
-        )}
-      </div>
+      <div className="w-full mx-auto">{renderStep()}</div>
     </PageLayout>
   );
 };

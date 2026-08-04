@@ -15,50 +15,14 @@ import {
   type NearIntentQuoteRequest,
   type NearIntentToken,
   fetchNearIntentTokens,
+  getEvmChainId,
   getNearIntentQuote,
   isStellarBlockchain,
+  safeParseUnits,
   submitNearIntentDeposit,
 } from '../services/oneClickApi';
 
-const BLOCKCHAIN_TO_CHAIN_ID: Record<string, number> = {
-  ethereum: 1,
-  eth: 1,
-  arbitrum: 42161,
-  arb: 42161,
-  polygon: 137,
-  pol: 137,
-  matic: 137,
-  bsc: 56,
-  'binance-smart-chain': 56,
-  bnb: 56,
-  base: 8453,
-  optimism: 10,
-  op: 10,
-  avalanche: 43114,
-  avax: 43114,
-  fantom: 250,
-  ftm: 250,
-  gnosis: 100,
-  xdai: 100,
-  celo: 42220,
-  zksync: 324,
-  'zksync-era': 324,
-  linea: 59144,
-  scroll: 534352,
-  mantle: 5000,
-};
-
-export function getEvmChainId(token: NearIntentToken): number | null {
-  const fromField = BLOCKCHAIN_TO_CHAIN_ID[token.blockchain?.toLowerCase() ?? ''];
-  if (fromField) return fromField;
-
-  const match = token.assetId.match(/nep141:([a-z]+)-0x/);
-  if (match) {
-    const fromPrefix = BLOCKCHAIN_TO_CHAIN_ID[match[1]];
-    if (fromPrefix) return fromPrefix;
-  }
-  return (findChain(token.blockchain, 'mainnet')?.chainId as number) ?? null;
-}
+export { getEvmChainId };
 
 export interface UseNearIntentCrossChainProps {
   evmAddress: string;
@@ -277,7 +241,7 @@ export const useNearIntentCrossChain = ({
           const sellAddress = sellAsset.contractAddress || '';
           let txHashResultHex = '';
           const fromAddr = (await signer.getAddress()).toLowerCase();
-          const amountInWei = ethers.parseUnits(amount, sellAsset.decimals || 18);
+          const amountInWei = BigInt(safeParseUnits(amount, sellAsset.decimals || 18));
 
           if (
             !sellAddress ||

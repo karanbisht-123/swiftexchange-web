@@ -1,7 +1,7 @@
 import { Wallet, getAddress, verifyTypedData } from 'ethers';
-import { destroyAESKey, generateAndStoreAESKey, retrieveAESKey } from './keyVaultIndexedDB';
-import { ASTER_REST_URL } from '../../../perps/adapters/aster/constants';
 
+import { ASTER_REST_URL } from '../../../perps/adapters/aster/constants';
+import { destroyAESKey, generateAndStoreAESKey, retrieveAESKey } from './keyVaultIndexedDB';
 
 const BLOB_KEY = '_sx_aster_agentkey';
 const ADDR_KEY = '_sx_aster_agentaddr';
@@ -30,8 +30,13 @@ const APPROVE_AGENT_TYPES = {
   ],
 };
 
-
-function buildApproveAgentData(evmAddress: string, agentAddress: string, nonce: number, expired: number, chainId: number) {
+function buildApproveAgentData(
+  evmAddress: string,
+  agentAddress: string,
+  nonce: number,
+  expired: number,
+  chainId: number
+) {
   return {
     domain: getAsterAgentDomain(chainId),
     primaryType: 'ApproveAgent' as const,
@@ -76,13 +81,24 @@ function fromBase64(b64: string): Uint8Array {
   return out;
 }
 
-async function encryptBytes(plain: Uint8Array, aesKey: CryptoKey): Promise<{ ciphertext: string; iv: string }> {
+async function encryptBytes(
+  plain: Uint8Array,
+  aesKey: CryptoKey
+): Promise<{ ciphertext: string; iv: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plain as unknown as BufferSource);
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    aesKey,
+    plain as unknown as BufferSource
+  );
   return { ciphertext: toBase64(new Uint8Array(encrypted)), iv: toBase64(iv) };
 }
 
-async function decryptBytes(ciphertext: string, iv: string, aesKey: CryptoKey): Promise<Uint8Array> {
+async function decryptBytes(
+  ciphertext: string,
+  iv: string,
+  aesKey: CryptoKey
+): Promise<Uint8Array> {
   const cipherBuf = fromBase64(ciphertext);
   const ivBuf = fromBase64(iv);
   const decrypted = await crypto.subtle.decrypt(
@@ -127,7 +143,7 @@ export async function submitApproveAgent(params: {
     `user=${getAddress(params.user)}`,
     `nonce=${params.nonce}`,
     `signature=${params.signature}`,
-    `signatureChainId=${params.signatureChainId}`
+    `signatureChainId=${params.signatureChainId}`,
   ];
 
   const queryString = rawParams.join('&');
@@ -137,16 +153,27 @@ export async function submitApproveAgent(params: {
   console.log('url:', url);
   console.groupEnd();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   let res: Response;
   try {
     res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: '',
+      signal: controller.signal,
     });
-  } catch (error) {
-    console.warn(`Fetch to ${url} failed — possible CORS block, may need a proxy for this endpoint.`, error);
-    throw error;
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error(
+        'Connection timed out while contacting Aster API. Please check your internet connection.'
+      );
+    }
+    console.warn(`Fetch to ${url} failed`, error);
+    throw new Error(error?.message || 'Network error connecting to Aster API');
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const data = await res.json();
@@ -157,33 +184,85 @@ export async function submitApproveAgent(params: {
   console.groupEnd();
 
   if (data.code !== 200) {
-    throw new Error(`Aster API approval failed: ${data.msg} (code: ${data.code})`);
+    throw new Error(
+      `Aster API approval failed: ${data.msg || 'Unknown error'} (code: ${data.code})`
+    );
   }
 }
 
-async function signTypedData(provider: any, evmAddress: string, typedData: object): Promise<string> {
-  const payload = JSON.stringify(typedData);
-  try {
-    return await provider.request({
-      method: 'eth_signTypedData_v4',
-      params: [evmAddress, payload],
-    });
-  } catch (err: any) {
-    const isUnknownMethod =
-      err?.code === 4200 || err?.code === -32601 || /unknown method|not supported/i.test(err?.message ?? '');
-    if (!isUnknownMethod) throw err;
+async function signTypedData(
+  provider: any,
+  evmAddress: string,
+  typedData: object
+): Promise<string> {
+  const isWalletConnect = !!provider?.session;
+  const payload = isWalletConnect ? typedData : JSON.stringify(typedData);
 
-    return await provider.request({
-      method: 'eth_signTypedData',
-      params: [evmAddress, payload],
-    });
+  try {
+    const token = localStorage.getItem('device_token');
+    if (token) {
+      const { sendCustomNotification } = await import('../../../service/notificationService');
+      sendCustomNotification(token, {
+        title: 'Signature Request',
+        body: 'Please open your wallet to sign the Aster onboarding message.',
+      }).catch(err => console.error(err));
+    }
+  } catch {
+    // ignore
+  }
+
+  const signPromise = (async () => {
+    try {
+      return await provider.request({
+        method: 'eth_signTypedData_v4',
+        params: [evmAddress, payload],
+      });
+    } catch (err: any) {
+      const isUnknownMethod =
+        err?.code === 4200 ||
+        err?.code === -32601 ||
+        /unknown method|not supported/i.test(err?.message ?? '');
+      if (!isUnknownMethod) throw err;
+
+      return await provider.request({
+        method: 'eth_signTypedData',
+        params: [evmAddress, payload],
+      });
+    }
+  })();
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error('Signature request timed out. Please check your wallet.')),
+      60000
+    )
+  );
+
+  try {
+    return (await Promise.race([signPromise, timeoutPromise])) as string;
+  } catch (error: any) {
+    if (
+      error?.code === 4001 ||
+      error?.code === 'ACTION_REJECTED' ||
+      error?.message?.includes('reject') ||
+      error?.message?.includes('denied')
+    ) {
+      throw new Error('Signature rejected by user');
+    }
+    throw error;
   }
 }
 
 export async function deriveAsterAgentKey(
   evmAddress: string,
   provider: any
-): Promise<{ agentAddress: string; wallet: Wallet; signature: string; nonce: string; expired: string }> {
+): Promise<{
+  agentAddress: string;
+  wallet: Wallet;
+  signature: string;
+  nonce: string;
+  expired: string;
+}> {
   let chainId = 56;
 
   try {
@@ -229,7 +308,7 @@ export async function deriveAsterAgentKey(
   if (getAddress(recovered) !== getAddress(evmAddress)) {
     throw new Error(
       `Local signature verification failed: expected signer ${evmAddress}, recovered ${recovered}. ` +
-      `The signature does not match (domain, types, message) — check that the wallet actually signed exactly this payload.`
+        `The signature does not match (domain, types, message) — check that the wallet actually signed exactly this payload.`
     );
   }
 
@@ -246,7 +325,13 @@ export async function deriveAsterAgentKey(
     canWithdraw: false,
   });
 
-  return { agentAddress: agentWallet.address, wallet: agentWallet, signature, nonce: nonce.toString(), expired: expired.toString() };
+  return {
+    agentAddress: agentWallet.address,
+    wallet: agentWallet,
+    signature,
+    nonce: nonce.toString(),
+    expired: expired.toString(),
+  };
 }
 
 export async function encryptAndStoreAgentKey(privKeyHex: string): Promise<string> {

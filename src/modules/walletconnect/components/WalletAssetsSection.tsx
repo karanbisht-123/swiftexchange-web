@@ -18,6 +18,7 @@ import { ROUTES } from '../../../constants/routes';
 import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 import { useWalletAssets } from '../hooks/useWalletAssets';
+import { useWalletConnect } from '../hooks/useWalletConnect';
 import { type Asset } from '../store/portfolioStore';
 import type { ProviderStatus } from '../store/portfolioStore';
 import { useWalletStore } from '../store/walletConnectStore';
@@ -535,6 +536,7 @@ const SkeletonRows = () => (
 const WalletAssetsSection = () => {
   const navigate = useNavigate();
   const { network } = useWalletStore();
+  const { connectedWallets, openModal } = useWalletConnect();
   const {
     assets,
     loading,
@@ -545,6 +547,11 @@ const WalletAssetsSection = () => {
     providerStatus,
     refetch,
   } = useWalletAssets(network);
+
+  const hasAnyConnectedWallet = useMemo(
+    () => Object.values(connectedWallets).some(w => !!w?.address),
+    [connectedWallets]
+  );
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
@@ -695,18 +702,34 @@ const WalletAssetsSection = () => {
               <div className="w-16 h-16 rounded-full bg-tertiary flex items-center justify-center mx-auto mb-4">
                 <Wallet size={28} className="text-muted opacity-40" />
               </div>
-              <p className="font-medium text-primary mb-1">No assets</p>
-              <p className="text-sm text-muted mb-4">Your wallet has no balances yet.</p>
-              <button
-                onClick={() => navigate(ROUTES.MY_ASSETS)}
-                className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-primary font-bold text-xs uppercase tracking-wider bg-secondary border border-color hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer mx-auto shadow-sm"
-              >
-                <span>View Full Portfolio</span>
-                <ArrowUpRight
-                  size={14}
-                  className="text-muted group-hover:text-primary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0"
-                />
-              </button>
+              <p className="font-medium text-primary mb-1">
+                {hasAnyConnectedWallet ? 'No assets' : 'Connect Wallet to View Assets'}
+              </p>
+              <p className="text-sm text-muted mb-4 max-w-xs mx-auto">
+                {hasAnyConnectedWallet
+                  ? 'Your wallet has no balances yet.'
+                  : 'Connect your EVM or Stellar wallet to view balances, track your portfolio, and trade.'}
+              </p>
+              {hasAnyConnectedWallet ? (
+                <button
+                  onClick={() => navigate(ROUTES.MY_ASSETS)}
+                  className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-primary font-bold text-xs uppercase tracking-wider bg-secondary border border-color hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer mx-auto shadow-sm"
+                >
+                  <span>View Full Portfolio</span>
+                  <ArrowUpRight
+                    size={14}
+                    className="text-muted group-hover:text-primary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0"
+                  />
+                </button>
+              ) : (
+                <button
+                  onClick={openModal}
+                  className="btn btn-primary px-6 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                >
+                  <Wallet size={16} />
+                  Connect Wallet
+                </button>
+              )}
             </div>
           ) : (
             <div className="w-full h-[71svh] lg:h-[65svh] pt-1">

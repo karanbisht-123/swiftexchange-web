@@ -153,7 +153,7 @@ describe('isInsufficientEvmGas', () => {
   });
 
   it('returns true when non-native sell asset and native balance is below gas buffer', () => {
-    const lowBalAsset = { ...nativeAsset, balance: '0.0001' };
+    const lowBalAsset = { ...nativeAsset, balance: '0.00005' };
     expect(isInsufficientEvmGas({ ...baseParams, swapAssets: [lowBalAsset] })).toBe(true);
   });
 

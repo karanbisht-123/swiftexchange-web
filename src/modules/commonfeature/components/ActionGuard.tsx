@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Wallet, ShieldCheck } from 'lucide-react';
-import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { WalletType } from '../../walletconnect/constants/Wallet';
+import { ShieldCheck, Wallet } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+
 import { ConfirmationModal } from '../../../components/common/ConfirmationModal';
+import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 
 interface ActionGuardProps {
   children: React.ReactElement;
@@ -47,6 +48,13 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
     openModal();
   };
 
+  const confirmButtonText = useMemo(() => {
+    if (missingWallets.length === 1) {
+      return `Connect ${WALLET_NAMES[missingWallets[0]] || missingWallets[0]} Wallet`;
+    }
+    return 'Connect Wallets';
+  }, [missingWallets]);
+
   const displayMessage = useMemo(() => {
     if (message) return message;
     if (missingWallets.length === 0) return '';
@@ -55,8 +63,7 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
     if (names.length === 1) {
       return `Please connect your ${names[0]} wallet to proceed with this transaction.`;
     }
-    const last = names.pop();
-    return `Please connect your ${names.join(', ')} and ${last} wallets to proceed.`;
+    return `Please connect both your ${names.join(' and ')} wallets to execute this cross-chain transaction.`;
   }, [message, missingWallets]);
 
   return (
@@ -73,7 +80,7 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
         title={title}
         onConfirm={handleConfirm}
         onCancel={() => setShowPrompt(false)}
-        confirmText="Connect Wallets"
+        confirmText={confirmButtonText}
         cancelText="Maybe Later"
         message={
           <div className="flex flex-col items-center text-center py-4">
@@ -86,9 +93,7 @@ export const ActionGuard: React.FC<ActionGuardProps> = ({
               </div>
             </div>
             <h4 className="text-primary font-bold mb-2 tracking-tight">Almost there!</h4>
-            <p className="text-secondary text-sm leading-relaxed max-w-[240px]">
-              {displayMessage}
-            </p>
+            <p className="text-secondary text-sm leading-relaxed max-w-[280px]">{displayMessage}</p>
           </div>
         }
       />

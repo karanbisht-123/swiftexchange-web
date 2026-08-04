@@ -1,18 +1,19 @@
 import { useMemo } from 'react';
-import {
-  isInsufficientBalance as checkInsufficientBalance,
-  isAmountLessThanFee as checkAmountLessThanFee,
-  isInsufficientStellarGas as checkInsufficientStellarGas,
-  isInsufficientEvmGas as checkInsufficientEvmGas
-} from '../utils/swapValidationUtils';
+
 import { isSameAsset as checkSameAsset, isStellar } from '../utils/swapAssetUtils';
 import {
-  getCalculatedBuyAmount,
   getMinimumReceived as checkMinimumReceived,
-  getConversionRate,
   getButtonLabel,
-  getErrorMessage
+  getCalculatedBuyAmount,
+  getConversionRate,
+  getErrorMessage,
 } from '../utils/swapQuoteUtils';
+import {
+  isAmountLessThanFee as checkAmountLessThanFee,
+  isInsufficientBalance as checkInsufficientBalance,
+  isInsufficientEvmGas as checkInsufficientEvmGas,
+  isInsufficientStellarGas as checkInsufficientStellarGas,
+} from '../utils/swapValidationUtils';
 
 export interface UseSwapValidationParams {
   sellAmount: string;
@@ -37,6 +38,7 @@ export interface UseSwapValidationParams {
   userSlippageTolerance: number;
   showFusionScreen: boolean;
   fusionQuote: any;
+  missingWallets?: string[];
 }
 
 export function useSwapValidation(params: UseSwapValidationParams) {
@@ -63,14 +65,23 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     userSlippageTolerance,
     showFusionScreen,
     fusionQuote,
+    missingWallets,
   } = params;
 
+  const isWalletMissing = !!(missingWallets && missingWallets.length > 0);
+
   const isInsufficientBalance = useMemo(() => {
+    if (isWalletMissing) return false;
     return checkInsufficientBalance(sellAmount, selectedSellAsset?.balance);
-  }, [sellAmount, selectedSellAsset]);
+  }, [sellAmount, selectedSellAsset, isWalletMissing]);
 
   const isSameAssetSelected = useMemo(() => {
-    return actionType === 'SWAP' && fromChainId === toChainId && checkSameAsset(selectedSellAsset, selectedBuyAsset) && !!selectedSellAsset;
+    return (
+      actionType === 'SWAP' &&
+      fromChainId === toChainId &&
+      checkSameAsset(selectedSellAsset, selectedBuyAsset) &&
+      !!selectedSellAsset
+    );
   }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
 
   const isAmountLessThanFee = useMemo(() => {
@@ -80,6 +91,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   }, [actionType, sellAmount, activeQuote.data, feePayType]);
 
   const hasInsufficientStellarGas = useMemo(() => {
+    if (isWalletMissing) return false;
     // Only check gas if a quote has fetched and we aren't quote loading
     const hasQuote = !!activeQuote.data;
     if (isQuoteLoading || isFetchingStellarAssets || !hasQuote) {
@@ -92,15 +104,26 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       sellAmount,
       actionType,
       feePayType,
-      activeQuoteData: activeQuote.data
+      activeQuoteData: activeQuote.data,
     });
-  }, [fromChainId, stellarAssets, selectedSellAsset, sellAmount, actionType, feePayType, activeQuote.data, isQuoteLoading, isFetchingStellarAssets]);
+  }, [
+    fromChainId,
+    stellarAssets,
+    selectedSellAsset,
+    sellAmount,
+    actionType,
+    feePayType,
+    activeQuote.data,
+    isQuoteLoading,
+    isFetchingStellarAssets,
+    isWalletMissing,
+  ]);
 
   const hasInsufficientEvmGas = useMemo(() => {
+    if (isWalletMissing) return false;
     // Only check gas if a quote has fetched (either swap or bridge) and we aren't quote loading
-    const hasQuote = actionType === 'SWAP' 
-      ? (isGasless ? !!fusionQuote : !!swapQuote)
-      : !!activeQuote.data;
+    const hasQuote =
+      actionType === 'SWAP' ? (isGasless ? !!fusionQuote : !!swapQuote) : !!activeQuote.data;
 
     if (isQuoteLoading || isFetchingSwapAssets || !hasQuote) {
       return false;
@@ -115,9 +138,25 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       activeQuoteSource: activeQuote.source,
       activeQuoteData: activeQuote.data,
       swapQuoteNetworkFee: swapQuote?.networkFee,
-      isGasless
+      isGasless,
     });
-  }, [fromChainId, swapAssets, selectedSellAsset, sellAmount, actionType, feePayType, activeQuote.source, activeQuote.data, swapQuote?.networkFee, isGasless, isQuoteLoading, isFetchingSwapAssets, fusionQuote, swapQuote]);
+  }, [
+    fromChainId,
+    swapAssets,
+    selectedSellAsset,
+    sellAmount,
+    actionType,
+    feePayType,
+    activeQuote.source,
+    activeQuote.data,
+    swapQuote?.networkFee,
+    isGasless,
+    isQuoteLoading,
+    isFetchingSwapAssets,
+    fusionQuote,
+    swapQuote,
+    isWalletMissing,
+  ]);
 
   const nativeSymbol = useMemo(() => {
     const nativeAsset = swapAssets.find(a => a.isNative);
@@ -139,9 +178,24 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       crossChainWarning,
       activeQuoteData: activeQuote.data,
       feePayType,
-      nativeSymbol
+      nativeSymbol,
     });
-  }, [bridgeTxStatus, bridgeErrorMsg, swapError, activeQuote.error, isInsufficientBalance, isAmountLessThanFee, hasInsufficientStellarGas, hasInsufficientEvmGas, isSameAssetSelected, actionType, crossChainWarning, activeQuote.data, feePayType, nativeSymbol]);
+  }, [
+    bridgeTxStatus,
+    bridgeErrorMsg,
+    swapError,
+    activeQuote.error,
+    isInsufficientBalance,
+    isAmountLessThanFee,
+    hasInsufficientStellarGas,
+    hasInsufficientEvmGas,
+    isSameAssetSelected,
+    actionType,
+    crossChainWarning,
+    activeQuote.data,
+    feePayType,
+    nativeSymbol,
+  ]);
 
   const buttonLabel = useMemo(() => {
     return getButtonLabel({
@@ -157,17 +211,68 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       hasInsufficientEvmGas,
       toChainId,
       selectedBuyAsset,
-      nativeSymbol
+      nativeSymbol,
+      missingWallets,
     });
-  }, [isFetchingSwapAssets, isQuoteLoading, isFetchingStellarAssets, sellAmount, isSameAssetSelected, errorMessage, isInsufficientBalance, isAmountLessThanFee, hasInsufficientStellarGas, hasInsufficientEvmGas, toChainId, selectedBuyAsset, nativeSymbol]);
+  }, [
+    isFetchingSwapAssets,
+    isQuoteLoading,
+    isFetchingStellarAssets,
+    sellAmount,
+    isSameAssetSelected,
+    errorMessage,
+    isInsufficientBalance,
+    isAmountLessThanFee,
+    hasInsufficientStellarGas,
+    hasInsufficientEvmGas,
+    toChainId,
+    selectedBuyAsset,
+    nativeSymbol,
+    missingWallets,
+  ]);
 
   const isErrorState = useMemo(() => {
-    // Do not show error state (red button/warnings) if amount is not entered or if we are actively fetching quotes
-    if (!sellAmount || parseFloat(sellAmount) <= 0 || isQuoteLoading || isFetchingSwapAssets || isFetchingStellarAssets) {
+    // Do not show error state (red button/warnings) if amount is not entered, if disconnected, or if we are actively fetching quotes
+    if (
+      isWalletMissing ||
+      !sellAmount ||
+      parseFloat(sellAmount) <= 0 ||
+      isQuoteLoading ||
+      isFetchingSwapAssets ||
+      isFetchingStellarAssets
+    ) {
       return false;
     }
-    return !!(swapError || isInsufficientBalance || isAmountLessThanFee || hasInsufficientStellarGas || hasInsufficientEvmGas || bridgeTxStatus === 'error' || bridgeErrorMsg || isSameAssetSelected || (actionType === 'BRIDGE' && crossChainWarning) || activeQuote.error);
-  }, [sellAmount, isQuoteLoading, isFetchingSwapAssets, isFetchingStellarAssets, swapError, isInsufficientBalance, isAmountLessThanFee, hasInsufficientStellarGas, hasInsufficientEvmGas, bridgeTxStatus, bridgeErrorMsg, isSameAssetSelected, actionType, crossChainWarning, activeQuote.error]);
+    return !!(
+      swapError ||
+      isInsufficientBalance ||
+      isAmountLessThanFee ||
+      hasInsufficientStellarGas ||
+      hasInsufficientEvmGas ||
+      bridgeTxStatus === 'error' ||
+      bridgeErrorMsg ||
+      isSameAssetSelected ||
+      (actionType === 'BRIDGE' && crossChainWarning) ||
+      activeQuote.error
+    );
+  }, [
+    isWalletMissing,
+    sellAmount,
+    isQuoteLoading,
+    isFetchingSwapAssets,
+    isFetchingStellarAssets,
+    swapError,
+    isInsufficientBalance,
+    isAmountLessThanFee,
+    hasInsufficientStellarGas,
+    hasInsufficientEvmGas,
+    bridgeTxStatus,
+    bridgeErrorMsg,
+    isSameAssetSelected,
+    actionType,
+    crossChainWarning,
+    activeQuote.error,
+  ]);
 
   const isLoadingExecution = useMemo(() => {
     return ['preparing', 'signing'].includes(bridgeTxStatus);
@@ -184,9 +289,20 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       activeQuoteData: activeQuote.data,
       swapQuote,
       isSameAssetSelected,
-      feePayType
+      feePayType,
     });
-  }, [actionType, isGasless, fusionQuote, showFusionScreen, selectedBuyAsset, activeQuote.source, activeQuote.data, swapQuote, isSameAssetSelected, feePayType]);
+  }, [
+    actionType,
+    isGasless,
+    fusionQuote,
+    showFusionScreen,
+    selectedBuyAsset,
+    activeQuote.source,
+    activeQuote.data,
+    swapQuote,
+    isSameAssetSelected,
+    feePayType,
+  ]);
 
   const conversionRate = useMemo(() => {
     return getConversionRate(sellAmount, calculatedBuyAmount);
@@ -202,12 +318,27 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       swapQuote,
       selectedBuyAsset,
       userSlippageTolerance,
-      calculatedBuyAmount
+      calculatedBuyAmount,
     });
-  }, [actionType, activeQuote.source, activeQuote.data, feePayType, fromChainId, swapQuote, selectedBuyAsset, userSlippageTolerance, calculatedBuyAmount]);
+  }, [
+    actionType,
+    activeQuote.source,
+    activeQuote.data,
+    feePayType,
+    fromChainId,
+    swapQuote,
+    selectedBuyAsset,
+    userSlippageTolerance,
+    calculatedBuyAmount,
+  ]);
 
   const isSwapDisabled = useMemo(() => {
-    return !sellAmount ||
+    if (isWalletMissing) {
+      return isSameAssetSelected || isLoadingExecution;
+    }
+
+    return (
+      !sellAmount ||
       parseFloat(sellAmount) <= 0 ||
       isInsufficientBalance ||
       isAmountLessThanFee ||
@@ -220,8 +351,26 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       isFetchingSwapAssets ||
       activeQuote.loading ||
       isQuoteLoading ||
-      isSameAssetSelected;
-  }, [sellAmount, isInsufficientBalance, isAmountLessThanFee, hasInsufficientStellarGas, hasInsufficientEvmGas, isLoadingExecution, actionType, fromChainId, activeQuote.data, activeQuote.loading, swapQuote, isGasless, isFetchingSwapAssets, isQuoteLoading, isSameAssetSelected]);
+      isSameAssetSelected
+    );
+  }, [
+    isWalletMissing,
+    sellAmount,
+    isInsufficientBalance,
+    isAmountLessThanFee,
+    hasInsufficientStellarGas,
+    hasInsufficientEvmGas,
+    isLoadingExecution,
+    actionType,
+    fromChainId,
+    activeQuote.data,
+    activeQuote.loading,
+    swapQuote,
+    isGasless,
+    isFetchingSwapAssets,
+    isQuoteLoading,
+    isSameAssetSelected,
+  ]);
 
   return {
     isInsufficientBalance,

@@ -349,7 +349,7 @@ export const useEvmSwap = ({
 
         const adjustedRequest: SwapQuoteRequest = {
           ...request,
-          recipient: senderAddress,
+          recipient: senderAddress || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
           slippage: state.userSlippageTolerance.toString(),
           tokenIn: {
             ...sellAsset,
@@ -425,7 +425,7 @@ export const useEvmSwap = ({
             tokenIn: normalizedTokenIn,
             tokenOut: normalizedTokenOut,
             amount: formatAmount(amount, sellAsset.decimals),
-            walletAddress: senderAddress,
+            walletAddress: senderAddress || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
           },
           buyAsset.chainId,
           fusionSignal

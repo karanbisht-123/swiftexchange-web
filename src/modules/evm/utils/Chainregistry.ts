@@ -313,23 +313,9 @@ export interface NormalizedToken {
   name: string;
   logoURI: string;
   isNative: boolean;
-  /** True when we corrected the display from a wrong chain-identifier symbol */
   wasCorrected: boolean;
 }
 
-/**
- * Normalizes a token's display metadata for a given chain.
- *
- * Problem: Token sources (1inch, Uniswap, etc.) sometimes label the native
- * address (0x0000…) on Arbitrum as "ARB", on Optimism as "OPT", etc. —
- * which is **wrong**. The actual gas token paid on all three ETH L2s is ETH.
- *
- * This function detects that case and returns corrected ETH display data
- * without modifying the underlying token source.
- *
- * @param token   Raw token object from any source.
- * @param chainId The chain the token belongs to.
- */
 export function normalizeTokenForDisplay(
   token: {
     symbol?: string;
@@ -344,7 +330,6 @@ export function normalizeTokenForDisplay(
 ): NormalizedToken {
   const isNative = !!token.isNative || token.type === 'NATIVE' || isNativeAddress(token.address);
 
-  // On ETH L2 chains the zero-address IS ETH, regardless of what the API says
   if (isNative && ETH_GAS_L2_CHAIN_IDS.has(Number(chainId) || chainId)) {
     return {
       symbol: 'ETH',
@@ -355,7 +340,6 @@ export function normalizeTokenForDisplay(
     };
   }
 
-  // Also correct the Ethereum chain itself (safety)
   if (isNative && (chainId === 1 || chainId === '1')) {
     return {
       symbol: 'ETH',
@@ -425,14 +409,11 @@ export function chainTypeToId(slug: string, network: NetworkType): number | stri
 export async function initDynamicTokenLists() {
   for (const chain of CHAIN_REGISTRY) {
     if (typeof chain.supportedTokenList === 'string') {
-      // Try Cache First
       const cachedAssets = getCachedTokenList(chain.chainId);
       if (cachedAssets) {
         registerDynamicAssets(chain.chainId, cachedAssets);
         continue;
       }
-
-      // Fetch from Network
       try {
         const response = await fetch(chain.supportedTokenList);
         if (!response.ok) continue;

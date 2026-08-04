@@ -637,7 +637,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   };
 
   const executeEvmNearIntentBridge = async (checkAborted: () => void) => {
-    if (!executeNearIntentDeposit || !activeQuote.data) {
+    if (!executeNearIntentDeposit) {
       setBridgeTxStatus('idle');
       return;
     }
@@ -652,33 +652,82 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     setIsWaitingForWallet(true);
 
     try {
-      // Find the NearIntentToken
-      const { fetchNearIntentTokens, isStellarBlockchain } =
-        await import('../services/oneClickApi');
-      const { getEvmChainId } = await import('../hooks/useNearIntentCrossChain');
+      const {
+        fetchNearIntentTokens,
+        isStellarBlockchain,
+        getNearIntentQuote,
+        matchNearIntentToken,
+        safeParseUnits,
+      } = await import('../services/oneClickApi');
       const nearTokens = await fetchNearIntentTokens();
 
-      const nearSellAsset = nearTokens.find((t: any) => {
-        if (t.symbol.toUpperCase() !== sellAssetSymbol.toUpperCase()) return false;
-        const tChainId = isStellarBlockchain(t.blockchain) ? 'stellar' : getEvmChainId(t);
-        return String(tChainId) === String(isStellar(fromChainId) ? 'stellar' : fromChainId);
-      });
+      const nearSellAsset = matchNearIntentToken(
+        nearTokens,
+        sellAssetSymbol,
+        (selectedSellAsset as any)?.address,
+        fromChainId
+      );
 
       if (!nearSellAsset) throw new Error('Could not resolve NEAR Intent asset for deposit');
 
-      const hash = await executeNearIntentDeposit(nearSellAsset, sellAmount, activeQuote.data);
+      const nearBuyAsset = matchNearIntentToken(
+        nearTokens,
+        buyAssetSymbol,
+        (selectedBuyAsset as any)?.address,
+        toChainId
+      );
+
+      const isStellarOrigin = isStellarBlockchain(nearSellAsset.blockchain);
+      const isStellarDest = nearBuyAsset ? isStellarBlockchain(nearBuyAsset.blockchain) : false;
+
+      const recipient = isStellarDest ? stellarAddress : evmAddress;
+      const refundTo = isStellarOrigin ? stellarAddress : evmAddress;
+
+      if (!recipient || !refundTo) {
+        throw new Error(
+          isStellarDest
+            ? 'Connect your Stellar wallet to receive this asset'
+            : 'Connect your EVM wallet to receive this asset'
+        );
+      }
+
+      const liveQuotePayload = {
+        dry: false,
+        depositMode: (isStellarOrigin ? 'MEMO' : 'SIMPLE') as 'MEMO' | 'SIMPLE',
+        swapType: 'EXACT_INPUT' as const,
+        slippageTolerance: userSlippageTolerance * 100,
+        originAsset: nearSellAsset.assetId,
+        depositType: 'ORIGIN_CHAIN',
+        destinationAsset: nearBuyAsset?.assetId || (activeQuote.data?.destinationAsset ?? ''),
+        amount: safeParseUnits(sellAmount, nearSellAsset.decimals),
+        recipient,
+        recipientType: 'DESTINATION_CHAIN' as const,
+        refundTo,
+        refundType: 'ORIGIN_CHAIN',
+        deadline: new Date(Date.now() + 1200000).toISOString(),
+      };
+
+      const liveQuoteRes = await getNearIntentQuote(liveQuotePayload);
+      const liveQuote = liveQuoteRes.quote;
+
+      if (!liveQuote?.depositAddress) {
+        throw new Error('Could not get a deposit address for this transaction. Please retry.');
+      }
+
       checkAborted();
 
-      const computedOutAmount = activeQuote.data.amountOutFormatted || activeQuote.data.amountOut;
+      const hash = await executeNearIntentDeposit(nearSellAsset, sellAmount, liveQuote);
+      checkAborted();
+
+      const computedOutAmount = liveQuote.amountOutFormatted || liveQuote.amountOut;
       const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
 
-      // Persist the NEAR Intent tx locally so it appears in history and can be polled for status
       if (hash) {
         const walletAddr = isStellar(fromChainId) ? stellarAddress : evmAddress;
         addNearIntentTransaction({
           txHash: hash,
-          depositAddress: activeQuote.data.depositAddress || '',
-          depositMemo: activeQuote.data.depositMemo,
+          depositAddress: liveQuote.depositAddress || '',
+          depositMemo: liveQuote.depositMemo,
           amountIn: sellAmount,
           sellSymbol: sellAssetSymbol,
           buySymbol: buyAssetSymbol,
@@ -686,7 +735,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           toChainId,
           walletAddress: walletAddr || '',
           status: 'pending',
-          quoteHash: activeQuote.data.quoteHash || activeQuote.data.depositAddress,
+          quoteHash: (liveQuote as any).quoteHash || liveQuote.depositAddress,
           timestamp: Date.now(),
           network: currentNetwork,
         });

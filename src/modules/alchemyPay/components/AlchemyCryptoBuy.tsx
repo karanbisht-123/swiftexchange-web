@@ -2,9 +2,15 @@ import { AlertCircle, CheckCircle, Loader2, RefreshCw, X } from 'lucide-react';
 import { useEffect } from 'react';
 import Select from 'react-select';
 
+import { ActionGuard } from '../../commonfeature/components/ActionGuard';
+import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useAlchemyBuy } from '../hook/useAlchemyBuy';
 
-const AlchemyCryptoBuy = ({ onOrderStateChange }: { onOrderStateChange: (active: boolean) => void }) => {
+const AlchemyCryptoBuy = ({
+  onOrderStateChange,
+}: {
+  onOrderStateChange: (active: boolean) => void;
+}) => {
   const {
     setOrderError,
     paymentTab,
@@ -356,22 +362,29 @@ const AlchemyCryptoBuy = ({ onOrderStateChange }: { onOrderStateChange: (active:
 
       {/* Action Buttons */}
       <div className="flex flex-row gap-3">
-        <button
-          onClick={handleCreateOrder}
-          disabled={!isFormValid() || !!(paymentTab && !paymentTab.closed)}
-          className={`btn btn py-4 lg:py-5 flex-1 ${
-            isFormValid() && !(paymentTab && !paymentTab.closed) ? 'btn-primary' : 'btn-secondary'
-          }`}
+        <ActionGuard
+          requiredWallets={[
+            selectedCryptoOption?.network === 'XLM' ? WalletType.STELLAR : WalletType.EVM,
+          ]}
+          disabled={isCreatingOrder || !!(paymentTab && !paymentTab.closed)}
         >
-          {isCreatingOrder ? (
-            <div className="flex items-center justify-center gap-2">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Creating Order...
-            </div>
-          ) : (
-            'Continue to Payment'
-          )}
-        </button>
+          <button
+            onClick={handleCreateOrder}
+            disabled={!isFormValid() || !!(paymentTab && !paymentTab.closed)}
+            className={`btn btn py-4 lg:py-5 flex-1 ${
+              isFormValid() && !(paymentTab && !paymentTab.closed) ? 'btn-primary' : 'btn-secondary'
+            }`}
+          >
+            {isCreatingOrder ? (
+              <div className="flex items-center justify-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Creating Order...
+              </div>
+            ) : (
+              'Continue to Payment'
+            )}
+          </button>
+        </ActionGuard>
         {(fiatAmount || orderError || orderSuccess) && (
           <button onClick={resetForm} className="btn-secondary btn py-4 lg:py-5 sm:w-auto px-6">
             Reset

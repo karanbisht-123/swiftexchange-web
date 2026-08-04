@@ -117,35 +117,22 @@ export const useReceiveAssets = () => {
   useEffect(() => {
     if (assets.length === 0) return;
 
-    const connectedFirst = assets.find(a => {
-      const isDydx = a.chainId && String(a.chainId).startsWith('dydx');
-      if (isDydx) {
-        return (
-          !!(connectedWallets.evm as any)?.dydxAddress ||
-          !!(connectedWallets.cosmos as any)?.dydxAddress ||
-          !!localStorage.getItem('_sx_dkm_addr')
-        );
-      }
-      return !!connectedWallets[a.walletType as WalletType];
-    });
+    if (!currentAsset) {
+      const connectedFirst = assets.find(a => {
+        const isDydx = a.chainId && String(a.chainId).startsWith('dydx');
+        if (isDydx) {
+          return (
+            !!(connectedWallets.evm as any)?.dydxAddress ||
+            !!(connectedWallets.cosmos as any)?.dydxAddress ||
+            !!localStorage.getItem('_sx_dkm_addr')
+          );
+        }
+        return !!connectedWallets[a.walletType as WalletType];
+      });
 
-    const fallback = connectedFirst ?? assets[0];
-    const targetChainId = fallback.chainId === 'pubnet' ? 'stellar' : String(fallback.chainId);
+      const fallback = connectedFirst ?? assets[0];
+      const targetChainId = fallback.chainId === 'pubnet' ? 'stellar' : String(fallback.chainId);
 
-    const isCurrentDydx = currentAsset?.chainId && String(currentAsset.chainId).startsWith('dydx');
-    const isCurrentDydxAvailable =
-      isCurrentDydx &&
-      (!!(connectedWallets.evm as any)?.dydxAddress ||
-        !!(connectedWallets.cosmos as any)?.dydxAddress ||
-        !!localStorage.getItem('_sx_dkm_addr'));
-
-    const selectedWalletMissing =
-      currentAsset &&
-      (isCurrentDydx
-        ? !isCurrentDydxAvailable
-        : !connectedWallets[currentAsset.walletType as WalletType]);
-
-    if (!currentAsset || selectedWalletMissing) {
       if (assetParam !== fallback.symbol || chainIdParam !== targetChainId) {
         setSearchParams({ asset: fallback.symbol, chainId: targetChainId }, { replace: true });
       }

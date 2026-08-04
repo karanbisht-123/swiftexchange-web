@@ -12,7 +12,7 @@ import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
 import { storeSwapOrder } from '../../evm/service/evmTransactionStatusService';
 import { fetchSingleTokenBalance } from '../../evm/service/tokenListService';
-import { getChainById, getExplorerUrl } from '../../evm/utils/Chainregistry';
+import { CHAIN_REGISTRY, getChainById, getExplorerUrl } from '../../evm/utils/Chainregistry';
 import { getEVMNetworkConfig } from '../../evm/utils/evmUtils';
 import { rpcManager } from '../../evm/utils/rpcProvider';
 import { parseSwapError } from '../../evm/utils/swapErrorHandler';
@@ -86,15 +86,11 @@ export const useSendAsset = (onBack?: () => void) => {
   const isConfirmingRef = useRef(false);
 
   const allAssets: EnhancedSendAsset[] = useMemo(() => {
-    return storeAssets
+    const activeFromStore = storeAssets
       .filter(a => (a.balance || 0) > 0)
       .map(asset => {
-        const type =
-          asset.chainType === 'stellar'
-            ? 'stellar'
-            : asset.chainType === 'dydx'
-              ? 'dydx'
-              : ('evm' as const);
+        const type: 'evm' | 'stellar' | 'dydx' =
+          asset.chainType === 'stellar' ? 'stellar' : asset.chainType === 'dydx' ? 'dydx' : 'evm';
         const chainId = asset.chainId || (type === 'stellar' ? 'pubnet' : 0);
         return {
           value: asset.id,
@@ -115,6 +111,61 @@ export const useSendAsset = (onBack?: () => void) => {
           blockExplorerUrl: asset.blockExplorerUrl,
         };
       });
+
+    if (activeFromStore.length > 0) {
+      return activeFromStore;
+    }
+
+    const registryAssets: EnhancedSendAsset[] = [];
+    for (const config of CHAIN_REGISTRY) {
+      if (config.sendEnable) {
+        const type: 'evm' | 'stellar' | 'dydx' =
+          config.chainId === 'pubnet'
+            ? 'stellar'
+            : String(config.chainId).startsWith('dydx')
+              ? 'dydx'
+              : 'evm';
+        registryAssets.push({
+          value: `send-${config.chainId}-native`,
+          symbol: config.nativeCurrency.symbol,
+          label: `${config.nativeCurrency.symbol} (${config.name})`,
+          logo: config.nativeCurrency.logoURI,
+          network: config.name,
+          chainId: config.chainId,
+          addressType: type === 'dydx' ? 'cosmos' : type,
+          walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
+          tokenAddress: undefined,
+          decimals: config.nativeCurrency.decimals || (type === 'stellar' ? 7 : 18),
+          isNative: true,
+          type,
+          networkKey: config.chainId,
+          baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+          balance: 0,
+        });
+
+        config.assets?.forEach((asset: any) => {
+          if (asset.symbol === config.nativeCurrency.symbol) return;
+          registryAssets.push({
+            value: `send-${config.chainId}-${asset.symbol}`,
+            symbol: asset.symbol,
+            label: `${asset.symbol} (${config.name})`,
+            logo: asset.logoURI,
+            network: config.name,
+            chainId: config.chainId,
+            addressType: type === 'dydx' ? 'cosmos' : type,
+            walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
+            tokenAddress: asset.address,
+            decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
+            isNative: false,
+            type,
+            networkKey: config.chainId,
+            baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+            balance: 0,
+          });
+        });
+      }
+    }
+    return registryAssets;
   }, [storeAssets]);
 
   const assetParam = searchParams.get('asset');
@@ -609,9 +660,9 @@ export const useSendAsset = (onBack?: () => void) => {
     handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
     copyToClipboard,
     formError: !currentAsset
-      ? 'Select asset'
+      ? null
       : !senderAddress
-        ? 'Connect wallet'
+        ? null
         : recipientAddress &&
             !validateAddress(recipientAddress, {
               addressType: currentAsset.addressType as any,
