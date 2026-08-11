@@ -23,6 +23,8 @@
   "dependencies": {
     "@allbridge/bridge-core-sdk": "^3.29.1",
     "@dydxprotocol/v4-client-js": "3.6.0",
+    "@fingerprintjs/fingerprintjs": "^5.2.0",
+    "@nktkas/hyperliquid": "^0.33.2",
     "@skip-go/client": "^1.5.14",
     "@stellar/stellar-sdk": "^14.4.3",
     "@walletconnect/core": "^2.20.0",
@@ -45,6 +47,7 @@
     "react-select": "^5.10.2",
     "react-virtualized-auto-sizer": "^2.0.3",
     "react-window": "^1.8.11",
+    "siwe": "^3.0.0",
     "viem": "^2.47.5",
     "zustand": "^5.0.8"
   },

@@ -13,8 +13,6 @@ import {
 } from './apiCache';
 import { API_CONFIG } from './apiConfig';
 
-
-
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
@@ -50,9 +48,11 @@ async function parseError(res: Response): Promise<string> {
 }
 
 function makeHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = API_CONFIG.deviceAuth;
   return {
     'Content-Type': 'application/json',
-    'x-auth-device-token': API_CONFIG.deviceAuth,
+    'x-auth-device-token': token,
+    Authorization: token ? `Bearer ${token}` : '',
     ...extra,
   };
 }
@@ -62,7 +62,7 @@ async function parseBody<T>(res: Response): Promise<T> {
   if (!text) return {} as T;
   try {
     return JSON.parse(text) as T;
-  } catch (err) {
+  } catch {
     throw new Error(text);
   }
 }

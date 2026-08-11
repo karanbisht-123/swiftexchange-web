@@ -24,6 +24,7 @@ export async function registerDevice(
   payload: DeviceRegistrationPayload
 ): Promise<DeviceRegistrationResponse> {
   const url = `${API_CONFIG.serverUrl}/device`;
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {

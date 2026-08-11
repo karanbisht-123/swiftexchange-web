@@ -1,15 +1,21 @@
 import { Navigate } from 'react-router-dom';
 
 import { ROUTES } from '../constants/routes';
-import { useWalletConnect } from '../modules/walletconnect/hooks/useWalletConnect';
+import { hasStoredAgentKey } from '../modules/walletconnect/services/asterAgentKeyManager';
+import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 
 export const HomeRedirect = () => {
-  const { connectedWallets } = useWalletConnect();
+  const connectedWallets = useWalletStore(s => s.connectedWallets);
   const isConnected = Object.keys(connectedWallets).length > 0;
+  const hasAgent = !!connectedWallets.evm && hasStoredAgentKey();
+
+  if (hasAgent) {
+    return <Navigate to={ROUTES.TRADING_PERPS} replace />;
+  }
 
   if (isConnected) {
     return <Navigate to={ROUTES.DASHBOARD} replace />;
   }
 
-  return <Navigate to={ROUTES.TRADING_DYDX_FUTURES} replace />;
+  return <Navigate to={ROUTES.TRADING_PERPS} replace />;
 };

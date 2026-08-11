@@ -25,7 +25,7 @@ interface AllTransactionsUIProps {
 }
 
 const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
-  const { connectedWallets } = useWalletConnect();
+  const { connectedWallets, openModal } = useWalletConnect();
   const network = useWalletStore(state => state.network);
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const stellarAddress = stellarWallet?.address || '';
@@ -107,9 +107,15 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
             <AlertCircle size={32} />
           </div>
           <h3 className="text-lg font-bold text-primary mb-2">Wallet Not Connected</h3>
-          <p className="text-muted text-sm max-w-xs">
+          <p className="text-muted text-sm max-w-xs mb-4">
             Please connect your Stellar wallet to view your transaction history.
           </p>
+          <button
+            onClick={openModal}
+            className="btn btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md"
+          >
+            Connect Stellar Wallet
+          </button>
         </div>
       );
     }
@@ -119,9 +125,15 @@ const AllTransactionsUI = ({ embedded = false }: AllTransactionsUIProps) => {
           <AlertCircle className="w-8 h-8 text-warning" />
         </div>
         <h4 className="heading-4 mb-2">Connect Wallet</h4>
-        <p className="text-muted max-w-xs mx-auto">
+        <p className="text-muted max-w-xs mx-auto mb-4">
           Please connect your Stellar wallet to view your transaction history.
         </p>
+        <button
+          onClick={openModal}
+          className="btn btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md"
+        >
+          Connect Stellar Wallet
+        </button>
       </div>
     );
   }

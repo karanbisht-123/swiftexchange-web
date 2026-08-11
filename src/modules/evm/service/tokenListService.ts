@@ -56,7 +56,7 @@ export function getTokensForChain(chainId: number | string): TokenInfo[] {
   }
 
   const combinedTokens = [...(chainConfig.assets || []), ...rawTokens].filter(
-    t => t.chainId === chainId || !t.chainId
+    t => String(t.chainId) === String(chainId) || !t.chainId
   );
 
   const uniqueTokensMap = new Map<string, any>();

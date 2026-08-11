@@ -1300,10 +1300,17 @@ const Profile: React.FC = () => {
             <div className="space-y-1">
               <h4 className="font-bold text-lg">No wallets connected</h4>
               <p className="text-sm text-(--color-text-secondary) max-w-sm mx-auto">
-                Connect your EVM, Stellar, or Cosmos wallet from the top right bar to start syncing
-                your balances.
+                Connect your EVM, Stellar, or Cosmos wallet to start syncing your balances and
+                performance.
               </p>
             </div>
+            <button
+              onClick={openModal}
+              className="btn btn-primary px-6 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+            >
+              <Wallet size={16} />
+              Connect Wallet
+            </button>
           </div>
         ) : (
           <>

@@ -1,5 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif&display=swap');
-@import url('https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
 @theme {
@@ -46,6 +47,12 @@
   --color-bg-tertiary: #f0f3fb;
   --color-bg-hover: #eaedfa;
 
+  /* Optional light-mode gradient variants (subtle, opt-in only) */
+  --gradient-bg-primary: linear-gradient(180deg, #ffffff 0%, #f7f8fc 100%);
+  --gradient-bg-secondary: linear-gradient(145deg, #ffffff 0%, #fbfcfe 100%);
+  --gradient-bg-tertiary: linear-gradient(160deg, #f7f8fc 0%, #f0f3fb 100%);
+  --gradient-bg-hover: linear-gradient(145deg, #eef1fb 0%, #eaedfa 100%);
+
   /* Text Colors - High Contrast */
   --color-text-primary: #0f1729;
   --color-text-secondary: #4a5568;
@@ -69,8 +76,9 @@
   --color-info-bg: #dbeafe;
 
   /* Typography */
-  --font-heading: 'Hedvig Letters Serif', Georgia, serif;
-  --font-body: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
 
   /* Border Radius */
   --radius-sm: 0.25rem;
@@ -94,11 +102,23 @@
   --color-brand-primary-light: #3b4fd9;
   --color-brand-accent: #6b7aef;
 
-  /* Dark Theme - Deep navy-black fintech */
+  /* Dark Theme - Deep navy-black fintech (kept SOLID — required for Tailwind tokens
+     and every background-color usage in this file, e.g. .card, .input, .btn-secondary) */
   --color-bg-primary: #080c18;
   --color-bg-secondary: #0f1528;
   --color-bg-tertiary: #0a1020;
   --color-bg-hover: #162035;
+
+  /* NEW: opt-in gradient variants. Use with `background:` (not background-color),
+     via the .bg-*-gradient utility classes below. Safe — nothing consumes these
+     automatically, so nothing existing can break. */
+  --gradient-bg-primary: linear-gradient(180deg, #0a0f1e 0%, #080c18 100%);
+  --gradient-bg-secondary: linear-gradient(145deg, #121a30 0%, #0f1528 100%);
+  --gradient-bg-tertiary: linear-gradient(160deg, #0c1224 0%, #0a1020 100%);
+  --gradient-bg-hover: linear-gradient(145deg, #1a2540 0%, #162035 100%);
+
+  /* Extra brand gradient, handy for CTAs / highlighted cards */
+  --gradient-brand: linear-gradient(135deg, #4d5cdb 0%, #6b7aef 100%);
 
   /* Text Colors - High Contrast for Dark */
   --color-text-primary: #f8fafc;
@@ -476,17 +496,23 @@
 
   /* Price Indicators */
   .price-up {
+    font-family: var(--font-mono);
     color: var(--color-success);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .price-down {
+    font-family: var(--font-mono);
     color: var(--color-danger);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .price-neutral {
+    font-family: var(--font-mono);
     color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -512,6 +538,30 @@
     background-color: var(--color-bg-tertiary);
   }
 
+  /* NEW: opt-in gradient background utilities.
+     Apply these ALONGSIDE (not instead of) the solid classes above,
+     e.g. class="card bg-secondary-gradient", wherever you want the
+     gradient look. Nothing existing references these, so nothing breaks. */
+  .bg-primary-gradient {
+    background: var(--gradient-bg-primary);
+  }
+
+  .bg-secondary-gradient {
+    background: var(--gradient-bg-secondary);
+  }
+
+  .bg-tertiary-gradient {
+    background: var(--gradient-bg-tertiary);
+  }
+
+  .bg-hover-gradient {
+    background: var(--gradient-bg-hover);
+  }
+
+  .bg-brand-gradient {
+    background: var(--gradient-brand, var(--color-brand-primary));
+  }
+
   /* Text Colors */
   .text-primary {
     color: var(--color-text-primary);
@@ -527,6 +577,13 @@
 
   .text-brand {
     color: var(--color-brand-primary);
+  }
+
+  /* Monospace for tickers, order books, balances, timestamps */
+  .font-mono-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 
   /* Dividers */
@@ -826,4 +883,188 @@
 
 .animate-backdrop-fade-in {
   animation: backdropFade 0.25s ease-out forwards;
+}
+
+/* WalletConnect font override */
+.w3m-font {
+  font-family: var(--font-body);
+}
+
+/* =====================================================================
+   ORDERBOOK & TRADES ANIMATIONS
+   ===================================================================== */
+
+@keyframes ob-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes trade-row-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes size-flash-up {
+  0% {
+    color: #22c55e;
+    font-weight: 700;
+  }
+
+  100% {
+    color: inherit;
+    font-weight: inherit;
+  }
+}
+
+@keyframes size-flash-down {
+  0% {
+    color: #ef4444;
+    font-weight: 700;
+  }
+
+  100% {
+    color: inherit;
+    font-weight: inherit;
+  }
+}
+
+.ob-row-enter {
+  animation: ob-row-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.trade-row-enter {
+  animation: trade-row-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.size-flash-up {
+  animation: size-flash-up 0.45s ease-out forwards;
+}
+
+.size-flash-down {
+  animation: size-flash-down 0.45s ease-out forwards;
+}
+
+.ob-depth-bar {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  pointer-events: none;
+  transform-origin: right center;
+  will-change: width;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ob-depth-bar--ask-soft {
+  background-color: rgba(239, 68, 68, 0.07);
+}
+
+.ob-depth-bar--ask-strong {
+  background-color: rgba(239, 68, 68, 0.22);
+}
+
+.ob-depth-bar--bid-soft {
+  background-color: rgba(34, 197, 94, 0.07);
+}
+
+.ob-depth-bar--bid-strong {
+  background-color: rgba(34, 197, 94, 0.22);
+}
+
+.ob-depth-bar--ask {
+  background-color: rgba(239, 68, 68, 0.12);
+}
+
+.ob-depth-bar--bid {
+  background-color: rgba(34, 197, 94, 0.12);
+}
+
+.ob-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.ob-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ob-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--color-border, #2a2d35);
+  border-radius: 99px;
+}
+
+.ob-stagger > * {
+  animation: ob-row-enter 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ob-stagger > *:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.ob-stagger > *:nth-child(2) {
+  animation-delay: 0.02s;
+}
+
+.ob-stagger > *:nth-child(3) {
+  animation-delay: 0.03s;
+}
+
+.ob-stagger > *:nth-child(4) {
+  animation-delay: 0.04s;
+}
+
+.ob-stagger > *:nth-child(5) {
+  animation-delay: 0.05s;
+}
+
+.ob-stagger > *:nth-child(6) {
+  animation-delay: 0.06s;
+}
+
+.ob-stagger > *:nth-child(7) {
+  animation-delay: 0.07s;
+}
+
+.ob-stagger > *:nth-child(8) {
+  animation-delay: 0.08s;
+}
+
+.ob-stagger > *:nth-child(9) {
+  animation-delay: 0.09s;
+}
+
+.ob-stagger > *:nth-child(10) {
+  animation-delay: 0.1s;
+}
+
+.ob-stagger > *:nth-child(11) {
+  animation-delay: 0.11s;
+}
+
+.ob-stagger > *:nth-child(12) {
+  animation-delay: 0.12s;
+}
+
+.ob-stagger > *:nth-child(13) {
+  animation-delay: 0.13s;
+}
+
+.ob-stagger > *:nth-child(14) {
+  animation-delay: 0.14s;
+}
+
+.ob-stagger > *:nth-child(15) {
+  animation-delay: 0.15s;
 }

@@ -9,6 +9,7 @@ import {
 import { Core } from '@walletconnect/core';
 import { WalletConnectModal } from '@walletconnect/modal';
 import UniversalProviderType from '@walletconnect/universal-provider';
+import { BrowserProvider, getAddress, hexlify, toUtf8Bytes } from 'ethers';
 
 import { sendCustomNotification } from '../../../service/notificationService';
 import {
@@ -303,8 +304,18 @@ class WalletService {
                 : redirect.universal || redirect.native;
 
               if (href) {
-                console.log('[WalletService] Redirecting to wallet for', method, '::', href);
-                window.location.href = href;
+                console.log('[WalletService] Opening wallet for signing', method, '::', href);
+                // IMPORTANT: Use window.open (new tab) instead of window.location.href.
+                // Navigating the current page away kills the pending signature Promise
+                // and the response from the wallet relay can never be received.
+                // Opening a new tab/window keeps this page alive so the WalletConnect
+                // relay can deliver the signed response back.
+                try {
+                  window.open(href, '_blank', 'noopener');
+                } catch {
+                  // Fallback for environments that block window.open
+                  window.location.href = href;
+                }
               }
             }
           } catch (e) {
@@ -448,9 +459,8 @@ class WalletService {
 
   async connectChainWallet(
     walletId: string,
-    preferredType: 'evm' | 'cosmos' = 'evm',
-    autoDeriveWallet = true
-  ): Promise<WalletSession & { derivationSkipped?: boolean }> {
+    preferredType: 'evm' | 'cosmos' = 'evm'
+  ): Promise<WalletSession> {
     const type: WalletType = preferredType;
     this.emitState(type, 'connecting');
 
@@ -509,28 +519,7 @@ class WalletService {
 
       const dydxChainId = getDydxChainId(this.currentNetwork);
 
-      if (evmAddress && autoDeriveWallet) {
-        this.emitState(type, 'signing');
-
-        try {
-          if (provider?.session) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-
-          const derived = await deriveDydxAddress(evmAddress, provider);
-          session.dydxAddress = await encryptAndStore(derived.mnemonic);
-          derived.mnemonic = '';
-
-          this.sessions.set(type, session);
-          this.emitState(type, 'connected');
-          this.saveSession();
-          return session;
-        } catch {
-          this.emitState(type, 'connected');
-          this.saveSession();
-          return { ...session, derivationSkipped: true };
-        }
-      } else if (cosmosChainId === dydxChainId) {
+      if (cosmosChainId === dydxChainId) {
         session.dydxAddress = cosmosAddress!;
         this.sessions.set(type, session);
       }
@@ -607,6 +596,132 @@ class WalletService {
 
   getSigningWallet(): LocalWallet | null {
     return sessionVault.get();
+  }
+
+  // ---------------------------------------------------------------------------
+  // These only prove wallet ownership to the backend for a session JWT.
+  // ---------------------------------------------------------------------------
+
+  async signSiweMessage(evmAddress: string, provider: unknown, message: string): Promise<string> {
+    try {
+      const token = localStorage.getItem('device_token');
+      if (token) {
+        sendCustomNotification(token, {
+          title: 'Authentication Required',
+          body: 'Please open your wallet to sign in to SwiftExchange.',
+        }).catch(err => console.error('[WalletService] Auth notification error:', err));
+      }
+    } catch (e) {
+      console.debug('[WalletService] Auth notification skipped:', e);
+    }
+
+    try {
+      const hexMsg = message.startsWith('0x') ? message : hexlify(toUtf8Bytes(message));
+      const lowerAddr = evmAddress.toLowerCase();
+      const checksumAddr = getAddress(evmAddress);
+
+      const signPromise = (async () => {
+        if (provider && typeof (provider as any).request === 'function') {
+          try {
+            return await (provider as any).request({
+              method: 'personal_sign',
+              params: [hexMsg, lowerAddr],
+            });
+          } catch (err1: any) {
+            if (
+              err1?.code === 4001 ||
+              err1?.code === 'ACTION_REJECTED' ||
+              err1?.message?.includes('rejected') ||
+              err1?.message?.includes('denied')
+            ) {
+              throw err1;
+            }
+            try {
+              return await (provider as any).request({
+                method: 'personal_sign',
+                params: [hexMsg, checksumAddr],
+              });
+            } catch (err2: any) {
+              if (
+                err2?.code === 4001 ||
+                err2?.code === 'ACTION_REJECTED' ||
+                err2?.message?.includes('rejected') ||
+                err2?.message?.includes('denied')
+              ) {
+                throw err2;
+              }
+              try {
+                return await (provider as any).request({
+                  method: 'personal_sign',
+                  params: [lowerAddr, hexMsg],
+                });
+              } catch (err3: any) {
+                if (
+                  err3?.code === 4001 ||
+                  err3?.code === 'ACTION_REJECTED' ||
+                  err3?.message?.includes('rejected') ||
+                  err3?.message?.includes('denied')
+                ) {
+                  throw err3;
+                }
+              }
+            }
+          }
+        }
+
+        const browserProvider = new BrowserProvider(provider as any);
+        const signer = await browserProvider.getSigner(evmAddress);
+        return await signer.signMessage(message);
+      })();
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
+      );
+
+      const signature = (await Promise.race([signPromise, timeoutPromise])) as string;
+      return signature;
+    } catch (error: any) {
+      if (
+        error.code === 4001 ||
+        error.code === 'ACTION_REJECTED' ||
+        error.message === 'SIGNATURE_TIMEOUT' ||
+        error?.message?.includes('rejected') ||
+        error?.message?.includes('denied')
+      ) {
+        throw new Error('USER_REJECTED');
+      }
+      throw error;
+    }
+  }
+
+  async signStellarChallenge(xdr: string, provider: unknown): Promise<string> {
+    const isFreighter =
+      typeof (provider as any)?.signTransaction === 'function' && !(provider as any)?.session;
+
+    try {
+      if (isFreighter) {
+        const config = getStellarConfig(this.currentNetwork);
+        const result = await (provider as any).signTransaction(xdr, {
+          networkPassphrase: config.networkPassphrase,
+        });
+        return typeof result === 'string' ? result : result.signedTxXdr;
+      }
+
+      const signaturePromise = (provider as any).request({
+        method: 'stellar_signTransaction',
+        params: { xdr },
+      });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
+      );
+      const result = await Promise.race([signaturePromise, timeoutPromise]);
+      return (result as any)?.signedXDR ?? (result as any);
+    } catch (error: any) {
+      if (error?.message === 'SIGNATURE_TIMEOUT' || error?.code === 4001) {
+        throw new Error('USER_REJECTED');
+      }
+      throw error;
+    }
   }
 
   // ---------------------------------------------------------------------------

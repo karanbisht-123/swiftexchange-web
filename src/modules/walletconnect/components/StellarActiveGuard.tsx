@@ -1,12 +1,27 @@
-import { AlertCircle, Check, Copy, Loader2, RefreshCw } from 'lucide-react';
-import React, { type ReactNode, useCallback, useEffect, useState } from 'react';
+import {
+  AlertCircle,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Coins,
+  Copy,
+  CreditCard,
+  HelpCircle,
+  Loader2,
+  QrCode,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
+import React, { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Horizon } from '@stellar/stellar-sdk';
 import QRCode from 'qrcode';
 
 import { ROUTES } from '../../../constants/routes';
-import { getStellarConfig } from '../config/chains';
+import { useStellarAccountStatus } from '../hooks/useStellarAccountStatus';
 import { useWalletStore } from '../store/walletConnectStore';
 
 interface StellarActiveGuardProps {
@@ -14,167 +29,105 @@ interface StellarActiveGuardProps {
   onSkip?: () => void;
   bypass?: boolean;
   onSwitchToEVM?: () => void;
+  requireConnected?: boolean;
 }
 
 const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({
   children,
   onSkip,
-  bypass,
+  bypass = false,
   onSwitchToEVM,
+  requireConnected = false,
 }) => {
   const navigate = useNavigate();
-  const currentNetwork = useWalletStore(state => state.network);
   const stellarWallet = useWalletStore(state => state.connectedWallets.stellar);
   const openModal = useWalletStore(state => state.openModal);
   const isStellarConnected = !!stellarWallet?.address;
+  const address = stellarWallet?.address || '';
 
-  const [accountActive, setAccountActive] = useState<boolean | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showReceive, setShowReceive] = useState<boolean>(false);
-  const [copyFeedback, setCopyFeedback] = useState<boolean>(false);
+  const { isActive, isChecking, error, checkStatus } = useStellarAccountStatus(address);
 
-  const checkAccountActivation = useCallback(
-    async (isManualRefresh = false) => {
-      if (!stellarWallet?.address) {
-        setAccountActive(false);
-        return;
-      }
+  const [activeTab, setActiveTab] = useState<'receive' | 'buy'>('receive');
+  const [copied, setCopied] = useState(false);
+  const [showWhyDetails, setShowWhyDetails] = useState(false);
 
-      const cacheKey = `stellar_active_${stellarWallet.address}_${currentNetwork}`;
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-      if (!isManualRefresh && localStorage.getItem(cacheKey) === 'true') {
-        setAccountActive(true);
-        return;
-      }
+  useEffect(() => {
+    if (bypass || !isStellarConnected || isActive === true || activeTab !== 'receive') return;
 
-      if (isManualRefresh) {
-        setIsLoading(true);
-      }
-      setError(null);
-
-      const config = getStellarConfig(currentNetwork);
-      const horizon = new Horizon.Server(config.horizonUrl);
-
-      try {
-        const account = await horizon.loadAccount(stellarWallet.address);
-        const hasBalance = account.balances.some(b => parseFloat(b.balance) > 0);
-
-        if (hasBalance) {
-          localStorage.setItem(cacheKey, 'true');
-          setAccountActive(true);
-        } else {
-          setAccountActive(false);
-        }
-      } catch (err: any) {
-        if (err?.response?.status === 404) {
-          setAccountActive(false);
-        } else {
-          if (isManualRefresh) {
-            setError('Failed to fetch Stellar account status');
+    const timer = setTimeout(() => {
+      if (canvasRef.current && address) {
+        const size = 150;
+        canvasRef.current.width = size;
+        canvasRef.current.height = size;
+        QRCode.toCanvas(
+          canvasRef.current,
+          address,
+          {
+            width: size,
+            margin: 1,
+            errorCorrectionLevel: 'M',
+            color: { dark: '#000000', light: '#ffffff' },
+          },
+          err => {
+            if (err) console.error('QR code error:', err);
           }
-          setAccountActive(false);
-        }
-      } finally {
-        if (isManualRefresh) {
-          setIsLoading(false);
-        }
+        );
       }
-    },
-    [stellarWallet?.address, currentNetwork]
-  );
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [bypass, isStellarConnected, isActive, activeTab, address]);
 
   const handleCopy = useCallback(async () => {
-    if (!stellarWallet?.address) return;
+    if (!address) return;
     try {
-      await navigator.clipboard.writeText(stellarWallet.address);
-      setCopyFeedback(true);
-      setTimeout(() => setCopyFeedback(false), 2000);
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
-      setCopyFeedback(false);
+      setCopied(false);
     }
-  }, [stellarWallet?.address]);
+  }, [address]);
 
-  const canvasCallbackRef = useCallback(
-    (canvas: HTMLCanvasElement | null) => {
-      if (!canvas || !stellarWallet?.address) return;
-
-      const size = 150;
-      canvas.width = size;
-      canvas.height = size;
-      canvas.style.width = `${size}px`;
-      canvas.style.height = `${size}px`;
-
-      QRCode.toCanvas(
-        canvas,
-        stellarWallet.address,
-        {
-          width: size,
-          margin: 1,
-          errorCorrectionLevel: 'M',
-          color: { dark: '#000000', light: '#ffffff' },
-        },
-        err => {
-          if (err) console.error(err);
-        }
-      );
-    },
-    [stellarWallet?.address]
-  );
-
-  useEffect(() => {
-    if (bypass) return;
-    checkAccountActivation(false);
-  }, [checkAccountActivation, bypass]);
-
-  useEffect(() => {
-    if (bypass || !stellarWallet?.address || accountActive === true) return;
-
-    const interval = setInterval(() => {
-      checkAccountActivation(false);
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [bypass, stellarWallet?.address, accountActive, checkAccountActivation]);
-
+  // Bypass if requested
   if (bypass) {
     return <>{children}</>;
   }
 
+  // If not connected
   if (!isStellarConnected) {
+    if (!requireConnected) {
+      return <>{children}</>;
+    }
+
     return (
-      <div className="w-full max-w-lg mx-auto p-4 sm:p-6 bg-bg-tertiary/70 backdrop-blur-md border border-divider rounded-2xl shadow-lg text-center space-y-4 animate-fade-in">
-        <div className="flex justify-center items-center relative py-2">
-          <div className="absolute w-28 h-28 bg-brand/20 blur-xl rounded-full" />
-          <img
-            src="/fundwaalet-Photoroom.png"
-            alt="Connect wallet"
-            className="relative z-10 w-28 h-28 sm:w-36 sm:h-36 object-contain"
-          />
+      <div className="w-full max-w-md mx-auto p-6 bg-secondary border border-color rounded-2xl shadow-sm text-center space-y-4 animate-fade-in">
+        <div className="w-12 h-12 rounded-xl bg-tertiary border border-color flex items-center justify-center mx-auto text-brand">
+          <Zap className="w-6 h-6" />
         </div>
 
         <div className="space-y-1">
-          <h3 className="text-base sm:text-lg font-bold text-text-primary">
-            Connect Your Stellar Wallet
-          </h3>
-          <p className="text-xs sm:text-sm text-text-secondary max-w-xs mx-auto">
-            Connect a Stellar wallet to continue with this feature.
+          <h3 className="text-base font-bold text-primary">Connect Stellar Wallet</h3>
+          <p className="text-xs text-muted max-w-xs mx-auto">
+            Connect your Stellar wallet to view balances and trade.
           </p>
         </div>
 
         <div className="flex flex-col w-full gap-2 pt-2">
           <button
             onClick={openModal}
-            className="btn btn-primary w-full py-3 text-sm font-semibold rounded-xl"
+            className="btn btn-primary w-full py-2.5 text-xs font-semibold rounded-xl"
           >
             Connect Wallet
           </button>
           {onSwitchToEVM && (
             <button
               onClick={onSwitchToEVM}
-              className="btn btn-secondary w-full py-2.5 text-xs text-text-muted hover:text-text-primary transition-colors border-none bg-transparent hover:bg-bg-secondary"
+              className="py-1 text-xs text-muted hover:text-primary transition-colors"
             >
-              Continue with EVM Swap
+              Continue with EVM Swap instead
             </button>
           )}
         </div>
@@ -182,150 +135,221 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({
     );
   }
 
-  if (accountActive === null || (isLoading && accountActive === false && !showReceive)) {
-    return (
-      <div className="flex flex-col items-center justify-center p-8 space-y-3">
-        <Loader2 className="w-8 h-8 animate-spin text-brand" />
-        <p className="text-xs sm:text-sm text-text-secondary font-medium">
-          Checking Stellar account status...
-        </p>
-      </div>
-    );
-  }
-
-  if (accountActive === true) {
+  // If account is active, show children
+  if (isActive === true) {
     return <>{children}</>;
   }
 
+  // If still checking on initial render
+  if (isActive === null && isChecking) {
+    return <>{children}</>;
+  }
+
+  // Account is INACTIVE: Render clean themed activation card
   return (
-    <div className="w-full max-w-md mx-auto p-4 sm:p-5 bg-bg-tertiary/70 backdrop-blur-md border border-divider rounded-2xl shadow-lg text-center space-y-4 animate-fade-in overflow-hidden">
-      {!showReceive && (
-        <div className="flex justify-center items-center relative py-1">
-          <div className="absolute w-24 h-24 bg-brand/20 blur-xl rounded-full" />
-          <img
-            src="/fundwaalet-Photoroom.png"
-            alt="Activate wallet"
-            className="relative z-10 w-28 h-28 sm:w-32 sm:h-32 object-contain"
-          />
-        </div>
-      )}
-
-      {!showReceive && (
-        <div className="space-y-1">
-          <h3 className="text-base sm:text-lg font-bold text-text-primary">
-            Activate Your Stellar Account
-          </h3>
-          <p className="text-xs sm:text-sm text-text-secondary max-w-xs mx-auto leading-relaxed">
-            Your Stellar account needs activation. Send any amount of XLM to activate it and
-            proceed.
-          </p>
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl p-3 text-xs text-left">
-          {error}
-        </div>
-      )}
-
-      {showReceive && stellarWallet?.address && (
-        <div className="w-full bg-bg-secondary/60 rounded-xl p-4 border border-divider space-y-4 text-center animate-fade-in">
-          <h3 className="text-sm font-bold text-text-primary">Receive XLM to Activate</h3>
-
-          <div className="flex flex-col items-center gap-2">
-            <div className="p-2 bg-white rounded-xl shadow-inner inline-block">
-              <canvas ref={canvasCallbackRef} className="rounded-lg" />
+    <div className="w-full max-w-lg mx-auto bg-secondary border border-color rounded-2xl shadow-sm overflow-hidden text-left animate-fade-in">
+      {/* Header */}
+      <div className="p-5 border-b border-color flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-tertiary border border-color flex items-center justify-center shrink-0">
+            <Zap className="w-5 h-5 text-brand" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold text-primary">Activate Stellar Account</h2>
+              <span className="badge badge-warning text-[10px]">1 XLM Required</span>
             </div>
-            <p className="text-[11px] text-text-secondary font-medium">
-              Scan QR code to send XLM to your address
+            <p className="text-xs text-muted mt-0.5">
+              Your account needs ~1 XLM base reserve to be initialized on-chain.
             </p>
           </div>
+        </div>
+      </div>
 
-          <div className="space-y-1 text-left">
-            <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block">
-              Your Stellar Wallet Address
-            </label>
-            <div className="bg-bg-primary rounded-xl p-2.5 flex items-center justify-between border border-divider gap-2">
-              <span className="text-xs font-mono text-text-primary truncate select-all flex-1 min-w-0">
-                {stellarWallet.address}
+      <div className="p-5 space-y-4">
+        {/* Educational Info Box */}
+        <div className="bg-tertiary border border-color rounded-xl p-3.5 transition-all">
+          <button
+            onClick={() => setShowWhyDetails(!showWhyDetails)}
+            className="w-full flex items-center justify-between text-left group cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <HelpCircle size={14} className="text-brand" />
+              <span className="text-xs font-semibold text-primary group-hover:text-brand transition-colors">
+                Why is account activation required on Stellar?
               </span>
-              <button
-                onClick={handleCopy}
-                className="btn btn-secondary py-1 px-2.5 text-xs flex items-center gap-1 shrink-0 rounded-lg hover:text-brand transition-colors"
-                title="Copy Address"
-              >
-                {copyFeedback ? (
-                  <>
-                    <Check size={14} className="text-green-500" />
-                    <span className="text-[10px] font-bold text-green-500">Copied</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={14} />
-                    <span className="text-[10px] font-medium">Copy</span>
-                  </>
-                )}
-              </button>
             </div>
-          </div>
-
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-2.5 flex gap-2 text-left items-start">
-            <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-text-secondary leading-normal">
-              Send only <strong className="text-text-primary">XLM (Stellar)</strong> to this
-              address. Sending other assets to an inactive account will result in loss of funds.
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col w-full gap-2.5 pt-1">
-        <div className="flex items-center gap-2 w-full">
-          <button
-            onClick={() => {
-              navigate(ROUTES.TRADING_EVM_FIAT, {
-                state: {
-                  defaultCrypto: 'XLM',
-                  defaultNetwork: 'XLM',
-                  defaultAddress: stellarWallet?.address,
-                },
-              });
-              if (onSkip) onSkip();
-            }}
-            className="btn btn-primary flex-1 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
-          >
-            Buy XLM
-          </button>
-
-          <button
-            onClick={() => setShowReceive(!showReceive)}
-            className={`btn flex-1 py-2.5 text-xs sm:text-sm font-semibold rounded-xl ${
-              showReceive ? 'btn-primary' : 'btn-secondary'
-            }`}
-          >
-            {showReceive ? 'Hide QR' : 'Receive XLM'}
-          </button>
-
-          <button
-            onClick={() => checkAccountActivation(true)}
-            disabled={isLoading}
-            className="btn btn-secondary p-2.5 rounded-xl flex items-center justify-center shrink-0"
-            title="Refresh Status"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin text-brand" />
+            {showWhyDetails ? (
+              <ChevronUp size={14} className="text-muted" />
             ) : (
-              <RefreshCw className="w-4 h-4 text-text-secondary" />
+              <ChevronDown size={14} className="text-muted" />
             )}
           </button>
+
+          {showWhyDetails && (
+            <div className="mt-3 pt-3 border-t border-color space-y-2 text-xs text-secondary leading-relaxed animate-fade-in">
+              <div className="flex items-start gap-2">
+                <ShieldCheck size={14} className="text-brand shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-primary">Base Reserve Protocol:</span> Stellar
+                  requires a 1 XLM minimum reserve to prevent network spam and maintain your account
+                  entry.
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Coins size={14} className="text-success shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-primary">100% Retained:</span> The 1 XLM
+                  remains in your wallet as your reserve. Swiftex charges 0 fees.
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Sparkles size={14} className="text-brand shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-primary">One-Time Activation:</span> Once
+                  funded, you can freely hold USDC, add trustlines, and trade.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Tab Selectors */}
+        <div className="flex p-1 bg-primary border border-color rounded-xl gap-1">
+          <button
+            onClick={() => setActiveTab('receive')}
+            className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === 'receive'
+                ? 'bg-secondary text-primary shadow-sm border border-color'
+                : 'text-muted hover:text-primary'
+            }`}
+          >
+            <QrCode size={13} />
+            <span>Receive XLM</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('buy')}
+            className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === 'buy'
+                ? 'bg-secondary text-primary shadow-sm border border-color'
+                : 'text-muted hover:text-primary'
+            }`}
+          >
+            <CreditCard size={13} />
+            <span>Buy XLM</span>
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'receive' && (
+          <div className="space-y-3.5 animate-fade-in">
+            <div className="flex flex-col sm:flex-row items-center gap-4 bg-tertiary p-4 rounded-xl border border-color">
+              <div className="p-2 bg-white rounded-xl shadow-sm shrink-0 flex items-center justify-center">
+                <canvas ref={canvasRef} className="rounded-lg" />
+              </div>
+              <div className="flex-1 space-y-2 text-center sm:text-left min-w-0">
+                <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">
+                  Your Stellar Address
+                </span>
+                <div className="bg-secondary border border-color rounded-lg p-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-mono-tabular text-primary truncate select-all flex-1 min-w-0">
+                    {address}
+                  </span>
+                  <button
+                    onClick={handleCopy}
+                    className="btn btn-secondary btn-sm py-1 px-2.5 text-xs flex items-center gap-1 shrink-0"
+                  >
+                    {copied ? (
+                      <>
+                        <Check size={12} className="text-success" />
+                        <span className="text-success font-medium">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted">
+                  Send at least <strong>1 XLM</strong> from any exchange or wallet.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-warning-bg/40 border border-warning/30 rounded-xl p-3 flex items-start gap-2.5 text-xs text-secondary leading-relaxed">
+              <AlertCircle size={14} className="text-warning shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-primary">Notice:</strong> Send native{' '}
+                <strong>XLM (Stellar)</strong> only. No memo is required for self-custody.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'buy' && (
+          <div className="space-y-3 animate-fade-in text-center p-5 bg-tertiary rounded-xl border border-color">
+            <div className="w-10 h-10 rounded-full bg-secondary border border-color flex items-center justify-center mx-auto text-brand mb-1">
+              <CreditCard size={18} />
+            </div>
+            <h3 className="text-sm font-semibold text-primary">Buy XLM with Card</h3>
+            <p className="text-xs text-muted max-w-sm mx-auto">
+              Purchase XLM instantly via our integrated on-ramp. Funds will be deposited directly to
+              your Stellar address.
+            </p>
+            <button
+              onClick={() => {
+                navigate(ROUTES.TRADING_EVM_FIAT, {
+                  state: {
+                    defaultCrypto: 'XLM',
+                    defaultNetwork: 'XLM',
+                    defaultAddress: address,
+                  },
+                });
+                if (onSkip) onSkip();
+              }}
+              className="btn btn-primary w-full py-2.5 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 mt-2"
+            >
+              <span>Proceed to Buy XLM</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-danger-bg border border-danger/30 text-danger rounded-xl p-3 text-xs">
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="p-4 border-t border-color bg-tertiary flex flex-col sm:flex-row items-center justify-between gap-3">
+        <button
+          onClick={() => checkStatus(true)}
+          disabled={isChecking}
+          className="btn btn-secondary btn-sm w-full sm:w-auto py-2 px-3.5 text-xs flex items-center justify-center gap-2"
+        >
+          {isChecking ? (
+            <>
+              <Loader2 size={13} className="animate-spin text-brand" />
+              <span>Checking Ledger...</span>
+            </>
+          ) : (
+            <>
+              <RefreshCw size={13} className="text-muted" />
+              <span>Check Status</span>
+            </>
+          )}
+        </button>
 
         {onSwitchToEVM && (
           <button
             onClick={onSwitchToEVM}
-            className="btn btn-primary w-full py-4 text-xs text-text-muted text-white transition-colors"
+            className="text-xs text-muted hover:text-primary transition-colors underline underline-offset-4"
           >
-            Continue with EVM Swap
+            Continue with EVM Swap instead
           </button>
         )}
       </div>

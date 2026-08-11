@@ -1,16 +1,24 @@
 import { ethers } from 'ethers';
-import { isStellar } from './swapAssetUtils';
-import { getGasBuffer } from './swapAmountUtils';
-import type { StellarGasCheckParams, EvmGasCheckParams } from '../types/swap.types';
 
-export function isInsufficientBalance(sellAmount: string, assetBalance: string | undefined): boolean {
+import type { EvmGasCheckParams, StellarGasCheckParams } from '../types/swap.types';
+import { getGasBuffer } from './swapAmountUtils';
+import { isStellar } from './swapAssetUtils';
+
+export function isInsufficientBalance(
+  sellAmount: string,
+  assetBalance: string | undefined
+): boolean {
   if (!sellAmount || !assetBalance) return false;
   const requiredBalance = parseFloat(sellAmount);
   const currentBalance = parseFloat(assetBalance || '0');
   return requiredBalance > currentBalance;
 }
 
-export function isAmountLessThanFee(sellAmount: string, feeAmount: string, feePayType: string): boolean {
+export function isAmountLessThanFee(
+  sellAmount: string,
+  feeAmount: string,
+  feePayType: string
+): boolean {
   if (!sellAmount || !feeAmount) return false;
   if (feePayType === 'stablecoin') {
     const parsedFee = parseFloat(feeAmount);
@@ -21,7 +29,15 @@ export function isAmountLessThanFee(sellAmount: string, feeAmount: string, feePa
 }
 
 export function isInsufficientStellarGas(params: StellarGasCheckParams): boolean {
-  const { fromChainId, stellarAssets, sellAssetSymbol, sellAmount, actionType, feePayType, activeQuoteData } = params;
+  const {
+    fromChainId,
+    stellarAssets,
+    sellAssetSymbol,
+    sellAmount,
+    actionType,
+    feePayType,
+    activeQuoteData,
+  } = params;
   if (!isStellar(fromChainId)) return false;
   if (stellarAssets.length === 0) return false;
   const xlm = stellarAssets.find(a => a.symbol === 'XLM');
@@ -38,7 +54,7 @@ export function isInsufficientStellarGas(params: StellarGasCheckParams): boolean
 
   if (sellAssetSymbol === 'XLM') {
     const sellAmt = parseFloat(sellAmount || '0');
-    return (sellAmt + requiredGasFee) > xlmBalanceAfterReserve;
+    return sellAmt + requiredGasFee > xlmBalanceAfterReserve;
   } else {
     return xlmBalanceAfterReserve < requiredGasFee;
   }
@@ -66,34 +82,28 @@ export function isInsufficientEvmGas(params: EvmGasCheckParams): boolean {
   const nativeBalance = parseFloat(nativeAsset.balance || '0');
   const decimals = nativeAsset.decimals || 18;
 
-  // For gasless swap/bridge (like 1inch Fusion / Fusion Plus), required gas is 0
-  if (isGasless || activeQuoteSource === 'fusion_plus') {
-    return false;
-  }
+  // For gasless swap (like 1inch Fusion / Fusion Plus), network gas is 0 unless paying native bridge fee
+  const isGaslessSwap = isGasless || activeQuoteSource === 'fusion_plus';
+  let requiredGas = 0;
 
-  // Default buffer if quote does not provide it
-  const defaultBufferBN = getGasBuffer(fromChainId, decimals);
-  const defaultBuffer = parseFloat(ethers.formatUnits(defaultBufferBN, decimals));
-
-  let requiredGas = defaultBuffer;
-
-  // Use dynamic swap quote network fee if available
-  if (actionType === 'SWAP' && swapQuoteNetworkFee && swapQuoteNetworkFee > 0) {
-    requiredGas = swapQuoteNetworkFee;
+  if (!isGaslessSwap) {
+    const gasBufferBN = getGasBuffer(fromChainId, decimals, swapQuoteNetworkFee);
+    requiredGas = parseFloat(ethers.formatUnits(gasBufferBN, decimals));
   }
 
   // Use dynamic bridge quote fee if paying native
-  if (actionType === 'BRIDGE' && activeQuoteSource === 'bridge') {
-    if (feePayType === 'native' && activeQuoteData?.fee?.native) {
-      requiredGas = defaultBuffer + parseFloat(activeQuoteData.fee.native.amount);
-    } else {
-      requiredGas = defaultBuffer;
-    }
+  if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuoteData?.fee?.native) {
+    requiredGas += parseFloat(activeQuoteData.fee.native.amount);
+  }
+
+  if (isGaslessSwap && requiredGas === 0) {
+    return false;
   }
 
   if (selectedSellAsset?.isNative) {
     const sellAmt = parseFloat(sellAmount || '0');
-    return (sellAmt + requiredGas) > nativeBalance;
+    // Using a tiny epsilon check (1e-12) to avoid float rounding edge-cases
+    return sellAmt + requiredGas > nativeBalance + 1e-12;
   } else {
     return nativeBalance < requiredGas;
   }

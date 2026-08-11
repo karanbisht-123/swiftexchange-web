@@ -14,6 +14,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   dontSave?: boolean;
+  status?: 'success' | 'error' | 'warning' | 'info';
 }
 
 export type ToastNotification = AppNotification;

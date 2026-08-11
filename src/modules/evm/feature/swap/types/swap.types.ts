@@ -239,6 +239,7 @@ export interface ButtonLabelParams {
   toChainId: number | string;
   selectedBuyAsset: any;
   nativeSymbol: string;
+  missingWallets?: string[];
 }
 
 export interface ErrorParams {

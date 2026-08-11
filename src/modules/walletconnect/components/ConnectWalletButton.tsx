@@ -268,7 +268,7 @@ export const ConnectWalletButton: React.FC = () => {
                           </button>
                         </div>
                       )}
-                      {type === 'evm' && !conn.dydxAddress && (
+                      {/* {type === 'evm' && !conn.dydxAddress && (
                         <span
                           style={{
                             background: 'var(--color-warning-bg)',
@@ -281,7 +281,7 @@ export const ConnectWalletButton: React.FC = () => {
                         >
                           dYdX not derived
                         </span>
-                      )}
+                      )} */}
                     </div>
 
                     <button

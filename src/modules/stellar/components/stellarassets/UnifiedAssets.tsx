@@ -23,6 +23,7 @@ import {
 interface UnifiedAssetsProps {
   userAddress?: string;
   onAssetClick: (asset: AssetClickPayload) => void;
+  onlyTrusted?: boolean;
 }
 
 interface DisplayAsset {
@@ -47,7 +48,11 @@ interface AssetClickPayload {
   name?: string;
 }
 
-const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick }) => {
+const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({
+  userAddress,
+  onAssetClick,
+  onlyTrusted,
+}) => {
   const { connectedWallets, getProvider } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
   const stellarAddress = connectedWallets[WalletType.STELLAR]?.address || userAddress || '';
@@ -107,12 +112,16 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       }
     });
 
-    return Array.from(assetsMap.values()).sort((a, b) => {
+    let list = Array.from(assetsMap.values());
+    if (onlyTrusted) {
+      list = list.filter(a => a.isTrusted);
+    }
+    return list.sort((a, b) => {
       if (a.isTrusted !== b.isTrusted) return a.isTrusted ? -1 : 1;
       if (a.code !== b.code) return a.code.localeCompare(b.code);
       return a.issuer.localeCompare(b.issuer);
     });
-  }, [balances]);
+  }, [balances, onlyTrusted]);
 
   const { displayedAssets, searchLoading } = useAssetSearch({
     allAssets,

@@ -6,6 +6,7 @@ import PageLayout from '../../../components/layout/PageLayout';
 import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import AllTransactionsUI from '../../stellar/components/AllTransactionsUI';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { pollNearIntentStatus } from '../feature/swap/services/oneClickApi';
@@ -119,17 +120,19 @@ const resolveChainId = (chainSymbol: string | undefined, network: string): strin
   return chainSymbol;
 };
 
-const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: string }> = ({
-  icon,
-  title,
-  description,
-}) => (
+const EmptyState: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  actionButton?: React.ReactNode;
+}> = ({ icon, title, description, actionButton }) => (
   <div className="flex flex-col items-center justify-center py-20 text-center">
     <div className="w-16 h-16 bg-tertiary rounded-full flex items-center justify-center mb-4 text-muted">
       {icon}
     </div>
     <h3 className="text-lg font-bold text-primary mb-2">{title}</h3>
-    <p className="text-muted text-sm max-w-xs">{description}</p>
+    <p className="text-muted text-sm max-w-xs mb-4">{description}</p>
+    {actionButton}
   </div>
 );
 
@@ -152,6 +155,7 @@ const EvmTransactionHistory: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const txHashFromUrl = searchParams.get('hash');
 
+  const { openModal } = useWalletConnect();
   const connectedWallets = useWalletStore(state => state.connectedWallets);
   const currentNetwork = useWalletStore(state => state.network);
 
@@ -1025,8 +1029,24 @@ const EvmTransactionHistory: React.FC = () => {
       return (
         <EmptyState
           icon={<Clock size={32} />}
-          title="No Recent Transactions"
-          description="Your recent transactions will appear here after you make a swap, send, or bridge."
+          title={
+            !hasEvm && !hasStellar ? 'Connect Wallet to View History' : 'No Recent Transactions'
+          }
+          description={
+            !hasEvm && !hasStellar
+              ? 'Connect your wallet to track swaps, transfers, and bridge transactions.'
+              : 'Your recent transactions will appear here after you make a swap, send, or bridge.'
+          }
+          actionButton={
+            !hasEvm && !hasStellar ? (
+              <button
+                onClick={openModal}
+                className="btn btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md"
+              >
+                Connect Wallet
+              </button>
+            ) : null
+          }
         />
       );
     }
@@ -1528,6 +1548,26 @@ const EvmTransactionHistory: React.FC = () => {
             Try Again
           </button>
         </div>
+      );
+    }
+
+    if (!walletAddress) {
+      return (
+        <EmptyState
+          icon={<SearchX size={32} />}
+          title="Wallet Not Connected"
+          description={`Connect your EVM wallet to view transaction history on ${
+            typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
+          }.`}
+          actionButton={
+            <button
+              onClick={openModal}
+              className="btn btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md"
+            >
+              Connect Wallet
+            </button>
+          }
+        />
       );
     }
 
