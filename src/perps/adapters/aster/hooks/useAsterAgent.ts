@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import type { Wallet } from 'ethers';
+import { create } from 'zustand';
 
 import {
   deriveAsterAgentKey,
@@ -13,7 +14,112 @@ import {
 import { walletService } from '../../../../modules/walletconnect/services/walletService';
 import { useWalletStore } from '../../../../modules/walletconnect/store/walletConnectStore';
 
-type DeriveState = 'idle' | 'signing' | 'ready' | 'error';
+export type DeriveState = 'idle' | 'signing' | 'ready' | 'error';
+
+interface AsterAgentStoreState {
+  asterSigner: Wallet | null;
+  agentAddress: string | null;
+  deriveState: DeriveState;
+  error: Error | null;
+  isRestoring: boolean;
+  setAsterSigner: (signer: Wallet | null, address?: string | null) => void;
+  setDeriveState: (state: DeriveState) => void;
+  setError: (error: Error | null) => void;
+  deriveAgentKey: (userAddr: string) => Promise<{ agentAddress: string; wallet: Wallet }>;
+  restoreKey: () => Promise<Wallet | null>;
+  purge: () => void;
+}
+
+export const useAsterAgentStore = create<AsterAgentStoreState>((set, get) => ({
+  asterSigner: null,
+  agentAddress: getStoredAgentAddress(),
+  deriveState: hasStoredAgentKey() ? 'ready' : 'idle',
+  error: null,
+  isRestoring: false,
+
+  setAsterSigner: (signer, address) =>
+    set({
+      asterSigner: signer,
+      agentAddress: address ?? (signer ? signer.address : null),
+      deriveState: signer ? 'ready' : 'idle',
+    }),
+
+  setDeriveState: deriveState => set({ deriveState }),
+  setError: error => set({ error }),
+
+  restoreKey: async () => {
+    if (!hasStoredAgentKey()) {
+      set({ asterSigner: null, agentAddress: null, deriveState: 'idle' });
+      return null;
+    }
+
+    const current = get().asterSigner;
+    if (current) return current;
+
+    if (get().isRestoring) return null;
+
+    set({ isRestoring: true });
+    try {
+      const wallet = await restoreAgentWallet();
+      if (wallet) {
+        set({
+          asterSigner: wallet,
+          agentAddress: wallet.address,
+          deriveState: 'ready',
+          isRestoring: false,
+          error: null,
+        });
+        return wallet;
+      }
+    } catch (e) {
+      console.error('[AsterAgentStore] Failed to restore agent wallet:', e);
+    }
+    set({ isRestoring: false });
+    return null;
+  },
+
+  deriveAgentKey: async (userAddr: string) => {
+    if (!userAddr) throw new Error('EVM wallet not connected');
+    if (get().deriveState === 'signing') {
+      throw new Error('Derivation request is already in progress. Please check your wallet.');
+    }
+
+    set({ deriveState: 'signing', error: null });
+
+    try {
+      const provider =
+        walletService.getProvider('evm') ||
+        (typeof window !== 'undefined' ? (window as any).ethereum : null);
+      if (!provider) throw new Error('EVM provider not available');
+
+      const result = await deriveAsterAgentKey(userAddr, provider);
+      await encryptAndStoreAgentKey(result.wallet.privateKey);
+
+      set({
+        asterSigner: result.wallet,
+        agentAddress: result.agentAddress,
+        deriveState: 'ready',
+        error: null,
+      });
+      return result;
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      set({ error: err, deriveState: 'error' });
+      throw err;
+    }
+  },
+
+  purge: () => {
+    purgeAgentKey();
+    set({
+      asterSigner: null,
+      agentAddress: null,
+      deriveState: 'idle',
+      error: null,
+      isRestoring: false,
+    });
+  },
+}));
 
 export interface UseAsterAgentResult {
   asterSigner: Wallet | null;
@@ -30,75 +136,33 @@ export function useAsterAgent(): UseAsterAgentResult {
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
   const userAddr = evmWallet?.address ?? null;
 
-  const [asterSigner, setAsterSigner] = useState<Wallet | null>(null);
-  const [agentAddress, setAgentAddress] = useState<string | null>(getStoredAgentAddress);
-  const [deriveState, setDeriveState] = useState<DeriveState>('idle');
-  const [error, setError] = useState<Error | null>(null);
-  const derivingRef = useRef(false);
+  const asterSigner = useAsterAgentStore(s => s.asterSigner);
+  const agentAddress = useAsterAgentStore(s => s.agentAddress);
+  const deriveState = useAsterAgentStore(s => s.deriveState);
+  const error = useAsterAgentStore(s => s.error);
+
+  const restoreKey = useAsterAgentStore(s => s.restoreKey);
+  const deriveAgentKeyStore = useAsterAgentStore(s => s.deriveAgentKey);
+  const purgeStore = useAsterAgentStore(s => s.purge);
 
   useEffect(() => {
-    if (!userAddr) {
-      setAsterSigner(null);
-      setAgentAddress(null);
-      setDeriveState('idle');
-      return;
-    }
-
-    if (!hasStoredAgentKey()) return;
-
-    restoreAgentWallet().then(wallet => {
-      if (wallet) {
-        setAsterSigner(wallet);
-        setAgentAddress(wallet.address);
-        setDeriveState('ready');
+    if (userAddr) {
+      if (!asterSigner && hasStoredAgentKey()) {
+        restoreKey();
       }
-    });
-  }, [userAddr]);
+    } else {
+      if (asterSigner) {
+        purgeStore();
+      }
+    }
+  }, [userAddr, asterSigner, restoreKey, purgeStore]);
 
   const deriveAgentKey = useCallback(async () => {
-    if (!userAddr) {
-      throw new Error('EVM wallet not connected');
-    }
-    if (derivingRef.current) {
-      throw new Error('Derivation request is already in progress. Please check your wallet.');
-    }
-    derivingRef.current = true;
-    setDeriveState('signing');
-    setError(null);
+    if (!userAddr) throw new Error('EVM wallet not connected');
+    await deriveAgentKeyStore(userAddr);
+  }, [userAddr, deriveAgentKeyStore]);
 
-    try {
-      const provider =
-        walletService.getProvider('evm') ||
-        (typeof window !== 'undefined' ? (window as any).ethereum : null);
-      if (!provider) throw new Error('EVM provider not available');
-
-      const { agentAddress: addr, wallet } = await deriveAsterAgentKey(userAddr, provider);
-      await encryptAndStoreAgentKey(wallet.privateKey);
-
-      setAsterSigner(wallet);
-      setAgentAddress(addr);
-      setDeriveState('ready');
-    } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      setError(err);
-      setDeriveState('error');
-      throw err;
-    } finally {
-      derivingRef.current = false;
-    }
-  }, [userAddr]);
-
-  const purge = useCallback(() => {
-    purgeAgentKey();
-    setAsterSigner(null);
-    setAgentAddress(null);
-    setDeriveState('idle');
-    setError(null);
-  }, []);
-
-  useEffect(() => {
-    if (!userAddr && asterSigner) purge();
-  }, [userAddr, asterSigner, purge]);
+  const isReady = (deriveState === 'ready' || hasStoredAgentKey()) && !!asterSigner;
 
   return {
     asterSigner,
@@ -107,7 +171,7 @@ export function useAsterAgent(): UseAsterAgentResult {
     deriveState,
     error,
     deriveAgentKey,
-    purge,
-    isReady: deriveState === 'ready' && asterSigner !== null,
+    purge: purgeStore,
+    isReady,
   };
 }

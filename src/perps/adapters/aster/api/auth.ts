@@ -1,5 +1,7 @@
 import type { Signer } from 'ethers';
-import { ASTER_REST_URL, ASTER_CHAIN_ID } from '../constants';
+
+import { ASTER_CHAIN_ID, ASTER_REST_URL } from '../constants';
+import { parseAsterError } from './errors';
 
 const EIP712_DOMAIN = {
   name: 'AsterSignTransaction',
@@ -42,11 +44,14 @@ export function buildTypedData(msg: string): TypedDataPayload {
 export class AsterApiError extends Error {
   readonly code: number;
   readonly msg: string;
+  readonly userMessage: string;
 
   constructor(raw: { code: number; msg: string }) {
+    const detail = parseAsterError(raw);
     super(`Aster API error ${raw.code}: ${raw.msg}`);
     this.code = raw.code;
     this.msg = raw.msg;
+    this.userMessage = detail.userMessage;
   }
 }
 
@@ -56,15 +61,40 @@ function throwIfApiError(data: any): void {
   }
 }
 
+let serverTimeOffset = 0;
+let lastTimeSync = 0;
+
+export async function getSyncedServerTime(): Promise<number> {
+  const now = Date.now();
+  if (now - lastTimeSync < 60000 && lastTimeSync > 0) {
+    return now + serverTimeOffset;
+  }
+  try {
+    const res = await fetch(`${ASTER_REST_URL}/fapi/v3/time`);
+    const data = await res.json();
+    if (data && typeof data.serverTime === 'number') {
+      serverTimeOffset = data.serverTime - Date.now();
+      lastTimeSync = Date.now();
+      return data.serverTime;
+    }
+  } catch (err) {
+    console.warn('[aster] Failed to sync server time, falling back to local time', err);
+  }
+  return Date.now();
+}
+
 export async function signedRequest(
   signer: Signer,
   userAddr: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
-  params: Record<string, string> = {}
+  params: Record<string, string> = {},
+  baseUrl: string = ASTER_REST_URL
 ): Promise<any> {
   const signerAddr = await signer.getAddress();
-  const nonce = String(Date.now() * 1000);
+  const serverTime = await getSyncedServerTime();
+  const nonce = String(serverTime * 1000);
+
   const ordered: Record<string, string> = {
     user: userAddr,
     signer: signerAddr,
@@ -75,11 +105,7 @@ export async function signedRequest(
   const qs = new URLSearchParams(ordered).toString();
   const typedData = buildTypedData(qs);
 
-  const signature = await signer.signTypedData(
-    typedData.domain,
-    EIP712_TYPES,
-    typedData.message
-  );
+  const signature = await signer.signTypedData(typedData.domain, EIP712_TYPES, typedData.message);
 
   const finalQs = `${qs}&signature=${signature}`;
 
@@ -87,10 +113,10 @@ export async function signedRequest(
   let fetchOptions: RequestInit;
 
   if (method === 'GET') {
-    url = `${ASTER_REST_URL}${path}?${finalQs}`;
+    url = `${baseUrl}${path}?${finalQs}`;
     fetchOptions = { method: 'GET' };
   } else {
-    url = `${ASTER_REST_URL}${path}`;
+    url = `${baseUrl}${path}`;
     fetchOptions = {
       method,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

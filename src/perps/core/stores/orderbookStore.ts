@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+
 import type { OrderBookLevel } from '../models';
 
 export interface OrderBookSide {
@@ -19,8 +20,18 @@ interface OrderbookStoreState {
   _bidMaps: Record<string, Map<string, string>>;
   _askMaps: Record<string, Map<string, string>>;
 
-  applySnapshot: (symbol: string, bids: OrderBookLevel[], asks: OrderBookLevel[], lastUpdateId: number) => void;
-  applyDiff: (symbol: string, bids: OrderBookLevel[], asks: OrderBookLevel[], updateId: number) => void;
+  applySnapshot: (
+    symbol: string,
+    bids: OrderBookLevel[],
+    asks: OrderBookLevel[],
+    lastUpdateId: number
+  ) => void;
+  applyDiff: (
+    symbol: string,
+    bids: OrderBookLevel[],
+    asks: OrderBookLevel[],
+    updateId: number
+  ) => void;
   flushToState: (symbol: string) => void;
   resetBook: (symbol: string) => void;
   getOrderBook: (symbol: string) => OrderBookState | undefined;
@@ -37,16 +48,22 @@ function applyLevelsToMap(map: Map<string, string>, levels: OrderBookLevel[]): v
   }
 }
 
-function sortedBids(map: Map<string, string>): { price: string; size: string }[] {
-  return Array.from(map.entries())
-    .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
-    .map(([price, size]) => ({ price, size }));
+function sortedBids(map: Map<string, string>, limit = 60): { price: string; size: string }[] {
+  const entries: { price: string; size: string; numPrice: number }[] = [];
+  for (const [price, size] of map.entries()) {
+    entries.push({ price, size, numPrice: Number(price) });
+  }
+  entries.sort((a, b) => b.numPrice - a.numPrice);
+  return entries.slice(0, limit).map(({ price, size }) => ({ price, size }));
 }
 
-function sortedAsks(map: Map<string, string>): { price: string; size: string }[] {
-  return Array.from(map.entries())
-    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
-    .map(([price, size]) => ({ price, size }));
+function sortedAsks(map: Map<string, string>, limit = 60): { price: string; size: string }[] {
+  const entries: { price: string; size: string; numPrice: number }[] = [];
+  for (const [price, size] of map.entries()) {
+    entries.push({ price, size, numPrice: Number(price) });
+  }
+  entries.sort((a, b) => a.numPrice - b.numPrice);
+  return entries.slice(0, limit).map(({ price, size }) => ({ price, size }));
 }
 
 export const useOrderbookStore = create<OrderbookStoreState>((set, get) => ({
@@ -61,7 +78,7 @@ export const useOrderbookStore = create<OrderbookStoreState>((set, get) => ({
     for (const { price, size } of bids) bidMap.set(price, size);
     for (const { price, size } of asks) askMap.set(price, size);
 
-    set((state) => ({
+    set(state => ({
       _bidMaps: { ...state._bidMaps, [symbol]: bidMap },
       _askMaps: { ...state._askMaps, [symbol]: askMap },
       books: {
@@ -77,7 +94,7 @@ export const useOrderbookStore = create<OrderbookStoreState>((set, get) => ({
     }));
   },
 
-  applyDiff: (symbol, bids, asks, updateId) => {
+  applyDiff: (symbol, bids, asks) => {
     const state = get();
     const bidMap = state._bidMaps[symbol];
     const askMap = state._askMaps[symbol];
@@ -85,26 +102,15 @@ export const useOrderbookStore = create<OrderbookStoreState>((set, get) => ({
 
     applyLevelsToMap(bidMap, bids);
     applyLevelsToMap(askMap, asks);
-
-    // Mutate in place — flushToState will convert to sorted array before React sees it
-    set((s) => ({
-      books: {
-        ...s.books,
-        [symbol]: {
-          ...s.books[symbol],
-          lastUpdateId: updateId,
-        },
-      },
-    }));
   },
 
-  flushToState: (symbol) => {
+  flushToState: symbol => {
     const state = get();
     const bidMap = state._bidMaps[symbol];
     const askMap = state._askMaps[symbol];
     if (!bidMap || !askMap) return;
 
-    set((s) => ({
+    set(s => ({
       books: {
         ...s.books,
         [symbol]: {
@@ -116,8 +122,8 @@ export const useOrderbookStore = create<OrderbookStoreState>((set, get) => ({
     }));
   },
 
-  resetBook: (symbol) => {
-    set((state) => {
+  resetBook: symbol => {
+    set(state => {
       const books = { ...state.books };
       const bidMaps = { ...state._bidMaps };
       const askMaps = { ...state._askMaps };
@@ -128,15 +134,19 @@ export const useOrderbookStore = create<OrderbookStoreState>((set, get) => ({
     });
   },
 
-  getOrderBook: (symbol) => get().books[symbol],
+  getOrderBook: symbol => get().books[symbol],
 
   clear: () => set({ books: {}, _bidMaps: {}, _askMaps: {} }),
 }));
 
 // Non-hook accessor for WebSocket handlers
 export const orderBookStore = {
-  applySnapshot: (symbol: string, bids: OrderBookLevel[], asks: OrderBookLevel[], lastUpdateId: number) =>
-    useOrderbookStore.getState().applySnapshot(symbol, bids, asks, lastUpdateId),
+  applySnapshot: (
+    symbol: string,
+    bids: OrderBookLevel[],
+    asks: OrderBookLevel[],
+    lastUpdateId: number
+  ) => useOrderbookStore.getState().applySnapshot(symbol, bids, asks, lastUpdateId),
   applyDiff: (symbol: string, bids: OrderBookLevel[], asks: OrderBookLevel[], updateId: number) =>
     useOrderbookStore.getState().applyDiff(symbol, bids, asks, updateId),
   flushToState: (symbol: string) => useOrderbookStore.getState().flushToState(symbol),

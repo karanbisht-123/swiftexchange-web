@@ -165,9 +165,9 @@ const createSocketClient = () => {
   const networkConfig = getNetworkConfig(network);
   const wsEndpoint = networkConfig.indexerConfig.websocketEndpoint;
 
-  webSocketManager.connect(wsEndpoint).catch(error => {
-    console.error('[SocketClient] Initial connection failed:', error);
-  });
+  // webSocketManager.connect(wsEndpoint).catch(error => {
+  //   console.error('[SocketClient] Initial connection failed:', error);
+  // });
 
   return {
     connect: () => webSocketManager.connect(wsEndpoint),
@@ -301,10 +301,10 @@ export const logoutAndShutdown = () => {
 };
 
 // Eagerly initialize socket client to start WebSocket connection ASAP on app startup
-setTimeout(() => {
-  try {
-    getSocketClient();
-  } catch (err) {
-    console.error('[SocketClient] Eager connection failed:', err);
-  }
-}, 0);
+// setTimeout(() => {
+//   try {
+//     getSocketClient();
+//   } catch (err) {
+//     console.error('[SocketClient] Eager connection failed:', err);
+//   }
+// }, 0);

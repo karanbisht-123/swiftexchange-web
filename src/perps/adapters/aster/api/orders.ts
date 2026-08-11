@@ -1,14 +1,16 @@
 import type { Signer } from 'ethers';
-import { signedRequest } from './auth';
+
 import { ASTER_ENDPOINTS } from '../constants';
 import type {
-  PlaceOrderParams,
   AsterOrderResponse,
-  CancelOrderParams,
   CancelBatchParams,
-  QueryOrderParams,
+  CancelOrderParams,
   GetAllOrdersParams,
+  PlaceOrderParams,
+  QueryOrderParams,
 } from '../types/orders';
+import { signedRequest } from './auth';
+
 const BATCH_ORDER_LIMIT = 5;
 
 /**
@@ -44,6 +46,30 @@ export async function placeOrder(
   return signedRequest(signer, userAddr, 'POST', ASTER_ENDPOINTS.ORDER, p);
 }
 
+export async function placeChaseOrder(
+  signer: Signer,
+  userAddr: string,
+  params: import('../types/orders').PlaceChaseParams
+): Promise<any> {
+  const p: Record<string, string> = {
+    symbol: params.symbol,
+    side: params.side,
+    quantity: params.quantity,
+    quantityUnit: params.quantityUnit || 'BASE',
+  };
+
+  if (params.positionSide !== undefined) p.positionSide = params.positionSide;
+  if (params.reduceOnly !== undefined) p.reduceOnly = String(params.reduceOnly);
+  if (params.chaseOffset !== undefined) p.chaseOffset = params.chaseOffset;
+  if (params.chaseOffsetType !== undefined) p.chaseOffsetType = params.chaseOffsetType;
+  if (params.maxChaseOffset !== undefined) p.maxChaseOffset = params.maxChaseOffset;
+  if (params.maxChaseOffsetType !== undefined) p.maxChaseOffsetType = params.maxChaseOffsetType;
+  if (params.timeInForce !== undefined) p.timeInForce = params.timeInForce;
+  if (params.clientStrategyId !== undefined) p.clientStrategyId = params.clientStrategyId;
+
+  return signedRequest(signer, userAddr, 'POST', ASTER_ENDPOINTS.CHASE, p);
+}
+
 /**
  * Place multiple orders in a single request.
  * batchOrders param is sent as a JSON-stringified array — this is confirmed from Aster docs.
@@ -54,10 +80,27 @@ export async function placeBatchOrders(
   userAddr: string,
   orders: PlaceOrderParams[]
 ): Promise<AsterOrderResponse[]> {
-  const batch = orders.slice(0, BATCH_ORDER_LIMIT);
-  return signedRequest(signer, userAddr, 'POST', ASTER_ENDPOINTS.BATCH_ORDERS, {
-    batchOrders: JSON.stringify(batch),
-  });
+  const responses: AsterOrderResponse[] = [];
+
+  // Aster API limits to BATCH_ORDER_LIMIT (5) per request
+  for (let i = 0; i < orders.length; i += BATCH_ORDER_LIMIT) {
+    const chunk = orders.slice(i, i + BATCH_ORDER_LIMIT);
+    const chunkResponses = await signedRequest(
+      signer,
+      userAddr,
+      'POST',
+      ASTER_ENDPOINTS.BATCH_ORDERS,
+      {
+        batchOrders: JSON.stringify(chunk),
+      }
+    );
+
+    if (Array.isArray(chunkResponses)) {
+      responses.push(...chunkResponses);
+    }
+  }
+
+  return responses;
 }
 
 // Cancel a single order by orderId or origClientOrderId.
@@ -72,7 +115,7 @@ export async function cancelOrder(
   return signedRequest(signer, userAddr, 'DELETE', ASTER_ENDPOINTS.ORDER, p);
 }
 
-// Cancel all open orders for a symbol. 
+// Cancel all open orders for a symbol.
 export async function cancelAllOpenOrders(
   signer: Signer,
   userAddr: string,
@@ -89,7 +132,8 @@ export async function cancelBatchOrders(
 ): Promise<AsterOrderResponse[]> {
   const p: Record<string, string> = { symbol: params.symbol };
   if (params.orderIdList) p.orderIdList = JSON.stringify(params.orderIdList);
-  if (params.origClientOrderIdList) p.origClientOrderIdList = JSON.stringify(params.origClientOrderIdList);
+  if (params.origClientOrderIdList)
+    p.origClientOrderIdList = JSON.stringify(params.origClientOrderIdList);
   return signedRequest(signer, userAddr, 'DELETE', ASTER_ENDPOINTS.BATCH_ORDERS, p);
 }
 
@@ -105,7 +149,7 @@ export async function queryOrder(
   return signedRequest(signer, userAddr, 'GET', ASTER_ENDPOINTS.ORDER, p);
 }
 
-// Get all currently open orders, optionally filtered by symbol. 
+// Get all currently open orders, optionally filtered by symbol.
 export async function getOpenOrders(
   signer: Signer,
   userAddr: string,
@@ -116,7 +160,7 @@ export async function getOpenOrders(
   return signedRequest(signer, userAddr, 'GET', ASTER_ENDPOINTS.OPEN_ORDERS, p);
 }
 
-// Get order history with optional time-range and pagination. 
+// Get order history with optional time-range and pagination.
 export async function getAllOrders(
   signer: Signer,
   userAddr: string,

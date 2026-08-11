@@ -1,6 +1,6 @@
 import { Bell, ChevronDown, Menu } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../constants/routes';
 import { ConnectWalletButton } from '../../modules/walletconnect/components/ConnectWalletButton';
@@ -9,6 +9,7 @@ import {
   useApiTradingKeys,
   useWalletConnect,
 } from '../../modules/walletconnect/hooks/useWalletConnect';
+import { hasStoredAgentKey } from '../../modules/walletconnect/services/asterAgentKeyManager';
 import { useWalletStore } from '../../modules/walletconnect/store/walletConnectStore';
 import { useNotificationStore } from '../../store/notificationStore';
 import ThemeToggle from '../../utils/ThemeToggle';
@@ -17,7 +18,6 @@ const Topbar: React.FC = () => {
   const { connectedWallets, isRestoringSession, disconnectAll } = useWalletConnect();
   const navigate = useNavigate();
   const loc = useLocation();
-  const [searchParams] = useSearchParams();
   const hasRedirected = useRef(false);
 
   const { notifications, setGlobalPanelOpen } = useNotificationStore();
@@ -45,27 +45,20 @@ const Topbar: React.FC = () => {
     return () => document.removeEventListener('mousedown', cb);
   }, [isMoreOpen]);
 
-  const activeTab = searchParams.get('view') || 'trade';
-  const isDydxTradeView = loc.pathname === ROUTES.TRADING_DYDX_FUTURES;
-
-  const tabs = [
-    { key: 'trade', label: 'Trade' },
-    { key: 'markets', label: 'Markets' },
-    { key: 'portfolio', label: 'Portfolio' },
-  ];
-
-  const handleTabClick = (tabKey: string) => {
-    navigate(`${ROUTES.TRADING_DYDX_FUTURES}?view=${tabKey}`);
-  };
+  const isPerpsView = loc.pathname === ROUTES.TRADING_PERPS;
 
   useEffect(() => {
     if (isRestoringSession) return;
 
     if (isAnyWalletConnected && !hasRedirected.current && loc.pathname === ROUTES.HOME) {
       hasRedirected.current = true;
-      navigate(ROUTES.DASHBOARD);
+      if (connectedWallets.evm && hasStoredAgentKey()) {
+        navigate(ROUTES.TRADING_PERPS);
+      } else {
+        navigate(ROUTES.DASHBOARD);
+      }
     }
-  }, [isAnyWalletConnected, isRestoringSession, navigate, loc.pathname]);
+  }, [isAnyWalletConnected, isRestoringSession, navigate, loc.pathname, connectedWallets]);
 
   const handleDisconnectAll = useCallback(async () => {
     await disconnectAll();
@@ -84,31 +77,25 @@ const Topbar: React.FC = () => {
           <Menu size={20} />
         </button>
 
-        {isDydxTradeView && (
+        {/* {isPerpsView && (
           <div className="hidden lg:flex items-center gap-4 ml-4 h-full">
-            {tabs.map(tab => {
-              const isActive = activeTab === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => handleTabClick(tab.key)}
-                  className={`relative flex items-center h-full px-2 transition-colors duration-150 font-medium text-sm ${
-                    isActive
-                      ? 'text-primary'
-                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
-                  }`}
-                >
-                  {tab.label}
-                  {isActive && (
-                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-brand-primary)] rounded-t-sm" />
-                  )}
-                </button>
-              );
-            })}
+            {[
+              { key: 'trade', label: 'Trade' },
+              { key: 'markets', label: 'Markets' },
+              { key: 'portfolio', label: 'Portfolio' },
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => navigate(`${ROUTES.TRADING_PERPS}?view=${tab.key}`)}
+                className="relative flex items-center h-full px-2 font-medium text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-        )}
+        )} */}
 
-        {isDydxTradeView && hasDydx && (
+        {isPerpsView && hasDydx && (
           <div
             className="relative ml-1 sm:ml-2 lg:ml-4 flex items-center shrink-0"
             ref={moreMenuRef}

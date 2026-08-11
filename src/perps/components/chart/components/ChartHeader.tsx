@@ -305,7 +305,20 @@ const SettingsDropdown = memo(function SettingsDropdown({
         className="flex items-center justify-center px-1.5 py-1 hover:bg-hover rounded-md transition-colors min-h-[40px] min-w-[36px] text-gray-400 hover:text-primary"
         title="Display Settings"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
       </button>
       {open && (
         <>
@@ -383,11 +396,9 @@ export const ChartHeader = memo(function ChartHeader(props: ChartHeaderProps) {
 
   return (
     <div
-      className={`relative z-50 bg-secondary border-b border-color flex-shrink-0 ${
-        isFullscreen ? 'safe-area-top' : ''
-      }`}
+      className={`relative z-50 bg-secondary  flex-shrink-0 ${isFullscreen ? 'safe-area-top' : ''}`}
     >
-      <div className="flex items-center justify-between px-2 py-0.5">
+      <div className="flex items-center justify-between px-2 ">
         <TimeframeSelector value={timeframe} onChange={onTimeframeChange} />
         <div className="flex items-center gap-0.5 sm:gap-1 px-1 shrink-0">
           <div className="w-px h-3.5 bg-color opacity-60 mx-1.5" />
@@ -418,22 +429,22 @@ export const ChartHeader = memo(function ChartHeader(props: ChartHeaderProps) {
             onToggleCrosshair={onToggleCrosshair}
           />
           <div className="w-px h-3.5 bg-color opacity-60 mx-1.5" />
-          
+
           {activeChartTab && onChartTabChange && (
             <div className="flex items-center gap-3 mr-2 ml-2 text-[11px] text-muted">
-              <button 
+              <button
                 onClick={() => onChartTabChange('price')}
                 className={`transition-colors hover:text-primary ${activeChartTab === 'price' ? 'text-primary font-medium' : ''}`}
               >
                 Chart
               </button>
-              <button 
+              <button
                 onClick={() => onChartTabChange('depth')}
                 className={`transition-colors hover:text-primary ${activeChartTab === 'depth' ? 'text-primary font-medium' : ''}`}
               >
                 Depth
               </button>
-              <button 
+              <button
                 onClick={() => onChartTabChange('details')}
                 className={`transition-colors hover:text-primary ${activeChartTab === 'details' ? 'text-primary font-medium' : ''}`}
               >

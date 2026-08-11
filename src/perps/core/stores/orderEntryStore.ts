@@ -8,7 +8,11 @@ export type OrderType =
   | 'STOP_MARKET'
   | 'TAKE_PROFIT'
   | 'TAKE_PROFIT_MARKET'
-  | 'TRAILING_STOP_MARKET';
+  | 'TRAILING_STOP_MARKET'
+  | 'POST_ONLY'
+  | 'CHASE'
+  | 'TWAP'
+  | 'SCALED';
 
 export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'GTX';
 export type WorkingType = 'MARK_PRICE' | 'CONTRACT_PRICE';
@@ -22,15 +26,21 @@ interface OrderEntryStoreState {
   marginType: 'cross' | 'isolated';
   isReduceOnly: boolean;
   isPostOnly: boolean;
-  
-  // Advanced parameters
+
   timeInForce: TimeInForce;
   stopPrice: string;
   activationPrice: string;
   callbackRate: string;
   workingType: WorkingType;
 
-  // Attached TP/SL (OTOCO) state
+  chaseOffset: string;
+  maxChaseOffset: string;
+
+  scaledPriceLower: string;
+  scaledPriceUpper: string;
+  scaledOrderCount: string;
+  scaledDistribution: 'FLAT' | 'ASCENDING' | 'DESCENDING';
+
   slippageEnabled: boolean;
   slippageTolerance: string;
   attachedTpEnabled: boolean;
@@ -40,7 +50,6 @@ interface OrderEntryStoreState {
   attachedSlPrice: string;
   attachedSlTrigger: WorkingType;
 
-  // Simple TP/SL UI state
   tpEnabled: boolean;
   tp: string;
   slEnabled: boolean;
@@ -56,12 +65,20 @@ interface OrderEntryStoreState {
   setMarginType: (type: 'cross' | 'isolated') => void;
   setReduceOnly: (val: boolean) => void;
   setPostOnly: (val: boolean) => void;
-  
+
   setTimeInForce: (tif: TimeInForce) => void;
   setStopPrice: (price: string) => void;
   setActivationPrice: (price: string) => void;
   setCallbackRate: (rate: string) => void;
   setWorkingType: (wt: WorkingType) => void;
+
+  setChaseOffset: (offset: string) => void;
+  setMaxChaseOffset: (offset: string) => void;
+
+  setScaledPriceLower: (price: string) => void;
+  setScaledPriceUpper: (price: string) => void;
+  setScaledOrderCount: (count: string) => void;
+  setScaledDistribution: (dist: 'FLAT' | 'ASCENDING' | 'DESCENDING') => void;
 
   setTpEnabled: (enabled: boolean) => void;
   setTp: (tp: string) => void;
@@ -82,22 +99,30 @@ interface OrderEntryStoreState {
 
 const initialState = {
   side: 'BUY' as OrderSide,
-  orderType: 'LIMIT' as OrderType,
+  orderType: 'MARKET' as OrderType,
   size: '',
   price: '',
   leverage: 20,
   marginType: 'cross' as const,
   isReduceOnly: false,
   isPostOnly: false,
-  
+
   timeInForce: 'GTC' as TimeInForce,
   stopPrice: '',
   activationPrice: '',
   callbackRate: '',
   workingType: 'CONTRACT_PRICE' as WorkingType,
 
+  chaseOffset: '',
+  maxChaseOffset: '',
+
+  scaledPriceLower: '',
+  scaledPriceUpper: '',
+  scaledOrderCount: '5',
+  scaledDistribution: 'FLAT' as const,
+
   slippageEnabled: false,
-  slippageTolerance: '0.1',
+  slippageTolerance: '0.5',
   attachedTpEnabled: false,
   attachedTpPrice: '',
   attachedTpTrigger: 'MARK_PRICE' as WorkingType,
@@ -109,42 +134,50 @@ const initialState = {
   tp: '',
   slEnabled: false,
   sl: '',
-  
-  sizeAsset: 'quote' as const,
+
+  sizeAsset: 'base' as const,
 };
 
-export const useOrderEntryStore = create<OrderEntryStoreState>((set) => ({
+export const useOrderEntryStore = create<OrderEntryStoreState>(set => ({
   ...initialState,
-  
-  setSide: (side) => set({ side }),
-  setOrderType: (orderType) => set({ orderType }),
-  setSizeAsset: (sizeAsset) => set({ sizeAsset }),
-  setSize: (size) => set({ size }),
-  setPrice: (price) => set({ price }),
-  setLeverage: (leverage) => set({ leverage }),
-  setMarginType: (marginType) => set({ marginType }),
-  setReduceOnly: (isReduceOnly) => set({ isReduceOnly }),
-  setPostOnly: (isPostOnly) => set({ isPostOnly }),
-  
-  setTimeInForce: (timeInForce) => set({ timeInForce }),
-  setStopPrice: (stopPrice) => set({ stopPrice }),
-  setActivationPrice: (activationPrice) => set({ activationPrice }),
-  setCallbackRate: (callbackRate) => set({ callbackRate }),
-  setWorkingType: (workingType) => set({ workingType }),
 
-  setTpEnabled: (tpEnabled) => set({ tpEnabled }),
-  setTp: (tp) => set({ tp }),
-  setSlEnabled: (slEnabled) => set({ slEnabled }),
-  setSl: (sl) => set({ sl }),
+  setSide: side => set({ side }),
+  setOrderType: orderType => set({ orderType }),
+  setSizeAsset: sizeAsset => set({ sizeAsset }),
+  setSize: size => set({ size }),
+  setPrice: price => set({ price }),
+  setLeverage: leverage => set({ leverage }),
+  setMarginType: marginType => set({ marginType }),
+  setReduceOnly: isReduceOnly => set({ isReduceOnly }),
+  setPostOnly: isPostOnly => set({ isPostOnly }),
 
-  setSlippageEnabled: (slippageEnabled) => set({ slippageEnabled }),
-  setSlippageTolerance: (slippageTolerance) => set({ slippageTolerance }),
-  setAttachedTpEnabled: (attachedTpEnabled) => set({ attachedTpEnabled }),
-  setAttachedTpPrice: (attachedTpPrice) => set({ attachedTpPrice }),
-  setAttachedTpTrigger: (attachedTpTrigger) => set({ attachedTpTrigger }),
-  setAttachedSlEnabled: (attachedSlEnabled) => set({ attachedSlEnabled }),
-  setAttachedSlPrice: (attachedSlPrice) => set({ attachedSlPrice }),
-  setAttachedSlTrigger: (attachedSlTrigger) => set({ attachedSlTrigger }),
+  setTimeInForce: timeInForce => set({ timeInForce }),
+  setStopPrice: stopPrice => set({ stopPrice }),
+  setActivationPrice: activationPrice => set({ activationPrice }),
+  setCallbackRate: callbackRate => set({ callbackRate }),
+  setWorkingType: workingType => set({ workingType }),
+
+  setChaseOffset: chaseOffset => set({ chaseOffset }),
+  setMaxChaseOffset: maxChaseOffset => set({ maxChaseOffset }),
+
+  setScaledPriceLower: scaledPriceLower => set({ scaledPriceLower }),
+  setScaledPriceUpper: scaledPriceUpper => set({ scaledPriceUpper }),
+  setScaledOrderCount: scaledOrderCount => set({ scaledOrderCount }),
+  setScaledDistribution: scaledDistribution => set({ scaledDistribution }),
+
+  setTpEnabled: tpEnabled => set({ tpEnabled }),
+  setTp: tp => set({ tp }),
+  setSlEnabled: slEnabled => set({ slEnabled }),
+  setSl: sl => set({ sl }),
+
+  setSlippageEnabled: slippageEnabled => set({ slippageEnabled }),
+  setSlippageTolerance: slippageTolerance => set({ slippageTolerance }),
+  setAttachedTpEnabled: attachedTpEnabled => set({ attachedTpEnabled }),
+  setAttachedTpPrice: attachedTpPrice => set({ attachedTpPrice }),
+  setAttachedTpTrigger: attachedTpTrigger => set({ attachedTpTrigger }),
+  setAttachedSlEnabled: attachedSlEnabled => set({ attachedSlEnabled }),
+  setAttachedSlPrice: attachedSlPrice => set({ attachedSlPrice }),
+  setAttachedSlTrigger: attachedSlTrigger => set({ attachedSlTrigger }),
 
   reset: () => set(initialState),
 }));

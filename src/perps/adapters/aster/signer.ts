@@ -1,17 +1,42 @@
+import { getAddress, isAddress } from 'ethers';
 import type { Signer } from 'ethers';
+
+export const EVM_CHAIN_NAME_MAP: Record<number, string> = {
+  1: 'ETH',
+  56: 'BSC',
+  42161: 'Arbitrum',
+};
+
+export function getEVMChainName(chainId: number): string {
+  const name = EVM_CHAIN_NAME_MAP[chainId];
+  if (!name) {
+    throw new Error(
+      `Unsupported EVM chainId ${chainId}. Allowed chains: 1 (ETH), 56 (BSC), 42161 (Arbitrum).`
+    );
+  }
+  return name;
+}
+
+export interface EVMWithdrawPayload {
+  destination: string;
+  token: string;
+  amount: string;
+  fee: string;
+  nonce: number | bigint;
+}
 
 export async function signEVMWithdraw(
   signer: Signer,
   chainId: number,
-  params: {
-    destination: string;
-    destinationChain: string;
-    token: string;
-    amount: string;
-    fee: string;
-    nonce: number;
-  }
+  params: EVMWithdrawPayload
 ): Promise<string> {
+  if (!isAddress(params.destination)) {
+    throw new Error(`Invalid destination EVM address: ${params.destination}`);
+  }
+
+  const checksummedDestination = getAddress(params.destination);
+  const destinationChain = getEVMChainName(chainId);
+
   const domain = {
     name: 'Aster',
     version: '1',
@@ -34,8 +59,8 @@ export async function signEVMWithdraw(
 
   const value = {
     type: 'Withdraw',
-    destination: params.destination,
-    'destination Chain': params.destinationChain,
+    destination: checksummedDestination,
+    'destination Chain': destinationChain,
     token: params.token,
     amount: params.amount,
     fee: params.fee,
@@ -53,7 +78,7 @@ export class AsterSigner {
     this.privateKey = privateKey;
   }
 
-  public async signRequest(_payload: any): Promise<any> {
+  public async signRequest(): Promise<any> {
     throw new Error('Not implemented: trading is not enabled yet for Aster');
   }
 }

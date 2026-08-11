@@ -1,13 +1,19 @@
+import { ChevronDown, Plus } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { useOrderEntryStore } from '../../core/stores/orderEntryStore';
+
 import { useAccountStore } from '../../core/stores/accountStore';
 import { useMarketStore } from '../../core/stores/marketStore';
+import {
+  type TimeInForce,
+  type WorkingType,
+  useOrderEntryStore,
+} from '../../core/stores/orderEntryStore';
+import { useTradeCalculations } from '../../hooks/useTradeCalculations';
 import { validateOrder } from '../../utils/orderValidation';
+import { AssetModeModal } from './AssetModeModal';
+import { OrderActionButton } from './OrderActionButton';
 import { OrderInput } from './OrderInput';
 import { OrderTypeSelector } from './OrderTypeSelector';
-import { OrderActionButton } from './OrderActionButton';
-import { useTradeCalculations } from '../../hooks/useTradeCalculations';
-import { AssetModeModal } from './AssetModeModal';
 
 interface OrderFormProps {
   onSubmitOrder: (params: any) => Promise<void>;
@@ -17,27 +23,44 @@ interface OrderFormProps {
   onOpenDepositModal: () => void;
 }
 
-export const OrderForm: React.FC<OrderFormProps> = ({ onSubmitOrder, isLoading, onOpenMarginModal, onOpenLeverageModal, onOpenDepositModal }) => {
+const TIF_OPTIONS: { label: string; value: TimeInForce }[] = [
+  { label: 'GTC', value: 'GTC' },
+  { label: 'IOC', value: 'IOC' },
+  { label: 'FOK', value: 'FOK' },
+  { label: 'GTX (Post Only)', value: 'GTX' },
+];
+
+export const OrderForm: React.FC<OrderFormProps> = ({
+  onSubmitOrder,
+  isLoading,
+  onOpenMarginModal,
+  onOpenLeverageModal,
+  onOpenDepositModal,
+}) => {
   const store = useOrderEntryStore();
   const [isAssetModeModalOpen, setIsAssetModeModalOpen] = useState(false);
+  const [isTifOpen, setIsTifOpen] = useState(false);
 
-  const balances = useAccountStore((state) => state.balances);
-  const markets = useMarketStore((state) => state.markets);
-  const selectedSymbol = useMarketStore((state) => state.selectedSymbol);
-  
+  const balances = useAccountStore(state => state.balances);
+  const markets = useMarketStore(state => state.markets);
+  const selectedSymbol = useMarketStore(state => state.selectedSymbol);
+
   const market = markets[selectedSymbol] || null;
 
   const {
     walletBalance: calcWalletBalance,
     maxPossibleSize,
     orderCost,
-    crossAccountEquity,
-    crossMarginRatio,
     estimatedIsolatedLiqPrice,
-    currentPrice
-  } = useTradeCalculations(selectedSymbol, store.size, store.sizeAsset, store.leverage, store.marginType);
+    currentPrice,
+  } = useTradeCalculations(
+    selectedSymbol,
+    store.size,
+    store.sizeAsset,
+    store.leverage,
+    store.marginType
+  );
 
-  // Validation
   const validation = useMemo(() => {
     return validateOrder(
       market,
@@ -49,27 +72,45 @@ export const OrderForm: React.FC<OrderFormProps> = ({ onSubmitOrder, isLoading, 
       store.size,
       store.sizeAsset,
       store.stopPrice,
-      store.callbackRate
+      store.callbackRate,
+      maxPossibleSize
     );
-  }, [market, currentPrice, balances, store.side, store.orderType, store.price, store.size, store.sizeAsset, store.stopPrice, store.callbackRate]);
+  }, [
+    market,
+    currentPrice,
+    balances,
+    store.side,
+    store.orderType,
+    store.price,
+    store.size,
+    store.sizeAsset,
+    store.stopPrice,
+    store.callbackRate,
+    maxPossibleSize,
+  ]);
 
   const handleSubmit = (side: 'BUY' | 'SELL') => {
     store.setSide(side);
-    // Note: We bypass strict validation state check here to let action button handle it or submit anyway
     const payload = {
       symbol: selectedSymbol,
       side,
-      type: store.orderType,
+      type: store.orderType === 'POST_ONLY' ? 'LIMIT' : store.orderType,
       size: store.size,
       sizeAsset: store.sizeAsset,
       price: store.price,
       leverage: store.leverage,
       isReduceOnly: store.isReduceOnly,
-      isPostOnly: store.isPostOnly,
+      isPostOnly: store.orderType === 'POST_ONLY' || store.isPostOnly,
       stopPrice: store.stopPrice,
       activationPrice: store.activationPrice,
       callbackRate: store.callbackRate,
-      timeInForce: store.timeInForce,
+      chaseOffset: store.chaseOffset,
+      maxChaseOffset: store.maxChaseOffset,
+      scaledPriceLower: store.scaledPriceLower,
+      scaledPriceUpper: store.scaledPriceUpper,
+      scaledOrderCount: store.scaledOrderCount,
+      scaledDistribution: store.scaledDistribution,
+      timeInForce: store.orderType === 'POST_ONLY' ? 'GTX' : store.timeInForce,
       workingType: store.workingType,
       slippageEnabled: store.slippageEnabled,
       slippageTolerance: store.slippageTolerance,
@@ -80,277 +121,507 @@ export const OrderForm: React.FC<OrderFormProps> = ({ onSubmitOrder, isLoading, 
       attachedSlPrice: store.attachedSlPrice,
       attachedSlTrigger: store.attachedSlTrigger,
     };
-    
+
     onSubmitOrder(payload);
   };
 
   const baseAsset = market?.baseAsset || selectedSymbol.split('-')[0] || 'ASSET';
   const quoteAsset = market?.quoteAsset || selectedSymbol.split('-')[1] || 'USDT';
   const currentCurrency = store.sizeAsset === 'base' ? baseAsset : quoteAsset;
+  const baseDecimals = market?.stepSize ? Math.max(0, -Math.floor(Math.log10(market.stepSize))) : 4;
+  const priceDecimals = market?.tickSize
+    ? Math.max(0, -Math.floor(Math.log10(market.tickSize)))
+    : 2;
 
   const actionSubtext = useMemo(() => {
     const size = parseFloat(store.size) || 0;
     if (size <= 0) return undefined;
     if (store.sizeAsset === 'quote') {
       const eqBase = currentPrice > 0 ? size / currentPrice : 0;
-      const decimals = market?.stepSize ? Math.max(0, -Math.floor(Math.log10(market.stepSize))) : 4;
-      return `≈${eqBase.toFixed(decimals)} ${baseAsset}`;
+      return `≈${eqBase.toFixed(baseDecimals)} ${baseAsset}`;
     } else {
       return `≈${orderCost.toFixed(2)} USDT`;
     }
-  }, [store.size, store.sizeAsset, currentPrice, orderCost, market?.stepSize, baseAsset]);
+  }, [store.size, store.sizeAsset, currentPrice, orderCost, baseDecimals, baseAsset]);
+
+  const handleCurrencyToggle = (curr: string) => {
+    const newAsset = curr === baseAsset ? 'base' : 'quote';
+    if (newAsset !== store.sizeAsset) {
+      const currentSize = parseFloat(store.size) || 0;
+      if (currentSize > 0 && currentPrice > 0) {
+        if (newAsset === 'quote') {
+          store.setSize((currentSize * currentPrice).toFixed(2));
+        } else {
+          store.setSize((currentSize / currentPrice).toFixed(baseDecimals));
+        }
+      }
+      store.setSizeAsset(newAsset);
+    }
+  };
+
+  const handleBboFill = () => {
+    if (currentPrice > 0) {
+      store.setPrice(currentPrice.toFixed(priceDecimals));
+    }
+  };
+
+  const isStopOrder =
+    store.orderType === 'STOP' ||
+    store.orderType === 'STOP_MARKET' ||
+    store.orderType === 'TAKE_PROFIT' ||
+    store.orderType === 'TAKE_PROFIT_MARKET';
+
+  const isPriceOrder =
+    store.orderType === 'LIMIT' ||
+    store.orderType === 'POST_ONLY' ||
+    store.orderType === 'STOP' ||
+    store.orderType === 'TAKE_PROFIT';
+
+  const currentSliderPct = Math.min(
+    100,
+    Math.max(0, maxPossibleSize > 0 ? ((parseFloat(store.size) || 0) / maxPossibleSize) * 100 : 0)
+  );
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-4">
-      {/* Layer 1: Order Type */}
+    <div className="flex-1 min-h-0 overflow-y-auto p-3 py-0 space-y-2.5 scrollbar-thin">
       <OrderTypeSelector activeType={store.orderType} onChange={store.setOrderType} />
 
-      {/* Layer 2: Available Balance */}
-      <div className="flex justify-end items-center text-[11px] text-secondary">
-        <span>Avbl <span className="text-primary font-medium">{calcWalletBalance.toFixed(2)} USDT</span></span>
-        <button onClick={onOpenDepositModal} className="ml-1 text-brand hover:opacity-80">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+      <div className="flex justify-between items-center text-[12px] text-secondary pt-0.5">
+        <div className="flex items-center gap-1.5">
+          <span>Avbl</span>
+          <span className="text-primary font-medium">{calcWalletBalance.toFixed(2)} USDT</span>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenDepositModal}
+          className="w-4 h-4 rounded-full border border-brand/50 text-brand hover:bg-brand/10 flex items-center justify-center transition-colors cursor-pointer"
+          title="Deposit"
+        >
+          <Plus size={11} strokeWidth={2.5} />
         </button>
       </div>
 
-      {/* Layer 3: Settings Row */}
       <div className="flex gap-2">
-        <button 
+        <button
+          type="button"
           onClick={onOpenMarginModal}
-          className="flex-1 bg-tertiary border border-color rounded py-1.5 text-[11px] font-medium text-secondary hover:text-primary transition-colors"
+          className="flex-1 bg-tertiary border border-color hover:border-border-dark rounded-md py-1.5 text-[12px] font-medium text-primary transition-colors cursor-pointer text-center"
         >
           {store.marginType === 'cross' ? 'Cross' : 'Isolated'}
         </button>
-        <button 
+        <button
+          type="button"
           onClick={onOpenLeverageModal}
-          className="flex-1 bg-tertiary border border-color rounded py-1.5 text-[11px] font-medium text-secondary hover:text-primary transition-colors"
+          className="flex-1 bg-tertiary border border-color hover:border-border-dark rounded-md py-1.5 text-[12px] font-medium text-primary transition-colors cursor-pointer text-center"
         >
           {store.leverage}x
         </button>
-        <button 
+        <button
+          type="button"
           onClick={() => setIsAssetModeModalOpen(true)}
-          className="w-10 bg-tertiary border border-color rounded py-1.5 text-[11px] font-medium text-secondary hover:text-primary transition-colors flex items-center justify-center"
+          className="w-9 bg-tertiary border border-color hover:border-border-dark rounded-md py-1.5 text-[12px] font-medium text-primary transition-colors flex items-center justify-center cursor-pointer"
+          title="Multi-Asset Mode"
         >
           M
         </button>
       </div>
 
-      {/* Layer 4: Inputs */}
-      <div className="space-y-4 mt-2">
-        {(store.orderType === 'LIMIT' || store.orderType === 'STOP' || store.orderType === 'TAKE_PROFIT') && (
-          <OrderInput 
-            label="Price"
-            value={store.price}
-            onChange={store.setPrice}
-            currency="USDT"
-            quickActionLabel="BBO"
-            onQuickAction={() => { /* TODO: get BBO from orderbook */ }}
-          />
-        )}
-
-        {(store.orderType === 'STOP' || store.orderType === 'STOP_MARKET' || store.orderType === 'TAKE_PROFIT' || store.orderType === 'TAKE_PROFIT_MARKET') && (
-          <OrderInput 
-            label="Stop Price"
+      <div className="space-y-2">
+        {isStopOrder && (
+          <OrderInput
+            label="Trigger price"
             value={store.stopPrice}
             onChange={store.setStopPrice}
             currency="USDT"
+            placeholder="0.00"
+            triggerOption={store.workingType === 'MARK_PRICE' ? 'Mark' : 'Last'}
+            triggerOptions={['Mark', 'Last']}
+            onTriggerOptionChange={opt =>
+              store.setWorkingType(opt === 'Mark' ? 'MARK_PRICE' : 'CONTRACT_PRICE')
+            }
+            error={validation.errorField === 'stopPrice'}
+          />
+        )}
+
+        {isPriceOrder && (
+          <OrderInput
+            label="Order price"
+            value={store.price}
+            onChange={store.setPrice}
+            currency="USDT"
+            placeholder="0.00"
+            onBboClick={handleBboFill}
+            error={validation.errorField === 'price'}
           />
         )}
 
         {store.orderType === 'TRAILING_STOP_MARKET' && (
           <>
-            <OrderInput 
+            <OrderInput
               label="Activation"
               value={store.activationPrice}
               onChange={store.setActivationPrice}
               currency="USDT"
               placeholder="Latest price if empty"
             />
-            <OrderInput 
+            <OrderInput
               label="Callback %"
               value={store.callbackRate}
               onChange={store.setCallbackRate}
               currency="%"
               placeholder="0.1 to 5"
+              error={validation.errorField === 'callbackRate'}
             />
           </>
         )}
 
-        {/* Validation Error Display */}
-        {!validation.isValid && validation.error && (
-          <div className="px-1 text-danger text-[11px] font-medium animate-fade-in">
-            {validation.error}
-          </div>
+        {store.orderType === 'CHASE' && (
+          <>
+            <OrderInput
+              label="Chase Offset"
+              value={store.chaseOffset}
+              onChange={store.setChaseOffset}
+              currency="USDT"
+              placeholder="0"
+            />
+            <OrderInput
+              label="Max Offset"
+              value={store.maxChaseOffset}
+              onChange={store.setMaxChaseOffset}
+              currency="USDT"
+              placeholder="10"
+            />
+          </>
         )}
 
-        <OrderInput 
+        {store.orderType === 'SCALED' && (
+          <>
+            <OrderInput
+              label="Price Lower"
+              value={store.scaledPriceLower}
+              onChange={store.setScaledPriceLower}
+              currency="USDT"
+              placeholder="0.00"
+            />
+            <OrderInput
+              label="Price Upper"
+              value={store.scaledPriceUpper}
+              onChange={store.setScaledPriceUpper}
+              currency="USDT"
+              placeholder="0.00"
+            />
+            <OrderInput
+              label="Order Count"
+              value={store.scaledOrderCount}
+              onChange={store.setScaledOrderCount}
+              currency=""
+              placeholder="2 - 20"
+            />
+            <div className="flex justify-between items-center text-[12px] bg-tertiary border border-color rounded-md p-1">
+              {['FLAT', 'ASCENDING', 'DESCENDING'].map(dist => (
+                <button
+                  key={dist}
+                  type="button"
+                  onClick={() => store.setScaledDistribution(dist as any)}
+                  className={`flex-1 py-1 text-center rounded transition-colors ${
+                    store.scaledDistribution === dist
+                      ? 'bg-secondary text-primary shadow-sm'
+                      : 'text-secondary hover:text-primary'
+                  }`}
+                >
+                  {dist === 'FLAT' ? 'Flat' : dist === 'ASCENDING' ? 'Scale Up' : 'Scale Down'}
+                </button>
+              ))}
+            </div>
+
+            {store.scaledPriceLower && store.scaledPriceUpper && store.scaledOrderCount && (
+              <div className="text-[11px] text-secondary bg-brand/5 p-2 rounded-md border border-brand/10 leading-relaxed text-center">
+                Places <strong className="text-brand">{store.scaledOrderCount}</strong> limit orders
+                from <strong className="text-primary">{store.scaledPriceLower}</strong> to{' '}
+                <strong className="text-primary">{store.scaledPriceUpper}</strong> with a{' '}
+                <strong className="text-primary">
+                  {store.scaledDistribution === 'FLAT'
+                    ? 'Flat'
+                    : store.scaledDistribution === 'ASCENDING'
+                      ? 'Scale Up'
+                      : 'Scale Down'}
+                </strong>{' '}
+                size distribution.
+              </div>
+            )}
+          </>
+        )}
+
+        <OrderInput
           label="Size"
           value={store.size}
           onChange={store.setSize}
           currency={currentCurrency}
           currencyOptions={[quoteAsset, baseAsset]}
-          onCurrencyChange={(curr) => store.setSizeAsset(curr === baseAsset ? 'base' : 'quote')}
+          onCurrencyChange={handleCurrencyToggle}
+          placeholder="0.00"
+          error={validation.errorField === 'size'}
         />
 
-        {/* Custom Size Slider */}
-        <div className="px-3 pt-3 pb-4">
-          <div className="relative w-full h-1 bg-tertiary rounded-lg flex items-center">
-            {/* Filled Track */}
-            <div 
-              className="absolute h-full bg-brand rounded-l-lg pointer-events-none"
-              style={{ width: `${Math.min(100, Math.max(0, maxPossibleSize > 0 ? ((parseFloat(store.size) || 0) / maxPossibleSize * 100) : 0))}%` }}
+        {/* Theme Range Slider */}
+        <div className="px-1 py-1">
+          <div className="relative w-full h-1 bg-border-color rounded-full flex items-center">
+            <div
+              className="absolute h-full bg-brand rounded-l-full pointer-events-none"
+              style={{ width: `${currentSliderPct}%` }}
             />
-            
-            {/* Marks */}
+
             <div className="absolute inset-0 flex justify-between items-center pointer-events-none px-[1px]">
-              {[0, 25, 50, 75, 100].map(mark => {
-                const currentPct = maxPossibleSize > 0 ? ((parseFloat(store.size) || 0) / maxPossibleSize * 100) : 0;
-                return (
-                  <div 
-                    key={mark} 
-                    className={`w-1.5 h-1.5 rounded-full z-0 transition-colors ${currentPct >= mark ? 'bg-brand' : 'bg-color group-hover:bg-brand/50'}`} 
-                  />
-                );
-              })}
+              {[0, 25, 50, 75, 100].map(mark => (
+                <div
+                  key={mark}
+                  className={`w-1.5 h-1.5 rounded-full z-0 transition-colors ${
+                    currentSliderPct >= mark
+                      ? 'bg-brand ring-2 ring-brand/30'
+                      : 'bg-tertiary border border-color'
+                  }`}
+                />
+              ))}
             </div>
 
-            {/* Invisible Native Input for interaction */}
-            <input 
-              type="range" 
-              min="0" 
-              max="100" 
-              value={maxPossibleSize > 0 ? ((parseFloat(store.size) || 0) / maxPossibleSize * 100).toFixed(0) : 0}
-              onChange={(e) => {
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={currentSliderPct.toFixed(0)}
+              onChange={e => {
                 const pct = parseFloat(e.target.value) / 100;
                 const newSize = maxPossibleSize * pct;
-                store.setSize(newSize > 0 ? newSize.toFixed(market?.stepSize ? Math.max(0, -Math.floor(Math.log10(market.stepSize))) : 4) : '');
+                if (newSize > 0) {
+                  const stepPrecision = store.sizeAsset === 'quote' ? 2 : baseDecimals;
+                  store.setSize(newSize.toFixed(stepPrecision));
+                } else {
+                  store.setSize('');
+                }
               }}
-              className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer z-10" 
+              className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer z-10"
             />
-            
-            {/* Thumb Visual */}
-            <div 
-              className="absolute w-3.5 h-3.5 bg-brand rounded-full shadow pointer-events-none border-2 border-secondary z-10"
-              style={{ 
-                left: `calc(${Math.min(100, Math.max(0, maxPossibleSize > 0 ? ((parseFloat(store.size) || 0) / maxPossibleSize * 100) : 0))}% - 7px)`
+
+            <div
+              className="absolute w-3.5 h-3.5 bg-white rounded-full shadow pointer-events-none border-2 border-brand z-10"
+              style={{
+                left: `calc(${currentSliderPct}% - 7px)`,
               }}
             />
           </div>
         </div>
-      </div>
 
-      {/* Layer 5: Stacked Checkboxes */}
-      <div className="space-y-3 text-[11px] text-secondary">
-        {/* Slippage Tolerance */}
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 cursor-pointer group">
-            <div className={`w-3.5 h-3.5 rounded flex items-center justify-center transition-colors ${store.slippageEnabled ? 'bg-secondary text-primary' : 'border border-color bg-tertiary group-hover:border-primary'}`}>
-              {store.slippageEnabled && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
-            </div>
-            <input type="checkbox" className="hidden" checked={store.slippageEnabled} onChange={(e) => store.setSlippageEnabled(e.target.checked)} />
-            <span className="group-hover:text-primary transition-colors">Slippage Tolerance</span>
-          </label>
-          {store.slippageEnabled && (
-            <div className="pl-5.5">
-              <OrderInput label="Slippage" value={store.slippageTolerance} onChange={store.setSlippageTolerance} currency="%" />
-            </div>
-          )}
-        </div>
-
-        {/* TP/SL */}
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 cursor-pointer group">
-            <div className={`w-3.5 h-3.5 rounded flex items-center justify-center transition-colors ${(store.attachedTpEnabled || store.attachedSlEnabled) ? 'bg-secondary text-primary' : 'border border-color bg-tertiary group-hover:border-primary'}`}>
-              {(store.attachedTpEnabled || store.attachedSlEnabled) && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
-            </div>
-            <input type="checkbox" className="hidden" checked={store.attachedTpEnabled || store.attachedSlEnabled} onChange={(e) => {
-              store.setAttachedTpEnabled(e.target.checked);
-              store.setAttachedSlEnabled(e.target.checked);
-            }} />
-            <span className="group-hover:text-primary transition-colors">TP/SL</span>
-          </label>
-
-          {(store.attachedTpEnabled || store.attachedSlEnabled) && (
-            <div className="pl-5.5 space-y-3">
-              <div className="space-y-1">
-                <div className="flex justify-between items-center">
-                  <span>Take Profit</span>
-                  <select value={store.attachedTpTrigger} onChange={(e) => store.setAttachedTpTrigger(e.target.value as any)} className="bg-transparent text-primary outline-none cursor-pointer">
-                    <option value="MARK_PRICE">Mark</option>
-                    <option value="CONTRACT_PRICE">Last</option>
-                  </select>
-                </div>
-                <OrderInput label="TP" value={store.attachedTpPrice} onChange={store.setAttachedTpPrice} currency="USDT" />
-              </div>
-              
-              <div className="space-y-1">
-                <div className="flex justify-between items-center">
-                  <span>Stop Loss</span>
-                  <select value={store.attachedSlTrigger} onChange={(e) => store.setAttachedSlTrigger(e.target.value as any)} className="bg-transparent text-primary outline-none cursor-pointer">
-                    <option value="MARK_PRICE">Mark</option>
-                    <option value="CONTRACT_PRICE">Last</option>
-                  </select>
-                </div>
-                <OrderInput label="SL" value={store.attachedSlPrice} onChange={store.setAttachedSlPrice} currency="USDT" />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Reduce-Only */}
-        <label className="flex items-center gap-2 cursor-pointer group">
-          <div className={`w-3.5 h-3.5 rounded flex items-center justify-center transition-colors ${store.isReduceOnly ? 'bg-secondary text-primary' : 'border border-color bg-tertiary group-hover:border-primary'}`}>
-            {store.isReduceOnly && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
-          </div>
-          <input type="checkbox" className="hidden" checked={store.isReduceOnly} onChange={(e) => store.setReduceOnly(e.target.checked)} />
-          <span className="group-hover:text-primary transition-colors">Reduce-Only</span>
-        </label>
-      </div>
-
-      {/* Layer 6: Action Buttons */}
-      <div className="pt-2">
-        <OrderActionButton 
-          onSubmit={handleSubmit}
-          isLoading={isLoading}
-          validationError={!validation.isValid ? validation.error : undefined}
-          onOpenDepositModal={onOpenDepositModal}
-          walletBalance={calcWalletBalance}
-          actionSubtext={actionSubtext}
-        />
-      </div>
-
-      {/* Layer 7: Margin Info Grid */}
-      <div className="flex justify-between text-[11px] mt-2">
-        {store.marginType === 'isolated' ? (
-          <>
-            {/* Long Side Stats */}
-            <div className="space-y-1 flex-1 pr-4">
-              <div className="flex justify-between"><span className="text-secondary">Liq.Price</span><span className="text-primary">{estimatedIsolatedLiqPrice.long ? estimatedIsolatedLiqPrice.long.toFixed(2) : '--'}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Margin</span><span className="text-success">{orderCost > 0 ? orderCost.toFixed(2) : '0.00'}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Max</span><span className="text-success">{maxPossibleSize > 0 ? maxPossibleSize.toFixed(4) : '--'}</span></div>
-              <div className="text-secondary mt-1 pt-1">Fees</div>
-            </div>
-            
-            {/* Short Side Stats */}
-            <div className="space-y-1 flex-1 pl-4">
-              <div className="flex justify-between"><span className="text-secondary">Liq.Price</span><span className="text-danger">{estimatedIsolatedLiqPrice.short ? estimatedIsolatedLiqPrice.short.toFixed(2) : '--'}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Margin</span><span className="text-danger">{orderCost > 0 ? orderCost.toFixed(2) : '0.00'}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Max</span><span className="text-danger">{maxPossibleSize > 0 ? maxPossibleSize.toFixed(4) : '--'}</span></div>
-            </div>
-          </>
-        ) : (
-          <div className="w-full space-y-1">
-            <div className="flex justify-between"><span className="text-secondary">Cross Margin Ratio</span><span className={crossMarginRatio > 80 ? 'text-danger' : crossMarginRatio > 50 ? 'text-brand' : 'text-success'}>{crossMarginRatio.toFixed(2)}%</span></div>
-            <div className="flex justify-between"><span className="text-secondary">Account Equity</span><span className="text-primary">{crossAccountEquity.toFixed(2)} USDT</span></div>
-            <div className="flex justify-between"><span className="text-secondary">Order Cost</span><span className="text-primary">{orderCost > 0 ? orderCost.toFixed(2) : '0.00'} USDT</span></div>
-            <div className="flex justify-between"><span className="text-secondary">Max Size</span><span className="text-primary">{maxPossibleSize > 0 ? maxPossibleSize.toFixed(4) : '--'}</span></div>
+        {validation.error && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-danger/10 border border-danger/30 text-danger text-[11px] font-medium animate-fade-in">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>{validation.error}</span>
           </div>
         )}
       </div>
 
-      <AssetModeModal 
-        isOpen={isAssetModeModalOpen} 
-        onClose={() => setIsAssetModeModalOpen(false)} 
+      <div className="space-y-1.5 text-[12px] text-secondary">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 cursor-pointer group select-none">
+            <input
+              type="checkbox"
+              checked={store.attachedTpEnabled || store.attachedSlEnabled}
+              onChange={e => {
+                store.setAttachedTpEnabled(e.target.checked);
+                store.setAttachedSlEnabled(e.target.checked);
+              }}
+              className="rounded border-color bg-tertiary text-brand focus:ring-0 cursor-pointer"
+            />
+            <span className="group-hover:text-primary transition-colors text-[12px]">TP/SL</span>
+          </label>
+        </div>
+
+        {(store.attachedTpEnabled || store.attachedSlEnabled) && (
+          <div className="pl-4 space-y-2 border-l border-color my-1">
+            <div className="space-y-1">
+              <div className="flex justify-between items-center text-[11px]">
+                <span>Take Profit</span>
+                <select
+                  value={store.attachedTpTrigger}
+                  onChange={e => store.setAttachedTpTrigger(e.target.value as WorkingType)}
+                  className="bg-transparent text-primary text-[11px] outline-none cursor-pointer"
+                >
+                  <option value="MARK_PRICE" className="bg-secondary">
+                    Mark
+                  </option>
+                  <option value="CONTRACT_PRICE" className="bg-secondary">
+                    Last
+                  </option>
+                </select>
+              </div>
+              <OrderInput
+                label="TP"
+                value={store.attachedTpPrice}
+                onChange={store.setAttachedTpPrice}
+                currency="USDT"
+                placeholder="0.00"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between items-center text-[11px]">
+                <span>Stop Loss</span>
+                <select
+                  value={store.attachedSlTrigger}
+                  onChange={e => store.setAttachedSlTrigger(e.target.value as WorkingType)}
+                  className="bg-transparent text-primary text-[11px] outline-none cursor-pointer"
+                >
+                  <option value="MARK_PRICE" className="bg-secondary">
+                    Mark
+                  </option>
+                  <option value="CONTRACT_PRICE" className="bg-secondary">
+                    Last
+                  </option>
+                </select>
+              </div>
+              <OrderInput
+                label="SL"
+                value={store.attachedSlPrice}
+                onChange={store.setAttachedSlPrice}
+                currency="USDT"
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 cursor-pointer group select-none">
+            <input
+              type="checkbox"
+              checked={store.isReduceOnly}
+              onChange={e => store.setReduceOnly(e.target.checked)}
+              className="rounded border-color bg-tertiary text-brand focus:ring-0 cursor-pointer"
+            />
+            <span className="group-hover:text-primary transition-colors text-[12px]">
+              Reduce-Only
+            </span>
+          </label>
+
+          {isPriceOrder && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsTifOpen(!isTifOpen)}
+                className="flex items-center gap-1 text-[11px] text-secondary hover:text-primary transition-colors"
+              >
+                <span>{store.timeInForce}</span>
+                <ChevronDown size={11} />
+              </button>
+
+              {isTifOpen && (
+                <div className="absolute right-0 bottom-full mb-1 w-32 bg-secondary border border-color rounded shadow-2xl overflow-hidden z-50 py-1">
+                  {TIF_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        store.setTimeInForce(opt.value);
+                        setIsTifOpen(false);
+                      }}
+                      className={`block w-full text-left px-3 py-1.5 text-[11px] hover:bg-hover transition-colors ${
+                        store.timeInForce === opt.value
+                          ? 'text-brand font-semibold'
+                          : 'text-primary'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <OrderActionButton
+        onSubmit={handleSubmit}
+        isLoading={isLoading}
+        isValid={validation.isValid}
+        validationError={validation.error}
+        onOpenDepositModal={onOpenDepositModal}
+        walletBalance={calcWalletBalance}
+        actionSubtext={actionSubtext}
+      />
+
+      {/* Margin & Max Summary (Clean and compact like Aster) */}
+      <div className="space-y-1 text-[11px] pt-1 text-secondary">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-1.5">
+            <span>Margin</span>
+            <span className="text-primary font-medium">
+              {orderCost > 0 ? orderCost.toFixed(2) : '0.00'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span>Margin</span>
+            <span className="text-primary font-medium">
+              {orderCost > 0 ? orderCost.toFixed(2) : '0.00'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-1.5">
+            <span>Max</span>
+            <span className="text-primary font-medium">
+              {maxPossibleSize > 0
+                ? `${maxPossibleSize.toFixed(store.sizeAsset === 'quote' ? 2 : baseDecimals)} ${currentCurrency}`
+                : '0.00 USDT'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span>Max</span>
+            <span className="text-primary font-medium">
+              {maxPossibleSize > 0
+                ? `${maxPossibleSize.toFixed(store.sizeAsset === 'quote' ? 2 : baseDecimals)} ${currentCurrency}`
+                : '0.00 USDT'}
+            </span>
+          </div>
+        </div>
+
+        {store.marginType === 'isolated' && (
+          <div className="flex justify-between items-center pt-0.5">
+            <div className="flex items-center gap-1.5">
+              <span>Liq.Price</span>
+              <span className="text-success font-medium">
+                {estimatedIsolatedLiqPrice.long ? estimatedIsolatedLiqPrice.long.toFixed(2) : '--'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span>Liq.Price</span>
+              <span className="text-danger font-medium">
+                {estimatedIsolatedLiqPrice.short
+                  ? estimatedIsolatedLiqPrice.short.toFixed(2)
+                  : '--'}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <AssetModeModal
+        isOpen={isAssetModeModalOpen}
+        onClose={() => setIsAssetModeModalOpen(false)}
       />
     </div>
   );

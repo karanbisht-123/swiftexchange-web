@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+
 import type { Signer } from 'ethers';
-import type { Order } from '../../../core/models';
-import { useListenKey } from './useListenKey';
-import { useAccountStore } from '../../../core/stores/accountStore';
-import { usePositionStore } from '../../../core/stores/positionStore';
-import { useOrderStore } from '../../../core/stores/orderStore';
-import { useHistoryStore } from '../../../core/stores/historyStore';
+
 import { useNotificationStore } from '../../../../store/notificationStore';
+import type { Order } from '../../../core/models';
+import { useAccountStore } from '../../../core/stores/accountStore';
+import { useHistoryStore } from '../../../core/stores/historyStore';
+import { useOrderStore } from '../../../core/stores/orderStore';
+import { usePositionStore } from '../../../core/stores/positionStore';
 import { ASTER_WS_URL } from '../constants';
+import { useListenKey } from './useListenKey';
 
 export interface MarginCallPosition {
   symbol: string;
@@ -60,7 +62,11 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
             liquidationPrice: existing?.liquidationPrice || '0',
             unrealizedPnl: p.up || '0',
             leverage: existing?.leverage || 0,
-            marginType: p.mt ? ((p.mt as string).toLowerCase() === 'isolated' ? 'isolated' : 'cross') : (existing?.marginType || 'cross'),
+            marginType: p.mt
+              ? (p.mt as string).toLowerCase() === 'isolated'
+                ? 'isolated'
+                : 'cross'
+              : existing?.marginType || 'cross',
             isolatedMargin: p.iw ?? '0',
           });
         }
@@ -71,7 +77,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
   const applyOrderUpdate = (o: any) => {
     if (!o || !o.s) return;
     const symbol = String(o.s).replace('USDT', '-USDT');
-    const status = o.X ? String(o.X).toLowerCase() as Order['status'] : 'new';
+    const status = o.X ? (String(o.X).toLowerCase() as Order['status']) : 'new';
     const orderId = String(o.i);
 
     const terminalStatuses = new Set(['filled', 'canceled', 'rejected', 'expired']);
@@ -82,8 +88,8 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
       useOrderStore.getState().updateOrder({
         id: orderId,
         symbol,
-        type: o.ot ? String(o.ot).toLowerCase() as Order['type'] : 'market',
-        side: o.S ? String(o.S).toLowerCase() as Order['side'] : 'buy',
+        type: o.ot ? (String(o.ot).toLowerCase() as Order['type']) : 'market',
+        side: o.S ? (String(o.S).toLowerCase() as Order['side']) : 'buy',
         price: o.p,
         size: o.q,
         filledSize: o.z,
@@ -94,7 +100,8 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
     }
 
     // Fire toast notifications for order status changes (only if it's an execution report)
-    if (o.x !== 'CALCULATED') { // 'CALCULATED' is for liquidation/ADL updates sometimes, we care about actual trades/orders
+    if (o.x !== 'CALCULATED') {
+      // 'CALCULATED' is for liquidation/ADL updates sometimes, we care about actual trades/orders
       const actionText = o.S === 'BUY' ? 'Buy' : 'Sell';
       let title = '';
       let message = `${actionText} ${o.q} ${symbol} at ${o.p === '0' ? 'Market' : o.p}`;
@@ -151,7 +158,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
       priceProtect: false,
       origType: o.ot,
       time: o.T,
-      updateTime: o.T
+      updateTime: o.T,
     });
 
     if (o.x === 'TRADE') {
@@ -169,8 +176,36 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
         side: o.S,
         positionSide: o.ps,
         symbol: o.s,
-        time: o.T
+        time: o.T,
       });
+
+      // Real-time fee deduction sync
+      if (o.n && parseFloat(o.n) > 0) {
+        useHistoryStore.getState().addIncome({
+          symbol: o.s,
+          incomeType: 'COMMISSION',
+          income: `-${o.n}`,
+          asset: o.N || 'USDT',
+          time: o.T,
+          tranId: String(o.t || ''),
+          tradeId: String(o.t || ''),
+          info: '',
+        });
+      }
+
+      // Real-time realized PnL sync
+      if (o.rp && parseFloat(o.rp) !== 0) {
+        useHistoryStore.getState().addIncome({
+          symbol: o.s,
+          incomeType: 'REALIZED_PNL',
+          income: o.rp,
+          asset: 'USDT',
+          time: o.T,
+          tranId: String(o.t || ''),
+          tradeId: String(o.t || ''),
+          info: '',
+        });
+      }
     }
   };
 
@@ -185,7 +220,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
       setConnected(true);
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = event => {
       let data: any;
       try {
         data = JSON.parse(event.data as string);

@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import type { ReactNode } from 'react';
-import { ExchangeChartPanel, ExchangePositionsPanel } from './ExchangeLeftPanel';
-import { OrderbookPanel } from './OrderbookPanel';
-import { ExchangeRightPanel } from './ExchangeRightPanel';
-import { ExchangeTopBar } from './ExchangeTopBar';
+
 import { useIsMobile } from '../chart/hooks/useIsMobile';
+import { ExchangeChartPanel, ExchangePositionsPanel } from './ExchangeLeftPanel';
+import {
+  ExchangeAccountPanel,
+  ExchangeOrderFormPanel,
+  ExchangeRightPanel,
+} from './ExchangeRightPanel';
+import { ExchangeTopBar } from './ExchangeTopBar';
 import { MobileOrderSheet } from './MobileOrderSheet';
+import { OrderbookPanel } from './OrderbookPanel';
 
 interface ExchangeLayoutProps {
   sidebar?: ReactNode;
@@ -13,17 +18,18 @@ interface ExchangeLayoutProps {
 
 export const ExchangeLayout: React.FC<ExchangeLayoutProps> = ({ sidebar }) => {
   const isMobile = useIsMobile();
-  const [activeMobileTab, setActiveMobileTab] = useState<'Chart' | 'Orderbook' | 'Portfolio'>('Chart');
+  const [activeMobileTab, setActiveMobileTab] = useState<'Chart' | 'Orderbook' | 'Portfolio'>(
+    'Chart'
+  );
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
 
   if (isMobile) {
     return (
-      <div className="flex flex-col h-[calc(100vh-60px)] w-full bg-[#0b0e14] font-body text-primary relative">
+      <div className="flex flex-col h-[calc(100vh-60px)] w-full bg-primary font-body text-primary relative">
         {sidebar}
-        
+
         <ExchangeTopBar />
 
-        {/* Mobile Navigation Tabs */}
         <div className="flex px-4 border-b border-color shrink-0 bg-secondary overflow-x-auto">
           {['Chart', 'Orderbook', 'Portfolio'].map(tab => (
             <button
@@ -35,8 +41,6 @@ export const ExchangeLayout: React.FC<ExchangeLayoutProps> = ({ sidebar }) => {
             </button>
           ))}
         </div>
-
-        {/* Mobile Tab Content Area */}
         <div className="flex-1 overflow-hidden min-w-0 flex flex-col relative pb-[60px]">
           {activeMobileTab === 'Chart' && (
             <div className="flex flex-col flex-1 overflow-hidden min-w-0 bg-secondary h-full border-b border-color">
@@ -62,15 +66,14 @@ export const ExchangeLayout: React.FC<ExchangeLayoutProps> = ({ sidebar }) => {
           )}
         </div>
 
-        {/* Fixed Bottom Action Bar */}
         <div className="absolute bottom-0 left-0 right-0 h-[60px] bg-secondary border-t border-color flex items-center px-4 gap-3 z-40">
-          <button 
+          <button
             onClick={() => setIsOrderSheetOpen(true)}
             className="flex-1 bg-success/10 text-success border border-success hover:bg-success hover:text-white py-2.5 rounded-lg text-sm font-bold transition-all"
           >
             Buy / Long
           </button>
-          <button 
+          <button
             onClick={() => setIsOrderSheetOpen(true)}
             className="flex-1 bg-danger/10 text-danger border border-danger hover:bg-danger hover:text-white py-2.5 rounded-lg text-sm font-bold transition-all"
           >
@@ -85,38 +88,32 @@ export const ExchangeLayout: React.FC<ExchangeLayoutProps> = ({ sidebar }) => {
     );
   }
 
-  // Desktop Layout
   return (
-    <div className="flex flex-col h-[calc(100vh-60px)] w-full bg-[#0b0e14] font-body text-primary overflow-x-auto overflow-y-hidden">
+    <div className="flex flex-col h-[calc(100vh-60px)] w-full bg-primary font-body text-primary overflow-x-hidden overflow-y-auto">
       {sidebar}
 
-      {/* Main Content Area */}
-      <div className="flex flex-1 p-1 gap-1 overflow-hidden min-w-0">
-        
-        {/* Left Main Block (Chart, Orderbook, Positions) */}
-        <div className="flex flex-col flex-1 gap-1 min-w-0 h-full">
+      <div className="flex flex-col flex-1 p-1 gap-1 min-w-0 max-w-full h-full min-h-0">
+        <div className="flex gap-1 min-w-0 h-[70%] min-h-[560px] max-h-[70%]">
+          <div className="flex flex-col flex-1 bg-secondary rounded-lg overflow-hidden min-w-0 h-full min-h-0 border border-color">
+            <ExchangeChartPanel />
+          </div>
 
-          {/* Top Row: Chart + Orderbook */}
-          <div className="flex h-[65%] gap-1 min-w-0">
-            {/* Chart Panel */}
-            <div className="flex flex-col flex-1 bg-secondary rounded-lg overflow-hidden min-w-0 h-full border border-color">
-              <ExchangeChartPanel />
-            </div>
-
-            {/* Orderbook Panel */}
+          <div className="w-[300px] shrink-0 h-full min-h-0 overflow-hidden">
             <OrderbookPanel />
           </div>
-
-          {/* Bottom Row: Positions */}
-          <div className="h-[35%] bg-secondary rounded-lg overflow-hidden flex flex-col border border-color min-w-0">
-            <ExchangePositionsPanel />
+          <div className="w-[295px] shrink-0 h-full min-h-0 overflow-hidden">
+            <ExchangeOrderFormPanel />
           </div>
-
         </div>
 
-        {/* Right Panel (Order Entry) */}
-        <ExchangeRightPanel />
-
+        <div className="flex gap-1 min-w-0 h-[38%] min-h-[220px] max-h-[38%]">
+          <div className="flex-1 bg-secondary rounded-lg overflow-hidden flex flex-col  min-w-0 h-full min-h-0">
+            <ExchangePositionsPanel />
+          </div>
+          <div className="w-[295px] shrink-0 h-full min-h-0 overflow-hidden">
+            <ExchangeAccountPanel />
+          </div>
+        </div>
       </div>
     </div>
   );

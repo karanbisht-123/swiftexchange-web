@@ -1,10 +1,11 @@
+import { Check } from 'lucide-react';
 import React, { useState } from 'react';
-import { Modal } from '../ui/Modal';
-import { useOrderEntryStore } from '../../core/stores/orderEntryStore';
+
 import { changeMarginType } from '../../adapters/aster/api/account';
 import { useAsterAgent } from '../../adapters/aster/hooks/useAsterAgent';
 import { useMarketStore } from '../../core/stores/marketStore';
-import { Check } from 'lucide-react';
+import { useOrderEntryStore } from '../../core/stores/orderEntryStore';
+import { Modal } from '../ui/Modal';
 
 interface MarginModeModalProps {
   isOpen: boolean;
@@ -13,9 +14,9 @@ interface MarginModeModalProps {
 
 export const MarginModeModal: React.FC<MarginModeModalProps> = ({ isOpen, onClose }) => {
   const store = useOrderEntryStore();
-  const selectedSymbol = useMarketStore((state) => state.selectedSymbol);
+  const selectedSymbol = useMarketStore(state => state.selectedSymbol);
   const { asterSigner, userAddr } = useAsterAgent();
-  
+
   const [selectedMode, setSelectedMode] = useState<'cross' | 'isolated'>(store.marginType);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -34,9 +35,9 @@ export const MarginModeModal: React.FC<MarginModeModalProps> = ({ isOpen, onClos
     setIsSubmitting(true);
     try {
       await changeMarginType(
-        asterSigner, 
-        userAddr, 
-        selectedSymbol.replace('-', ''), 
+        asterSigner,
+        userAddr,
+        selectedSymbol.replace('-', ''),
         selectedMode.toUpperCase() as 'ISOLATED' | 'CROSSED'
       );
       store.setMarginType(selectedMode);
@@ -49,7 +50,12 @@ export const MarginModeModal: React.FC<MarginModeModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`${selectedSymbol} Margin mode`} width="w-[400px]">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`${selectedSymbol} Margin mode`}
+      width="w-[400px]"
+    >
       <div className="space-y-4">
         <p className="text-secondary text-[12px]">
           Switching of margin mode only applies to the selected contract
@@ -59,47 +65,53 @@ export const MarginModeModal: React.FC<MarginModeModalProps> = ({ isOpen, onClos
           <button
             onClick={() => setSelectedMode('cross')}
             className={`flex-1 py-3 rounded-xl border relative font-medium text-[13px] transition-colors
-              ${selectedMode === 'cross' 
-                ? 'border-[#E0A865] bg-[#E0A865]/10 text-[#E0A865]' 
-                : 'border-[#2B2B2B] bg-[#222222] text-primary hover:border-[#444]'
+              ${
+                selectedMode === 'cross'
+                  ? 'border-brand bg-brand/10 text-brand'
+                  : 'border-gray-200 bg-secondary text-primary '
               }`}
           >
             Cross
             {selectedMode === 'cross' && (
-              <div className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#E0A865] rounded-full flex items-center justify-center text-black">
+              <div className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-brand text-white rounded-full flex items-center justify-center ">
                 <Check size={10} strokeWidth={4} />
               </div>
             )}
           </button>
-          
+
           <button
             onClick={() => setSelectedMode('isolated')}
             className={`flex-1 py-3 rounded-xl border relative font-medium text-[13px] transition-colors
-              ${selectedMode === 'isolated' 
-                ? 'border-[#E0A865] bg-[#E0A865]/10 text-[#E0A865]' 
-                : 'border-[#2B2B2B] bg-[#222222] text-primary hover:border-[#444]'
+              ${
+                selectedMode === 'isolated'
+                  ? 'border-brand bg-brand/10 text-brand'
+                  : 'border-gray-200 bg-secondary text-primary '
               }`}
           >
             Isolated
             {selectedMode === 'isolated' && (
-              <div className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#E0A865] rounded-full flex items-center justify-center text-black">
+              <div className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-brand rounded-full flex items-center justify-center text-white">
                 <Check size={10} strokeWidth={4} />
               </div>
             )}
           </button>
         </div>
 
-        <div className="bg-[#111111] p-4 rounded-xl space-y-2 mt-2">
-          <h4 className="text-primary text-[12px] font-semibold">What are cross and isolated modes?</h4>
+        <div className="bg-primary p-4 rounded-xl space-y-2 mt-2">
+          <h4 className="text-primary text-[12px] font-semibold">
+            What are cross and isolated modes?
+          </h4>
           <p className="text-secondary text-[11px] leading-relaxed">
-            The Margin assigned to a position is restricted to a certain amount. If the Margin falls below the Maintenance Margin level, the position is liquidated. However, you can add and remove Margin at will under this mode.
+            The Margin assigned to a position is restricted to a certain amount. If the Margin falls
+            below the Maintenance Margin level, the position is liquidated. However, you can add and
+            remove Margin at will under this mode.
           </p>
         </div>
 
-        <button 
+        <button
           onClick={handleConfirm}
           disabled={isSubmitting}
-          className="w-full mt-4 bg-gradient-to-r from-[#EBD197] to-[#B48348] hover:opacity-90 text-black font-semibold py-3 rounded-xl transition-opacity disabled:opacity-50"
+          className="w-full mt-4 bg-brand hover:bg-brand-hover text-white font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-50 cursor-pointer text-[13px]"
         >
           {isSubmitting ? 'Confirming...' : 'Confirm'}
         </button>

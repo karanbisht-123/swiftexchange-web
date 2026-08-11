@@ -47,6 +47,12 @@
   --color-bg-tertiary: #f0f3fb;
   --color-bg-hover: #eaedfa;
 
+  /* Optional light-mode gradient variants (subtle, opt-in only) */
+  --gradient-bg-primary: linear-gradient(180deg, #ffffff 0%, #f7f8fc 100%);
+  --gradient-bg-secondary: linear-gradient(145deg, #ffffff 0%, #fbfcfe 100%);
+  --gradient-bg-tertiary: linear-gradient(160deg, #f7f8fc 0%, #f0f3fb 100%);
+  --gradient-bg-hover: linear-gradient(145deg, #eef1fb 0%, #eaedfa 100%);
+
   /* Text Colors - High Contrast */
   --color-text-primary: #0f1729;
   --color-text-secondary: #4a5568;
@@ -96,11 +102,23 @@
   --color-brand-primary-light: #3b4fd9;
   --color-brand-accent: #6b7aef;
 
-  /* Dark Theme - Deep navy-black fintech */
+  /* Dark Theme - Deep navy-black fintech (kept SOLID — required for Tailwind tokens
+     and every background-color usage in this file, e.g. .card, .input, .btn-secondary) */
   --color-bg-primary: #080c18;
   --color-bg-secondary: #0f1528;
   --color-bg-tertiary: #0a1020;
   --color-bg-hover: #162035;
+
+  /* NEW: opt-in gradient variants. Use with `background:` (not background-color),
+     via the .bg-*-gradient utility classes below. Safe — nothing consumes these
+     automatically, so nothing existing can break. */
+  --gradient-bg-primary: linear-gradient(180deg, #0a0f1e 0%, #080c18 100%);
+  --gradient-bg-secondary: linear-gradient(145deg, #121a30 0%, #0f1528 100%);
+  --gradient-bg-tertiary: linear-gradient(160deg, #0c1224 0%, #0a1020 100%);
+  --gradient-bg-hover: linear-gradient(145deg, #1a2540 0%, #162035 100%);
+
+  /* Extra brand gradient, handy for CTAs / highlighted cards */
+  --gradient-brand: linear-gradient(135deg, #4d5cdb 0%, #6b7aef 100%);
 
   /* Text Colors - High Contrast for Dark */
   --color-text-primary: #f8fafc;
@@ -134,7 +152,6 @@
    BASE STYLES
    -------------------------- */
 @layer base {
-
   body,
   button,
   input,
@@ -503,7 +520,6 @@
    UTILITIES
 -------------------------- */
 @layer utilities {
-
   /* Borders */
   .border-color {
     border-color: var(--color-border);
@@ -520,6 +536,30 @@
 
   .bg-tertiary {
     background-color: var(--color-bg-tertiary);
+  }
+
+  /* NEW: opt-in gradient background utilities.
+     Apply these ALONGSIDE (not instead of) the solid classes above,
+     e.g. class="card bg-secondary-gradient", wherever you want the
+     gradient look. Nothing existing references these, so nothing breaks. */
+  .bg-primary-gradient {
+    background: var(--gradient-bg-primary);
+  }
+
+  .bg-secondary-gradient {
+    background: var(--gradient-bg-secondary);
+  }
+
+  .bg-tertiary-gradient {
+    background: var(--gradient-bg-tertiary);
+  }
+
+  .bg-hover-gradient {
+    background: var(--gradient-bg-hover);
+  }
+
+  .bg-brand-gradient {
+    background: var(--gradient-brand, var(--color-brand-primary));
   }
 
   /* Text Colors */
@@ -918,7 +958,6 @@
   animation: size-flash-down 0.45s ease-out forwards;
 }
 
-
 .ob-depth-bar {
   position: absolute;
   inset-block: 0;
@@ -966,66 +1005,66 @@
   border-radius: 99px;
 }
 
-.ob-stagger>* {
+.ob-stagger > * {
   animation: ob-row-enter 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.ob-stagger>*:nth-child(1) {
-  animation-delay: 0.00s;
+.ob-stagger > *:nth-child(1) {
+  animation-delay: 0s;
 }
 
-.ob-stagger>*:nth-child(2) {
+.ob-stagger > *:nth-child(2) {
   animation-delay: 0.02s;
 }
 
-.ob-stagger>*:nth-child(3) {
+.ob-stagger > *:nth-child(3) {
   animation-delay: 0.03s;
 }
 
-.ob-stagger>*:nth-child(4) {
+.ob-stagger > *:nth-child(4) {
   animation-delay: 0.04s;
 }
 
-.ob-stagger>*:nth-child(5) {
+.ob-stagger > *:nth-child(5) {
   animation-delay: 0.05s;
 }
 
-.ob-stagger>*:nth-child(6) {
+.ob-stagger > *:nth-child(6) {
   animation-delay: 0.06s;
 }
 
-.ob-stagger>*:nth-child(7) {
+.ob-stagger > *:nth-child(7) {
   animation-delay: 0.07s;
 }
 
-.ob-stagger>*:nth-child(8) {
+.ob-stagger > *:nth-child(8) {
   animation-delay: 0.08s;
 }
 
-.ob-stagger>*:nth-child(9) {
+.ob-stagger > *:nth-child(9) {
   animation-delay: 0.09s;
 }
 
-.ob-stagger>*:nth-child(10) {
-  animation-delay: 0.10s;
+.ob-stagger > *:nth-child(10) {
+  animation-delay: 0.1s;
 }
 
-.ob-stagger>*:nth-child(11) {
+.ob-stagger > *:nth-child(11) {
   animation-delay: 0.11s;
 }
 
-.ob-stagger>*:nth-child(12) {
+.ob-stagger > *:nth-child(12) {
   animation-delay: 0.12s;
 }
 
-.ob-stagger>*:nth-child(13) {
+.ob-stagger > *:nth-child(13) {
   animation-delay: 0.13s;
 }
 
-.ob-stagger>*:nth-child(14) {
+.ob-stagger > *:nth-child(14) {
   animation-delay: 0.14s;
 }
 
-.ob-stagger>*:nth-child(15) {
+.ob-stagger > *:nth-child(15) {
   animation-delay: 0.15s;
 }

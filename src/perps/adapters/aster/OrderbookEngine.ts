@@ -1,5 +1,5 @@
 import { orderBookStore } from '../../core/stores/orderbookStore';
-import { ASTER_REST_URL, ASTER_ENDPOINTS } from './constants';
+import { ASTER_ENDPOINTS, ASTER_REST_URL } from './constants';
 
 interface DiffEvent {
   U: number; // First update ID in event
@@ -12,15 +12,16 @@ interface DiffEvent {
 type EngineState = 'idle' | 'buffering' | 'synced' | 'error';
 
 export class OrderbookEngine {
-  private symbol: string;   // Aster REST symbol, e.g. "BTCUSDT"
+  private symbol: string; // Aster REST symbol, e.g. "BTCUSDT"
   private uiSymbol: string; // UI symbol, e.g. "BTC-USDT"
 
   private state: EngineState = 'idle';
   private buffer: DiffEvent[] = [];
   private lastAppliedU = -1;
 
-  private rafHandle: number | null = null;
-  private hasPendingFlush = false;
+  private lastFlushTime = 0;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly FLUSH_INTERVAL_MS = 80;
 
   constructor(asterSymbol: string) {
     this.symbol = asterSymbol.toUpperCase();
@@ -66,7 +67,12 @@ export class OrderbookEngine {
     }
   }
 
-  private applySnapshot(snap: { lastUpdateId: number; bids: [string, string][]; asks: [string, string][]; _retryCount?: number }): void {
+  private applySnapshot(snap: {
+    lastUpdateId: number;
+    bids: [string, string][];
+    asks: [string, string][];
+    _retryCount?: number;
+  }): void {
     const { lastUpdateId } = snap;
 
     if (!snap.bids || !snap.asks) {
@@ -74,12 +80,12 @@ export class OrderbookEngine {
     }
 
     // Discard stale buffered events
-    const validBuffer = this.buffer.filter((e) => e.u >= lastUpdateId);
+    const validBuffer = this.buffer.filter(e => e.u >= lastUpdateId);
 
     // Find first valid event: U <= lastUpdateId AND u >= lastUpdateId
     // (Aster sometimes has gaps between pu and U, so we also check pu <= lastUpdateId)
     const firstIdx = validBuffer.findIndex(
-      (e) => (e.U <= lastUpdateId || e.pu <= lastUpdateId) && e.u >= lastUpdateId
+      e => (e.U <= lastUpdateId || e.pu <= lastUpdateId) && e.u >= lastUpdateId
     );
 
     if (firstIdx === -1) {
@@ -95,7 +101,8 @@ export class OrderbookEngine {
       // Wait 100ms for more WebSocket events to arrive, then try applying this same snapshot again.
       if (this.buffer.length === 0 || lastUpdateId > this.buffer[this.buffer.length - 1].u) {
         if (!snap._retryCount) snap._retryCount = 0;
-        if (snap._retryCount < 20) { // Max 2 seconds of waiting for WS to catch up
+        if (snap._retryCount < 20) {
+          // Max 2 seconds of waiting for WS to catch up
           snap._retryCount++;
           setTimeout(() => this.applySnapshot(snap), 100);
           return;
@@ -150,15 +157,25 @@ export class OrderbookEngine {
     this.scheduleFlush();
   }
 
-  /** Coalesce renders: only flush Map→sorted array once per animation frame */
+  /** Throttled flush: update React state at smooth 12-15fps without UI blocking */
   private scheduleFlush(): void {
-    if (this.hasPendingFlush) return;
-    this.hasPendingFlush = true;
-    this.rafHandle = requestAnimationFrame(() => {
+    const now = performance.now();
+    const elapsed = now - this.lastFlushTime;
+
+    if (elapsed >= this.FLUSH_INTERVAL_MS) {
+      this.lastFlushTime = now;
+      if (this.flushTimer !== null) {
+        clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+      }
       orderBookStore.flushToState(this.uiSymbol);
-      this.hasPendingFlush = false;
-      this.rafHandle = null;
-    });
+    } else if (this.flushTimer === null) {
+      this.flushTimer = setTimeout(() => {
+        this.lastFlushTime = performance.now();
+        this.flushTimer = null;
+        orderBookStore.flushToState(this.uiSymbol);
+      }, this.FLUSH_INTERVAL_MS - elapsed);
+    }
   }
 
   /** Full restart: discard all state, re-buffer on next incoming diff */
@@ -167,10 +184,9 @@ export class OrderbookEngine {
     this.buffer = [];
     this.lastAppliedU = -1;
     orderBookStore.resetBook(this.uiSymbol);
-    if (this.rafHandle !== null) {
-      cancelAnimationFrame(this.rafHandle);
-      this.rafHandle = null;
-      this.hasPendingFlush = false;
+    if (this.flushTimer !== null) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
   }
 

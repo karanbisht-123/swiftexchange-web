@@ -1,6 +1,6 @@
-import { usePositionStore } from '../../core/stores/positionStore';
-import { useOrderStore } from '../../core/stores/orderStore';
 import { useAccountStore } from '../../core/stores/accountStore';
+import { useOrderStore } from '../../core/stores/orderStore';
+import { usePositionStore } from '../../core/stores/positionStore';
 
 export interface AsterUserDataWebSocketOptions {
   url: string;
@@ -39,7 +39,7 @@ export class AsterUserDataWebSocket {
           resolve();
         };
 
-        this.ws.onmessage = (event) => {
+        this.ws.onmessage = event => {
           try {
             const data = JSON.parse(event.data);
             this.handleMessage(data);
@@ -55,7 +55,7 @@ export class AsterUserDataWebSocket {
           this.attemptReconnect();
         };
 
-        this.ws.onerror = (error) => {
+        this.ws.onerror = error => {
           console.error('[Aster UserData WS] Error', error);
           // reject(error); // Only reject if we want to fail the initial connection
         };
@@ -99,7 +99,9 @@ export class AsterUserDataWebSocket {
         this.handleOrderUpdate(data.o);
         break;
       case 'listenKeyExpired':
-        console.warn('[Aster UserData WS] ListenKey Expired! Must request a new one and reconnect.');
+        console.warn(
+          '[Aster UserData WS] ListenKey Expired! Must request a new one and reconnect.'
+        );
         // TODO: Request new listenKey from REST API in Phase 2
         this.disconnect();
         break;
@@ -129,28 +131,29 @@ export class AsterUserDataWebSocket {
 
     // Positions
     if (accountData.P && Array.isArray(accountData.P)) {
-      const positions = accountData.P.map((p: any) => {
-        const symbol = p.s.replace('USDT', '-USDT');
-        return {
-          symbol,
-          size: String(p.pa),
-          entryPrice: String(p.ep),
-          markPrice: '0', // Not always provided in WS, should retain existing or update via public ticker
-          liquidationPrice: '0',
-          unrealizedPnl: String(p.up),
-          leverage: 20, // Not explicitly in this event
-          marginType: p.mt === 'isolated' ? 'isolated' : 'cross',
-          isolatedMargin: String(p.iw || '0'),
-        };
-      });
       const store = usePositionStore.getState();
-      // Filter out closed positions (size = 0) and remove them from store, or just update
-      positions.forEach((p: any) => {
-        if (parseFloat(p.size) === 0) {
-          // You could delete it from the store if it reaches 0
-          // For now we just update it so the UI shows 0
+      accountData.P.forEach((p: any) => {
+        const symbol = (p.s as string).replace('USDT', '-USDT');
+        if (parseFloat(p.pa) === 0) {
+          store.removePosition(symbol);
+        } else {
+          const existing = store.positions[symbol];
+          store.updatePosition({
+            symbol,
+            size: String(p.pa),
+            entryPrice: String(p.ep),
+            markPrice: p.mp || existing?.markPrice || '0',
+            liquidationPrice: existing?.liquidationPrice || '0',
+            unrealizedPnl: String(p.up || '0'),
+            leverage: existing?.leverage || 0,
+            marginType: p.mt
+              ? (p.mt as string).toLowerCase() === 'isolated'
+                ? 'isolated'
+                : 'cross'
+              : existing?.marginType || 'cross',
+            isolatedMargin: String(p.iw || '0'),
+          });
         }
-        store.updatePosition(p);
       });
     }
   }

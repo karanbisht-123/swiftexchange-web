@@ -9,28 +9,17 @@ export type OrderType =
 
 export type OrderSide = 'BUY' | 'SELL';
 
-// TimeInForce values
 export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'GTX';
 
-// Order status values 
 export type OrderStatus =
-  | 'NEW'
-  | 'PARTIALLY_FILLED'
-  | 'FILLED'
-  | 'CANCELED'
-  | 'REJECTED'
-  | 'EXPIRED';
+  'NEW' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELED' | 'REJECTED' | 'EXPIRED';
 
-// Position side.
 export type PositionSide = 'BOTH' | 'LONG' | 'SHORT';
 
-// Working type.
 export type WorkingType = 'MARK_PRICE' | 'CONTRACT_PRICE';
 
-// newOrderRespType.
 export type OrderRespType = 'ACK' | 'RESULT';
 
-// Place order request params
 export interface PlaceOrderParams {
   symbol: string;
   side: OrderSide;
@@ -43,11 +32,29 @@ export interface PlaceOrderParams {
   newClientOrderId?: string;
   stopPrice?: string;
   closePosition?: boolean;
-  activationPrice?: string;       // TRAILING_STOP_MARKET only
-  callbackRate?: string;          // TRAILING_STOP_MARKET only, min 0.1 max 5
+  activationPrice?: string;
+  callbackRate?: string;
   workingType?: WorkingType;
   priceProtect?: boolean;
   newOrderRespType?: OrderRespType;
+  pegPriceType?: 'COUNTERPARTY_1' | 'QUEUE_1';
+  pegOffset?: string;
+  stpMode?: 'EXPIRE_TAKER' | 'EXPIRE_MAKER' | 'EXPIRE_BOTH';
+}
+
+export interface PlaceChaseParams {
+  symbol: string;
+  side: OrderSide;
+  quantity: string;
+  quantityUnit?: 'BASE' | 'QUOTE';
+  positionSide?: PositionSide;
+  reduceOnly?: boolean;
+  chaseOffset?: string;
+  chaseOffsetType?: 'ABSOLUTE' | 'PERCENTAGE';
+  maxChaseOffset?: string;
+  maxChaseOffsetType?: 'ABSOLUTE' | 'PERCENTAGE';
+  timeInForce?: TimeInForce;
+  clientStrategyId?: string;
 }
 
 export interface AsterOrderResponse {
@@ -68,8 +75,8 @@ export interface AsterOrderResponse {
   positionSide: PositionSide;
   stopPrice: string;
   closePosition: boolean;
-  activatePrice?: string;   // only for TRAILING_STOP_MARKET
-  priceRate?: string;       // callback rate, only for TRAILING_STOP_MARKET
+  activatePrice?: string;
+  priceRate?: string;
   updateTime: number;
   workingType: WorkingType;
   priceProtect: boolean;

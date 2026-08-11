@@ -26,7 +26,6 @@ import { portfolioUtils } from '../utils/portfolioUtils';
 
 const ROW_HEIGHT = 76;
 
-/** Returns a compact human-readable "2m ago" / "1h ago" string for a Unix ms timestamp */
 const formatRelativeTime = (ms: number): string => {
   const diff = Math.max(0, Date.now() - ms);
   const secs = Math.floor(diff / 1000);
@@ -37,17 +36,13 @@ const formatRelativeTime = (ms: number): string => {
   return `${hrs}h ago`;
 };
 
-/** Maps provider id to a human-readable chain label */
+// Maps provider id to a human-readable chain label
 const PROVIDER_LABELS: Record<string, string> = {
   evm: 'EVM',
   stellar: 'Stellar',
   dydx: 'dYdX',
 };
 
-/**
- * Renders compact per-provider stale banners.
- * Only shown when a provider's last refresh failed but old cached data is still in the store.
- */
 const ProviderStaleBanners = ({
   providerStatus,
   onRetry,
@@ -585,19 +580,20 @@ const WalletAssetsSection = () => {
   );
 
   const handlePerp = useCallback(
-    (asset: Asset) => {
-      if (asset.chainType === 'dydx') {
-        navigate(ROUTES.TRADING_DYDX_FUTURES);
+    (_asset: Asset) => {
+      // if (_asset.chainType === 'dydx') {
+      //   navigate(ROUTES.TRADING_DYDX_FUTURES);
+      //   return;
+      // }
+      if (_asset.chainType === 'stellar') {
+        navigate(`${ROUTES.TRADING_EVM_SWAP}?asset=${_asset.symbol}`);
         return;
       }
-      if (asset.chainType === 'stellar') {
-        navigate(`${ROUTES.TRADING_EVM_SWAP}?asset=${asset.symbol}`);
-        return;
-      }
-      setSelectedAsset(asset);
-      setIsDepositModalOpen(true);
+      // setSelectedAsset(_asset);
+      // setIsDepositModalOpen(true);
+      navigate(ROUTES.TRADING_PERPS);
     },
-    [navigate, ROUTES.TRADING_DYDX_FUTURES]
+    [navigate]
   );
 
   const handleCloseDepositModal = useCallback(() => {

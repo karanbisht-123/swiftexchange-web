@@ -14,9 +14,6 @@ const AlchemyPayIntegration = lazy(
 );
 const ReceiveAssets = lazy(() => import('../modules/commonfeature/receiveassets/ReceiveAssets'));
 const SendAssets = lazy(() => import('../modules/commonfeature/sendassets/SendAssets'));
-const TradingintrFace = lazy(
-  () => import('../modules/dydx/components/tradedashbord/TradingintrFace')
-);
 const PerpetualsTradingPage = lazy(() => import('../pages/perps'));
 const EvmTransactionHistory = lazy(() => import('../modules/evm/components/EvmTransactionHistory'));
 const SwapAssets = lazy(() => import('../modules/evm/feature/swap/components/SwapAssets'));
@@ -38,16 +35,6 @@ const router = createBrowserRouter([
         element: <HomeRedirect />,
       },
       {
-        path: ROUTES.TRADING_DYDX_FUTURES,
-        element: (
-          <Layout>
-            <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
-              <TradingintrFace />
-            </GeolocationGuard>
-          </Layout>
-        ),
-      },
-      {
         path: ROUTES.TRADING_PERPS,
         element: (
           <Layout>
@@ -58,12 +45,20 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: '/trade/v2/perpetuals',
+        element: <Navigate to={ROUTES.TRADING_PERPS} replace />,
+      },
+      {
         path: ROUTES.TRADING_STELLAR,
         element: (
           <Layout>
             <StellarTradescreen />
           </Layout>
         ),
+      },
+      {
+        path: '/trading/stellar/portfolio',
+        element: <Navigate to={`${ROUTES.TRADING_STELLAR}?tab=portfolio`} replace />,
       },
       {
         element: <ProtectedRoute />,
@@ -92,12 +87,10 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-
           {
             path: ROUTES.TRANSACTIONS,
             element: (
               <Layout>
-                {/* <TradeTransactionUI /> */}
                 <EvmTransactionHistory />
               </Layout>
             ),
@@ -110,7 +103,6 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-
           {
             path: ROUTES.TRADING_EVM_FIAT,
             element: (
@@ -119,7 +111,6 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-
           {
             path: ROUTES.MARKETS,
             element: (

@@ -1,17 +1,20 @@
-import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface OrderInputProps {
   label: string;
   value: string;
-  onChange: (val: string) => void;
-  currency: string;
+  onChange: (value: string) => void;
+  currency?: string;
   currencyOptions?: string[];
   onCurrencyChange?: (currency: string) => void;
   placeholder?: string;
-  onQuickAction?: () => void;
-  quickActionLabel?: string;
   error?: boolean;
+  disabled?: boolean;
+  onBboClick?: () => void;
+  triggerOption?: string;
+  onTriggerOptionChange?: (opt: string) => void;
+  triggerOptions?: string[];
 }
 
 export const OrderInput: React.FC<OrderInputProps> = ({
@@ -21,18 +24,26 @@ export const OrderInput: React.FC<OrderInputProps> = ({
   currency,
   currencyOptions,
   onCurrencyChange,
-  placeholder = '',
-  onQuickAction,
-  quickActionLabel,
-  error = false,
+  placeholder = '0.00',
+  error,
+  disabled,
+  onBboClick,
+  triggerOption,
+  onTriggerOptionChange,
+  triggerOptions,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [isCurrencyOpen, setIsCurrencyOpen] = useState(false);
+  const [isTriggerOpen, setIsTriggerOpen] = useState(false);
+  const currencyRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+      if (currencyRef.current && !currencyRef.current.contains(event.target as Node)) {
+        setIsCurrencyOpen(false);
+      }
+      if (triggerRef.current && !triggerRef.current.contains(event.target as Node)) {
+        setIsTriggerOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -40,42 +51,99 @@ export const OrderInput: React.FC<OrderInputProps> = ({
   }, []);
 
   return (
-    <div className={`relative flex items-center bg-tertiary border rounded transition-colors h-10 px-3 mt-4 ${error ? 'border-danger' : 'border-color focus-within:border-brand'}`}>
-      <span className="text-[11px] text-muted absolute left-3 z-10 pointer-events-none">{label}</span>
-      <input 
-        type="text" 
-        className="flex-1 bg-transparent text-left pl-[70px] text-[13px] font-medium text-primary outline-none relative z-20 w-full h-full" 
-        placeholder={placeholder}
+    <div
+      className={`relative flex items-center h-[38px] px-3 bg-tertiary border rounded-md transition-colors ${
+        error
+          ? 'border-danger/80 bg-danger/[0.04]'
+          : 'border-color hover:border-border-dark focus-within:border-brand'
+      }`}
+    >
+      <span className="text-[12px] text-secondary shrink-0 font-normal select-none mr-2">
+        {label}
+      </span>
+
+      <input
+        type="text"
+        inputMode="decimal"
         value={value}
-        onChange={(e) => {
-          // Allow empty string or numbers with optional single decimal point
+        onChange={e => {
           const val = e.target.value;
           if (val === '' || /^\d*\.?\d*$/.test(val)) {
             onChange(val);
           }
         }}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="w-full bg-transparent text-primary text-[13px] font-medium outline-none placeholder:text-muted disabled:cursor-not-allowed"
       />
-      <div className="flex items-center gap-2 text-[11px] shrink-0 z-20">
-        {currencyOptions && currencyOptions.length > 1 ? (
-          <div className="relative" ref={dropdownRef}>
-            <button 
-              type="button" 
-              onClick={() => setIsOpen(!isOpen)}
-              className="flex items-center gap-1 text-secondary hover:text-primary transition-colors font-medium cursor-pointer"
+
+      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+        {onBboClick && (
+          <button
+            type="button"
+            onClick={onBboClick}
+            className="px-1.5 py-0.5 rounded bg-hover text-[10px] font-semibold text-secondary hover:text-primary transition-colors"
+            title="Set to Best Bid/Offer"
+          >
+            BBO
+          </button>
+        )}
+
+        {triggerOptions && triggerOptions.length > 0 && (
+          <div className="relative" ref={triggerRef}>
+            <button
+              type="button"
+              onClick={() => setIsTriggerOpen(!isTriggerOpen)}
+              className="flex items-center gap-1 text-[12px] text-primary hover:text-white font-medium transition-colors"
             >
-              {currency} <ChevronDown size={12} strokeWidth={2.5} />
+              <span>{triggerOption || triggerOptions[0]}</span>
+              <ChevronDown size={12} className="text-secondary" />
             </button>
-            {isOpen && (
-              <div className="absolute right-0 top-full mt-2 w-[80px] bg-secondary border border-color rounded-md shadow-xl overflow-hidden z-50">
+            {isTriggerOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-20 bg-secondary border border-color rounded shadow-xl overflow-hidden z-50 py-1">
+                {triggerOptions.map(opt => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => {
+                      onTriggerOptionChange?.(opt);
+                      setIsTriggerOpen(false);
+                    }}
+                    className={`block w-full text-left px-3 py-1 text-[11px] hover:bg-hover transition-colors ${
+                      triggerOption === opt ? 'text-brand font-semibold' : 'text-secondary'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {currencyOptions && currencyOptions.length > 0 ? (
+          <div className="relative" ref={currencyRef}>
+            <button
+              type="button"
+              onClick={() => setIsCurrencyOpen(!isCurrencyOpen)}
+              className="flex items-center gap-1 text-[12px] text-primary hover:text-white font-medium transition-colors"
+            >
+              <span>{currency || currencyOptions[0]}</span>
+              <ChevronDown size={12} className="text-secondary" />
+            </button>
+            {isCurrencyOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-24 bg-secondary border border-color rounded shadow-xl overflow-hidden z-50 py-1">
                 {currencyOptions.map(opt => (
                   <button
                     key={opt}
                     type="button"
-                    className={`block w-full text-left px-3 py-2 text-[11px] hover:bg-hover transition-colors ${opt === currency ? 'text-brand font-medium' : 'text-primary'}`}
                     onClick={() => {
                       onCurrencyChange?.(opt);
-                      setIsOpen(false);
+                      setIsCurrencyOpen(false);
                     }}
+                    className={`block w-full text-left px-3 py-1.5 text-[11px] hover:bg-hover transition-colors ${
+                      currency === opt ? 'text-brand font-semibold' : 'text-primary'
+                    }`}
                   >
                     {opt}
                   </button>
@@ -84,17 +152,9 @@ export const OrderInput: React.FC<OrderInputProps> = ({
             )}
           </div>
         ) : (
-          <span className="text-secondary font-medium">{currency}</span>
-        )}
-        
-        {quickActionLabel && onQuickAction && (
-          <button 
-            type="button"
-            onClick={onQuickAction}
-            className="bg-secondary border border-color rounded px-1.5 py-0.5 text-primary hover:bg-hover"
-          >
-            {quickActionLabel}
-          </button>
+          currency && (
+            <span className="text-[12px] text-secondary font-medium select-none">{currency}</span>
+          )
         )}
       </div>
     </div>

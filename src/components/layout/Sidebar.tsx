@@ -1,6 +1,5 @@
 import {
   Infinity as InfinityIcon,
-  // ArrowRightLeft,
   BarChart2,
   CandlestickChart,
   History,
@@ -110,10 +109,9 @@ const Sidebar: FC = () => {
       icon: <CandlestickChart className="w-[18px] h-[18px]" />,
     },
     {
-      href: ROUTES.TRADING_DYDX_FUTURES,
+      href: ROUTES.TRADING_PERPS,
       label: 'Perps',
       icon: <InfinityIcon className="w-[18px] h-[18px]" />,
-      queryParam: '?view=trade',
       isRestricted: isDydxRestricted,
     },
     {
@@ -154,9 +152,7 @@ const Sidebar: FC = () => {
           <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
             <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>
-          {activeItem === ROUTES.TRADING_DYDX_FUTURES && (
-            <h2 className="text-sm font-semibold">BETA</h2>
-          )}
+          {activeItem === ROUTES.TRADING_PERPS && <h2 className="text-sm font-semibold">BETA</h2>}
         </div>
         <nav className="flex-1 p-1 pb-4 overflow-y-auto hide-scrollbar">
           <div className="space-y-0.5">

@@ -67,10 +67,10 @@ export interface AsterPositionRisk {
   liquidationPrice: string;
   leverage: string;
   maxNotionalValue: string;
-  marginType: string;       // 'isolated' or 'cross' — verify casing in live response
+  marginType: string; // 'isolated' or 'cross' — verify casing in live response
   isolatedMargin: string;
   isAutoAddMargin: string;
-  positionSide: string;     // 'BOTH' | 'LONG' | 'SHORT'
+  positionSide: string; // 'BOTH' | 'LONG' | 'SHORT'
   notional: string;
   isolatedWallet: string;
   updateTime: number;
@@ -78,12 +78,7 @@ export interface AsterPositionRisk {
 
 // [UNCONFIRMED] Income history record. Verify incomeType values and field names against live.
 export type IncomeType =
-  | 'TRANSFER'
-  | 'WELCOME_BONUS'
-  | 'REALIZED_PNL'
-  | 'FUNDING_FEE'
-  | 'COMMISSION'
-  | 'INSURANCE_CLEAR';
+  'TRANSFER' | 'WELCOME_BONUS' | 'REALIZED_PNL' | 'FUNDING_FEE' | 'COMMISSION' | 'INSURANCE_CLEAR';
 
 export interface GetIncomeHistoryParams {
   symbol?: string;
@@ -99,10 +94,10 @@ export interface IncomeRecord {
   incomeType: IncomeType;
   income: string;
   asset: string;
-  info: string;
+  info?: string;
   time: number;
-  tranId: string;
-  tradeId: string;
+  tranId?: string | number;
+  tradeId?: string | number;
 }
 
 // [UNCONFIRMED] Leverage bracket. Verify field names against live /fapi/v3/leverageBracket.

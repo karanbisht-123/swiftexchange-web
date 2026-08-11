@@ -1,37 +1,99 @@
 import type { Signer } from 'ethers';
-import { signedRequest } from './auth';
-import { ASTER_BAPI_URL, ASTER_ENDPOINTS } from '../constants';
+import { getAddress, isAddress } from 'ethers';
+
+import { ASTER_BAPI_URL, ASTER_ENDPOINTS, ASTER_REST_URL, ASTER_SPOT_REST_URL } from '../constants';
 import type {
   AsterAccountInfo,
   AsterBalance,
   AsterPositionRisk,
-  MarginType,
+  AsterUserTrade,
   GetIncomeHistoryParams,
   IncomeRecord,
+  MarginType,
   SymbolLeverageBracket,
-  AsterUserTrade,
 } from '../types/account';
+import { signedRequest } from './auth';
 
-//Account info: balances, margin summary, positions, fee tier
+export interface DepositAsset {
+  name: string;
+  displayName: string;
+  contractAddress: string;
+  decimals: number;
+  network: string;
+  chainId: number;
+  isNative: boolean;
+  isProfit: boolean;
+  rank: number;
+  withdrawType?: string;
+}
 
-export async function getAccountInfo(
-  signer: Signer,
-  userAddr: string
-): Promise<AsterAccountInfo> {
+export type WithdrawAsset = DepositAsset;
+
+export interface ChainWithdrawBalance {
+  chainId: number;
+  spotMaxWithdrawAmount: number;
+  perpMaxWithdrawAmount: number;
+  chainLimit: number;
+  withdrawFee: number;
+}
+
+export interface AssetWithdrawBalance {
+  currency: string;
+  spotTotalWithdrawAmount: number;
+  perpTotalWithdrawAmount: number;
+  dailyLimit: number;
+  chainBalances: Record<string, ChainWithdrawBalance>;
+}
+
+export interface UserWithdrawInfo {
+  userDailyLimit: number;
+  userRemainingDailyLimit: number;
+  totalDailyLimit: number;
+  totalRemainingDailyLimit: number;
+  balances: Record<string, AssetWithdrawBalance>;
+}
+
+export function getChainWithdrawDetails(
+  info: UserWithdrawInfo | null,
+  assetName: string,
+  chainId: number,
+  accountType: 'spot' | 'perp' = 'perp'
+): { fee: number; maxAmount: number; chainLimit: number } {
+  if (!info?.balances) return { fee: 0, maxAmount: 0, chainLimit: 0 };
+  const assetInfo = info.balances[assetName];
+  if (!assetInfo) return { fee: 0, maxAmount: 0, chainLimit: 0 };
+  const chainBal = assetInfo.chainBalances?.[String(chainId)];
+  if (!chainBal) return { fee: 0, maxAmount: 0, chainLimit: 0 };
+  const maxAmount =
+    accountType === 'spot' ? chainBal.spotMaxWithdrawAmount : chainBal.perpMaxWithdrawAmount;
+  return {
+    fee: chainBal.withdrawFee,
+    maxAmount,
+    chainLimit: chainBal.chainLimit,
+  };
+}
+
+export interface DepositWithdrawRecord {
+  id: string;
+  txHash: string;
+  chainId: number;
+  asset: string;
+  amount: string;
+  fee?: string;
+  state: 'PENDING' | 'SUCCESS' | 'FAILED' | 'PROCESSING';
+  type: 'DEPOSIT' | 'WITHDRAW';
+  time: number;
+  accountType?: string;
+  address?: string;
+}
+
+export async function getAccountInfo(signer: Signer, userAddr: string): Promise<AsterAccountInfo> {
   return signedRequest(signer, userAddr, 'GET', ASTER_ENDPOINTS.ACCOUNT);
 }
-// Per-asset balance: wallet balance, available balance, cross wallet balance.
 
-export async function getBalance(
-  signer: Signer,
-  userAddr: string
-): Promise<AsterBalance[]> {
+export async function getBalance(signer: Signer, userAddr: string): Promise<AsterBalance[]> {
   return signedRequest(signer, userAddr, 'GET', ASTER_ENDPOINTS.BALANCE);
 }
-
-
-// All open positions with entry price, mark price, unrealized PnL,
-// leverage, liquidation price.
 
 export async function getPositionRisk(
   signer: Signer,
@@ -55,8 +117,6 @@ export async function changeLeverage(
   });
 }
 
-// Switch between ISOLATED and CROSSED margin mode for a symbol.
-
 export async function changeMarginType(
   signer: Signer,
   userAddr: string,
@@ -68,10 +128,6 @@ export async function changeMarginType(
     marginType,
   });
 }
-
-
-// Add or reduce isolated position margin.
-// type: 1 = add margin, 2 = reduce margin.
 
 export async function changePositionMargin(
   signer: Signer,
@@ -87,10 +143,6 @@ export async function changePositionMargin(
   });
 }
 
-/**
- * Leverage bracket info. Confirmed working at /fapi/v3/leverageBracket.
- * Pass symbol for a single market, omit for all markets.
- */
 export async function getLeverageBracket(
   signer: Signer,
   userAddr: string,
@@ -100,9 +152,6 @@ export async function getLeverageBracket(
   if (symbol) p.symbol = symbol;
   return signedRequest(signer, userAddr, 'GET', ASTER_ENDPOINTS.LEVERAGE_BRACKET, p);
 }
-
-
-// getLeverageRemaining has been removed in favor of getLeverageBracket
 
 export async function getIncomeHistory(
   signer: Signer,
@@ -135,7 +184,6 @@ export async function getMultiAssetsMargin(
   return signedRequest(signer, userAddr, 'GET', ASTER_ENDPOINTS.MULTI_ASSETS_MARGIN);
 }
 
-
 export async function getUserTrades(
   signer: Signer,
   userAddr: string,
@@ -151,35 +199,106 @@ export async function getUserTrades(
   return signedRequest(signer, userAddr, 'GET', ASTER_ENDPOINTS.USER_TRADES, p);
 }
 
-// Deposit & Withdraw APIs
+const depositAssetsCache: Record<string, { timestamp: number; data: DepositAsset[] }> = {};
+const withdrawAssetsCache: Record<string, { timestamp: number; data: WithdrawAsset[] }> = {};
+const CACHE_TTL_MS = 180000;
 
-export async function getDepositAssets(chainIds: string, accountType: 'spot' | 'perp' = 'spot', networks: string = 'EVM') {
+export async function getDepositAssets(
+  chainIds: string = '56',
+  accountType: 'spot' | 'perp' = 'perp',
+  networks: string = 'EVM'
+): Promise<DepositAsset[]> {
+  const cacheKey = `dep_${chainIds}_${accountType}_${networks}`;
+  const cached = depositAssetsCache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const qs = new URLSearchParams({ chainIds, networks, accountType }).toString();
   const res = await fetch(`${ASTER_BAPI_URL}/aster/deposit/assets?${qs}`);
   const data = await res.json();
-  if (!data.success) throw new Error(data.message || 'Failed to fetch deposit assets');
-  return data.data;
+
+  const isSuccess = data.success === true || data.code === '000000';
+  if (!isSuccess || !Array.isArray(data.data)) {
+    throw new Error(data.message || data.messageDetail || 'Failed to fetch deposit assets');
+  }
+
+  const result: DepositAsset[] = data.data;
+  depositAssetsCache[cacheKey] = { timestamp: Date.now(), data: result };
+  return result;
 }
 
-export async function getWithdrawAssets(chainIds: string, accountType: 'spot' | 'perp' = 'spot', networks: string = 'EVM') {
+export async function getWithdrawAssets(
+  chainIds: string = '56',
+  accountType: 'spot' | 'perp' = 'perp',
+  networks: string = 'EVM'
+): Promise<WithdrawAsset[]> {
+  const cacheKey = `wd_${chainIds}_${accountType}_${networks}`;
+  const cached = withdrawAssetsCache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const qs = new URLSearchParams({ chainIds, networks, accountType }).toString();
   const res = await fetch(`${ASTER_BAPI_URL}/aster/withdraw/assets?${qs}`);
   const data = await res.json();
-  if (!data.success) throw new Error(data.message || 'Failed to fetch withdraw assets');
-  return data.data;
+
+  const isSuccess = data.success === true || data.code === '000000';
+  if (!isSuccess || !Array.isArray(data.data)) {
+    throw new Error(data.message || data.messageDetail || 'Failed to fetch withdraw assets');
+  }
+
+  const result: WithdrawAsset[] = data.data;
+  withdrawAssetsCache[cacheKey] = { timestamp: Date.now(), data: result };
+  return result;
 }
 
-export async function estimateWithdrawFee(chainId: number, currency: string, accountType: 'spot' | 'perp' = 'spot', network: string = 'EVM') {
-  const qs = new URLSearchParams({ chainId: String(chainId), network, currency, accountType }).toString();
-  const res = await fetch(`${ASTER_BAPI_URL}/aster/estimate-withdraw-fee?${qs}`);
-  const data = await res.json();
-  if (!data.success) throw new Error(data.message || 'Failed to estimate withdraw fee');
-  return data.data;
+export async function getUserWithdrawInfo(
+  signer: Signer,
+  userAddr: string,
+  accountType: 'spot' | 'perp' = 'perp'
+): Promise<UserWithdrawInfo> {
+  const baseUrl = accountType === 'spot' ? ASTER_SPOT_REST_URL : ASTER_REST_URL;
+  const res = await signedRequest(
+    signer,
+    userAddr,
+    'POST',
+    ASTER_ENDPOINTS.ASTER_USER_WITHDRAW_INFO,
+    {},
+    baseUrl
+  );
+
+  return res as UserWithdrawInfo;
 }
 
-export async function getUserWithdrawInfo(signer: Signer, userAddr: string) {
-  // Using POST with empty body, but it's signed
-  return signedRequest(signer, userAddr, 'POST', ASTER_ENDPOINTS.ASTER_USER_WITHDRAW_INFO);
+export async function getDepositWithdrawHistory(
+  signer: Signer,
+  userAddr: string,
+  opts: {
+    type?: 'DEPOSIT' | 'WITHDRAW';
+    startTime?: number;
+    endTime?: number;
+    limit?: number;
+    accountType?: 'spot' | 'perp';
+  } = {}
+): Promise<DepositWithdrawRecord[]> {
+  const params: Record<string, string> = {};
+  if (opts.type) params.type = opts.type;
+  if (opts.startTime) params.startTime = String(opts.startTime);
+  if (opts.endTime) params.endTime = String(opts.endTime);
+  if (opts.limit) params.limit = String(opts.limit);
+
+  const baseUrl = opts.accountType === 'spot' ? ASTER_SPOT_REST_URL : ASTER_REST_URL;
+  const res = await signedRequest(
+    signer,
+    userAddr,
+    'POST',
+    ASTER_ENDPOINTS.DEPOSIT_WITHDRAW_HISTORY,
+    params,
+    baseUrl
+  );
+
+  return Array.isArray(res) ? res : res?.data || [];
 }
 
 export async function submitWithdraw(
@@ -193,17 +312,30 @@ export async function submitWithdraw(
     receiver: string;
     userNonce: string;
     userSignature: string;
+    accountType?: 'spot' | 'perp';
   }
-) {
-  // We send the V3 signed request, including the userSignature for the withdraw authorization
-  return signedRequest(signer, userAddr, 'POST', ASTER_ENDPOINTS.ASTER_USER_WITHDRAW, {
-    chainId: String(params.chainId),
-    asset: params.asset,
-    amount: params.amount,
-    fee: params.fee,
-    receiver: params.receiver,
-    userNonce: params.userNonce,
-    userSignature: params.userSignature,
-  });
-}
+): Promise<{ success: boolean; id?: string; msg?: string }> {
+  if (!isAddress(params.receiver)) {
+    throw new Error(`Invalid receiver address format: ${params.receiver}`);
+  }
 
+  const checksummedReceiver = getAddress(params.receiver);
+  const baseUrl = params.accountType === 'spot' ? ASTER_SPOT_REST_URL : ASTER_REST_URL;
+
+  return signedRequest(
+    signer,
+    userAddr,
+    'POST',
+    ASTER_ENDPOINTS.ASTER_USER_WITHDRAW,
+    {
+      chainId: String(params.chainId),
+      asset: params.asset,
+      amount: params.amount,
+      fee: params.fee,
+      receiver: checksummedReceiver,
+      userNonce: params.userNonce,
+      userSignature: params.userSignature,
+    },
+    baseUrl
+  );
+}

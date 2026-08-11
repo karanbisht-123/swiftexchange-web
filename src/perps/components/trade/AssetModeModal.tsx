@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Modal } from '../ui/Modal';
-import { useAccountStore } from '../../core/stores/accountStore';
-import { useAsterAgent } from '../../adapters/aster/hooks/useAsterAgent';
+import React, { useEffect, useState } from 'react';
+
 import { changeMultiAssetsMargin } from '../../adapters/aster/api/account';
+import { useAsterAgent } from '../../adapters/aster/hooks/useAsterAgent';
+import { useAccountStore } from '../../core/stores/accountStore';
+import { Modal } from '../ui/Modal';
 
 interface AssetModeModalProps {
   isOpen: boolean;
@@ -10,12 +11,14 @@ interface AssetModeModalProps {
 }
 
 export const AssetModeModal: React.FC<AssetModeModalProps> = ({ isOpen, onClose }) => {
-  const multiAssetsMargin = useAccountStore((state) => state.multiAssetsMargin);
-  const setMultiAssetsMargin = useAccountStore((state) => state.setMultiAssetsMargin);
-  const getBalance = useAccountStore((state) => state.getBalance);
+  const multiAssetsMargin = useAccountStore(state => state.multiAssetsMargin);
+  const setMultiAssetsMargin = useAccountStore(state => state.setMultiAssetsMargin);
+  const getBalance = useAccountStore(state => state.getBalance);
   const { asterSigner, userAddr } = useAsterAgent();
-  
-  const [selectedMode, setSelectedMode] = useState<'single' | 'multi'>(multiAssetsMargin ? 'multi' : 'single');
+
+  const [selectedMode, setSelectedMode] = useState<'single' | 'multi'>(
+    multiAssetsMargin ? 'multi' : 'single'
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -35,7 +38,7 @@ export const AssetModeModal: React.FC<AssetModeModalProps> = ({ isOpen, onClose 
     // Safety Check: Ensure USDT balance is not negative before switching modes
     const usdtBalance = getBalance('USDT');
     const usdtTotal = usdtBalance ? parseFloat(usdtBalance.total) : 0;
-    
+
     if (usdtTotal < 0) {
       setError('Cannot change Asset Mode while USDT balance is negative.');
       return;
@@ -56,7 +59,10 @@ export const AssetModeModal: React.FC<AssetModeModalProps> = ({ isOpen, onClose 
       onClose();
     } catch (err: any) {
       console.error('Failed to change asset mode:', err);
-      setError(err.message || 'Failed to change asset mode. Make sure you have no open orders or positions.');
+      setError(
+        err.message ||
+          'Failed to change asset mode. Make sure you have no open orders or positions.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -65,18 +71,23 @@ export const AssetModeModal: React.FC<AssetModeModalProps> = ({ isOpen, onClose 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Asset Mode">
       <div className="space-y-4">
-        
         {/* Single-Asset Mode Option */}
-        <div 
+        <div
           onClick={() => setSelectedMode('single')}
           className={`p-4 rounded-xl border cursor-pointer transition-colors ${selectedMode === 'single' ? 'border-brand bg-brand/5' : 'border-color hover:border-color-hover bg-secondary'}`}
         >
           <div className="flex items-start gap-3">
-            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedMode === 'single' ? 'border-brand' : 'border-muted'}`}>
+            <div
+              className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedMode === 'single' ? 'border-brand' : 'border-muted'}`}
+            >
               {selectedMode === 'single' && <div className="w-2 h-2 rounded-full bg-brand" />}
             </div>
             <div>
-              <div className={`font-semibold text-[13px] ${selectedMode === 'single' ? 'text-primary' : 'text-secondary'}`}>Single-Asset Mode</div>
+              <div
+                className={`font-semibold text-[13px] ${selectedMode === 'single' ? 'text-primary' : 'text-secondary'}`}
+              >
+                Single-Asset Mode
+              </div>
               <ul className="text-[11px] text-muted mt-2 space-y-1.5 list-disc pl-3">
                 <li>Use pair's settlement currency as margin.</li>
                 <li>PnL offsets across Cross positions of the same currency.</li>
@@ -87,35 +98,40 @@ export const AssetModeModal: React.FC<AssetModeModalProps> = ({ isOpen, onClose 
         </div>
 
         {/* Multi-Asset Mode Option */}
-        <div 
+        <div
           onClick={() => setSelectedMode('multi')}
           className={`p-4 rounded-xl border cursor-pointer transition-colors ${selectedMode === 'multi' ? 'border-brand bg-brand/5' : 'border-color hover:border-color-hover bg-secondary'}`}
         >
           <div className="flex items-start gap-3">
-            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedMode === 'multi' ? 'border-brand' : 'border-muted'}`}>
+            <div
+              className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedMode === 'multi' ? 'border-brand' : 'border-muted'}`}
+            >
               {selectedMode === 'multi' && <div className="w-2 h-2 rounded-full bg-brand" />}
             </div>
             <div>
-              <div className={`font-semibold text-[13px] ${selectedMode === 'multi' ? 'text-primary' : 'text-secondary'}`}>Multi-Asset Mode</div>
+              <div
+                className={`font-semibold text-[13px] ${selectedMode === 'multi' ? 'text-primary' : 'text-secondary'}`}
+              >
+                Multi-Asset Mode
+              </div>
               <ul className="text-[11px] text-muted mt-2 space-y-1.5 list-disc pl-3">
                 <li>Contracts can be traded across margin assets.</li>
-                <li>The profits and losses of positions with different margin assets can offset one another.</li>
+                <li>
+                  The profits and losses of positions with different margin assets can offset one
+                  another.
+                </li>
                 <li>Supports cross margin.</li>
               </ul>
             </div>
           </div>
         </div>
 
-        {error && (
-          <div className="text-danger text-[11px] font-medium px-1">
-            {error}
-          </div>
-        )}
+        {error && <div className="text-danger text-[11px] font-medium px-1">{error}</div>}
 
         <button
           onClick={handleConfirm}
           disabled={isSubmitting || (selectedMode === 'multi') === multiAssetsMargin}
-          className="w-full bg-brand text-[#0b0e14] py-3 rounded-lg font-bold text-[13px] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+          className="w-full bg-brand hover:bg-brand-hover text-white py-2.5 rounded-lg font-bold text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2"
         >
           {isSubmitting ? 'Confirming...' : 'Confirm'}
         </button>
