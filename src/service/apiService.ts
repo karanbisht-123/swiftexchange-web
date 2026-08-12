@@ -1,3 +1,4 @@
+import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 import type { ApiResponse } from '../types/evm/apiResponse.type';
 import {
   GAS_TTL,
@@ -151,7 +152,6 @@ export async function fetchStellarPnl(
   includeExcel: boolean = false
 ): Promise<unknown> {
   const token = API_CONFIG.deviceJwt;
-  if (!token) return null;
 
   const key = `${address}_${from}_${to}_${includeExcel}`;
 
@@ -162,14 +162,25 @@ export async function fetchStellarPnl(
 
   const promise = (async () => {
     const summary = !includeExcel;
-    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=${summary}&excel=${includeExcel}`;
+    const stellarWallet = useWalletStore.getState().connectedWallets.stellar;
+    const isOwnAddress =
+      stellarWallet?.address && stellarWallet.address.toLowerCase() === address.toLowerCase();
+
+    // Only use the authenticated route if we have a token AND the address belongs to the authenticated wallet
+    const useAuthRoute = token && isOwnAddress;
+
+    const basePath = useAuthRoute ? '/pnl' : '/pnl-public';
+    const url = `${basePath}?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=${summary}&excel=${includeExcel}`;
+
+    const headers: Record<string, string> = {};
+    if (useAuthRoute) {
+      headers['x-auth-device-token'] = token;
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     const res = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        'x-auth-device-token': token,
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
     });
 
     if (!res.ok) throw new Error(`Stellar PNL error: ${res.statusText}`);

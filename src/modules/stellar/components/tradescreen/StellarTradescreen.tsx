@@ -88,7 +88,7 @@ const StellarTradeScreen = () => {
   return (
     <div className="bg-primary max-w-[100vw] lg:p-4 lg:pb-0 min-h-screen overflow-x-hidden relative">
       <StellarActivationBanner className="mb-2" />
-      <StellarTickerBar />
+      {activeTab !== 'portfolio' && <StellarTickerBar />}
       {showClaimModal && <ClaimableBalanceModal onClose={() => setShowClaimModal(false)} />}
 
       <style>{`

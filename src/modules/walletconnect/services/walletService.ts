@@ -281,7 +281,7 @@ class WalletService {
           'personal_sign',
           'cosmos_signDirect',
           'cosmos_signAmino',
-          'stellar_signTransaction',
+          'stellar_signXDR',
           'stellar_signAndSubmitXDR',
         ];
 
@@ -694,27 +694,31 @@ class WalletService {
     }
   }
 
-  async signStellarChallenge(xdr: string, provider: unknown): Promise<string> {
+  async signStellarChallenge(
+    xdr: string,
+    networkPassphrase: string,
+    provider: unknown
+  ): Promise<string> {
     const isFreighter =
       typeof (provider as any)?.signTransaction === 'function' && !(provider as any)?.session;
 
     try {
       if (isFreighter) {
-        const config = getStellarConfig(this.currentNetwork);
         const result = await (provider as any).signTransaction(xdr, {
-          networkPassphrase: config.networkPassphrase,
+          networkPassphrase: networkPassphrase,
         });
         return typeof result === 'string' ? result : result.signedTxXdr;
       }
 
       const signaturePromise = (provider as any).request({
-        method: 'stellar_signTransaction',
-        params: { xdr },
+        method: 'stellar_signXDR',
+        params: { xdr, networkPassphrase },
       });
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
       );
       const result = await Promise.race([signaturePromise, timeoutPromise]);
+      console.log('[walletService] Stellar signature response from wallet:', result);
       return (result as any)?.signedXDR ?? (result as any);
     } catch (error: any) {
       if (error?.message === 'SIGNATURE_TIMEOUT' || error?.code === 4001) {
@@ -958,7 +962,7 @@ class WalletService {
 
     const namespaces = {
       stellar: {
-        methods: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
+        methods: ['stellar_signXDR', 'stellar_signAndSubmitXDR'],
         chains: [stellarChain],
         events: ['accountsChanged'],
       },

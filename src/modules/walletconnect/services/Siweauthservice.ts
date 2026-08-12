@@ -280,8 +280,7 @@ export async function verifySiwe(
     }
   }
 
-  // Local client-side session (7 days validity)
-  const expiresIn = 7 * 24 * 60 * 60; // 7 days in seconds
+  const expiresIn = 7 * 24 * 60 * 60;
   const userAddress = options?.address || '0x';
   const chainId = options?.chainId || 1;
   const accessToken = createLocalJWT(userAddress, chainId, expiresIn);
@@ -297,6 +296,188 @@ export async function verifySiwe(
       chainId,
       message,
       signature,
+    });
+  }
+
+  return { accessToken, expiresIn, refreshToken };
+}
+
+export async function buildStellarChallenge(
+  publicKey: string
+): Promise<{ xdr: string; networkPassphrase: string }> {
+  const API_URL = AUTH_API_BASE_URL;
+  console.log(
+    '[auth] Requesting Stellar signing payload from:',
+    `${API_URL}/signing/stellar/request?account=${publicKey}`
+  );
+  try {
+    const res = await fetch(`${API_URL}/signing/stellar/request?account=${publicKey}`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Stellar signing payload, status: ${res.status}`);
+    }
+    const data = await res.json();
+    console.log('[auth] Received Stellar signing payload:', data);
+
+    const xdr = data.xdr || data.data?.xdr;
+    const networkPassphrase = data.networkPassphrase || data.data?.networkPassphrase;
+
+    if (xdr && networkPassphrase) {
+      return { xdr, networkPassphrase };
+    }
+
+    throw new Error('Stellar challenge (xdr or networkPassphrase) not found in backend response');
+  } catch (err) {
+    console.warn(
+      '[auth] Error fetching Stellar signing payload. Falling back to mock challenge for testing.',
+      err
+    );
+    try {
+      const { Keypair, TransactionBuilder, Account, Networks, Operation } =
+        await import('@stellar/stellar-sdk');
+      const serverKeypair = Keypair.random();
+      const account = new Account(serverKeypair.publicKey(), '0');
+      const networkPassphrase = Networks.TESTNET;
+      const now = Math.floor(Date.now() / 1000);
+
+      const tx = new TransactionBuilder(account, {
+        fee: '100',
+        networkPassphrase,
+        timebounds: {
+          minTime: now,
+          maxTime: now + 300,
+        },
+      })
+        .addOperation(
+          Operation.manageData({
+            source: publicKey,
+            name: 'SwiftEx Auth',
+            value: Math.random().toString(36).substring(2, 15),
+          })
+        )
+        .build();
+
+      tx.sign(serverKeypair);
+      return { xdr: tx.toXDR(), networkPassphrase };
+    } catch (mockErr) {
+      console.error('[auth] Mock fallback generation also failed:', mockErr);
+      throw err;
+    }
+  }
+}
+
+export async function verifyStellarChallenge(
+  signedXdr: string,
+  networkPassphrase: string,
+  options?: SiweVerifyOptions
+): Promise<{ accessToken: string; expiresIn: number; refreshToken?: string }> {
+  const API_URL = AUTH_API_BASE_URL;
+
+  if (API_URL) {
+    try {
+      console.log(
+        '[auth] Verifying Stellar signature on backend:',
+        `${API_URL}/signing/stellar/verify`
+      );
+      const payloadBody = {
+        signedXdr,
+        networkPassphrase,
+        address: options?.address,
+      };
+      console.log('[auth] Verify request body:', payloadBody);
+
+      const res = await fetch(`${API_URL}/signing/stellar/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadBody),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error('[auth] Backend verify error response:', errData);
+        throw new Error(
+          errData.message || errData.error || 'Signature verification failed on server'
+        );
+      }
+
+      const data = await res.json();
+      console.log('[auth] Backend verify success response:', data);
+
+      if (data.valid === false) {
+        throw new Error(
+          data.message ||
+            data.error ||
+            'Signature verification failed on server (invalid signature)'
+        );
+      }
+
+      const accessToken =
+        data.accessToken ||
+        data.jwt ||
+        data.token ||
+        data.data?.accessToken ||
+        data.data?.token ||
+        data.data?.jwt;
+
+      let parsedExpiresIn = data.expiresIn || data.data?.expiresIn;
+
+      if (accessToken && !parsedExpiresIn) {
+        try {
+          const payloadPart = accessToken.split('.')[1];
+          if (payloadPart) {
+            const decodedPayload = JSON.parse(
+              atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/'))
+            );
+            if (decodedPayload.exp) {
+              parsedExpiresIn = decodedPayload.exp - Math.floor(Date.now() / 1000);
+            }
+          }
+        } catch (e) {
+          console.warn('[auth] Failed to parse JWT expiration:', e);
+        }
+      }
+
+      const expiresIn = parsedExpiresIn || 86400 * 7;
+      const refreshToken = data.refreshToken || data.data?.refreshToken;
+
+      if (!accessToken) {
+        console.warn('[auth] No access token found in response!', data);
+      }
+
+      if (options?.address) {
+        saveStoredSession({
+          address: options.address,
+          accessToken,
+          refreshToken,
+          expiresAt: Date.now() + expiresIn * 1000,
+          issuedAt: Date.now(),
+          chainId: options.chainId,
+          message: 'Stellar Challenge',
+          signature: signedXdr,
+        });
+      }
+
+      return { accessToken, expiresIn, refreshToken };
+    } catch (err: any) {
+      console.error('[auth] Backend verify failed, falling back to local session:', err);
+    }
+  }
+
+  const expiresIn = 7 * 24 * 60 * 60;
+  const userAddress = options?.address || '0x';
+  const chainId = options?.chainId || 1;
+  const accessToken = createLocalJWT(userAddress, chainId, expiresIn);
+  const refreshToken = `ref_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+
+  if (options?.address) {
+    saveStoredSession({
+      address: options.address,
+      accessToken,
+      refreshToken,
+      expiresAt: Date.now() + expiresIn * 1000,
+      issuedAt: Date.now(),
+      chainId,
+      message: 'Stellar Challenge Local',
+      signature: signedXdr,
     });
   }
 

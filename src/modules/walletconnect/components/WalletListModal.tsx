@@ -6,9 +6,7 @@ import { useAsterAgent } from '../../../perps/adapters/aster/hooks/useAsterAgent
 import router from '../../../routes';
 import { EVM_WALLETS, STELLAR_WALLETS, type WalletConfig } from '../constants/Wallet';
 import { hasStoredAgentKey } from '../services/asterAgentKeyManager';
-import { useWalletStore } from '../store/walletConnectStore';
-
-type WalletType = 'evm' | 'stellar';
+import { type WalletType, useWalletStore } from '../store/walletConnectStore';
 
 const WALLETCONNECT_ICON =
   'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU';
@@ -26,6 +24,7 @@ export const WalletListModal: React.FC = () => {
     isAuthenticating,
     authError,
     authenticateEvm,
+    authenticateStellar,
     tradingAuthEnabled,
     setTradingAuthEnabled,
   } = useWalletStore();
@@ -43,6 +42,7 @@ export const WalletListModal: React.FC = () => {
 
   const evmConnected = !!connectedWallets.evm;
   const stellarConnected = !!connectedWallets.stellar;
+  const anyConnected = evmConnected || stellarConnected;
   const isSetupDone = isAuthenticated && (!tradingAuthEnabled || asterAgent.isReady);
 
   const handleComplete = useCallback(() => {
@@ -161,6 +161,8 @@ export const WalletListModal: React.FC = () => {
         setConnectingWallet(null);
         if (wallet.type === 'evm') {
           setViewMode('onboarding');
+        } else if (wallet.type === 'stellar') {
+          handleComplete();
         }
       } catch (err: any) {
         clearConnectTimeout();
@@ -449,8 +451,10 @@ export const WalletListModal: React.FC = () => {
   );
 
   const renderOnboardingView = () => {
-    const evm = connectedWallets.evm;
-    const config = evm ? getWalletConfig('evm', evm.walletId) : undefined;
+    const activeWallet = connectedWallets.evm || connectedWallets.stellar;
+    const config = activeWallet
+      ? getWalletConfig(activeWallet.type, activeWallet.walletId)
+      : undefined;
     const isDerivingAster = asterAgent.deriveState === 'signing';
 
     return (
@@ -494,7 +498,8 @@ export const WalletListModal: React.FC = () => {
                 style={{ color: 'var(--color-text-muted)' }}
                 className="text-xs font-mono mt-0.5 truncate"
               >
-                {config?.name ?? 'EVM Wallet'} • {evm ? formatAddress(evm.address) : ''}
+                {config?.name ?? 'Wallet'} •{' '}
+                {activeWallet ? formatAddress(activeWallet.address) : ''}
               </p>
             </div>
           </div>
@@ -550,7 +555,11 @@ export const WalletListModal: React.FC = () => {
                       </span>
                     ) : (
                       <button
-                        onClick={() => authenticateEvm()}
+                        onClick={() =>
+                          activeWallet?.type === 'stellar'
+                            ? authenticateStellar()
+                            : authenticateEvm()
+                        }
                         disabled={isAnyActionInProgress}
                         style={{ color: 'var(--color-brand-primary)' }}
                         className="text-xs font-semibold hover:underline"
@@ -699,7 +708,6 @@ export const WalletListModal: React.FC = () => {
   if (!isModalOpen) return null;
 
   const isUnifiedConnecting = connectingWallet === 'unified-wc';
-  const anyConnected = evmConnected || stellarConnected;
 
   return (
     <div

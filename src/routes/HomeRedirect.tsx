@@ -17,5 +17,5 @@ export const HomeRedirect = () => {
     return <Navigate to={ROUTES.DASHBOARD} replace />;
   }
 
-  return <Navigate to={ROUTES.TRADING_PERPS} replace />;
+  return <Navigate to={ROUTES.TRADING_EVM_SWAP} replace />;
 };

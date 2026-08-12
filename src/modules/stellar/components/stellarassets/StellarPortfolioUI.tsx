@@ -1,7 +1,9 @@
+import { Info } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { StellarCostBasisModal } from '../../../../components/StellarCostBasisModal';
+import { Tooltip } from '../../../../components/common/Tooltip';
 import { ExportProgressModal } from '../../../../pages/profile/components/ExportProgressModal';
 import { useIsMobile } from '../../../../perps/components/chart/hooks/useIsMobile';
 import { fetchStellarPnl } from '../../../../service/apiService';
@@ -16,8 +18,25 @@ const StellarPortfolioUI: React.FC = () => {
   const { stellarTotal } = useProfilePortfolio();
   const { connectedWallets } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
-  const stellarAddress = stellarWallet?.address || '';
+  const connectedAddress = stellarWallet?.address || '';
   const navigate = useNavigate();
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlAddress = searchParams.get('address') || '';
+  const [manualAddress, setManualAddress] = useState(urlAddress);
+
+  const stellarAddress = manualAddress || connectedAddress;
+  const isViewingPublicAddress = !!manualAddress && manualAddress !== connectedAddress;
+
+  const handleSetManualAddress = (addr: string) => {
+    setManualAddress(addr);
+    if (addr) {
+      searchParams.set('address', addr);
+    } else {
+      searchParams.delete('address');
+    }
+    setSearchParams(searchParams, { replace: true });
+  };
 
   const [stellarPnlData, setStellarPnlData] = useState<any>(null);
   const [loadingStellarPnl, setLoadingStellarPnl] = useState(false);
@@ -230,15 +249,29 @@ const StellarPortfolioUI: React.FC = () => {
         let fromStr = '';
         let toStr = '';
 
+        const formatDateToDDMMYY = (dateObj: Date) => {
+          const y = dateObj.getFullYear().toString().slice(-2);
+          const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const d = String(dateObj.getDate()).padStart(2, '0');
+          return `${d}/${m}/${y}`;
+        };
+
         if (isCustom && selFromDate && selToDate) {
-          fromStr = selFromDate;
-          toStr = selToDate;
+          const parseCalendarDate = (dateStr: string) => {
+            const parts = dateStr.split('-');
+            const year = parts[0].slice(-2);
+            const month = parts[1];
+            const day = parts[2];
+            return `${day}/${month}/${year}`;
+          };
+          fromStr = parseCalendarDate(selFromDate);
+          toStr = parseCalendarDate(selToDate);
         } else {
           const daysMap = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
           const days = daysMap[selTimeframe as '1w' | '1m' | '2m' | '3m'] ?? 30;
-          const cutoff = Date.now() - days * 86400000;
-          fromStr = new Date(cutoff).toISOString().slice(0, 10);
-          toStr = new Date().toISOString().slice(0, 10);
+          const cutoff = new Date(Date.now() - days * 86400000);
+          fromStr = formatDateToDDMMYY(cutoff);
+          toStr = formatDateToDDMMYY(new Date());
         }
 
         await delay(500);
@@ -289,27 +322,64 @@ const StellarPortfolioUI: React.FC = () => {
   if (!stellarAddress) {
     return (
       <div className="w-full flex items-center justify-center min-h-[600px] py-12 px-4">
-        <div className="w-full max-w-md flex flex-col items-center justify-center bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] p-10 text-center shadow-sm">
-          <svg
-            className="w-16 h-16 text-[var(--color-text-secondary)] mb-6 opacity-30"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+        <div className="w-full max-w-[600px] min-h-[400px] flex flex-col items-center justify-center bg-[var(--color-bg-secondary)] rounded-[2rem] p-8 sm:p-12 text-center relative overflow-hidden shadow-lg border border-white/5">
+          <div className="absolute top-0 left-0 right-0 h-48 w-full overflow-hidden z-0">
+            <img
+              src="/5ed91b71e3c44c41b4e5274b67ba6ba6.png"
+              alt="Stellar Portfolio"
+              className="w-full h-full object-cover object-center opacity-80"
             />
-          </svg>
-          <h2 className="text-xl font-bold text-[var(--color-text-primary)] tracking-tight mb-3">
-            Wallet Not Connected
-          </h2>
-          <p className="text-[var(--color-text-secondary)] text-sm leading-relaxed">
-            Please connect your Stellar wallet to view your live portfolio balance, PnL performance,
-            and trading history.
-          </p>
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--color-bg-secondary)]/80 to-[var(--color-bg-secondary)] z-10" />
+          </div>
+
+          <div className="relative z-20 mt-20 flex flex-col items-center w-full">
+            <h2 className="text-2xl sm:text-3xl font-black text-[var(--color-text-primary)] tracking-tight mb-3">
+              Stellar Portfolio Tracker
+            </h2>
+            <p className="text-[var(--color-text-secondary)] text-[13px] sm:text-sm leading-relaxed mb-10 max-w-sm">
+              It seems you're not connected with us, but no worries! You can still explore your
+              portfolio by entering a Stellar address below.
+            </p>
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                const val = new FormData(e.currentTarget).get('address') as string;
+                if (val) handleSetManualAddress(val.trim());
+              }}
+              className="w-full max-w-lg flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-4"
+            >
+              <div className="relative flex-1">
+                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-[var(--color-text-secondary)]">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                </div>
+                <input
+                  name="address"
+                  type="text"
+                  placeholder="Enter Stellar address (G...)"
+                  className="w-full h-full bg-[var(--color-bg-primary)] border border-white/5 rounded-2xl py-4 pl-12 pr-5 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-white/10 transition-all"
+                />
+              </div>
+              <button
+                type="submit"
+                className="px-8 py-4 bg-brand text-white rounded-2xl text-base font-bold hover:bg-brand-primary/90 transition-all shadow-sm w-full sm:w-auto flex-shrink-0"
+              >
+                Track Portfolio
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     );
@@ -317,18 +387,81 @@ const StellarPortfolioUI: React.FC = () => {
 
   const headerControls = (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-5 rounded-3xl shadow-sm">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--color-text-primary)] tracking-tight">
-          Portfolio Dashboard
-        </h2>
-        <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-          Stellar network performance & metrics
-        </p>
+      <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
+        <div>
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)] tracking-tight">
+            Portfolio Dashboard
+          </h2>
+          <p className="text-xs text-[var(--color-text-secondary)] mt-1">
+            Stellar network performance & metrics
+          </p>
+        </div>
+
+        {/* Inline Address Switcher */}
+        <div className="hidden lg:block w-[1px] h-10 bg-[var(--color-border)]"></div>
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            const val = new FormData(e.currentTarget).get('address') as string;
+            if (val !== null) handleSetManualAddress(val.trim());
+          }}
+          className="relative flex items-center min-w-[280px]"
+        >
+          <div className="absolute left-3 text-[var(--color-text-secondary)]">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
+          <input
+            key={manualAddress}
+            name="address"
+            type="text"
+            disabled={loadingStellarPnl}
+            defaultValue={manualAddress || ''}
+            placeholder="Search address (G...)"
+            className="w-full bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl py-2.5 pl-9 pr-8 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-brand-primary/50 focus:ring-1 focus:ring-brand-primary/20 transition-all disabled:opacity-50"
+          />
+          {manualAddress && (
+            <button
+              type="button"
+              disabled={loadingStellarPnl}
+              onClick={() => handleSetManualAddress('')}
+              className="absolute right-2.5 text-[var(--color-text-secondary)] hover:text-rose-500 transition-colors bg-[var(--color-bg-tertiary)] p-0.5 rounded-md disabled:opacity-50"
+              title="Clear and return to connected wallet"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          )}
+        </form>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={handleOpenCostBasis}
-          disabled={loadingCostBasisDetails}
+          disabled={loadingCostBasisDetails || loadingStellarPnl}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
         >
           {loadingCostBasisDetails ? (
@@ -353,7 +486,8 @@ const StellarPortfolioUI: React.FC = () => {
         </button>
         <button
           onClick={handleExportReport}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 rounded-xl text-xs font-bold transition-all"
+          disabled={loadingStellarPnl}
+          className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -384,7 +518,8 @@ const StellarPortfolioUI: React.FC = () => {
             <button
               key={tf.id}
               onClick={() => setStellarTimeframe(tf.id)}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+              disabled={loadingStellarPnl}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:opacity-50 ${
                 stellarTimeframe === tf.id
                   ? 'bg-brand-primary text-white shadow-sm'
                   : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
@@ -400,20 +535,35 @@ const StellarPortfolioUI: React.FC = () => {
 
   const chartSection = (
     <>
-      {loadingStellarPnl ? (
-        <div className="h-64 flex flex-col items-center justify-center bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] animate-pulse">
-          <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-4" />
-          <span className="text-[var(--color-text-secondary)] text-sm font-medium">
-            Analyzing Portfolio...
+      {stellarPnlError ? (
+        <div className="h-64 flex flex-col items-center justify-center bg-red-500/5 rounded-3xl border border-red-500/10 p-6 text-center">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="36"
+            height="36"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-red-500 mb-4 opacity-80"
+          >
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span className="text-red-500 font-bold mb-1 text-lg">
+            Portfolio Analysis Unavailable
           </span>
-        </div>
-      ) : stellarPnlError ? (
-        <div className="h-64 flex flex-col items-center justify-center bg-red-500/5 rounded-3xl border border-red-500/10">
-          <span className="text-red-500 font-medium">{stellarPnlError}</span>
+          <span className="text-red-500/80 text-sm font-medium max-w-sm">{stellarPnlError}</span>
         </div>
       ) : (
         <div className="flex flex-col gap-4 sm:gap-6">
-          <StellarPnlChart disposals={stellarPnlData?.disposals || []} />
+          <StellarPnlChart
+            disposals={stellarPnlData?.disposals || []}
+            totalUnrealized={stellarPnlData?.totalUnrealized ?? 0}
+          />
         </div>
       )}
     </>
@@ -654,9 +804,22 @@ const StellarPortfolioUI: React.FC = () => {
       <div className="rounded-3xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-4 sm:p-6 relative overflow-hidden shadow-sm flex flex-col justify-between">
         <div>
           <div className="flex items-start justify-between">
-            <span className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-              Total Net Worth
-            </span>
+            <div className="flex items-center gap-1.5">
+              <Tooltip
+                content={
+                  isViewingPublicAddress
+                    ? 'Combined value of tracked positions.'
+                    : 'Total value of all assets combined with net PnL impact.'
+                }
+                position="top"
+                unstyled
+              >
+                <Info className="w-3.5 h-3.5 text-muted hover:text-[var(--color-text-primary)] transition-colors" />
+              </Tooltip>
+              <span className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                {isViewingPublicAddress ? 'Tracked Portfolio Value' : 'Total Net Worth'}
+              </span>
+            </div>
             <span
               className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                 (stellarPnlData?.totalPnL || 0) >= 0
@@ -676,208 +839,430 @@ const StellarPortfolioUI: React.FC = () => {
             <div className="flex items-baseline gap-1.5">
               <span className="text-4xl font-black text-[var(--color-text-primary)] tracking-tighter">
                 $
-                {stellarTotal.toLocaleString('en-US', {
+                {(isViewingPublicAddress
+                  ? stellarPnlData?.positions?.reduce(
+                      (sum: number, pos: any) => sum + (pos.currentValue || 0),
+                      0
+                    ) || 0
+                  : stellarTotal
+                ).toLocaleString('en-US', {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
               </span>
               <span className="text-sm text-brand-primary font-bold">USD</span>
             </div>
-            <p className="text-xs text-[var(--color-text-secondary)] mt-2 flex items-center gap-1.5">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              Live Sync from Network
-            </p>
           </div>
         </div>
       </div>
     </>
   );
 
-  const winRateAndMetricsSection = (
-    <>
-      {/* Combined Win Rate & Highlights Card (Moved to Right Column) */}
-      {stellarPnlData && (
-        <div className="rounded-3xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-4 sm:p-6 flex flex-col justify-between shadow-sm">
-          <div className="flex flex-row items-center justify-between gap-4 w-full">
-            <div className="flex flex-col text-left items-start flex-1 min-w-0">
-              <h3 className="text-sm font-bold text-[var(--color-text-primary)] uppercase tracking-wider">
-                Trade Win Rate
-              </h3>
-              <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-                {stellarPnlData?.tradeCount ??
-                  stellarPnlData?.collapsedCount ??
-                  stellarPnlData?.trades?.length ??
-                  0}{' '}
-                Total Trades
-              </p>
-              <div className="mt-4 text-xs font-medium text-[var(--color-text-secondary)] space-y-1">
-                <div>
-                  <span className="text-emerald-500 font-bold">
-                    {stellarPnlData?.winRate ?? 0}%
-                  </span>{' '}
-                  Profitable
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-primary)] font-bold">
-                    {stellarPnlData?.disposalCount ?? stellarPnlData?.disposals?.length ?? 0}
-                  </span>{' '}
-                  Disposals
-                </div>
-              </div>
-            </div>
-            <div className="relative w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center shrink-0">
-              <svg
-                className="w-full h-full transform -rotate-90 drop-shadow-sm"
-                viewBox="0 0 36 36"
-              >
-                <path
-                  className="text-[var(--color-border)]"
-                  strokeWidth="4"
-                  stroke="currentColor"
-                  fill="none"
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-                <path
-                  className="text-brand-primary"
-                  strokeWidth="4"
-                  strokeDasharray={`${stellarPnlData?.winRate ?? 0}, 100`}
-                  strokeLinecap="round"
-                  stroke="currentColor"
-                  fill="none"
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-              </svg>
-              <div className="absolute flex flex-col items-center justify-center">
-                <span className="text-lg sm:text-xl font-black text-[var(--color-text-primary)]">
-                  {stellarPnlData?.winRate ?? 0}%
-                </span>
-              </div>
-            </div>
+  const tradeOutcomeAnalysisSection = (
+    <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-5 shadow-sm flex flex-col justify-center h-full">
+      <div className="flex items-center gap-6">
+        <div className="relative w-24 h-24 shrink-0 flex items-center justify-center">
+          <svg className="w-full h-full transform -rotate-90 drop-shadow-sm" viewBox="0 0 36 36">
+            <path
+              className="text-[var(--color-border)]"
+              strokeWidth="3"
+              stroke="currentColor"
+              fill="none"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            />
+            <path
+              className="text-purple-500"
+              strokeWidth="3"
+              strokeDasharray={`${stellarPnlData?.winRate ?? 0}, 100`}
+              strokeLinecap="round"
+              stroke="currentColor"
+              fill="none"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            />
+          </svg>
+          <div className="absolute flex flex-col items-center justify-center">
+            <span className="text-xl font-black text-[var(--color-text-primary)]">
+              {stellarPnlData?.winRate ?? 0}%
+            </span>
+            <span className="text-[8px] font-bold text-[var(--color-text-secondary)] uppercase mt-0.5">
+              Win Rate
+            </span>
           </div>
-
-          {/* Trading Highlights inside Win Rate Card */}
-          <div className="mt-6 pt-5 border-t border-[var(--color-border)] grid grid-cols-3 gap-2 divide-x divide-[var(--color-border)]">
-            <div className="flex flex-col items-start px-2 sm:px-0 first:pl-0 text-left">
-              <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1">
+        </div>
+        <div className="flex flex-col">
+          <h3 className="text-sm font-black text-purple-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+            <Tooltip
+              content="Breakdown of win rate, best/worst trades, and total transactions."
+              position="top"
+              unstyled
+            >
+              <Info className="w-3.5 h-3.5 text-purple-400/70 hover:text-purple-400 transition-colors" />
+            </Tooltip>
+            Trade Outcome Analysis
+          </h3>
+          <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
+            Out of{' '}
+            <strong className="text-[var(--color-text-primary)]">
+              {stellarPnlData?.tradeCount ??
+                stellarPnlData?.collapsedCount ??
+                stellarPnlData?.trades?.length ??
+                0}
+            </strong>{' '}
+            trades, win rate
+            <strong className="text-[var(--color-text-primary)]">
+              {' '}
+              {stellarPnlData?.winRate ?? 0}%
+            </strong>
+            . Disposals:{' '}
+            <strong className="text-[var(--color-text-primary)]">
+              {stellarPnlData?.disposalCount ?? stellarPnlData?.disposals?.length ?? 0}
+            </strong>
+            .
+          </p>
+          <div className="mt-4 pt-4 border-t border-[var(--color-border)] grid grid-cols-2 gap-4">
+            <div>
+              <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider block mb-1">
                 Best Trade
               </span>
-              <div className="text-xs sm:text-sm font-black text-emerald-500">
-                {stellarPnlData?.bestTrade
-                  ? `+${stellarPnlData.bestTrade.pnl?.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}`
+              <span className="text-xs font-bold text-emerald-500">
+                {stellarPnlData?.bestTrade?.pnl
+                  ? `+${stellarPnlData.bestTrade.pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
                   : '-'}
-              </div>
-              <span className="text-[9px] text-[var(--color-text-secondary)] mt-0.5">
-                {stellarPnlData?.bestTrade?.asset || 'N/A'}
+              </span>
+              <span className="text-[9px] text-[var(--color-text-secondary)] ml-1">
+                {stellarPnlData?.bestTrade?.asset}
               </span>
             </div>
-
-            <div className="flex flex-col items-start px-2 text-left">
-              <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1">
-                Max Loss
+            <div>
+              <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider block mb-1">
+                Worst Trade
               </span>
-              <div className="text-xs sm:text-sm font-black text-rose-500">
-                {stellarPnlData?.worstTrade
-                  ? stellarPnlData.worstTrade.pnl?.toLocaleString('en-US', {
-                      style: 'currency',
-                      currency: 'USD',
-                    })
+              <span className="text-xs font-bold text-rose-500">
+                {stellarPnlData?.worstTrade?.pnl
+                  ? `${stellarPnlData.worstTrade.pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
                   : '-'}
-              </div>
-              <span className="text-[9px] text-[var(--color-text-secondary)] mt-0.5">
-                {stellarPnlData?.worstTrade?.asset || 'N/A'}
               </span>
-            </div>
-
-            <div className="flex flex-col items-start px-2 pr-0 text-left">
-              <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1">
-                Top Asset
-              </span>
-              <div className="text-xs sm:text-sm font-black text-[var(--color-text-primary)]">
-                {stellarPnlData?.largestPosition
-                  ? stellarPnlData.largestPosition.currentValue?.toLocaleString('en-US', {
-                      style: 'currency',
-                      currency: 'USD',
-                    })
-                  : '-'}
-              </div>
-              <span className="text-[9px] text-[var(--color-text-secondary)] mt-0.5">
-                {stellarPnlData?.largestPosition?.asset || 'N/A'}
+              <span className="text-[9px] text-[var(--color-text-secondary)] ml-1">
+                {stellarPnlData?.worstTrade?.asset}
               </span>
             </div>
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  );
 
-      {/* Detailed Metrics Grid (Moved to Right Column) */}
-      {stellarPnlData && (
-        <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm">
-          <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight mb-4">
-            Detailed Metrics
-          </h3>
-          <div className="grid grid-cols-2 gap-y-4 gap-x-3 sm:gap-y-6 sm:gap-x-4">
-            {[
-              {
-                label: 'Total Trades',
-                value:
-                  stellarPnlData?.tradeCount ??
-                  stellarPnlData?.collapsedCount ??
-                  stellarPnlData?.trades?.length ??
-                  0,
-              },
-              {
-                label: 'Open Positions',
-                value: stellarPnlData?.positionCount ?? stellarPnlData?.positions?.length ?? 0,
-              },
-              {
-                label: 'Disposals',
-                value: stellarPnlData?.disposalCount ?? stellarPnlData?.disposals?.length ?? 0,
-              },
-              {
-                label: 'Realized PnL',
-                value: stellarPnlData?.totalRealized ?? 0,
-                isCurrency: true,
-              },
-              {
-                label: 'Unrealized PnL',
-                value: stellarPnlData?.totalUnrealized ?? 0,
-                isCurrency: true,
-              },
-              {
-                label: 'USDC Received',
-                value: stellarPnlData?.usdcReceived ?? 0,
-                isCurrency: true,
-              },
-              { label: 'USDC Spent', value: stellarPnlData?.usdcSpent ?? 0, isCurrency: true },
-              { label: 'Net USDC Flow', value: stellarPnlData?.netUSDCFlow ?? 0, isCurrency: true },
-            ].map((metric, idx) => (
-              <div key={idx} className="flex flex-col">
-                <span className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1">
-                  {metric.label}
-                </span>
-                <span
-                  className={`text-sm font-bold ${
-                    metric.isCurrency
-                      ? Number(metric.value) > 0
-                        ? 'text-emerald-500'
-                        : Number(metric.value) < 0
-                          ? 'text-rose-500'
-                          : 'text-[var(--color-text-primary)]'
-                      : 'text-[var(--color-text-primary)]'
-                  }`}
-                >
-                  {metric.isCurrency
-                    ? Number(metric.value).toLocaleString('en-US', {
-                        style: 'currency',
-                        currency: 'USD',
-                      })
-                    : metric.value}
-                </span>
+  const tradingTimelineSection = (
+    <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-5 shadow-sm flex flex-col justify-between h-full relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500/20 via-purple-500/10 to-transparent"></div>
+      <div className="flex items-center justify-start mb-4">
+        <h3 className="text-xs font-black text-purple-400 uppercase tracking-widest flex items-center gap-2">
+          <Tooltip
+            content="Overview of your trading activity span and active days."
+            position="top"
+            unstyled
+          >
+            <Info className="w-3.5 h-3.5 text-purple-400/70 hover:text-purple-400 transition-colors" />
+          </Tooltip>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          Trading Timeline
+        </h3>
+      </div>
+
+      <div className="relative pl-4 mb-6 border-l-2 border-[var(--color-border)] ml-2 space-y-4">
+        <div className="relative">
+          <div className="absolute -left-[23px] top-1 w-3 h-3 bg-white rounded-full border-2 border-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]"></div>
+          <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider block mb-0.5">
+            First Trade
+          </span>
+          <span className="text-xs font-bold text-[var(--color-text-primary)]">
+            {stellarPnlData?.firstTradeDate
+              ? new Date(stellarPnlData.firstTradeDate).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })
+              : 'N/A'}
+          </span>
+        </div>
+        <div className="relative">
+          <div className="absolute -left-[23px] top-1 w-3 h-3 bg-purple-400 rounded-full border-2 border-purple-600 shadow-[0_0_8px_rgba(168,85,247,0.5)]"></div>
+          <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider block mb-0.5">
+            Last Trade
+          </span>
+          <span className="text-xs font-bold text-[var(--color-text-primary)]">
+            {stellarPnlData?.lastTradeDate
+              ? new Date(stellarPnlData.lastTradeDate).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })
+              : 'N/A'}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between pt-3 border-t border-[var(--color-border)]">
+        <div className="text-[10px] text-[var(--color-text-secondary)]">
+          Active Days:{' '}
+          <strong className="text-[var(--color-text-primary)]">
+            {stellarPnlData?.activeDays || 0}
+          </strong>
+        </div>
+        <div className="text-[10px] text-[var(--color-text-secondary)]">
+          Most Traded:{' '}
+          <strong className="text-[var(--color-text-primary)]">
+            {stellarPnlData?.mostTradedAsset || 'N/A'}
+          </strong>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Parse positions for PnL Distribution (Top 5 by absolute PnL impact)
+  const topAssets = stellarPnlData?.positions
+    ? [...stellarPnlData.positions]
+        .map(p => ({ ...p, totalAssetPnl: (p.realizedPnL || 0) + (p.unrealized || 0) }))
+        .sort((a: any, b: any) => Math.abs(b.totalAssetPnl) - Math.abs(a.totalAssetPnl))
+        .slice(0, 5)
+    : [];
+  const totalAbsPnl =
+    topAssets.reduce((sum: number, p: any) => sum + Math.abs(p.totalAssetPnl), 0) || 1; // avoid /0
+
+  const assetAllocationSection = (
+    <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col">
+      <div className="flex items-center justify-start mb-1 gap-1.5">
+        <Tooltip
+          content="Visual breakdown of assets contributing to your total PnL."
+          position="top"
+          unstyled
+        >
+          <Info className="w-3.5 h-3.5 text-muted hover:text-[var(--color-text-primary)] transition-colors" />
+        </Tooltip>
+        <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight">
+          PnL Distribution
+        </h3>
+      </div>
+      <p className="text-[11px] text-[var(--color-text-secondary)] font-medium mb-5">
+        Top assets by total PnL impact
+      </p>
+
+      <div className="flex flex-col gap-4">
+        {topAssets.length > 0 ? (
+          topAssets.map((asset: any) => {
+            const pct = Math.min(
+              100,
+              Math.max(0, (Math.abs(asset.totalAssetPnl) / totalAbsPnl) * 100)
+            );
+            const isPositive = asset.totalAssetPnl >= 0;
+            const colorClass = isPositive ? 'bg-emerald-500' : 'bg-rose-500';
+            return (
+              <div key={asset.asset} className="flex flex-col gap-1.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-[var(--color-text-primary)]">{asset.asset}</span>
+                  <span
+                    className={`font-medium ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}
+                  >
+                    {isPositive ? '+' : ''}
+                    {(asset.totalAssetPnl || 0).toLocaleString('en-US', {
+                      style: 'currency',
+                      currency: 'USD',
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 6,
+                    })}
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-[var(--color-bg-tertiary)] rounded-full overflow-hidden">
+                  <div
+                    className={`h-full ${colorClass} rounded-full transition-all duration-1000`}
+                    style={{ width: `${pct}%` }}
+                  ></div>
+                </div>
               </div>
+            );
+          })
+        ) : (
+          <div className="text-xs text-[var(--color-text-secondary)] text-center py-4">
+            No PnL data found
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const detailedMetricsSection = (
+    <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm">
+      <div className="flex items-center justify-start mb-4 gap-1.5">
+        <Tooltip
+          content="Key performance indicators including realized and unrealized gains."
+          position="top"
+          unstyled
+        >
+          <Info className="w-3.5 h-3.5 text-muted hover:text-[var(--color-text-primary)] transition-colors" />
+        </Tooltip>
+        <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight">
+          Performance Metrics
+        </h3>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        {[
+          { label: 'Total PnL', value: stellarPnlData?.totalPnL ?? 0, isCurrency: true },
+          {
+            label: 'Unrealized PnL',
+            value: stellarPnlData?.totalUnrealized ?? 0,
+            isCurrency: true,
+          },
+          { label: 'Realized PnL', value: stellarPnlData?.totalRealized ?? 0, isCurrency: true },
+          { label: 'USDC Spent', value: stellarPnlData?.usdcSpent ?? 0, isCurrency: true },
+          { label: 'Net USDC Flow', value: stellarPnlData?.netUSDCFlow ?? 0, isCurrency: true },
+        ].map((metric, idx) => (
+          <div key={idx} className="flex flex-col">
+            <span className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1">
+              {metric.label}
+            </span>
+            <span
+              className={`text-sm font-bold ${
+                metric.isCurrency
+                  ? Number(metric.value) > 0
+                    ? 'text-emerald-500'
+                    : Number(metric.value) < 0
+                      ? 'text-rose-500'
+                      : 'text-[var(--color-text-primary)]'
+                  : 'text-[var(--color-text-primary)]'
+              }`}
+            >
+              {metric.isCurrency
+                ? Number(metric.value).toLocaleString('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                  })
+                : metric.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const portfolioDiagnosticsSection = (
+    <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col gap-4">
+      <div className="flex items-center justify-start gap-1.5">
+        <Tooltip
+          content="Automated checks for low liquidity, estimated cost basis, and data health."
+          position="top"
+          unstyled
+        >
+          <Info className="w-3.5 h-3.5 text-muted hover:text-[var(--color-text-primary)] transition-colors" />
+        </Tooltip>
+        <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight">
+          Portfolio Diagnostics
+        </h3>
+      </div>
+
+      {/* Low Liquidity Assets */}
+      {stellarPnlData?.lowLiquidityAssets && stellarPnlData.lowLiquidityAssets.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-amber-500"
+            >
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <span className="text-xs font-bold text-amber-500">Low Liquidity Warning</span>
+          </div>
+          <p className="text-[10px] text-amber-500/80 mb-2">
+            The following assets have very low trading volume. Values may be inaccurate.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {stellarPnlData.lowLiquidityAssets.map((asset: any, idx: number) => (
+              <span
+                key={idx}
+                className="bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-1 rounded-md font-bold"
+              >
+                {asset.asset}
+              </span>
             ))}
           </div>
         </div>
       )}
-    </>
+
+      {/* Auto Cost Basis */}
+      {stellarPnlData?.autoCostBasis && Object.keys(stellarPnlData.autoCostBasis).length > 0 && (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-blue-500"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <span className="text-xs font-bold text-blue-500">Auto Cost Basis</span>
+          </div>
+          <p className="text-[10px] text-blue-500/80 mb-2">
+            Cost basis was auto-estimated for some assets due to missing historical data.
+          </p>
+          <div className="text-[10px] text-blue-500 font-medium">
+            {Object.keys(stellarPnlData.autoCostBasis).length} assets estimated
+          </div>
+        </div>
+      )}
+
+      {/* API Diagnostics */}
+      <div className="grid grid-cols-2 gap-2 mt-2 pt-4 border-t border-[var(--color-border)]">
+        <div className="flex flex-col">
+          <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-0.5">
+            Raw Tx Count
+          </span>
+          <span className="text-xs font-bold text-[var(--color-text-primary)]">
+            {stellarPnlData?.rawCount || 0}
+          </span>
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-0.5">
+            Collapsed Trades
+          </span>
+          <span className="text-xs font-bold text-[var(--color-text-primary)]">
+            {stellarPnlData?.collapsedCount || 0}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 
   const assetsList = (
@@ -900,6 +1285,27 @@ const StellarPortfolioUI: React.FC = () => {
     </div>
   );
 
+  if (loadingStellarPnl) {
+    return (
+      <div className="relative flex flex-col gap-4 lg:gap-6 w-full max-w-[1600px] mx-auto pb-24 pt-2 sm:pt-4 px-3 sm:px-4 lg:px-6 min-h-screen font-sans animate-pulse">
+        {headerControls}
+        <div className="flex flex-col xl:flex-row gap-6 w-full">
+          {/* Left Column Skeleton */}
+          <div className="w-full xl:w-8/12 flex flex-col gap-6">
+            <div className="h-[400px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
+            <div className="h-[300px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
+          </div>
+          {/* Right Column Skeleton */}
+          <div className="w-full xl:w-4/12 flex flex-col gap-6">
+            <div className="h-[160px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
+            <div className="h-[220px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
+            <div className="h-[400px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="relative flex flex-col gap-4 lg:gap-6 w-full max-w-[1600px] mx-auto pb-24 pt-2 sm:pt-4 px-3 sm:px-4 lg:px-6 min-h-screen font-sans">
@@ -908,22 +1314,32 @@ const StellarPortfolioUI: React.FC = () => {
         {isMobile ? (
           <div className="flex flex-col gap-4 w-full">
             {netWorthSection}
+            {tradeOutcomeAnalysisSection}
+            {tradingTimelineSection}
             {chartSection}
-            {winRateAndMetricsSection}
+            {assetAllocationSection}
+            {detailedMetricsSection}
+            {portfolioDiagnosticsSection}
             {tablesSection}
             {assetsList}
           </div>
         ) : (
-          <div className="flex flex-row gap-6 w-full">
+          <div className="flex flex-row gap-4 w-full">
             {/* Left Column */}
-            <div className="w-2/3 xl:w-8/12 flex flex-col gap-6">
+            <div className="w-2/3 xl:w-8/12 flex flex-col gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                {tradeOutcomeAnalysisSection}
+                {tradingTimelineSection}
+              </div>
               {chartSection}
               {tablesSection}
             </div>
             {/* Right Column */}
-            <div className="w-1/3 xl:w-4/12 flex flex-col gap-6">
+            <div className="w-1/3 xl:w-4/12 flex flex-col gap-4">
               {netWorthSection}
-              {winRateAndMetricsSection}
+              {assetAllocationSection}
+              {detailedMetricsSection}
+              {portfolioDiagnosticsSection}
               {assetsList}
             </div>
           </div>

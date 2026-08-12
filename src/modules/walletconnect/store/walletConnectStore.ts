@@ -5,11 +5,14 @@ import { getFingerprint, prewarmFingerprint } from '../../../utils/fingerprint';
 import { type NetworkType } from '../config/chains';
 import {
   buildSiweMessage,
+  buildStellarChallenge,
   clearAccessToken,
+  getCurrentTokenInfo,
   logoutServer,
   restoreAuthSession,
   setAccessToken,
   verifySiwe,
+  verifyStellarChallenge,
 } from '../services/Siweauthservice';
 import type { ApiTradingKey } from '../services/apiTradingKeyService';
 import { WITHDRAW_PREF_KEY } from '../services/apiTradingKeyService';
@@ -51,7 +54,7 @@ export interface WalletState {
   isAuthenticated: boolean;
   isAuthenticating: boolean;
   authError: string | null;
-  authenticatedChain: 'evm' | null;
+  authenticatedChain: 'evm' | 'stellar' | null;
   linkedChains: ('evm' | 'stellar')[];
   tradingAuthEnabled: boolean;
 
@@ -80,6 +83,7 @@ interface WalletActions {
   updateSessionPing: (type: WalletType) => void;
 
   authenticateEvm: () => Promise<void>;
+  authenticateStellar: () => Promise<void>;
   logoutAuth: () => Promise<void>;
   setTradingAuthEnabled: (value: boolean) => void;
 
@@ -199,13 +203,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         if (type === 'evm') {
           get().authenticateEvm();
         } else if (type === 'stellar') {
-          if (get().isAuthenticated && get().authenticatedChain === 'evm') {
-            set(state => ({
-              linkedChains: Array.from(new Set([...state.linkedChains, 'stellar'])) as (
-                'evm' | 'stellar'
-              )[],
-            }));
-          }
+          get().authenticateStellar();
         }
       } catch (error: any) {
         set(state => ({
@@ -275,6 +273,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         if (result.evm) {
           get().authenticateEvm();
+        }
+        if (result.stellar) {
+          get().authenticateStellar();
         }
       } catch (error: any) {
         set(state => ({
@@ -399,6 +400,92 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           isAuthenticating: false,
           authError: null,
           authenticatedChain: 'evm',
+          linkedChains: linked,
+        });
+      } catch (error: any) {
+        set(state => ({
+          isAuthenticating: false,
+          isAuthenticated: state.isAuthenticated,
+          authError:
+            error?.message === 'USER_REJECTED'
+              ? 'Signature rejected'
+              : (error?.message ?? 'Authentication failed'),
+        }));
+      }
+    },
+
+    authenticateStellar: async () => {
+      const state = get();
+      if (state.isAuthenticating) return;
+
+      set({ isAuthenticating: true, authError: null });
+
+      try {
+        const stellar = state.connectedWallets.stellar;
+
+        // 1. If already have an active valid session for this address, skip
+        const currentToken = getCurrentTokenInfo();
+        if (
+          currentToken &&
+          stellar &&
+          currentToken.address?.toLowerCase() === stellar.address.toLowerCase()
+        ) {
+          const hasEvm = Boolean(state.connectedWallets.evm);
+          const linked: ('evm' | 'stellar')[] = hasEvm ? ['evm', 'stellar'] : ['stellar'];
+          set({
+            isAuthenticated: true,
+            isAuthenticating: false,
+            authError: null,
+            authenticatedChain: 'stellar',
+            linkedChains: linked,
+          });
+          return;
+        }
+
+        if (!stellar) {
+          throw new Error('Stellar wallet not connected');
+        }
+
+        const provider = walletService.getProvider('stellar');
+        if (!provider) {
+          throw new Error('Stellar provider not found');
+        }
+
+        const { xdr, networkPassphrase } = await buildStellarChallenge(stellar.address);
+        const signedXdr = await walletService.signStellarChallenge(
+          xdr,
+          networkPassphrase,
+          provider
+        );
+
+        const { accessToken, expiresIn, refreshToken } = await verifyStellarChallenge(
+          signedXdr,
+          networkPassphrase,
+          {
+            address: stellar.address,
+            chainId: stellar.chainId ? Number(stellar.chainId) : undefined,
+          }
+        );
+
+        await setAccessToken(
+          {
+            accessToken,
+            expiresAt: Date.now() + expiresIn * 1000,
+            refreshToken,
+            address: stellar.address,
+            chainId: stellar.chainId ? Number(stellar.chainId) : undefined,
+          },
+          stellar.address
+        );
+
+        const hasEvm = Boolean(get().connectedWallets.evm);
+        const linked: ('evm' | 'stellar')[] = hasEvm ? ['evm', 'stellar'] : ['stellar'];
+
+        set({
+          isAuthenticated: true,
+          isAuthenticating: false,
+          authError: null,
+          authenticatedChain: 'stellar',
           linkedChains: linked,
         });
       } catch (error: any) {

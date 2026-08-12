@@ -79,17 +79,24 @@ export function useSwapAssetDefaults(params: {
       if (buyAddressParam) initialBuyAddr = buyAddressParam;
     }
 
-    const storeFromChain = useSwapStore.getState().fromChainId;
     if (!initialFromChainId) {
-      const defaultChainId =
-        currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
-      if (storeFromChain === 1 && defaultChainId !== 1) {
-        initialFromChainId = defaultChainId;
+      let defaultChainId: number | string = STELLAR_CHAIN_ID;
+      if (connectedWallets[WalletType.STELLAR]) {
+        defaultChainId = STELLAR_CHAIN_ID;
+      } else if (connectedWallets[WalletType.EVM] && currentChainId) {
+        const swapEnabledChains = getEvmSwapEnabledChains(currentNetwork);
+        if (swapEnabledChains.some(c => c.chainId === currentChainId)) {
+          defaultChainId = currentChainId;
+        }
       }
+
+      initialFromChainId = defaultChainId;
+      if (!initialToChainId) initialToChainId = defaultChainId;
     }
 
     if (initialFromChainId !== null) setFromChainId(initialFromChainId);
     if (initialToChainId !== null) setToChainId(initialToChainId);
+
     if (initialSellSymbol) {
       setSellAssetSymbol(initialSellSymbol);
       setSellAssetAddress(initialSellAddr);

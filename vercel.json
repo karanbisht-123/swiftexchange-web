@@ -1,6 +1,18 @@
 {
   "rewrites": [
     {
+      "source": "/pnl-public",
+      "destination": "https://folioapi.swiftexwallet.com/pnl-public"
+    },
+    {
+      "source": "/pnl-public/:path*",
+      "destination": "https://folioapi.swiftexwallet.com/pnl-public/:path*"
+    },
+    {
+      "source": "/pnl",
+      "destination": "https://folioapi.swiftexwallet.com/pnl"
+    },
+    {
       "source": "/pnl/:path*",
       "destination": "https://folioapi.swiftexwallet.com/pnl/:path*"
     },
