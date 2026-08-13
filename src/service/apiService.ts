@@ -183,7 +183,22 @@ export async function fetchStellarPnl(
       headers,
     });
 
-    if (!res.ok) throw new Error(`Stellar PNL error: ${res.statusText}`);
+    if (!res.ok) {
+      let errorMsg = `Stellar PNL error: ${res.statusText}`;
+      try {
+        const errorData = await parseBody<any>(res);
+        if (errorData && typeof errorData === 'object' && errorData.error) {
+          errorMsg = errorData.error;
+        } else if (typeof errorData === 'string') {
+          errorMsg = errorData;
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message) {
+          errorMsg = e.message;
+        }
+      }
+      throw new Error(errorMsg);
+    }
     const data = await parseBody<unknown>(res);
     setPnlCache(key, data);
     return data;

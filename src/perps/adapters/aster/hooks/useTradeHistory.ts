@@ -64,7 +64,7 @@ export const useTradeHistory = (
         });
         if (isMounted) {
           const sorted = sortDesc(Array.isArray(data) ? data : []);
-          const more = sorted.length >= PAGE_LIMIT;
+          const more = sorted.length > 0;
           setTrades(sorted);
           setHasMore(more);
           globalTradeCache[cacheKey] = { data: sorted, timestamp: Date.now(), hasMore: more };
@@ -113,7 +113,7 @@ export const useTradeHistory = (
             return prev;
           }
           const combined = sortDesc([...prev, ...uniqueNew]);
-          const more = list.length >= PAGE_LIMIT;
+          const more = uniqueNew.length > 0;
           setHasMore(more);
           globalTradeCache[cacheKey] = { data: combined, timestamp: Date.now(), hasMore: more };
           return combined;

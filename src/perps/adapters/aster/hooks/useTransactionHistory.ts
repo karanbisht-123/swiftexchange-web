@@ -62,7 +62,7 @@ export const useTransactionHistory = (signer: Signer | null, userAddr: string | 
         const data = await getIncomeHistory(signer, userAddr, { limit: PAGE_LIMIT });
         if (isMounted) {
           const sorted = sortDesc(Array.isArray(data) ? data : []);
-          const more = sorted.length >= PAGE_LIMIT;
+          const more = sorted.length > 0;
           setIncome(sorted);
           setHasMore(more);
           globalIncomeCache[cacheKey] = { data: sorted, timestamp: Date.now(), hasMore: more };
@@ -113,7 +113,7 @@ export const useTransactionHistory = (signer: Signer | null, userAddr: string | 
             return prev;
           }
           const combined = sortDesc([...prev, ...uniqueNew]);
-          const more = list.length >= PAGE_LIMIT;
+          const more = uniqueNew.length > 0;
           setHasMore(more);
           globalIncomeCache[cacheKey] = { data: combined, timestamp: Date.now(), hasMore: more };
           return combined;

@@ -243,40 +243,59 @@ export const useNearIntentCrossChain = ({
           const fromAddr = (await signer.getAddress()).toLowerCase();
           const amountInWei = BigInt(safeParseUnits(amount, sellAsset.decimals || 18));
 
+          const txParams: any = {
+            from: fromAddr,
+          };
+
           if (
             !sellAddress ||
             sellAddress.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
           ) {
-            const txHex = await provider.request({
-              method: 'eth_sendTransaction',
-              params: [
-                {
-                  from: fromAddr,
-                  to: depositAddr,
-                  value: '0x' + amountInWei.toString(16),
-                },
-              ],
-            });
-            txHashResultHex = txHex;
+            txParams.to = depositAddr;
+            txParams.value = '0x' + amountInWei.toString(16);
           } else {
             const erc20Abi = [
               'function transfer(address to, uint256 amount) public returns (bool)',
             ];
             const iface = new ethers.Interface(erc20Abi);
             const data = iface.encodeFunctionData('transfer', [depositAddr, amountInWei]);
-
-            const txHex = await provider.request({
-              method: 'eth_sendTransaction',
-              params: [
-                {
-                  from: fromAddr,
-                  to: sellAddress,
-                  data,
-                },
-              ],
-            });
-            txHashResultHex = txHex;
+            txParams.to = sellAddress;
+            txParams.data = data;
           }
+
+          try {
+            const chainConfig = findChain(sellAsset.blockchain, 'mainnet');
+            const rpcUrl = chainConfig?.rpcUrls?.[0] || chainConfig?.rpcUrl;
+            if (rpcUrl) {
+              const publicProvider = new ethers.JsonRpcProvider(rpcUrl);
+              const feeData = await publicProvider.getFeeData();
+              if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+                // EIP-1559 networks (Polygon, Ethereum, etc)
+                // Add a 10% buffer to maxFeePerGas to prevent "below minimum" spikes
+                const bufferedMaxFee = (feeData.maxFeePerGas * 110n) / 100n;
+                // Add a small buffer to priority fee as well, ensuring it meets network demands
+                const bufferedPriority = (feeData.maxPriorityFeePerGas * 110n) / 100n;
+
+                txParams.maxFeePerGas = '0x' + bufferedMaxFee.toString(16);
+                txParams.maxPriorityFeePerGas = '0x' + bufferedPriority.toString(16);
+              } else if (feeData.gasPrice) {
+                // Legacy networks
+                const bufferedGasPrice = (feeData.gasPrice * 110n) / 100n;
+                txParams.gasPrice = '0x' + bufferedGasPrice.toString(16);
+              }
+            }
+          } catch (feeErr) {
+            console.warn(
+              '[NEAR Intents] Failed to fetch live fee data, relying on wallet default:',
+              feeErr
+            );
+          }
+
+          const txHex = await provider.request({
+            method: 'eth_sendTransaction',
+            params: [txParams],
+          });
+          txHashResultHex = txHex;
           txHashResult = txHashResultHex;
         }
 
@@ -294,15 +313,19 @@ export const useNearIntentCrossChain = ({
         // Add console log to satisfy the user's request to see the error/rejection in the console
         console.log('[InterSwap] Transaction result/error:', err);
 
+        const hasNestedRpcError =
+          /processing response error|jsonrpc|error=|execution reverted|gas price/.test(msg);
+
         const rejected =
-          err?.code === 4001 ||
-          err?.code === 'ACTION_REJECTED' ||
-          msg.includes('user rejected') ||
-          msg.includes('user denied') ||
-          msg.includes('user cancelled') ||
-          msg.includes('rejected by user') ||
-          msg.includes('signing/submission failed or was cancelled') ||
-          msg.includes('cancelled');
+          !hasNestedRpcError &&
+          (err?.code === 4001 ||
+            err?.code === 'ACTION_REJECTED' ||
+            msg.includes('user rejected') ||
+            msg.includes('user denied') ||
+            msg.includes('user cancelled') ||
+            msg.includes('rejected by user') ||
+            msg.includes('signing/submission failed or was cancelled') ||
+            msg.includes('cancelled'));
 
         if (rejected) {
           setError(null);

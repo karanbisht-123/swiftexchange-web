@@ -12,6 +12,7 @@ import UniversalProviderType from '@walletconnect/universal-provider';
 import { BrowserProvider, getAddress, hexlify, toUtf8Bytes } from 'ethers';
 
 import { sendCustomNotification } from '../../../service/notificationService';
+import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
 import {
   type NetworkType,
   WALLETCONNECT_METADATA,
@@ -22,6 +23,7 @@ import {
   getStellarConfig,
 } from '../config/chains';
 import { WALLET_METADATA_MAP } from '../constants/Wallet';
+import { extractErrorMessage, isUserRejection } from '../utils/walletErrorHandler';
 import {
   type ApiTradingKey,
   generateApiTradingKey as _generateApiTradingKey,
@@ -123,24 +125,17 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
         console.error(err);
       });
     }
-    const signaturePromise = (provider as any).request({
+    const signature = await (provider as any).request({
       method: 'eth_signTypedData_v4',
       params: [evmAddress, dataToSign],
     });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
-    );
 
-    return (await Promise.race([signaturePromise, timeoutPromise])) as string;
+    return signature as string;
   } catch (error: any) {
-    if (
-      error.code === 4001 ||
-      error.code === 'ACTION_REJECTED' ||
-      error.message === 'SIGNATURE_TIMEOUT'
-    ) {
-      throw new Error('USER_REJECTED');
+    if (error.message === 'USER_REJECTED') {
+      throw error;
     }
-    throw new Error('Wallet does not support eth_signTypedData_v4');
+    throw new Error(error.message || 'Wallet does not support eth_signTypedData_v4');
   }
 }
 
@@ -166,6 +161,7 @@ class WalletService {
   private registeredProviders = new Set<any>();
   private lastPingAt = new Map<WalletType, number>();
   private disconnecting = new Set<WalletType>();
+  private isSignRequestInFlight = false;
 
   // Cached CompositeClient — one per network, invalidated on network switch
   private _compositeClient: CompositeClient | null = null;
@@ -220,19 +216,20 @@ class WalletService {
 
   private async getOrCreateProvider(key: string): Promise<any> {
     const existing = this.providers.get(key);
-    if (existing?.session) {
-      const expiry = existing.session?.expiry ?? 0;
-
-      console.log(expiry, '----------- session expriy hapen ');
-      const isExpired = Date.now() / 1000 > expiry;
-      if (!isExpired) return existing;
-      console.warn(`[WalletService] Provider '${key}' has expired session, recreating`);
-      try {
-        await existing.disconnect();
-      } catch (err) {
-        console.error('Disconnect error:', err);
+    if (existing) {
+      if (existing.session) {
+        const expiry = existing.session?.expiry ?? 0;
+        const isExpired = Date.now() / 1000 > expiry;
+        if (isExpired) {
+          console.warn(`[WalletService] Provider '${key}' has expired session, disconnecting`);
+          try {
+            await existing.disconnect();
+          } catch (err) {
+            console.error('Disconnect error:', err);
+          }
+        }
       }
-      this.providers.delete(key);
+      return existing;
     }
 
     const ProviderClass = await loadUniversalProvider();
@@ -273,11 +270,12 @@ class WalletService {
       if (!target || typeof target.request !== 'function' || target.request.__isWrapped) return;
       const originalRequest = target.request;
 
-      target.request = function (this: any, ...args: any[]) {
+      target.request = async function (this: any, ...args: any[]) {
         const method = args[0]?.method;
         const SIGNING_METHODS = [
           'eth_sendTransaction',
           'eth_signTypedData_v4',
+          'eth_signTypedData',
           'personal_sign',
           'cosmos_signDirect',
           'cosmos_signAmino',
@@ -286,40 +284,84 @@ class WalletService {
         ];
 
         if (SIGNING_METHODS.includes(method)) {
+          if (serviceInstance.isSignRequestInFlight) {
+            const error = new Error(
+              'A signing request is already in progress. Please wait or check your wallet.'
+            ) as any;
+            error.code = -32002;
+            throw error;
+          }
+          serviceInstance.isSignRequestInFlight = true;
+
           try {
-            const session = provider.session;
-            const storedSession = Array.from(serviceInstance.sessions.values()).find(
-              s => s.peerRedirect
-            );
-            const redirect = session?.peer?.metadata?.redirect || storedSession?.peerRedirect;
-            const isAndroid = /Android/i.test(navigator.userAgent);
-            const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-            const isInAppBrowser =
-              (typeof window !== 'undefined' && !!(window as any).ethereum) ||
-              /Trust|MetaMask|Keplr|Freighter|LOBSTR/i.test(navigator.userAgent);
-
-            if (redirect && !isInAppBrowser && (isAndroid || isIOS)) {
-              const href = isAndroid
-                ? redirect.native || redirect.universal
-                : redirect.universal || redirect.native;
-
-              if (href) {
-                console.log('[WalletService] Opening wallet for signing', method, '::', href);
-                // IMPORTANT: Use window.open (new tab) instead of window.location.href.
-                // Navigating the current page away kills the pending signature Promise
-                // and the response from the wallet relay can never be received.
-                // Opening a new tab/window keeps this page alive so the WalletConnect
-                // relay can deliver the signed response back.
+            if (method.startsWith('eth_') || method === 'personal_sign') {
+              const evmSession =
+                serviceInstance.sessions.get('evm') ||
+                Array.from(serviceInstance.sessions.values()).find(s => s.evmChainId);
+              const expectedChainId = evmSession?.evmChainId;
+              if (expectedChainId) {
                 try {
-                  window.open(href, '_blank', 'noopener');
-                } catch {
-                  // Fallback for environments that block window.open
-                  window.location.href = href;
+                  const currentChainHex = await originalRequest.apply(this, [
+                    { method: 'eth_chainId' },
+                  ]);
+                  const currentChainId = parseInt(currentChainHex, 16);
+                  if (currentChainId !== expectedChainId) {
+                    await switchOrAddChain(target, expectedChainId);
+                  }
+                } catch (chainErr) {
+                  console.warn('[WalletService] Pre-flight chain validation failed:', chainErr);
                 }
               }
             }
-          } catch (e) {
-            console.error('[WalletService] Auto-redirect error:', e);
+
+            try {
+              const session = provider.session;
+              const storedSession = Array.from(serviceInstance.sessions.values()).find(
+                s => s.peerRedirect
+              );
+              const redirect = session?.peer?.metadata?.redirect || storedSession?.peerRedirect;
+              const isAndroid = /Android/i.test(navigator.userAgent);
+              const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+              const isInAppBrowser =
+                (typeof window !== 'undefined' && !!(window as any).ethereum) ||
+                /Trust|MetaMask|Keplr|Freighter|LOBSTR/i.test(navigator.userAgent);
+
+              if (redirect && !isInAppBrowser && (isAndroid || isIOS)) {
+                const href = isAndroid
+                  ? redirect.native || redirect.universal
+                  : redirect.universal || redirect.native;
+
+                if (href) {
+                  console.log('[WalletService] Opening wallet for signing', method, '::', href);
+                  try {
+                    window.open(href, '_blank', 'noopener');
+                  } catch {
+                    window.location.href = href;
+                  }
+                }
+              }
+            } catch (e) {
+              console.error('[WalletService] Auto-redirect error:', e);
+            }
+
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), 120_000)
+            );
+
+            const result = await Promise.race([originalRequest.apply(this, args), timeoutPromise]);
+            return result;
+          } catch (error: any) {
+            if (isUserRejection(error)) {
+              const rejectError = new Error('USER_REJECTED') as any;
+              rejectError.code = 4001;
+              throw rejectError;
+            }
+            const cleanMsg = extractErrorMessage(error);
+            const newErr = new Error(cleanMsg) as any;
+            newErr.code = error?.code || -32603;
+            throw newErr;
+          } finally {
+            serviceInstance.isSignRequestInFlight = false;
           }
         }
 
@@ -615,83 +657,40 @@ class WalletService {
       console.debug('[WalletService] Auth notification skipped:', e);
     }
 
-    try {
-      const hexMsg = message.startsWith('0x') ? message : hexlify(toUtf8Bytes(message));
-      const lowerAddr = evmAddress.toLowerCase();
-      const checksumAddr = getAddress(evmAddress);
+    const hexMsg = message.startsWith('0x') ? message : hexlify(toUtf8Bytes(message));
+    const lowerAddr = evmAddress.toLowerCase();
+    const checksumAddr = getAddress(evmAddress);
 
-      const signPromise = (async () => {
-        if (provider && typeof (provider as any).request === 'function') {
+    if (provider && typeof (provider as any).request === 'function') {
+      try {
+        return await (provider as any).request({
+          method: 'personal_sign',
+          params: [hexMsg, lowerAddr],
+        });
+      } catch (err1: any) {
+        if (err1?.message === 'USER_REJECTED') throw err1;
+        try {
+          return await (provider as any).request({
+            method: 'personal_sign',
+            params: [hexMsg, checksumAddr],
+          });
+        } catch (err2: any) {
+          if (err2?.message === 'USER_REJECTED') throw err2;
           try {
             return await (provider as any).request({
               method: 'personal_sign',
-              params: [hexMsg, lowerAddr],
+              params: [lowerAddr, hexMsg],
             });
-          } catch (err1: any) {
-            if (
-              err1?.code === 4001 ||
-              err1?.code === 'ACTION_REJECTED' ||
-              err1?.message?.includes('rejected') ||
-              err1?.message?.includes('denied')
-            ) {
-              throw err1;
-            }
-            try {
-              return await (provider as any).request({
-                method: 'personal_sign',
-                params: [hexMsg, checksumAddr],
-              });
-            } catch (err2: any) {
-              if (
-                err2?.code === 4001 ||
-                err2?.code === 'ACTION_REJECTED' ||
-                err2?.message?.includes('rejected') ||
-                err2?.message?.includes('denied')
-              ) {
-                throw err2;
-              }
-              try {
-                return await (provider as any).request({
-                  method: 'personal_sign',
-                  params: [lowerAddr, hexMsg],
-                });
-              } catch (err3: any) {
-                if (
-                  err3?.code === 4001 ||
-                  err3?.code === 'ACTION_REJECTED' ||
-                  err3?.message?.includes('rejected') ||
-                  err3?.message?.includes('denied')
-                ) {
-                  throw err3;
-                }
-              }
-            }
+          } catch (err3: any) {
+            if (err3?.message === 'USER_REJECTED') throw err3;
           }
         }
-
-        const browserProvider = new BrowserProvider(provider as any);
-        const signer = await browserProvider.getSigner(evmAddress);
-        return await signer.signMessage(message);
-      })();
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
-      );
-
-      const signature = (await Promise.race([signPromise, timeoutPromise])) as string;
-      return signature;
-    } catch (error: any) {
-      if (
-        error.code === 4001 ||
-        error.code === 'ACTION_REJECTED' ||
-        error.message === 'SIGNATURE_TIMEOUT' ||
-        error?.message?.includes('rejected') ||
-        error?.message?.includes('denied')
-      ) {
-        throw new Error('USER_REJECTED');
       }
-      throw error;
     }
+
+    const browserProvider = new BrowserProvider(provider as any);
+    const signer = await browserProvider.getSigner(evmAddress);
+    return await signer.signMessage(message);
   }
 
   async signStellarChallenge(
@@ -702,30 +701,19 @@ class WalletService {
     const isFreighter =
       typeof (provider as any)?.signTransaction === 'function' && !(provider as any)?.session;
 
-    try {
-      if (isFreighter) {
-        const result = await (provider as any).signTransaction(xdr, {
-          networkPassphrase: networkPassphrase,
-        });
-        return typeof result === 'string' ? result : result.signedTxXdr;
-      }
-
-      const signaturePromise = (provider as any).request({
-        method: 'stellar_signXDR',
-        params: { xdr, networkPassphrase },
+    if (isFreighter) {
+      const result = await (provider as any).signTransaction(xdr, {
+        networkPassphrase: networkPassphrase,
       });
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
-      );
-      const result = await Promise.race([signaturePromise, timeoutPromise]);
-      console.log('[walletService] Stellar signature response from wallet:', result);
-      return (result as any)?.signedXDR ?? (result as any);
-    } catch (error: any) {
-      if (error?.message === 'SIGNATURE_TIMEOUT' || error?.code === 4001) {
-        throw new Error('USER_REJECTED');
-      }
-      throw error;
+      return typeof result === 'string' ? result : result.signedTxXdr;
     }
+
+    const result = await (provider as any).request({
+      method: 'stellar_signXDR',
+      params: { xdr, networkPassphrase },
+    });
+    console.log('[walletService] Stellar signature response from wallet:', result);
+    return (result as any)?.signedXDR ?? (result as any);
   }
 
   // ---------------------------------------------------------------------------
@@ -769,6 +757,8 @@ class WalletService {
     if (!evmProvider && !cosmosProvider) throw new Error('Wallet extension not found');
 
     const provider = evmProvider ?? cosmosProvider;
+    this.wrapProviderRequests(provider);
+
     let evmAddress: string | undefined;
     let evmChainId: number | undefined;
     let cosmosAddress: string | undefined;
@@ -1065,9 +1055,6 @@ class WalletService {
       this.registeredProviders.delete(provider);
 
       if (provider.session) {
-        if (typeof provider.removeAllListeners === 'function') {
-          provider.removeAllListeners();
-        }
         try {
           await provider.disconnect();
         } catch (err: any) {
@@ -1075,6 +1062,8 @@ class WalletService {
         }
       }
     }
+
+    this.isSignRequestInFlight = false;
 
     for (const t of sharedTypes) {
       if (t === 'evm') {
@@ -1084,15 +1073,11 @@ class WalletService {
 
       this.sessions.delete(t);
       this.lastPingAt.delete(t);
-      this.providers.delete(t);
       this.modals.get(t)?.closeModal();
       this.modals.delete(t);
       this.disconnecting.delete(t);
     }
 
-    if (provider && this.providers.get('unified') === provider) {
-      this.providers.delete('unified');
-    }
     this.saveSession();
     if (this.sessions.size === 0) {
       await this.clearAppData();

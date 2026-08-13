@@ -45,16 +45,31 @@ export function isInsufficientStellarGas(params: StellarGasCheckParams): boolean
 
   const xlmBalanceAfterReserve = parseFloat(xlm.balance || '0');
 
-  // Dynamic fee estimation: Stellar network fee is very small (0.01 XLM)
-  let requiredGasFee = 0.01;
+  // Use the actual network fee from the quote if available.
+  // Stellar base tx fee = 100 stroops = 0.00001 XLM.
+  // During congestion the fee can be higher — the quote provider returns the
+  // real fee so we always prefer that over any static fallback.
+  const STELLAR_BASE_FEE = 0.00001; // 100 stroops
+  let requiredGasFee: number;
 
+  if (activeQuoteData?.networkFee !== undefined && activeQuoteData.networkFee !== null) {
+    // Quote returned a real fee — trust it
+    requiredGasFee = parseFloat(String(activeQuoteData.networkFee));
+    if (isNaN(requiredGasFee) || requiredGasFee <= 0) requiredGasFee = STELLAR_BASE_FEE;
+  } else {
+    // No live fee — fall back to the protocol minimum
+    requiredGasFee = STELLAR_BASE_FEE;
+  }
+
+  // For bridge with native fee payment, add the bridge protocol fee on top
   if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuoteData?.fee?.native) {
     requiredGasFee += parseFloat(activeQuoteData.fee.native.amount);
   }
 
   if (sellAssetSymbol === 'XLM') {
     const sellAmt = parseFloat(sellAmount || '0');
-    return sellAmt + requiredGasFee > xlmBalanceAfterReserve;
+    // Small epsilon to absorb floating-point rounding at the boundary
+    return sellAmt + requiredGasFee > xlmBalanceAfterReserve + 1e-9;
   } else {
     return xlmBalanceAfterReserve < requiredGasFee;
   }

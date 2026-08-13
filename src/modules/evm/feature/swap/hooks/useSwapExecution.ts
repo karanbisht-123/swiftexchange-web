@@ -321,7 +321,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       console.error('Swap execution failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
-      resetLoadingState();
       setBridgeTxStatus('error');
       openModal({
         status: 'error',
@@ -364,11 +363,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     setIsWaitingForWallet(true);
     let result;
     try {
-      // The Allbridge SDK builds the XDR using its own fresh Horizon sequence fetch,
-      // completely bypassing the StellarSequenceTracker. If the tracker has a stale
-      // or ahead value from a prior operation, signAndSubmitTransaction's correction
-      // logic would overwrite the valid Allbridge sequence with a wrong one (tx_bad_seq).
-      // Resetting the tracker here forces it to re-sync from the live Horizon state.
       if (stellarAddress) {
         StellarSequenceTracker.reset(stellarAddress);
       }
@@ -500,7 +494,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       console.error('Fusion Plus cross-chain swap failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
-      resetLoadingState();
       setBridgeTxStatus('error');
       openModal({
         status: 'error',
@@ -770,7 +763,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       console.error('NEAR Intents swap failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
-      resetLoadingState();
       setBridgeTxStatus('error');
       openModal({
         status: 'error',
@@ -859,7 +851,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           console.error('Bridge failed:', err);
           const errMsg = parseWalletError(err);
           setBridgeErrorMsg(errMsg);
-          resetLoadingState();
           setBridgeTxStatus('error');
           openModal({
             status: 'error',

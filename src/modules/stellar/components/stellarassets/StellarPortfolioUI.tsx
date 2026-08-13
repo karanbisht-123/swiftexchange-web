@@ -1,6 +1,8 @@
 import { Info } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
+import { FixedSizeList as List } from 'react-window';
 
 import { StellarCostBasisModal } from '../../../../components/StellarCostBasisModal';
 import { Tooltip } from '../../../../components/common/Tooltip';
@@ -11,6 +13,7 @@ import { exportStellarReport } from '../../../../utils/exportService';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useProfilePortfolio } from '../../../walletconnect/hooks/useProfilePortfolio';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
+import { CustomDatePicker } from '../CustomDatePicker';
 import StellarPnlChart from './StellarPnlChart';
 import UnifiedAssets from './UnifiedAssets';
 
@@ -45,11 +48,13 @@ const StellarPortfolioUI: React.FC = () => {
   const isMobile = useIsMobile();
 
   // States for Performance Card
-  const [stellarTimeframe, setStellarTimeframe] = useState<'1w' | '1m' | '2m' | '3m'>('1m');
+  const [stellarTimeframe, setStellarTimeframe] = useState<'1w' | '1m' | '2m' | '3m' | 'custom'>(
+    '1m'
+  );
 
-  const fromDate = null;
-  const toDate = null;
-  const isDateRangeActive = !!(fromDate || toDate);
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const isDateRangeActive = stellarTimeframe === 'custom' && !!(fromDate && toDate);
 
   const getStellarDateRange = useCallback(() => {
     const formatDateToDDMMYY = (date: Date) => {
@@ -76,8 +81,8 @@ const StellarPortfolioUI: React.FC = () => {
       const toDateObj = new Date();
       const fromDateObj = new Date();
 
-      const daysMap = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
-      const days = daysMap[stellarTimeframe] ?? 30;
+      const daysMap: Record<string, number> = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
+      const days = daysMap[stellarTimeframe] ?? 30; // fallback to 30 if custom but dates not set yet
       fromDateObj.setDate(fromDateObj.getDate() - days);
 
       fromStr = formatDateToDDMMYY(fromDateObj);
@@ -103,7 +108,9 @@ const StellarPortfolioUI: React.FC = () => {
       })
       .catch(err => {
         if (!isMounted) return;
-        setStellarPnlError(err instanceof Error ? err.message : 'Failed to fetch Stellar PNL');
+        setStellarPnlError(
+          err instanceof Error ? (err as any).error || err.message : 'Failed to fetch Stellar PNL'
+        );
       })
       .finally(() => {
         if (isMounted) setLoadingStellarPnl(false);
@@ -513,11 +520,12 @@ const StellarPortfolioUI: React.FC = () => {
               { id: '1m', label: '1M' },
               { id: '2m', label: '2M' },
               { id: '3m', label: '3M' },
+              { id: 'custom', label: 'Custom' },
             ] as const
           ).map(tf => (
             <button
               key={tf.id}
-              onClick={() => setStellarTimeframe(tf.id)}
+              onClick={() => setStellarTimeframe(tf.id as any)}
               disabled={loadingStellarPnl}
               className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:opacity-50 ${
                 stellarTimeframe === tf.id
@@ -530,6 +538,32 @@ const StellarPortfolioUI: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Custom Date Picker Section */}
+      {stellarTimeframe === 'custom' && (
+        <div className="flex flex-col sm:flex-row sm:justify-end gap-3 w-full animate-in fade-in slide-in-from-top-2 duration-300 mt-4 pt-4 border-t border-[var(--color-border)]">
+          <div className="w-full sm:w-40">
+            <CustomDatePicker
+              label="From Date"
+              value={fromDate}
+              onChange={setFromDate}
+              onClear={() => setFromDate('')}
+              disabled={loadingStellarPnl}
+              max={toDate || undefined}
+            />
+          </div>
+          <div className="w-full sm:w-40">
+            <CustomDatePicker
+              label="To Date"
+              value={toDate}
+              onChange={setToDate}
+              onClear={() => setToDate('')}
+              disabled={loadingStellarPnl}
+              min={fromDate || undefined}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -575,221 +609,248 @@ const StellarPortfolioUI: React.FC = () => {
         <div className="flex flex-col gap-4 sm:gap-6">
           {/* Recent Trades Table */}
           {stellarPnlData?.trades && stellarPnlData.trades.length > 0 && (
-            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden">
-              <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight mb-4">
+            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden flex flex-col h-[400px]">
+              <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight mb-4 shrink-0">
                 Recent Trades
               </h3>
-              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-                <table className="w-full min-w-[500px]">
-                  <thead>
-                    <tr className="text-left border-b border-[var(--color-border)]">
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Action
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Amount
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Value
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider text-right">
-                        PnL
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--color-border)] text-sm">
-                    {stellarPnlData.trades.slice(0, 10).map((trade: any, idx: number) => {
-                      const isProfit = (trade.pnlNum || 0) > 0;
-                      const isLoss = (trade.pnlNum || 0) < 0;
-                      const pnlColor = isProfit
-                        ? 'text-emerald-500'
-                        : isLoss
-                          ? 'text-rose-500'
-                          : 'text-[var(--color-text-primary)]';
-                      return (
-                        <tr
-                          key={idx}
-                          className="group hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
-                        >
-                          <td className="py-3 text-[11px] sm:text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                            {trade.date}
-                          </td>
-                          <td className="py-3">
-                            <span
-                              className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
-                                trade.type === 'BUY'
-                                  ? 'bg-emerald-500/10 text-emerald-500'
-                                  : 'bg-rose-500/10 text-rose-500'
-                              }`}
+              <div className="flex text-left border-b border-[var(--color-border)] pb-3 px-4 sm:px-0 sm:pr-4 shrink-0 min-w-[500px]">
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Date
+                </div>
+                <div className="w-[15%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Action
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Amount
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Value
+                </div>
+                <div className="w-[25%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider text-right">
+                  PnL
+                </div>
+              </div>
+              <div className="flex-1 overflow-x-auto overflow-y-hidden mt-1 -mx-4 sm:mx-0">
+                <div className="min-w-[500px] h-full">
+                  <AutoSizer
+                    renderProp={({ height, width }) => (
+                      <List
+                        height={height || 0}
+                        width={width || 0}
+                        itemCount={stellarPnlData.trades.length}
+                        itemSize={48}
+                        itemData={stellarPnlData.trades}
+                      >
+                        {({ index, style, data }: any) => {
+                          const trade = data[index];
+                          const isProfit = (trade.pnlNum || 0) > 0;
+                          const isLoss = (trade.pnlNum || 0) < 0;
+                          const pnlColor = isProfit
+                            ? 'text-emerald-500'
+                            : isLoss
+                              ? 'text-rose-500'
+                              : 'text-[var(--color-text-primary)]';
+                          return (
+                            <div
+                              style={style}
+                              className="flex items-center group hover:bg-[var(--color-bg-tertiary)]/50 transition-colors border-b border-[var(--color-border)] px-4 sm:px-0"
                             >
-                              {trade.action}
-                            </span>
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap">
-                            {trade.amount}
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap">
-                            {trade.usdc}
-                          </td>
-                          <td
-                            className={`py-3 text-[11px] sm:text-xs font-bold text-right whitespace-nowrap ${pnlColor}`}
-                          >
-                            {trade.pnl || '-'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                              <div className="w-[20%] text-[11px] sm:text-xs text-[var(--color-text-secondary)] whitespace-nowrap truncate pr-2">
+                                {trade.date}
+                              </div>
+                              <div className="w-[15%] truncate pr-2">
+                                <span
+                                  className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    trade.type === 'BUY'
+                                      ? 'bg-emerald-500/10 text-emerald-500'
+                                      : 'bg-rose-500/10 text-rose-500'
+                                  }`}
+                                >
+                                  {trade.action}
+                                </span>
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                {trade.amount}
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                {trade.usdc}
+                              </div>
+                              <div
+                                className={`w-[25%] text-[11px] sm:text-xs font-bold text-right whitespace-nowrap truncate ${pnlColor}`}
+                              >
+                                {trade.pnl || '-'}
+                              </div>
+                            </div>
+                          );
+                        }}
+                      </List>
+                    )}
+                  />
+                </div>
               </div>
             </div>
           )}
 
           {/* Open Positions Table */}
           {stellarPnlData?.positions && stellarPnlData.positions.length > 0 && (
-            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden">
-              <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight mb-4">
+            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden flex flex-col h-[400px]">
+              <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight mb-4 shrink-0">
                 Open Positions
               </h3>
-              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-                <table className="w-full min-w-[500px]">
-                  <thead>
-                    <tr className="text-left border-b border-[var(--color-border)]">
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Asset
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Remaining
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Avg Cost
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Current Value
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider text-right">
-                        Unrealized PnL
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--color-border)] text-sm">
-                    {stellarPnlData.positions.map((pos: any, idx: number) => {
-                      const isProfit = (pos.unrealized || 0) > 0;
-                      const isLoss = (pos.unrealized || 0) < 0;
-                      const pnlColor = isProfit
-                        ? 'text-emerald-500'
-                        : isLoss
-                          ? 'text-rose-500'
-                          : 'text-[var(--color-text-primary)]';
-                      return (
-                        <tr
-                          key={idx}
-                          className="group hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
-                        >
-                          <td className="py-3 text-[11px] sm:text-xs font-bold text-[var(--color-text-primary)] whitespace-nowrap">
-                            {pos.asset}
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap">
-                            {pos.remaining?.toFixed(4) || '0'}
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-medium text-[var(--color-text-secondary)] whitespace-nowrap">
-                            ${pos.avgCost?.toFixed(6) || '0'}
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap">
-                            ${pos.currentValue?.toFixed(2) || '0'}
-                          </td>
-                          <td
-                            className={`py-3 text-[11px] sm:text-xs font-bold text-right whitespace-nowrap ${pnlColor}`}
-                          >
-                            {pos.unrealized
-                              ? (pos.unrealized > 0 ? '+' : '') +
-                                pos.unrealized.toLocaleString('en-US', {
-                                  style: 'currency',
-                                  currency: 'USD',
-                                })
-                              : '-'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="flex text-left border-b border-[var(--color-border)] pb-3 px-4 sm:px-0 sm:pr-4 shrink-0 min-w-[500px]">
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Asset
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Remaining
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Avg Cost
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Current Value
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider text-right">
+                  Unrealized PnL
+                </div>
+              </div>
+              <div className="flex-1 overflow-x-auto overflow-y-hidden mt-1 -mx-4 sm:mx-0">
+                <div className="min-w-[500px] h-full">
+                  <AutoSizer
+                    renderProp={({ height, width }) => (
+                      <List
+                        height={height || 0}
+                        width={width || 0}
+                        itemCount={stellarPnlData.positions.length}
+                        itemSize={48}
+                        itemData={stellarPnlData.positions}
+                      >
+                        {({ index, style, data }: any) => {
+                          const pos = data[index];
+                          const isProfit = (pos.unrealized || 0) > 0;
+                          const isLoss = (pos.unrealized || 0) < 0;
+                          const pnlColor = isProfit
+                            ? 'text-emerald-500'
+                            : isLoss
+                              ? 'text-rose-500'
+                              : 'text-[var(--color-text-primary)]';
+                          return (
+                            <div
+                              style={style}
+                              className="flex items-center group hover:bg-[var(--color-bg-tertiary)]/50 transition-colors border-b border-[var(--color-border)] px-4 sm:px-0"
+                            >
+                              <div className="w-[20%] text-[11px] sm:text-xs font-bold text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                {pos.asset}
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                {pos.remaining?.toFixed(4) || '0'}
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-secondary)] whitespace-nowrap truncate pr-2">
+                                ${pos.avgCost?.toFixed(6) || '0'}
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                ${pos.currentValue?.toFixed(2) || '0'}
+                              </div>
+                              <div
+                                className={`w-[20%] text-[11px] sm:text-xs font-bold text-right whitespace-nowrap truncate ${pnlColor}`}
+                              >
+                                {pos.unrealized
+                                  ? (pos.unrealized > 0 ? '+' : '') +
+                                    pos.unrealized.toLocaleString('en-US', {
+                                      style: 'currency',
+                                      currency: 'USD',
+                                    })
+                                  : '-'}
+                              </div>
+                            </div>
+                          );
+                        }}
+                      </List>
+                    )}
+                  />
+                </div>
               </div>
             </div>
           )}
 
           {/* Disposals Table */}
           {stellarPnlData?.disposals && stellarPnlData.disposals.length > 0 && (
-            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden">
-              <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight mb-4">
+            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden flex flex-col h-[400px]">
+              <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight mb-4 shrink-0">
                 Disposals
               </h3>
-              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-                <table className="w-full min-w-[500px]">
-                  <thead>
-                    <tr className="text-left border-b border-[var(--color-border)]">
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Asset
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Amount
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                        Proceeds
-                      </th>
-                      <th className="pb-3 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider text-right">
-                        Realized PnL
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--color-border)] text-sm">
-                    {stellarPnlData.disposals.slice(0, 10).map((disp: any, idx: number) => {
-                      const isProfit = (disp.pnl || 0) > 0;
-                      const isLoss = (disp.pnl || 0) < 0;
-                      const pnlColor = isProfit
-                        ? 'text-emerald-500'
-                        : isLoss
-                          ? 'text-rose-500'
-                          : 'text-[var(--color-text-primary)]';
-                      return (
-                        <tr
-                          key={idx}
-                          className="group hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
-                        >
-                          <td className="py-3 text-[11px] sm:text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                            {disp.date}
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-bold text-[var(--color-text-primary)] whitespace-nowrap">
-                            {disp.asset}
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap">
-                            {disp.amount}
-                          </td>
-                          <td className="py-3 text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap">
-                            ${disp.proceeds?.toFixed(6) || '0'}
-                          </td>
-                          <td
-                            className={`py-3 text-[11px] sm:text-xs font-bold text-right whitespace-nowrap ${pnlColor}`}
-                          >
-                            {disp.pnl
-                              ? (disp.pnl > 0 ? '+' : '') +
-                                disp.pnl.toLocaleString('en-US', {
-                                  style: 'currency',
-                                  currency: 'USD',
-                                })
-                              : '-'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="flex text-left border-b border-[var(--color-border)] pb-3 px-4 sm:px-0 sm:pr-4 shrink-0 min-w-[500px]">
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Date
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Asset
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Amount
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                  Proceeds
+                </div>
+                <div className="w-[20%] text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider text-right">
+                  Realized PnL
+                </div>
+              </div>
+              <div className="flex-1 overflow-x-auto overflow-y-hidden mt-1 -mx-4 sm:mx-0">
+                <div className="min-w-[500px] h-full">
+                  <AutoSizer
+                    renderProp={({ height, width }) => (
+                      <List
+                        height={height || 0}
+                        width={width || 0}
+                        itemCount={stellarPnlData.disposals.length}
+                        itemSize={48}
+                        itemData={stellarPnlData.disposals}
+                      >
+                        {({ index, style, data }: any) => {
+                          const disp = data[index];
+                          const isProfit = (disp.pnl || 0) > 0;
+                          const isLoss = (disp.pnl || 0) < 0;
+                          const pnlColor = isProfit
+                            ? 'text-emerald-500'
+                            : isLoss
+                              ? 'text-rose-500'
+                              : 'text-[var(--color-text-primary)]';
+                          return (
+                            <div
+                              style={style}
+                              className="flex items-center group hover:bg-[var(--color-bg-tertiary)]/50 transition-colors border-b border-[var(--color-border)] px-4 sm:px-0"
+                            >
+                              <div className="w-[20%] text-[11px] sm:text-xs text-[var(--color-text-secondary)] whitespace-nowrap truncate pr-2">
+                                {disp.date}
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-bold text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                {disp.asset}
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                {disp.amount}
+                              </div>
+                              <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                                ${disp.proceeds?.toFixed(6) || '0'}
+                              </div>
+                              <div
+                                className={`w-[20%] text-[11px] sm:text-xs font-bold text-right whitespace-nowrap truncate ${pnlColor}`}
+                              >
+                                {disp.pnl
+                                  ? (disp.pnl > 0 ? '+' : '') +
+                                    disp.pnl.toLocaleString('en-US', {
+                                      style: 'currency',
+                                      currency: 'USD',
+                                    })
+                                  : '-'}
+                              </div>
+                            </div>
+                          );
+                        }}
+                      </List>
+                    )}
+                  />
+                </div>
               </div>
             </div>
           )}

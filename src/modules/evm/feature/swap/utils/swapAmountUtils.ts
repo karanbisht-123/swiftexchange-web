@@ -43,17 +43,23 @@ export function formatAmount(amount: string, decimals: number): string {
     return '0';
   }
 }
-const STELLAR_CHAIN_IDS = new Set(['stellar', 'stellar-pubnet', 'stellar-testnet']);
 
 const FALLBACK_GAS_BY_CHAIN: Record<string, string> = {
-  default: '0.0001',
+  '1': '0.005', // Ethereum
+  '137': '0.05', // Polygon
+  '56': '0.002', // BSC
+  '42161': '0.0005', // Arbitrum
+  '10': '0.0005', // Optimism
+  '8453': '0.0005', // Base
+  '43114': '0.02', // Avalanche
+  default: '0.005',
 };
 
 function getFallbackGasAmount(chainId?: number | string): string {
-  if (chainId !== undefined && STELLAR_CHAIN_IDS.has(String(chainId).toLowerCase())) {
-    return '0.01';
-  }
-  return FALLBACK_GAS_BY_CHAIN.default;
+  // Stellar chain IDs are non-numeric strings ('pubnet', 'testnet')
+  if (typeof chainId === 'string' && isNaN(Number(chainId))) return '0.00001';
+  const key = String(chainId);
+  return FALLBACK_GAS_BY_CHAIN[key] ?? FALLBACK_GAS_BY_CHAIN.default;
 }
 
 export function getGasBuffer(

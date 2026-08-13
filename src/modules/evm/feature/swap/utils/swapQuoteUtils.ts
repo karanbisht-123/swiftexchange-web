@@ -229,11 +229,11 @@ export function getErrorMessage(params: ErrorParams): string | null {
     return `Amount must be greater than the bridge fee of ${feeAmount.toFixed(4)} USDC`;
   }
   if (hasInsufficientStellarGas) {
-    let reqFee = 0.01;
+    let reqFee = 0.00001; // Stellar base tx fee = 100 stroops
     if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuoteData?.fee?.native) {
       reqFee += parseFloat(activeQuoteData.fee.native.amount);
     }
-    return `Insufficient XLM balance. You need at least ${reqFee.toFixed(3)} XLM (beyond reserve) for gas fees.`;
+    return `Insufficient XLM balance. You need at least ${reqFee.toFixed(5)} XLM (beyond reserve) for network fees.`;
   }
   if (hasInsufficientEvmGas) {
     return `Insufficient ${nativeSymbol} balance for gas fees.`;

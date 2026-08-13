@@ -1031,6 +1031,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }}
           isApprovalRequired={executionApprovalRequired}
           currentStep={executionCurrentStep}
+          status={bridgeTxStatus === 'error' ? 'error' : 'pending'}
+          errorMsg={bridgeErrorMsg}
         />
       ) : (
         <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden space-y-4">
@@ -1498,9 +1500,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           Network Fee
                         </span>
                         {isGasless && showFusionScreen ? (
-                          <span className="text-[11px] font-black text-green-500 line-through opacity-60">
-                            ~0.0021 {fromChainConfig?.nativeCurrency.symbol}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {swapQuote?.networkFee && swapQuote.networkFee > 0 && (
+                              <span className="text-[11px] font-black text-muted line-through opacity-60">
+                                ~{swapQuote.networkFee.toFixed(6)}{' '}
+                                {fromChainConfig?.nativeCurrency.symbol}
+                              </span>
+                            )}
+                            <span className="text-[11px] font-black text-green-500">Free</span>
+                          </div>
                         ) : isStellar(fromChainId) ? (
                           <span className="text-[11px] font-black text-primary">~0.00001 XLM</span>
                         ) : (

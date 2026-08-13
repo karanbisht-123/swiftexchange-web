@@ -17,10 +17,6 @@ export interface ExecuteSwapDependencies {
   getProvider: (type: WalletType) => any;
 }
 
-/**
- * Executes EVM Swap transactions (Approval + Swap).
- * Simple, clean, and developer-friendly using standard ethers.js.
- */
 export async function executeSwap(
   chainId: number | string,
   quote: SwapQuote,

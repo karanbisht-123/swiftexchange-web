@@ -18,6 +18,7 @@ import type { ApiTradingKey } from '../services/apiTradingKeyService';
 import { WITHDRAW_PREF_KEY } from '../services/apiTradingKeyService';
 import { walletService } from '../services/walletService';
 import { usePortfolioStore } from '../store/portfolioStore';
+import { extractErrorMessage } from '../utils/walletErrorHandler';
 
 export const TRADING_AUTH_PREF_KEY = '_sx_trading_auth_pref';
 
@@ -153,7 +154,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isExportPhraseModalOpen: false,
 
     connectWallet: async (type, walletId) => {
-      if (get().connectedWallets[type]) return;
+      if (get().connectedWallets[type] || get().isConnecting(type)) return;
 
       set(state => ({
         connectionStatus: {
@@ -211,7 +212,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             ...state.connectionStatus,
             [type]: {
               state: 'failed',
-              error: error instanceof Error ? error.message : 'Connection failed',
+              error: extractErrorMessage(error),
             },
           },
         }));
@@ -220,6 +221,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     connectUnified: async walletId => {
+      if (get().isConnecting('evm') || get().isConnecting('stellar')) return;
       set(state => ({
         connectionStatus: {
           ...state.connectionStatus,
@@ -283,7 +285,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             ...state.connectionStatus,
             evm: {
               state: 'failed',
-              error: error instanceof Error ? error.message : 'Connection failed',
+              error: extractErrorMessage(error),
             },
           },
         }));
@@ -407,9 +409,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           isAuthenticating: false,
           isAuthenticated: state.isAuthenticated,
           authError:
-            error?.message === 'USER_REJECTED'
-              ? 'Signature rejected'
-              : (error?.message ?? 'Authentication failed'),
+            error?.message === 'USER_REJECTED' ? 'Signature rejected' : extractErrorMessage(error),
         }));
       }
     },
@@ -493,9 +493,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           isAuthenticating: false,
           isAuthenticated: state.isAuthenticated,
           authError:
-            error?.message === 'USER_REJECTED'
-              ? 'Signature rejected'
-              : (error?.message ?? 'Authentication failed'),
+            error?.message === 'USER_REJECTED' ? 'Signature rejected' : extractErrorMessage(error),
         }));
       }
     },

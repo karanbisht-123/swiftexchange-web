@@ -52,16 +52,16 @@ export function extractCleanMessage(rawMsg: string): string {
 
   const messagePatterns = [
     /["']message["']\s*:\s*["']([^"']+)["']/i,
-    /\\?["']message\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i,
+    /\\*["']message\\*["']\s*:\s*\\*["']([^\\"']+(?:\\.[^\\"']*)*)\\*["']/i,
     /["']reason["']\s*:\s*["']([^"']+)["']/i,
-    /\\?["']reason\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i,
+    /\\*["']reason\\*["']\s*:\s*\\*["']([^\\"']+(?:\\.[^\\"']*)*)\\*["']/i,
     /["']details["']\s*:\s*["']([^"']+)["']/i,
-    /\\?["']details\\?["']\s*:\s*\\?["']([^\\'"]+)\\?["']/i,
+    /\\*["']details\\*["']\s*:\s*\\*["']([^\\"']+(?:\\.[^\\"']*)*)\\*["']/i,
   ];
   for (const pattern of messagePatterns) {
     const match = rawMsg.match(pattern);
     if (match?.[1]) {
-      return match[1].replace(/\\"/g, '"').trim();
+      return match[1].replace(/\\+/g, '').replace(/"/g, '').trim();
     }
   }
 
@@ -162,7 +162,7 @@ export function translateErrorMessage(message: string): string {
     lower.includes('tip cap') ||
     lower.includes('below minimum')
   ) {
-    return processedMessage;
+    return 'Transaction gas price is too low. The network is busy, please try again or check your wallet gas settings.';
   }
 
   if (lower.includes('nonce too low') || lower.includes('nonce')) {
@@ -280,6 +280,7 @@ export function parseWalletError(error: unknown): string {
       errObj.code || errObj.error?.code || errObj.info?.error?.code || errObj.originalError?.code;
     rawMsg =
       errObj.message ||
+      errObj.msg ||
       errObj.originalError?.message ||
       errObj.reason ||
       errObj.error?.message ||
@@ -292,12 +293,16 @@ export function parseWalletError(error: unknown): string {
     rawMsg = String(error);
   }
 
-  // Handle user rejection explicitly first
+  const hasNestedRpcError =
+    /processing response error|jsonrpc|error=|execution reverted|gas price/i.test(rawMsg);
+
+  // Handle user rejection explicitly first, BUT ignore if it's a WalletConnect 4001 bug hiding a real RPC error
   if (
-    errCode === 4001 ||
-    /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected/i.test(
-      rawMsg
-    )
+    !hasNestedRpcError &&
+    (errCode === 4001 ||
+      /user rejected|user cancelled|user declined|user denied|rejected by user|cancelled by user|transaction rejected|request rejected|disapproved|connection rejected/i.test(
+        rawMsg
+      ))
   ) {
     return 'User cancelled the transaction';
   }

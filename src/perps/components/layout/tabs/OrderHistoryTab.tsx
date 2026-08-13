@@ -33,7 +33,8 @@ export const OrderHistoryTab: React.FC<Props> = ({ signer, userAddr, asterSymbol
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el || isLoadingMore || !hasMore) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 150) {
+    // Trigger loadMore only when very close to the bottom (10px)
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 10) {
       loadMore();
     }
   }, [loadMore, isLoadingMore, hasMore]);
