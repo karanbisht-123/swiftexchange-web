@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 
 import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { useTransactionModalStore } from '../../../../store/transactionModalStore';
+import { ActionGuard } from '../../../commonfeature/components/ActionGuard';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
 import * as ChainUrlHelpers from '../../../evm/utils/ChainUrlHelpers';
 import { getAssetsForChain, getChainById } from '../../../evm/utils/Chainregistry';
@@ -314,20 +315,25 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({
                           </div>
                         </div>
                         {parseFloat(asset.balance) === 0 && asset.type !== 'native' ? (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              setConfirmModal({ isOpen: true, type: 'remove', asset });
-                            }}
-                            disabled={isProcessing}
-                            className="p-1.5 text-muted/50 hover:text-danger hover:bg-danger/10 rounded-md transition-colors active:scale-95"
+                          <ActionGuard
+                            requiredWallets={[WalletType.STELLAR]}
+                            title="Connect Wallet"
                           >
-                            {isProcessing ? (
-                              <Loader2 size={14} className="animate-spin text-primary" />
-                            ) : (
-                              <Trash2 size={14} />
-                            )}
-                          </button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                setConfirmModal({ isOpen: true, type: 'remove', asset });
+                              }}
+                              disabled={isProcessing}
+                              className="p-1.5 text-muted/50 hover:text-danger hover:bg-danger/10 rounded-md transition-colors active:scale-95"
+                            >
+                              {isProcessing ? (
+                                <Loader2 size={14} className="animate-spin text-primary" />
+                              ) : (
+                                <Trash2 size={14} />
+                              )}
+                            </button>
+                          </ActionGuard>
                         ) : (
                           <ChevronRight size={14} className="text-muted/30" />
                         )}

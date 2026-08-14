@@ -413,6 +413,20 @@ class WalletService {
           reject(new Error('Connection timeout'));
         }, CONNECTION_TIMEOUT_MS);
 
+        let modalOpened = false;
+        const unsubscribe = modal!.subscribeModal(state => {
+          if (state.open) {
+            modalOpened = true;
+          } else if (modalOpened && !state.open) {
+            clearTimeout(timeout);
+            unsubscribe();
+
+            // Abort the internal provider connection attempt
+            provider.abortPairing?.();
+            reject(new Error('User closed the modal'));
+          }
+        });
+
         provider.on('display_uri', (uri: string) => {
           this.openMobileDeepLink(walletId, uri);
           modal!.openModal({ uri });
@@ -431,11 +445,13 @@ class WalletService {
           .connect({ ...namespaces })
           .then((s: any) => {
             clearTimeout(timeout);
+            unsubscribe();
             modal!.closeModal();
             resolve(s);
           })
           .catch((err: any) => {
             clearTimeout(timeout);
+            unsubscribe();
             modal!.closeModal();
             reject(err);
           });
@@ -875,6 +891,19 @@ class WalletService {
         reject(new Error('Connection timeout'));
       }, CONNECTION_TIMEOUT_MS);
 
+      let modalOpened = false;
+      const unsubscribe = modal.subscribeModal(state => {
+        if (state.open) {
+          modalOpened = true;
+        } else if (modalOpened && !state.open) {
+          clearTimeout(timeout);
+          unsubscribe();
+
+          provider.abortPairing?.();
+          reject(new Error('User closed the modal'));
+        }
+      });
+
       provider.on('display_uri', (uri: string) => {
         this.openMobileDeepLink(walletId, uri);
         modal.openModal({ uri });
@@ -893,6 +922,7 @@ class WalletService {
         .connect({ namespaces: namespaces as any })
         .then((session: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
 
           const evmAccount: string | undefined = session.namespaces?.eip155?.accounts?.[0];
@@ -939,6 +969,7 @@ class WalletService {
         })
         .catch((error: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
           reject(error);
         });
@@ -974,6 +1005,19 @@ class WalletService {
         reject(new Error('Connection timeout'));
       }, CONNECTION_TIMEOUT_MS);
 
+      let modalOpened = false;
+      const unsubscribe = modal.subscribeModal(state => {
+        if (state.open) {
+          modalOpened = true;
+        } else if (modalOpened && !state.open) {
+          clearTimeout(timeout);
+          unsubscribe();
+
+          provider.abortPairing?.();
+          reject(new Error('User closed the modal'));
+        }
+      });
+
       provider.on('display_uri', (uri: string) => {
         modal.openModal({ uri });
         const token = localStorage.getItem('device_token');
@@ -991,6 +1035,7 @@ class WalletService {
         .connect({ namespaces })
         .then((session: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
 
           const account: string | undefined = session.namespaces?.stellar?.accounts?.[0];
@@ -1003,7 +1048,7 @@ class WalletService {
           const peerMetadata = session.peer?.metadata;
           const meta = getSessionMetadata(walletId, peerMetadata);
 
-          const walletSession: WalletSession = {
+          const stellarSession: WalletSession = {
             type: 'stellar',
             walletId,
             stellarAddress: address,
@@ -1014,15 +1059,17 @@ class WalletService {
             peerRedirect: meta.peerRedirect,
           };
 
-          this.sessions.set('stellar', walletSession);
+          this.sessions.set('stellar', stellarSession);
           this.providers.set('stellar', provider);
-          this.setupWalletConnectListeners(provider, 'stellar');
           this.emitState('stellar', 'connected');
           this.saveSession();
-          resolve(walletSession);
+
+          this.setupWalletConnectListeners(provider, 'stellar');
+          resolve(stellarSession);
         })
         .catch((error: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
           reject(error);
         });
@@ -1144,6 +1191,7 @@ class WalletService {
       }
     }
 
+    this.isSignRequestInFlight = false;
     this.sessions.clear();
     this.providers.clear();
     this.modals.clear();

@@ -10,12 +10,21 @@ import { ExportProgressModal } from '../../../../pages/profile/components/Export
 import { useIsMobile } from '../../../../perps/components/chart/hooks/useIsMobile';
 import { fetchStellarPnl } from '../../../../service/apiService';
 import { exportStellarReport } from '../../../../utils/exportService';
+import * as ChainUrlHelpers from '../../../evm/utils/ChainUrlHelpers';
+import { getStellarConfig } from '../../../walletconnect/config/chains';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useProfilePortfolio } from '../../../walletconnect/hooks/useProfilePortfolio';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { CustomDatePicker } from '../CustomDatePicker';
 import StellarPnlChart from './StellarPnlChart';
 import UnifiedAssets from './UnifiedAssets';
+
+const getStellarAssetIcon = (assetStr: string) => {
+  if (!assetStr) return undefined;
+  if (assetStr === 'XLM') return ChainUrlHelpers.getTokenIcon('XLM', getStellarConfig('mainnet'));
+  const [code, issuer] = assetStr.split('-');
+  return ChainUrlHelpers.getTokenIcon(code, getStellarConfig('mainnet'), issuer);
+};
 
 const StellarPortfolioUI: React.FC = () => {
   const { stellarTotal } = useProfilePortfolio();
@@ -49,7 +58,7 @@ const StellarPortfolioUI: React.FC = () => {
 
   // States for Performance Card
   const [stellarTimeframe, setStellarTimeframe] = useState<'1w' | '1m' | '2m' | '3m' | 'custom'>(
-    '1m'
+    '1w'
   );
 
   const [fromDate, setFromDate] = useState<string>('');
@@ -111,6 +120,7 @@ const StellarPortfolioUI: React.FC = () => {
         setStellarPnlError(
           err instanceof Error ? (err as any).error || err.message : 'Failed to fetch Stellar PNL'
         );
+        setStellarPnlData(null);
       })
       .finally(() => {
         if (isMounted) setLoadingStellarPnl(false);
@@ -226,7 +236,8 @@ const StellarPortfolioUI: React.FC = () => {
       selTimeframe: any,
       selFromDate: string | null,
       selToDate: string | null,
-      isCustom: boolean
+      isCustom: boolean,
+      preloadedData?: any
     ) => {
       setExportTimeframe(selTimeframe);
       setExportFromDate(selFromDate);
@@ -284,11 +295,16 @@ const StellarPortfolioUI: React.FC = () => {
         await delay(500);
 
         setExportStep(2);
-        const fullData = (await fetchStellarPnl(stellarAddress, fromStr, toStr, true)) as any;
+        let fullData = preloadedData;
+        if (!fullData) {
+          fullData = (await fetchStellarPnl(stellarAddress, fromStr, toStr, true)) as any;
+        }
         if (!fullData) {
           throw new Error('No report data returned from server');
         }
-        setStellarDetailedData(fullData);
+        if (!preloadedData) {
+          setStellarDetailedData(fullData);
+        }
 
         await delay(500);
 
@@ -393,26 +409,27 @@ const StellarPortfolioUI: React.FC = () => {
   }
 
   const headerControls = (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-5 rounded-3xl shadow-sm">
-      <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--color-text-primary)] tracking-tight">
-            Portfolio Dashboard
-          </h2>
-          <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-            Stellar network performance & metrics
-          </p>
-        </div>
+    <div className="flex flex-wrap items-center justify-between gap-4 w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-4 sm:p-5 rounded-3xl shadow-sm">
+      {/* Identity (Left) */}
+      <div className="flex-shrink-0 mr-auto pr-2">
+        <h2 className="text-lg sm:text-xl font-bold text-[var(--color-text-primary)] tracking-tight">
+          Portfolio Dashboard
+        </h2>
+        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+          Stellar network performance & metrics
+        </p>
+      </div>
 
-        {/* Inline Address Switcher */}
-        <div className="hidden lg:block w-[1px] h-10 bg-[var(--color-border)]"></div>
+      {/* Controls (Right side container) */}
+      <div className="flex flex-wrap items-center gap-3 xl:gap-4">
+        {/* Search */}
         <form
           onSubmit={e => {
             e.preventDefault();
             const val = new FormData(e.currentTarget).get('address') as string;
             if (val !== null) handleSetManualAddress(val.trim());
           }}
-          className="relative flex items-center min-w-[280px]"
+          className="relative flex items-center w-full sm:w-[220px]"
         >
           <div className="absolute left-3 text-[var(--color-text-secondary)]">
             <svg
@@ -437,7 +454,7 @@ const StellarPortfolioUI: React.FC = () => {
             disabled={loadingStellarPnl}
             defaultValue={manualAddress || ''}
             placeholder="Search address (G...)"
-            className="w-full bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl py-2.5 pl-9 pr-8 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-brand-primary/50 focus:ring-1 focus:ring-brand-primary/20 transition-all disabled:opacity-50"
+            className="w-full bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl py-2 pl-9 pr-8 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-brand-primary/50 focus:ring-1 focus:ring-brand-primary/20 transition-all disabled:opacity-50 h-[34px]"
           />
           {manualAddress && (
             <button
@@ -464,16 +481,112 @@ const StellarPortfolioUI: React.FC = () => {
             </button>
           )}
         </form>
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          onClick={handleOpenCostBasis}
-          disabled={loadingCostBasisDetails || loadingStellarPnl}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-        >
-          {loadingCostBasisDetails ? (
-            <div className="w-3.5 h-3.5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          ) : (
+
+        <div className="hidden xl:block w-[1px] h-8 bg-[var(--color-border)] mx-1"></div>
+
+        {/* Date Filters */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <div className="flex bg-[var(--color-bg-tertiary)] p-0.5 rounded-xl border border-[var(--color-border)] h-[34px] shrink-0">
+            {(
+              [
+                { id: '1w', label: '1W' },
+                { id: '1m', label: '1M' },
+                { id: '2m', label: '2M' },
+                { id: '3m', label: '3M' },
+              ] as const
+            ).map(tf => (
+              <button
+                key={tf.id}
+                onClick={() => {
+                  setStellarTimeframe(tf.id as any);
+                  setFromDate('');
+                  setToDate('');
+                }}
+                disabled={loadingStellarPnl}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:opacity-50 ${
+                  stellarTimeframe === tf.id
+                    ? 'bg-brand text-white  shadow-sm'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+                }`}
+              >
+                {tf.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="w-[105px] sm:w-[125px]">
+              <CustomDatePicker
+                label="From"
+                value={fromDate}
+                onChange={val => {
+                  setFromDate(val);
+                  setStellarTimeframe('custom');
+                }}
+                onClear={() => {
+                  setFromDate('');
+                  if (!toDate) setStellarTimeframe('1w');
+                }}
+                disabled={loadingStellarPnl}
+                max={toDate || undefined}
+              />
+            </div>
+            <div className="w-[105px] sm:w-[125px]">
+              <CustomDatePicker
+                label="To"
+                value={toDate}
+                onChange={val => {
+                  setToDate(val);
+                  setStellarTimeframe('custom');
+                }}
+                onClear={() => {
+                  setToDate('');
+                  if (!fromDate) setStellarTimeframe('1w');
+                }}
+                disabled={loadingStellarPnl}
+                min={fromDate || undefined}
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="hidden xl:block w-[1px] h-8 bg-[var(--color-border)] mx-1"></div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleOpenCostBasis}
+            disabled={loadingCostBasisDetails || loadingStellarPnl || !!stellarPnlError}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-all font-bold text-xs border border-emerald-500/20 disabled:opacity-50 h-[34px]"
+          >
+            {loadingCostBasisDetails ? (
+              <div className="w-3.5 h-3.5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 8v4l3 3"></path>
+              </svg>
+            )}
+            Cost Basis
+          </button>
+          <button
+            onClick={handleExportReport}
+            disabled={
+              loadingCostBasisDetails || loadingStellarPnl || !stellarPnlData || !!stellarPnlError
+            }
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all font-bold text-xs border border-purple-500/20 disabled:opacity-50 h-[34px]"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="14"
@@ -485,121 +598,25 @@ const StellarPortfolioUI: React.FC = () => {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-          )}
-          Cost Basis
-        </button>
-        <button
-          onClick={handleExportReport}
-          disabled={loadingStellarPnl}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Export Sheet
-        </button>
-        <div className="flex bg-[var(--color-bg-tertiary)] p-1 rounded-xl border border-[var(--color-border)]">
-          {(
-            [
-              { id: '1w', label: '1W' },
-              { id: '1m', label: '1M' },
-              { id: '2m', label: '2M' },
-              { id: '3m', label: '3M' },
-              { id: 'custom', label: 'Custom' },
-            ] as const
-          ).map(tf => (
-            <button
-              key={tf.id}
-              onClick={() => setStellarTimeframe(tf.id as any)}
-              disabled={loadingStellarPnl}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:opacity-50 ${
-                stellarTimeframe === tf.id
-                  ? 'bg-brand-primary text-white shadow-sm'
-                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
-              }`}
-            >
-              {tf.label}
-            </button>
-          ))}
+            Export
+          </button>
         </div>
       </div>
-
-      {/* Custom Date Picker Section */}
-      {stellarTimeframe === 'custom' && (
-        <div className="flex flex-col sm:flex-row sm:justify-end gap-3 w-full animate-in fade-in slide-in-from-top-2 duration-300 mt-4 pt-4 border-t border-[var(--color-border)]">
-          <div className="w-full sm:w-40">
-            <CustomDatePicker
-              label="From Date"
-              value={fromDate}
-              onChange={setFromDate}
-              onClear={() => setFromDate('')}
-              disabled={loadingStellarPnl}
-              max={toDate || undefined}
-            />
-          </div>
-          <div className="w-full sm:w-40">
-            <CustomDatePicker
-              label="To Date"
-              value={toDate}
-              onChange={setToDate}
-              onClear={() => setToDate('')}
-              disabled={loadingStellarPnl}
-              min={fromDate || undefined}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 
   const chartSection = (
     <>
-      {stellarPnlError ? (
-        <div className="h-64 flex flex-col items-center justify-center bg-red-500/5 rounded-3xl border border-red-500/10 p-6 text-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="36"
-            height="36"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-red-500 mb-4 opacity-80"
-          >
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="12"></line>
-            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-          </svg>
-          <span className="text-red-500 font-bold mb-1 text-lg">
-            Portfolio Analysis Unavailable
-          </span>
-          <span className="text-red-500/80 text-sm font-medium max-w-sm">{stellarPnlError}</span>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4 sm:gap-6">
-          <StellarPnlChart
-            disposals={stellarPnlData?.disposals || []}
-            totalUnrealized={stellarPnlData?.totalUnrealized ?? 0}
-          />
-        </div>
-      )}
+      <div className="flex flex-col gap-4 sm:gap-6">
+        <StellarPnlChart
+          disposals={[...(stellarPnlData?.disposals || [])].reverse()}
+          totalUnrealized={stellarPnlData?.totalUnrealized ?? 0}
+        />
+      </div>
     </>
   );
 
@@ -739,7 +756,16 @@ const StellarPortfolioUI: React.FC = () => {
                               style={style}
                               className="flex items-center group hover:bg-[var(--color-bg-tertiary)]/50 transition-colors border-b border-[var(--color-border)] px-4 sm:px-0"
                             >
-                              <div className="w-[20%] text-[11px] sm:text-xs font-bold text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
+                              <div className="w-[20%] text-[11px] sm:text-xs font-bold text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2 flex items-center gap-1.5">
+                                {getStellarAssetIcon(pos.asset) ? (
+                                  <img
+                                    src={getStellarAssetIcon(pos.asset) || ''}
+                                    alt={pos.asset}
+                                    className="w-4 h-4 rounded-full"
+                                  />
+                                ) : (
+                                  <div className="w-4 h-4 rounded-full bg-secondary border border-[var(--color-border)]" />
+                                )}
                                 {pos.asset}
                               </div>
                               <div className="w-[20%] text-[11px] sm:text-xs font-medium text-[var(--color-text-primary)] whitespace-nowrap truncate pr-2">
@@ -803,9 +829,9 @@ const StellarPortfolioUI: React.FC = () => {
                       <List
                         height={height || 0}
                         width={width || 0}
-                        itemCount={stellarPnlData.disposals.length}
+                        itemCount={stellarPnlData?.disposals?.length || 0}
                         itemSize={48}
-                        itemData={stellarPnlData.disposals}
+                        itemData={[...(stellarPnlData?.disposals || [])].reverse()}
                       >
                         {({ index, style, data }: any) => {
                           const disp = data[index];
@@ -990,7 +1016,16 @@ const StellarPortfolioUI: React.FC = () => {
                   ? `+${stellarPnlData.bestTrade.pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
                   : '-'}
               </span>
-              <span className="text-[9px] text-[var(--color-text-secondary)] ml-1">
+              <span className="text-[9px] text-[var(--color-text-secondary)] ml-1 flex items-center gap-1 mt-1">
+                {getStellarAssetIcon(stellarPnlData?.bestTrade?.asset) ? (
+                  <img
+                    src={getStellarAssetIcon(stellarPnlData.bestTrade.asset) || ''}
+                    alt={stellarPnlData.bestTrade.asset}
+                    className="w-3 h-3 rounded-full"
+                  />
+                ) : (
+                  <div className="w-3 h-3 rounded-full bg-secondary border border-[var(--color-border)]" />
+                )}
                 {stellarPnlData?.bestTrade?.asset}
               </span>
             </div>
@@ -1003,7 +1038,16 @@ const StellarPortfolioUI: React.FC = () => {
                   ? `${stellarPnlData.worstTrade.pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
                   : '-'}
               </span>
-              <span className="text-[9px] text-[var(--color-text-secondary)] ml-1">
+              <span className="text-[9px] text-[var(--color-text-secondary)] ml-1 flex items-center gap-1 mt-1">
+                {getStellarAssetIcon(stellarPnlData?.worstTrade?.asset) ? (
+                  <img
+                    src={getStellarAssetIcon(stellarPnlData.worstTrade.asset) || ''}
+                    alt={stellarPnlData.worstTrade.asset}
+                    className="w-3 h-3 rounded-full"
+                  />
+                ) : (
+                  <div className="w-3 h-3 rounded-full bg-secondary border border-[var(--color-border)]" />
+                )}
                 {stellarPnlData?.worstTrade?.asset}
               </span>
             </div>
@@ -1100,10 +1144,10 @@ const StellarPortfolioUI: React.FC = () => {
     ? [...stellarPnlData.positions]
         .map(p => ({ ...p, totalAssetPnl: (p.realizedPnL || 0) + (p.unrealized || 0) }))
         .sort((a: any, b: any) => Math.abs(b.totalAssetPnl) - Math.abs(a.totalAssetPnl))
-        .slice(0, 5)
-    : [];
+    : // .slice(0, 5)
+      [];
   const totalAbsPnl =
-    topAssets.reduce((sum: number, p: any) => sum + Math.abs(p.totalAssetPnl), 0) || 1; // avoid /0
+    topAssets.reduce((sum: number, p: any) => sum + Math.abs(p.totalAssetPnl), 0) || 1;
 
   const assetAllocationSection = (
     <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col">
@@ -1135,7 +1179,18 @@ const StellarPortfolioUI: React.FC = () => {
             return (
               <div key={asset.asset} className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold text-[var(--color-text-primary)]">{asset.asset}</span>
+                  <span className="font-bold text-[var(--color-text-primary)] flex items-center gap-1.5">
+                    {getStellarAssetIcon(asset.asset) ? (
+                      <img
+                        src={getStellarAssetIcon(asset.asset) || ''}
+                        alt={asset.asset}
+                        className="w-4 h-4 rounded-full"
+                      />
+                    ) : (
+                      <div className="w-4 h-4 rounded-full bg-secondary border border-[var(--color-border)]" />
+                    )}
+                    {asset.asset}
+                  </span>
                   <span
                     className={`font-medium ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}
                   >
@@ -1235,7 +1290,6 @@ const StellarPortfolioUI: React.FC = () => {
         </h3>
       </div>
 
-      {/* Low Liquidity Assets */}
       {stellarPnlData?.lowLiquidityAssets && stellarPnlData.lowLiquidityAssets.length > 0 && (
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
           <div className="flex items-center gap-2 mb-2">
@@ -1273,7 +1327,6 @@ const StellarPortfolioUI: React.FC = () => {
         </div>
       )}
 
-      {/* Auto Cost Basis */}
       {stellarPnlData?.autoCostBasis && Object.keys(stellarPnlData.autoCostBasis).length > 0 && (
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
           <div className="flex items-center gap-2 mb-2">
@@ -1304,7 +1357,6 @@ const StellarPortfolioUI: React.FC = () => {
         </div>
       )}
 
-      {/* API Diagnostics */}
       <div className="grid grid-cols-2 gap-2 mt-2 pt-4 border-t border-[var(--color-border)]">
         <div className="flex flex-col">
           <span className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-0.5">
@@ -1348,19 +1400,34 @@ const StellarPortfolioUI: React.FC = () => {
 
   if (loadingStellarPnl) {
     return (
-      <div className="relative flex flex-col gap-4 lg:gap-6 w-full max-w-[1600px] mx-auto pb-24 pt-2 sm:pt-4 px-3 sm:px-4 lg:px-6 min-h-screen font-sans animate-pulse">
+      <div className="relative flex flex-col gap-4 lg:gap-6 w-full max-w-[1600px] mx-auto pb-24 pt-2 sm:pt-4 px-3 sm:px-4 lg:px-6 min-h-screen font-sans">
         {headerControls}
-        <div className="flex flex-col xl:flex-row gap-6 w-full">
-          {/* Left Column Skeleton */}
-          <div className="w-full xl:w-8/12 flex flex-col gap-6">
-            <div className="h-[400px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
-            <div className="h-[300px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
+
+        <div className="absolute inset-0 top-40 z-10 flex flex-col items-center justify-start pointer-events-none mt-16">
+          <div className="flex flex-col items-center text-center">
+            <div className="w-14 h-14 relative mb-6">
+              <div className="absolute inset-0 border-4 border-[var(--color-border)] rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-[var(--color-text-primary)] mb-2 tracking-tight">
+              Analyzing Portfolio...
+            </h2>
+            <p className="text-[var(--color-text-secondary)] font-medium max-w-[320px] text-sm leading-relaxed">
+              We are collecting heavy data and crunching the numbers for your trades. This could
+              take a moment.
+            </p>
           </div>
-          {/* Right Column Skeleton */}
+        </div>
+
+        <div className="flex flex-col xl:flex-row gap-6 w-full opacity-30 animate-pulse pointer-events-none blur-[2px] select-none">
+          <div className="w-full xl:w-8/12 flex flex-col gap-6">
+            <div className="h-[400px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm"></div>
+            <div className="h-[300px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm"></div>
+          </div>
           <div className="w-full xl:w-4/12 flex flex-col gap-6">
-            <div className="h-[160px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
-            <div className="h-[220px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
-            <div className="h-[400px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm opacity-40"></div>
+            <div className="h-[160px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm"></div>
+            <div className="h-[220px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm"></div>
+            <div className="h-[400px] bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] shadow-sm"></div>
           </div>
         </div>
       </div>
@@ -1372,7 +1439,36 @@ const StellarPortfolioUI: React.FC = () => {
       <div className="relative flex flex-col gap-4 lg:gap-6 w-full max-w-[1600px] mx-auto pb-24 pt-2 sm:pt-4 px-3 sm:px-4 lg:px-6 min-h-screen font-sans">
         {headerControls}
 
-        {isMobile ? (
+        {stellarPnlError ? (
+          <div className="flex flex-col flex-1 items-center justify-center p-4 mt-8 sm:mt-12">
+            <div className="w-full max-w-2xl flex flex-col items-center justify-center bg-rose-500/5 rounded-[2.5rem] border border-rose-500/20 p-8 sm:p-12 text-center min-h-[300px] shadow-sm">
+              <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mb-6">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="32"
+                  height="32"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-rose-500"
+                >
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="12"></line>
+                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+              </div>
+              <h2 className="text-rose-500 font-black mb-3 text-xl sm:text-2xl tracking-tight">
+                Portfolio Analysis Unavailable
+              </h2>
+              <p className="text-rose-500/80 text-sm sm:text-base font-medium max-w-md leading-relaxed">
+                {stellarPnlError}
+              </p>
+            </div>
+          </div>
+        ) : isMobile ? (
           <div className="flex flex-col gap-4 w-full">
             {netWorthSection}
             {tradeOutcomeAnalysisSection}
@@ -1386,7 +1482,6 @@ const StellarPortfolioUI: React.FC = () => {
           </div>
         ) : (
           <div className="flex flex-row gap-4 w-full">
-            {/* Left Column */}
             <div className="w-2/3 xl:w-8/12 flex flex-col gap-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                 {tradeOutcomeAnalysisSection}
@@ -1395,7 +1490,7 @@ const StellarPortfolioUI: React.FC = () => {
               {chartSection}
               {tablesSection}
             </div>
-            {/* Right Column */}
+
             <div className="w-1/3 xl:w-4/12 flex flex-col gap-4">
               {netWorthSection}
               {assetAllocationSection}
@@ -1417,7 +1512,14 @@ const StellarPortfolioUI: React.FC = () => {
         handleClearAllCostBasis={handleClearAllCostBasis}
         handleExportReport={() => {
           setIsCostBasisModalOpen(false);
-          handleExportReport();
+          setIsExportModalOpen(true);
+          handleStartExport(
+            stellarTimeframe,
+            fromDate,
+            toDate,
+            stellarTimeframe === 'custom',
+            stellarDetailedData
+          );
         }}
         isExporting={exportStep > 0 && exportStep < 4}
       />
