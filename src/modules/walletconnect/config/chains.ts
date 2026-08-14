@@ -1,3 +1,5 @@
+import { getEvmChainsForNetwork } from '../../evm/utils/Chainregistry';
+
 export interface EVMChainConfig {
   chainId: number | string;
   name: string;
@@ -40,13 +42,10 @@ export interface StellarChainConfig {
 
 export type NetworkType = 'mainnet' | 'testnet';
 
-
-import { getEvmChainsForNetwork } from '../../evm/utils/Chainregistry';
-
 export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
   const chains = getEvmChainsForNetwork(network);
 
-  return chains.map((c) => ({
+  return chains.map(c => ({
     chainId: c.chainId,
     name: c.name,
     rpcUrls: c.rpcUrls,
@@ -58,7 +57,7 @@ export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
       logoURI: c.nativeCurrency.logoURI,
     },
     blockExplorerUrl: c.blockExplorerUrl,
-    logoUrl: c.logoURI || "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png" || '',
+    logoUrl: c.logoURI || 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
   }));
 };
 
@@ -155,11 +154,10 @@ export const getStellarConfig = (network: NetworkType): StellarChainConfig => {
 
 export const getDydxConfig = (network: NetworkType): CosmosChainConfig => {
   const chains = getCosmosChains(network);
-  return chains.find((c) => c.chainId.startsWith('dydx')) || chains[0];
+  return chains.find(c => c.chainId.startsWith('dydx')) || chains[0];
 };
 
-export const WALLETCONNECT_PROJECT_ID =
-  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
+export const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
 
 export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',
@@ -174,12 +172,12 @@ export const buildUnifiedNamespaces = (
   requiredNamespaces: Record<string, unknown>;
   optionalNamespaces: Record<string, unknown>;
 } => {
-  const evmChains = getEVMChains(network).map((c) => `eip155:${c.chainId}`);
+  const evmChains = getEVMChains(network).map(c => `eip155:${c.chainId}`);
   const stellarConfig = getStellarConfig(network);
   const stellarChain = `stellar:${stellarConfig.chainId}`;
 
   const evmNamespace = {
-    methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+    methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'eth_signTypedData', 'personal_sign'],
     chains: evmChains,
     events: ['chainChanged', 'accountsChanged'],
   };

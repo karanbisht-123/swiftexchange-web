@@ -12,7 +12,6 @@ import UniversalProviderType from '@walletconnect/universal-provider';
 import { BrowserProvider, getAddress, hexlify, toUtf8Bytes } from 'ethers';
 
 import { sendCustomNotification } from '../../../service/notificationService';
-import { switchOrAddChain } from '../../evm/utils/evmChainUtils';
 import {
   type NetworkType,
   WALLETCONNECT_METADATA,
@@ -294,26 +293,6 @@ class WalletService {
           serviceInstance.isSignRequestInFlight = true;
 
           try {
-            if (method.startsWith('eth_') || method === 'personal_sign') {
-              const evmSession =
-                serviceInstance.sessions.get('evm') ||
-                Array.from(serviceInstance.sessions.values()).find(s => s.evmChainId);
-              const expectedChainId = evmSession?.evmChainId;
-              if (expectedChainId) {
-                try {
-                  const currentChainHex = await originalRequest.apply(this, [
-                    { method: 'eth_chainId' },
-                  ]);
-                  const currentChainId = parseInt(currentChainHex, 16);
-                  if (currentChainId !== expectedChainId) {
-                    await switchOrAddChain(target, expectedChainId);
-                  }
-                } catch (chainErr) {
-                  console.warn('[WalletService] Pre-flight chain validation failed:', chainErr);
-                }
-              }
-            }
-
             try {
               const session = provider.session;
               const storedSession = Array.from(serviceInstance.sessions.values()).find(
@@ -872,7 +851,12 @@ class WalletService {
       preferredType === 'evm'
         ? {
             eip155: {
-              methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+              methods: [
+                'eth_sendTransaction',
+                'eth_signTypedData_v4',
+                'eth_signTypedData',
+                'personal_sign',
+              ],
               chains: evmChains,
               events: ['chainChanged', 'accountsChanged'],
             },

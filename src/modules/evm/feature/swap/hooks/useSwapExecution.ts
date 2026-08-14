@@ -9,6 +9,7 @@ import { useTransactionModalStore } from '../../../../../store/transactionModalS
 import { sendEVMTransaction } from '../../../../../utils/walletConnectUtils';
 import { StellarSequenceTracker } from '../../../../stellar/utils/StellarSequenceTracker';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
+import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
 import { addNearIntentTransaction } from '../../../service/nearIntentTransactionService';
 import { getChainById } from '../../../utils/Chainregistry';
@@ -800,13 +801,33 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           setShowFusionScreen(true);
           setBridgeTxStatus('idle');
         } catch (err) {
-          console.error('Failed to fetch Fusion quote:', err);
           setBridgeErrorMsg(parseWalletError(err));
           resetLoadingState();
         } finally {
           setIsFusionLoading(false);
         }
         return;
+      }
+
+      if (!isGasless && !isStellar(fromChainId)) {
+        const storeAssets = usePortfolioStore.getState().assets;
+        const nativeAsset = storeAssets.find(
+          a => String(a.chainId) === String(fromChainId) && a.isNative
+        );
+        const nativeBalance = parseFloat(nativeAsset?.balance?.toString() || '0');
+        if (nativeBalance <= 0) {
+          const errMsg = 'Insufficient native gas to cover this swap.';
+          setBridgeErrorMsg(errMsg);
+          setBridgeTxStatus('error');
+          showToast({
+            type: 'EVM_SWAP',
+            title: 'Insufficient Gas',
+            message: errMsg,
+            dontSave: true,
+          });
+          resetLoadingState();
+          return;
+        }
       }
 
       if (actionType === 'SWAP') {

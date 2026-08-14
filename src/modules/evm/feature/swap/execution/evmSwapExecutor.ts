@@ -34,12 +34,24 @@ export async function executeSwap(
   const rawProvider = deps.getProvider(WalletType.EVM);
   if (!rawProvider) throw new Error('EVM wallet not connected');
 
-  // Reset RPC cache if needed
   try {
     const config = getEVMNetworkConfig(chainId);
     if (config?.rpcUrls) rpcManager.resetChain(chainId, config.rpcUrls);
   } catch (err) {
     console.warn('[executeSwap] Failed to reset RPC cache, continuing with existing config:', err);
+  }
+
+  try {
+    const currentChainHex = await rawProvider.request({ method: 'eth_chainId' });
+    const currentChainId = parseInt(currentChainHex, 16);
+    if (currentChainId !== Number(chainId)) {
+      await rawProvider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${Number(chainId).toString(16)}` }],
+      });
+    }
+  } catch (switchErr: any) {
+    console.warn('[executeSwap] Chain switch failed, proceeding anyway:', switchErr?.message);
   }
 
   // 1. Get transaction payloads from API

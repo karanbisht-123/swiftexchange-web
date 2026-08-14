@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { TypedDataEncoder, ethers } from 'ethers';
 
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { getChainById } from '../../../utils/Chainregistry';
@@ -45,6 +45,25 @@ export async function execute1InchFusionSwap(
   const chainSymbol = rawSymbol === 'BNB' ? 'BSC' : rawSymbol;
   const amountBN = BigInt(formatAmount(sellAmount, sellAsset.decimals));
 
+  const isNativeAddress = (address: string | undefined | null): boolean => {
+    if (!address) return true;
+    const lowAddress = address.toLowerCase();
+    return lowAddress === 'native' || lowAddress === '0x0000000000000000000000000000000000000000';
+  };
+
+  try {
+    const currentChainHex = await provider.request({ method: 'eth_chainId' });
+    const currentChainId = parseInt(currentChainHex, 16);
+    if (currentChainId !== Number(chainId)) {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${Number(chainId).toString(16)}` }],
+      });
+    }
+  } catch (switchErr: any) {
+    console.warn('[execute1InchFusionSwap] Chain switch failed, proceeding:', switchErr?.message);
+  }
+
   const currentAllowance = sellAsset.isNative
     ? amountBN
     : await readAllowance(
@@ -85,12 +104,6 @@ export async function execute1InchFusionSwap(
     const errorDetails = [...simResult.errors, ...simResult.warnings].join(' | ');
     throw new Error(`Simulation Alert: ${errorDetails}`);
   }
-
-  const isNativeAddress = (address: string | undefined | null): boolean => {
-    if (!address) return true;
-    const lowAddress = address.toLowerCase();
-    return lowAddress === 'native' || lowAddress === '0x0000000000000000000000000000000000000000';
-  };
 
   const normalizedTokenIn =
     sellAsset.isNative || isNativeAddress(sellAsset.address)
@@ -167,10 +180,44 @@ export async function execute1InchFusionSwap(
 
     console.log('[execute1InchFusionSwap] Requesting signature for typedData:', typedData);
     onBeforeWalletSign?.();
-    const signature: string = await provider.request({
-      method: 'eth_signTypedData_v4',
-      params: [senderAddress, JSON.stringify(typedData)],
-    });
+    const isUnknownMethodError = (e: any) => {
+      const msg = (e?.message ?? '').toLowerCase();
+      return (
+        e?.code === 4200 ||
+        e?.code === -32601 ||
+        msg.includes('unknown method') ||
+        msg.includes('not supported') ||
+        msg.includes('unsupported method') ||
+        msg.includes('does not exist')
+      );
+    };
+
+    let signature: string;
+    try {
+      signature = await provider.request({
+        method: 'eth_signTypedData_v4',
+        params: [senderAddress, JSON.stringify(typedData)],
+      });
+    } catch (err1: any) {
+      if (!isUnknownMethodError(err1)) throw err1;
+      try {
+        signature = await provider.request({
+          method: 'eth_signTypedData',
+          params: [senderAddress, JSON.stringify(typedData)],
+        });
+      } catch (err2: any) {
+        if (!isUnknownMethodError(err2)) throw err2;
+        const { domain, types, message } = typedData as any;
+        const cleanTypes = { ...types };
+        delete cleanTypes['EIP712Domain'];
+        const hash = TypedDataEncoder.hash(domain, cleanTypes, message);
+        const personalSig = await provider.request({
+          method: 'personal_sign',
+          params: [hash, senderAddress],
+        });
+        signature = personalSig;
+      }
+    }
     if (!signature) throw new Error('Signature cancelled or failed');
     console.log('[execute1InchFusionSwap] Signature generated:', signature);
 
