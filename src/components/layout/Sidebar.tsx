@@ -157,7 +157,9 @@ const Sidebar: FC = () => {
         <nav className="flex-1 p-1 pb-4 overflow-y-auto hide-scrollbar">
           <div className="space-y-0.5">
             {navItems.map(item => {
-              const isActive = activeItem === item.href;
+              const isActive =
+                activeItem === item.href ||
+                (item.href !== ROUTES.HOME && activeItem.startsWith(`${item.href}/`));
 
               return item.queryParam ? (
                 <button

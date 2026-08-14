@@ -11,8 +11,8 @@ import { StellarSequenceTracker } from '../../../../stellar/utils/StellarSequenc
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
-import { addNearIntentTransaction } from '../../../service/nearIntentTransactionService';
 import { getChainById } from '../../../utils/Chainregistry';
+import { getEVMNetworkConfig, simulateEVMTransaction } from '../../../utils/evmUtils';
 import {
   STELLAR_NETWORK_PASSPHRASE,
   prepareStellarToEvmRawTransaction,
@@ -717,22 +717,21 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
 
       if (hash) {
-        const walletAddr = isStellar(fromChainId) ? stellarAddress : evmAddress;
-        addNearIntentTransaction({
-          txHash: hash,
-          depositAddress: liveQuote.depositAddress || '',
-          depositMemo: liveQuote.depositMemo,
+        storeSwapOrder({
+          txHash: liveQuote.depositAddress,
+          walletAddress: evmAddress || stellarAddress,
+          provider: 'NEARINTENT',
+          memo: isStellarOrigin ? liveQuote.depositMemo : undefined,
+          fromChain: getChainById(fromChainId)?.symbol || String(fromChainId),
+          fromAddress: isStellarOrigin ? stellarAddress : evmAddress,
+          fromToken: sellAssetSymbol,
+          toChain: getChainById(toChainId)?.symbol || String(toChainId),
+          toAddress: isStellarDest ? stellarAddress : evmAddress,
+          toToken: buyAssetSymbol,
           amountIn: sellAmount,
-          sellSymbol: sellAssetSymbol,
-          buySymbol: buyAssetSymbol,
-          fromChainId,
-          toChainId,
-          walletAddress: walletAddr || '',
-          status: 'pending',
-          quoteHash: (liveQuote as any).quoteHash || liveQuote.depositAddress,
-          timestamp: Date.now(),
-          network: currentNetwork,
-        });
+          amountOut: computedOutAmount,
+          txType: 'Bridge',
+        }).catch(() => {});
       }
 
       handleReset();
@@ -809,24 +808,48 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         return;
       }
 
-      if (!isGasless && !isStellar(fromChainId)) {
-        const storeAssets = usePortfolioStore.getState().assets;
-        const nativeAsset = storeAssets.find(
-          a => String(a.chainId) === String(fromChainId) && a.isNative
-        );
-        const nativeBalance = parseFloat(nativeAsset?.balance?.toString() || '0');
-        if (nativeBalance <= 0) {
-          const errMsg = 'Insufficient native gas to cover this swap.';
-          setBridgeErrorMsg(errMsg);
-          setBridgeTxStatus('error');
-          showToast({
-            type: 'EVM_SWAP',
-            title: 'Insufficient Gas',
-            message: errMsg,
-            dontSave: true,
-          });
-          resetLoadingState();
-          return;
+      if (!isGasless && !isStellar(fromChainId) && evmAddress) {
+        try {
+          const chainConfig = getEVMNetworkConfig(fromChainId);
+          const nativeSymbol = chainConfig.nativeCurrency.symbol;
+          const storeAssets = usePortfolioStore.getState().assets;
+          const nativeAsset = storeAssets.find(
+            a => String(a.chainId) === String(fromChainId) && a.isNative
+          );
+          const nativeBalance = parseFloat(nativeAsset?.balance?.toString() || '0');
+
+          if (nativeBalance <= 0) {
+            const errMsg = `Insufficient ${nativeSymbol} to pay gas. Please top up and try again.`;
+            setBridgeErrorMsg(errMsg);
+            setBridgeTxStatus('error');
+            showToast({
+              type: 'EVM_SWAP',
+              title: 'Insufficient Gas',
+              message: errMsg,
+              dontSave: true,
+            });
+            resetLoadingState();
+            return;
+          }
+
+          await simulateEVMTransaction(fromChainId, evmAddress, evmAddress, '0', '0x');
+        } catch (gasErr: any) {
+          const msg = gasErr?.message || '';
+          if (
+            msg.toLowerCase().includes('insufficient funds') ||
+            msg.toLowerCase().includes('insufficient')
+          ) {
+            setBridgeErrorMsg(msg);
+            setBridgeTxStatus('error');
+            showToast({
+              type: 'EVM_SWAP',
+              title: 'Insufficient Gas',
+              message: msg,
+              dontSave: true,
+            });
+            resetLoadingState();
+            return;
+          }
         }
       }
 
