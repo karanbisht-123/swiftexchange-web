@@ -129,7 +129,7 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals, totalUnrea
             Cumulative Realized PnL
           </h3>
           <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5 font-medium">
-            Historical performance over time
+            performance over time
           </p>
         </div>
         {hasData && (

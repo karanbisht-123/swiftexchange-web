@@ -16,6 +16,7 @@ import ThemeToggle from '../../utils/ThemeToggle';
 
 const Topbar: React.FC = () => {
   const { connectedWallets, isRestoringSession, disconnectAll } = useWalletConnect();
+  const isDisconnecting = useWalletStore(state => state.isDisconnecting);
   const navigate = useNavigate();
   const loc = useLocation();
   const hasRedirected = useRef(false);
@@ -146,9 +147,17 @@ const Topbar: React.FC = () => {
             <ConnectWalletButton />
             <button
               onClick={handleDisconnectAll}
-              className="hidden lg:block px-3 py-1.5 rounded-md bg-(--color-danger) text-white text-sm hover:opacity-90 transition cursor-pointer"
+              disabled={isDisconnecting}
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-(--color-danger) text-white text-sm hover:opacity-90 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Disconnect All
+              {isDisconnecting ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Disconnecting...
+                </>
+              ) : (
+                'Disconnect All'
+              )}
             </button>
           </div>
         ) : (

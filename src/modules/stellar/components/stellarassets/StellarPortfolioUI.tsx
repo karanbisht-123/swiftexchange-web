@@ -344,7 +344,7 @@ const StellarPortfolioUI: React.FC = () => {
 
   if (!stellarAddress) {
     return (
-      <div className="w-full flex items-center justify-center min-h-[600px] py-12 px-4">
+      <div className="w-full max-w-[100vw] flex items-center justify-center min-h-[600px] py-12 px-4">
         <div className="w-full max-w-[600px] min-h-[400px] flex flex-col items-center justify-center bg-[var(--color-bg-secondary)] rounded-[2rem] p-8 sm:p-12 text-center relative overflow-hidden shadow-lg border border-white/5">
           <div className="absolute top-0 left-0 right-0 h-48 w-full overflow-hidden z-0">
             <img
@@ -411,13 +411,39 @@ const StellarPortfolioUI: React.FC = () => {
   const headerControls = (
     <div className="flex flex-wrap items-center justify-between gap-4 w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-4 sm:p-5 rounded-3xl shadow-sm">
       {/* Identity (Left) */}
-      <div className="flex-shrink-0 mr-auto pr-2">
-        <h2 className="text-lg sm:text-xl font-bold text-[var(--color-text-primary)] tracking-tight">
-          Portfolio Dashboard
-        </h2>
-        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
-          Stellar network performance & metrics
-        </p>
+      <div className="flex-shrink-0 mr-auto pr-2 flex flex-col justify-center">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <h2 className="text-lg sm:text-xl font-bold text-[var(--color-text-primary)] tracking-tight">
+            Portfolio Dashboard
+          </h2>
+          {stellarPnlData && (
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 shadow-sm ml-1">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                Fresh: {stellarPnlData?.freshnessTime || '15 mins'}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Stellar network performance & metrics
+          </p>
+          {stellarPnlData && (
+            <div className="flex sm:hidden items-center gap-1.5 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 ml-1">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              </span>
+              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                Fresh: {stellarPnlData?.freshnessTime || '15 mins'}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Controls (Right side container) */}

@@ -42,6 +42,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
   const [total, setTotal] = useState<string>('');
   const [quote, setQuote] = useState<LargeOrderQuote | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isRefreshingBalances, setIsRefreshingBalances] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [slippageTolerance, setSlippageTolerance] = useState<number>(1);
   const [transaction, setTransaction] = useState<LargeOrderTransaction | null>(null);
@@ -85,74 +86,81 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
   }, [currentStellarConfig]);
 
-  const fetchBalances = useCallback(async () => {
-    if (!service) {
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const { tokens: balances, subentryCount: count } = await service.getAssetsWithBalances(
-        userAddress || ''
-      );
-      if (!mountedRef.current) return;
-
-      if (balances.length === 0) {
-        setError(userAddress ? 'No tokens found in your account. Please add tokens first.' : null);
-        setAvailableTokens([]);
+  const fetchBalances = useCallback(
+    async (isRefresh = false) => {
+      if (!service) {
         return;
       }
-      setAvailableTokens(balances);
-      const currentPair = useAmmSwapStore.getState().selectedChartPair || {
-        base: 'XLM',
-        counter: 'USDC',
-        baseIssuer: undefined,
-        counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5',
-      };
+      if (isRefresh) setIsRefreshingBalances(true);
+      else setIsLoading(true);
+      try {
+        const { tokens: balances, subentryCount: count } = await service.getAssetsWithBalances(
+          userAddress || ''
+        );
+        if (!mountedRef.current) return;
 
-      const targetFrom =
-        balances.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer) ||
-        balances.find(t => t.code === currentPair.base);
+        if (balances.length === 0) {
+          setError(
+            userAddress ? 'No tokens found in your account. Please add tokens first.' : null
+          );
+          setAvailableTokens([]);
+          return;
+        }
+        setAvailableTokens(balances);
+        const currentPair = useAmmSwapStore.getState().selectedChartPair || {
+          base: 'XLM',
+          counter: 'USDC',
+          baseIssuer: undefined,
+          counterIssuer: 'GBBD47R2LWK7P7TV222OISDOK6V2QQQSK37Q7VURB6L74QVN56AGEBI5',
+        };
 
-      const targetTo =
-        balances.find(
-          t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer
-        ) || balances.find(t => t.code === currentPair.counter);
+        const targetFrom =
+          balances.find(t => t.code === currentPair.base && t.issuer === currentPair.baseIssuer) ||
+          balances.find(t => t.code === currentPair.base);
 
-      if (!hasSetDefaultPairRef.current && targetFrom && targetTo) {
-        setFromToken(targetFrom);
-        setToToken(targetTo);
-        hasSetDefaultPairRef.current = true;
-      } else {
-        setFromToken(prev => {
-          if (!prev) {
-            return targetFrom || balances.find(t => t.code === 'XLM') || balances[0];
-          }
-          const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
-          if (!existing) return prev;
-          if (existing.balance === prev.balance) return prev;
-          return existing;
-        });
+        const targetTo =
+          balances.find(
+            t => t.code === currentPair.counter && t.issuer === currentPair.counterIssuer
+          ) || balances.find(t => t.code === currentPair.counter);
 
-        setToToken(prev => {
-          if (!prev) {
-            return targetTo || balances[1] || balances[0];
-          }
-          const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
-          if (!existing) return prev;
-          if (existing.balance === prev.balance) return prev;
-          return existing;
-        });
+        if (!hasSetDefaultPairRef.current && targetFrom && targetTo) {
+          setFromToken(targetFrom);
+          setToToken(targetTo);
+          hasSetDefaultPairRef.current = true;
+        } else {
+          setFromToken(prev => {
+            if (!prev) {
+              return targetFrom || balances.find(t => t.code === 'XLM') || balances[0];
+            }
+            const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+            if (!existing) return prev;
+            if (existing.balance === prev.balance) return prev;
+            return existing;
+          });
+
+          setToToken(prev => {
+            if (!prev) {
+              return targetTo || balances[1] || balances[0];
+            }
+            const existing = balances.find(t => t.code === prev.code && t.issuer === prev.issuer);
+            if (!existing) return prev;
+            if (existing.balance === prev.balance) return prev;
+            return existing;
+          });
+        }
+        setSubentryCount(count);
+
+        setError(null);
+      } catch (err) {
+        console.error('Failed to fetch balances:', err);
+        if (mountedRef.current) setError('Failed to load wallet balances');
+      } finally {
+        if (isRefresh) setIsRefreshingBalances(false);
+        else if (mountedRef.current) setIsLoading(false);
       }
-      setSubentryCount(count);
-
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch balances:', err);
-      if (mountedRef.current) setError('Failed to load wallet balances');
-    } finally {
-      if (mountedRef.current) setIsLoading(false);
-    }
-  }, [service, userAddress]);
+    },
+    [service, userAddress]
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -416,7 +424,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
       }
 
       const balance = parseFloat(fromToken.balance);
-      const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
+      const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 + 0.05 : 0;
       const availableBalance = Math.max(0, balance - reserve);
       const newAmount = ((availableBalance * percentage) / 100).toFixed(7);
       setAmount(newAmount);
@@ -431,7 +439,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     }
 
     const balance = parseFloat(fromToken.balance);
-    const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
+    const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 + 0.05 : 0;
     const maxAmount = Math.max(0, balance - reserve);
     setAmount(maxAmount.toFixed(7));
   }, [fromToken, subentryCount]);
@@ -504,7 +512,21 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
           txHash,
         });
 
-        setTimeout(() => fetchBalances(), 1500);
+        setFromToken(prev => {
+          if (!prev) return prev;
+          const usedAmount = isBuy ? parseFloat(quote!.total) : parseFloat(quote!.amount);
+          const newBalance = Math.max(0, parseFloat(prev.balance || '0') - usedAmount);
+          return { ...prev, balance: newBalance.toFixed(7) };
+        });
+
+        setToToken(prev => {
+          if (!prev) return prev;
+          const receivedAmount = isBuy ? parseFloat(quote!.amount) : parseFloat(quote!.total);
+          const newBalance = parseFloat(prev.balance || '0') + receivedAmount;
+          return { ...prev, balance: newBalance.toFixed(7) };
+        });
+
+        setTimeout(() => fetchBalances(true), 8000);
 
         window.dispatchEvent(new CustomEvent('stellar:order-placed'));
 
@@ -585,6 +607,7 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
     executeOrderWithWalletConnect,
     refreshOrderBook,
     fetchBalances,
+    isRefreshingBalances,
     transaction,
     reset,
   };

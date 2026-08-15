@@ -48,7 +48,7 @@ const QuickActions: FC = () => {
   ];
 
   return (
-    <div className="lg:rounded-2xl p-3 lg:p-6 transition-all duration-300 bg-secondary shadow-sm">
+    <div className="lg:rounded-2xl p-3 lg:p-4 transition-all duration-300 bg-secondary shadow-sm h-full flex flex-col justify-center">
       <div className="grid grid-cols-5 gap-1 lg:gap-4">
         {actions.map(action => {
           const content = (

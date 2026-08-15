@@ -160,14 +160,40 @@ class WalletService {
   private registeredProviders = new Set<any>();
   private lastPingAt = new Map<WalletType, number>();
   private disconnecting = new Set<WalletType>();
-  private isSignRequestInFlight = false;
+  private isSignRequestInFlight = new Map<WalletType, boolean>();
 
-  // Cached CompositeClient — one per network, invalidated on network switch
   private _compositeClient: CompositeClient | null = null;
   private _compositeClientNetwork: NetworkType | null = null;
 
   constructor() {
     this.loadNetwork();
+    this.setupVisibilityHandler();
+  }
+
+  private setupVisibilityHandler(): void {
+    if (typeof document === 'undefined') return;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      const seen = new Set<any>();
+      for (const provider of this.providers.values()) {
+        if (!provider || seen.has(provider)) continue;
+        seen.add(provider);
+        if (!provider.session) continue;
+
+        try {
+          const relayer = provider.client?.core?.relayer;
+          if (relayer && typeof relayer.transportOpen === 'function') {
+            console.debug('[WalletService] Tab visible — reopening WC relay transport');
+            relayer.transportOpen().catch((err: any) => {
+              console.warn('[WalletService] Relay transportOpen error:', err);
+            });
+          }
+        } catch (err) {
+          console.warn('[WalletService] visibilitychange relay reopen error:', err);
+        }
+      }
+    });
   }
 
   private loadNetwork(): void {
@@ -220,15 +246,29 @@ class WalletService {
         const expiry = existing.session?.expiry ?? 0;
         const isExpired = Date.now() / 1000 > expiry;
         if (isExpired) {
-          console.warn(`[WalletService] Provider '${key}' has expired session, disconnecting`);
+          console.warn(
+            `[WalletService] Provider '${key}' session is expired — evicting stale provider from cache`
+          );
           try {
+            existing.removeAllListeners?.();
             await existing.disconnect();
           } catch (err) {
-            console.error('Disconnect error:', err);
+            console.error('[WalletService] Error disconnecting expired provider:', err);
           }
+          for (const [k, p] of this.providers.entries()) {
+            if (p === existing) this.providers.delete(k);
+          }
+        } else {
+          return existing;
+        }
+      } else {
+        console.warn(
+          `[WalletService] Provider '${key}' has no session — evicting stale provider from cache`
+        );
+        for (const [k, p] of this.providers.entries()) {
+          if (p === existing) this.providers.delete(k);
         }
       }
-      return existing;
     }
 
     const ProviderClass = await loadUniversalProvider();
@@ -283,14 +323,18 @@ class WalletService {
         ];
 
         if (SIGNING_METHODS.includes(method)) {
-          if (serviceInstance.isSignRequestInFlight) {
+          let signingType: WalletType = 'evm';
+          if (method.startsWith('cosmos_')) signingType = 'cosmos';
+          else if (method.startsWith('stellar_')) signingType = 'stellar';
+
+          if (serviceInstance.isSignRequestInFlight.get(signingType)) {
             const error = new Error(
               'A signing request is already in progress. Please wait or check your wallet.'
             ) as any;
             error.code = -32002;
             throw error;
           }
-          serviceInstance.isSignRequestInFlight = true;
+          serviceInstance.isSignRequestInFlight.set(signingType, true);
 
           try {
             try {
@@ -340,7 +384,7 @@ class WalletService {
             newErr.code = error?.code || -32603;
             throw newErr;
           } finally {
-            serviceInstance.isSignRequestInFlight = false;
+            serviceInstance.isSignRequestInFlight.set(signingType, false);
           }
         }
 
@@ -1069,7 +1113,6 @@ class WalletService {
     this.disconnecting.add(type);
 
     const provider = this.providers.get(type);
-
     const sharedTypes: WalletType[] = [type];
     if (provider) {
       for (const [key, p] of this.providers.entries()) {
@@ -1082,6 +1125,7 @@ class WalletService {
         }
       }
     }
+
     if (provider) {
       this.registeredProviders.delete(provider);
 
@@ -1089,12 +1133,23 @@ class WalletService {
         try {
           await provider.disconnect();
         } catch (err: any) {
-          console.log(err);
+          console.warn('[WalletService] Error during provider disconnect:', err);
         }
+      }
+
+      // Remove listeners after disconnect so WC's internal cleanup (IndexedDB session removal) completes first.
+      // Removing before disconnect leaves a zombie session in IndexedDB that the next provider init will restore.
+      provider.removeAllListeners?.();
+
+      for (const [k, p] of this.providers.entries()) {
+        if (p === provider) this.providers.delete(k);
       }
     }
 
-    this.isSignRequestInFlight = false;
+    // FIX #3: Clear per-type in-flight signing flags for all affected types.
+    for (const t of sharedTypes) {
+      this.isSignRequestInFlight.set(t, false);
+    }
 
     for (const t of sharedTypes) {
       if (t === 'evm') {
@@ -1110,13 +1165,19 @@ class WalletService {
     }
 
     this.saveSession();
+
     if (this.sessions.size === 0) {
       await this.clearAppData();
     } else {
-      this.clearWCStorageForKey(
-        sharedTypes.includes('evm') && sharedTypes.includes('stellar') ? 'unified' : type
-      );
+      // FIX #4: Always call clearWCStorageForKey regardless of which type disconnected.
+      // Also clear the 'unified' key when a unified session (evm+stellar) is torn down.
+      if (sharedTypes.includes('evm') && sharedTypes.includes('stellar')) {
+        this.clearWCStorageForKey('unified');
+      } else {
+        this.clearWCStorageForKey(type);
+      }
     }
+
     for (const t of sharedTypes) {
       this.emitState(t, 'disconnected');
     }
@@ -1165,17 +1226,15 @@ class WalletService {
     for (const provider of providers) {
       if (provider?.session) {
         try {
-          if (typeof provider.removeAllListeners === 'function') {
-            provider.removeAllListeners();
-          }
           await provider.disconnect();
         } catch (err) {
           console.warn('[WalletService] Error disconnecting provider:', err);
         }
       }
+      provider.removeAllListeners?.();
     }
 
-    this.isSignRequestInFlight = false;
+    this.isSignRequestInFlight.clear();
     this.sessions.clear();
     this.providers.clear();
     this.modals.clear();
@@ -1189,14 +1248,31 @@ class WalletService {
 
   private clearWCStorageForKey(providerKey: string): void {
     const prefix = `swiftex_${providerKey}`;
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(prefix))
+      .forEach(k => localStorage.removeItem(k));
+    this.clearWCIndexedDB(prefix);
+  }
 
-    const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith(prefix));
-
-    if (keysToRemove.length > 0) {
-      console.debug(
-        `[WalletService] Clearing ${keysToRemove.length} WC storage keys for provider '${providerKey}'`
-      );
-      keysToRemove.forEach(k => localStorage.removeItem(k));
+  private clearWCIndexedDB(prefix: string): void {
+    if (typeof indexedDB === 'undefined') return;
+    try {
+      const req = indexedDB.open('WALLET_CONNECT_V2_INDEXED_DB');
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('keyvaluepairs')) return;
+        const tx = db.transaction('keyvaluepairs', 'readwrite');
+        const store = tx.objectStore('keyvaluepairs');
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const c = cursor.result;
+          if (!c) return;
+          if (String(c.key).startsWith(prefix)) c.delete();
+          c.continue();
+        };
+      };
+    } catch (e) {
+      console.log('clearing index Db', e);
     }
   }
   private handleDisconnect(type: WalletType): void {

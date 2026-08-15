@@ -49,6 +49,7 @@ export interface WalletState {
   isModalOpen: boolean;
   network: NetworkType;
   isRestoringSession: boolean;
+  isDisconnecting: boolean;
   sessionLastPingAt: Partial<Record<WalletType, number>>;
   session: any;
 
@@ -135,6 +136,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isModalOpen: false,
     network: initialNetwork,
     isRestoringSession: false,
+    isDisconnecting: false,
     sessionLastPingAt: {},
     session: null,
 
@@ -515,7 +517,12 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     disconnect: async type => {
-      await walletService.disconnect(type);
+      set({ isDisconnecting: true, isAuthenticating: false, authError: null });
+      try {
+        await walletService.disconnect(type);
+      } finally {
+        set({ isDisconnecting: false });
+      }
 
       set(state => {
         const remainingWallets = { ...state.connectedWallets };
@@ -566,8 +573,13 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     disconnectAll: async () => {
-      await walletService.disconnectAll();
-      await get().logoutAuth();
+      set({ isDisconnecting: true, isAuthenticating: false, authError: null });
+      try {
+        await walletService.disconnectAll();
+        await get().logoutAuth();
+      } finally {
+        set({ isDisconnecting: false });
+      }
 
       set({
         connectedWallets: {},
@@ -763,6 +775,11 @@ export const initWalletListener = async () => {
               connectionStatus: remainingStatus,
               sessionLastPingAt: remainingPings,
               session: nextRawSession,
+              // Reset auth state so the next reconnect can trigger authentication cleanly.
+              // Without this, if a sign request was in-flight when the session dropped,
+              // isAuthenticating stays true and the next connect silently skips auth.
+              isAuthenticating: false,
+              authError: null,
             };
           });
 

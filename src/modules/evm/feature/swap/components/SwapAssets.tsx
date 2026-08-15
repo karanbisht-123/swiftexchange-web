@@ -556,7 +556,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const { tokens: balances, subentryCount } = await ammService.getAssetsWithBalances(
             stellarAddress || ''
           );
-          const reserve = 1 + subentryCount * 0.5;
+          const reserve = 1 + subentryCount * 0.5 + 0.05;
           const mapped = balances.map((b: any) => {
             let balanceToUse = b.balance;
             if (b.code === 'XLM') {
@@ -897,7 +897,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         if (stellarAddress && ammService) {
           const { tokens: balances, subentryCount } =
             await ammService.getAccountData(stellarAddress);
-          const reserve = 1 + subentryCount * 0.5;
+          const reserve = 1 + subentryCount * 0.5 + 0.05;
           const mapped = balances.map((b: any) => {
             const metadata = getGlobalAssetMetadata(b.code);
             let balanceToUse = b.balance;
@@ -1071,7 +1071,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     Real-time PnL, performance insights, and net worth across all your wallets.
                   </p>
                   <button
-                    onClick={() => navigate('/trading/stellar?tab=portfolio')}
+                    onClick={() => navigate('/stellar/portfolio')}
                     className="mt-3 w-fit flex items-center gap-1.5 px-4 py-1.5 sm:py-2 bg-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary-hover)] text-[var(--color-text-inverse)] font-bold text-[11px] sm:text-xs rounded-full transition-all active:scale-95 shadow-sm"
                   >
                     Explore PnL{' '}

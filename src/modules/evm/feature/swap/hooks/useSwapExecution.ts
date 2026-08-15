@@ -222,14 +222,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           title: 'Swap Transaction Sent',
           message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
         });
-        if (hash) {
-          openModal({
-            status: 'success',
-            type: 'Swap',
-            hash,
-            isStellar: true,
-          });
-        }
+        openModal({
+          status: 'success',
+          type: 'Swap',
+          hash,
+          isStellar: true,
+        });
         if (wasTracked) {
           navigate(`/transactions?tab=recent&hash=${hash}`);
         }
@@ -299,18 +297,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Swap Transaction Sent',
         message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
       });
-      if (hash) {
-        openModal({
-          status: 'success',
-          type: 'Swap',
-          hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl
+      openModal({
+        status: 'success',
+        type: 'Swap',
+        hash,
+        explorerUrl:
+          fromChainConfig?.blockExplorerUrl && hash
             ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
             : undefined,
-          networkName: fromChainConfig?.name,
-          isStellar: false,
-        });
-      }
+        networkName: fromChainConfig?.name,
+        isStellar: false,
+      });
       if (wasTracked) {
         navigate(`/transactions?tab=recent&hash=${hash}`);
       }
@@ -415,14 +412,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Bridge Initiated',
         message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
       });
-      if (txHash) {
-        openModal({
-          status: 'success',
-          type: 'Bridge',
-          hash: txHash,
-          isStellar: true,
-        });
-      }
+      openModal({
+        status: 'success',
+        type: 'Bridge',
+        hash: txHash,
+        isStellar: true,
+      });
       if (wasTracked && txHash) {
         navigate(`/transactions?tab=recent&hash=${txHash}`);
       }
@@ -472,18 +467,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Bridge Order Submitted',
         message: `Cross-chain swap for ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol} submitted successfully.`,
       });
-      if (hash) {
-        openModal({
-          status: 'success',
-          type: 'Bridge',
-          hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl
+      openModal({
+        status: 'success',
+        type: 'Bridge',
+        hash,
+        explorerUrl:
+          fromChainConfig?.blockExplorerUrl && hash
             ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
             : undefined,
-          networkName: fromChainConfig?.name,
-          isStellar: false,
-        });
-      }
+        networkName: fromChainConfig?.name,
+        isStellar: false,
+      });
       if (wasTracked) {
         navigate(`/transactions?tab=recent&hash=${hash}`);
       }
@@ -613,18 +607,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       title: 'Bridge Initiated',
       message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
     });
-    if (transferHash) {
-      openModal({
-        status: 'success',
-        type: 'Bridge',
-        hash: transferHash,
-        explorerUrl: fromChainConfig?.blockExplorerUrl
+    openModal({
+      status: 'success',
+      type: 'Bridge',
+      hash: transferHash,
+      explorerUrl:
+        fromChainConfig?.blockExplorerUrl && transferHash
           ? `${fromChainConfig.blockExplorerUrl}/tx/${transferHash}`
           : undefined,
-        networkName: fromChainConfig?.name,
-        isStellar: false,
-      });
-    }
+      networkName: fromChainConfig?.name,
+      isStellar: false,
+    });
     if (wasTracked && transferHash) {
       navigate(`/transactions?tab=recent&hash=${transferHash}`);
     }
@@ -740,18 +733,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Bridge Initiated',
         message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol} via NEAR Intents`,
       });
-      if (hash) {
-        openModal({
-          status: 'success',
-          type: 'Bridge',
-          hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl
+      openModal({
+        status: 'success',
+        type: 'Bridge',
+        hash,
+        explorerUrl:
+          fromChainConfig?.blockExplorerUrl && hash
             ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
             : undefined,
-          networkName: fromChainConfig?.name,
-          isStellar: isStellar(fromChainId),
-        });
-      }
+        networkName: fromChainConfig?.name,
+        isStellar: isStellar(fromChainId),
+      });
       if (wasTracked && hash) {
         navigate(`/transactions?tab=recent&hash=${hash}`);
       }
